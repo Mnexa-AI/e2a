@@ -12,8 +12,8 @@
   },
   "dependencies": {
     "next": "^16.2.4",
-    "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react": "19.2.5",
+    "react-dom": "19.2.5"
   },
   "devDependencies": {
     "@mdx-js/loader": "^3.1.1",
@@ -29,11 +29,11 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.1",
+    "eslint-config-next": "16.2.4",
     "jest": "^30.3.0",
     "jest-environment-jsdom": "^30.3.0",
     "tailwindcss": "^4",
-    "ts-jest": "^29.4.6",
+    "ts-jest": "^29.4.9",
     "typescript": "^5"
   }
 }
