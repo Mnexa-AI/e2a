@@ -39,7 +39,7 @@ export default function Home() {
               {docsOpen && (
                 <div style={{ position: "absolute", top: "100%", left: 0, background: "#FDFAF6", border: "0.5px solid #E8E0D4", borderRadius: 8, padding: "6px 0", minWidth: 160, boxShadow: "0 4px 12px rgba(0,0,0,0.08)", zIndex: 100 }}>
                   <Link href="/api-docs" style={{ display: "block", fontSize: 13, color: "#7A6F63", padding: "7px 16px", textDecoration: "none" }} onMouseEnter={e => (e.currentTarget.style.background = "#F5EDE3")} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>API Reference</Link>
-                  <a href="https://github.com/Mnexa-AI/e2a-claude-code-skill" target="_blank" rel="noopener noreferrer" style={{ display: "block", fontSize: 13, color: "#7A6F63", padding: "7px 16px", textDecoration: "none" }} onMouseEnter={e => (e.currentTarget.style.background = "#F5EDE3")} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>Claude Code skill</a>
+                  <a href="https://github.com/Mnexa-AI/e2a/blob/main/skills/SKILL.md" target="_blank" rel="noopener noreferrer" style={{ display: "block", fontSize: 13, color: "#7A6F63", padding: "7px 16px", textDecoration: "none" }} onMouseEnter={e => (e.currentTarget.style.background = "#F5EDE3")} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>Claude Code skill</a>
                   <a href="https://pypi.org/project/e2a/" target="_blank" rel="noopener noreferrer" style={{ display: "block", fontSize: 13, color: "#7A6F63", padding: "7px 16px", textDecoration: "none" }} onMouseEnter={e => (e.currentTarget.style.background = "#F5EDE3")} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>Python SDK</a>
                   <a href="https://www.npmjs.com/package/@e2a/sdk" target="_blank" rel="noopener noreferrer" style={{ display: "block", fontSize: 13, color: "#7A6F63", padding: "7px 16px", textDecoration: "none" }} onMouseEnter={e => (e.currentTarget.style.background = "#F5EDE3")} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>TypeScript SDK</a>
                   <a href="https://www.npmjs.com/package/@e2a/cli" target="_blank" rel="noopener noreferrer" style={{ display: "block", fontSize: 13, color: "#7A6F63", padding: "7px 16px", textDecoration: "none" }} onMouseEnter={e => (e.currentTarget.style.background = "#F5EDE3")} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>CLI</a>
@@ -158,7 +158,7 @@ export default function Home() {
                 <div style={{ color: "#5A5248" }}># drop the e2a skill into your Claude Code project</div>
                 <div style={{ color: "#E8E0D4" }}>mkdir -p .claude/skills/e2a</div>
                 <div style={{ color: "#E8E0D4" }}>curl -o .claude/skills/e2a/SKILL.md \</div>
-                <div style={{ color: "#E8E0D4" }}>&nbsp;&nbsp;https://raw.githubusercontent.com/Mnexa-AI/e2a-claude-code-skill/main/SKILL.md</div>
+                <div style={{ color: "#E8E0D4" }}>&nbsp;&nbsp;https://raw.githubusercontent.com/Mnexa-AI/e2a/main/skills/SKILL.md</div>
                 <div style={{ color: "#2A2620" }}>&nbsp;</div>
                 <div style={{ color: "#5A5248" }}># then tell Claude Code:</div>
                 <div style={{ color: "#E8E0D4" }}>/e2a register my-agent</div>
@@ -328,7 +328,7 @@ export default function Home() {
           <a href="https://pypi.org/project/e2a/" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#A89A8A", textDecoration: "none" }}>Python SDK</a>
           <a href="https://www.npmjs.com/package/@e2a/sdk" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#A89A8A", textDecoration: "none" }}>TypeScript SDK</a>
           <a href="https://www.npmjs.com/package/@e2a/cli" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#A89A8A", textDecoration: "none" }}>CLI</a>
-          <a href="https://github.com/Mnexa-AI/e2a-claude-code-skill" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#A89A8A", textDecoration: "none" }}>Claude Skill</a>
+          <a href="https://github.com/Mnexa-AI/e2a/blob/main/skills/SKILL.md" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#A89A8A", textDecoration: "none" }}>Claude Skill</a>
           <Link href="/feedback" style={{ fontSize: 12, color: "#A89A8A", textDecoration: "none" }}>Feedback</Link>
         </div>
         <span style={{ fontSize: 12, color: "#A89A8A" }}>Apache 2.0</span>
