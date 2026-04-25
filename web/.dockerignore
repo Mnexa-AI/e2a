@@ -1,0 +1,7 @@
+# Keep `docker build -f web/Dockerfile web` snappy when the build
+# context is the web/ directory. The repo-root .dockerignore excludes
+# web/ entirely (correct for the Go image) but doesn't apply here.
+node_modules
+.next
+out
+.env*

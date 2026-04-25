@@ -36,10 +36,15 @@
         file_server
     }
 
-    # Long-cache hashed Next.js bundles; everything else stays
-    # short-cached so a redeploy is reflected quickly.
+    # Long-cache hashed Next.js bundles; everything else (HTML, root /)
+    # gets explicit no-cache so a redeploy is reflected on the next page
+    # load. Without the explicit header, browsers fall back to heuristic
+    # freshness, which is short-lived but inconsistent across vendors.
     @hashed path /_next/static/*
     header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+    @notHashed not path /_next/static/*
+    header @notHashed Cache-Control "no-cache"
 
     log {
         output stdout

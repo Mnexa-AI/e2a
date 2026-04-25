@@ -24,8 +24,11 @@ permissions:
   id-token: write  # for keyless cosign signing via Sigstore OIDC
 
 concurrency:
-  # One concurrency group per ref+image so a queued web build can't
-  # cancel an in-flight server publish (or vice versa).
+  # One concurrency group per ref. The matrix below already parallelizes
+  # the two images within a single run; the group then queues *across*
+  # runs so back-to-back pushes to the same ref don't race to publish
+  # the same tag (workflow-level concurrency can't reference matrix
+  # variables, so per-image scoping isn't possible without restructuring).
   group: ${{ github.workflow }}-${{ github.ref }}
   # Image builds shouldn't be canceled mid-flight: a half-pushed
   # multi-arch manifest is recoverable but better avoided. Tests can be

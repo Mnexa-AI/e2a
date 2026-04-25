@@ -52,6 +52,11 @@ RUN npm run build
 #     -e WEB_PORT=8081 \
 #     -p 8081:8081 ghcr.io/mnexa-ai/e2a-web
 FROM caddy:2-alpine
+# wget is provided by alpine's busybox applet, but caddy:2-alpine doesn't
+# guarantee it stays — Caddy's official Dockerfile doesn't `apk add` it.
+# Install explicitly so the HEALTHCHECK below can't silently break if a
+# future base image trims busybox.
+RUN apk add --no-cache wget
 COPY --from=builder /app/out /srv
 COPY Caddyfile /etc/caddy/Caddyfile
 
