@@ -373,3 +373,7 @@ Same as `E2AClient` — all I/O methods are `async`. `parse()` is sync (no I/O n
 ### Exceptions
 
 - `E2AApiError` — API error (has `status_code` and `message`)
+
+## License
+
+Apache-2.0 — see [LICENSE](https://github.com/Mnexa-AI/e2a/blob/main/LICENSE) and [NOTICE](https://github.com/Mnexa-AI/e2a/blob/main/NOTICE) in the upstream repo.

@@ -161,4 +161,4 @@ await agentA.send(["bob@agent.acme.com"], "Can you handle this?", bodyText, {
 
 ## License
 
-MIT
+Apache-2.0 — see [LICENSE](https://github.com/Mnexa-AI/e2a/blob/main/LICENSE) and [NOTICE](https://github.com/Mnexa-AI/e2a/blob/main/NOTICE) in the upstream repo.
