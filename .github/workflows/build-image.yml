@@ -1,0 +1,109 @@
+name: Build and push Docker image
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    # Only re-run on PRs that could plausibly change the image; doc-only
+    # PRs don't need to wait on a multi-arch build.
+    paths:
+      - "Dockerfile"
+      - "go.mod"
+      - "go.sum"
+      - "cmd/**"
+      - "internal/**"
+      - ".github/workflows/build-image.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write  # for keyless cosign signing via Sigstore OIDC
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Image builds shouldn't be canceled mid-flight: a half-pushed
+  # multi-arch manifest is recoverable but better avoided. Tests can be
+  # canceled (test.yml does), publishes shouldn't.
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # QEMU registers binfmt_misc handlers so this amd64 runner can
+      # cross-build arm64 layers under emulation. Without this step the
+      # arm64 build fails with "exec format error" — buildx alone does
+      # not install the emulators.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # Skip login on PR builds: we don't push from a PR, and PRs from
+      # forks only get a read-only GITHUB_TOKEN anyway.
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/mnexa-ai/e2a
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=sha,prefix=sha-,format=long
+            # "latest" tracks the newest stable release, not the tip of
+            # main, so `docker pull …:latest` is never an untested build.
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - uses: docker/build-push-action@v5
+        id: build
+        with:
+          context: .
+          # Build on PRs to verify the Dockerfile still works, but only
+          # push on real branch/tag/manual events.
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          # GHA cache cuts subsequent multi-arch rebuilds from ~10 min to
+          # ~1-2 min when only Go source changes.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Supply-chain transparency for OSS images: provenance records
+          # how the image was built; SBOM enumerates installed packages.
+          # Both are attached as in-toto attestations on the registry.
+          provenance: mode=max
+          sbom: true
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      # Keyless signing: the workflow's OIDC token gets exchanged for a
+      # short-lived cert from Sigstore's Fulcio CA. No long-lived keys
+      # to manage or rotate. Verify with:
+      #   cosign verify ghcr.io/mnexa-ai/e2a:<tag> \
+      #     --certificate-identity-regexp '^https://github\.com/Mnexa-AI/e2a/' \
+      #     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+      - name: Sign image with cosign
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          images=""
+          for tag in ${TAGS}; do
+            images+="${tag}@${DIGEST} "
+          done
+          cosign sign --yes ${images}
