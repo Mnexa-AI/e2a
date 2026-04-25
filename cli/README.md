@@ -217,3 +217,7 @@ wss://e2a.dev/api/v1/agents/{email}/ws?token={api_key}
 The server sends lightweight JSON notifications (message_id, from, subject, received_at) when emails arrive. The CLI fetches full message content via the REST API as needed (`--json` and `--forward` modes). This keeps the WebSocket connection fast and avoids large attachments blocking notifications.
 
 When the CLI disconnects and reconnects, all messages that arrived while offline are drained immediately as notifications.
+
+## License
+
+Apache-2.0 — see [LICENSE](https://github.com/Mnexa-AI/e2a/blob/main/LICENSE) and [NOTICE](https://github.com/Mnexa-AI/e2a/blob/main/NOTICE) in the upstream repo.
