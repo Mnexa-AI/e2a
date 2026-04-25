@@ -13,7 +13,7 @@ export function ConnectInstructions({ mode }: { mode?: string }) {
           : "Install the e2a skill to set up your webhook endpoint."}
       </p>
       <p className="text-xs font-medium text-foreground">Install the e2a skill</p>
-      <CodeBlock code={`mkdir -p .claude/skills/e2a\ncurl -o .claude/skills/e2a/SKILL.md \\\n  https://raw.githubusercontent.com/Mnexa-AI/e2a-claude-code-skill/main/SKILL.md`} />
+      <CodeBlock code={`mkdir -p .claude/skills/e2a\ncurl -o .claude/skills/e2a/SKILL.md \\\n  https://raw.githubusercontent.com/Mnexa-AI/e2a/main/skills/SKILL.md`} />
       <p className="text-xs text-muted">
         Then use <code className="text-[11px] bg-surface px-1 py-0.5 rounded border border-border">/e2a</code> in your agent to get started.
         {isLocal
