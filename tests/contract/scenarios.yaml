@@ -1,0 +1,391 @@
+# Shared behavioral contract scenarios for the /api/v1 public API.
+#
+# Each scenario is a sequence of steps executed against a live test server.
+# The Go runner (contract_test.go) consumes this file directly. TypeScript
+# and Python SDK runners will consume the same file in later phases, so the
+# format must remain language-agnostic.
+#
+# Setup helpers:
+#   register_domain — claim a domain directly in the store
+#   verify_domain   — mark a claimed domain verified in the store
+#   register_agent  — create an agent through the public API
+#   inject_message  — insert an inbound message directly in the store
+#
+# Step actions:
+#   request          — make an HTTP request, assert status and optional body fields
+#   inject_message   — insert an inbound message directly in the store
+#   ws_connect       — open a WebSocket connection
+#   ws_reconnect     — reconnect a WebSocket connection to trigger drain-on-reconnect
+#   ws_read          — read and assert one WebSocket notification
+#   verify_and_retry — verify a domain in the store, then replay an HTTP request
+#
+# Placeholder tokens (resolved by runner at execution time):
+#   {base_url}      — test server URL
+#   {api_key}       — valid API key for the test user
+#   {agent_email}   — agent email created by a prior register_agent setup step
+#   {injected_message_id} — message ID created by a prior inject_message step
+
+scenarios:
+
+  - name: agent_crud
+    description: Register, list, get (verify no leaked fields), delete agent
+    setup:
+      - register_domain: crud.test.dev
+      - verify_domain: crud.test.dev
+    steps:
+      - id: register
+        action: request
+        method: POST
+        path: /api/v1/agents
+        body:
+          email: bot@crud.test.dev
+          agent_mode: local
+        expect:
+          status: 201
+          body_contains:
+            - id
+            - email
+          body_match:
+            email: bot@crud.test.dev
+
+      - id: list
+        action: request
+        method: GET
+        path: /api/v1/agents
+        expect:
+          status: 200
+          body_contains:
+            - agents
+          body_match:
+            "agents[0].email": bot@crud.test.dev
+            "agents[0].agent_mode": local
+
+      - id: get
+        action: request
+        method: GET
+        path: /api/v1/agents/bot@crud.test.dev
+        expect:
+          status: 200
+          body_contains:
+            - id
+            - email
+            - agent_mode
+          body_excludes:
+            - user_id
+            - public
+
+      - id: delete
+        action: request
+        method: DELETE
+        path: /api/v1/agents/bot@crud.test.dev
+        expect:
+          status: 200
+
+      - id: list_after_delete
+        action: request
+        method: GET
+        path: /api/v1/agents
+        expect:
+          status: 200
+          body_match:
+            "agents.length": 0
+
+  - name: domain_crud
+    description: Register, list, verify, delete domain with typed responses
+    steps:
+      - id: register
+        action: request
+        method: POST
+        path: /api/v1/domains
+        body:
+          domain: domain-crud.test.dev
+        expect:
+          status: 201
+          body_contains:
+            - domain
+            - verified
+            - verification_token
+            - dns_records
+          body_match:
+            domain: domain-crud.test.dev
+            verified: false
+            "dns_records.mx.host": "@"
+            "dns_records.mx.priority": 10
+            "dns_records.txt.host": "@"
+
+      - id: list
+        action: request
+        method: GET
+        path: /api/v1/domains
+        expect:
+          status: 200
+          body_match:
+            "domains.length": 1
+
+      - id: verify
+        action: request
+        method: POST
+        path: /api/v1/domains/domain-crud.test.dev/verify
+        expect:
+          status: 200
+          body_match:
+            verified: true
+
+      - id: delete
+        action: request
+        method: DELETE
+        path: /api/v1/domains/domain-crud.test.dev
+        expect:
+          status: 204
+
+  - name: read_state_transition
+    description: GET /messages/{id} marks unread messages as read
+    setup:
+      - register_domain: readstate.test.dev
+      - verify_domain: readstate.test.dev
+      - register_agent:
+          email: bot@readstate.test.dev
+          agent_mode: local
+      - inject_message:
+          agent_email: "{agent_email}"
+          from: alice@example.com
+          subject: Test read state
+    steps:
+      - id: list_unread
+        action: request
+        method: GET
+        path: /api/v1/agents/{agent_email}/messages?status=unread
+        expect:
+          status: 200
+          body_match:
+            "messages.length": 1
+            "messages[0].status": unread
+
+      - id: get_detail
+        action: request
+        method: GET
+        path: /api/v1/agents/{agent_email}/messages/{injected_message_id}
+        expect:
+          status: 200
+          body_contains:
+            - message_id
+            - auth_headers
+            - raw_message
+
+      - id: list_unread_after
+        action: request
+        method: GET
+        path: /api/v1/agents/{agent_email}/messages?status=unread
+        expect:
+          status: 200
+          body_match:
+            "messages.length": 0
+
+      - id: list_read
+        action: request
+        method: GET
+        path: /api/v1/agents/{agent_email}/messages?status=read
+        expect:
+          status: 200
+          body_match:
+            "messages.length": 1
+            "messages[0].status": read
+
+  - name: placeholder_resolution
+    description: Placeholders resolve in request bodies and expected values
+    setup:
+      - register_domain: placeholder.test.dev
+      - verify_domain: placeholder.test.dev
+      - register_agent:
+          email: bot@placeholder.test.dev
+          agent_mode: local
+    steps:
+      - id: duplicate_register_with_placeholder
+        action: request
+        method: POST
+        path: /api/v1/agents
+        body:
+          email: "{agent_email}"
+          agent_mode: local
+        expect:
+          status: 409
+
+      - id: list_agents_matches_placeholder
+        action: request
+        method: GET
+        path: /api/v1/agents
+        expect:
+          status: 200
+          body_match:
+            "agents[0].email": "{agent_email}"
+
+  - name: auth_rejection
+    description: Missing or invalid API keys get 401 across all endpoints
+    auth_override: none
+    steps:
+      - id: no_auth_list_agents
+        action: request
+        method: GET
+        path: /api/v1/agents
+        expect:
+          status: 401
+
+      - id: no_auth_create_agent
+        action: request
+        method: POST
+        path: /api/v1/agents
+        body: {}
+        expect:
+          status: 401
+
+      - id: no_auth_list_domains
+        action: request
+        method: GET
+        path: /api/v1/domains
+        expect:
+          status: 401
+
+      - id: no_auth_send
+        action: request
+        method: POST
+        path: /api/v1/send
+        body: {}
+        expect:
+          status: 401
+
+  - name: auth_rejection_invalid_key
+    description: Invalid API key gets 401 across all endpoints
+    auth_override: "Bearer e2a_invalid_key_12345"
+    steps:
+      - id: invalid_key_list_agents
+        action: request
+        method: GET
+        path: /api/v1/agents
+        expect:
+          status: 401
+
+      - id: invalid_key_create_agent
+        action: request
+        method: POST
+        path: /api/v1/agents
+        body: {}
+        expect:
+          status: 401
+
+      - id: invalid_key_list_domains
+        action: request
+        method: GET
+        path: /api/v1/domains
+        expect:
+          status: 401
+
+      - id: invalid_key_send
+        action: request
+        method: POST
+        path: /api/v1/send
+        body: {}
+        expect:
+          status: 401
+
+  - name: domain_verification_enforced
+    description: Agent registration blocked on unverified domain
+    setup:
+      - register_domain: unverified.test.dev
+    steps:
+      - id: register_on_unverified
+        action: request
+        method: POST
+        path: /api/v1/agents
+        body:
+          email: bot@unverified.test.dev
+          agent_mode: local
+        expect:
+          status: 400
+
+      - id: verify_then_register
+        action: verify_and_retry
+        verify_domain: unverified.test.dev
+        method: POST
+        path: /api/v1/agents
+        body:
+          email: bot@unverified.test.dev
+          agent_mode: local
+        expect:
+          status: 201
+
+  - name: ws_notification_shape
+    description: >
+      WebSocket drain-on-reconnect delivers notifications matching the
+      documented shape. Notification-only protocol: server sends
+      notifications, client never sends application frames.
+    setup:
+      - register_domain: ws.test.dev
+      - verify_domain: ws.test.dev
+      - register_agent:
+          email: bot@ws.test.dev
+          agent_mode: local
+    steps:
+      - id: connect
+        action: ws_connect
+        path: /api/v1/agents/{agent_email}/ws
+
+      - id: inject
+        action: inject_message
+        agent_email: "{agent_email}"
+        from: alice@example.com
+        subject: WS test
+
+      - id: reconnect
+        action: ws_reconnect
+        path: /api/v1/agents/{agent_email}/ws
+
+      - id: read_notification
+        action: ws_read
+        expect:
+          fields_present:
+            - message_id
+            - from
+            - to
+            - subject
+            - received_at
+          fields_absent:
+            - body
+            - raw_message
+          field_match:
+            from: alice@example.com
+            to: "{agent_email}"
+            subject: WS test
+
+  - name: health_check
+    description: Health endpoint is available without auth
+    steps:
+      - id: health
+        action: request
+        method: GET
+        path: /api/health
+        auth_override: none
+        expect:
+          status: 200
+
+  - name: ws_auth_rejection
+    description: WebSocket endpoint rejects missing or invalid query-param tokens
+    setup:
+      - register_domain: wsauth.test.dev
+      - verify_domain: wsauth.test.dev
+      - register_agent:
+          email: bot@wsauth.test.dev
+          agent_mode: local
+    steps:
+      - id: no_token
+        action: request
+        method: GET
+        path: /api/v1/agents/bot@wsauth.test.dev/ws
+        expect:
+          status: 401
+
+      - id: invalid_token
+        action: request
+        method: GET
+        path: /api/v1/agents/bot@wsauth.test.dev/ws?token=invalid_key_12345
+        expect:
+          status: 401

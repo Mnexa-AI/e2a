@@ -1,0 +1,64 @@
+{
+  "name": "@e2a/sdk",
+  "version": "1.3.0",
+  "description": "TypeScript SDK for e2a — email for AI agents",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./v1": {
+      "types": "./dist/v1/index.d.ts",
+      "import": "./dist/v1/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "generate:openapi3": "swagger2openapi ../../web/public/openapi.yaml -o /tmp/e2a-openapi3.yaml -y",
+    "generate:types": "openapi-typescript /tmp/e2a-openapi3.yaml -o src/v1/generated/types.ts",
+    "generate": "npm run generate:openapi3 && npm run generate:types",
+    "test": "npm run test:unit",
+    "test:unit": "vitest run test/v1/api.test.ts test/v1/client.test.ts test/v1/verify.test.ts",
+    "test:contract": "vitest run test/v1/contract.test.ts",
+    "test:live": "vitest run test/e2e.test.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "email",
+    "agent",
+    "e2a",
+    "webhook",
+    "ai"
+  ],
+  "author": "Mnexa AI <josh@mnexa.ai>",
+  "license": "Apache-2.0",
+  "homepage": "https://e2a.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mnexa-AI/e2a",
+    "directory": "sdks/typescript"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "mailparser": "^3.7.2",
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/mailparser": "^3.4.5",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
+    "openapi-typescript": "^7.13.0",
+    "swagger2openapi": "^7.0.8",
+    "typescript": "^5.4",
+    "vitest": "^4.1.2",
+    "yaml": "^2.8.3"
+  }
+}

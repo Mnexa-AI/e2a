@@ -1,0 +1,155 @@
+import { getPost } from "../posts";
+
+export const post = getPost("email-for-openclaw-agents");
+
+export const metadata = {
+  title: { absolute: `${post.title} — e2a` },
+  description: post.description,
+  alternates: { canonical: `/blog/${post.slug}` },
+  openGraph: {
+    title: post.title,
+    description: post.description,
+    url: `https://e2a.dev/blog/${post.slug}`,
+    type: "article",
+    publishedTime: new Date(post.date + "T00:00:00Z").toISOString(),
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: post.title,
+    description: post.description,
+  },
+};
+
+<div style={{ fontSize: 11, color: "#A89A8A", fontFamily: "'IBM Plex Mono', monospace", marginBottom: 6 }}>
+  {new Date(post.date + "T00:00:00Z").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })} · {post.readingMinutes} min read
+</div>
+
+# Give your OpenClaw agent an email address (with real-time WebSocket delivery)
+
+OpenClaw runs locally. That's one of its best properties — your data, your API keys, your prompts, all on your laptop. But it also means your agent has no public inbox. Anyone who wants to reach it has to be sitting at your machine, hitting `http://localhost:18789/v1/responses` themselves.
+
+That's fine for experimentation. It's not fine the moment you want your agent to actually *do something* for other people. Real participants in work — customers, vendors, teammates — reach each other through email.
+
+This post walks through giving your OpenClaw agent a real email address in under five minutes. No mail server, no public URL, no webhook endpoint to host. Just the e2a CLI bridging e2a's WebSocket stream into OpenClaw's local Responses API.
+
+## What you'll have when you're done
+
+1. A real email address like `research@agents.e2a.dev` that receives mail routed from anywhere on the internet.
+2. OpenClaw running locally, unchanged.
+3. The e2a CLI in the middle: when mail arrives, it pushes it into OpenClaw; when OpenClaw responds, it sends the response back as a real email reply, in-thread.
+
+No public IP. No port forwarding. No webhook.
+
+## Prerequisites
+
+- OpenClaw installed and running (the default gateway listens on `http://localhost:18789`)
+- Node 18+ for the e2a CLI
+- A free e2a account at [e2a.dev](https://e2a.dev)
+
+## Step 1: Install the CLI and sign in
+
+```bash
+npm install -g @e2a/cli
+e2a login
+```
+
+`e2a login` opens a browser, drops you through OAuth, and writes your API key to `~/.e2a/config.json`. That's the only setup the CLI needs.
+
+## Step 2: Register a local-mode agent
+
+```bash
+e2a agents register research
+# → Registered: research@agents.e2a.dev (agent_mode=local)
+```
+
+The slug becomes the local-part of your agent's address. `local` mode tells e2a to hold mail server-side and push it over WebSocket when your listener connects, instead of POSTing to a webhook URL. That's what keeps the whole setup public-URL-free.
+
+## Step 3: Grab your OpenClaw gateway token
+
+OpenClaw's local gateway is auth-protected. Find the token:
+
+```bash
+cat ~/.openclaw/openclaw.json | jq -r .gateway.auth.token
+```
+
+Keep this handy — the next command needs it.
+
+## Step 4: Bridge e2a → OpenClaw
+
+One command:
+
+```bash
+e2a listen \
+  --forward http://localhost:18789/v1/responses \
+  --forward-token $(cat ~/.openclaw/openclaw.json | jq -r .gateway.auth.token)
+```
+
+Here's what it does:
+
+1. **Opens a WebSocket** to e2a's notification stream for your agent.
+2. When an email arrives, **fetches the full message** via REST (the WebSocket frames are small — metadata only).
+3. **Formats the message as an OpenAI Responses API payload** and POSTs it to OpenClaw's local endpoint.
+4. **Takes OpenClaw's response** and sends it back as a real email reply to the original sender, with proper threading headers.
+
+Every hop is local or goes through e2a's authenticated channel. OpenClaw never has to expose itself to the internet.
+
+Leave the CLI running. It reconnects automatically with exponential backoff if the WebSocket drops (1s, 2s, 4s, … capped at 30s). Press Ctrl+C to disconnect.
+
+## Step 5: Test it
+
+From any email client, send a message to `research@agents.e2a.dev`:
+
+```
+Subject: Quick question on the LangChain 0.3 release
+Body:    What are the biggest changes that might affect my codebase?
+```
+
+In the CLI, you'll see:
+
+```
+[10:42:11] connected to e2a WebSocket
+[10:42:14] From: you@gmail.com | Subject: Quick question on the LangChain 0.3 release
+[10:42:14] forwarding to OpenClaw (http://localhost:18789/v1/responses)
+[10:42:18] OpenClaw responded (1,842 tokens)
+[10:42:19] reply sent: msg_a1b2c3
+```
+
+Check your inbox. The reply arrives in the same email thread — OpenClaw's answer, formatted like a real human email, delivered via SMTP with SPF/DKIM signed. Your Gmail client will happily keep the thread open; reply again, and OpenClaw responds again.
+
+## What's happening under the hood
+
+```
+   sender@gmail
+       │  SMTP in   (e2a.dev verifies SPF/DKIM)
+       ▼
+   e2a.dev
+       │  WebSocket push to your laptop
+       ▼
+   e2a CLI (listen)
+       │  POST /v1/responses
+       ▼
+   OpenClaw gateway :18789
+       │  HTTP response
+       ▼
+   e2a CLI
+       │  POST /api/v1/.../reply
+       ▼
+   e2a.dev
+       │  SMTP out  (SES-signed, lands in the same thread)
+       ▼
+   sender@gmail inbox
+```
+
+- Inbound: Gmail → MX points to e2a → e2a verifies SPF/DKIM → pushes lightweight notification over WebSocket → CLI fetches full body → POST to OpenClaw.
+- Outbound: OpenClaw response → CLI → `POST /api/v1/agents/{email}/messages/{id}/reply` → e2a composes with `In-Reply-To` / `References` headers + `X-E2A-Conversation-Id` → SES sends → lands in the original thread.
+
+Threading, sender auth, reply-routing — all handled by the gateway so OpenClaw doesn't have to know any of it.
+
+## What to build next
+
+- **Swap to your own domain.** Once the shared-domain setup is working, [register a custom domain](/docs) so mail arrives at `research@yourcompany.com` instead of `agents.e2a.dev`.
+- **Run OpenClaw + e2a CLI as a launchd / systemd service.** Right now it's tied to your terminal session.
+- **Add tools.** OpenClaw supports tool calls via the Responses API. Your agent can query calendars, book meetings, or hand off to a human — all triggered by email.
+- **Wire up human-in-the-loop review.** For high-stakes replies, you can hold OpenClaw's outbound for a quick approval before it goes out the door.
+
+If you hit snags — the CLI logs are verbose, and the [API reference](/api-docs) covers the webhook / reply endpoints if you want to build your own listener. There's a free tier and the whole flow above costs nothing during the beta.

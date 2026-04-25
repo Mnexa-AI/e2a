@@ -1,0 +1,381 @@
+# e2a — Email for AI agents
+
+Authenticated email gateway for AI agents. Receive emails as webhooks or via WebSocket, send emails through an HTTP API, and verify the identity of every sender — humans and other agents alike.
+
+- **Authenticated transport** — SPF/DKIM verified on inbound; HMAC-signed `X-E2A-Auth-*` headers on every delivery
+- **Two delivery modes** — webhook (cloud agents) or WebSocket (local agents, no public URL needed)
+- **Outbound API** — agents send to other agents (SMTP relay) or humans (upstream SMTP, e.g. SES, Resend)
+- **Human in the loop** — opt-in approval gate that holds outbound mail until a reviewer approves via dashboard, magic-link email, or CLI
+- **CLI + SDKs** — TypeScript and Python SDKs, plus a `e2a` CLI for everyday agent ops
+
+## Use it
+
+You can either use the hosted instance or self-host.
+
+- **Hosted** — sign up at [e2a.dev](https://e2a.dev). Includes the shared `agents.e2a.dev` domain for instant slug-based onboarding (no DNS setup), a dashboard, and managed deliverability.
+- **Self-host** — see [Quickstart](#quickstart) below. You'll register agents on your own domains. The shared `agents.e2a.dev` slug feature is specific to the hosted instance.
+
+## How it works
+
+```
+Human (Gmail/Outlook)
+    │
+    ▼ SMTP
+┌──────────────┐
+│   e2a relay   │  ← MX record for your agent domain points here
+│              │
+│  1. Verify   │  ← SPF/DKIM check on the inbound message
+│  2. Sign     │  ← HMAC-signed X-E2A-Auth-* headers
+│  3. Deliver  │
+└──────────────┘
+    │
+    ├──▶ Cloud-mode agent: HTTPS webhook POST
+    │
+    └──▶ Local-mode agent: store + WebSocket notification
+              │
+              ▼
+         e2a listen (CLI) or client.listen() (SDK)
+```
+
+Inbound flow: SMTP → SPF/DKIM check → agent lookup → HMAC-sign auth headers → webhook or WebSocket delivery.
+
+Outbound flow: API call → optional HITL hold → SMTP relay (agent-to-agent) or upstream SMTP (agent-to-human).
+
+## Quickstart
+
+Requires Docker.
+
+```bash
+git clone https://github.com/Mnexa-AI/e2a.git
+cd e2a
+docker compose up -d
+```
+
+Postgres comes up first (migrations run automatically), then e2a. The server listens on:
+
+- `:8080` — HTTP API
+- `:2525` — SMTP relay
+
+Health check:
+
+```bash
+curl http://localhost:8080/api/health
+# {"status":"ok"}
+```
+
+Create your first user and API key (no OAuth required):
+
+```bash
+docker compose exec e2a e2a -config /etc/e2a/config.yaml -bootstrap-email you@example.com
+# User:    you@example.com (id=...)
+# API key: e2a_...
+```
+
+Save the key — it's only shown once. Register an agent and confirm it works:
+
+```bash
+KEY=e2a_...
+curl -X POST http://localhost:8080/api/v1/agents \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"slug":"my-bot","agent_mode":"local"}'
+
+curl -H "Authorization: Bearer $KEY" http://localhost:8080/api/v1/agents
+```
+
+To receive real inbound mail, point a domain's MX record at your relay host:
+
+- **A**: `your-domain.com` → server IP
+- **MX**: `your-domain.com` → `your-domain.com` (priority 10)
+
+Then register and verify the domain through the API (see [Domains](#domains)). Without DNS, the API still works for testing — but external email won't reach your relay.
+
+> **Upgrades and migrations.** The compose file mounts `migrations/` into Postgres' init directory, which only runs on first start (when the data volume is empty). When you upgrade e2a and pull a new schema migration, you must apply it manually:
+> ```bash
+> docker compose exec postgres sh -c \
+>   'for f in /docker-entrypoint-initdb.d/*.sql; do psql -U e2a -d e2a -f "$f" -v ON_ERROR_STOP=1; done'
+> ```
+> The migration files are idempotent (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE … ADD COLUMN IF NOT EXISTS`) so re-running them is safe.
+
+## Concepts
+
+### Agent modes
+
+Agents operate in one of two modes, set via `agent_mode` at registration:
+
+| Mode | Delivery | Public URL needed? |
+|------|----------|---------------------|
+| `cloud` (default) | HTTPS webhook POST to `webhook_url` | Yes |
+| `local` | WebSocket notification + REST fetch | No |
+
+Local-mode agents accumulate "unread" messages while disconnected; on reconnect, the server drains them as WebSocket notifications. Both modes can also poll messages via the REST API.
+
+### Auth headers
+
+Every email delivered through e2a (webhook or WebSocket-fetched) carries signed headers:
+
+| Header | Description |
+|--------|-------------|
+| `X-E2A-Auth-Verified` | `true` if domain-level auth (SPF or DKIM) passed |
+| `X-E2A-Auth-Sender` | Verified sender email or agent domain |
+| `X-E2A-Auth-Entity-Type` | `human` or `agent` |
+| `X-E2A-Auth-Domain-Check` | SPF/DKIM result string (e.g. `spf=pass; dkim=none`) |
+| `X-E2A-Auth-Delegation` | `agent={id};human={id}` if an active delegation binding exists |
+| `X-E2A-Auth-Timestamp` | RFC3339 timestamp |
+| `X-E2A-Auth-Message-Id` | Internal e2a message ID this delivery is for |
+| `X-E2A-Auth-Body-Hash` | Hex SHA-256 of the raw message bytes |
+| `X-E2A-Auth-Signature` | HMAC-SHA256 over a canonical string of the above |
+
+The signature covers:
+
+```
+verified \n sender \n entity_type \n domain_check \n delegation \n timestamp \n message_id \n body_hash
+```
+
+The MAC binds to **both** `message_id` and a SHA-256 of the raw message body. Substituting either invalidates the signature, so an attacker who captures one delivery cannot replay the auth claim on a different message or under a modified body.
+
+#### Verifying the signature
+
+The `X-E2A-Auth-Verified` field is the *server's claim* — anyone who can reach your webhook URL can set it. To make a security decision, **verify the signature** with the shared HMAC secret:
+
+```python
+from e2a.v1 import E2AClient
+client = E2AClient()
+email = client.parse(request_body)
+if not email.verify_signature(my_hmac_secret):
+    return 401  # untrusted, reject
+# now safe to act on email.sender, email.is_verified, etc.
+```
+
+```typescript
+import { E2AClient } from "@e2a/sdk";
+const email = await client.parse(req.body);
+if (!email.verifySignature(myHmacSecret)) {
+  return res.status(401).end();
+}
+```
+
+Both SDKs check, in order: body_hash matches the raw message bytes, HMAC matches the canonical, and timestamp is within a 5-minute replay window. Returns `true` only if all three hold. Treat `false` as untrusted regardless of the `is_verified` claim.
+
+### Conversation threading
+
+Both `send` and `reply` accept an opaque `conversation_id`. e2a propagates it to the recipient on delivery via `payload.conversation_id`, surfaced in this priority order:
+
+1. **`X-E2A-Conversation-Id` header** — authoritative for e2a-to-e2a traffic. Only honored when the SMTP envelope `MAIL FROM` originates from this relay, so external senders cannot forge it.
+2. **`In-Reply-To` / `References` lookup** — standard RFC 5322 threading, scoped to the recipient agent's own messages. Covers humans replying from Gmail/Outlook.
+
+First contact from a human arrives with `conversation_id: null` — the agent should assign a new id before replying.
+
+### Human in the loop (HITL)
+
+When an agent has HITL enabled, outbound `send` and `reply` calls do **not** dispatch immediately. The message is stored with status `pending_approval` and the API returns HTTP `202 Accepted`. A reviewer must approve it before delivery; otherwise, after a configurable TTL, the message expires into `expired_approved` (auto-sent) or `expired_rejected` (discarded), depending on the agent's `hitl_expiration_action`.
+
+Reviewers can approve or reject via:
+
+- **Dashboard / API** — `POST /api/v1/messages/{id}/approve` or `/reject`
+- **Magic-link email** — sent automatically when HITL fires; one-click `GET /api/v1/approve?token=…` and `/reject?token=…` URLs (requires `E2A_PUBLIC_URL` and outbound SMTP configured)
+- **CLI** — `e2a pending` lists held messages
+
+Enable HITL on an agent via `PUT /api/v1/agents/{email}` with `hitl_enabled: true` and an optional `hitl_expiration_action` and TTL.
+
+## API
+
+All endpoints are under `/api/v1` unless noted. Auth is `Authorization: Bearer <api_key>` except where called out. Path parameters containing `@` (agent emails) must be URL-encoded.
+
+### Domains
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/domains` | Register a custom domain. Returns required MX and TXT records. |
+| `GET` | `/domains` | List domains owned by the authenticated user |
+| `POST` | `/domains/{domain}/verify` | Verify ownership via TXT record |
+| `DELETE` | `/domains/{domain}` | Delete (must delete all agents on the domain first) |
+
+### Agents
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/agents` | Register an agent. Use `email` for a custom domain (must be verified) or `slug` for a shared-domain registration *(hosted only)* |
+| `GET` | `/agents` | List agents owned by the authenticated user |
+| `GET` | `/agents/{email}` | Get agent details |
+| `PUT` | `/agents/{email}` | Update agent (webhook URL, mode, HITL settings) |
+| `DELETE` | `/agents/{email}` | Delete an agent |
+| `POST` | `/agents/{email}/test` | Send a test email through the agent |
+
+### Messages — inbound (per-agent)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/agents/{email}/messages` | List inbound messages for the agent |
+| `GET` | `/agents/{email}/messages/{id}` | Fetch a single inbound message (transitions `unread` → `read` for local-mode agents) |
+| `POST` | `/agents/{email}/messages/{id}/reply` | Reply to an inbound message |
+
+### Messages — outbound / HITL
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/send` | Send an email (held with `202 Accepted` if HITL enabled on the agent) |
+| `GET` | `/messages` | List outbound messages owned by the user (filterable by status) |
+| `GET` | `/messages/{id}` | Get a single outbound message |
+| `POST` | `/messages/{id}/approve` | Approve a `pending_approval` message |
+| `POST` | `/messages/{id}/reject` | Reject a `pending_approval` message |
+
+### HITL magic links
+
+These endpoints accept a signed `token` query parameter (from notification emails) instead of an API key, so reviewers can approve from any mail client without auth.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET`/`POST` | `/approve?token=…` | Approve a pending message via signed token |
+| `GET`/`POST` | `/reject?token=…` | Reject a pending message via signed token |
+
+### Real-time delivery
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/agents/{email}/ws?token={api_key}` | WebSocket for local-mode agents. Auth via query param (WebSocket clients can't set headers during upgrade). |
+
+The server pushes lightweight JSON notifications (metadata only):
+
+```json
+{
+  "message_id": "msg_abc123",
+  "conversation_id": "conv_xyz",
+  "from": "alice@example.com",
+  "to": "bot@your-domain.com",
+  "subject": "Meeting tomorrow",
+  "received_at": "2026-04-24T10:00:00Z"
+}
+```
+
+Fetch full content via `GET /agents/{email}/messages/{id}`. On connect, all unread messages are drained as notifications automatically.
+
+### Other
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/health` | none | Health check |
+| `POST` | `/api/feedback` | none | Submit feedback (rate-limited per-IP) |
+
+## CLI
+
+```bash
+npm install -g @e2a/cli
+e2a login
+```
+
+| Command | Description |
+|---------|-------------|
+| `e2a agents register <slug>` | Register `slug@agents.e2a.dev` *(hosted only; on self-host, register through the API with a custom domain)* |
+| `e2a agents list` | List your agents |
+| `e2a agents update <email>` | Update an agent (webhook URL, mode, HITL) |
+| `e2a agents delete <email>` | Delete an agent |
+| `e2a listen` | Listen for emails over WebSocket (real-time) |
+| `e2a listen --json` | Output one full message JSON per line |
+| `e2a listen --forward <url>` | Forward each message as HTTP POST to a local URL |
+| `e2a inbox` | List recent messages |
+| `e2a read <id>` | Read a message |
+| `e2a reply <id> --body …` | Reply to a message |
+| `e2a send --to … --subject … --body …` | Send an email |
+| `e2a pending` | List HITL messages awaiting approval |
+| `e2a config` | View or update CLI config |
+
+The `listen --forward` mode also supports OpenAI Responses API forwarding via `--forward-token`, which formats each inbound email as a Responses payload and auto-replies with the model's output:
+
+```bash
+e2a listen --forward http://localhost:18789/v1/responses --forward-token <token>
+```
+
+See [cli/README.md](cli/README.md) for full reference.
+
+## SDKs
+
+### Python
+
+```bash
+pip install e2a            # webhook mode
+pip install 'e2a[ws]'      # adds WebSocket support
+```
+
+```python
+from e2a.v1 import E2AClient
+
+client = E2AClient()                # reads E2A_API_KEY
+email = client.parse(request_body)  # validate + decode webhook payload
+print(email.sender, email.subject)
+email.reply("Got it!", conversation_id="conv_123")
+```
+
+WebSocket (local agents):
+
+```python
+from e2a.v1 import AsyncE2AClient
+
+async with AsyncE2AClient(api_key="e2a_…") as client:
+    async for email in client.listen("bot@your-domain.com"):
+        print(email.sender, email.subject)
+        await email.reply("Got it!")
+```
+
+See [sdks/python/README.md](sdks/python/README.md).
+
+### TypeScript
+
+```bash
+npm install @e2a/sdk
+```
+
+See [sdks/typescript/README.md](sdks/typescript/README.md).
+
+## Configuration
+
+Copy `config.example.yaml` to `config.yaml` and fill in values, or set the environment variables below (env wins over file). All secrets should be set via env, never the file.
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `E2A_DATABASE_URL` | yes | Postgres connection string |
+| `E2A_HMAC_SECRET` | yes | HMAC signing secret for `X-E2A-Auth-*` headers |
+| `E2A_PUBLIC_URL` | for HITL emails | Externally visible base URL (e.g. `https://e2a.example.com`); required to render absolute magic-link URLs |
+| `E2A_GOOGLE_CLIENT_ID` | for OAuth login | Google OAuth client ID for dashboard sign-in |
+| `E2A_GOOGLE_CLIENT_SECRET` | for OAuth login | Google OAuth client secret |
+| `E2A_OUTBOUND_SMTP_HOST` | for outbound | Upstream SMTP host (e.g. `email-smtp.us-east-1.amazonaws.com`) |
+| `E2A_OUTBOUND_SMTP_PORT` | for outbound | Upstream SMTP port (typically `587`) |
+| `E2A_OUTBOUND_SMTP_USERNAME` | for outbound | Upstream SMTP username |
+| `E2A_OUTBOUND_SMTP_PASSWORD` | for outbound | Upstream SMTP password |
+| `E2A_OUTBOUND_SMTP_FROM_DOMAIN` | for outbound | Domain used in `From:` of outbound mail |
+| `E2A_USAGE_TRACKING` | no (default `false`) | Set to `true` to write per-message rows into `usage_events` / `usage_summaries`. The hosted deployment uses these for billing reconciliation; self-hosters typically don't need them. |
+
+`env: production` in [config.example.yaml](config.example.yaml) enforces TLS for SMTP and HTTPS for webhook URLs. Leave it as `development` for local work.
+
+## Security
+
+- **Identity** — agent registration requires DNS TXT verification of domain ownership (custom domains)
+- **Domain auth** — SPF and DKIM checked on every inbound message
+- **Header signatures** — HMAC-SHA256 over canonical auth-header string; reject if timestamp older than 5 minutes
+- **SSRF protection** — webhook URLs must be HTTPS (in production), resolve to public IPs, use domain names (no raw IPs, no private/loopback ranges)
+- **OAuth CSRF** — single-use, time-limited nonce in the `state` parameter
+- **Production mode** (`E2A_ENV=production`) enforces the above where development mode is more permissive
+
+Report security issues privately to **security@mnexa.ai** — do not file public GitHub issues for vulnerabilities.
+
+## Development
+
+```bash
+make build               # go build -o bin/e2a ./cmd/e2a
+make run                 # build + run (cp config.example.yaml config.yaml first)
+make test                # all Go tests (needs Postgres on :5433)
+make test-unit           # Go unit tests only (no DB)
+make test-integration    # integration tests (needs Postgres)
+make test-e2e            # e2e tests (needs Postgres)
+make docker-up           # start local Postgres via docker compose
+make migrate             # apply SQL migrations to local DB
+```
+
+See [CLAUDE.md](CLAUDE.md) for the full developer guide (architecture, tests, code generation, conventions).
+
+## Contributing
+
+By submitting a pull request, you certify the [Developer Certificate of Origin](https://developercertificate.org/) for your contribution. Sign your commits with `git commit -s`.
+
+## License
+
+Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).

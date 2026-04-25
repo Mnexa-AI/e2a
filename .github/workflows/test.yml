@@ -1,0 +1,304 @@
+name: Tests
+
+on:
+  push:
+    paths-ignore:
+      # Top-level docs only — keep CI running for SDK/CLI READMEs
+      # since those ship to npm/PyPI as part of the package.
+      - "README.md"
+      - "CLAUDE.md"
+      - "LICENSE"
+      - "NOTICE"
+  pull_request:
+    paths-ignore:
+      # Top-level docs only — keep CI running for SDK/CLI READMEs
+      # since those ship to npm/PyPI as part of the package.
+      - "README.md"
+      - "CLAUDE.md"
+      - "LICENSE"
+      - "NOTICE"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+      - run: go test ./...
+
+  web:
+    name: Web tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm install
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  ts-sdk:
+    name: TypeScript SDK tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm install --package-lock=false
+      - run: npm run build --workspace @e2a/sdk
+      - run: npm test --workspace @e2a/sdk
+
+  ts-contract:
+    name: TypeScript SDK contract tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: e2a
+          POSTGRES_PASSWORD: e2a
+          POSTGRES_DB: e2a_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U e2a -d e2a_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm install --package-lock=false
+      - name: Build contract server helper
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          go build -o /tmp/e2a-contract-server ./cmd/e2a-contract-server
+      - name: Run contract tests against shared test server
+        run: |
+          set -euo pipefail
+          envfile="$(mktemp)"
+          logfile="$(mktemp)"
+          cleanup() {
+            if [ -n "${server_pid:-}" ]; then
+              kill "${server_pid}" >/dev/null 2>&1 || true
+              wait "${server_pid}" >/dev/null 2>&1 || true
+            fi
+          }
+          trap 'status=$?; if [ $status -ne 0 ]; then echo "=== contract server log ==="; cat "$logfile"; fi; cleanup; exit $status' EXIT
+
+          cd "$GITHUB_WORKSPACE"
+          E2A_TEST_DATABASE_URL="postgres://e2a:e2a@127.0.0.1:5433/e2a_test?sslmode=disable" \
+            /tmp/e2a-contract-server -env-file "$envfile" >"$logfile" 2>&1 &
+          server_pid=$!
+
+          for _ in $(seq 1 150); do
+            if [ -s "$envfile" ]; then
+              break
+            fi
+            if ! kill -0 "$server_pid" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 0.2
+          done
+
+          test -s "$envfile"
+          set -a
+          . "$envfile"
+          set +a
+
+          for _ in $(seq 1 20); do
+            if curl -fsS "$E2A_TEST_BASE_URL/api/health" >/dev/null; then
+              break
+            fi
+            sleep 0.2
+          done
+
+          cd "$GITHUB_WORKSPACE"
+          npm run test:contract --workspace @e2a/sdk
+
+  cli:
+    name: CLI tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm install --package-lock=false
+      - run: npm run build --workspace @e2a/sdk
+      - run: npm test --workspace @e2a/cli
+      - run: npm run build --workspace @e2a/cli
+
+  swagger:
+    name: Swagger spec freshness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+      - name: Install swag
+        run: go install github.com/swaggo/swag/cmd/swag@v1.16.4
+      - name: Check spec is up to date
+        run: make swagger-check
+
+  python-sdk:
+    name: Python SDK tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: sdks/python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            sdks/python/pyproject.toml
+            sdks/python/codegen-requirements.txt
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/ -v
+
+  python-contract:
+    name: Python SDK contract tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: e2a
+          POSTGRES_PASSWORD: e2a
+          POSTGRES_DB: e2a_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U e2a -d e2a_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    defaults:
+      run:
+        working-directory: sdks/python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            sdks/python/pyproject.toml
+            sdks/python/codegen-requirements.txt
+      - run: pip install -e ".[dev]"
+      - name: Build contract server helper
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          go build -o /tmp/e2a-contract-server ./cmd/e2a-contract-server
+      - name: Run contract tests against shared test server
+        run: |
+          set -euo pipefail
+          envfile="$(mktemp)"
+          logfile="$(mktemp)"
+          cleanup() {
+            if [ -n "${server_pid:-}" ]; then
+              kill "${server_pid}" >/dev/null 2>&1 || true
+              wait "${server_pid}" >/dev/null 2>&1 || true
+            fi
+          }
+          trap 'status=$?; if [ $status -ne 0 ]; then echo "=== contract server log ==="; cat "$logfile"; fi; cleanup; exit $status' EXIT
+
+          cd "$GITHUB_WORKSPACE"
+          E2A_TEST_DATABASE_URL="postgres://e2a:e2a@127.0.0.1:5433/e2a_test?sslmode=disable" \
+            /tmp/e2a-contract-server -env-file "$envfile" >"$logfile" 2>&1 &
+          server_pid=$!
+
+          for _ in $(seq 1 150); do
+            if [ -s "$envfile" ]; then
+              break
+            fi
+            if ! kill -0 "$server_pid" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 0.2
+          done
+
+          test -s "$envfile"
+          set -a
+          . "$envfile"
+          set +a
+
+          for _ in $(seq 1 20); do
+            if curl -fsS "$E2A_TEST_BASE_URL/api/health" >/dev/null; then
+              break
+            fi
+            sleep 0.2
+          done
+
+          cd "$GITHUB_WORKSPACE/sdks/python"
+          pytest tests/test_contract.py -v
+
+  generated-code:
+    name: Generated code freshness
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            sdks/python/pyproject.toml
+            sdks/python/codegen-requirements.txt
+      - name: Install TS SDK dependencies
+        run: npm install --package-lock=false
+      - name: Check generated code is up to date
+        run: make generate-sdk-check

@@ -1,0 +1,1702 @@
+package identity
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/net/idna"
+)
+
+// normalizeDomain lowercases and IDNA-normalizes a domain string.
+// Internationalized domains are converted to their ASCII (punycode) form.
+func normalizeDomain(domain string) string {
+	domain = strings.ToLower(domain)
+	if ascii, err := idna.Lookup.ToASCII(domain); err == nil {
+		return ascii
+	}
+	return domain
+}
+
+// Domain represents a verified or unverified domain registered by a user.
+type Domain struct {
+	Domain            string     `json:"domain"`
+	UserID            *string    `json:"user_id,omitempty"`
+	Verified          bool       `json:"verified"`
+	VerificationToken string     `json:"verification_token"`
+	CreatedAt         time.Time  `json:"created_at"`
+	VerifiedAt        *time.Time `json:"verified_at,omitempty"`
+}
+
+type AgentIdentity struct {
+	ID                   string    `json:"id"`
+	Domain               string    `json:"domain"`
+	Email                string    `json:"email"`
+	Name                 string    `json:"name"`
+	WebhookURL           string    `json:"webhook_url"`
+	AgentMode            string    `json:"agent_mode"`
+	DomainVerified       bool      `json:"domain_verified"`
+	Public               bool      `json:"public"`
+	CreatedAt            time.Time `json:"created_at"`
+	UserID               string    `json:"user_id"`
+	HITLEnabled          bool      `json:"hitl_enabled"`
+	HITLTTLSeconds       int       `json:"hitl_ttl_seconds"`
+	HITLExpirationAction string    `json:"hitl_expiration_action"`
+}
+
+// HITL constants mirror the CHECK constraints in migration 003_hitl.sql.
+const (
+	HITLMaxTTLSeconds        = 604800 // 7 days
+	HITLDefaultTTLSeconds    = 604800
+	HITLExpirationApprove    = "approve"
+	HITLExpirationReject     = "reject"
+	HITLDefaultExpirationAct = HITLExpirationReject
+)
+
+// ValidateHITLConfig returns an error if the TTL or expiration action is invalid.
+// The DB CHECK constraints are the final guard; this mirrors them for a
+// clean, pre-query error path.
+func ValidateHITLConfig(ttlSeconds int, expirationAction string) error {
+	if ttlSeconds <= 0 || ttlSeconds > HITLMaxTTLSeconds {
+		return fmt.Errorf("hitl_ttl_seconds must be between 1 and %d", HITLMaxTTLSeconds)
+	}
+	if expirationAction != HITLExpirationApprove && expirationAction != HITLExpirationReject {
+		return fmt.Errorf("hitl_expiration_action must be 'approve' or 'reject'")
+	}
+	return nil
+}
+
+// populateEmail sets the Email field from the agent ID (which is the full email).
+func (a *AgentIdentity) populateEmail() {
+	a.Email = a.ID
+}
+
+// IsSharedDomain returns true if the agent uses a shared-domain address (e.g. slug@agents.e2a.dev).
+func (a *AgentIdentity) IsSharedDomain() bool {
+	return a.Domain == "agents.e2a.dev"
+}
+
+// ActualDomain returns the DNS domain for the agent.
+func (a *AgentIdentity) ActualDomain() string {
+	return a.Domain
+}
+
+// EmailAddress returns the agent's email address (always the ID).
+func (a *AgentIdentity) EmailAddress() string {
+	return a.ID
+}
+
+type User struct {
+	ID            string    `json:"id"`
+	Email         string    `json:"email"`
+	Name          string    `json:"name"`
+	GoogleSubject string    `json:"-"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+type Message struct {
+	ID                string            `json:"id"`
+	AgentID           string            `json:"agent_id"`
+	Direction         string            `json:"direction"`
+	Sender            string            `json:"sender"`
+	Recipient         string            `json:"recipient"`
+	Subject           string            `json:"subject"`
+	EmailMessageID    string            `json:"email_message_id,omitempty"`
+	ProviderMessageID string            `json:"provider_message_id,omitempty"`
+	Method            string            `json:"method,omitempty"`
+	Type              string            `json:"type,omitempty"`
+	RawMessage        []byte            `json:"raw_message,omitempty"`
+	AuthHeaders       map[string]string `json:"auth_headers,omitempty"`
+	ConversationID    string            `json:"conversation_id,omitempty"`
+	DeliveryStatus    string            `json:"delivery_status,omitempty"`
+	CreatedAt         time.Time         `json:"created_at"`
+	ExpiresAt         time.Time         `json:"expires_at"`
+	WebhookStatus     string            `json:"webhook_status,omitempty"`
+	WebhookError      string            `json:"webhook_error,omitempty"`
+	WebhookAttempts   int               `json:"webhook_attempts,omitempty"`
+
+	// Outbound-only multi-recipient fields. Nil for inbound messages.
+	ToRecipients []string `json:"to_recipients,omitempty"`
+	CC           []string `json:"cc,omitempty"`
+	BCC          []string `json:"bcc,omitempty"`
+
+	// HITL approval fields. Status defaults to 'sent'; body and attachments
+	// are populated only while a message is in 'pending_approval', and are
+	// scrubbed on any terminal transition.
+	Status             string          `json:"status,omitempty"`
+	ApprovalExpiresAt  *time.Time      `json:"approval_expires_at,omitempty"`
+	ReviewedAt         *time.Time      `json:"reviewed_at,omitempty"`
+	RejectionReason    string          `json:"rejection_reason,omitempty"`
+	Edited             bool            `json:"edited,omitempty"`
+	BodyText           string          `json:"body_text,omitempty"`
+	BodyHTML           string          `json:"body_html,omitempty"`
+	AttachmentsJSON    json.RawMessage `json:"attachments,omitempty"`
+}
+
+// Message status values mirror the CHECK constraint in migration 003_hitl.sql.
+const (
+	MessageStatusSent             = "sent"
+	MessageStatusPendingApproval  = "pending_approval"
+	MessageStatusRejected         = "rejected"
+	MessageStatusExpiredApproved  = "expired_approved"
+	MessageStatusExpiredRejected  = "expired_rejected"
+)
+
+type Store struct {
+	pool *pgxpool.Pool
+}
+
+func NewStore(pool *pgxpool.Pool) *Store {
+	return &Store{pool: pool}
+}
+
+// --- Domain CRUD ---
+
+// ClaimOrCreateDomain implements the atomic create/claim logic from the design doc.
+// Rejects the shared/system domain, creates if new, overwrites user_id if unverified,
+// returns if verified+same user, errors if verified+different user.
+func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) (*Domain, error) {
+	domain = normalizeDomain(domain)
+
+	// Reject the shared/system domain
+	if domain == "agents.e2a.dev" {
+		return nil, fmt.Errorf("reserved domain")
+	}
+
+	verificationToken := "e2a-verify=" + generateID()
+
+	// Atomic upsert: insert new or overwrite unverified
+	d := &Domain{}
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO domains (domain, user_id, verified, verification_token)
+		 VALUES ($1, $2, false, $3)
+		 ON CONFLICT (domain) DO UPDATE
+		 SET user_id = EXCLUDED.user_id,
+		     verification_token = EXCLUDED.verification_token
+		 WHERE domains.verified = false
+		 RETURNING domain, user_id, verified, verification_token, created_at, verified_at`,
+		domain, userID, verificationToken,
+	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt)
+
+	if err == nil {
+		return d, nil
+	}
+
+	// No row returned — domain exists and is verified. Check ownership.
+	existing := &Domain{}
+	err = s.pool.QueryRow(ctx,
+		`SELECT domain, user_id, verified, verification_token, created_at, verified_at
+		 FROM domains WHERE domain = $1`, domain,
+	).Scan(&existing.Domain, &existing.UserID, &existing.Verified, &existing.VerificationToken, &existing.CreatedAt, &existing.VerifiedAt)
+	if err != nil {
+		return nil, fmt.Errorf("domain lookup failed: %w", err)
+	}
+
+	if existing.UserID != nil && *existing.UserID == userID {
+		return existing, nil // verified + same user
+	}
+
+	return nil, fmt.Errorf("domain not available")
+}
+
+// LookupDomain returns a domain if it exists and is owned by the given user.
+func (s *Store) LookupDomain(ctx context.Context, domain, userID string) (*Domain, error) {
+	d := &Domain{}
+	err := s.pool.QueryRow(ctx,
+		`SELECT domain, user_id, verified, verification_token, created_at, verified_at
+		 FROM domains WHERE domain = $1 AND user_id = $2`,
+		normalizeDomain(domain), userID,
+	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt)
+	if err != nil {
+		return nil, fmt.Errorf("domain not found")
+	}
+	return d, nil
+}
+
+// VerifyDomain marks a domain as verified, only if owned by the given user.
+func (s *Store) VerifyDomain(ctx context.Context, domain, userID string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE domains SET verified = true, verified_at = now()
+		 WHERE domain = $1 AND user_id = $2 AND verified = false`,
+		normalizeDomain(domain), userID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("domain not found, not owned by user, or already verified")
+	}
+	return nil
+}
+
+// ListDomainsByUser returns all domains owned by the user (excludes system rows).
+func (s *Store) ListDomainsByUser(ctx context.Context, userID string) ([]Domain, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT domain, user_id, verified, verification_token, created_at, verified_at
+		 FROM domains WHERE user_id = $1
+		 ORDER BY created_at DESC`, userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var domains []Domain
+	for rows.Next() {
+		var d Domain
+		if err := rows.Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt); err != nil {
+			return nil, err
+		}
+		domains = append(domains, d)
+	}
+	return domains, rows.Err()
+}
+
+// HasAgentsOnDomain checks whether the owned domain still has agents.
+func (s *Store) HasAgentsOnDomain(ctx context.Context, domain, userID string) (bool, error) {
+	var count int
+	err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM agent_identities WHERE domain = $1 AND user_id = $2`,
+		normalizeDomain(domain), userID,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// ErrDomainHasAgents is returned when a domain delete is blocked by existing agents.
+var ErrDomainHasAgents = fmt.Errorf("cannot delete domain: agents still exist")
+
+// ErrDomainNotFound is returned when a domain is not found or not owned by the user.
+var ErrDomainNotFound = fmt.Errorf("domain not found or not owned by user")
+
+// DeleteDomain deletes a domain only if owned by the user.
+// The handler should check for existing agents first.
+func (s *Store) DeleteDomain(ctx context.Context, domain, userID string) error {
+	tag, err := s.pool.Exec(ctx,
+		`DELETE FROM domains WHERE domain = $1 AND user_id = $2`,
+		normalizeDomain(domain), userID,
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "violates foreign key") {
+			return ErrDomainHasAgents
+		}
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrDomainNotFound
+	}
+	return nil
+}
+
+// --- Agent CRUD ---
+
+// GetAgentByID looks up an agent by its ID (full email) with domain verification status.
+func (s *Store) GetAgentByID(ctx context.Context, id string) (*AgentIdentity, error) {
+	a := &AgentIdentity{}
+	err := s.pool.QueryRow(ctx,
+		`SELECT a.id, a.domain, a.user_id, a.name, a.webhook_url, a.agent_mode, a.public, a.created_at,
+		        a.hitl_enabled, a.hitl_ttl_seconds, a.hitl_expiration_action,
+		        d.verified as domain_verified
+		 FROM agent_identities a
+		 JOIN domains d ON a.domain = d.domain
+		 WHERE a.id = $1`, id,
+	).Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.WebhookURL, &a.AgentMode, &a.Public, &a.CreatedAt,
+		&a.HITLEnabled, &a.HITLTTLSeconds, &a.HITLExpirationAction,
+		&a.DomainVerified)
+	if err != nil {
+		return nil, err
+	}
+	a.populateEmail()
+	return a, nil
+}
+
+// GetAgentByEmail looks up an agent by email address (same as GetAgentByID since ID = email).
+func (s *Store) GetAgentByEmail(ctx context.Context, email string) (*AgentIdentity, error) {
+	return s.GetAgentByID(ctx, email)
+}
+
+// CreateAgent inserts an agent with a domain FK. Does NOT check domain ownership —
+// that's the API handler's responsibility (shared domain skips the check).
+func (s *Store) CreateAgent(ctx context.Context, agentEmail, domain, name, webhookURL, agentMode, userID string) (*AgentIdentity, error) {
+	if agentMode == "" {
+		agentMode = "cloud"
+	}
+
+	a := &AgentIdentity{
+		ID:                   agentEmail,
+		Domain:               normalizeDomain(domain),
+		Name:                 name,
+		WebhookURL:           webhookURL,
+		AgentMode:            agentMode,
+		Public:               true,
+		CreatedAt:            time.Now(),
+		UserID:               userID,
+		HITLEnabled:          false,
+		HITLTTLSeconds:       HITLDefaultTTLSeconds,
+		HITLExpirationAction: HITLDefaultExpirationAct,
+	}
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO agent_identities (id, domain, user_id, name, webhook_url, agent_mode, public, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		a.ID, a.Domain, a.UserID, a.Name, a.WebhookURL, a.AgentMode, a.Public, a.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	a.populateEmail()
+	return a, nil
+}
+
+func (s *Store) UpdateAgentWebhook(ctx context.Context, agentID, userID, webhookURL string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE agent_identities SET webhook_url = $1 WHERE id = $2 AND user_id = $3`,
+		webhookURL, agentID, userID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("agent not found or not owned by user")
+	}
+	return nil
+}
+
+func (s *Store) UpdateAgentMode(ctx context.Context, agentID, userID, agentMode, webhookURL string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE agent_identities SET agent_mode = $1, webhook_url = $2 WHERE id = $3 AND user_id = $4`,
+		agentMode, webhookURL, agentID, userID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("agent not found or not owned by user")
+	}
+	return nil
+}
+
+// UpdateAgentHITL updates all three HITL settings on an agent owned by userID.
+// The TTL and expiration action are validated against the same rules as the
+// DB CHECK constraints so callers get a clean error rather than a raw SQL error.
+func (s *Store) UpdateAgentHITL(ctx context.Context, agentID, userID string, enabled bool, ttlSeconds int, expirationAction string) error {
+	if err := ValidateHITLConfig(ttlSeconds, expirationAction); err != nil {
+		return err
+	}
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE agent_identities
+		    SET hitl_enabled = $1,
+		        hitl_ttl_seconds = $2,
+		        hitl_expiration_action = $3
+		  WHERE id = $4 AND user_id = $5`,
+		enabled, ttlSeconds, expirationAction, agentID, userID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("agent not found or not owned by user")
+	}
+	return nil
+}
+
+// ListAgentsByUser returns all agents owned by the user, joined with domain verification.
+func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIdentity, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT a.id, a.domain, a.user_id, a.name, a.webhook_url, a.agent_mode, a.public, a.created_at,
+		        a.hitl_enabled, a.hitl_ttl_seconds, a.hitl_expiration_action,
+		        d.verified as domain_verified
+		 FROM agent_identities a
+		 JOIN domains d ON a.domain = d.domain
+		 WHERE a.user_id = $1
+		 ORDER BY a.created_at DESC`, userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var agents []AgentIdentity
+	for rows.Next() {
+		var a AgentIdentity
+		if err := rows.Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.WebhookURL, &a.AgentMode, &a.Public, &a.CreatedAt,
+			&a.HITLEnabled, &a.HITLTTLSeconds, &a.HITLExpirationAction,
+			&a.DomainVerified); err != nil {
+			return nil, err
+		}
+		a.populateEmail()
+		agents = append(agents, a)
+	}
+	return agents, rows.Err()
+}
+
+func (s *Store) DeleteAgent(ctx context.Context, agentID, userID string) error {
+	tag, err := s.pool.Exec(ctx,
+		`DELETE FROM agent_identities WHERE id = $1 AND user_id = $2`, agentID, userID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("agent not found or not owned by user")
+	}
+	return nil
+}
+
+// --- Messages ---
+
+const MessageTTL = 30 * 24 * time.Hour // 30 days
+
+// NewMessageID returns a fresh internal message ID. Callers can use this
+// to generate the ID up-front when they need it before storing — for
+// example, the SMTP relay generates the ID before signing auth headers
+// so the ID is part of the canonical string fed to HMAC.
+func NewMessageID() string {
+	return "msg_" + generateID()
+}
+
+// CreateInboundMessage stores an inbound message. If id is empty a new
+// one is generated; otherwise the caller's pre-generated ID is used so
+// the upstream signer can bind auth headers to the same ID that gets
+// stored.
+func (s *Store) CreateInboundMessage(ctx context.Context, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus string, rawMessage []byte, authHeaders map[string]string) (*Message, error) {
+	if id == "" {
+		id = NewMessageID()
+	}
+	now := time.Now()
+
+	var authHeadersJSON []byte
+	if authHeaders != nil {
+		var err error
+		authHeadersJSON, err = json.Marshal(authHeaders)
+		if err != nil {
+			return nil, fmt.Errorf("marshal auth headers: %w", err)
+		}
+	}
+
+	m := &Message{
+		ID:             id,
+		AgentID:        agentID,
+		Direction:      "inbound",
+		Sender:         senderEmail,
+		Recipient:      recipient,
+		Subject:        subject,
+		EmailMessageID: emailMessageID,
+		RawMessage:     rawMessage,
+		AuthHeaders:    authHeaders,
+		ConversationID: conversationID,
+		DeliveryStatus: deliveryStatus,
+		CreatedAt:      now,
+		ExpiresAt:      now.Add(MessageTTL),
+	}
+	// inbox_status column has CHECK constraint: must be 'unread', 'read', or NULL
+	var inboxStatus *string
+	if m.DeliveryStatus == "unread" || m.DeliveryStatus == "read" {
+		inboxStatus = &m.DeliveryStatus
+	}
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO messages (id, agent_id, direction, sender, recipient, subject, email_message_id, raw_message, auth_headers, conversation_id, inbox_status, created_at, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		m.ID, m.AgentID, m.Direction, m.Sender, m.Recipient, m.Subject, m.EmailMessageID, m.RawMessage, authHeadersJSON, m.ConversationID, inboxStatus, m.CreatedAt, m.ExpiresAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (s *Store) GetInboundMessage(ctx context.Context, id string) (*Message, error) {
+	m := &Message{}
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, agent_id, direction, sender, recipient, subject, email_message_id, raw_message, created_at, expires_at
+		 FROM messages WHERE id = $1 AND direction = 'inbound' AND expires_at > now()`, id,
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject, &m.EmailMessageID, &m.RawMessage, &m.CreatedAt, &m.ExpiresAt)
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// CreateOutboundMessage stores an outbound message with multi-recipient support.
+// The recipient param is kept for backward compat with the singular recipient column;
+// toRecipients, cc, and bcc are the canonical outbound-only multi-recipient fields.
+func (s *Store) CreateOutboundMessage(ctx context.Context, agentID string, toRecipients []string, cc []string, bcc []string, subject, msgType, method, providerMessageID, conversationID string) (*Message, error) {
+	id := "msg_" + generateID()
+	now := time.Now()
+
+	// Use first To recipient as the singular recipient column for backward compat
+	var recipient string
+	if len(toRecipients) > 0 {
+		recipient = toRecipients[0]
+	}
+
+	m := &Message{
+		ID:                id,
+		AgentID:           agentID,
+		Direction:         "outbound",
+		Recipient:         recipient,
+		Subject:           subject,
+		Type:              msgType,
+		Method:            method,
+		ProviderMessageID: providerMessageID,
+		ConversationID:    conversationID,
+		CreatedAt:         now,
+		ExpiresAt:         now.Add(MessageTTL),
+		ToRecipients:      toRecipients,
+		CC:                cc,
+		BCC:               bcc,
+	}
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO messages (id, agent_id, direction, recipient, subject, message_type, method, provider_message_id, conversation_id, created_at, expires_at, to_recipients, cc, bcc, status)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+		m.ID, m.AgentID, m.Direction, m.Recipient, m.Subject, m.Type, m.Method, m.ProviderMessageID, m.ConversationID, m.CreatedAt, m.ExpiresAt, m.ToRecipients, m.CC, m.BCC, MessageStatusSent,
+	)
+	if err != nil {
+		return nil, err
+	}
+	m.Status = MessageStatusSent
+	return m, nil
+}
+
+// CreatePendingOutboundMessage stores a fully composed outbound email in
+// pending_approval status, including body_text, body_html, and attachments so
+// that approval can reconstruct the original SendRequest (or accept edits)
+// without the caller needing to retain it. ttlSeconds sets how long the
+// message remains pending before the expiration worker resolves it.
+//
+// replyToEmailMessageID is the RFC 5322 Message-ID of the inbound being
+// replied to (e.g. "<abc@gmail.com>"), or "" for fresh sends and test emails.
+// It reuses the email_message_id column, which is unused for outbound rows
+// in every other path — the column semantically carries "the Message-ID this
+// row references" in both directions.
+//
+// attachmentsJSON must be a JSON array matching the public Attachment shape
+// ([{filename, content_type, data}, ...]) or nil. Callers that already have
+// an []outbound.Attachment slice should json.Marshal it before passing in.
+func (s *Store) CreatePendingOutboundMessage(ctx context.Context, agentID string, toRecipients, cc, bcc []string, subject, bodyText, bodyHTML string, attachmentsJSON []byte, msgType, conversationID, replyToEmailMessageID string, ttlSeconds int) (*Message, error) {
+	if ttlSeconds <= 0 || ttlSeconds > HITLMaxTTLSeconds {
+		return nil, fmt.Errorf("ttl_seconds must be between 1 and %d", HITLMaxTTLSeconds)
+	}
+
+	id := "msg_" + generateID()
+	now := time.Now()
+	approvalExpiresAt := now.Add(time.Duration(ttlSeconds) * time.Second)
+
+	var recipient string
+	if len(toRecipients) > 0 {
+		recipient = toRecipients[0]
+	}
+
+	var attachmentsArg interface{}
+	if len(attachmentsJSON) > 0 {
+		attachmentsArg = attachmentsJSON
+	}
+
+	m := &Message{
+		ID:                id,
+		AgentID:           agentID,
+		Direction:         "outbound",
+		Recipient:         recipient,
+		Subject:           subject,
+		EmailMessageID:    replyToEmailMessageID,
+		Type:              msgType,
+		ConversationID:    conversationID,
+		CreatedAt:         now,
+		ExpiresAt:         now.Add(MessageTTL),
+		ToRecipients:      toRecipients,
+		CC:                cc,
+		BCC:               bcc,
+		Status:            MessageStatusPendingApproval,
+		ApprovalExpiresAt: &approvalExpiresAt,
+		BodyText:          bodyText,
+		BodyHTML:          bodyHTML,
+		AttachmentsJSON:   json.RawMessage(attachmentsJSON),
+	}
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO messages (
+		    id, agent_id, direction, recipient, subject, email_message_id, message_type,
+		    conversation_id, created_at, expires_at,
+		    to_recipients, cc, bcc,
+		    status, approval_expires_at,
+		    body_text, body_html, attachments_json)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7,
+		         $8, $9, $10,
+		         $11, $12, $13,
+		         $14, $15,
+		         $16, $17, $18)`,
+		m.ID, m.AgentID, m.Direction, m.Recipient, m.Subject, m.EmailMessageID, m.Type,
+		m.ConversationID, m.CreatedAt, m.ExpiresAt,
+		m.ToRecipients, m.CC, m.BCC,
+		m.Status, m.ApprovalExpiresAt,
+		nullIfEmptyString(m.BodyText), nullIfEmptyString(m.BodyHTML), attachmentsArg,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// nullIfEmptyString returns nil interface when s is empty so the column is
+// inserted as SQL NULL rather than ''. Keeps body columns distinguishable
+// between "scrubbed" (NULL) and "empty body" once scrubbing is wired up.
+func nullIfEmptyString(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// --- HITL approval store helpers ---
+
+// ErrNotPendingApproval is returned when an approve or reject operation
+// targets a message that is not (or is no longer) in pending_approval status.
+// Handlers map this to HTTP 409 Conflict.
+var ErrNotPendingApproval = fmt.Errorf("message is not pending approval")
+
+// approvalTxTimeout caps how long a single approve-and-send transaction may
+// hold its row-level lock. Chosen to sit just above SMTPRelay's worst-case
+// retry envelope: 30s dial + 2min deadline per attempt × 3 attempts, plus
+// 21s of backoff sleeps, rounded up. If the underlying send ever ignores
+// its own deadlines, this safeguard cancels the tx and releases the lock.
+const approvalTxTimeout = 7 * time.Minute
+
+// ErrMessageNotFound is returned when a message is not found for the given
+// user (either the ID doesn't exist or the message belongs to another user's
+// agent). Handlers map this to HTTP 404.
+var ErrMessageNotFound = fmt.Errorf("message not found")
+
+// PendingApprovalEdit holds optional overrides a reviewer can apply when
+// approving a pending message. Pointer-typed strings distinguish "not
+// provided" (nil) from "explicitly empty" (pointer to ""). Slice fields
+// distinguish "unset" (nil) from "empty list" (non-nil zero-length slice).
+type PendingApprovalEdit struct {
+	Subject         *string
+	BodyText        *string
+	BodyHTML        *string
+	To              []string
+	CC              []string
+	BCC             []string
+	AttachmentsJSON []byte
+	// AttachmentsSet must be true when the caller intends to override
+	// AttachmentsJSON, since nil and empty [] are both valid overrides
+	// (empty [] clears attachments; nil preserves).
+	AttachmentsSet bool
+}
+
+// Apply mutates msg to reflect any fields the reviewer changed. Returns true
+// if any field was actually different from what msg already held (signals
+// the edited flag should be set).
+func (e PendingApprovalEdit) Apply(msg *Message) bool {
+	edited := false
+	if e.Subject != nil && *e.Subject != msg.Subject {
+		msg.Subject = *e.Subject
+		edited = true
+	}
+	if e.BodyText != nil && *e.BodyText != msg.BodyText {
+		msg.BodyText = *e.BodyText
+		edited = true
+	}
+	if e.BodyHTML != nil && *e.BodyHTML != msg.BodyHTML {
+		msg.BodyHTML = *e.BodyHTML
+		edited = true
+	}
+	if e.To != nil && !stringSlicesEqual(e.To, msg.ToRecipients) {
+		msg.ToRecipients = e.To
+		edited = true
+	}
+	if e.CC != nil && !stringSlicesEqual(e.CC, msg.CC) {
+		msg.CC = e.CC
+		edited = true
+	}
+	if e.BCC != nil && !stringSlicesEqual(e.BCC, msg.BCC) {
+		msg.BCC = e.BCC
+		edited = true
+	}
+	if e.AttachmentsSet {
+		msg.AttachmentsJSON = json.RawMessage(e.AttachmentsJSON)
+		edited = true
+	}
+	return edited
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// GetOutboundMessageForUser returns a full message row (including body, HITL
+// fields, and attachments) if it exists and is owned by userID (via the
+// agent the row belongs to). Inbound messages and cross-user access both
+// return ErrMessageNotFound — the caller should not be able to distinguish
+// "does not exist" from "belongs to someone else".
+func (s *Store) GetOutboundMessageForUser(ctx context.Context, messageID, userID string) (*Message, error) {
+	m := &Message{}
+	var (
+		bodyText, bodyHTML *string
+		attachments        []byte
+		method, msgType    *string
+		approvalExpires    *time.Time
+		reviewedAt         *time.Time
+		rejectionReason    *string
+	)
+	err := s.pool.QueryRow(ctx,
+		`SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.subject,
+		        m.email_message_id, COALESCE(m.provider_message_id, ''),
+		        m.method, m.message_type,
+		        m.conversation_id, m.created_at, m.expires_at,
+		        m.to_recipients, m.cc, m.bcc,
+		        m.status, m.approval_expires_at, m.reviewed_at,
+		        m.rejection_reason, m.edited,
+		        m.body_text, m.body_html, m.attachments_json
+		 FROM messages m
+		 JOIN agent_identities a ON a.id = m.agent_id
+		 WHERE m.id = $1 AND a.user_id = $2 AND m.direction = 'outbound'`,
+		messageID, userID,
+	).Scan(
+		&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject,
+		&m.EmailMessageID, &m.ProviderMessageID,
+		&method, &msgType,
+		&m.ConversationID, &m.CreatedAt, &m.ExpiresAt,
+		&m.ToRecipients, &m.CC, &m.BCC,
+		&m.Status, &approvalExpires, &reviewedAt,
+		&rejectionReason, &m.Edited,
+		&bodyText, &bodyHTML, &attachments,
+	)
+	if err != nil {
+		return nil, ErrMessageNotFound
+	}
+	if method != nil {
+		m.Method = *method
+	}
+	if msgType != nil {
+		m.Type = *msgType
+	}
+	if approvalExpires != nil {
+		m.ApprovalExpiresAt = approvalExpires
+	}
+	if reviewedAt != nil {
+		m.ReviewedAt = reviewedAt
+	}
+	if rejectionReason != nil {
+		m.RejectionReason = *rejectionReason
+	}
+	if bodyText != nil {
+		m.BodyText = *bodyText
+	}
+	if bodyHTML != nil {
+		m.BodyHTML = *bodyHTML
+	}
+	if len(attachments) > 0 {
+		m.AttachmentsJSON = json.RawMessage(attachments)
+	}
+	return m, nil
+}
+
+// ListPendingOutboundForUser returns pending-approval messages across all of
+// the user's agents, sorted by approval_expires_at ASC (expiring-soonest
+// first). Body columns are not returned from this path — callers should use
+// GetOutboundMessageForUser for detail.
+func (s *Store) ListPendingOutboundForUser(ctx context.Context, userID string, limit int) ([]Message, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT m.id, m.agent_id, m.subject, m.email_message_id,
+		        COALESCE(m.message_type, ''),
+		        m.conversation_id, m.created_at,
+		        m.to_recipients, m.cc, m.bcc,
+		        m.status, m.approval_expires_at
+		 FROM messages m
+		 JOIN agent_identities a ON a.id = m.agent_id
+		 WHERE a.user_id = $1 AND m.status = 'pending_approval'
+		 ORDER BY m.approval_expires_at ASC
+		 LIMIT $2`, userID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []Message
+	for rows.Next() {
+		var m Message
+		var approvalExpires *time.Time
+		if err := rows.Scan(
+			&m.ID, &m.AgentID, &m.Subject, &m.EmailMessageID,
+			&m.Type,
+			&m.ConversationID, &m.CreatedAt,
+			&m.ToRecipients, &m.CC, &m.BCC,
+			&m.Status, &approvalExpires,
+		); err != nil {
+			return nil, err
+		}
+		m.Direction = "outbound"
+		m.ApprovalExpiresAt = approvalExpires
+		messages = append(messages, m)
+	}
+	return messages, rows.Err()
+}
+
+// SendResult carries the outcome of a sender.Send invocation back to the
+// store for final persistence. Handlers wrap their sender.Send call in a
+// closure that returns this type.
+type SendResult struct {
+	ProviderMessageID string
+	Method            string
+	To                []string
+	CC                []string
+	BCC               []string
+}
+
+// ApproveAndSend finalizes a pending_approval message by running it through
+// a caller-supplied send function inside a transaction that holds a row lock
+// on the pending row. If send returns an error the transaction rolls back
+// and the message remains pending. On success the row is updated to
+// 'sent' with the provider-assigned Message-ID and the body/attachments
+// columns are scrubbed.
+//
+// edits, if any fields are populated, are applied to the in-memory message
+// before send is called and the 'edited' column is set to true when any
+// field differs from what was stored. Approval-via-magic-link callers
+// pass the zero edits value.
+//
+// Ownership is enforced by the agent -> user join. Messages owned by
+// another user return ErrMessageNotFound. Messages whose status is not
+// 'pending_approval' return ErrNotPendingApproval.
+//
+// Concurrency / failure mode notes:
+//
+//   - The row-level FOR UPDATE lock is held for the duration of the send
+//     callback. In practice that is bounded by outbound.SMTPRelay's per-
+//     attempt deadline (2min) plus its internal retry backoff (1s/5s/15s)
+//     — worst case ~6.5min of lock on this single row. Other rows are
+//     unaffected; deadlock is not possible because only one row is ever
+//     locked per call.
+//
+//   - There is a narrow crash window where send() may succeed at SES but
+//     the subsequent UPDATE or Commit fails (DB connection drop, pool
+//     exhaustion). The transaction rolls back, the row stays pending, and
+//     a retry — by the same reviewer or the expiration worker — would
+//     re-send to SES. Eliminating this requires SES-side idempotency keys
+//     or a separate "send attempts" table; deferred for v1. Callers that
+//     see both a successful send callback and a subsequent error from
+//     this function should log both rather than silently retry.
+func (s *Store) ApproveAndSend(
+	ctx context.Context,
+	messageID, userID string,
+	edits PendingApprovalEdit,
+	send func(msg *Message) (SendResult, error),
+) (*Message, error) {
+	// Bound the transaction's lifetime at just above SMTPRelay's worst-case
+	// retry envelope (~6.5min). This is a defensive cap: if the relay ever
+	// ignores its own deadlines or a send stalls indefinitely, the tx gets
+	// cancelled and the row lock releases rather than held forever.
+	txCtx, cancel := context.WithTimeout(ctx, approvalTxTimeout)
+	defer cancel()
+
+	tx, err := s.pool.Begin(txCtx)
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(txCtx)
+		}
+	}()
+
+	// Lock the pending row and verify ownership in one query.
+	var (
+		m                  Message
+		ownerUserID        string
+		bodyText, bodyHTML *string
+		attachments        []byte
+		method, msgType    *string
+		approvalExpires    *time.Time
+	)
+	err = tx.QueryRow(txCtx,
+		`SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.subject,
+		        m.email_message_id,
+		        m.method, m.message_type,
+		        m.conversation_id, m.created_at, m.expires_at,
+		        m.to_recipients, m.cc, m.bcc,
+		        m.status, m.approval_expires_at, m.edited,
+		        m.body_text, m.body_html, m.attachments_json,
+		        a.user_id
+		 FROM messages m
+		 JOIN agent_identities a ON a.id = m.agent_id
+		 WHERE m.id = $1 AND m.direction = 'outbound'
+		 FOR UPDATE OF m`,
+		messageID,
+	).Scan(
+		&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject,
+		&m.EmailMessageID,
+		&method, &msgType,
+		&m.ConversationID, &m.CreatedAt, &m.ExpiresAt,
+		&m.ToRecipients, &m.CC, &m.BCC,
+		&m.Status, &approvalExpires, &m.Edited,
+		&bodyText, &bodyHTML, &attachments,
+		&ownerUserID,
+	)
+	if err != nil {
+		return nil, ErrMessageNotFound
+	}
+	if ownerUserID != userID {
+		return nil, ErrMessageNotFound
+	}
+	if m.Status != MessageStatusPendingApproval {
+		return nil, ErrNotPendingApproval
+	}
+	if method != nil {
+		m.Method = *method
+	}
+	if msgType != nil {
+		m.Type = *msgType
+	}
+	if approvalExpires != nil {
+		m.ApprovalExpiresAt = approvalExpires
+	}
+	if bodyText != nil {
+		m.BodyText = *bodyText
+	}
+	if bodyHTML != nil {
+		m.BodyHTML = *bodyHTML
+	}
+	if len(attachments) > 0 {
+		m.AttachmentsJSON = json.RawMessage(attachments)
+	}
+
+	editedByReviewer := edits.Apply(&m)
+
+	result, err := send(&m)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = tx.Exec(txCtx,
+		`UPDATE messages
+		    SET status            = $2,
+		        provider_message_id = $3,
+		        method            = $4,
+		        to_recipients     = $5,
+		        cc                = $6,
+		        bcc               = $7,
+		        recipient         = $8,
+		        subject           = $9,
+		        edited            = $10,
+		        reviewed_at       = now(),
+		        body_text         = NULL,
+		        body_html         = NULL,
+		        attachments_json  = NULL
+		  WHERE id = $1`,
+		messageID,
+		MessageStatusSent,
+		result.ProviderMessageID,
+		result.Method,
+		result.To,
+		result.CC,
+		result.BCC,
+		firstOr(result.To, ""),
+		m.Subject,
+		editedByReviewer || m.Edited,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(txCtx); err != nil {
+		return nil, err
+	}
+	committed = true
+
+	// Reflect post-commit state on the returned message.
+	m.Status = MessageStatusSent
+	m.ProviderMessageID = result.ProviderMessageID
+	m.Method = result.Method
+	m.ToRecipients = result.To
+	m.CC = result.CC
+	m.BCC = result.BCC
+	if len(result.To) > 0 {
+		m.Recipient = result.To[0]
+	}
+	m.Edited = editedByReviewer || m.Edited
+	now := time.Now()
+	m.ReviewedAt = &now
+	m.BodyText = ""
+	m.BodyHTML = ""
+	m.AttachmentsJSON = nil
+	return &m, nil
+}
+
+func firstOr(s []string, fallback string) string {
+	if len(s) > 0 {
+		return s[0]
+	}
+	return fallback
+}
+
+// ResolveOutboundOwner looks up the user_id and agent_id for an outbound
+// message without requiring the caller to know the user_id up-front. It
+// exists for token-authenticated paths (magic-link approve/reject) where
+// the HMAC token itself is the authorization and the handler just needs
+// enough context to dispatch into the existing user-scoped store methods.
+//
+// Returns ErrMessageNotFound if the message doesn't exist or isn't
+// outbound. The returned user_id is guaranteed to own the message's
+// agent (via the agent_identities.user_id join).
+func (s *Store) ResolveOutboundOwner(ctx context.Context, messageID string) (userID, agentID string, err error) {
+	err = s.pool.QueryRow(ctx,
+		`SELECT a.user_id, m.agent_id
+		 FROM messages m
+		 JOIN agent_identities a ON a.id = m.agent_id
+		 WHERE m.id = $1 AND m.direction = 'outbound'`,
+		messageID,
+	).Scan(&userID, &agentID)
+	if err != nil {
+		return "", "", ErrMessageNotFound
+	}
+	return userID, agentID, nil
+}
+
+// ExpirationCandidate is the minimal row the expiration worker needs to
+// decide how to finalize an expired pending message.
+type ExpirationCandidate struct {
+	MessageID        string
+	AgentID          string
+	ExpirationAction string // 'approve' or 'reject'
+}
+
+// ListExpiredPending returns pending_approval messages whose
+// approval_expires_at is in the past, joined with their agent's
+// hitl_expiration_action. Ordered by approval_expires_at ASC so
+// earliest-expired are handled first.
+func (s *Store) ListExpiredPending(ctx context.Context, limit int) ([]ExpirationCandidate, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT m.id, m.agent_id, a.hitl_expiration_action
+		 FROM messages m
+		 JOIN agent_identities a ON a.id = m.agent_id
+		 WHERE m.status = 'pending_approval'
+		   AND m.approval_expires_at < now()
+		 ORDER BY m.approval_expires_at ASC
+		 LIMIT $1`, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ExpirationCandidate
+	for rows.Next() {
+		var c ExpirationCandidate
+		if err := rows.Scan(&c.MessageID, &c.AgentID, &c.ExpirationAction); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// ExpireApproveAndSend is the worker-side counterpart to ApproveAndSend:
+// no user ownership check (the caller is the expiration worker, which is
+// system-scoped), SELECT ... FOR UPDATE SKIP LOCKED so concurrent workers
+// don't race for the same row, and the terminal status is
+// 'expired_approved' instead of 'sent'. On send failure the transaction
+// rolls back; the worker should then call ExpireReject to move the row
+// to a final state so the row doesn't get picked up on every sweep.
+//
+// Same concurrency / crash-window notes as ApproveAndSend apply: the
+// row-level lock is held for the duration of the send callback (bounded
+// by SMTPRelay timeouts), and a crash between SES acceptance and
+// commit can leave a pending row that would re-send on the next sweep.
+// SKIP LOCKED means multiple app instances can run the worker without
+// contending on the same row.
+func (s *Store) ExpireApproveAndSend(
+	ctx context.Context,
+	messageID string,
+	send func(msg *Message) (SendResult, error),
+) (*Message, error) {
+	txCtx, cancel := context.WithTimeout(ctx, approvalTxTimeout)
+	defer cancel()
+
+	tx, err := s.pool.Begin(txCtx)
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(txCtx)
+		}
+	}()
+
+	var (
+		m                  Message
+		bodyText, bodyHTML *string
+		attachments        []byte
+		method, msgType    *string
+		approvalExpires    *time.Time
+	)
+	err = tx.QueryRow(txCtx,
+		`SELECT id, agent_id, direction, sender, recipient, subject,
+		        email_message_id,
+		        method, message_type,
+		        conversation_id, created_at, expires_at,
+		        to_recipients, cc, bcc,
+		        status, approval_expires_at, edited,
+		        body_text, body_html, attachments_json
+		 FROM messages
+		 WHERE id = $1
+		   AND direction = 'outbound'
+		   AND status = 'pending_approval'
+		   AND approval_expires_at < now()
+		 FOR UPDATE SKIP LOCKED`,
+		messageID,
+	).Scan(
+		&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject,
+		&m.EmailMessageID,
+		&method, &msgType,
+		&m.ConversationID, &m.CreatedAt, &m.ExpiresAt,
+		&m.ToRecipients, &m.CC, &m.BCC,
+		&m.Status, &approvalExpires, &m.Edited,
+		&bodyText, &bodyHTML, &attachments,
+	)
+	if err != nil {
+		// Row is either gone, no longer pending, not yet expired, or is
+		// currently locked by another worker. Any of those means "someone
+		// else will handle it, or nothing to do" — don't bubble as an error.
+		return nil, ErrNotPendingApproval
+	}
+	if method != nil {
+		m.Method = *method
+	}
+	if msgType != nil {
+		m.Type = *msgType
+	}
+	if approvalExpires != nil {
+		m.ApprovalExpiresAt = approvalExpires
+	}
+	if bodyText != nil {
+		m.BodyText = *bodyText
+	}
+	if bodyHTML != nil {
+		m.BodyHTML = *bodyHTML
+	}
+	if len(attachments) > 0 {
+		m.AttachmentsJSON = json.RawMessage(attachments)
+	}
+
+	result, err := send(&m)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = tx.Exec(txCtx,
+		`UPDATE messages
+		    SET status            = $2,
+		        provider_message_id = $3,
+		        method            = $4,
+		        to_recipients     = $5,
+		        cc                = $6,
+		        bcc               = $7,
+		        recipient         = $8,
+		        reviewed_at       = now(),
+		        body_text         = NULL,
+		        body_html         = NULL,
+		        attachments_json  = NULL
+		  WHERE id = $1`,
+		messageID,
+		MessageStatusExpiredApproved,
+		result.ProviderMessageID,
+		result.Method,
+		result.To,
+		result.CC,
+		result.BCC,
+		firstOr(result.To, ""),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(txCtx); err != nil {
+		return nil, err
+	}
+	committed = true
+
+	m.Status = MessageStatusExpiredApproved
+	m.ProviderMessageID = result.ProviderMessageID
+	m.Method = result.Method
+	m.ToRecipients = result.To
+	m.CC = result.CC
+	m.BCC = result.BCC
+	if len(result.To) > 0 {
+		m.Recipient = result.To[0]
+	}
+	now := time.Now()
+	m.ReviewedAt = &now
+	m.BodyText = ""
+	m.BodyHTML = ""
+	m.AttachmentsJSON = nil
+	return &m, nil
+}
+
+// ExpireReject transitions a pending_approval message to expired_rejected
+// and scrubs body columns. No user ownership check — this is the worker
+// path. If the row is no longer pending (racing worker, already handled)
+// returns ErrNotPendingApproval; caller can treat as a no-op.
+func (s *Store) ExpireReject(ctx context.Context, messageID, reason string) (*Message, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE messages
+		    SET status = $2,
+		        rejection_reason = $3,
+		        reviewed_at = now(),
+		        body_text = NULL,
+		        body_html = NULL,
+		        attachments_json = NULL
+		  WHERE id = $1 AND status = 'pending_approval'`,
+		messageID, MessageStatusExpiredRejected, reason,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrNotPendingApproval
+	}
+	// Read back with ownership skipped — the worker doesn't have a userID.
+	m := &Message{}
+	var (
+		method, msgType   *string
+		approvalExpiresAt *time.Time
+		reviewedAt        *time.Time
+		rejectionReason   *string
+	)
+	err = s.pool.QueryRow(ctx,
+		`SELECT id, agent_id, direction, subject, email_message_id,
+		        method, message_type,
+		        conversation_id, created_at, expires_at,
+		        to_recipients, cc, bcc,
+		        status, approval_expires_at, reviewed_at,
+		        rejection_reason, edited
+		 FROM messages WHERE id = $1`, messageID,
+	).Scan(
+		&m.ID, &m.AgentID, &m.Direction, &m.Subject, &m.EmailMessageID,
+		&method, &msgType,
+		&m.ConversationID, &m.CreatedAt, &m.ExpiresAt,
+		&m.ToRecipients, &m.CC, &m.BCC,
+		&m.Status, &approvalExpiresAt, &reviewedAt,
+		&rejectionReason, &m.Edited,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if method != nil {
+		m.Method = *method
+	}
+	if msgType != nil {
+		m.Type = *msgType
+	}
+	m.ApprovalExpiresAt = approvalExpiresAt
+	m.ReviewedAt = reviewedAt
+	if rejectionReason != nil {
+		m.RejectionReason = *rejectionReason
+	}
+	return m, nil
+}
+
+// RejectPending transitions a pending_approval message to rejected,
+// records the reviewer's reason (empty string allowed), and scrubs
+// body_text / body_html / attachments_json. Ownership checked; missing
+// rows return ErrMessageNotFound. Non-pending rows return ErrNotPendingApproval.
+func (s *Store) RejectPending(ctx context.Context, messageID, userID, reason string) (*Message, error) {
+	// Single atomic UPDATE with status guard. We distinguish "not found" from
+	// "not pending" with a follow-up existence check only when rows-affected
+	// is 0.
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE messages
+		    SET status = $3,
+		        rejection_reason = $4,
+		        reviewed_at = now(),
+		        body_text = NULL,
+		        body_html = NULL,
+		        attachments_json = NULL
+		  WHERE id = $1
+		    AND status = 'pending_approval'
+		    AND agent_id IN (SELECT id FROM agent_identities WHERE user_id = $2)`,
+		messageID, userID, MessageStatusRejected, reason,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		// Figure out why: missing, not owned, or not pending.
+		var status string
+		err := s.pool.QueryRow(ctx,
+			`SELECT m.status
+			 FROM messages m
+			 JOIN agent_identities a ON a.id = m.agent_id
+			 WHERE m.id = $1 AND a.user_id = $2`,
+			messageID, userID,
+		).Scan(&status)
+		if err != nil {
+			return nil, ErrMessageNotFound
+		}
+		return nil, ErrNotPendingApproval
+	}
+	return s.GetOutboundMessageForUser(ctx, messageID, userID)
+}
+
+func (s *Store) ListActivityByAgent(ctx context.Context, agentID string, limit int) ([]Message, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.subject, m.email_message_id, COALESCE(m.method, ''), COALESCE(m.message_type, ''), COALESCE(m.inbox_status, ''), m.created_at, m.expires_at,
+		        COALESCE(wd.status, ''), COALESCE(wd.last_error, ''), COALESCE(wd.attempts, 0),
+		        m.to_recipients, m.cc, m.bcc
+		 FROM messages m
+		 LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
+		 WHERE m.agent_id = $1 AND m.expires_at > now()
+		 ORDER BY m.created_at DESC
+		 LIMIT $2`, agentID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []Message
+	for rows.Next() {
+		var m Message
+		if err := rows.Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject, &m.EmailMessageID, &m.Method, &m.Type, &m.DeliveryStatus, &m.CreatedAt, &m.ExpiresAt, &m.WebhookStatus, &m.WebhookError, &m.WebhookAttempts, &m.ToRecipients, &m.CC, &m.BCC); err != nil {
+			return nil, err
+		}
+		messages = append(messages, m)
+	}
+	return messages, rows.Err()
+}
+
+// GetMessagesByAgent returns messages for a poll-mode agent, filtered by status.
+func (s *Store) GetMessagesByAgent(ctx context.Context, agentID, status string, limit int, afterTime time.Time, afterID string) ([]Message, error) {
+	var query string
+	var args []interface{}
+
+	baseSelect := `SELECT id, agent_id, direction, sender, recipient, subject, email_message_id, conversation_id, COALESCE(inbox_status, ''), created_at
+		 FROM messages
+		 WHERE agent_id = $1 AND direction = 'inbound' AND expires_at > now()`
+
+	switch status {
+	case "all":
+		query = baseSelect
+	case "read":
+		query = baseSelect + ` AND inbox_status = 'read'`
+	default: // "unread"
+		query = baseSelect + ` AND inbox_status = 'unread'`
+	}
+
+	args = append(args, agentID)
+
+	if afterID != "" {
+		query += fmt.Sprintf(` AND (created_at, id) > ($%d, $%d)`, len(args)+1, len(args)+2)
+		args = append(args, afterTime, afterID)
+	}
+
+	query += fmt.Sprintf(` ORDER BY created_at ASC, id ASC LIMIT $%d`, len(args)+1)
+	args = append(args, limit)
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []Message
+	for rows.Next() {
+		var m Message
+		if err := rows.Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.DeliveryStatus, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		messages = append(messages, m)
+	}
+	return messages, rows.Err()
+}
+
+// GetMessageWithContent returns a full message including raw_message and auth_headers.
+// Marks the message as 'read' if it was 'unread'.
+func (s *Store) GetMessageWithContent(ctx context.Context, messageID, agentID string) (*Message, error) {
+	m := &Message{}
+	var authHeadersJSON []byte
+	err := s.pool.QueryRow(ctx,
+		`UPDATE messages SET inbox_status = CASE WHEN inbox_status = 'unread' THEN 'read' ELSE inbox_status END
+		 WHERE id = $1 AND agent_id = $2 AND expires_at > now()
+		 RETURNING id, agent_id, direction, sender, recipient, subject, email_message_id, conversation_id, COALESCE(inbox_status, ''), raw_message, auth_headers, created_at, expires_at`,
+		messageID, agentID,
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.DeliveryStatus, &m.RawMessage, &authHeadersJSON, &m.CreatedAt, &m.ExpiresAt)
+	if err != nil {
+		return nil, err
+	}
+	if authHeadersJSON != nil {
+		if err := json.Unmarshal(authHeadersJSON, &m.AuthHeaders); err != nil {
+			return nil, fmt.Errorf("unmarshal auth headers: %w", err)
+		}
+	}
+	return m, nil
+}
+
+// UpdateMessageDeliveryStatus sets the inbox_status on a message.
+func (s *Store) UpdateMessageDeliveryStatus(ctx context.Context, messageID, agentID, status string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE messages SET inbox_status = $1 WHERE id = $2 AND agent_id = $3`,
+		status, messageID, agentID,
+	)
+	return err
+}
+
+func (s *Store) DeleteExpiredMessages(ctx context.Context) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM messages WHERE expires_at <= now()`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// LookupConversationID finds a conversation_id by matching In-Reply-To / References
+// message IDs against stored messages. Checks both email_message_id (inbound) and
+// provider_message_id (outbound). Uses prefix matching because SES bare IDs stored
+// in provider_message_id (e.g. <010f...>) may lack the @region.amazonses.com suffix
+// that appears in the actual email headers sent to recipients.
+func (s *Store) LookupConversationID(ctx context.Context, agentID string, messageIDs []string) (string, error) {
+	if len(messageIDs) == 0 {
+		return "", fmt.Errorf("no message IDs to look up")
+	}
+
+	var conversationID string
+	err := s.pool.QueryRow(ctx,
+		`SELECT conversation_id FROM messages
+		 WHERE agent_id = $1
+		   AND conversation_id <> ''
+		   AND (
+		     email_message_id = ANY($2)
+		     OR provider_message_id = ANY($2)
+		     OR EXISTS (
+		       SELECT 1 FROM unnest($2::text[]) AS lookup(id)
+		       WHERE lookup.id LIKE REPLACE(provider_message_id, '>', '%')
+		         AND provider_message_id <> ''
+		     )
+		   )
+		 ORDER BY created_at DESC LIMIT 1`,
+		agentID, messageIDs,
+	).Scan(&conversationID)
+	if err != nil {
+		return "", err
+	}
+	return conversationID, nil
+}
+
+// --- User management ---
+
+func (s *Store) CreateOrGetUser(ctx context.Context, email, name, googleSub string) (*User, error) {
+	u := &User{}
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO users (id, email, name, google_subject)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (google_subject) DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name
+		 RETURNING id, email, name, google_subject, created_at`,
+		generateID(), email, name, googleSub,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.GoogleSubject, &u.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+// BootstrapUser finds a user by email, or creates one with a synthetic
+// google_subject if none exists. Used by the -bootstrap-email CLI flag
+// for self-host first-run, where there's no Google OAuth flow yet.
+func (s *Store) BootstrapUser(ctx context.Context, email string) (*User, error) {
+	u := &User{}
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, email, name, google_subject, created_at FROM users WHERE email = $1`, email,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.GoogleSubject, &u.CreatedAt)
+	if err == nil {
+		return u, nil
+	}
+	id := generateID()
+	err = s.pool.QueryRow(ctx,
+		`INSERT INTO users (id, email, name, google_subject)
+		 VALUES ($1, $2, 'bootstrap', $3)
+		 RETURNING id, email, name, google_subject, created_at`,
+		id, email, "bootstrap:"+id,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.GoogleSubject, &u.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+func (s *Store) GetUserByID(ctx context.Context, id string) (*User, error) {
+	u := &User{}
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, email, name, google_subject, created_at FROM users WHERE id = $1`, id,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.GoogleSubject, &u.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+// --- Session management ---
+
+const SessionTTL = 7 * 24 * time.Hour
+
+func (s *Store) CreateUserSession(ctx context.Context, userID string) (string, error) {
+	token := generateAPIKey() // reuse for randomness
+	expiresAt := time.Now().Add(SessionTTL)
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO user_sessions (token, user_id, created_at, expires_at) VALUES ($1, $2, $3, $4)`,
+		token, userID, time.Now(), expiresAt,
+	)
+	if err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+func (s *Store) GetUserSession(ctx context.Context, token string) (*User, error) {
+	u := &User{}
+	err := s.pool.QueryRow(ctx,
+		`SELECT u.id, u.email, u.name, u.google_subject, u.created_at
+		 FROM user_sessions s JOIN users u ON s.user_id = u.id
+		 WHERE s.token = $1 AND s.expires_at > now()`, token,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.GoogleSubject, &u.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+func (s *Store) DeleteUserSession(ctx context.Context, token string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM user_sessions WHERE token = $1`, token)
+	return err
+}
+
+func (s *Store) DeleteExpiredUserSessions(ctx context.Context) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM user_sessions WHERE expires_at <= now()`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// --- Per-user API keys ---
+
+type APIKey struct {
+	ID           string    `json:"id"`
+	UserID       string    `json:"user_id"`
+	Name         string    `json:"name"`
+	KeyPrefix    string    `json:"key_prefix"`
+	PlaintextKey string    `json:"key,omitempty"` // only set once at creation, never stored
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+func hashAPIKey(plaintext string) string {
+	h := sha256.Sum256([]byte(plaintext))
+	return hex.EncodeToString(h[:])
+}
+
+func (s *Store) CreateAPIKey(ctx context.Context, userID, name string) (*APIKey, error) {
+	id := "apk_" + generateID()
+	plaintext := generateAPIKey()
+	keyHash := hashAPIKey(plaintext)
+	// Show first 8 chars as prefix (e.g. "e2a_abcd...")
+	prefix := plaintext[:12]
+	now := time.Now()
+	ak := &APIKey{
+		ID:           id,
+		UserID:       userID,
+		Name:         name,
+		KeyPrefix:    prefix,
+		PlaintextKey: plaintext,
+		CreatedAt:    now,
+	}
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+		ak.ID, ak.UserID, ak.Name, ak.KeyPrefix, keyHash, ak.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return ak, nil
+}
+
+func (s *Store) ListAPIKeys(ctx context.Context, userID string) ([]APIKey, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, user_id, name, key_prefix, created_at FROM api_keys WHERE user_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var keys []APIKey
+	for rows.Next() {
+		var k APIKey
+		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.KeyPrefix, &k.CreatedAt); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
+}
+
+func (s *Store) DeleteAPIKey(ctx context.Context, keyID, userID string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL`, keyID, userID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("api key not found or not owned by user")
+	}
+	return nil
+}
+
+func (s *Store) GetUserByAPIKey(ctx context.Context, apiKey string) (*User, error) {
+	keyHash := hashAPIKey(apiKey)
+	u := &User{}
+	err := s.pool.QueryRow(ctx,
+		`WITH touched AS (
+		   UPDATE api_keys SET last_used_at = now()
+		   WHERE key_hash = $1 AND revoked_at IS NULL
+		   RETURNING user_id
+		 )
+		 SELECT u.id, u.email, u.name, u.google_subject, u.created_at
+		 FROM touched t JOIN users u ON u.id = t.user_id`, keyHash,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.GoogleSubject, &u.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+func generateID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func generateAPIKey() string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	return "e2a_" + hex.EncodeToString(b)
+}

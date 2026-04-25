@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>e2a API Docs</title>
+    <style>
+      body { margin: 0; padding: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="redoc-container"></div>
+    <script src="https://cdn.redoc.ly/redoc/v2.5.0/bundles/redoc.standalone.js" integrity="sha384-4vOjrBu7SuDWXcAw1qFznVLA/sKL+0l4nn+J1HY8w7cpa6twQEYuh4b0Cwuo7CyX" crossorigin="anonymous"></script>
+    <script>
+      Redoc.init('/openapi.yaml', {
+        scrollYOffset: 0,
+        theme: {
+          colors: { primary: { main: '#4f46e5' } },
+          typography: { fontFamily: 'system-ui, -apple-system, sans-serif' },
+        },
+      }, document.getElementById('redoc-container'));
+    </script>
+  </body>
+</html>

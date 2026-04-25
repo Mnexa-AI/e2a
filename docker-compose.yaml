@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: e2a
+      POSTGRES_PASSWORD: e2a
+      POSTGRES_DB: e2a
+    # Port 5433 is exposed to the host for local-dev convenience (psql, migrations).
+    # In production, drop this `ports:` block — the e2a service connects via the
+    # internal docker network on :5432 and doesn't need host exposure.
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U e2a -d e2a"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  e2a:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    ports:
+      - "2525:2525"
+      - "8080:8080"
+    environment:
+      E2A_DATABASE_URL: "postgres://e2a:e2a@postgres:5432/e2a?sslmode=disable"
+      E2A_HMAC_SECRET: "change-me-in-production"
+    # Healthcheck is defined in the Dockerfile (HEALTHCHECK instruction)
+    # so it travels with the image. Anyone using the image — including
+    # this compose file — gets it for free.
+
+volumes:
+  pgdata:

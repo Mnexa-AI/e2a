@@ -1,0 +1,61 @@
+name: Publish TypeScript SDK
+
+on:
+  push:
+    tags:
+      - "ts-sdk-v*"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false # never cancel a running publish
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+      - run: npm install --package-lock=false
+      - run: npm run build --workspace @e2a/sdk
+      - run: npm test --workspace @e2a/sdk
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: sdks/typescript
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 24 ships with npm >= 11, which is the floor npm's trusted-publisher
+      # OIDC flow requires (docs.npmjs.com/trusted-publishers: "npm CLI 11.5.1
+      # or later and Node 22.14.0 or higher"). Node 20 + npm 10.x silently
+      # skips the OIDC handshake and surfaces a misleading 404 PUT error
+      # (npm/cli#9088, #8730).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          registry-url: "https://registry.npmjs.org"
+
+      # The job-level `working-directory: sdks/typescript` makes
+      # `npm publish` run from the package dir, but npm install + build
+      # use --workspace flags from repo root, so we override per-step.
+
+      - run: npm install --package-lock=false
+        working-directory: .
+      - run: npm run build --workspace @e2a/sdk
+        working-directory: .
+
+      - name: Publish to npm
+        run: npm publish --access public

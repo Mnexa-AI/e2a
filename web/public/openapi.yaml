@@ -1,0 +1,1259 @@
+basePath: /
+definitions:
+  Agent:
+    properties:
+      agent_mode:
+        enum:
+        - cloud
+        - local
+        example: cloud
+        type: string
+      created_at:
+        type: string
+      domain:
+        example: agents.e2a.dev
+        type: string
+      domain_verified:
+        type: boolean
+      email:
+        example: my-bot@agents.e2a.dev
+        type: string
+      hitl_enabled:
+        type: boolean
+      hitl_expiration_action:
+        enum:
+        - approve
+        - reject
+        example: reject
+        type: string
+      hitl_ttl_seconds:
+        example: 604800
+        type: integer
+      id:
+        example: ag_abc123
+        type: string
+      name:
+        example: My Bot
+        type: string
+      webhook_url:
+        type: string
+    type: object
+  ApprovePendingMessageRequest:
+    properties:
+      attachments:
+        items:
+          $ref: '#/definitions/internal_agent.Attachment'
+        type: array
+      bcc:
+        items:
+          type: string
+        type: array
+      body_html:
+        type: string
+      body_text:
+        type: string
+      cc:
+        items:
+          type: string
+        type: array
+      subject:
+        type: string
+      to:
+        items:
+          type: string
+        type: array
+    type: object
+  ApprovePendingMessageResponse:
+    properties:
+      edited:
+        type: boolean
+      message_id:
+        type: string
+      method:
+        example: smtp
+        type: string
+      provider_message_id:
+        type: string
+      status:
+        example: sent
+        type: string
+    type: object
+  DNSRecord:
+    properties:
+      host:
+        example: '@'
+        type: string
+      priority:
+        example: 10
+        type: integer
+      value:
+        example: e2a.dev
+        type: string
+    type: object
+  DNSRecords:
+    properties:
+      mx:
+        $ref: '#/definitions/DNSRecord'
+      txt:
+        $ref: '#/definitions/DNSRecord'
+    type: object
+  Domain:
+    properties:
+      created_at:
+        type: string
+      dns_records:
+        $ref: '#/definitions/DNSRecords'
+      domain:
+        example: yourdomain.com
+        type: string
+      verification_token:
+        example: e2a-verify=abc123
+        type: string
+      verified:
+        type: boolean
+      verified_at:
+        type: string
+    type: object
+  ListAgentsResponse:
+    properties:
+      agents:
+        items:
+          $ref: '#/definitions/Agent'
+        type: array
+    type: object
+  ListDomainsResponse:
+    properties:
+      domains:
+        items:
+          $ref: '#/definitions/Domain'
+        type: array
+    type: object
+  ListMessagesResponse:
+    properties:
+      messages:
+        items:
+          $ref: '#/definitions/MessageSummary'
+        type: array
+      next_token:
+        type: string
+    type: object
+  ListPendingMessagesResponse:
+    properties:
+      messages:
+        items:
+          $ref: '#/definitions/PendingMessageSummary'
+        type: array
+    type: object
+  MessageDetail:
+    properties:
+      auth_headers:
+        additionalProperties:
+          type: string
+        type: object
+      conversation_id:
+        type: string
+      created_at:
+        type: string
+      from:
+        example: alice@example.com
+        type: string
+      message_id:
+        example: msg_abc123
+        type: string
+      raw_message:
+        type: string
+      status:
+        example: read
+        type: string
+      subject:
+        example: Hello
+        type: string
+      to:
+        example: my-bot@agents.e2a.dev
+        type: string
+    type: object
+  MessageSummary:
+    properties:
+      conversation_id:
+        type: string
+      created_at:
+        example: "2025-01-15T10:30:00Z"
+        type: string
+      from:
+        example: alice@example.com
+        type: string
+      message_id:
+        example: msg_abc123
+        type: string
+      status:
+        enum:
+        - unread
+        - read
+        example: unread
+        type: string
+      subject:
+        example: Hello
+        type: string
+      to:
+        example: my-bot@agents.e2a.dev
+        type: string
+    type: object
+  PendingMessageDetail:
+    properties:
+      agent_id:
+        example: my-bot@agents.e2a.dev
+        type: string
+      approval_expires_at:
+        example: "2025-01-15T10:30:00Z"
+        type: string
+      attachments:
+        items:
+          $ref: '#/definitions/internal_agent.Attachment'
+        type: array
+      bcc:
+        items:
+          type: string
+        type: array
+      body_html:
+        type: string
+      body_text:
+        type: string
+      cc:
+        items:
+          type: string
+        type: array
+      conversation_id:
+        type: string
+      created_at:
+        type: string
+      direction:
+        example: outbound
+        type: string
+      edited:
+        type: boolean
+      email_message_id:
+        example: <orig@gmail.com>
+        type: string
+      id:
+        example: msg_abc123
+        type: string
+      method:
+        example: smtp
+        type: string
+      provider_message_id:
+        type: string
+      rejection_reason:
+        type: string
+      reviewed_at:
+        example: "2025-01-15T10:35:00Z"
+        type: string
+      status:
+        enum:
+        - sent
+        - pending_approval
+        - rejected
+        - expired_approved
+        - expired_rejected
+        example: pending_approval
+        type: string
+      subject:
+        example: 'Re: contract details'
+        type: string
+      to:
+        example:
+        - alice@example.com
+        items:
+          type: string
+        type: array
+      type:
+        enum:
+        - send
+        - reply
+        - test
+        example: send
+        type: string
+    type: object
+  PendingMessageSummary:
+    properties:
+      agent_id:
+        example: my-bot@agents.e2a.dev
+        type: string
+      approval_expires_at:
+        example: "2025-01-15T10:30:00Z"
+        type: string
+      bcc:
+        items:
+          type: string
+        type: array
+      cc:
+        items:
+          type: string
+        type: array
+      conversation_id:
+        type: string
+      created_at:
+        type: string
+      direction:
+        example: outbound
+        type: string
+      id:
+        example: msg_abc123
+        type: string
+      status:
+        enum:
+        - sent
+        - pending_approval
+        - rejected
+        - expired_approved
+        - expired_rejected
+        example: pending_approval
+        type: string
+      subject:
+        example: 'Re: contract details'
+        type: string
+      to:
+        example:
+        - alice@example.com
+        items:
+          type: string
+        type: array
+      type:
+        enum:
+        - send
+        - reply
+        - test
+        example: send
+        type: string
+    type: object
+  RegisterAgentRequest:
+    properties:
+      agent_mode:
+        type: string
+      email:
+        type: string
+      name:
+        type: string
+      slug:
+        type: string
+      webhook_url:
+        type: string
+    type: object
+  RegisterAgentResponse:
+    properties:
+      domain:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+    type: object
+  RegisterDomainRequest:
+    properties:
+      domain:
+        example: yourdomain.com
+        type: string
+    type: object
+  RejectPendingMessageRequest:
+    properties:
+      reason:
+        example: wrong recipient
+        type: string
+    type: object
+  RejectPendingMessageResponse:
+    properties:
+      message_id:
+        type: string
+      rejection_reason:
+        type: string
+      status:
+        example: rejected
+        type: string
+    type: object
+  ReplyToMessageRequest:
+    properties:
+      attachments:
+        items:
+          $ref: '#/definitions/internal_agent.Attachment'
+        type: array
+      bcc:
+        example:
+        - carol@example.com
+        items:
+          type: string
+        type: array
+      body:
+        example: Thanks for your email!
+        type: string
+      cc:
+        example:
+        - bob@example.com
+        items:
+          type: string
+        type: array
+      conversation_id:
+        type: string
+      html_body:
+        example: <p>Thanks for your email!</p>
+        type: string
+      reply_all:
+        example: false
+        type: boolean
+    type: object
+  SendEmailRequest:
+    properties:
+      attachments:
+        items:
+          $ref: '#/definitions/internal_agent.Attachment'
+        type: array
+      bcc:
+        example:
+        - carol@example.com
+        items:
+          type: string
+        type: array
+      body:
+        example: Hi Alice, this is my agent reaching out.
+        type: string
+      cc:
+        example:
+        - bob@example.com
+        items:
+          type: string
+        type: array
+      conversation_id:
+        example: conv_abc123
+        type: string
+      from:
+        example: my-bot@agents.e2a.dev
+        type: string
+      html_body:
+        example: <p>Hi Alice</p>
+        type: string
+      subject:
+        example: Hello from my agent
+        type: string
+      to:
+        example:
+        - alice@example.com
+        items:
+          type: string
+        type: array
+    type: object
+  SendEmailResponse:
+    properties:
+      approval_expires_at:
+        example: "2025-01-15T10:30:00Z"
+        type: string
+      message_id:
+        example: msg_abc123
+        type: string
+      method:
+        example: smtp
+        type: string
+      status:
+        enum:
+        - sent
+        - pending_approval
+        example: sent
+        type: string
+    type: object
+  UpdateAgentRequest:
+    properties:
+      agent_mode:
+        enum:
+        - cloud
+        - local
+        type: string
+      hitl_enabled:
+        type: boolean
+      hitl_expiration_action:
+        enum:
+        - approve
+        - reject
+        type: string
+      hitl_ttl_seconds:
+        example: 604800
+        type: integer
+      webhook_url:
+        type: string
+    type: object
+  VerifyDomainResponse:
+    properties:
+      domain:
+        example: yourdomain.com
+        type: string
+      verified:
+        type: boolean
+      verified_at:
+        type: string
+    type: object
+  internal_agent.Attachment:
+    properties:
+      content_type:
+        example: application/pdf
+        type: string
+      data:
+        description: base64-encoded
+        example: base64-encoded-content
+        type: string
+      filename:
+        example: report.pdf
+        type: string
+    type: object
+host: e2a.dev
+info:
+  contact:
+    url: https://e2a.dev
+  description: |-
+    Email for AI agents. e2a delivers emails to your agent via webhooks or WebSocket and lets your agent send emails back.
+
+    ## Authentication
+
+    All requests require your API key as a Bearer token:
+
+    ```
+    Authorization: Bearer e2a_your_api_key
+    ```
+
+    Create an API key on the API Keys page at [e2a.dev](https://e2a.dev).
+
+    ## How it works
+
+    **Cloud agents** (webhook delivery):
+    1. Register your agent and set a webhook URL
+    2. When someone emails your agent, e2a POSTs a webhook to your endpoint
+    3. Reply via the API or send new emails
+
+    **Local agents** (WebSocket delivery):
+    1. Register your agent with a slug on agents.e2a.dev
+    2. Connect via WebSocket to receive real-time notifications
+    3. Fetch full message content via the API, reply or send new emails
+  title: e2a API
+  version: "1.0"
+paths:
+  /api/v1/agents:
+    get:
+      description: Returns all agents owned by the authenticated user.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ListAgentsResponse'
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: List your registered agents
+      tags:
+      - Agents
+    post:
+      consumes:
+      - application/json
+      description: Register a new agent with a custom domain or a slug on agents.e2a.dev.
+        Use `slug` for instant onboarding (no DNS needed), or `email` for a custom
+        domain (requires domain to be registered and verified first).
+      parameters:
+      - description: Agent registration details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/RegisterAgentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/RegisterAgentResponse'
+        "400":
+          description: Invalid request
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "409":
+          description: Agent already exists
+          schema:
+            type: string
+        "429":
+          description: Rate limit exceeded
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Register a new agent
+      tags:
+      - Agents
+  /api/v1/agents/{email}:
+    delete:
+      description: Delete an agent owned by the authenticated user. The agent email
+        is cleared from any local config.
+      parameters:
+      - description: Agent email address
+        example: my-bot@agents.e2a.dev
+        in: path
+        name: email
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'status: deleted'
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "403":
+          description: Agent not owned by this user
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Delete an agent
+      tags:
+      - Agents
+    get:
+      description: Fetch details for a specific agent owned by the authenticated user.
+      parameters:
+      - description: Agent email address
+        example: my-bot@agents.e2a.dev
+        in: path
+        name: email
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Agent'
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "403":
+          description: Agent not owned by this user
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get agent details
+      tags:
+      - Agents
+    put:
+      consumes:
+      - application/json
+      description: Updates an agent you own. Fields are optional; only the ones you
+        send are applied, so callers can PATCH a single setting (for example, toggle
+        HITL on) without re-supplying the others. When changing to cloud mode, webhook_url
+        becomes required. HITL TTL is server-capped at 604800 seconds (7 days). Returns
+        the post-update agent state so callers can confirm what landed.
+      parameters:
+      - description: Agent email address
+        example: my-bot@agents.e2a.dev
+        in: path
+        name: email
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/UpdateAgentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Agent'
+        "400":
+          description: Validation error (e.g. bad agent_mode, TTL out of range)
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "403":
+          description: Agent not owned by this user
+          schema:
+            type: string
+        "404":
+          description: Agent not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Update an agent
+      tags:
+      - Agents
+  /api/v1/agents/{email}/messages:
+    get:
+      description: Fetch messages for an agent. Returns lightweight summaries (no
+        raw message content). Supports opaque token-based pagination via `page_size`
+        and `token`.
+      parameters:
+      - description: Agent email address
+        example: my-bot@agents.e2a.dev
+        in: path
+        name: email
+        required: true
+        type: string
+      - default: unread
+        description: Filter by message status
+        enum:
+        - unread
+        - read
+        - all
+        in: query
+        name: status
+        type: string
+      - default: 50
+        description: Number of messages per page (1-100)
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      - description: Opaque pagination token from a previous response's next_token
+        in: query
+        name: token
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ListMessagesResponse'
+        "400":
+          description: Invalid status, pagination token, or filter mismatch
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "404":
+          description: Agent not found or not owned by this user
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: List messages for an agent
+      tags:
+      - Email
+  /api/v1/agents/{email}/messages/{id}:
+    get:
+      description: Fetch full message content including raw RFC 2822 email and auth
+        headers. If the message is unread, this request marks it as read.
+      parameters:
+      - description: Agent email address
+        example: my-bot@agents.e2a.dev
+        in: path
+        name: email
+        required: true
+        type: string
+      - description: Message ID
+        example: msg_abc123
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/MessageDetail'
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "404":
+          description: Message not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get a single message
+      tags:
+      - Email
+  /api/v1/agents/{email}/messages/{id}/reply:
+    post:
+      consumes:
+      - application/json
+      description: Reply to a previously received email using its message ID. The
+        reply is sent as a real email back to the original sender, with proper threading
+        headers (In-Reply-To, References). Pass conversation_id to tag the reply with
+        your thread ID — the recipient will see it on their inbound payload. Rate
+        limited to 60 sends per agent per minute. When the owning agent has HITL enabled,
+        the server returns 202 Accepted and status="pending_approval" instead of sending
+        immediately.
+      parameters:
+      - description: Agent email address
+        example: my-bot@agents.e2a.dev
+        in: path
+        name: email
+        required: true
+        type: string
+      - description: Message ID from the inbound payload
+        example: msg_abc123
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Reply content
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/ReplyToMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Reply sent immediately
+          schema:
+            $ref: '#/definitions/SendEmailResponse'
+        "202":
+          description: Reply held for human approval
+          schema:
+            $ref: '#/definitions/SendEmailResponse'
+        "400":
+          description: Missing body
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "403":
+          description: Agent domain not verified
+          schema:
+            type: string
+        "404":
+          description: Message not found or does not belong to this agent
+          schema:
+            type: string
+        "429":
+          description: Rate limit exceeded
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Reply to an inbound email
+      tags:
+      - Email
+  /api/v1/agents/{email}/test:
+    post:
+      description: Send a test email from the platform to the agent's own address.
+        Useful for verifying inbound delivery is wired up correctly. Requires the
+        agent's domain to be verified. If the agent has HITL enabled the message is
+        held for approval and the response is 202.
+      parameters:
+      - description: Agent email address
+        example: my-bot@agents.e2a.dev
+        in: path
+        name: email
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: status and message_id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "202":
+          description: message_id (held for HITL approval)
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "403":
+          description: Agent domain not verified
+          schema:
+            type: string
+        "404":
+          description: Agent not found
+          schema:
+            type: string
+        "500":
+          description: Failed to send test email
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Send a test email
+      tags:
+      - Agents
+  /api/v1/domains:
+    get:
+      description: Returns all domains owned by the authenticated user.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ListDomainsResponse'
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: List your domains
+      tags:
+      - Domains
+    post:
+      consumes:
+      - application/json
+      description: Register a custom domain for use with agents. Returns DNS records
+        to configure and a verification token.
+      parameters:
+      - description: Domain to register
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/RegisterDomainRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/Domain'
+        "400":
+          description: Invalid request
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Register a domain
+      tags:
+      - Domains
+  /api/v1/domains/{domain}:
+    delete:
+      description: Delete a domain. Fails if agents still exist on this domain.
+      parameters:
+      - description: Domain name
+        in: path
+        name: domain
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: Domain deleted
+        "400":
+          description: Agents still exist on this domain
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "404":
+          description: Domain not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Delete a domain
+      tags:
+      - Domains
+  /api/v1/domains/{domain}/verify:
+    post:
+      description: Verify domain ownership by checking for the expected TXT record
+        in DNS.
+      parameters:
+      - description: Domain name
+        in: path
+        name: domain
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/VerifyDomainResponse'
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "404":
+          description: Domain not found
+          schema:
+            type: string
+        "412":
+          description: TXT record not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Verify domain ownership
+      tags:
+      - Domains
+  /api/v1/messages:
+    get:
+      description: Returns all pending_approval messages across every agent owned
+        by the authenticated user, sorted by expiring-soonest first. Body and attachments
+        are omitted — use the detail endpoint for full content. This is the only status
+        value supported on this endpoint today.
+      parameters:
+      - description: Filter by status (only pending_approval is supported)
+        enum:
+        - pending_approval
+        in: query
+        name: status
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ListPendingMessagesResponse'
+        "400":
+          description: Unsupported status
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: List messages waiting for HITL approval
+      tags:
+      - HITL
+  /api/v1/messages/{id}:
+    get:
+      description: Returns the full pending-approval detail — recipients, subject,
+        body, attachments, and HITL metadata — for one of the authenticated user's
+        outbound messages. After terminal transitions (sent, rejected, expired_*)
+        the server scrubs body columns, so this endpoint returns the headers without
+        content for non-pending rows.
+      parameters:
+      - description: Message ID
+        example: msg_abc123
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/PendingMessageDetail'
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "404":
+          description: Message not found or not owned by this user
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Fetch a held outbound message
+      tags:
+      - HITL
+  /api/v1/messages/{id}/approve:
+    post:
+      consumes:
+      - application/json
+      description: Sends a pending-approval message via the upstream SMTP relay and
+        transitions it to `sent`. The request body is optional — passing any subset
+        of subject / body_text / body_html / to / cc / bcc / attachments overrides
+        the stored draft before send. An empty body approves the draft as-is. On successful
+        send, the server scrubs body columns and records the provider-assigned Message-ID.
+      parameters:
+      - description: Message ID
+        example: msg_abc123
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Optional field overrides
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/ApprovePendingMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ApprovePendingMessageResponse'
+        "400":
+          description: Invalid request or SMTP validation error
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "403":
+          description: Agent domain not verified
+          schema:
+            type: string
+        "404":
+          description: Message not found or not owned by this user
+          schema:
+            type: string
+        "409":
+          description: Message is no longer pending approval
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Approve a held outbound message
+      tags:
+      - HITL
+  /api/v1/messages/{id}/reject:
+    post:
+      consumes:
+      - application/json
+      description: Transitions a pending-approval message to `rejected`; the message
+        is never sent. Body columns are scrubbed. An optional reason is stored for
+        audit purposes. Returns 409 if the message has already been sent, rejected,
+        or expired.
+      parameters:
+      - description: Message ID
+        example: msg_abc123
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Optional rejection reason
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/RejectPendingMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/RejectPendingMessageResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "404":
+          description: Message not found or not owned by this user
+          schema:
+            type: string
+        "409":
+          description: Message is no longer pending approval
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Reject a held outbound message
+      tags:
+      - HITL
+  /api/v1/send:
+    post:
+      consumes:
+      - application/json
+      description: Send an email from your agent to any recipient. Your agent must
+        be domain-verified. Messages are delivered via SMTP. Rate limited to 60 sends
+        per agent per minute. Pass conversation_id to tag the message as part of a
+        thread. When the owning agent has HITL (human-in-the-loop) enabled, the server
+        responds with 202 Accepted and status="pending_approval" instead — the message
+        is held until a reviewer approves it via the dashboard, CLI, or magic link,
+        or until the approval TTL expires and the configured expiration action fires.
+      parameters:
+      - description: Email to send
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/SendEmailRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Message sent immediately
+          schema:
+            $ref: '#/definitions/SendEmailResponse'
+        "202":
+          description: Message held for human approval
+          schema:
+            $ref: '#/definitions/SendEmailResponse'
+        "400":
+          description: Missing required fields
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "403":
+          description: Agent domain not verified
+          schema:
+            type: string
+        "429":
+          description: Rate limit exceeded
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Send a new email
+      tags:
+      - Email
+securityDefinitions:
+  BearerAuth:
+    description: 'API key from the API Keys page (starts with `e2a_`). Format: `Bearer
+      e2a_your_key`'
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
