@@ -102,6 +102,12 @@ describe("Navigation auth state", () => {
     expect(screen.queryByText("API Keys")).not.toBeInTheDocument();
     expect(screen.queryByText("Sign out")).not.toBeInTheDocument();
   });
+
+  it("links the GitHub repo from the header", () => {
+    render(<Home />);
+    const githubLink = screen.getByRole("link", { name: /view source on github/i });
+    expect(githubLink).toHaveAttribute("href", "https://github.com/Mnexa-AI/e2a");
+  });
 });
 
 describe("Footer", () => {
@@ -110,7 +116,15 @@ describe("Footer", () => {
     expect(screen.getByText("API Docs")).toBeInTheDocument();
     expect(screen.getByText("Claude Skill")).toBeInTheDocument();
     expect(screen.getByText("Feedback")).toBeInTheDocument();
-    expect(screen.getByText("MIT License")).toBeInTheDocument();
+    expect(screen.getByText("Apache 2.0")).toBeInTheDocument();
+  });
+
+  it("links the GitHub repo from the footer", () => {
+    render(<Home />);
+    const githubLink = screen
+      .getAllByRole("link")
+      .find((l) => l.textContent === "GitHub" && l.getAttribute("href") === "https://github.com/Mnexa-AI/e2a");
+    expect(githubLink).toBeInTheDocument();
   });
 
   it("renders SDK and CLI footer links", () => {
