@@ -262,7 +262,9 @@ describe("login", () => {
 
     // Confirm the manual-fallback hint is always printed, not just when
     // openBrowser errors. Headless boxes/SSH/containers depend on this.
-    const stderrCalls = mockStderr.mock.calls.map((c) => c[0]).join("");
+    const stderrCalls = mockStderr.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join("");
     expect(stderrCalls).toMatch(/If it doesn't open, visit:/);
     expect(stderrCalls).toMatch(/\/api\/auth\/login/);
   });

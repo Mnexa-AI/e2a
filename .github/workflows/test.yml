@@ -171,6 +171,12 @@ jobs:
         with:
           go-version: "1.26"
           cache: true
+      # swag invokes `go list` internally to walk the dependency tree;
+      # without modules pre-fetched it errors with "cannot find all
+      # dependencies" on a cold cache. Locally the cache is warm, so this
+      # only ever bites in CI.
+      - name: Pre-fetch Go modules for swag
+        run: go mod download
       - name: Install swag
         run: go install github.com/swaggo/swag/cmd/swag@v1.16.4
       - name: Check spec is up to date
