@@ -57,10 +57,11 @@ cd e2a
 docker compose up -d
 ```
 
-Postgres comes up first (migrations run automatically), then e2a. The server listens on:
+Postgres comes up first (migrations run automatically), then the API server, then the dashboard. Three host ports:
 
 - `:8080` — HTTP API
 - `:2525` — SMTP relay
+- `:3000` — Dashboard (Caddy + Next.js, proxies `/api/*` to the API server)
 
 Health check:
 
@@ -68,6 +69,8 @@ Health check:
 curl http://localhost:8080/api/health
 # {"status":"ok"}
 ```
+
+Open `http://localhost:3000` in a browser to view the dashboard. Sign-in requires Google OAuth credentials configured in `config.yaml`; for an API-only smoke test you can skip the dashboard and use the bootstrap flow below.
 
 Create your first user and API key (no OAuth required):
 

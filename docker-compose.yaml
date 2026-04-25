@@ -32,6 +32,12 @@ services:
     environment:
       E2A_DATABASE_URL: "postgres://e2a:e2a@postgres:5432/e2a?sslmode=disable"
       E2A_HMAC_SECRET: "change-me-in-production"
+      # Demo shared domain so the README's slug-based `agents register`
+      # example works without DNS setup. agents.localhost never resolves
+      # externally, so no real mail will arrive — fine for an API smoke
+      # test. Production deployments override this to a real mail
+      # domain (or unset it to disable slug registration entirely).
+      E2A_SHARED_DOMAIN: "agents.localhost"
     # Healthcheck is defined in the Dockerfile (HEALTHCHECK instruction)
     # so it travels with the image. Anyone using the image — including
     # this compose file — gets it for free.
