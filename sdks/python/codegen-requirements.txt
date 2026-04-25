@@ -11,11 +11,11 @@ inflect==7.5.0
 isort==8.0.1
 more-itertools==10.8.0
 mypy_extensions==1.1.0
-packaging==26.0
-pathspec==1.0.4
+packaging==26.2
+pathspec==1.1.0
 platformdirs==4.9.4
-pydantic==2.12.5
-pydantic_core==2.41.5
+pydantic==2.13.3
+pydantic_core==2.46.3
 pytokens==0.4.1
 typeguard==4.5.1
 typing-inspection==0.4.2
