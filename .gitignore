@@ -1,0 +1,38 @@
+/bin/
+/e2a
+*.exe
+.env
+.DS_Store
+config.local.yaml
+/config.yaml
+client_secret_*.json
+/node_modules/
+
+# Stray Next.js build output if run from repo root instead of web/
+/.next/
+/out/
+
+# Web app
+web/node_modules/
+web/.next/
+web/out/
+web/.env.local
+
+# CLI
+cli/node_modules/
+cli/dist/
+
+# TypeScript SDK
+sdks/typescript/node_modules/
+sdks/typescript/dist/
+
+# Python SDK
+sdks/python/.venv/
+sdks/python/.venv-codegen/
+sdks/python/__pycache__/
+sdks/python/src/*.egg-info/
+sdks/python/dist/
+sdks/python/.pytest_cache/
+*.pyc
+.gstack/
+.claude/

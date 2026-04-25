@@ -1,0 +1,136 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+e2a is an authenticated email gateway for AI agents. It provides SMTP relay with SPF/DKIM verification, WebSocket real-time delivery, webhook delivery, a CLI, TypeScript and Python SDKs, and a Next.js web dashboard. Polyglot monorepo: Go (backend), TypeScript (CLI + SDK), Python (SDK), React/Next.js (web).
+
+## Common Commands
+
+### Go backend
+```bash
+make build              # go build -o bin/e2a ./cmd/e2a
+make run                # build + run (uses config.yaml; copy from config.example.yaml first)
+make test               # all Go tests (needs Postgres on :5433)
+make test-unit          # Go unit tests only (no DB needed)
+make test-integration   # Go integration tests (needs Postgres on :5433)
+make test-e2e           # Go e2e tests (needs Postgres on :5433)
+make docker-up          # start local Postgres via docker compose
+make migrate            # apply SQL migrations to local DB
+```
+
+Go tests that need the database use `E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable"`.
+
+### TypeScript SDK & CLI (npm workspaces)
+```bash
+npm install --package-lock=false           # install all workspace deps
+npm run build --workspace @e2a/sdk         # build SDK (must build before CLI)
+npm test --workspace @e2a/sdk              # SDK unit tests (vitest)
+npm run test:contract --workspace @e2a/sdk # SDK contract tests (needs live server)
+npm test --workspace @e2a/cli              # CLI tests (vitest)
+npm run build --workspace @e2a/cli         # build CLI
+```
+
+### Python SDK
+```bash
+cd sdks/python
+pip install -e ".[dev]"     # install with dev deps
+pytest tests/ -v            # unit tests
+pytest tests/test_contract.py -v  # contract tests (needs live server)
+```
+
+### Web dashboard
+```bash
+cd web
+npm install
+npm run dev     # dev server (proxies /api/* to localhost:8080)
+npm test        # Jest tests
+npm run lint    # ESLint
+npm run build   # static export
+```
+
+### Code generation
+```bash
+make swagger        # regenerate OpenAPI spec from Go annotations (needs swag)
+make generate-sdk   # regenerate TS + Python types from OpenAPI spec
+make generate       # both of the above
+```
+
+After changing API annotations in Go code, run `make generate` and commit the regenerated files in `sdks/typescript/src/v1/generated/` and `sdks/python/src/e2a/v1/generated/`. CI checks that generated code is up to date.
+
+## Architecture
+
+### Go backend (`cmd/e2a/` + `internal/`)
+
+The main server (`cmd/e2a/main.go`) runs an SMTP relay and HTTP API. Key internal packages:
+
+- **relay** — SMTP server, receives inbound email
+- **emailauth** — SPF/DKIM verification on inbound messages
+- **agent** — Agent CRUD, API endpoints, routes
+- **identity** — Domain ownership verification and storage
+- **headers** — HMAC-SHA256 signing of `X-E2A-Auth-*` headers
+- **webhook** — HTTP POST delivery to agent endpoints with retry
+- **ws** — WebSocket hub for real-time message push
+- **outbound** — Compose and send emails via upstream SMTP (SES)
+- **billing** — Stripe integration, usage metering
+- **auth** — API key authentication
+- **config** — YAML config + env var overrides
+
+Inbound flow: SMTP → emailauth (SPF/DKIM) → agent lookup → headers signing → webhook or WebSocket delivery.
+
+### SDK type generation pipeline
+
+```
+Go annotations → swag → web/public/openapi.yaml (Swagger 2.0)
+  → swagger2openapi → /tmp/e2a-openapi3.yaml (OpenAPI 3.0)
+  → openapi-typescript → sdks/typescript/src/v1/generated/types.ts
+  → datamodel-codegen  → sdks/python/src/e2a/v1/generated/
+```
+
+### TypeScript SDK (`sdks/typescript/`)
+
+Layered: generated types → `E2AApi` (raw HTTP) → `E2AClient` (high-level with `.parse()`, `.reply()`). WebSocket support in `v1/ws.ts`.
+
+### CLI (`cli/`)
+
+Commands: login, agents, domains, inbox, read, reply, send, listen, config. Config stored in `~/.e2a/config.json`. The `listen` command supports `--forward` mode for proxying WebSocket messages to local HTTP endpoints.
+
+### Web (`web/`)
+
+Next.js 16 App Router with Tailwind CSS 4. In dev mode, rewrites `/api/*` to `localhost:8080`. Production builds as static export.
+
+### Contract tests
+
+Both TS and Python SDKs have contract tests that run against a real e2a server. The `cmd/e2a-contract-server` binary spins up a test instance with Postgres. CI handles this automatically.
+
+## Publishing
+
+### Python SDK
+Triggered by tag push (`python-v*`).
+1. Bump `version` in `sdks/python/pyproject.toml`
+2. Commit and push to main
+3. `git tag python-v<VERSION> && git push origin python-v<VERSION>`
+
+### TypeScript SDK
+Triggered by tag push (`ts-sdk-v*`) or `workflow_dispatch`.
+1. Bump `version` in `sdks/typescript/package.json`
+2. `npm run build --workspace @e2a/sdk`
+3. Commit and push to main
+4. `git tag ts-sdk-v<VERSION> && git push origin ts-sdk-v<VERSION>`
+
+### CLI
+Triggered by GitHub release publish or `workflow_dispatch`.
+1. Bump `version` in `cli/package.json`
+2. `npm run build --workspace @e2a/cli`
+3. Commit and push to main
+4. `gh workflow run "Publish CLI" --ref main`
+
+## Key Conventions
+
+- **npm workspaces**: root `package.json` declares `cli` and `sdks/typescript` as workspaces. Always use `--workspace` flag for workspace commands. Use `--package-lock=false` for install.
+- **Go module**: `github.com/Mnexa-AI/e2a`, Go 1.25
+- **Go test tiers**: `test-unit` needs no DB. `test-integration` needs Postgres (runs identity/agent packages). `test-e2e` uses build tag `integration` and runs `internal/e2e/`. `make test` runs everything (including e2e) with `-tags integration -p 1`.
+- **Schema changes**: when changing a table shape, add or update DB-backed tests for every package that writes direct SQL against that table. Higher-level e2e tests are not enough. Our migration helper is idempotent and will not automatically catch old query assumptions if runtime SQL drifts from the redesigned schema.
+- **Postgres**: local dev DB runs on port 5433 (not 5432) via docker compose.
+- **ID format**: resources use `{type}_{random}` IDs (e.g., `msg_abc123`).

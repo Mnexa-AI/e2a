@@ -1,0 +1,162 @@
+import { getPost } from "../posts";
+
+export const post = getPost("human-in-the-loop-for-agent-email");
+
+export const metadata = {
+  title: { absolute: `${post.title} — e2a` },
+  description: post.description,
+  alternates: { canonical: `/blog/${post.slug}` },
+  openGraph: {
+    title: post.title,
+    description: post.description,
+    url: `https://e2a.dev/blog/${post.slug}`,
+    type: "article",
+    publishedTime: new Date(post.date + "T00:00:00Z").toISOString(),
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: post.title,
+    description: post.description,
+  },
+};
+
+<div style={{ fontSize: 11, color: "#A89A8A", fontFamily: "'IBM Plex Mono', monospace", marginBottom: 6 }}>
+  {new Date(post.date + "T00:00:00Z").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })} · {post.readingMinutes} min read
+</div>
+
+# Human-in-the-loop: approve before your agent hits send
+
+Giving your AI agent an email address is a quietly big step. It means your agent can now reach your customers, your vendors, your boss — the same people you reach. That's the point. It's also the part that makes even the most bullish builder hesitate the first time.
+
+We heard a version of the same question from early beta users:
+
+> I want my agent to send email. I don't want my agent to send *that* email.
+
+Today we're shipping the answer: **human-in-the-loop approval**. It's a per-agent switch that holds outbound messages until you approve them — and adds almost nothing to the rest of the flow when it's off.
+
+## What gets held
+
+When an agent has HITL on, every outbound path pauses:
+
+- Fresh sends from `POST /api/v1/send`
+- Replies to inbound mail from `POST /api/v1/.../reply`
+- Test sends from the dashboard
+
+The API still accepts the request — it just responds `202 Accepted` with `status: "pending_approval"` instead of the usual `200 OK` + `"sent"`. The message lands in a holding table with a TTL; your SDK call returns immediately so the rest of your agent's logic doesn't block.
+
+Nothing changes for agents that don't have HITL on. Same 200, same SES delivery, same latency.
+
+## How you approve
+
+You get three entry points.
+
+### The email
+
+As soon as a message lands in pending state, the platform emails the account owner. The email carries the subject, recipient list, and expiration time — but **not the body**. Sensitive draft content never leaves our systems by email; it only appears on a token-gated review page.
+
+The email has two buttons: **Review & approve** and **Review & reject**.
+
+### The confirmation page
+
+Clicking a button takes you to a one-page, no-JavaScript confirmation view. Full body, recipients, subject, attachments — plus a single button to commit the action. The "click the link in the email, see a form, click the button" split protects you from Gmail, Outlook Safe Links, or corporate mail gateways that preview URLs (they'd see the page, not the side effect). The token is single-action (an approve token can't be redeemed at reject) and short-lived.
+
+### The dashboard
+
+Or skip the email entirely. Go to **Dashboard → Pending**:
+
+- List view sorted by soonest-expiring first
+- Click any row to open the edit form
+- Change subject, recipients, body, HTML — whatever
+- Approve with edits (the server records `edited: true` so you have an audit trail) or reject with an optional reason
+
+Dashboard edits go through the same `POST /api/v1/messages/{id}/approve` endpoint as everything else; edits are sent as a field-diff so the `edited` flag only flips when you actually changed something.
+
+### The CLI
+
+Prefer a terminal?
+
+```bash
+# list what's waiting
+e2a pending list
+
+# inspect one
+e2a pending show msg_abc123
+
+# approve as-is
+e2a pending approve msg_abc123
+
+# approve with edits — opens $EDITOR
+e2a pending approve msg_abc123 --edit
+
+# reject with a reason
+e2a pending reject msg_def456 --reason "wrong tone"
+```
+
+Same permissions, same endpoints, same audit trail.
+
+## Turning it on
+
+One command:
+
+```bash
+e2a agents update my-agent --hitl \
+  --hitl-ttl 3600 \
+  --hitl-expiration-action reject
+```
+
+`--hitl-ttl` sets how long a message stays pending before the platform finalizes it automatically (capped at 7 days). `--hitl-expiration-action` decides what that finalization looks like:
+
+- `reject` — after TTL, the message is dropped. Safest default; matches "if I don't look in an hour, assume I didn't want this sent."
+- `approve` — after TTL, the message goes out automatically. Useful for `e2a agents update my-agent --hitl --hitl-ttl 30 --hitl-expiration-action approve` — a 30-second review window gives you a "reject undo" but keeps the agent responsive.
+
+Or toggle from the dashboard: **Agents → (your agent) → HITL → Edit**.
+
+## What happens if you ignore it
+
+A background worker sweeps every minute. It looks for rows whose `approval_expires_at` is in the past and applies the agent's configured expiration action. Rows hit the state you chose (`expired_approved` or `expired_rejected`) and their body is scrubbed from storage. Multi-instance deploys use `FOR UPDATE SKIP LOCKED` so two workers can't race on the same row.
+
+If the auto-approve send itself fails (SES down, for example), the row transitions to `expired_rejected` with the error recorded as the rejection reason rather than looping forever.
+
+## Retention, concretely
+
+Enabling HITL stores the full composed message — subject, body, HTML, attachments — in Postgres up to `hitl_ttl_seconds`. On every terminal transition (sent, rejected, expired_*) the server immediately scrubs those columns to NULL. Headers and metadata stay for the normal 30-day message-TTL window; bodies do not.
+
+TTL is server-capped at 604800 seconds (7 days) so the maximum exposure is bounded regardless of agent config. And, again: the notification email carries recipients and subject only. Body content stays server-side, behind the token-gated confirmation page.
+
+## What I'd use it for today
+
+- **First deploy of any new agent.** Turn HITL on with a 7-day TTL, auto-reject on expiry. Every outbound gets your eyes before going out. Once you've approved enough to trust the behavior, shorten the TTL or turn it off.
+- **High-stakes replies.** A support agent might auto-reply to 95% of inbound with HITL off, but route "anything mentioning refunds" through a higher-care path with HITL on.
+- **Weekend / overnight review.** Set a 12-hour TTL with auto-approve so your agent stays responsive but anything truly off-brand gets caught if you check email before the window closes.
+- **Staging vs production.** Your dev environment runs with HITL on; prod runs with it off once the behavior is proven.
+
+## The API surface
+
+Every action is mirrored across the dashboard, CLI, and API. If you want to build your own approval UI:
+
+- `GET /api/v1/messages?status=pending_approval` — list pending across all your agents
+- `GET /api/v1/messages/{id}` — full detail (body included while pending)
+- `POST /api/v1/messages/{id}/approve` — optional body overrides
+- `POST /api/v1/messages/{id}/reject` — optional reason
+- `PUT /api/v1/agents/{email}` — toggle HITL on/off + configure TTL and expiration action
+
+Full spec in the [API reference](/api-docs).
+
+## Try it
+
+Off by default. Toggle it on one agent, send a message to yourself, and watch the flow end-to-end:
+
+```bash
+# from a fresh shell with the CLI installed
+e2a agents update my-agent --hitl --hitl-ttl 3600
+e2a send --to you@yourdomain.com --subject "test" --body "anyone home?"
+# → Holding for approval: msg_abc123
+```
+
+Check your inbox for the approval email. Click through, look at the confirmation page, approve. The message shows up in the recipient's inbox a second later.
+
+Then turn it off and watch the same `send` command return `sent` in one shot.
+
+That's the whole feature. Per-agent, reversible, opt-in.
+
+If you've been holding back on letting your agent send real mail to real people — this is the switch. [Enable it on an agent](/dashboard) and let us know how it goes.

@@ -1,0 +1,42 @@
+# Copy to config.yaml and edit for your deployment.
+# Secrets should be set via env vars (E2A_*) — see README "Configuration".
+
+env: "development"  # Set to "production" to enforce TLS, HTTPS webhooks, and HMAC secret strength checks
+
+# Optional. When set, users can register agents by slug (no DNS setup required)
+# and the server provisions <slug>@<shared_domain>. Leave empty on a self-host
+# that doesn't operate a shared mail domain — every agent then needs a custom
+# domain that the user verifies via DNS. The shared domain itself becomes
+# reserved (cannot be claimed as a custom domain).
+shared_domain: ""
+
+smtp:
+  listen_addr: ":2525"
+  domain: "example.com"  # the domain whose MX record points at this relay
+  # tls_cert: "/path/to/cert.pem"
+  # tls_key: "/path/to/key.pem"
+
+http:
+  listen_addr: ":8080"
+  public_url: "http://localhost:8080"  # externally visible base URL (e.g. https://e2a.example.com); required for HITL magic-link emails
+
+database:
+  url: "postgres://e2a:e2a@localhost:5433/e2a?sslmode=disable"
+
+oauth:
+  google_client_id: ""
+  google_client_secret: ""
+  redirect_url: "http://localhost:3000/api/auth/callback"
+
+signing:
+  # Generate with: openssl rand -hex 32
+  # Production refuses to start with this placeholder or with anything < 32 bytes.
+  hmac_secret: "change-me-in-production"
+
+outbound_smtp:
+  host: ""          # e.g. "email-smtp.us-east-1.amazonaws.com" for AWS SES
+  port: 587
+  username: ""      # upstream SMTP username (from IAM credentials for SES)
+  password: ""      # upstream SMTP password
+  from_domain: "relay.example.com"  # the From: domain for outbound mail (must be DKIM-signed by your upstream)
+

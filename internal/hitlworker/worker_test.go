@@ -1,0 +1,295 @@
+package hitlworker_test
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/Mnexa-AI/e2a/internal/usage"
+	"github.com/Mnexa-AI/e2a/internal/config"
+	"github.com/Mnexa-AI/e2a/internal/hitlworker"
+	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/outbound"
+	"github.com/Mnexa-AI/e2a/internal/testutil"
+)
+
+// setupWorker wires a worker + fake SMTP on a fresh test database. Returns
+// the worker, the shared store, the underlying pool (for backdating
+// expirations in tests), and the smtpDone accessor for asserting what
+// reached SMTP.
+func setupWorker(t *testing.T) (
+	*hitlworker.Worker,
+	*identity.Store,
+	*pgxpool.Pool,
+	func() []testutil.SMTPMessage,
+) {
+	t.Helper()
+	smtpAddr, smtpDone := testutil.FakeSMTPServer(t)
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	smtpRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{Host: smtpAddr.Host, Port: smtpAddr.Port})
+	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
+	w := hitlworker.New(store, sender, usage.NewNoopUsageTracker())
+	return w, store, pool, smtpDone
+}
+
+func prepareAgent(t *testing.T, store *identity.Store, slug, expirationAction string) *identity.AgentIdentity {
+	t.Helper()
+	ctx := context.Background()
+	user, err := store.CreateOrGetUser(ctx, "owner-"+slug+"@example.com", "Owner", "google-"+slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ClaimOrCreateDomain(ctx, slug+".example.com", user.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.VerifyDomain(ctx, slug+".example.com", user.ID); err != nil {
+		t.Fatal(err)
+	}
+	a, err := store.CreateAgent(ctx, "bot@"+slug+".example.com", slug+".example.com", "", "https://example.com/webhook", "", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateAgentHITL(ctx, a.ID, user.ID, true, identity.HITLDefaultTTLSeconds, expirationAction); err != nil {
+		t.Fatal(err)
+	}
+	refreshed, err := store.GetAgentByID(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return refreshed
+}
+
+// backdateExpiry rewinds a pending row's approval_expires_at into the past
+// so the worker's expired-query picks it up without real-time sleeps.
+func backdateExpiry(t *testing.T, pool *pgxpool.Pool, messageID string) {
+	t.Helper()
+	_, err := pool.Exec(context.Background(),
+		`UPDATE messages SET approval_expires_at = $1 WHERE id = $2`,
+		time.Now().Add(-5*time.Minute), messageID)
+	if err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+}
+
+func TestWorkerAutoRejectsExpiredPending(t *testing.T) {
+	w, store, pool, smtpDone := setupWorker(t)
+	ctx := context.Background()
+
+	agent := prepareAgent(t, store, "auto-reject", identity.HITLExpirationReject)
+	msg, err := store.CreatePendingOutboundMessage(ctx, agent.ID,
+		[]string{"alice@example.com"}, nil, nil,
+		"Held", "body", "<p>html</p>", nil,
+		"send", "", "", 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backdateExpiry(t, pool, msg.ID)
+
+	w.RunOnce(ctx)
+
+	if msgs := smtpDone(); len(msgs) != 0 {
+		t.Fatalf("SMTP should not be hit on auto-reject, got %d messages", len(msgs))
+	}
+
+	var status string
+	var reason, bodyText, bodyHTML *string
+	err = pool.QueryRow(ctx,
+		`SELECT status, rejection_reason, body_text, body_html FROM messages WHERE id = $1`,
+		msg.ID,
+	).Scan(&status, &reason, &bodyText, &bodyHTML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != identity.MessageStatusExpiredRejected {
+		t.Errorf("status = %q, want %q", status, identity.MessageStatusExpiredRejected)
+	}
+	if reason == nil || *reason != "ttl_expired" {
+		t.Errorf("reason = %v, want 'ttl_expired'", reason)
+	}
+	if bodyText != nil || bodyHTML != nil {
+		t.Errorf("body columns not scrubbed: text=%v html=%v", bodyText, bodyHTML)
+	}
+}
+
+func TestWorkerAutoApprovesExpiredPending(t *testing.T) {
+	w, store, pool, smtpDone := setupWorker(t)
+	ctx := context.Background()
+
+	agent := prepareAgent(t, store, "auto-approve", identity.HITLExpirationApprove)
+	msg, _ := store.CreatePendingOutboundMessage(ctx, agent.ID,
+		[]string{"alice@example.com"}, nil, nil,
+		"Auto-send subject", "plain body", "<p>html body</p>", nil,
+		"send", "", "", 60)
+	backdateExpiry(t, pool, msg.ID)
+
+	w.RunOnce(ctx)
+
+	msgs := smtpDone()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 SMTP message, got %d", len(msgs))
+	}
+	if msgs[0].To != "alice@example.com" {
+		t.Errorf("SMTP To = %q", msgs[0].To)
+	}
+	if !strings.Contains(msgs[0].Data, "Auto-send subject") {
+		t.Errorf("missing subject in SMTP body:\n%s", msgs[0].Data)
+	}
+	if !strings.Contains(msgs[0].Data, "plain body") {
+		t.Errorf("missing plain body in SMTP:\n%s", msgs[0].Data)
+	}
+
+	var status, providerID string
+	var bodyText *string
+	err := pool.QueryRow(ctx,
+		`SELECT status, provider_message_id, body_text FROM messages WHERE id = $1`,
+		msg.ID,
+	).Scan(&status, &providerID, &bodyText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != identity.MessageStatusExpiredApproved {
+		t.Errorf("status = %q, want %q", status, identity.MessageStatusExpiredApproved)
+	}
+	if providerID == "" {
+		t.Error("provider_message_id should be populated after auto-send")
+	}
+	if bodyText != nil {
+		t.Errorf("body_text not scrubbed: %v", bodyText)
+	}
+}
+
+func TestWorkerAutoApproveSendFailureFallsBackToRejected(t *testing.T) {
+	// Sender pointed at a bogus port so SMTP dial fails; still share the DB
+	// and store with the fake SMTP from setupWorker to keep setup terse.
+	_, store, pool, _ := setupWorker(t)
+	ctx := context.Background()
+
+	badRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{Host: "127.0.0.1", Port: 1})
+	badSender := outbound.NewSender(badRelay, "test.e2a.dev")
+	w := hitlworker.New(store, badSender, usage.NewNoopUsageTracker())
+
+	agent := prepareAgent(t, store, "auto-approve-fail", identity.HITLExpirationApprove)
+	msg, _ := store.CreatePendingOutboundMessage(ctx, agent.ID,
+		[]string{"alice@example.com"}, nil, nil,
+		"x", "body", "", nil, "send", "", "", 60)
+	backdateExpiry(t, pool, msg.ID)
+
+	w.RunOnce(ctx)
+
+	var status string
+	var reason, bodyText *string
+	err := pool.QueryRow(ctx,
+		`SELECT status, rejection_reason, body_text FROM messages WHERE id = $1`,
+		msg.ID,
+	).Scan(&status, &reason, &bodyText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != identity.MessageStatusExpiredRejected {
+		t.Errorf("status = %q, want %q (send failure should fall back to rejected)",
+			status, identity.MessageStatusExpiredRejected)
+	}
+	if reason == nil || !strings.Contains(*reason, "auto-approve send failed") {
+		t.Errorf("reason = %v, want containing 'auto-approve send failed'", reason)
+	}
+	if bodyText != nil {
+		t.Errorf("body_text not scrubbed: %v", bodyText)
+	}
+}
+
+func TestWorkerAutoApproveUnverifiedAgentRejects(t *testing.T) {
+	w, store, pool, smtpDone := setupWorker(t)
+	ctx := context.Background()
+
+	// Build an agent with HITL=approve but on an unverified domain.
+	user, _ := store.CreateOrGetUser(ctx, "owner-unv@example.com", "Owner", "google-worker-unv")
+	store.ClaimOrCreateDomain(ctx, "unv.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "bot@unv.example.com", "unv.example.com", "", "https://example.com/webhook", "", user.ID)
+	if err := store.UpdateAgentHITL(ctx, a.ID, user.ID, true, identity.HITLDefaultTTLSeconds, identity.HITLExpirationApprove); err != nil {
+		t.Fatal(err)
+	}
+
+	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
+		[]string{"alice@example.com"}, nil, nil,
+		"x", "body", "", nil, "send", "", "", 60)
+	backdateExpiry(t, pool, msg.ID)
+
+	w.RunOnce(ctx)
+
+	if msgs := smtpDone(); len(msgs) != 0 {
+		t.Fatalf("SMTP should not be hit for unverified agent, got %d", len(msgs))
+	}
+	var status string
+	var reason *string
+	pool.QueryRow(ctx,
+		`SELECT status, rejection_reason FROM messages WHERE id = $1`, msg.ID,
+	).Scan(&status, &reason)
+	if status != identity.MessageStatusExpiredRejected {
+		t.Errorf("status = %q, want expired_rejected", status)
+	}
+	if reason == nil || !strings.Contains(*reason, "not verified") {
+		t.Errorf("reason = %v, want containing 'not verified'", reason)
+	}
+}
+
+func TestWorkerSkipsFreshPending(t *testing.T) {
+	w, store, pool, smtpDone := setupWorker(t)
+	ctx := context.Background()
+
+	agent := prepareAgent(t, store, "skip-fresh", identity.HITLExpirationReject)
+	msg, _ := store.CreatePendingOutboundMessage(ctx, agent.ID,
+		[]string{"alice@example.com"}, nil, nil,
+		"fresh", "b", "", nil, "send", "", "", 3600)
+
+	w.RunOnce(ctx)
+
+	if msgs := smtpDone(); len(msgs) != 0 {
+		t.Fatalf("unexpected SMTP messages: %d", len(msgs))
+	}
+	var status string
+	var bodyText *string
+	err := pool.QueryRow(ctx,
+		`SELECT status, body_text FROM messages WHERE id = $1`, msg.ID,
+	).Scan(&status, &bodyText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != identity.MessageStatusPendingApproval {
+		t.Errorf("status = %q, should still be pending_approval", status)
+	}
+	if bodyText == nil {
+		t.Error("body_text should still be present on a fresh pending row")
+	}
+}
+
+func TestWorkerRunOnceIsSafeWhenNoExpiredRows(t *testing.T) {
+	w, _, _, smtpDone := setupWorker(t)
+	w.RunOnce(context.Background())
+	if msgs := smtpDone(); len(msgs) != 0 {
+		t.Fatalf("expected 0 SMTP messages from an empty sweep, got %d", len(msgs))
+	}
+}
+
+func TestWorkerRunStopsOnContextCancel(t *testing.T) {
+	w, _, _, _ := setupWorker(t)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan error, 1)
+	go func() { done <- w.Run(ctx) }()
+
+	// Give Run a moment to enter its ticker loop.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != context.Canceled {
+			t.Errorf("Run returned %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after cancel")
+	}
+}

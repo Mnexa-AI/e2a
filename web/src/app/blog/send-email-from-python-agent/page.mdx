@@ -1,0 +1,127 @@
+import { getPost } from "../posts";
+
+export const post = getPost("send-email-from-python-agent");
+
+export const metadata = {
+  title: { absolute: `${post.title} — e2a` },
+  description: post.description,
+  alternates: { canonical: `/blog/${post.slug}` },
+  openGraph: {
+    title: post.title,
+    description: post.description,
+    url: `https://e2a.dev/blog/${post.slug}`,
+    type: "article",
+    publishedTime: new Date(post.date + "T00:00:00Z").toISOString(),
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: post.title,
+    description: post.description,
+  },
+};
+
+<div style={{ fontSize: 11, color: "#A89A8A", fontFamily: "'IBM Plex Mono', monospace", marginBottom: 6 }}>
+  {new Date(post.date + "T00:00:00Z").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })} · {post.readingMinutes} min read
+</div>
+
+# Send real email from a Python AI agent in 20 lines
+
+Most AI agents today live behind a chat UI. That's fine for demos, but the moment you want your agent to participate in real work — coordinating with customers, scheduling meetings, responding to vendor outreach — you need the inbox everyone else uses. Email.
+
+This post walks through the shortest path to a Python agent that actually sends and receives email, with verified sender identity, conversation threading, and real-time delivery. No SMTP server, no public webhook URL (if you don't want one), no DNS.
+
+## Get an email address for your agent
+
+Sign up at [e2a.dev](https://e2a.dev), pick a slug like `research-assistant`, and you'll get `research-assistant@agents.e2a.dev`. Auto-verified, ready to receive mail immediately. If you prefer your own domain, you can register it instead (MX + TXT record), but the shared domain is faster for experiments.
+
+Install the Python SDK:
+
+```bash
+pip install e2a
+```
+
+## Send an email
+
+Three lines:
+
+```python
+from e2a.v1 import E2AClient
+
+client = E2AClient(api_key="e2a_...")
+
+client.send(
+    to=["alice@example.com"],
+    subject="Quick question",
+    body="Hi Alice — I'm your scheduling assistant. Got a second for a quick sync?",
+)
+```
+
+That's it. The message goes out signed with your domain's DKIM, shows up in Alice's inbox looking like a normal email, and her reply will route back to your agent via e2a.
+
+## Receive replies
+
+Two modes, depending on whether your agent has a public URL:
+
+**Cloud mode (webhook)** — when Alice replies, e2a POSTs the email to your server:
+
+```python
+@app.post("/webhook")
+async def inbox(request):
+    email = client.parse(await request.body())
+    print(f"{email.sender}: {email.subject}")
+    await email.reply(f"Got it. Does Thursday 2pm work?")
+    return {"ok": True}
+```
+
+**Local mode (WebSocket)** — no public URL needed. Great for running agents on your laptop or behind a firewall:
+
+```python
+from e2a.v1 import AsyncE2AClient
+
+async with AsyncE2AClient(api_key="e2a_...") as client:
+    async for email in client.listen("research-assistant@agents.e2a.dev"):
+        print(f"{email.sender}: {email.subject}")
+        await email.reply("Got it, on it.")
+```
+
+`listen()` holds a WebSocket, receives a lightweight notification when mail arrives, fetches the full message via REST, and yields an `AsyncInboundEmail` object you can reply to inline.
+
+## Thread conversations across turns
+
+Multi-turn threading is the difference between an agent that sends isolated emails and one that maintains context. Pass `conversation_id` on each outbound and you'll see it back on subsequent inbounds in the same thread:
+
+```python
+async for email in client.listen("research-assistant@agents.e2a.dev"):
+    convo_id = email.conversation_id or new_id()
+
+    draft = await compose_reply(email, history=load_history(convo_id))
+    await email.reply(draft, conversation_id=convo_id)
+```
+
+Works across humans replying from Gmail and other e2a agents replying via the platform. First contact from a human arrives with `conversation_id=None` — assign one yourself, and every reply in that thread will carry it.
+
+## Verify the sender
+
+Every inbound includes signed auth headers showing SPF/DKIM results. Use them to decide how much to trust the message:
+
+```python
+if email.is_verified:
+    # SPF/DKIM passed; sender domain is authenticated
+    handle(email)
+else:
+    # Could be a spoof — route to quarantine or ask for confirmation
+    flag_for_review(email)
+```
+
+The signature is HMAC-SHA256 over a canonical string; you can verify it yourself against your webhook secret if you want defense in depth.
+
+## What you can build from here
+
+The three primitives — `send`, `listen`/webhook, and `conversation_id` threading — cover most agent-in-your-inbox use cases. A few ideas:
+
+- A scheduling assistant that you CC on meeting threads; it coordinates with the other side and books calendar holds.
+- A customer-support triage agent that handles first replies and escalates to humans when confidence drops.
+- A voice agent that sends follow-up emails after calls, then keeps the thread going when the person replies.
+- A procurement bot that chases vendors for quotes and aggregates responses.
+
+Anything that can receive email and take action can now have an agent attached to it. The [Python SDK README](https://github.com/Mnexa-AI/e2a/blob/main/sdks/python/README.md) and [API reference](/api-docs) cover attachments, CC/BCC, reply-all, and the auth header details if you want to go deeper.
