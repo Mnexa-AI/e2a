@@ -1,5 +1,11 @@
 # e2a — Email for AI agents
 
+[![Tests](https://github.com/Mnexa-AI/e2a/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/Mnexa-AI/e2a/actions/workflows/test.yml)
+[![Build image](https://github.com/Mnexa-AI/e2a/actions/workflows/build-image.yml/badge.svg?branch=main)](https://github.com/Mnexa-AI/e2a/actions/workflows/build-image.yml)
+[![License](https://img.shields.io/github/license/Mnexa-AI/e2a)](LICENSE)
+[![npm @e2a/sdk](https://img.shields.io/npm/v/%40e2a%2Fsdk?label=%40e2a%2Fsdk)](https://www.npmjs.com/package/@e2a/sdk)
+[![PyPI e2a](https://img.shields.io/pypi/v/e2a)](https://pypi.org/project/e2a/)
+
 Authenticated email gateway for AI agents. Receive emails as webhooks or via WebSocket, send emails through an HTTP API, and verify the identity of every sender — humans and other agents alike.
 
 - **Authenticated transport** — SPF/DKIM verified on inbound; HMAC-signed `X-E2A-Auth-*` headers on every delivery
@@ -406,7 +412,7 @@ The Next.js dashboard ships as a static export, so its config is inlined at buil
 - **OAuth CSRF** — single-use, time-limited nonce in the `state` parameter
 - **Production mode** (`E2A_ENV=production`) enforces the above where development mode is more permissive
 
-Report security issues privately to **security@mnexa.ai** — do not file public GitHub issues for vulnerabilities.
+Report security issues privately — see [SECURITY.md](SECURITY.md) for the disclosure process and what's in scope. **Do not file public GitHub issues for vulnerabilities.**
 
 ## Development
 

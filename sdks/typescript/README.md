@@ -5,7 +5,7 @@ TypeScript/Node.js SDK for [e2a](https://e2a.dev) — email for AI agents.
 ## Install
 
 ```bash
-npm install e2a
+npm install @e2a/sdk
 ```
 
 ## Quick Start
