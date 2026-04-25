@@ -2,6 +2,11 @@ name: Tests
 
 on:
   push:
+    # Restrict push trigger to main: feature-branch pushes only fire the
+    # pull_request event (via synchronize) once a PR is open, avoiding
+    # duplicate runs that GitHub Actions otherwise produces when both
+    # events fire on the same SHA.
+    branches: [main]
     paths-ignore:
       # Top-level docs only — keep CI running for SDK/CLI READMEs
       # since those ship to npm/PyPI as part of the package.
