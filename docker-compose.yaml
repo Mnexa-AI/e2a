@@ -29,6 +29,14 @@ services:
     ports:
       - "2525:2525"
       - "8080:8080"
+    # Load secrets and OAuth credentials from .env if present.
+    # `.env` is gitignored; see .env.example for the full set of vars.
+    # Anything explicitly set under `environment:` below overrides the
+    # .env value, so the database/HMAC defaults stay deterministic for
+    # the demo even if the user edits .env.
+    env_file:
+      - path: .env
+        required: false
     environment:
       E2A_DATABASE_URL: "postgres://e2a:e2a@postgres:5432/e2a?sslmode=disable"
       E2A_HMAC_SECRET: "change-me-in-production"

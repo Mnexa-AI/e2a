@@ -113,6 +113,9 @@ func Load(path string) (*Config, error) {
 	if v := os.Getenv("E2A_GOOGLE_CLIENT_SECRET"); v != "" {
 		cfg.OAuth.GoogleClientSecret = v
 	}
+	if v := os.Getenv("E2A_OAUTH_REDIRECT_URL"); v != "" {
+		cfg.OAuth.RedirectURL = v
+	}
 	if v := os.Getenv("E2A_OUTBOUND_SMTP_HOST"); v != "" {
 		cfg.OutboundSMTP.Host = v
 	}
