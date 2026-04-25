@@ -5,14 +5,16 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
-    # Only re-run on PRs that could plausibly change the image; doc-only
-    # PRs don't need to wait on a multi-arch build.
+    # Re-run on PRs that could plausibly change either image. Two image
+    # variants (server + web) build in parallel via the matrix below;
+    # doc-only PRs are still skipped.
     paths:
       - "Dockerfile"
       - "go.mod"
       - "go.sum"
       - "cmd/**"
       - "internal/**"
+      - "web/**"
       - ".github/workflows/build-image.yml"
   workflow_dispatch:
 
@@ -22,6 +24,8 @@ permissions:
   id-token: write  # for keyless cosign signing via Sigstore OIDC
 
 concurrency:
+  # One concurrency group per ref+image so a queued web build can't
+  # cancel an in-flight server publish (or vice versa).
   group: ${{ github.workflow }}-${{ github.ref }}
   # Image builds shouldn't be canceled mid-flight: a half-pushed
   # multi-arch manifest is recoverable but better avoided. Tests can be
@@ -30,9 +34,23 @@ concurrency:
 
 jobs:
   build:
-    name: Build and push image
+    name: Build ${{ matrix.display_name }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      # Don't cancel the server build if the web build fails (or vice
+      # versa) — they're independent images.
+      fail-fast: false
+      matrix:
+        include:
+          - image: e2a
+            display_name: server image
+            context: .
+            dockerfile: Dockerfile
+          - image: e2a-web
+            display_name: web image
+            context: web
+            dockerfile: web/Dockerfile
     steps:
       - uses: actions/checkout@v4
 
@@ -56,7 +74,7 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ghcr.io/mnexa-ai/e2a
+          images: ghcr.io/mnexa-ai/${{ matrix.image }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -69,17 +87,19 @@ jobs:
       - uses: docker/build-push-action@v5
         id: build
         with:
-          context: .
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
           # Build on PRs to verify the Dockerfile still works, but only
           # push on real branch/tag/manual events.
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
-          # GHA cache cuts subsequent multi-arch rebuilds from ~10 min to
-          # ~1-2 min when only Go source changes.
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Per-image cache scopes — without scoping, the two matrix
+          # entries would clobber each other's cache and rebuild from
+          # scratch every time.
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
           # Supply-chain transparency for OSS images: provenance records
           # how the image was built; SBOM enumerates installed packages.
           # Both are attached as in-toto attestations on the registry.
@@ -93,7 +113,7 @@ jobs:
       # Keyless signing: the workflow's OIDC token gets exchanged for a
       # short-lived cert from Sigstore's Fulcio CA. No long-lived keys
       # to manage or rotate. Verify with:
-      #   cosign verify ghcr.io/mnexa-ai/e2a:<tag> \
+      #   cosign verify ghcr.io/mnexa-ai/<image>:<tag> \
       #     --certificate-identity-regexp '^https://github\.com/Mnexa-AI/e2a/' \
       #     --certificate-oidc-issuer https://token.actions.githubusercontent.com
       - name: Sign image with cosign

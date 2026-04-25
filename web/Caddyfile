@@ -1,0 +1,48 @@
+# Caddy config for the e2a static dashboard. Designed to run behind a
+# TLS-terminating reverse proxy (Caddy itself, nginx, Traefik, an
+# ingress controller, …) so we listen plain HTTP.
+#
+# Operators tune behavior via environment variables — the {$VAR:default}
+# syntax lets each one stay optional. See web/Dockerfile for the
+# corresponding ARG/ENV plumbing.
+
+{
+    # We assume the deployment terminates TLS upstream. Disabling
+    # auto-HTTPS keeps Caddy from trying to provision certs for a
+    # non-routable internal hostname.
+    auto_https off
+    # Quiet the admin endpoint — not useful inside a container.
+    admin off
+}
+
+:{$WEB_PORT:80} {
+    root * /srv
+    encode gzip zstd
+
+    # API + auth + WebSocket all live under /api/*. The default target
+    # is the docker-compose service name "e2a"; override via E2A_BACKEND
+    # for any other topology (k8s service DNS, external LB, etc.).
+    handle /api/* {
+        reverse_proxy {$E2A_BACKEND:http://e2a:8080}
+    }
+
+    # Next.js static export emits routes as foo.html or foo/index.html.
+    # try_files probes both before falling through to the literal path,
+    # which makes /dashboard, /dashboard/, and direct file requests all
+    # resolve correctly. No SPA fallback to /index.html — every route
+    # is pre-rendered, so a 404 is a real 404.
+    handle {
+        try_files {path}.html {path}/index.html {path}
+        file_server
+    }
+
+    # Long-cache hashed Next.js bundles; everything else stays
+    # short-cached so a redeploy is reflected quickly.
+    @hashed path /_next/static/*
+    header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+    log {
+        output stdout
+        format console
+    }
+}

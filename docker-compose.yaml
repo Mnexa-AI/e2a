@@ -36,5 +36,20 @@ services:
     # so it travels with the image. Anyone using the image — including
     # this compose file — gets it for free.
 
+  web:
+    build:
+      context: web
+      dockerfile: Dockerfile
+    depends_on:
+      e2a:
+        condition: service_started
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    environment:
+      # Caddy proxies /api/* to this URL. The default service name "e2a"
+      # resolves on the compose network — no extra config needed.
+      E2A_BACKEND: "http://e2a:8080"
+
 volumes:
   pgdata:
