@@ -400,7 +400,14 @@ The Next.js dashboard ships as a static export, so its config is inlined at buil
 
 ### Scaling and limitations
 
-**Single-instance for now.** The server keeps several pieces of state in-process: the WebSocket hub for local-mode agents, per-IP/per-agent rate limiters, and background workers for HITL expiration, webhook retry, and cleanup. Running two replicas behind a load balancer today would split WebSocket clients across pods and fire each background worker twice, leading to duplicated emails on HITL TTL expiry. **Vertical scaling is fine; horizontal scaling needs additional work** (advisory locks or leader election for the workers, sticky sessions or a shared pub/sub for the WebSocket hub).
+**Most state is already DB-coordinated.** The HITL expiration worker, the webhook retry worker, and the periodic cleanup worker all use Postgres `SELECT … FOR UPDATE SKIP LOCKED` (or rely on `DELETE` idempotency for cleanup), so running multiple replicas concurrently is safe — only one worker claims a given pending message at a time, no duplicate sends. User sessions live in Postgres and the OAuth nonce travels in a cookie + the OAuth state parameter, so dashboard sign-in survives load-balancer rebalancing.
+
+That leaves two real horizontal-scaling caveats:
+
+1. **WebSocket fan-out is per-replica.** The hub is an in-memory `map[agentID]*conn` ([internal/ws/hub.go](internal/ws/hub.go)). An agent connected to replica A won't receive real-time notifications for events that happen on replica B — an inbound mail arriving at B's SMTP relay, a HITL approval firing on B's API, etc. Messages aren't lost: they stay `unread` in Postgres and the agent drains them on the next reconnect or REST fetch. They're just not pushed in real-time. Fix: a shared pub/sub (Redis, NATS) for cross-replica notification fan-out, or sticky sessions plus a per-replica routing layer.
+2. **Rate limits multiply with replica count.** Limiters are in-process (per-IP, per-agent, per-user — see `ratelimit.New(...)` calls in [internal/agent/api.go](internal/agent/api.go)). With two replicas the effective caps are 2× looser, not stricter. Operators who need exact global limits would move the limiters to a shared store (Redis, or a Postgres-backed token bucket).
+
+**Vertical scaling is fine.** The API, the SMTP relay, and all three background workers run safely on multiple replicas today — the only paths that need attention before you do are the two above.
 
 **Dashboard auth is Google OAuth only.** [`internal/auth/auth.go`](internal/auth/auth.go) imports `golang.org/x/oauth2/google` directly and the config exposes `google_client_id` / `google_client_secret`. Teams running GitHub OAuth, Microsoft Entra, Okta, or generic OIDC need to add a provider in that package. The CLI and SDKs authenticate with API keys, which are provider-agnostic.
 
