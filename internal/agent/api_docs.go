@@ -3,6 +3,7 @@ package agent
 import (
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 )
 
@@ -160,6 +161,18 @@ type DeploymentInfo struct {
 	// not configured.
 	PublicURL string `json:"public_url,omitempty" example:"https://e2a.example.com"`
 } // @name DeploymentInfo
+
+// --- User data rights ---
+//
+// Aliases re-export the top-level identity-package types so swag's parser
+// can resolve them in the @Success annotations on user_data_rights_api.go
+// — swag binds @Success refs to types in the same package as the handler.
+// Nested types (UserExportUser, APIKeyExportEntry, UsageEventEntry) are
+// reached transitively and don't need aliases; their @name directives in
+// the identity package keep them in the OpenAPI spec under clean names.
+
+type UserExport = identity.UserExport                 // @name UserExport
+type DeleteUserDataResult = identity.DeleteUserDataResult // @name DeleteUserDataResult
 
 // --- Webhook types ---
 
