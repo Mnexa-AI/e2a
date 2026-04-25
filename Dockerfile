@@ -1,10 +1,17 @@
-FROM golang:1.26-alpine AS builder
+# Pin the builder to the host's native arch (BUILDPLATFORM) so multi-arch
+# `docker buildx build` doesn't re-run the Go compile under QEMU for each
+# target. With CGO_ENABLED=0, Go cross-compiles cleanly to any platform
+# from any host — TARGETOS/TARGETARCH pick the output's arch. The runtime
+# stage below uses the default platform (set per-target by buildx) so the
+# alpine layer matches the binary.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
+ARG TARGETOS TARGETARCH
 
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /e2a ./cmd/e2a
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /e2a ./cmd/e2a
 
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates wget \

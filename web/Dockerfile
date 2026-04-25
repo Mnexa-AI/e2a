@@ -17,7 +17,12 @@
 # rebrand a published image, rebuild from source with --build-arg.
 
 # ── Builder ─────────────────────────────────────────────────────────
-FROM node:22-alpine AS builder
+# Pin to the host's native arch — Next.js' static export is HTML/CSS/JS,
+# so the build itself is arch-neutral. Native npm deps that the builder
+# pulls (@next/swc-*, esbuild) match the host platform automatically,
+# which is what we want. The runtime stage stays per-target so each arch
+# gets its own caddy binary.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
 WORKDIR /app
 
 # Install deps first so the layer caches when only source changes.
