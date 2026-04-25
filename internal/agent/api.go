@@ -190,6 +190,12 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 
 	r.HandleFunc("/api/v1/agents/{email}/test", a.handleSendTestEmail).Methods("POST")
 
+	// User data rights — right-of-access (export) and right-of-deletion.
+	// Both scoped to the authenticated user; no path parameter so there's
+	// no way to target someone else's data.
+	r.HandleFunc("/api/v1/users/me/export", a.handleExportUserData).Methods("GET")
+	r.HandleFunc("/api/v1/users/me", a.handleDeleteUserData).Methods("DELETE")
+
 	// HITL approval endpoints — scoped to the user (not a single agent) so
 	// reviewers can see pending messages across all their agents at once.
 	r.HandleFunc("/api/v1/messages", a.handleListMessages).Methods("GET")

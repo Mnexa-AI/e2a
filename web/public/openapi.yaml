@@ -1,5 +1,20 @@
 basePath: /
 definitions:
+  APIKeyExportEntry:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      key_prefix:
+        type: string
+      last_used_at:
+        type: string
+      name:
+        type: string
+      revoked_at:
+        type: string
+    type: object
   Agent:
     properties:
       agent_mode:
@@ -96,6 +111,25 @@ definitions:
         $ref: '#/definitions/DNSRecord'
       txt:
         $ref: '#/definitions/DNSRecord'
+    type: object
+  DeleteUserDataResult:
+    properties:
+      agents_deleted:
+        type: integer
+      api_keys_deleted:
+        type: integer
+      domains_deleted:
+        type: integer
+      messages_deleted:
+        type: integer
+      sessions_deleted:
+        type: integer
+      usage_events_deleted:
+        type: integer
+      usage_summaries_deleted:
+        type: integer
+      user_deleted:
+        type: boolean
     type: object
   DeploymentInfo:
     properties:
@@ -501,6 +535,61 @@ definitions:
       webhook_url:
         type: string
     type: object
+  UsageEventEntry:
+    properties:
+      agent_id:
+        type: string
+      created_at:
+        type: string
+      direction:
+        type: string
+      domain:
+        type: string
+      event_type:
+        type: string
+      id:
+        type: string
+    type: object
+  UserExport:
+    properties:
+      agents:
+        items:
+          $ref: '#/definitions/github_com_Mnexa-AI_e2a_internal_identity.AgentIdentity'
+        type: array
+      api_keys:
+        items:
+          $ref: '#/definitions/APIKeyExportEntry'
+        type: array
+      domains:
+        items:
+          $ref: '#/definitions/github_com_Mnexa-AI_e2a_internal_identity.Domain'
+        type: array
+      generated_at:
+        type: string
+      messages:
+        items:
+          $ref: '#/definitions/github_com_Mnexa-AI_e2a_internal_identity.Message'
+        type: array
+      schema_version:
+        type: string
+      usage_events:
+        items:
+          $ref: '#/definitions/UsageEventEntry'
+        type: array
+      user:
+        $ref: '#/definitions/UserExportUser'
+    type: object
+  UserExportUser:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+    type: object
   VerifyDomainResponse:
     properties:
       domain:
@@ -509,6 +598,130 @@ definitions:
       verified:
         type: boolean
       verified_at:
+        type: string
+    type: object
+  github_com_Mnexa-AI_e2a_internal_identity.AgentIdentity:
+    properties:
+      agent_mode:
+        type: string
+      created_at:
+        type: string
+      domain:
+        type: string
+      domain_verified:
+        type: boolean
+      email:
+        type: string
+      hitl_enabled:
+        type: boolean
+      hitl_expiration_action:
+        type: string
+      hitl_ttl_seconds:
+        type: integer
+      id:
+        type: string
+      name:
+        type: string
+      public:
+        type: boolean
+      user_id:
+        type: string
+      webhook_url:
+        type: string
+    type: object
+  github_com_Mnexa-AI_e2a_internal_identity.Domain:
+    properties:
+      created_at:
+        type: string
+      domain:
+        type: string
+      user_id:
+        type: string
+      verification_token:
+        type: string
+      verified:
+        type: boolean
+      verified_at:
+        type: string
+    type: object
+  github_com_Mnexa-AI_e2a_internal_identity.Message:
+    properties:
+      agent_id:
+        type: string
+      approval_expires_at:
+        type: string
+      attachments:
+        items:
+          type: integer
+        type: array
+      auth_headers:
+        additionalProperties:
+          type: string
+        type: object
+      bcc:
+        items:
+          type: string
+        type: array
+      body_html:
+        type: string
+      body_text:
+        type: string
+      cc:
+        items:
+          type: string
+        type: array
+      conversation_id:
+        type: string
+      created_at:
+        type: string
+      delivery_status:
+        type: string
+      direction:
+        type: string
+      edited:
+        type: boolean
+      email_message_id:
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: string
+      method:
+        type: string
+      provider_message_id:
+        type: string
+      raw_message:
+        items:
+          type: integer
+        type: array
+      recipient:
+        type: string
+      rejection_reason:
+        type: string
+      reviewed_at:
+        type: string
+      sender:
+        type: string
+      status:
+        description: |-
+          HITL approval fields. Status defaults to 'sent'; body and attachments
+          are populated only while a message is in 'pending_approval', and are
+          scrubbed on any terminal transition.
+        type: string
+      subject:
+        type: string
+      to_recipients:
+        description: Outbound-only multi-recipient fields. Nil for inbound messages.
+        items:
+          type: string
+        type: array
+      type:
+        type: string
+      webhook_attempts:
+        type: integer
+      webhook_error:
+        type: string
+      webhook_status:
         type: string
     type: object
   internal_agent.Attachment:
@@ -1288,6 +1501,60 @@ paths:
       summary: Send a new email
       tags:
       - Email
+  /api/v1/users/me:
+    delete:
+      description: Permanently deletes the authenticated user along with their agents,
+        domains, messages, API keys, sessions, and usage data. **Irreversible.** Requires
+        `confirm=DELETE` query parameter as a guardrail. Returns per-table counts
+        of removed rows so the caller can audit the cascade.
+      parameters:
+      - description: Must equal 'DELETE' to proceed
+        in: query
+        name: confirm
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/DeleteUserDataResult'
+        "400":
+          description: Missing or invalid confirm parameter
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Delete your account and all associated data
+      tags:
+      - User
+  /api/v1/users/me/export:
+    get:
+      description: 'Returns a JSON dump of every record the authenticated user owns:
+        profile, agents, domains, API key metadata, messages (with bodies), and usage
+        events. API key plaintexts are not included — they were never stored. Internal
+        identifiers (google_subject, session tokens, key hashes) are excluded.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/UserExport'
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Export your data
+      tags:
+      - User
 securityDefinitions:
   BearerAuth:
     description: 'API key from the API Keys page (starts with `e2a_`). Format: `Bearer

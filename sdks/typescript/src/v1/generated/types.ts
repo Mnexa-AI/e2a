@@ -1319,10 +1319,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete your account and all associated data
+         * @description Permanently deletes the authenticated user along with their agents, domains, messages, API keys, sessions, and usage data. **Irreversible.** Requires `confirm=DELETE` query parameter as a guardrail. Returns per-table counts of removed rows so the caller can audit the cascade.
+         */
+        delete: {
+            parameters: {
+                query: {
+                    /** @description Must equal 'DELETE' to proceed */
+                    confirm: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DeleteUserDataResult"];
+                    };
+                };
+                /** @description Missing or invalid confirm parameter */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Missing or invalid API key */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export your data
+         * @description Returns a JSON dump of every record the authenticated user owns: profile, agents, domains, API key metadata, messages (with bodies), and usage events. API key plaintexts are not included — they were never stored. Internal identifiers (google_subject, session tokens, key hashes) are excluded.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["UserExport"];
+                    };
+                };
+                /** @description Missing or invalid API key */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        APIKeyExportEntry: {
+            created_at?: string;
+            id?: string;
+            key_prefix?: string;
+            last_used_at?: string;
+            name?: string;
+            revoked_at?: string;
+        };
         Agent: {
             /**
              * @example cloud
@@ -1378,6 +1494,16 @@ export interface components {
         DNSRecords: {
             mx?: components["schemas"]["DNSRecord"];
             txt?: components["schemas"]["DNSRecord"];
+        };
+        DeleteUserDataResult: {
+            agents_deleted?: number;
+            api_keys_deleted?: number;
+            domains_deleted?: number;
+            messages_deleted?: number;
+            sessions_deleted?: number;
+            usage_events_deleted?: number;
+            usage_summaries_deleted?: number;
+            user_deleted?: boolean;
         };
         DeploymentInfo: {
             /**
@@ -1639,11 +1765,98 @@ export interface components {
             hitl_ttl_seconds?: number;
             webhook_url?: string;
         };
+        UsageEventEntry: {
+            agent_id?: string;
+            created_at?: string;
+            direction?: string;
+            domain?: string;
+            event_type?: string;
+            id?: string;
+        };
+        UserExport: {
+            agents?: components["schemas"]["github_com_Mnexa-AI_e2a_internal_identity.AgentIdentity"][];
+            api_keys?: components["schemas"]["APIKeyExportEntry"][];
+            domains?: components["schemas"]["github_com_Mnexa-AI_e2a_internal_identity.Domain"][];
+            generated_at?: string;
+            messages?: components["schemas"]["github_com_Mnexa-AI_e2a_internal_identity.Message"][];
+            schema_version?: string;
+            usage_events?: components["schemas"]["UsageEventEntry"][];
+            user?: components["schemas"]["UserExportUser"];
+        };
+        UserExportUser: {
+            created_at?: string;
+            email?: string;
+            id?: string;
+            name?: string;
+        };
         VerifyDomainResponse: {
             /** @example yourdomain.com */
             domain?: string;
             verified?: boolean;
             verified_at?: string;
+        };
+        "github_com_Mnexa-AI_e2a_internal_identity.AgentIdentity": {
+            agent_mode?: string;
+            created_at?: string;
+            domain?: string;
+            domain_verified?: boolean;
+            email?: string;
+            hitl_enabled?: boolean;
+            hitl_expiration_action?: string;
+            hitl_ttl_seconds?: number;
+            id?: string;
+            name?: string;
+            public?: boolean;
+            user_id?: string;
+            webhook_url?: string;
+        };
+        "github_com_Mnexa-AI_e2a_internal_identity.Domain": {
+            created_at?: string;
+            domain?: string;
+            user_id?: string;
+            verification_token?: string;
+            verified?: boolean;
+            verified_at?: string;
+        };
+        "github_com_Mnexa-AI_e2a_internal_identity.Message": {
+            agent_id?: string;
+            approval_expires_at?: string;
+            attachments?: number[];
+            auth_headers?: {
+                [key: string]: string;
+            };
+            bcc?: string[];
+            body_html?: string;
+            body_text?: string;
+            cc?: string[];
+            conversation_id?: string;
+            created_at?: string;
+            delivery_status?: string;
+            direction?: string;
+            edited?: boolean;
+            email_message_id?: string;
+            expires_at?: string;
+            id?: string;
+            method?: string;
+            provider_message_id?: string;
+            raw_message?: number[];
+            recipient?: string;
+            rejection_reason?: string;
+            reviewed_at?: string;
+            sender?: string;
+            /**
+             * @description HITL approval fields. Status defaults to 'sent'; body and attachments
+             *     are populated only while a message is in 'pending_approval', and are
+             *     scrubbed on any terminal transition.
+             */
+            status?: string;
+            subject?: string;
+            /** @description Outbound-only multi-recipient fields. Nil for inbound messages. */
+            to_recipients?: string[];
+            type?: string;
+            webhook_attempts?: number;
+            webhook_error?: string;
+            webhook_status?: string;
         };
         "internal_agent.Attachment": {
             /** @example application/pdf */

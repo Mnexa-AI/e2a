@@ -40,11 +40,11 @@ migrate:
 	done
 
 swagger:
-	swag init --generalInfo cmd/e2a/main.go --parseDependency --output web/public --outputTypes yaml
+	swag init --generalInfo cmd/e2a/main.go --parseDependency --parseInternal --output web/public --outputTypes yaml
 	mv web/public/swagger.yaml web/public/openapi.yaml
 
 swagger-check:
-	swag init --generalInfo cmd/e2a/main.go --parseDependency --output /tmp/swag-check --outputTypes yaml
+	swag init --generalInfo cmd/e2a/main.go --parseDependency --parseInternal --output /tmp/swag-check --outputTypes yaml
 	diff -u web/public/openapi.yaml /tmp/swag-check/swagger.yaml
 
 generate: swagger generate-sdk
