@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "24"
           cache: "npm"
@@ -40,7 +40,7 @@ jobs:
       # or later and Node 22.14.0 or higher"). Node 20 + npm 10.x silently
       # skips the OIDC handshake and surfaces a misleading 404 PUT error
       # (npm/cli#9088, #8730).
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "24"
           cache: "npm"
