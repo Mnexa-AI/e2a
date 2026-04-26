@@ -376,6 +376,25 @@ Copy `config.example.yaml` to `config.yaml` and fill in values, or set the envir
 
 `env: production` in [config.example.yaml](config.example.yaml) enforces TLS for SMTP and HTTPS for webhook URLs. Leave it as `development` for local work.
 
+#### Shared-domain setup
+
+If you set `E2A_SHARED_DOMAIN` (or `shared_domain` in `config.yaml`) so users can register agents with just a slug — `alice@agents.yourcompany.com` — there are two parts to it: DNS you set up once, and a database row the server takes care of for you.
+
+**You do (once, externally):**
+
+1. Pick the subdomain (e.g. `agents.yourcompany.com`).
+2. Add an `MX` record pointing it at the host running the e2a SMTP relay.
+3. Add `A`/`AAAA` records for that host.
+4. Open inbound port 25 (the SMTP listener defaults to `:2525` — either change `smtp.listen_addr` to `:25` or NAT 25→2525).
+5. Provision a TLS cert for the SMTP domain and set `smtp.tls_cert` / `smtp.tls_key`.
+6. Add SPF/DKIM TXT records on the subdomain so outbound mail from your relay isn't rejected by recipient mail servers.
+
+**The server does (automatically, at startup):**
+
+The shared domain needs a row in the `domains` table — it's the FK target for every agent registered against it. The server seeds this row idempotently every time it boots: `INSERT … ON CONFLICT DO NOTHING` against the configured `shared_domain`, with `user_id = NULL` and `verified = true` (system-owned, pre-verified). You don't run a migration, you don't `psql` anything by hand. Change the configured domain later? Restart and the new row appears; the old one stays as a harmless orphan because the API layer reads `cfg.SharedDomain` to decide what's reserved, not the table.
+
+If you leave `shared_domain` empty, slug registration is disabled and every agent must use a custom domain the user verifies — no DNS setup required from you.
+
 ### CLI / SDK user
 
 End-users only need to know the deployment URL — the rest is auto-discovered.
