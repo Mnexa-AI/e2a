@@ -497,6 +497,61 @@ Things e2a doesn't (and can't) handle for you:
 - **Log redaction.** If your environment can't tolerate sender/recipient addresses in application logs, redact in your log forwarder or run with `--log-format=json` and filter the relevant fields downstream.
 - **Compliance attestations** (SOC 2, HIPAA, ISO 27001) — those are deployment-level, not code-level.
 
+## FAQ
+
+### Why not just use SendGrid / Resend / Postmark for sending and their inbound parsing for receiving?
+
+Four things that aren't possible to bolt on without significant rework:
+
+1. **Local-mode agents with no public URL.** Agents authenticate with their API key, open a WebSocket to `/api/v1/agents/{email}/ws`, and inbound mail arrives as JSON over that connection — no webhook URL, no ngrok, no port forward. Useful for agents on developer laptops, edge devices, or behind corporate firewalls. SendGrid/Resend are webhook-only by design. A polling REST API is available as fallback.
+
+2. **Conversation threading on every reply.** Whether a human replies from Gmail or another e2a agent replies via the API, the inbound message arrives at the agent with a stable `conversation_id` already mapped to the original thread. For human senders, the relay does standard `In-Reply-To` / `References` lookup scoped to the recipient agent's own messages. For agent-to-agent where both sides are on e2a, it also trusts an `X-E2A-Conversation-Id` header it controls (envelope-from is its own domain), which survives clients that rewrite threading headers. SendGrid/Resend never see inbound mail — they aren't receivers — so neither path is available without you building both yourself.
+
+3. **Slug provisioning on a shared domain.** Operators set `shared_domain: agents.e2a.dev` and users `POST {"slug": "my-agent"}` to immediately get `my-agent@agents.e2a.dev` with no DNS configuration. Possible because e2a *is* the SMTP relay claiming the domain — Resend / SendGrid are providers, not platforms, and can't multi-tenant a shared address space without you running the relay yourself.
+
+4. **Built-in HITL hold + auto-expiration.** A per-agent `hitl_enabled` flag holds outbound mail in `pending_approval` state. Reviewers approve via dashboard, magic-link email, or CLI; a background worker auto-acts on expired holds based on `hitl_expiration_action` config. Magic-link tokens are HMAC-encoded — stateless, no session backend. With Resend / SendGrid you'd hold the message in your own DB, build the timer, the approval UI, and the stateless review tokens.
+
+You can absolutely use SES / Resend / SendGrid as e2a's *outbound* SMTP for delivery to humans — that's what `outbound_smtp` in `config.yaml` is for. They complement e2a; they don't replace the inbound receiver, agent abstraction, or any of the layers above transport.
+
+### Why email at all? Why not webhooks, gRPC, or MCP between agents?
+
+Email is the only protocol where every human already has an address and a working client. Webhooks / gRPC / MCP are great inside systems you control, but they don't reach Gmail or Outlook. If you want an agent that talks to humans (or to *other organizations'* agents) without forcing everyone to install a new client, email is the universal substrate.
+
+e2a doesn't replace webhooks — agents *receive* email via webhooks. It bridges email's universal addressability to the structured-data world the agent code already lives in.
+
+### What stops an attacker from spoofing the `X-E2A-Auth-*` headers?
+
+The relay strips any incoming `X-E2A-Auth-*` from inbound messages and re-signs with HMAC-SHA256 against `signing.hmac_secret`. The signed canonical binds `Sender + Verified + Body-Hash + Message-Id` together — replay attempts, body swaps, and sender-only forgery all fail validation. Each delivery is bound to *that specific message body*, not just the sender claim, so a captured `(headers, signature)` tuple can't be lifted onto a different message.
+
+Receivers verify with the SDK's `verify(headers, secret)` helper (TS and Python both ship one) — no API call back to e2a needed. If the HMAC secret leaks, rotate it and old signatures stop verifying. If it's *stolen from the relay*, the attacker has bigger access than headers anyway.
+
+### Isn't this just SMTP with extra steps?
+
+Yes — and the extra steps are the point. Concretely:
+
+- SPF/DKIM verdict normalization so receivers don't reimplement domain auth
+- HMAC-signed delivery contract binding sender, body hash, message ID, and verification status
+- WebSocket transport for agents without public URLs
+- HITL approval flow with auto-expiration and stateless magic-link review
+- Conversation-Id threading that survives the email ↔ structured-data boundary
+- Slug-based agent provisioning on a shared domain
+- Per-agent webhook routing, rate limits, and HITL config
+
+Building those on top of bare Postfix is a real project. e2a is that project, open source.
+
+### How does this compare to running Postfix or Postal myself?
+
+If you want a full MTA, run an MTA — Postfix and Postal are great. e2a isn't trying to replace them at the SMTP transport level (it uses `go-smtp` for receiving and dial-out for sending). The value is the layer above transport: the auth model, agent abstraction, signed delivery contract, retry policy for webhook failures, HITL approval flow, SDKs and CLI. If you're comfortable operating an MTA and only need email plumbing, e2a may be more than you want. If you want the agent abstraction and signed identity layer prebuilt, that's what this is.
+
+### Why open source if there's a hosted version?
+
+Two reasons:
+
+1. **Auditability.** Identity infrastructure for your agents should be readable code, not a vendor black box. You can verify the cosign signature on `ghcr.io/mnexa-ai/e2a`, reproduce the build, and confirm what's actually running.
+2. **Self-host as a real option.** The hosted instance at e2a.dev runs the same `ghcr.io/mnexa-ai/e2a` image you can pull right now. Convenience features on the hosted side (the shared `agents.e2a.dev` domain, managed deliverability) are config + DNS, not closed-source extras.
+
+Pricing for the hosted version isn't enabled yet. When it lands, it'll be opt-in via env var and the OSS code path stays unchanged.
+
 ## Development
 
 ```bash
