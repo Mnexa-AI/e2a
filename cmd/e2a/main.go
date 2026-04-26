@@ -108,6 +108,9 @@ func main() {
 
 	// Services
 	store := identity.NewStore(pool)
+	if err := store.EnsureSharedDomain(ctx, cfg.SharedDomain); err != nil {
+		log.Fatalf("Failed to seed shared domain row: %v", err)
+	}
 	signer := headers.NewSigner(cfg.Signing.HMACSecret)
 	deliverer := webhook.NewDeliverer(cfg.IsProduction())
 	deliveryStore := webhook.NewDeliveryStore(pool)

@@ -161,6 +161,34 @@ func NewStore(pool *pgxpool.Pool) *Store {
 
 // --- Domain CRUD ---
 
+// EnsureSharedDomain inserts a system row for the configured shared
+// mail domain so slug-based agent registration can satisfy the
+// agent_identities.domain → domains.domain foreign key. The row is
+// owned by no user (user_id = NULL) and pre-verified — it represents
+// infrastructure the operator runs, not user-claimed identity.
+//
+// Called once at server startup. Idempotent via ON CONFLICT DO NOTHING,
+// and a no-op when the operator has not configured a shared domain.
+// Without this, any deployment whose shared_domain differs from the
+// hardcoded migration seed (`agents.e2a.dev`) gets an FK violation the
+// first time a user tries to register a slug-based agent.
+func (s *Store) EnsureSharedDomain(ctx context.Context, domain string) error {
+	if domain == "" {
+		return nil
+	}
+	domain = normalizeDomain(domain)
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO domains (domain, user_id, verified, verified_at)
+		 VALUES ($1, NULL, true, now())
+		 ON CONFLICT (domain) DO NOTHING`,
+		domain,
+	)
+	if err != nil {
+		return fmt.Errorf("ensure shared domain %q: %w", domain, err)
+	}
+	return nil
+}
+
 // ClaimOrCreateDomain implements the atomic create/claim logic from the design doc.
 // Creates if new, overwrites user_id if unverified, returns if verified+same
 // user, errors if verified+different user. Callers are responsible for
