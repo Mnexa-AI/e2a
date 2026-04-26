@@ -14,7 +14,7 @@ Authenticated email gateway for AI agents. Receive emails as webhooks or via Web
 - **Human in the loop** — opt-in approval gate that holds outbound mail until a reviewer approves via dashboard, magic-link email, or CLI
 - **CLI + SDKs** — TypeScript and Python SDKs, plus a `e2a` CLI for everyday agent ops
 
-<video src="docs/demo.mp4" controls autoplay muted loop width="800"></video>
+<video src="https://github.com/user-attachments/assets/330e0031-999e-4758-b179-160b8af1ea69" controls autoplay muted loop width="800"></video>
 
 ## Use it
 
