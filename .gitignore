@@ -36,3 +36,6 @@ sdks/python/.pytest_cache/
 *.pyc
 .gstack/
 .claude/
+
+# Demo video sources (committed compressed version lives in docs/demo.mp4)
+docs/originals/
