@@ -69,5 +69,16 @@ COPY Caddyfile /etc/caddy/Caddyfile
 # var so it works regardless of the chosen port.
 ENV WEB_PORT=80
 EXPOSE 80
+# --no-check-certificate + --max-redirect handle the auto-HTTPS case:
+# operators who terminate TLS in this Caddy (e.g. a Let's Encrypt
+# site block instead of `auto_https off`) will see the plain-HTTP
+# request 308-redirect to https://127.0.0.1, where the cert is for
+# their public hostname, not localhost. Skipping cert validation on
+# a self-loopback healthcheck is safe — we're asking "is *this*
+# container's Caddy responding?", not "is the cert valid for some
+# external client?". Operators with `auto_https off` (the default
+# Caddyfile shipped here) get plain HTTP, no redirect, same path
+# as before.
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget -q -O - "http://127.0.0.1:${WEB_PORT}/" >/dev/null || exit 1
+    CMD wget --no-check-certificate -q -O - --max-redirect=5 \
+        "http://127.0.0.1:${WEB_PORT}/" >/dev/null || exit 1
