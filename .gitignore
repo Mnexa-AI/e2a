@@ -36,3 +36,6 @@ sdks/python/.pytest_cache/
 *.pyc
 .gstack/
 .claude/
+
+# Docs
+docs/originals/

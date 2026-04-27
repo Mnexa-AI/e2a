@@ -7,6 +7,8 @@ inbound mail, or spoof agent identity. We take that responsibility
 seriously and ask that you report issues privately rather than in
 public GitHub issues.
 
+For what e2a stores, how long it lives, log handling, and the user/operator data-rights surface, see [docs/data-handling.md](docs/data-handling.md).
+
 ## Reporting a vulnerability
 
 Email **security@mnexa.ai** with:

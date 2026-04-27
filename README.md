@@ -190,92 +190,11 @@ Enable HITL on an agent via `PUT /api/v1/agents/{email}` with `hitl_enabled: tru
 
 ## API
 
-All endpoints are under `/api/v1` unless noted. Auth is `Authorization: Bearer <api_key>` except where called out. Path parameters containing `@` (agent emails) must be URL-encoded.
+All endpoints are under `/api/v1` unless noted. Auth is `Authorization: Bearer <api_key>` except for `/api/health`, `/api/v1/info`, `/api/feedback`, and the HITL magic-link routes. Path parameters containing `@` (agent emails) must be URL-encoded.
 
-### Domains
+The surface covers domain registration + verification, agent CRUD, inbound/outbound messages, HITL approve/reject (API key or signed magic-link token), GDPR-style export and deletion, and a WebSocket channel for local-mode agents.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/domains` | Register a custom domain. Returns required MX and TXT records. |
-| `GET` | `/domains` | List domains owned by the authenticated user |
-| `POST` | `/domains/{domain}/verify` | Verify ownership via TXT record |
-| `DELETE` | `/domains/{domain}` | Delete (must delete all agents on the domain first) |
-
-### Agents
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/agents` | Register an agent. Use `email` for a custom domain (must be verified) or `slug` for a shared-domain registration (only when the deployment has `shared_domain` configured) |
-| `GET` | `/agents` | List agents owned by the authenticated user |
-| `GET` | `/agents/{email}` | Get agent details |
-| `PUT` | `/agents/{email}` | Update agent (webhook URL, mode, HITL settings) |
-| `DELETE` | `/agents/{email}` | Delete an agent |
-| `POST` | `/agents/{email}/test` | Send a test email through the agent |
-
-### Messages — inbound (per-agent)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/agents/{email}/messages` | List inbound messages for the agent |
-| `GET` | `/agents/{email}/messages/{id}` | Fetch a single inbound message (transitions `unread` → `read` for local-mode agents) |
-| `POST` | `/agents/{email}/messages/{id}/reply` | Reply to an inbound message |
-
-### Messages — outbound / HITL
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/send` | Send an email (held with `202 Accepted` if HITL enabled on the agent) |
-| `GET` | `/messages` | List outbound messages owned by the user (filterable by status) |
-| `GET` | `/messages/{id}` | Get a single outbound message |
-| `POST` | `/messages/{id}/approve` | Approve a `pending_approval` message |
-| `POST` | `/messages/{id}/reject` | Reject a `pending_approval` message |
-
-### User (data rights)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/users/me/export` | Returns a JSON dump of the authenticated user's profile, agents, domains, API key metadata, messages, and usage events. Right-of-access export (GDPR Art. 15 / CCPA equivalent). |
-| `DELETE` | `/users/me?confirm=DELETE` | Permanently deletes the authenticated user and all associated data in one Postgres transaction. Right-of-deletion (GDPR Art. 17 / CCPA "Do Not Sell or Share"). Requires `confirm=DELETE` query parameter as a guardrail; returns per-table row counts so the caller can audit the cascade. |
-
-Both endpoints require a valid API key or session. The export omits internal identifiers (Google subject, API key hashes, session tokens) — see [SECURITY.md](SECURITY.md) for the full data model.
-
-### HITL magic links
-
-These endpoints accept a signed `token` query parameter (from notification emails) instead of an API key, so reviewers can approve from any mail client without auth.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET`/`POST` | `/approve?token=…` | Approve a pending message via signed token |
-| `GET`/`POST` | `/reject?token=…` | Reject a pending message via signed token |
-
-### Real-time delivery
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/agents/{email}/ws?token={api_key}` | WebSocket for local-mode agents. Auth via query param (WebSocket clients can't set headers during upgrade). |
-
-The server pushes lightweight JSON notifications (metadata only):
-
-```json
-{
-  "message_id": "msg_abc123",
-  "conversation_id": "conv_xyz",
-  "from": "alice@example.com",
-  "to": "bot@your-domain.com",
-  "subject": "Meeting tomorrow",
-  "received_at": "2026-04-24T10:00:00Z"
-}
-```
-
-Fetch full content via `GET /agents/{email}/messages/{id}`. On connect, all unread messages are drained as notifications automatically.
-
-### Other
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `GET` | `/api/health` | none | Health check |
-| `GET` | `/api/v1/info` | none | Deployment discovery — returns `shared_domain`, `slug_registration_enabled`, and `public_url`. CLIs/SDKs hit this to self-configure from a single base URL. |
-| `POST` | `/api/feedback` | none | Submit feedback (rate-limited per-IP) |
+See [docs/api.md](docs/api.md) for the full endpoint reference, or [`web/public/openapi.yaml`](web/public/openapi.yaml) for the machine-readable spec.
 
 ## CLI
 
@@ -349,7 +268,7 @@ See [sdks/typescript/README.md](sdks/typescript/README.md).
 
 ## Deployment
 
-There are three audiences who configure something — and confusing them is the main UX pothole of self-hosted projects. The split:
+Three audiences each configure a different surface:
 
 | Audience | What they configure | Where |
 |---|---|---|
@@ -357,91 +276,9 @@ There are three audiences who configure something — and confusing them is the 
 | **CLI / SDK user** — calls the API from their machine | Just the deployment URL (and login) | `E2A_URL` + `e2a login` |
 | **Web dashboard deployer** — hosts the Next.js dashboard | Public site URL + branding | `NEXT_PUBLIC_*` build-time env |
 
-### Server operator
+The Go binary runs on any container host; storage is plain Postgres 14+; outbound mail goes through standard SMTP. Most workers coordinate via `SELECT … FOR UPDATE SKIP LOCKED`, so multi-replica is safe — the two real horizontal-scaling caveats are in-memory WebSocket fan-out and per-process rate limits.
 
-Copy `config.example.yaml` to `config.yaml` and fill in values, or set the environment variables below (env wins over file). All secrets should be set via env, never the file.
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `E2A_DATABASE_URL` | yes | Postgres connection string |
-| `E2A_HMAC_SECRET` | yes | HMAC signing secret for `X-E2A-Auth-*` headers |
-| `E2A_PUBLIC_URL` | for HITL emails | Externally visible base URL (e.g. `https://e2a.example.com`); required to render absolute magic-link URLs |
-| `E2A_SHARED_DOMAIN` | optional | Mail domain backing slug-based agent registration (e.g. `agents.example.com`). When set, users can register agents with just a slug; when empty, every agent must use a custom domain that the user verifies. The shared domain itself becomes reserved (cannot be claimed as a custom domain). |
-| `E2A_GOOGLE_CLIENT_ID` | for OAuth login | Google OAuth client ID for dashboard sign-in |
-| `E2A_GOOGLE_CLIENT_SECRET` | for OAuth login | Google OAuth client secret |
-| `E2A_OUTBOUND_SMTP_HOST` | for outbound | Upstream SMTP host (e.g. `email-smtp.us-east-1.amazonaws.com`) |
-| `E2A_OUTBOUND_SMTP_PORT` | for outbound | Upstream SMTP port (typically `587`) |
-| `E2A_OUTBOUND_SMTP_USERNAME` | for outbound | Upstream SMTP username |
-| `E2A_OUTBOUND_SMTP_PASSWORD` | for outbound | Upstream SMTP password |
-| `E2A_OUTBOUND_SMTP_FROM_DOMAIN` | for outbound | Domain used in `From:` of outbound mail |
-| `E2A_USAGE_TRACKING` | no (default `false`) | Set to `true` to write per-message rows into `usage_events` / `usage_summaries`. The hosted deployment uses these for billing reconciliation; self-hosters typically don't need them. |
-
-`env: production` in [config.example.yaml](config.example.yaml) enforces TLS for SMTP and HTTPS for webhook URLs. Leave it as `development` for local work.
-
-#### Shared-domain setup
-
-If you set `E2A_SHARED_DOMAIN` (or `shared_domain` in `config.yaml`) so users can register agents with just a slug — `alice@agents.yourcompany.com` — there are two parts to it: DNS you set up once, and a database row the server takes care of for you.
-
-**You do (once, externally):**
-
-1. Pick the subdomain (e.g. `agents.yourcompany.com`).
-2. Add an `MX` record pointing it at the host running the e2a SMTP relay.
-3. Add `A`/`AAAA` records for that host.
-4. Open inbound port 25 (the SMTP listener defaults to `:2525` — either change `smtp.listen_addr` to `:25` or NAT 25→2525).
-5. Provision a TLS cert for the SMTP domain and set `smtp.tls_cert` / `smtp.tls_key`.
-6. Add SPF/DKIM TXT records on the subdomain so outbound mail from your relay isn't rejected by recipient mail servers.
-
-**The server does (automatically, at startup):**
-
-The shared domain needs a row in the `domains` table — it's the FK target for every agent registered against it. The server seeds this row idempotently every time it boots: `INSERT … ON CONFLICT DO NOTHING` against the configured `shared_domain`, with `user_id = NULL` and `verified = true` (system-owned, pre-verified). You don't run a migration, you don't `psql` anything by hand. Change the configured domain later? Restart and the new row appears; the old one stays as a harmless orphan because the API layer reads `cfg.SharedDomain` to decide what's reserved, not the table.
-
-If you leave `shared_domain` empty, slug registration is disabled and every agent must use a custom domain the user verifies — no DNS setup required from you.
-
-### CLI / SDK user
-
-End-users only need to know the deployment URL — the rest is auto-discovered.
-
-```bash
-export E2A_URL=https://e2a.example.com   # default: https://e2a.dev
-e2a login                                # browser flow; saves api key + auto-discovers shared domain
-```
-
-The CLI hits `GET /api/v1/info` on login and caches `shared_domain` to `~/.e2a/config.json`, so commands like `e2a agents update my-bot` resolve to the right address on any deployment without further config. Escape hatches if you need to override or skip the discovery step:
-
-| Variable | Description |
-|---|---|
-| `E2A_URL` | API base URL (default `https://e2a.dev`) |
-| `E2A_API_KEY` | Bypass `e2a login` — useful in CI |
-| `E2A_SHARED_DOMAIN` | Force the shared domain instead of auto-discovering it |
-
-The TypeScript and Python SDKs follow the same pattern: pass `baseUrl` (or `base_url`) once and call `E2AApi.fetchInfo()` if you need the deployment's shared domain in your own code.
-
-### Web dashboard deployer
-
-The Next.js dashboard ships as a static export, so its config is inlined at build time via `NEXT_PUBLIC_*` env vars. Copy [`web/.env.example`](web/.env.example) to `web/.env.local` and adjust:
-
-| Variable | Description |
-|---|---|
-| `NEXT_PUBLIC_SITE_URL` | Externally visible base URL of the dashboard. Used for SEO metadata, sitemap, and canonical URLs. Default: `http://localhost:3000`. |
-| `NEXT_PUBLIC_SITE_NAME` | Display name in titles, OpenGraph, and structured data. Default: `e2a`. |
-| `NEXT_PUBLIC_AGENTS_DOMAIN` | Shared mail domain shown in landing-page code samples (e.g. `agents.example.com`). When empty, samples fall back to `your-domain.com`. |
-| `NEXT_PUBLIC_FEEDBACK_EMAIL` | Address shown on the feedback form. Empty hides the "or email us at …" line. |
-| `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` | Google Search Console token. Only emitted into `<head>` when set, so forks don't inherit upstream's property. |
-
-### Scaling and limitations
-
-**Most state is already DB-coordinated.** The HITL expiration worker, the webhook retry worker, and the periodic cleanup worker all use Postgres `SELECT … FOR UPDATE SKIP LOCKED` (or rely on `DELETE` idempotency for cleanup), so running multiple replicas concurrently is safe — only one worker claims a given pending message at a time, no duplicate sends. User sessions live in Postgres and the OAuth nonce travels in a cookie + the OAuth state parameter, so dashboard sign-in survives load-balancer rebalancing.
-
-That leaves two real horizontal-scaling caveats:
-
-1. **WebSocket fan-out is per-replica.** The hub is an in-memory `map[agentID]*conn` ([internal/ws/hub.go](internal/ws/hub.go)). An agent connected to replica A won't receive real-time notifications for events that happen on replica B — an inbound mail arriving at B's SMTP relay, a HITL approval firing on B's API, etc. Messages aren't lost: they stay `unread` in Postgres and the agent drains them on the next reconnect or REST fetch. They're just not pushed in real-time. Fix: a shared pub/sub (Redis, NATS) for cross-replica notification fan-out, or sticky sessions plus a per-replica routing layer.
-2. **Rate limits multiply with replica count.** Limiters are in-process (per-IP, per-agent, per-user — see `ratelimit.New(...)` calls in [internal/agent/api.go](internal/agent/api.go)). With two replicas the effective caps are 2× looser, not stricter. Operators who need exact global limits would move the limiters to a shared store (Redis, or a Postgres-backed token bucket).
-
-**Vertical scaling is fine.** The API, the SMTP relay, and all three background workers run safely on multiple replicas today — the only paths that need attention before you do are the two above.
-
-**Dashboard auth is Google OAuth only.** [`internal/auth/auth.go`](internal/auth/auth.go) imports `golang.org/x/oauth2/google` directly and the config exposes `google_client_id` / `google_client_secret`. Teams running GitHub OAuth, Microsoft Entra, Okta, or generic OIDC need to add a provider in that package. The CLI and SDKs authenticate with API keys, which are provider-agnostic.
-
-**Otherwise infra-agnostic.** The Go binary runs on any container host (Docker, Podman, k8s, ECS, Fly, Cloud Run, …). Storage is plain Postgres 14+ — managed (RDS, Cloud SQL, Neon, Supabase) or self-managed. Email goes out via standard SMTP, not a vendor SDK. Attachments live in Postgres rows, so there's no S3/GCS dependency. No queue, no Redis, no separate worker process. Secrets are read from env vars, so any secret manager that injects env at start time works.
+See [docs/deployment.md](docs/deployment.md) for the full env-var reference, shared-domain DNS setup, and scaling/limitation notes.
 
 ## Security
 
@@ -456,48 +293,9 @@ Report security issues privately — see [SECURITY.md](SECURITY.md) for the disc
 
 ## Data handling
 
-What e2a stores, how long it lives, and what users + operators can do with it.
+Message envelopes and inbound bodies live in Postgres for 30 days by default; outbound bodies are scrubbed at terminal HITL transition; API keys are stored as hashes; attachments go in JSONB rows (no S3/GCS). Application logs include sender/recipient addresses (standard MTA practice) but never bodies, attachments, raw keys, or HMAC secrets. Users can self-export (`GET /users/me/export`) and self-delete (`DELETE /users/me`) for GDPR Art. 15 / Art. 17 / CCPA.
 
-### What's stored
-
-| Data | Where | Retention |
-|---|---|---|
-| Inbound + outbound message envelopes (sender, recipient, subject, conversation_id, timestamps) | Postgres `messages` | Default 30 days; `expires_at` per row, hourly cleanup worker |
-| Inbound message bodies (raw RFC822 in `raw_message`) | Postgres `messages` | Same 30-day default |
-| Outbound message bodies (only while in `pending_approval`) | Postgres `messages.body_text` / `body_html` / `attachments_json` | **Scrubbed on terminal HITL transition** (approve/reject/expire) — only metadata persists after that |
-| Attachments | Postgres rows (`attachments_json`, JSONB) | Same lifetime as the parent message — no S3/GCS |
-| Agent + domain ownership records | Postgres `agent_identities`, `domains` | Until the user deletes the agent/domain or the account |
-| API keys | Postgres `api_keys`, **hash only** (SHA over the plaintext) | Until revoked or the user is deleted; plaintext exists only in the create response and is never persisted |
-| OAuth sessions | Postgres `user_sessions` | 30 days; cleanup worker removes expired rows hourly |
-| Usage events / summaries (only when `E2A_USAGE_TRACKING=true`) | Postgres `usage_events`, `usage_summaries` | Indefinite by default — operator can purge or override |
-| HMAC signing secret | Operator's env (`E2A_HMAC_SECRET`); never written to DB | Lifetime of the deployment |
-
-### What's logged
-
-- The SMTP relay logs envelope metadata on every inbound message: sender address, recipient list, byte count, the SPF/DKIM verdict. This is standard MTA practice (Postfix and other relays log the same), but it does mean **PII (sender + recipient addresses) appears in application logs** and inherits whatever retention your log pipeline has. Operators in privacy-strict environments should plan for redaction in their log forwarder.
-- HITL state transitions log message IDs and agent IDs but not bodies.
-- Webhook delivery attempts log the destination URL and status code.
-
-Application logs do **not** include message bodies, attachment contents, raw API keys, or HMAC secrets.
-
-### User rights
-
-The API exposes the two operations that GDPR Art. 15 / Art. 17 (and CCPA equivalents) require:
-
-- **`GET /api/v1/users/me/export`** — returns a JSON dump of everything the authenticated user owns. Profile, agents, domains, API key metadata, all messages with bodies, usage events. Internal identifiers (Google subject, key hashes, session tokens) are excluded.
-- **`DELETE /api/v1/users/me?confirm=DELETE`** — wipes the user and every related row in a single Postgres transaction (cascade through `agent_identities → messages → webhook_deliveries`, plus explicit deletion of `usage_events` which has `ON DELETE SET NULL` rather than CASCADE so it survives by default). Returns per-table row counts so the caller can audit what was removed.
-
-Both are scoped to the authenticated user — there's no path to target someone else's data.
-
-### Operator responsibilities
-
-Things e2a doesn't (and can't) handle for you:
-
-- **Database backups.** Take them, encrypt them, set retention policy. e2a doesn't ship a backup story; use whatever your Postgres provider gives you.
-- **TLS termination** for the API and SMTP. Production mode enforces HTTPS for webhook delivery; the operator's reverse proxy / ingress terminates TLS for inbound API traffic and the SMTP relay's `tls_cert` / `tls_key` config covers `:2525`.
-- **At-rest encryption.** Disk-level / volume-level encryption is the operator's responsibility (Postgres TDE, EBS encryption, GCP CMEK, …). e2a does not currently encrypt message bodies or attachments at the application layer; if your threat model includes a privileged DBA, you'll want to add column-level encryption.
-- **Log redaction.** If your environment can't tolerate sender/recipient addresses in application logs, redact in your log forwarder or run with `--log-format=json` and filter the relevant fields downstream.
-- **Compliance attestations** (SOC 2, HIPAA, ISO 27001) — those are deployment-level, not code-level.
+See [docs/data-handling.md](docs/data-handling.md) for the full retention table, log fields, user-rights endpoints, and the operator-side responsibilities (backups, TLS, at-rest encryption, log redaction, compliance).
 
 ## FAQ
 
