@@ -113,8 +113,11 @@ field on the parsed payload.
 
 ## What this example deliberately doesn't show
 
-- **Persistence.** `InMemorySessionService` loses everything on restart.
-  Production deployments should use `DatabaseSessionService` (Postgres /
+- **Persistence + multi-worker safety.** `InMemorySessionService` loses
+  everything on restart. It also lives in *one* Python process — running
+  `uvicorn ... --workers 4` shards sessions per-worker, so the same
+  conversation can land on different workers and lose memory at random.
+  For anything beyond the demo, use `DatabaseSessionService` (Postgres /
   SQLite) — see [ADK sessions docs](https://adk.dev/sessions/session/).
 - **Tools.** The agent has no tools beyond text generation. Add them to
   `agent.py` once the email loop works end-to-end.

@@ -24,6 +24,7 @@ context across email turns even though SMTP itself is stateless.
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
@@ -35,11 +36,13 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from e2a.v1 import E2AClient
+from e2a.v1 import E2AClient, InboundEmail
 
 from agent import APP_NAME, agent
 
 load_dotenv()
+log = logging.getLogger("adk-webhook")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
 
 def _require_env(name: str) -> str:
@@ -80,7 +83,7 @@ async def health() -> dict[str, str]:
 @app.post("/webhook")
 async def webhook(request: Request) -> dict[str, str]:
     body = await request.body()
-    email = request.app.state.e2a.parse(body)
+    email: InboundEmail = request.app.state.e2a.parse(body)
 
     if not email.verify_signature(HMAC_SECRET):
         # Reject unverified payloads. Anyone can reach a public webhook URL;
@@ -94,6 +97,12 @@ async def webhook(request: Request) -> dict[str, str]:
 
     # user_id scopes a session to a particular human counterpart. Different
     # senders get isolated session histories even on the same agent.
+    #
+    # Safety note: email.sender is only trustworthy *because* the HMAC check
+    # above passed — that signature binds to the sender claim e2a verified
+    # via SPF/DKIM. If you ever move this assignment above the verify call,
+    # you re-introduce a session-poisoning vector (any unauthenticated POST
+    # could claim to be any sender and read/write that user's session).
     user_id = email.sender
 
     sessions = request.app.state.sessions
@@ -120,14 +129,23 @@ async def webhook(request: Request) -> dict[str, str]:
 
     if not reply_text:
         # Agent produced no response (rare — usually means a tool call without
-        # a final text turn). Don't reply with an empty email.
+        # a final text turn). Don't reply with an empty email; log so the
+        # operator can investigate why the run finished without text.
+        log.warning(
+            "agent produced no reply text user=%s conv=%s msg=%s",
+            user_id, conversation_id, email.message_id,
+        )
         return {"status": "no_reply", "conversation_id": conversation_id}
 
+    log.info(
+        "replying user=%s conv=%s msg=%s reply_chars=%d",
+        user_id, conversation_id, email.message_id, len(reply_text),
+    )
     email.reply(reply_text, conversation_id=conversation_id)
     return {"status": "replied", "conversation_id": conversation_id}
 
 
-def _format_email_for_agent(email) -> str:
+def _format_email_for_agent(email: InboundEmail) -> str:
     """Flatten the email into a single text block for the agent.
 
     A more sophisticated agent could be given the headers as a separate
