@@ -9,7 +9,7 @@ export { E2AClient } from "./client.js";
 export type { E2AClientOptions } from "./client.js";
 export { InboundEmail } from "./inbound-email.js";
 export type { Attachment, AuthHeaders, WebhookPayload } from "./inbound-email.js";
-export { WSListener } from "./ws.js";
+export { WSListener, WSStream } from "./ws.js";
 export type { WSListenerOptions, WSListenerEvents, WSNotification } from "./ws.js";
 
 // Friendly aliases for the most-used response shapes. These mirror the

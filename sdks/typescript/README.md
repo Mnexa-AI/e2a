@@ -161,6 +161,66 @@ await agentA.send(["bob@agent.acme.com"], "Can you handle this?", bodyText, {
 // Agent B's webhook immediately sees conversationId="task-2026-04-19-7f3a"
 ```
 
+## WebSocket (real-time delivery for local agents)
+
+Local-mode agents can receive notifications in real time over a
+WebSocket. No public URL needed; auth happens via the `?token=` query
+parameter.
+
+```ts
+import { E2AClient } from "@e2a/sdk";
+
+const client = new E2AClient({ apiKey: "e2a_..." });
+
+for await (const notif of client.listen({ agentEmail: "bot@agents.e2a.dev" })) {
+  // The notification is lightweight metadata only — no body, no REST call.
+  console.log(`From: ${notif.from}, Subject: ${notif.subject}`);
+
+  // Fetch the full email when you actually want it.
+  const detail = await client.api.getMessage(notif.recipient, notif.message_id);
+  // ...
+}
+```
+
+`client.listen()` returns a [`WSStream`](src/v1/ws.ts) which is **both**
+an `AsyncIterable<WSNotification>` and an `EventEmitter` — pick whichever
+access pattern fits.
+
+```ts
+const stream = client.listen({ agentEmail: "bot@agents.e2a.dev" });
+stream.on("error", (err) => console.error("WS error:", err));
+stream.on("close", (code, reason) => console.log("WS closed:", code, reason));
+
+for await (const notif of stream) {
+  // ...
+}
+
+// Call stream.close() to terminate iteration cleanly.
+```
+
+`WSNotification` mirrors the Python SDK's dataclass and the server's
+wire shape:
+
+| Field | Type | Notes |
+|---|---|---|
+| `message_id` | `string` | Pass to `client.api.getMessage(...)` for the body |
+| `from` | `string` | Sender |
+| `recipient` | `string` | Per-delivery target (your agent's address) |
+| `subject` | `string` | |
+| `received_at` | `string` | RFC 3339 timestamp |
+| `conversation_id` | `string?` | Threading; absent on first contact |
+
+Reconnects with exponential backoff (1s → 30s by default,
+configurable via `maxBackoffMs`). The protocol is server-to-client
+only; the client never sends application frames.
+
+### Lower-level `WSListener`
+
+Prefer `client.listen()`. The underlying [`WSListener`](src/v1/ws.ts)
+class is also exported for advanced use (e.g. wiring up a custom
+EventEmitter pattern without iteration), but most consumers should use
+`client.listen()`.
+
 ## License
 
 Apache-2.0 — see [LICENSE](https://github.com/Mnexa-AI/e2a/blob/main/LICENSE) and [NOTICE](https://github.com/Mnexa-AI/e2a/blob/main/NOTICE) in the upstream repo.
