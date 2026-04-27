@@ -118,117 +118,118 @@ async function waitForBrowserLogin(apiUrl: string, timeoutMs = LOGIN_TIMEOUT_MS)
 
   let settled = false;
   let server: Server | null = null;
-
-  const result = new Promise<BrowserLoginResult>((resolve, reject) => {
-    const finish = async (value: BrowserLoginResult | Error, isError: boolean) => {
-      if (settled) return;
-      settled = true;
-      if (server) {
-        await closeServer(server);
-      }
-      if (isError) reject(value);
-      else resolve(value as BrowserLoginResult);
-    };
-
-    server = createServer(async (req, res) => {
-      res.setHeader("Connection", "close");
-      try {
-        if (req.method !== "POST") {
-          res.statusCode = 405;
-          res.setHeader("Content-Type", "text/html; charset=utf-8");
-          res.end(renderCallbackPage("Return to your terminal", "Run e2a login again to finish connecting the CLI."));
-          return;
-        }
-
-        const body = await readRequestBody(req);
-        const params = new URLSearchParams(body);
-        const returnedState = params.get("cli_state") || "";
-        const apiKey = params.get("api_key") || "";
-        const agentEmail = params.get("agent_email") || "";
-        const error = params.get("error") || "";
-
-        if (returnedState != cliState) {
-          res.statusCode = 400;
-          res.setHeader("Content-Type", "text/html; charset=utf-8");
-          res.end(renderCallbackPage("e2a login failed", "The browser login state did not match this terminal session. Return to the terminal and try again."));
-          await finish(new Error("browser login state mismatch"), true);
-          return;
-        }
-
-        if (error) {
-          res.statusCode = 400;
-          res.setHeader("Content-Type", "text/html; charset=utf-8");
-          res.end(renderCallbackPage("e2a login failed", error));
-          await finish(new Error(error), true);
-          return;
-        }
-
-        if (!apiKey.startsWith("e2a_")) {
-          res.statusCode = 400;
-          res.setHeader("Content-Type", "text/html; charset=utf-8");
-          res.end(renderCallbackPage("e2a login failed", "The browser did not return a valid API key."));
-          await finish(new Error("browser login did not return a valid api key"), true);
-          return;
-        }
-
-        res.statusCode = 200;
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        res.end(renderCallbackPage("e2a CLI connected", "You can return to the terminal. Your config has been updated automatically."));
-
-        await finish({ apiKey, agentEmail }, false);
-      } catch (error) {
-        res.statusCode = 500;
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        res.end(renderCallbackPage("e2a login failed", "The CLI could not process the browser callback."));
-        await finish(error instanceof Error ? error : new Error("failed to process browser callback"), true);
-      }
-    });
-
-    server.on("error", async (error) => {
-      await finish(error instanceof Error ? error : new Error("browser login server failed"), true);
-    });
-
-    server.listen(0, "127.0.0.1", () => {
-      const address = server?.address();
-      if (!address || typeof address === "string") {
-        void finish(new Error("failed to start local login callback"), true);
-        return;
-      }
-
-      const callbackUrl = `http://127.0.0.1:${address.port}/callback`;
-      const loginUrl = buildBrowserLoginURL(apiUrl, callbackUrl, cliState);
-
-      // Always print the URL — `open`/`xdg-open` can return success even
-      // when no browser actually launches (headless box, SSH session,
-      // container without a desktop), and without the URL printed the
-      // user has no way to recover. Frame it as a fallback so the happy
-      // path still reads cleanly.
-      process.stderr.write("\n");
-      process.stderr.write(`Opening ${hostLabel(apiUrl)} in your browser to finish login...\n`);
-      process.stderr.write(`If it doesn't open, visit:\n  ${loginUrl}\n`);
-      process.stderr.write("\n");
-
-      openBrowser(loginUrl);
-    });
-  });
-
-  const timeout = setTimeout(async () => {
-    if (settled) return;
-    settled = true;
-    if (server) {
-      await closeServer(server);
-    }
-  }, timeoutMs);
+  // Single timeout handle that's cleared in finish() and the outer
+  // finally — earlier versions had two setTimeouts and one of them
+  // wasn't cleared on success, keeping the Node event loop alive for
+  // the full timeout (2 min) after a successful login. Symptom was
+  // the terminal hanging after "Logged in to <host>" printed.
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
   try {
-    return await Promise.race([
-      result,
-      new Promise<BrowserLoginResult>((_, reject) => {
-        setTimeout(() => reject(new Error("timed out waiting for browser login")), timeoutMs);
-      }),
-    ]);
+    return await new Promise<BrowserLoginResult>((resolve, reject) => {
+      const finish = async (value: BrowserLoginResult | Error, isError: boolean) => {
+        if (settled) return;
+        settled = true;
+        if (timeoutHandle) clearTimeout(timeoutHandle);
+        if (server) {
+          await closeServer(server);
+        }
+        if (isError) reject(value);
+        else resolve(value as BrowserLoginResult);
+      };
+
+      timeoutHandle = setTimeout(
+        () => void finish(new Error("timed out waiting for browser login"), true),
+        timeoutMs,
+      );
+
+      server = createServer(async (req, res) => {
+        res.setHeader("Connection", "close");
+        try {
+          if (req.method !== "POST") {
+            res.statusCode = 405;
+            res.setHeader("Content-Type", "text/html; charset=utf-8");
+            res.end(renderCallbackPage("Return to your terminal", "Run e2a login again to finish connecting the CLI."));
+            return;
+          }
+
+          const body = await readRequestBody(req);
+          const params = new URLSearchParams(body);
+          const returnedState = params.get("cli_state") || "";
+          const apiKey = params.get("api_key") || "";
+          const agentEmail = params.get("agent_email") || "";
+          const error = params.get("error") || "";
+
+          if (returnedState != cliState) {
+            res.statusCode = 400;
+            res.setHeader("Content-Type", "text/html; charset=utf-8");
+            res.end(renderCallbackPage("e2a login failed", "The browser login state did not match this terminal session. Return to the terminal and try again."));
+            await finish(new Error("browser login state mismatch"), true);
+            return;
+          }
+
+          if (error) {
+            res.statusCode = 400;
+            res.setHeader("Content-Type", "text/html; charset=utf-8");
+            res.end(renderCallbackPage("e2a login failed", error));
+            await finish(new Error(error), true);
+            return;
+          }
+
+          if (!apiKey.startsWith("e2a_")) {
+            res.statusCode = 400;
+            res.setHeader("Content-Type", "text/html; charset=utf-8");
+            res.end(renderCallbackPage("e2a login failed", "The browser did not return a valid API key."));
+            await finish(new Error("browser login did not return a valid api key"), true);
+            return;
+          }
+
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "text/html; charset=utf-8");
+          res.end(renderCallbackPage("e2a CLI connected", "You can return to the terminal. Your config has been updated automatically."));
+
+          await finish({ apiKey, agentEmail }, false);
+        } catch (error) {
+          res.statusCode = 500;
+          res.setHeader("Content-Type", "text/html; charset=utf-8");
+          res.end(renderCallbackPage("e2a login failed", "The CLI could not process the browser callback."));
+          await finish(error instanceof Error ? error : new Error("failed to process browser callback"), true);
+        }
+      });
+
+      server.on("error", async (error) => {
+        await finish(error instanceof Error ? error : new Error("browser login server failed"), true);
+      });
+
+      server.listen(0, "127.0.0.1", () => {
+        const address = server?.address();
+        if (!address || typeof address === "string") {
+          void finish(new Error("failed to start local login callback"), true);
+          return;
+        }
+
+        const callbackUrl = `http://127.0.0.1:${address.port}/callback`;
+        const loginUrl = buildBrowserLoginURL(apiUrl, callbackUrl, cliState);
+
+        // Always print the URL — `open`/`xdg-open` can return success even
+        // when no browser actually launches (headless box, SSH session,
+        // container without a desktop), and without the URL printed the
+        // user has no way to recover. Frame it as a fallback so the happy
+        // path still reads cleanly.
+        process.stderr.write("\n");
+        process.stderr.write(`Opening ${hostLabel(apiUrl)} in your browser to finish login...\n`);
+        process.stderr.write(`If it doesn't open, visit:\n  ${loginUrl}\n`);
+        process.stderr.write("\n");
+
+        openBrowser(loginUrl);
+      });
+    });
   } finally {
-    clearTimeout(timeout);
+    // Defensive: finish() should already clear these on every code path,
+    // but if somebody throws before we register them or after settled is
+    // set, the finally block guarantees no orphan timer / open socket
+    // keeps the process alive.
+    if (timeoutHandle) clearTimeout(timeoutHandle);
     if (server) {
       await closeServer(server);
     }
