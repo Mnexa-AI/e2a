@@ -146,26 +146,25 @@ The MAC binds to **both** `message_id` and a SHA-256 of the raw message body. Su
 
 #### Verifying the signature
 
-The `X-E2A-Auth-Verified` field is the *server's claim* — anyone who can reach your webhook URL can set it. To make a security decision, **verify the signature** with the shared HMAC secret:
+The `X-E2A-Auth-Verified` field is the *server's claim* — anyone who can reach your webhook URL can set it. To make a security decision, **verify the signature** with one of your account's signing secrets (manage them in the dashboard's Settings → Webhook signing secrets, or via `/api/v1/users/me/signing-secrets`).
+
+The SDKs gate field access behind verification by default — accessing `email.sender`, `email.subject`, etc. on an unverified webhook payload raises `UnverifiedEmailError`, so you can't accidentally trust attacker-controllable fields. The one-call shortcut:
 
 ```python
 from e2a.v1 import E2AClient
 client = E2AClient()
-email = client.parse(request_body)
-if not email.verify_signature(my_hmac_secret):
-    return 401  # untrusted, reject
-# now safe to act on email.sender, email.is_verified, etc.
+email = client.parse_webhook(request_body)  # parse + verify, raises on bad signature
+# safe to use email.sender, email.subject, …
 ```
 
 ```typescript
 import { E2AClient } from "@e2a/sdk";
-const email = await client.parse(req.body);
-if (!email.verifySignature(myHmacSecret)) {
-  return res.status(401).end();
-}
+const email = await client.parseWebhook(req.body); // throws on bad signature
 ```
 
-Both SDKs check, in order: body_hash matches the raw message bytes, HMAC matches the canonical, and timestamp is within a 5-minute replay window. Returns `true` only if all three hold. Treat `false` as untrusted regardless of the `is_verified` claim.
+Both forms read the secret from `E2A_HMAC_SECRET` by default; pass it explicitly as a second argument if you keep it elsewhere. Under the hood the verify step checks, in order: body_hash matches the raw message bytes, HMAC matches the canonical auth string, and timestamp is within a 5-minute replay window.
+
+REST-fetched messages (`client.get_message(...)`, `client.list_messages(...)`) are pre-verified — the bearer token already authenticated the channel — so field access works directly without a verify step.
 
 ### Conversation threading
 
@@ -239,8 +238,8 @@ pip install 'e2a[ws]'      # adds WebSocket support
 ```python
 from e2a.v1 import E2AClient
 
-client = E2AClient()                # reads E2A_API_KEY
-email = client.parse(request_body)  # validate + decode webhook payload
+client = E2AClient()                          # reads E2A_API_KEY
+email = client.parse_webhook(request_body)    # parse + HMAC-verify (reads E2A_HMAC_SECRET)
 print(email.sender, email.subject)
 email.reply("Got it!", conversation_id="conv_123")
 ```

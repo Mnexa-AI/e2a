@@ -14,7 +14,7 @@ e2a relay
     v  HTTPS POST /webhook (signed)
 this app
     |
-    +-- verify HMAC
+    +-- parse_webhook (parse + verify HMAC)
     +-- look up / create ADK session keyed by conversation_id
     +-- runner.run_async(...)
     +-- email.reply(text, conversation_id=...)
@@ -28,9 +28,10 @@ e2a relay -> SMTP -> human
 - Python 3.10+
 - An e2a account with a registered **cloud-mode** agent. Sign up at
   [e2a.dev](https://e2a.dev), create an agent, set its mode to `cloud`.
-  You'll need its **API key**, the **HMAC secret** for the deployment
-  (settings page), and a public webhook URL (see "Exposing the webhook"
-  below).
+  You'll need its **API key**, an **HMAC signing secret** (create one in
+  Settings → Webhook signing secrets — copy it the moment it's shown,
+  it's not retrievable later), and a public webhook URL (see "Exposing
+  the webhook" below).
 - A Google AI Studio API key for Gemini —
   [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
 

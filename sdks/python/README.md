@@ -38,15 +38,20 @@ client = E2AClient()
 
 Mount the webhook in your web framework:
 
+Webhook payloads are HMAC-signed. The SDK gates field access behind verification — accessing `email.sender`, `email.subject`, etc. on an unverified payload raises `UnverifiedEmailError`. Use `client.parse_webhook(...)` to parse + verify in one call:
+
 **FastAPI:**
 ```python
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 
 app = FastAPI()
 
 @app.post("/webhook")
 async def webhook(request: Request):
-    email = client.parse(await request.body())
+    try:
+        email = client.parse_webhook(await request.body())  # reads E2A_HMAC_SECRET
+    except PermissionError:
+        raise HTTPException(401, "bad signature")
     print(f"From: {email.sender}, Subject: {email.subject}")
     email.reply("Thanks for reaching out!")
     return {"ok": True}
@@ -54,16 +59,21 @@ async def webhook(request: Request):
 
 **Flask:**
 ```python
-from flask import Flask, request
+from flask import Flask, request, abort
 
 app = Flask(__name__)
 
 @app.post("/webhook")
 def webhook():
-    email = client.parse(request.get_data())
+    try:
+        email = client.parse_webhook(request.get_data())
+    except PermissionError:
+        abort(401)
     email.reply("Thanks for reaching out!")
     return {"ok": True}
 ```
+
+Get a signing secret from the dashboard's Settings → Webhook signing secrets (or `POST /api/v1/users/me/signing-secrets`). Set it as `E2A_HMAC_SECRET` so `parse_webhook` picks it up automatically, or pass it explicitly: `client.parse_webhook(body, secret="whsec_...")`.
 
 ## Raw vs high-level API
 
@@ -98,7 +108,7 @@ whether the other side is a human replying from Gmail or another e2a agent.
 ```python
 @app.post("/webhook")
 async def webhook(request: Request):
-    email = client.parse(await request.body())
+    email = client.parse_webhook(await request.body())
 
     if email.conversation_id:
         # Follow-up — route to the existing conversation
@@ -186,7 +196,7 @@ Inbound email attachments are automatically parsed and available on
 `email.attachments`:
 
 ```python
-email = client.parse(body)
+email = client.parse_webhook(body)
 for att in email.attachments:
     print(f"{att.filename} ({att.content_type}, {att.size} bytes)")
     save_file(att.filename, att.data)
@@ -239,7 +249,7 @@ client = AsyncE2AClient()  # reads E2A_API_KEY from env
 
 @app.post("/webhook")
 async def webhook(request: Request):
-    email = client.parse(await request.body())
+    email = await client.parse_webhook(await request.body())
     await email.reply("Thanks!", conversation_id="conv_123")
     return {"ok": True}
 ```
@@ -359,9 +369,13 @@ print(result.status, result.message_id)
 | `auth` | `AuthHeaders` | Full authentication details |
 | `raw_message` | `bytes` | Raw RFC 2822 email bytes |
 
+All claim fields (`message_id`, `sender`, `recipient`, `to`, `cc`, `subject`, `text_body`, `html_body`, `attachments`, `conversation_id`, `received_at`) are gated — accessing them on an unverified webhook payload raises `UnverifiedEmailError`. Always-available regardless of verification: `auth`, `raw_message`, `is_verified`, `verified`, `unverified_payload`. Emails returned by `client.get_message(...)` and `client.list_messages(...)` are pre-verified (the bearer token already authenticated the channel).
+
 **Methods:**
 
+- `email.verify_signature(secret=None)` → `bool` — verifies the HMAC; falls back to `E2A_HMAC_SECRET`. Sets the verified flag on success so claim fields become accessible.
 - `email.reply(body, html_body=None, conversation_id=None, attachments=None)` → `SendResult`
+- `email.unverified_payload` — escape hatch for inspection (debugging, logging) without verifying. Treat as untrusted.
 
 ## API Reference
 
@@ -369,8 +383,9 @@ print(result.status, result.message_id)
 
 High-level sync client. `api_key` falls back to `E2A_API_KEY` env var.
 
-- `client.parse(body)` → `InboundEmail` — accepts bytes, str, dict, or `MessageDetail`
-- `client.get_message(message_id)` → `InboundEmail`
+- `client.parse_webhook(body, secret=None)` → `InboundEmail` — parse + HMAC-verify (recommended for webhook handlers). Reads `E2A_HMAC_SECRET` if no secret is passed; raises `PermissionError` on bad signature.
+- `client.parse(body)` → `InboundEmail` — accepts bytes, str, dict, or `MessageDetail`. Returns *unverified* — claim fields raise `UnverifiedEmailError` until `email.verify_signature()` succeeds.
+- `client.get_message(message_id)` → `InboundEmail` — pre-verified (REST channel auth)
 - `client.get_messages(status="unread", page_size=50)` → `MessageList`
 - `client.reply(message_id, body, ...)` → `SendResult`
 - `client.send(to, subject, body, ...)` → `SendResult`
@@ -393,6 +408,8 @@ Same as `E2AClient` — all I/O methods are `async`. `parse()` is sync (no I/O n
 ### Exceptions
 
 - `E2AApiError` — API error (has `status_code` and `message`)
+- `UnverifiedEmailError` — raised on `InboundEmail` claim-field access before `verify_signature()` has succeeded
+- `PermissionError` — raised by `parse_webhook` on bad signature
 
 ## License
 

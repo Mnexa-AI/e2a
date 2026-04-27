@@ -1,6 +1,6 @@
 # Email Skill
 
-<!-- version: 5 -->
+<!-- version: 6 -->
 
 You can give yourself an email address and use it to check your inbox, read, reply to, and send emails.
 
@@ -11,7 +11,7 @@ Email is powered by [e2a](https://e2a.dev) — email for AI agents.
 ```bash
 _E2A_STATE="$HOME/.e2a/skill"
 _E2A_CHECK="$_E2A_STATE/last-check"
-_E2A_LOCAL=5
+_E2A_LOCAL=6
 _E2A_NOW=$(date +%s)
 _E2A_SKIP=0
 if [ -f "$_E2A_CHECK" ]; then
@@ -122,7 +122,11 @@ If the user wants to receive emails on a cloud-hosted agent via webhook:
 
 Go to https://e2a.dev and register a new agent in "Cloud" mode. Enter your webhook URL (must be HTTPS).
 
-### 2. Implement the webhook endpoint
+### 2. Create a signing secret
+
+In the dashboard's Settings → Webhook signing secrets, create one and copy it (shown once). Set it as `E2A_HMAC_SECRET` in your webhook environment so the SDK can verify inbound payloads automatically.
+
+### 3. Implement the webhook endpoint
 
 #### Python
 
@@ -136,7 +140,7 @@ Example webhook handler using FastAPI:
 
 ```python
 import e2a
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 
 app = FastAPI()
 
@@ -148,7 +152,13 @@ client = e2a.E2AClient(api_key="e2a_...")  # or set E2A_API_KEY env var
 
 @app.post("/webhook")
 async def webhook(request: Request):
-    email = client.parse(await request.body())
+    # parse_webhook does parse + HMAC-verify in one call.
+    # Reads E2A_HMAC_SECRET from the env automatically.
+    try:
+        email = client.parse_webhook(await request.body())
+    except PermissionError:
+        raise HTTPException(401, "bad signature")
+
     print(f"From: {email.sender}")
     print(f"Subject: {email.subject}")
     print(f"Body: {email.text_body}")
@@ -181,7 +191,15 @@ app.use(express.json());
 const client = new E2AClient({ apiKey: process.env.E2A_API_KEY! });
 
 app.post("/webhook", async (req, res) => {
-  const email = await client.parse(req.body);
+  // parseWebhook does parse + HMAC-verify in one call.
+  // Reads E2A_HMAC_SECRET from the env automatically.
+  let email;
+  try {
+    email = await client.parseWebhook(req.body);
+  } catch {
+    return res.status(401).end();
+  }
+
   console.log(`From: ${email.sender}`);
   console.log(`Subject: ${email.subject}`);
   console.log(`Body: ${email.textBody}`);
@@ -215,9 +233,9 @@ The webhook receives a JSON payload with these fields:
 }
 ```
 
-`to` and `cc` are the parsed `To:` / `Cc:` headers from the original message; `recipient` is this delivery's per-agent target. `client.parse()` handles decoding the raw message and gives you `email.subject`, `email.text_body`, `email.html_body`, `email.attachments`, `email.to`, `email.cc`, and `email.reply()`.
+`to` and `cc` are the parsed `To:` / `Cc:` headers from the original message; `recipient` is this delivery's per-agent target. `client.parse_webhook()` handles HMAC verification and decoding, and gives you `email.subject`, `email.text_body`, `email.html_body`, `email.attachments`, `email.to`, `email.cc`, and `email.reply()`.
 
-Check `email.is_verified` to confirm the sender's identity was verified by e2a.
+The SDK gates field access behind verification — accessing `email.sender` etc. on an unverified payload raises `UnverifiedEmailError`. `parse_webhook` handles the verify step for you; `client.parse(...)` returns an unverified email, and you must call `email.verify_signature()` before reading claim fields. Check `email.is_verified` if you want to confirm the sender's identity was verified by e2a.
 
 For full SDK documentation, see https://e2a.dev/python-sdk.
 
@@ -256,7 +274,7 @@ The `--agent` flag is optional if `agent_email` is set in your config.
 ## Reference
 
 - Config file: `~/.e2a/config.json` (JSON with `api_key`, `api_url`, `agent_email`, `shared_domain`)
-- Environment variables that override config: `E2A_API_KEY`, `E2A_URL`, `E2A_SHARED_DOMAIN` (CLI). `E2A_AGENT_EMAIL` is honored by the Python/TS SDK constructors when you don't pass `agent_email` explicitly.
+- Environment variables that override config: `E2A_API_KEY`, `E2A_URL`, `E2A_SHARED_DOMAIN` (CLI). `E2A_AGENT_EMAIL` is honored by the Python/TS SDK constructors when you don't pass `agent_email` explicitly. `E2A_HMAC_SECRET` is read by `client.parse_webhook` / `client.parseWebhook` and `email.verify_signature()` / `email.verifySignature()` to verify inbound webhook signatures.
 - CLI docs: https://www.npmjs.com/package/@e2a/cli
 - TypeScript SDK: https://www.npmjs.com/package/@e2a/sdk
 - Python SDK: https://e2a.dev/python-sdk

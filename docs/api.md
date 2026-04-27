@@ -51,6 +51,18 @@ For the machine-readable spec, see [`web/public/openapi.yaml`](../web/public/ope
 
 Both endpoints require a valid API key or session. The export omits internal identifiers (Google subject, API key hashes, session tokens) — see [data-handling.md](data-handling.md) for the full data model.
 
+### Webhook signing secrets
+
+Per-user HMAC secrets used to sign inbound webhook payloads. Up to 5 active per user. Plaintext is returned **once** at creation; subsequent reads see only the 12-char prefix.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/users/me/signing-secrets` | List the user's signing secrets (id, name, prefix, created_at, last_signed_at). |
+| `POST` | `/users/me/signing-secrets` | Create a new signing secret. Returns the plaintext exactly once — store it immediately. Body: `{"name": "..."}`. |
+| `DELETE` | `/users/me/signing-secrets/{id}` | Delete a signing secret. Cannot delete the last one (returns 409); rotate by creating a new one first, switching consumers over, then deleting the old one. |
+
+The SDKs read the secret from `E2A_HMAC_SECRET` by default — `client.parse_webhook(body)` / `client.parseWebhook(body)` does parse + verify in one call. See [sdks/python/README.md](../sdks/python/README.md#quick-start) and [sdks/typescript/README.md](../sdks/typescript/README.md#webhook-cloud-agents).
+
 ## HITL magic links
 
 These endpoints accept a signed `token` query parameter (from notification emails) instead of an API key, so reviewers can approve from any mail client without auth.

@@ -5,7 +5,7 @@ Pipeline per request:
     POST /webhook (raw e2a payload)
         |
         v
-    parse + verify HMAC          <-- reject unsigned/replayed payloads
+    parse_webhook (parse + verify HMAC)  <-- rejects unsigned/replayed payloads
         |
         v
     map (sender, conversation_id) -> ADK (user_id, session_id)
@@ -55,9 +55,11 @@ def _require_env(name: str) -> str:
     return val
 
 
-HMAC_SECRET = _require_env("E2A_HMAC_SECRET")
-# E2A_API_KEY is consumed implicitly by E2AClient on construction.
+# Both E2A_API_KEY (for E2AClient) and E2A_HMAC_SECRET (for parse_webhook)
+# are consumed implicitly by the SDK. We just assert presence here so a
+# missing secret fails fast at startup rather than on the first request.
 _require_env("E2A_API_KEY")
+_require_env("E2A_HMAC_SECRET")
 _require_env("GOOGLE_API_KEY")
 
 
@@ -83,11 +85,13 @@ async def health() -> dict[str, str]:
 @app.post("/webhook")
 async def webhook(request: Request) -> dict[str, str]:
     body = await request.body()
-    email: InboundEmail = request.app.state.e2a.parse(body)
-
-    if not email.verify_signature(HMAC_SECRET):
-        # Reject unverified payloads. Anyone can reach a public webhook URL;
-        # the HMAC is what proves the payload came from your e2a relay.
+    # parse_webhook does parse + HMAC-verify in one call. Reads
+    # E2A_HMAC_SECRET from the env, raises PermissionError on bad signature.
+    # Anyone can reach a public webhook URL; this is what proves the payload
+    # came from your e2a relay.
+    try:
+        email: InboundEmail = request.app.state.e2a.parse_webhook(body)
+    except PermissionError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="bad signature")
 
     # First contact has no conversation_id — mint one so this thread has an
@@ -98,11 +102,12 @@ async def webhook(request: Request) -> dict[str, str]:
     # user_id scopes a session to a particular human counterpart. Different
     # senders get isolated session histories even on the same agent.
     #
-    # Safety note: email.sender is only trustworthy *because* the HMAC check
-    # above passed — that signature binds to the sender claim e2a verified
-    # via SPF/DKIM. If you ever move this assignment above the verify call,
-    # you re-introduce a session-poisoning vector (any unauthenticated POST
-    # could claim to be any sender and read/write that user's session).
+    # Safety note: email.sender is only trustworthy *because* parse_webhook
+    # verified the HMAC — that signature binds to the sender claim e2a
+    # verified via SPF/DKIM. The SDK enforces this by raising
+    # UnverifiedEmailError on field access until verification succeeds, so
+    # accidentally swapping in client.parse(body) here would surface as a
+    # runtime error rather than a silent session-poisoning vector.
     user_id = email.sender
 
     sessions = request.app.state.sessions

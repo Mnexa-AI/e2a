@@ -12,18 +12,27 @@ npm install @e2a/sdk
 
 ### Webhook (cloud agents)
 
+Webhook payloads are HMAC-signed. The SDK gates field access behind verification — accessing `email.sender`, `email.subject`, etc. on an unverified payload throws `UnverifiedEmailError`. Use `client.parseWebhook(...)` to parse + verify in one call:
+
 ```typescript
 import { E2AClient } from "@e2a/sdk";
 
 const client = new E2AClient(); // uses E2A_API_KEY env var
 
 app.post("/webhook", async (req, res) => {
-  const email = await client.parse(req.body);
+  let email;
+  try {
+    email = await client.parseWebhook(req.body); // reads E2A_HMAC_SECRET
+  } catch {
+    return res.status(401).end();
+  }
   console.log(`From: ${email.sender}, Subject: ${email.subject}`);
   await email.reply("Got it!");
   res.json({ ok: true });
 });
 ```
+
+Get a signing secret from the dashboard's Settings → Webhook signing secrets (or `POST /api/v1/users/me/signing-secrets`). Set it as `E2A_HMAC_SECRET` so `parseWebhook` picks it up automatically, or pass it explicitly: `client.parseWebhook(body, "whsec_...")`.
 
 ### Polling
 
@@ -70,9 +79,13 @@ await client.send(["alice@example.com", "bob@example.com"], "Hello", "Hi!", {
 | `baseUrl`   | `string` | `https://e2a.dev`      | API base URL                   |
 | `timeout`   | `number` | `30000`                | Request timeout in ms          |
 
+### `client.parseWebhook(body, secret?)` → `Promise<InboundEmail>`
+
+Parse + HMAC-verify a webhook payload in one call. Reads `E2A_HMAC_SECRET` if `secret` is omitted; throws on bad signature. Recommended entry point for webhook handlers.
+
 ### `client.parse(body)` → `Promise<InboundEmail>`
 
-Parse a webhook payload (Buffer, string, or object) into an `InboundEmail`.
+Parse a webhook payload (Buffer, string, or object) into an `InboundEmail`. Returns *unverified* — accessing claim fields like `sender` or `subject` throws `UnverifiedEmailError` until `email.verifySignature()` succeeds. Prefer `parseWebhook` unless you need to inspect the payload before verifying.
 
 ### `client.getMessages(opts?)` → `Promise<MessageList>`
 
@@ -80,7 +93,7 @@ Fetch messages. Options: `status` ("unread", "read", "all"), `pageSize`, `token`
 
 ### `client.getMessage(messageId)` → `Promise<InboundEmail>`
 
-Fetch a single message with full content.
+Fetch a single message with full content. Returns a pre-verified email (the bearer token already authenticated the channel) — no `verifySignature` step needed.
 
 ### `client.reply(messageId, body, opts?)` → `Promise<SendResult>`
 
@@ -107,6 +120,10 @@ Send a new email. `to` is `string[]`. Options: `htmlBody`, `cc`, `bcc`, `convers
 | `auth`          | `AuthHeaders`     | Authentication headers             |
 | `isVerified`    | `boolean`         | Whether sender identity is verified|
 | `reply(body)`   | method            | Reply to this email                |
+
+All claim fields above (everything except `auth`, `rawMessage`, `verified`, `isVerified`, `unverifiedPayload`) are gated — accessing them on an unverified webhook payload throws `UnverifiedEmailError`. Call `email.verifySignature(secret?)` first (reads `E2A_HMAC_SECRET` by default), or use `client.parseWebhook(body)` which combines parse + verify. `email.unverifiedPayload` is an escape hatch for inspection before verifying — treat its contents as untrusted.
+
+Exported error class: `UnverifiedEmailError extends Error`.
 
 ## Conversation threading
 
