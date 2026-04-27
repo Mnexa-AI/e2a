@@ -41,6 +41,15 @@ export const posts: Post[] = [
     author: "e2a",
     readingMinutes: 6,
   },
+  {
+    slug: "email-agent-with-google-adk",
+    title: "Give your Google ADK agent an email inbox (with conversation memory)",
+    description:
+      "Wire a Google Agent Development Kit agent to a real email address. HMAC-verified webhooks, multi-turn memory across email replies via the conversation_id ↔ ADK session_id binding, ~30 lines of business logic. Full runnable example included.",
+    date: "2026-04-27",
+    author: "e2a",
+    readingMinutes: 7,
+  },
 ];
 
 export function getPost(slug: string): Post | undefined {
