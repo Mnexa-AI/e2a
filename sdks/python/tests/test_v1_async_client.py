@@ -342,3 +342,38 @@ async def test_async_inbound_email_reply(httpx_mock):
 
     assert result.status == "sent"
     assert result.message_id == "reply_789"
+
+
+# ── Constructor strictness + discovery (parity with sync) ────────
+
+
+def test_async_e2aapi_requires_api_key(monkeypatch):
+    from e2a.v1.async_client import AsyncE2AApi
+    monkeypatch.delenv("E2A_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="api_key is required"):
+        AsyncE2AApi()
+
+
+@pytest.mark.anyio
+async def test_async_get_info(httpx_mock):
+    from e2a.v1.async_client import AsyncE2AApi
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/info",
+        method="GET",
+        json={"shared_domain": "agents.example.com", "slug_registration_enabled": True},
+    )
+    async with AsyncE2AApi(api_key="k", base_url=BASE) as api:
+        info = await api.get_info()
+    assert info.shared_domain == "agents.example.com"
+
+
+@pytest.mark.anyio
+async def test_fetch_info_async_module_level(httpx_mock):
+    from e2a.v1.async_client import fetch_info
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/info",
+        method="GET",
+        json={"shared_domain": "agents.example.com"},
+    )
+    info = await fetch_info(base_url=BASE)
+    assert info.shared_domain == "agents.example.com"

@@ -18,6 +18,8 @@ from e2a.v1 import (
     MessageList,
     MessageSummary,
     SendResult,
+    fetch_info,
+    fetch_info_async,
 )
 
 __all__ = [
@@ -33,4 +35,6 @@ __all__ = [
     "MessageList",
     "MessageSummary",
     "SendResult",
+    "fetch_info",
+    "fetch_info_async",
 ]

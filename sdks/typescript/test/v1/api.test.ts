@@ -273,4 +273,16 @@ describe("E2AApi", () => {
     const headers = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].headers;
     expect(headers.Authorization).toBe("Bearer e2a_test");
   });
+
+  // Friendly type re-exports — pure compile-time test. If any of these
+  // imports stop resolving (e.g. someone deletes an alias from index.ts
+  // or the underlying generated schema name changes), tsc fails the
+  // build before this file is even loaded. The runtime body is a no-op.
+  it("exports MessageList / MessageSummary / SendResult / DeploymentInfo aliases", () => {
+    const ml: import("../../src/v1/index.js").MessageList = { messages: [] };
+    const ms: import("../../src/v1/index.js").MessageSummary = {};
+    const sr: import("../../src/v1/index.js").SendResult = {};
+    const di: import("../../src/v1/index.js").DeploymentInfo = {};
+    expect([ml, ms, sr, di]).toHaveLength(4);
+  });
 });

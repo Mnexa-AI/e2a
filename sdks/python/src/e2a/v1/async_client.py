@@ -20,6 +20,7 @@ from e2a.v1.generated import (
     Agent,
     ApprovePendingMessageRequest,
     ApprovePendingMessageResponse,
+    DeploymentInfo,
     Domain,
     ListAgentsResponse,
     ListDomainsResponse,
@@ -84,6 +85,10 @@ class AsyncE2AApi:
         timeout: float = 30,
     ) -> None:
         self.api_key = api_key or os.environ.get("E2A_API_KEY", "")
+        if not self.api_key:
+            raise ValueError(
+                "api_key is required. Pass it to AsyncE2AApi() or set E2A_API_KEY in the environment."
+            )
         self.base_url = base_url.rstrip("/")
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
@@ -236,6 +241,17 @@ class AsyncE2AApi:
         )
         _check_response(resp)
         return RejectPendingMessageResponse.model_validate(resp.json())
+
+    # ── Discovery ─────────────────────────────────────────────────
+
+    async def get_info(self) -> DeploymentInfo:
+        """Fetch deployment-specific configuration (shared domain, public URL).
+
+        Async mirror of :meth:`e2a.v1.api.E2AApi.get_info`. Unauthenticated.
+        """
+        resp = await self._client.get("/api/v1/info")
+        _check_response(resp)
+        return DeploymentInfo.model_validate(resp.json())
 
     # ── Lifecycle ─────────────────────────────────────────────────
 
@@ -546,3 +562,18 @@ class AsyncE2AClient:
 
     async def __aexit__(self, *args: object) -> None:
         await self.close()
+
+
+async def fetch_info(
+    base_url: str = "https://e2a.dev",
+    timeout: float = 30,
+) -> DeploymentInfo:
+    """Async version of :func:`e2a.v1.api.fetch_info`.
+
+    Fetch deployment info without an API key. Useful before login.
+    """
+    base = base_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=timeout) as c:
+        resp = await c.get(f"{base}/api/v1/info")
+        _check_response(resp)
+        return DeploymentInfo.model_validate(resp.json())

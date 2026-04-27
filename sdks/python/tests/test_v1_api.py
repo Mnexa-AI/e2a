@@ -626,3 +626,51 @@ def test_context_manager():
     with api:
         pass
     # Should not raise after close
+
+
+# ── Constructor strictness ───────────────────────────────────────
+
+
+def test_e2aapi_requires_api_key(monkeypatch):
+    """Match TS: construction fails fast when no key is passed AND no
+    E2A_API_KEY env var is set. Better than silently making 401-ing requests.
+    """
+    monkeypatch.delenv("E2A_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="api_key is required"):
+        E2AApi(api_key=None)
+    with pytest.raises(ValueError, match="api_key is required"):
+        E2AApi(api_key="")
+
+
+def test_e2aapi_uses_env_var_when_no_arg(monkeypatch):
+    monkeypatch.setenv("E2A_API_KEY", "k_from_env")
+    api = E2AApi()
+    assert api.api_key == "k_from_env"
+
+
+# ── get_info / fetch_info ────────────────────────────────────────
+
+
+def test_get_info(httpx_mock):
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/info",
+        method="GET",
+        json={"shared_domain": "agents.example.com", "slug_registration_enabled": True},
+    )
+    with E2AApi(api_key="k", base_url=BASE) as api:
+        info = api.get_info()
+    assert info.shared_domain == "agents.example.com"
+    assert info.slug_registration_enabled is True
+
+
+def test_fetch_info_module_level(httpx_mock):
+    """Discovery flow before login — no API key required."""
+    from e2a.v1.api import fetch_info
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/info",
+        method="GET",
+        json={"shared_domain": "agents.example.com", "public_url": "https://e2a.example.com"},
+    )
+    info = fetch_info(base_url=BASE)
+    assert info.shared_domain == "agents.example.com"
+    assert info.public_url == "https://e2a.example.com"

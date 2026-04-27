@@ -20,6 +20,7 @@ from e2a.v1.generated import (
     Agent,
     ApprovePendingMessageRequest,
     ApprovePendingMessageResponse,
+    DeploymentInfo,
     Domain,
     ListAgentsResponse,
     ListDomainsResponse,
@@ -82,6 +83,10 @@ class E2AApi:
         timeout: float = 30,
     ) -> None:
         self.api_key = api_key or os.environ.get("E2A_API_KEY", "")
+        if not self.api_key:
+            raise ValueError(
+                "api_key is required. Pass it to E2AApi() or set E2A_API_KEY in the environment."
+            )
         self.base_url = base_url.rstrip("/")
         self._client = httpx.Client(
             base_url=self.base_url,
@@ -268,6 +273,18 @@ class E2AApi:
         _check_response(resp)
         return RejectPendingMessageResponse.model_validate(resp.json())
 
+    # ── Discovery ─────────────────────────────────────────────────────
+
+    def get_info(self) -> DeploymentInfo:
+        """Fetch deployment-specific configuration (shared domain, public URL).
+
+        Unauthenticated; uses the configured base_url. Mirror of the TS
+        SDK's ``E2AApi.getInfo()``.
+        """
+        resp = self._client.get("/api/v1/info")
+        _check_response(resp)
+        return DeploymentInfo.model_validate(resp.json())
+
     # ── Lifecycle ─────────────────────────────────────────────────────
 
     def close(self) -> None:
@@ -279,3 +296,21 @@ class E2AApi:
 
     def __exit__(self, *args: object) -> None:
         self.close()
+
+
+def fetch_info(
+    base_url: str = "https://e2a.dev",
+    timeout: float = 30,
+) -> DeploymentInfo:
+    """Fetch deployment info without an API key.
+
+    Useful before login — CLIs hit this during the initial discovery flow
+    to populate config from a single base URL. Mirror of the TS SDK's
+    ``E2AApi.fetchInfo()`` static method. Raises :class:`E2AApiError` on
+    non-2xx responses.
+    """
+    base = base_url.rstrip("/")
+    with httpx.Client(timeout=timeout) as c:
+        resp = c.get(f"{base}/api/v1/info")
+        _check_response(resp)
+        return DeploymentInfo.model_validate(resp.json())
