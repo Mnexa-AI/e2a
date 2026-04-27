@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -93,6 +94,31 @@ func TestExtractThreadInfoNoReplyTo(t *testing.T) {
 
 	if info.ReplyTo != "" {
 		t.Errorf("ReplyTo should be empty, got %q", info.ReplyTo)
+	}
+}
+
+func TestExtractThreadInfoToCcLists(t *testing.T) {
+	raw := []byte("Message-Id: <m@gmail.com>\r\nSubject: Group\r\nFrom: alice@example.com\r\n" +
+		"To: \"Bot A\" <bot-a@example.com>, bot-b@example.com\r\n" +
+		"Cc: watcher@example.com\r\n\r\nbody\r\n")
+
+	info := extractThreadInfo(raw)
+
+	wantTo := []string{"bot-a@example.com", "bot-b@example.com"}
+	if !reflect.DeepEqual(info.To, wantTo) {
+		t.Errorf("To = %v, want %v", info.To, wantTo)
+	}
+	if !reflect.DeepEqual(info.CC, []string{"watcher@example.com"}) {
+		t.Errorf("CC = %v, want [watcher@example.com]", info.CC)
+	}
+}
+
+func TestExtractAddressListEmptyAndMalformed(t *testing.T) {
+	if got := extractAddressList(""); got != nil {
+		t.Errorf("empty header should return nil, got %v", got)
+	}
+	if got := extractAddressList("not-an-address"); got != nil {
+		t.Errorf("malformed header should return nil, got %v", got)
 	}
 }
 

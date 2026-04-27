@@ -1370,13 +1370,15 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type messageSummary struct {
-		ID             string `json:"message_id"`
-		From           string `json:"from"`
-		To             string `json:"to"`
-		Subject        string `json:"subject"`
-		ConversationID string `json:"conversation_id,omitempty"`
-		Status         string `json:"status"`
-		CreatedAt      string `json:"created_at"`
+		ID             string   `json:"message_id"`
+		From           string   `json:"from"`
+		To             []string `json:"to"`
+		CC             []string `json:"cc,omitempty"`
+		Recipient      string   `json:"recipient"`
+		Subject        string   `json:"subject"`
+		ConversationID string   `json:"conversation_id,omitempty"`
+		Status         string   `json:"status"`
+		CreatedAt      string   `json:"created_at"`
 	}
 
 	summaries := make([]messageSummary, len(messages))
@@ -1384,7 +1386,9 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		summaries[i] = messageSummary{
 			ID:             m.ID,
 			From:           m.Sender,
-			To:             m.Recipient,
+			To:             orEmptySlice(m.ToRecipients),
+			CC:             m.CC,
+			Recipient:      m.Recipient,
 			Subject:        m.Subject,
 			ConversationID: m.ConversationID,
 			Status:         m.DeliveryStatus,
@@ -1467,7 +1471,9 @@ func (a *API) handleGetMessage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{
 		"message_id":      msg.ID,
 		"from":            msg.Sender,
-		"to":              msg.Recipient,
+		"to":              orEmptySlice(msg.ToRecipients),
+		"cc":              msg.CC,
+		"recipient":       msg.Recipient,
 		"subject":         msg.Subject,
 		"conversation_id": msg.ConversationID,
 		"status":          msg.DeliveryStatus,
@@ -1475,6 +1481,17 @@ func (a *API) handleGetMessage(w http.ResponseWriter, r *http.Request) {
 		"auth_headers":    msg.AuthHeaders,
 		"raw_message":     msg.RawMessage,
 	})
+}
+
+// orEmptySlice returns s if non-nil, otherwise an empty []string. We marshal
+// the To: list as an always-present array (no omitempty) so SDK clients can
+// rely on it being present, even for messages stored before the column was
+// populated for inbound.
+func orEmptySlice(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 func (a *API) handleHealth(w http.ResponseWriter, r *http.Request) {

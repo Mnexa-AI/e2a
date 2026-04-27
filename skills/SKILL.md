@@ -202,7 +202,9 @@ The webhook receives a JSON payload with these fields:
   "message_id": "msg_abc123",
   "conversation_id": "conv_xyz",
   "from": "alice@example.com",
-  "to": "agent@agents.e2a.dev",
+  "to": ["agent@agents.e2a.dev"],
+  "cc": [],
+  "recipient": "agent@agents.e2a.dev",
   "raw_message": "<base64-encoded RFC 2822 email>",
   "auth_headers": {
     "X-E2A-Auth-Verified": "true",
@@ -213,7 +215,7 @@ The webhook receives a JSON payload with these fields:
 }
 ```
 
-`client.parse()` handles decoding the raw message and gives you `email.subject`, `email.text_body`, `email.html_body`, `email.attachments`, and `email.reply()`.
+`to` and `cc` are the parsed `To:` / `Cc:` headers from the original message; `recipient` is this delivery's per-agent target. `client.parse()` handles decoding the raw message and gives you `email.subject`, `email.text_body`, `email.html_body`, `email.attachments`, `email.to`, `email.cc`, and `email.reply()`.
 
 Check `email.is_verified` to confirm the sender's identity was verified by e2a.
 

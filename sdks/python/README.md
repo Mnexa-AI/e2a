@@ -329,7 +329,9 @@ print(result.status, result.message_id)
 | `message_id` | `str` | Unique e2a message ID |
 | `conversation_id` | `str \| None` | Your thread ID from a prior reply, or `None` for first contact |
 | `sender` | `str` | Sender email address |
-| `recipient` | `str` | Recipient email address (your agent) |
+| `recipient` | `str` | Per-delivery target — your agent's address |
+| `to` | `list[str]` | Parsed `To:` header — every address from the original message |
+| `cc` | `list[str]` | Parsed `Cc:` header (empty when no CCs) |
 | `subject` | `str` | Email subject line |
 | `text_body` | `str` | Plain-text email body |
 | `html_body` | `str \| None` | HTML email body, if present |

@@ -33,7 +33,7 @@ def _make_message_detail_json(message_id="msg_123", raw=None):
     return {
         "message_id": message_id,
         "from": "alice@example.com",
-        "to": "bot@agents.e2a.dev",
+        "to": ["bot@agents.e2a.dev"], "recipient": "bot@agents.e2a.dev",
         "subject": "Hello",
         "conversation_id": "conv_abc",
         "status": "read",
@@ -94,7 +94,7 @@ async def test_parse_message_detail(httpx_mock):
     detail = MessageDetail(
         message_id="msg_456",
         from_="bob@example.com",
-        to="bot@agents.e2a.dev",
+        to=["bot@agents.e2a.dev"], recipient="bot@agents.e2a.dev",
         subject="Test",
         created_at="2026-03-30T12:00:00Z",
         raw_message=base64.b64encode(raw).decode(),
@@ -154,7 +154,7 @@ async def test_get_messages(httpx_mock):
                 {
                     "message_id": "msg_1",
                     "from": "alice@example.com",
-                    "to": "bot@agents.e2a.dev",
+                    "to": ["bot@agents.e2a.dev"], "recipient": "bot@agents.e2a.dev",
                     "subject": "Hello",
                     "status": "unread",
                     "created_at": "2026-03-30T10:00:00Z",

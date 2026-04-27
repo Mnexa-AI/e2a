@@ -122,12 +122,13 @@ func (h *Handler) drainUnread(agent *identity.AgentIdentity) {
 }
 
 // Notification is the lightweight JSON payload sent over WebSocket when a new
-// message arrives. It contains only metadata — full content is fetched via REST.
+// message arrives. It contains only metadata — the full message (including
+// the To/Cc lists) is fetched via REST.
 type Notification struct {
 	MessageID      string    `json:"message_id"`
 	ConversationID string    `json:"conversation_id,omitempty"`
 	From           string    `json:"from"`
-	To             string    `json:"to"`
+	Recipient      string    `json:"recipient"`
 	Subject        string    `json:"subject"`
 	ReceivedAt     time.Time `json:"received_at"`
 }
@@ -138,7 +139,7 @@ func BuildNotification(msg *identity.Message) []byte {
 		MessageID:      msg.ID,
 		ConversationID: msg.ConversationID,
 		From:           msg.Sender,
-		To:             msg.Recipient,
+		Recipient:      msg.Recipient,
 		Subject:        msg.Subject,
 		ReceivedAt:     msg.CreatedAt,
 	}

@@ -208,6 +208,10 @@ definitions:
         additionalProperties:
           type: string
         type: object
+      cc:
+        items:
+          type: string
+        type: array
       conversation_id:
         type: string
       created_at:
@@ -220,6 +224,9 @@ definitions:
         type: string
       raw_message:
         type: string
+      recipient:
+        example: my-bot@example.com
+        type: string
       status:
         example: read
         type: string
@@ -227,11 +234,18 @@ definitions:
         example: Hello
         type: string
       to:
-        example: my-bot@example.com
-        type: string
+        example:
+        - my-bot@example.com
+        items:
+          type: string
+        type: array
     type: object
   MessageSummary:
     properties:
+      cc:
+        items:
+          type: string
+        type: array
       conversation_id:
         type: string
       created_at:
@@ -243,6 +257,9 @@ definitions:
       message_id:
         example: msg_abc123
         type: string
+      recipient:
+        example: my-bot@example.com
+        type: string
       status:
         enum:
         - unread
@@ -253,8 +270,11 @@ definitions:
         example: Hello
         type: string
       to:
-        example: my-bot@example.com
-        type: string
+        example:
+        - my-bot@example.com
+        items:
+          type: string
+        type: array
     type: object
   PendingMessageDetail:
     properties:
@@ -711,7 +731,12 @@ definitions:
       subject:
         type: string
       to_recipients:
-        description: Outbound-only multi-recipient fields. Nil for inbound messages.
+        description: |-
+          Multi-recipient fields. For outbound, these are the addressed
+          To/Cc/Bcc recipients of the send. For inbound, ToRecipients and CC
+          are the parsed To: and Cc: headers of the original message (the
+          per-delivery target for this row is in Recipient). BCC is
+          outbound-only.
         items:
           type: string
         type: array

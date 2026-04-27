@@ -1555,6 +1555,7 @@ export interface components {
             auth_headers?: {
                 [key: string]: string;
             };
+            cc?: string[];
             conversation_id?: string;
             created_at?: string;
             /** @example alice@example.com */
@@ -1562,14 +1563,21 @@ export interface components {
             /** @example msg_abc123 */
             message_id?: string;
             raw_message?: string;
+            /** @example my-bot@example.com */
+            recipient?: string;
             /** @example read */
             status?: string;
             /** @example Hello */
             subject?: string;
-            /** @example my-bot@example.com */
-            to?: string;
+            /**
+             * @example [
+             *       "my-bot@example.com"
+             *     ]
+             */
+            to?: string[];
         };
         MessageSummary: {
+            cc?: string[];
             conversation_id?: string;
             /** @example 2025-01-15T10:30:00Z */
             created_at?: string;
@@ -1577,6 +1585,8 @@ export interface components {
             from?: string;
             /** @example msg_abc123 */
             message_id?: string;
+            /** @example my-bot@example.com */
+            recipient?: string;
             /**
              * @example unread
              * @enum {string}
@@ -1584,8 +1594,12 @@ export interface components {
             status?: "unread" | "read";
             /** @example Hello */
             subject?: string;
-            /** @example my-bot@example.com */
-            to?: string;
+            /**
+             * @example [
+             *       "my-bot@example.com"
+             *     ]
+             */
+            to?: string[];
         };
         PendingMessageDetail: {
             /** @example my-bot@example.com */
@@ -1851,7 +1865,13 @@ export interface components {
              */
             status?: string;
             subject?: string;
-            /** @description Outbound-only multi-recipient fields. Nil for inbound messages. */
+            /**
+             * @description Multi-recipient fields. For outbound, these are the addressed
+             *     To/Cc/Bcc recipients of the send. For inbound, ToRecipients and CC
+             *     are the parsed To: and Cc: headers of the original message (the
+             *     per-delivery target for this row is in Recipient). BCC is
+             *     outbound-only.
+             */
             to_recipients?: string[];
             type?: string;
             webhook_attempts?: number;

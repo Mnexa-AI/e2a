@@ -86,7 +86,8 @@ describe("E2AClient", () => {
     globalThis.fetch = mockFetch(200, {
       message_id: "msg_1",
       from: "alice@example.com",
-      to: "bot@test.dev",
+      to: ["bot@test.dev"],
+      recipient: "bot@test.dev",
       subject: "Hello",
       raw_message: Buffer.from(
         "From: alice@example.com\r\nTo: bot@test.dev\r\nSubject: Hello\r\n\r\nHi!",
@@ -107,7 +108,8 @@ describe("E2AClient", () => {
     const email = await client.parse({
       message_id: "msg_2",
       from: "bob@example.com",
-      to: "bot@test.dev",
+      to: ["bot@test.dev"],
+      recipient: "bot@test.dev",
       raw_message: Buffer.from(
         "From: bob@example.com\r\nTo: bot@test.dev\r\nSubject: Test\r\n\r\nBody",
       ).toString("base64"),
@@ -129,7 +131,8 @@ describe("E2AClient", () => {
     const payload: WebhookPayload = {
       message_id: "msg_webhook",
       from: "carol@example.com",
-      to: "bot@test.dev",
+      to: ["bot@test.dev"],
+      recipient: "bot@test.dev",
       raw_message: Buffer.from(
         "From: carol@example.com\r\nTo: bot@test.dev\r\nSubject: Webhook\r\n\r\nPayload body",
       ).toString("base64"),
@@ -148,11 +151,31 @@ describe("E2AClient", () => {
     expect(email.auth.sender).toBe("carol@example.com");
   });
 
+  it("parse exposes structured to/cc lists from the server payload", async () => {
+    const payload: WebhookPayload = {
+      message_id: "msg_lists",
+      from: "alice@example.com",
+      to: ["bot-a@test.dev", "bot-b@test.dev"],
+      cc: ["watcher@example.com"],
+      recipient: "bot-a@test.dev",
+      raw_message: Buffer.from(
+        "From: alice@example.com\r\nTo: bot-a@test.dev, bot-b@test.dev\r\n" +
+        "Cc: watcher@example.com\r\nSubject: Group\r\n\r\nbody",
+      ).toString("base64"),
+    };
+
+    const email = await client.parse(payload);
+    expect(email.to).toEqual(["bot-a@test.dev", "bot-b@test.dev"]);
+    expect(email.cc).toEqual(["watcher@example.com"]);
+    expect(email.recipient).toBe("bot-a@test.dev");
+  });
+
   it("parse accepts JSON string and Buffer webhook payloads", async () => {
     const payload = {
       message_id: "msg_string",
       from: "dana@example.com",
-      to: "bot@test.dev",
+      to: ["bot@test.dev"],
+      recipient: "bot@test.dev",
       raw_message: Buffer.from(
         "From: dana@example.com\r\nTo: bot@test.dev\r\nSubject: Buffer\r\n\r\nBuffer body",
       ).toString("base64"),

@@ -2,6 +2,7 @@ package identity_test
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -226,7 +227,7 @@ func TestCreateAndGetInboundMessage(t *testing.T) {
 	store.ClaimOrCreateDomain(ctx, "inbound.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@inbound.example.com", "inbound.example.com", "", "https://example.com/webhook", "", user.ID)
 
-	msg, err := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@inbound.example.com", "<abc123@gmail.com>", "Hello Bot", "", "", nil, nil)
+	msg, err := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@inbound.example.com", "<abc123@gmail.com>", "Hello Bot", "", "", nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateInboundMessage: %v", err)
 	}
@@ -258,6 +259,35 @@ func TestCreateAndGetInboundMessage(t *testing.T) {
 	}
 }
 
+func TestInboundMessageRoundTripsToCcLists(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "tcc-owner@example.com", "Owner", "google-tcc")
+	store.ClaimOrCreateDomain(ctx, "tcc.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "bot-a@tcc.example.com", "tcc.example.com", "", "https://example.com/webhook", "", user.ID)
+
+	to := []string{"bot-a@tcc.example.com", "bot-b@tcc.example.com"}
+	cc := []string{"watcher@example.com", "audit@example.com"}
+
+	msg, err := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot-a@tcc.example.com", "<x@gmail.com>", "Group thread", "", "", nil, nil, to, cc)
+	if err != nil {
+		t.Fatalf("CreateInboundMessage: %v", err)
+	}
+
+	got, err := store.GetInboundMessage(ctx, msg.ID)
+	if err != nil {
+		t.Fatalf("GetInboundMessage: %v", err)
+	}
+	if !reflect.DeepEqual(got.ToRecipients, to) {
+		t.Errorf("ToRecipients = %v, want %v", got.ToRecipients, to)
+	}
+	if !reflect.DeepEqual(got.CC, cc) {
+		t.Errorf("CC = %v, want %v", got.CC, cc)
+	}
+}
+
 func TestGetInboundMessageNotFound(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
@@ -276,7 +306,7 @@ func TestGetInboundMessageExpired(t *testing.T) {
 	user, _ := store.CreateOrGetUser(ctx, "owner@example.com", "Owner", "google-expired-inbound")
 	store.ClaimOrCreateDomain(ctx, "expired-inbound.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@expired-inbound.example.com", "expired-inbound.example.com", "", "https://example.com/webhook", "", user.ID)
-	msg, _ := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@expired-inbound.example.com", "", "", "", "", nil, nil)
+	msg, _ := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@expired-inbound.example.com", "", "", "", "", nil, nil, nil, nil)
 
 	// Set expiry to the past
 	pool.Exec(ctx, `UPDATE messages SET expires_at = $1 WHERE id = $2`, time.Now().Add(-1*time.Hour), msg.ID)
@@ -295,7 +325,7 @@ func TestDeleteExpiredMessages(t *testing.T) {
 	user, _ := store.CreateOrGetUser(ctx, "owner@example.com", "Owner", "google-cleanup-inbound")
 	store.ClaimOrCreateDomain(ctx, "cleanup-inbound.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@cleanup-inbound.example.com", "cleanup-inbound.example.com", "", "https://example.com/webhook", "", user.ID)
-	msg, _ := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@cleanup-inbound.example.com", "", "", "", "", nil, nil)
+	msg, _ := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@cleanup-inbound.example.com", "", "", "", "", nil, nil, nil, nil)
 
 	// Set expiry to the past
 	pool.Exec(ctx, `UPDATE messages SET expires_at = $1 WHERE id = $2`, time.Now().Add(-1*time.Hour), msg.ID)
@@ -348,9 +378,9 @@ func TestListActivityByAgent(t *testing.T) {
 	store.ClaimOrCreateDomain(ctx, "activity.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@activity.example.com", "activity.example.com", "", "https://example.com/webhook", "", user.ID)
 
-	store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@activity.example.com", "", "Hello", "", "", nil, nil)
+	store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@activity.example.com", "", "Hello", "", "", nil, nil, nil, nil)
 	store.CreateOutboundMessage(ctx, a.ID, []string{"alice@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "", "")
-	store.CreateInboundMessage(ctx, "", a.ID, "bob@gmail.com", "bot@activity.example.com", "", "Hi", "", "", nil, nil)
+	store.CreateInboundMessage(ctx, "", a.ID, "bob@gmail.com", "bot@activity.example.com", "", "Hi", "", "", nil, nil, nil, nil)
 
 	activity, err := store.ListActivityByAgent(ctx, a.ID, 50)
 	if err != nil {
@@ -470,7 +500,7 @@ func TestLookupConversationID_EmailThread(t *testing.T) {
 		"alice@gmail.com", "bot@thread.example.com",
 		"<CAMCKtby_first@mail.gmail.com>", "Hello",
 		"", // no conversation_id on first message
-		"pending", nil, nil)
+		"pending", nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateInboundMessage: %v", err)
 	}

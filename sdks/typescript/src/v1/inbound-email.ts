@@ -27,7 +27,12 @@ export interface WebhookPayload {
   message_id: string;
   conversation_id?: string;
   from: string;
-  to: string;
+  /** Parsed To: header from the original message — every fan-out delivery sees the same list. */
+  to: string[];
+  /** Parsed Cc: header. Empty when the message had no CCs. */
+  cc?: string[];
+  /** Per-delivery target — this agent's address. */
+  recipient: string;
   subject?: string;
   raw_message?: string;
   auth_headers?: Record<string, string>;
@@ -128,9 +133,13 @@ export class InboundEmail {
   readonly messageId: string;
   readonly conversationId: string | null;
   readonly sender: string;
+  /** Per-delivery target — this agent's address. Always one value. */
   readonly recipient: string;
-  readonly subject: string;
+  /** Parsed To: header — all addresses from the original message. */
+  readonly to: string[];
+  /** Parsed Cc: header. Empty when the message had no CCs. */
   readonly cc: string[];
+  readonly subject: string;
   readonly textBody: string;
   readonly htmlBody: string | null;
   readonly attachments: Attachment[];
@@ -144,8 +153,9 @@ export class InboundEmail {
     conversationId: string | null;
     sender: string;
     recipient: string;
-    subject: string;
+    to: string[];
     cc: string[];
+    subject: string;
     textBody: string;
     htmlBody: string | null;
     attachments: Attachment[];
@@ -158,8 +168,9 @@ export class InboundEmail {
     this.conversationId = opts.conversationId;
     this.sender = opts.sender;
     this.recipient = opts.recipient;
-    this.subject = opts.subject;
+    this.to = opts.to;
     this.cc = opts.cc;
+    this.subject = opts.subject;
     this.textBody = opts.textBody;
     this.htmlBody = opts.htmlBody;
     this.attachments = opts.attachments;
@@ -233,7 +244,7 @@ export class InboundEmail {
       }
     }
 
-    const { subject, textBody, htmlBody, attachments, cc } =
+    const { subject, textBody, htmlBody, attachments } =
       await parseRawEmail(rawBuf);
 
     // MessageDetail uses created_at; WebhookPayload uses received_at
@@ -241,13 +252,17 @@ export class InboundEmail {
     const receivedAt = (d.created_at as string | undefined) ??
       (d.received_at as string | undefined) ?? null;
 
+    // The server emits `to`/`cc` as parsed address arrays and `recipient` as
+    // the per-delivery target string. We trust those over re-parsing the raw
+    // RFC 2822 headers, which is both wasteful and lossy under group syntax.
     return new InboundEmail({
       messageId: detail.message_id ?? "",
       conversationId: detail.conversation_id ?? null,
       sender: detail.from ?? "",
-      recipient: detail.to ?? "",
+      recipient: detail.recipient ?? "",
+      to: detail.to ?? [],
+      cc: detail.cc ?? [],
       subject: subject || detail.subject || "",
-      cc,
       textBody,
       htmlBody,
       attachments,
@@ -266,18 +281,6 @@ export class InboundEmail {
   }
 }
 
-function extractAddresses(
-  header: ParsedMail["cc"],
-): string[] {
-  if (!header) return [];
-  const entries = Array.isArray(header) ? header : [header];
-  return entries.flatMap((entry) =>
-    "value" in entry
-      ? entry.value.map((a) => a.address).filter((a): a is string => !!a)
-      : [],
-  );
-}
-
 async function parseRawEmail(
   raw: Buffer,
 ): Promise<{
@@ -285,7 +288,6 @@ async function parseRawEmail(
   textBody: string;
   htmlBody: string | null;
   attachments: Attachment[];
-  cc: string[];
 }> {
   try {
     const parsed: ParsedMail = await simpleParser(raw);
@@ -302,9 +304,8 @@ async function parseRawEmail(
       textBody: parsed.text || "",
       htmlBody: parsed.html || null,
       attachments,
-      cc: extractAddresses(parsed.cc),
     };
   } catch {
-    return { subject: "", textBody: "", htmlBody: null, attachments: [], cc: [] };
+    return { subject: "", textBody: "", htmlBody: null, attachments: [] };
   }
 }

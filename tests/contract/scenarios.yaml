@@ -345,15 +345,17 @@ scenarios:
           fields_present:
             - message_id
             - from
-            - to
+            - recipient
             - subject
             - received_at
           fields_absent:
             - body
             - raw_message
+            - to
+            - cc
           field_match:
             from: alice@example.com
-            to: "{agent_email}"
+            recipient: "{agent_email}"
             subject: WS test
 
   - name: health_check

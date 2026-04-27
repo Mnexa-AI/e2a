@@ -71,22 +71,30 @@ type ListMessagesResponse struct {
 } // @name ListMessagesResponse
 
 // MessageSummary is a lightweight message summary for the list endpoint.
+// To and CC are the parsed To: / Cc: headers from the original message;
+// Recipient is this delivery's per-agent target.
 type MessageSummary struct {
-	MessageID      string `json:"message_id" example:"msg_abc123"`
-	From           string `json:"from" example:"alice@example.com"`
-	To             string `json:"to" example:"my-bot@example.com"`
-	Subject        string `json:"subject" example:"Hello"`
-	ConversationID string `json:"conversation_id,omitempty"`
-	Status         string `json:"status" example:"unread" enums:"unread,read"`
-	CreatedAt      string `json:"created_at" example:"2025-01-15T10:30:00Z"`
+	MessageID      string   `json:"message_id" example:"msg_abc123"`
+	From           string   `json:"from" example:"alice@example.com"`
+	To             []string `json:"to" example:"my-bot@example.com"`
+	CC             []string `json:"cc,omitempty"`
+	Recipient      string   `json:"recipient" example:"my-bot@example.com"`
+	Subject        string   `json:"subject" example:"Hello"`
+	ConversationID string   `json:"conversation_id,omitempty"`
+	Status         string   `json:"status" example:"unread" enums:"unread,read"`
+	CreatedAt      string   `json:"created_at" example:"2025-01-15T10:30:00Z"`
 } // @name MessageSummary
 
 // MessageDetail is the full message content returned by GET /api/v1/agents/{email}/messages/{id},
-// which marks unread messages as read when fetched.
+// which marks unread messages as read when fetched. To and CC are the parsed
+// To: / Cc: headers from the original message; Recipient is this delivery's
+// per-agent target.
 type MessageDetail struct {
 	MessageID      string            `json:"message_id" example:"msg_abc123"`
 	From           string            `json:"from" example:"alice@example.com"`
-	To             string            `json:"to" example:"my-bot@example.com"`
+	To             []string          `json:"to" example:"my-bot@example.com"`
+	CC             []string          `json:"cc,omitempty"`
+	Recipient      string            `json:"recipient" example:"my-bot@example.com"`
 	Subject        string            `json:"subject" example:"Hello"`
 	ConversationID string            `json:"conversation_id,omitempty"`
 	Status         string            `json:"status" example:"read"`
@@ -178,11 +186,15 @@ type DeleteUserDataResult = identity.DeleteUserDataResult // @name DeleteUserDat
 
 // WebhookPayload is the payload delivered to your webhook URL when your agent receives an email.
 // This schema is for documentation only — the actual delivery is handled by the webhook package.
+// To and CC are the parsed To: / Cc: headers; Recipient is the per-agent target
+// for this delivery.
 type WebhookPayload struct {
 	MessageID      string            `json:"message_id" example:"msg_abc123"`
 	ConversationID string            `json:"conversation_id,omitempty"`
 	From           string            `json:"from" example:"alice@example.com"`
-	To             string            `json:"to" example:"agent@yourdomain.com"`
+	To             []string          `json:"to" example:"agent@yourdomain.com"`
+	CC             []string          `json:"cc,omitempty"`
+	Recipient      string            `json:"recipient" example:"agent@yourdomain.com"`
 	RawMessage     []byte            `json:"raw_message"`
 	AuthHeaders    map[string]string `json:"auth_headers"`
 	ReceivedAt     time.Time         `json:"received_at"`
@@ -206,12 +218,12 @@ type AuthHeaders struct {
 
 // WebSocketNotification is the lightweight notification sent over WebSocket when a new
 // message arrives for an agent. It contains only metadata — the full message
-// content is fetched via GET /api/v1/agents/{email}/messages/{id}.
+// content (including the To/Cc lists) is fetched via GET /api/v1/agents/{email}/messages/{id}.
 type WebSocketNotification struct {
 	MessageID      string    `json:"message_id" example:"msg_abc123"`
 	ConversationID string    `json:"conversation_id,omitempty"`
 	From           string    `json:"from" example:"alice@example.com"`
-	To             string    `json:"to" example:"my-bot@example.com"`
+	Recipient      string    `json:"recipient" example:"my-bot@example.com"`
 	Subject        string    `json:"subject" example:"Hello"`
 	ReceivedAt     time.Time `json:"received_at"`
 } // @name WebSocketNotification
