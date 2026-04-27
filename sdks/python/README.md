@@ -259,22 +259,40 @@ from e2a.v1 import AsyncE2AClient
 
 async def main():
     async with AsyncE2AClient(api_key="e2a_...") as client:
-        async for email in client.listen("my-bot@agents.e2a.dev"):
-            print(f"From: {email.sender}, Subject: {email.subject}")
+        async for notif in client.listen("my-bot@agents.e2a.dev"):
+            # The notification is lightweight metadata only — no body, no REST call.
+            print(f"From: {notif.from_}, Subject: {notif.subject}")
+
+            # Fetch the full email when you actually want it.
+            email = await client.get_message(notif.message_id)
             await email.reply("Got it!")
 
 asyncio.run(main())
 ```
 
-`listen()` connects to e2a's WebSocket endpoint, receives lightweight
-notifications, fetches the full message via REST, and yields
-`AsyncInboundEmail` objects. It reconnects automatically with exponential
-backoff (1s, 2s, 4s, ... up to 30s).
+`listen()` yields `WSNotification` objects — the lightweight metadata
+the server pushes (`message_id`, `from_`, `recipient`, `subject`,
+`received_at`, `conversation_id`). It does **not** auto-fetch the body:
+that's the caller's call. This matches the server design (small WS
+frames, explicit REST fetch) and lets callers skip messages without a
+network round-trip.
 
-The WebSocket protocol is notification-only (server-to-client). The client
+Reconnects automatically with exponential backoff (1s, 2s, 4s, ... up
+to 30s by default). Protocol is server-to-client only — the client
 never sends application frames.
 
-**Parameters:**
+**`WSNotification` fields:**
+
+| Field | Type | Notes |
+|---|---|---|
+| `message_id` | `str` | Pass to `client.get_message(...)` to fetch the body |
+| `from_` | `str` | Sender. Trailing underscore: `from` is a Python keyword |
+| `recipient` | `str` | Per-delivery target (your agent's address) |
+| `subject` | `str` |  |
+| `received_at` | `str` | RFC 3339 timestamp |
+| `conversation_id` | `str \| None` | Threading; `None` for first contact |
+
+**`listen()` parameters:**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -362,7 +380,7 @@ High-level sync client. `api_key` falls back to `E2A_API_KEY` env var.
 
 Same as `E2AClient` — all I/O methods are `async`. `parse()` is sync (no I/O needed).
 
-- `client.listen(agent_email=None, reconnect=True, max_backoff=30.0)` → `AsyncIterator[AsyncInboundEmail]` (requires `e2a[ws]`)
+- `client.listen(agent_email=None, reconnect=True, max_backoff=30.0)` → `AsyncIterator[WSNotification]` (requires `e2a[ws]`). Yields lightweight notifications; call `await client.get_message(notif.message_id)` to fetch the body.
 - `client.api` → `AsyncE2AApi` (raw typed async access)
 
 ### Models

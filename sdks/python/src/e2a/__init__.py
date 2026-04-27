@@ -18,6 +18,7 @@ from e2a.v1 import (
     MessageList,
     MessageSummary,
     SendResult,
+    WSNotification,
     fetch_info,
     fetch_info_async,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "MessageList",
     "MessageSummary",
     "SendResult",
+    "WSNotification",
     "fetch_info",
     "fetch_info_async",
 ]

@@ -15,6 +15,9 @@ from urllib.parse import quote
 
 import httpx
 
+if TYPE_CHECKING:
+    from e2a.v1.websocket import WSNotification
+
 from e2a.v1.api import E2AApiError, _check_response
 from e2a.v1.generated import (
     Agent,
@@ -537,11 +540,17 @@ class AsyncE2AClient:
         agent_email: Optional[str] = None,
         reconnect: bool = True,
         max_backoff: float = 30.0,
-    ) -> AsyncIterator[AsyncInboundEmail]:
-        """Listen for emails via WebSocket.
+    ) -> "AsyncIterator[WSNotification]":
+        """Listen for inbound mail via WebSocket. Yields lightweight notifications.
 
-        Connects to e2a's WS endpoint and yields ``AsyncInboundEmail``
-        objects. Requires ``pip install e2a[ws]``.
+        Each yielded :class:`WSNotification` carries metadata (message_id,
+        sender, subject, etc.) — no body. Call ``await self.get_message(
+        notif.message_id)`` to fetch the full email when you actually need
+        it. This matches the server's design (small WS frames, explicit REST
+        fetch) and lets callers skip messages without a network round-trip.
+
+        Reconnects with exponential backoff (1s → ``max_backoff``) by default.
+        Requires ``pip install e2a[ws]``.
         """
         from e2a.v1.websocket import listen as _ws_listen
 
