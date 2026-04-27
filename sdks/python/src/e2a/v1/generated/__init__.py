@@ -52,6 +52,17 @@ class ApprovePendingMessageResponse(BaseModel):
     status: str | None = Field(None, examples=['sent'])
 
 
+class CreateSigningSecretResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    created_at: str | None = None
+    id: str | None = None
+    name: str | None = None
+    secret: str | None = None
+    secret_prefix: str | None = None
+
+
 class DNSRecord(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -242,6 +253,17 @@ class SendEmailResponse(BaseModel):
     status: Literal['sent', 'pending_approval'] | None = Field(None, examples=['sent'])
 
 
+class SigningSecretSummary(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    created_at: str | None = None
+    id: str | None = None
+    last_signed_at: str | None = None
+    name: str | None = None
+    secret_prefix: str | None = None
+
+
 class UpdateAgentRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -310,6 +332,13 @@ class ListPendingMessagesResponse(BaseModel):
         populate_by_name=True,
     )
     messages: list[PendingMessageSummary] | None = None
+
+
+class ListSigningSecretsResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    secrets: list[SigningSecretSummary] | None = None
 
 
 class PendingMessageDetail(BaseModel):

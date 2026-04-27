@@ -15,3 +15,13 @@ class Attachment(BaseModel):
         None, description='base64-encoded', examples=['base64-encoded-content']
     )
     filename: str | None = Field(None, examples=['report.pdf'])
+
+
+class CreateSigningSecretRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    name: str | None = Field(
+        None,
+        description='Optional human-readable label so users can tell secrets apart in\nthe dashboard (e.g. "prod", "staging", "rollover-2026-04").',
+    )

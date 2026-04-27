@@ -84,11 +84,28 @@ func (n *Notifier) NotifyPendingApproval(ctx context.Context, msg *identity.Mess
 	}
 
 	tokenExp := msg.ApprovalExpiresAt.Add(tokenGraceAfterTTL)
-	approveTok, err := n.signer.Sign(msg.ID, approvaltoken.ActionApprove, tokenExp)
+
+	// Sign with the owner's most recently created per-account secret so
+	// the magic link is bound to the user's current key. If lookup fails
+	// or the user has no secrets yet, fall back to the deployment-wide
+	// signer so we still ship the email.
+	var signSecret string
+	if userSecrets, secretsErr := n.store.GetUserSigningSecrets(ctx, owner.ID); secretsErr == nil && len(userSecrets) > 0 {
+		signSecret = userSecrets[0].Secret
+	}
+
+	signFn := func(action string) (string, error) {
+		if signSecret != "" {
+			return approvaltoken.Sign(signSecret, msg.ID, action, tokenExp)
+		}
+		return n.signer.Sign(msg.ID, action, tokenExp)
+	}
+
+	approveTok, err := signFn(approvaltoken.ActionApprove)
 	if err != nil {
 		return fmt.Errorf("notify: sign approve token: %w", err)
 	}
-	rejectTok, err := n.signer.Sign(msg.ID, approvaltoken.ActionReject, tokenExp)
+	rejectTok, err := signFn(approvaltoken.ActionReject)
 	if err != nil {
 		return fmt.Errorf("notify: sign reject token: %w", err)
 	}

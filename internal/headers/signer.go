@@ -53,15 +53,12 @@ type AuthPayload struct {
 
 type AuthHeaders map[string]string
 
-type Signer struct {
-	secret []byte
-}
-
-func NewSigner(secret string) *Signer {
-	return &Signer{secret: []byte(secret)}
-}
-
-func (s *Signer) Sign(p AuthPayload) AuthHeaders {
+// Sign produces signed auth headers using the given HMAC secret. This
+// is the canonical entry point — callers (the relay, in particular)
+// look up the per-user secret and pass it in directly. The Signer
+// struct below is a thin wrapper kept for tests and the legacy
+// deployment-wide signing path.
+func Sign(secret string, p AuthPayload) AuthHeaders {
 	ts := time.Now().UTC().Format(time.RFC3339)
 	verified := "false"
 	if p.Verified {
@@ -75,7 +72,7 @@ func (s *Signer) Sign(p AuthPayload) AuthHeaders {
 
 	canonical := canonicalString(verified, p.Sender, p.EntityType, p.DomainCheck, delegation, ts, p.MessageID, p.BodyHash)
 
-	mac := hmac.New(sha256.New, s.secret)
+	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(canonical))
 	sig := hex.EncodeToString(mac.Sum(nil))
 
@@ -95,33 +92,21 @@ func (s *Signer) Sign(p AuthPayload) AuthHeaders {
 	return h
 }
 
-// canonicalString assembles the byte string fed to HMAC. Field order
-// must match between Sign and Verify and is part of the wire contract;
-// changing it is a breaking signature change.
-func canonicalString(verified, sender, entityType, domainCheck, delegation, ts, messageID, bodyHash string) string {
-	return strings.Join([]string{
-		verified,
-		sender,
-		entityType,
-		domainCheck,
-		delegation,
-		ts,
-		messageID,
-		bodyHash,
-	}, "\n")
+// Verify checks a header set against any of the provided secrets and
+// the default replay window. Returns true if any secret produces a
+// matching signature. Used by recipients holding multiple active keys
+// during a rotation.
+func Verify(secrets []string, h AuthHeaders) bool {
+	return VerifyWithMaxAge(secrets, h, DefaultMaxAge)
 }
 
-func (s *Signer) Verify(h AuthHeaders) bool {
-	return s.VerifyWithMaxAge(h, DefaultMaxAge)
-}
-
-func (s *Signer) VerifyWithMaxAge(h AuthHeaders, maxAge time.Duration) bool {
+// VerifyWithMaxAge is the configurable-window variant of Verify.
+func VerifyWithMaxAge(secrets []string, h AuthHeaders, maxAge time.Duration) bool {
 	sig := h[HeaderSignature]
 	if sig == "" {
 		return false
 	}
 
-	// Replay protection: reject if timestamp is outside the allowed window
 	ts, err := time.Parse(time.RFC3339, h[HeaderTimestamp])
 	if err != nil {
 		return false
@@ -142,9 +127,52 @@ func (s *Signer) VerifyWithMaxAge(h AuthHeaders, maxAge time.Duration) bool {
 		h[HeaderBodyHash],
 	)
 
-	mac := hmac.New(sha256.New, s.secret)
-	mac.Write([]byte(canonical))
-	expected := hex.EncodeToString(mac.Sum(nil))
+	for _, secret := range secrets {
+		mac := hmac.New(sha256.New, []byte(secret))
+		mac.Write([]byte(canonical))
+		expected := hex.EncodeToString(mac.Sum(nil))
+		if hmac.Equal([]byte(sig), []byte(expected)) {
+			return true
+		}
+	}
+	return false
+}
 
-	return hmac.Equal([]byte(sig), []byte(expected))
+// Signer is a thin wrapper around a single secret. Kept for the legacy
+// deployment-wide signing path used in tests and the contract server;
+// new code should call Sign/Verify directly.
+type Signer struct {
+	secret []byte
+}
+
+func NewSigner(secret string) *Signer {
+	return &Signer{secret: []byte(secret)}
+}
+
+func (s *Signer) Sign(p AuthPayload) AuthHeaders {
+	return Sign(string(s.secret), p)
+}
+
+// canonicalString assembles the byte string fed to HMAC. Field order
+// must match between Sign and Verify and is part of the wire contract;
+// changing it is a breaking signature change.
+func canonicalString(verified, sender, entityType, domainCheck, delegation, ts, messageID, bodyHash string) string {
+	return strings.Join([]string{
+		verified,
+		sender,
+		entityType,
+		domainCheck,
+		delegation,
+		ts,
+		messageID,
+		bodyHash,
+	}, "\n")
+}
+
+func (s *Signer) Verify(h AuthHeaders) bool {
+	return Verify([]string{string(s.secret)}, h)
+}
+
+func (s *Signer) VerifyWithMaxAge(h AuthHeaders, maxAge time.Duration) bool {
+	return VerifyWithMaxAge([]string{string(s.secret)}, h, maxAge)
 }

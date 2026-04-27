@@ -16,7 +16,8 @@ For vulnerability reporting and the security model, see [SECURITY.md](../SECURIT
 | API keys | Postgres `api_keys`, **hash only** (SHA over the plaintext) | Until revoked or the user is deleted; plaintext exists only in the create response and is never persisted |
 | OAuth sessions | Postgres `user_sessions` | 30 days; cleanup worker removes expired rows hourly |
 | Usage events / summaries (only when `E2A_USAGE_TRACKING=true`) | Postgres `usage_events`, `usage_summaries` | Indefinite by default — operator can purge or override |
-| HMAC signing secret | Operator's env (`E2A_HMAC_SECRET`); never written to DB | Lifetime of the deployment |
+| Per-user webhook signing secrets | Postgres `webhook_signing_secrets`, **plaintext** (the relay needs the value to sign — hashing them like API keys would break HMAC). Up to 5 per user. | Until the user explicitly deletes the secret or the account. Plaintext is returned exactly once at creation; subsequent reads only see a 12-char prefix. |
+| Deployment-wide HMAC signing secret (legacy fallback) | Operator's env (`E2A_HMAC_SECRET`); never written to DB | Lifetime of the deployment. Used only as a verify-side fallback for HITL approval tokens issued before the per-user-secret migration; new tokens use the user's own secret. |
 
 ## What's logged
 

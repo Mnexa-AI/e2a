@@ -53,20 +53,11 @@ type Claims struct {
 	ExpiresAt time.Time
 }
 
-// Signer issues and verifies approval tokens against a shared secret.
-type Signer struct {
-	secret []byte
-}
-
-func NewSigner(secret string) *Signer {
-	return &Signer{secret: []byte(secret)}
-}
-
-// Sign returns a URL-safe token. action must be ActionApprove or
-// ActionReject. exp sets the token's expiration — callers should pass a
-// value slightly after the message's approval_expires_at so a click
-// received just before TTL still works.
-func (s *Signer) Sign(messageID, action string, exp time.Time) (string, error) {
+// Sign returns a URL-safe token signed with `secret`. action must be
+// ActionApprove or ActionReject. exp sets the token's expiration —
+// callers should pass a value slightly after the message's
+// approval_expires_at so a click received just before TTL still works.
+func Sign(secret, messageID, action string, exp time.Time) (string, error) {
 	if action != ActionApprove && action != ActionReject {
 		return "", fmt.Errorf("invalid action %q", action)
 	}
@@ -77,19 +68,24 @@ func (s *Signer) Sign(messageID, action string, exp time.Time) (string, error) {
 		return "", fmt.Errorf("messageID contains reserved characters")
 	}
 	payload := fmt.Sprintf("%s|%s|%d", messageID, action, exp.Unix())
-	sig := sign(s.secret, []byte(payload))
+	sig := signMAC([]byte(secret), []byte(payload))
 	return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." +
 		base64.RawURLEncoding.EncodeToString(sig), nil
 }
 
-// Verify parses, HMAC-checks, and exp-checks a token. Returns the claims
-// on success; returns ErrInvalidToken for malformed / tampered tokens and
-// ErrTokenExpired for valid-but-past-exp tokens.
+// Verify parses, HMAC-checks (against any of `secrets`), and exp-checks
+// a token. Returns the claims on success; ErrInvalidToken for
+// malformed / tampered / wrong-secret tokens; ErrTokenExpired for
+// valid-but-past-exp tokens.
 //
 // Verify does not check that the message still exists or is still
 // pending — that is the handler's job. Verify's only job is "was this
 // string issued by us, and is its exp in the future".
-func (s *Signer) Verify(token string) (*Claims, error) {
+//
+// Accepting multiple secrets supports per-user multi-secret rotation:
+// after a user creates a new secret, in-flight magic-link tokens issued
+// under the old secret continue to verify until that secret is deleted.
+func Verify(secrets []string, token string) (*Claims, error) {
 	parts := strings.SplitN(token, ".", 2)
 	if len(parts) != 2 {
 		return nil, ErrInvalidToken
@@ -103,8 +99,14 @@ func (s *Signer) Verify(token string) (*Claims, error) {
 		return nil, ErrInvalidToken
 	}
 
-	expectedSig := sign(s.secret, payloadBytes)
-	if !hmac.Equal(providedSig, expectedSig) {
+	matched := false
+	for _, secret := range secrets {
+		if hmac.Equal(providedSig, signMAC([]byte(secret), payloadBytes)) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
 		return nil, ErrInvalidToken
 	}
 
@@ -130,8 +132,54 @@ func (s *Signer) Verify(token string) (*Claims, error) {
 	return claims, nil
 }
 
-func sign(secret, payload []byte) []byte {
+// Signer is a thin single-secret wrapper kept for tests and the legacy
+// deployment-wide signing path. New code should call Sign/Verify directly
+// with the user's secrets pulled from the identity store.
+type Signer struct {
+	secret string
+}
+
+func NewSigner(secret string) *Signer {
+	return &Signer{secret: secret}
+}
+
+func (s *Signer) Sign(messageID, action string, exp time.Time) (string, error) {
+	return Sign(s.secret, messageID, action, exp)
+}
+
+func (s *Signer) Verify(token string) (*Claims, error) {
+	return Verify([]string{s.secret}, token)
+}
+
+func signMAC(secret, payload []byte) []byte {
 	mac := hmac.New(sha256.New, secret)
 	mac.Write(payload)
 	return mac.Sum(nil)
+}
+
+// PeekMessageID extracts the message_id from a token *without* verifying
+// the HMAC. Useful when the caller needs to look up the owning user's
+// signing secrets to then call Verify with that secret list.
+//
+// SECURITY: the returned message_id is attacker-controlled until Verify
+// confirms the signature. Use it only as a lookup hint to find which
+// secrets to verify against — never act on the value before Verify
+// returns claims successfully.
+func PeekMessageID(token string) (string, error) {
+	parts := strings.SplitN(token, ".", 2)
+	if len(parts) != 2 {
+		return "", ErrInvalidToken
+	}
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return "", ErrInvalidToken
+	}
+	fields := strings.Split(string(payloadBytes), "|")
+	if len(fields) != 3 {
+		return "", ErrInvalidToken
+	}
+	if fields[0] == "" {
+		return "", ErrInvalidToken
+	}
+	return fields[0], nil
 }

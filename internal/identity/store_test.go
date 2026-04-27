@@ -2,8 +2,11 @@ package identity_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -578,5 +581,302 @@ func TestLookupConversationID_NoMatch(t *testing.T) {
 	_, err := store.LookupConversationID(ctx, agent.ID, []string{"<nonexistent@example.com>"})
 	if err == nil {
 		t.Error("expected error for non-matching lookup, got nil")
+	}
+}
+
+// --- Per-user webhook signing secrets ---
+
+func TestCreateOrGetUser_AutoCreatesSigningSecret(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, err := store.CreateOrGetUser(ctx, "auto-secret@example.com", "Auto", "google-auto-secret")
+	if err != nil {
+		t.Fatalf("CreateOrGetUser: %v", err)
+	}
+	secrets, err := store.ListSigningSecrets(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("ListSigningSecrets: %v", err)
+	}
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 default secret, got %d", len(secrets))
+	}
+	if secrets[0].Name != "default" {
+		t.Errorf("default secret name = %q, want \"default\"", secrets[0].Name)
+	}
+	if secrets[0].SecretPrefix == "" {
+		t.Error("SecretPrefix should be set on list")
+	}
+	if secrets[0].Secret != "" {
+		t.Error("plaintext Secret must NOT be returned by List")
+	}
+}
+
+func TestCreateSigningSecret_RoundTrip(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	user, _ := store.CreateOrGetUser(ctx, "round-trip@example.com", "RT", "google-round-trip")
+
+	created, err := store.CreateSigningSecret(ctx, user.ID, "rollover-2026-04")
+	if err != nil {
+		t.Fatalf("CreateSigningSecret: %v", err)
+	}
+	if !strings.HasPrefix(created.ID, "wsec_") {
+		t.Errorf("ID should start with wsec_, got %q", created.ID)
+	}
+	if len(created.Secret) != 64 {
+		t.Errorf("Secret should be 64 hex chars, got len=%d", len(created.Secret))
+	}
+	if created.Name != "rollover-2026-04" {
+		t.Errorf("Name = %q", created.Name)
+	}
+
+	// GetUserSigningSecrets returns the plaintext + IDs for the relay/verifier
+	secrets, err := store.GetUserSigningSecrets(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserSigningSecrets: %v", err)
+	}
+	// Default + the one we just created → 2 secrets.
+	if len(secrets) != 2 {
+		t.Fatalf("expected 2 secrets, got %d", len(secrets))
+	}
+	// Most-recent-first: the one we just created should be at [0].
+	if secrets[0].Secret != created.Secret {
+		t.Errorf("most-recent secret value should be the just-created one")
+	}
+	if secrets[0].ID != created.ID {
+		t.Errorf("most-recent secret ID = %q, want %q", secrets[0].ID, created.ID)
+	}
+}
+
+func TestCreateSigningSecret_HardCap(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	user, _ := store.CreateOrGetUser(ctx, "cap@example.com", "Cap", "google-cap")
+
+	// Default secret was auto-created → 1. Create up to MaxSigningSecretsPerUser.
+	for i := 0; i < identity.MaxSigningSecretsPerUser-1; i++ {
+		if _, err := store.CreateSigningSecret(ctx, user.ID, ""); err != nil {
+			t.Fatalf("create secret %d: %v", i, err)
+		}
+	}
+	// One more should fail.
+	_, err := store.CreateSigningSecret(ctx, user.ID, "over-the-line")
+	if err == nil {
+		t.Fatal("expected cap error, got nil")
+	}
+	if !errors.Is(err, identity.ErrSigningSecretCapReached) {
+		t.Errorf("expected ErrSigningSecretCapReached, got: %v", err)
+	}
+}
+
+// Empty Name should be normalized server-side so the dashboard always
+// has something readable to render.
+func TestCreateSigningSecret_EmptyNameDefaults(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	user, _ := store.CreateOrGetUser(ctx, "empty-name@example.com", "EN", "google-empty-name")
+
+	created, err := store.CreateSigningSecret(ctx, user.ID, "")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if created.Name != "unnamed" {
+		t.Errorf("Name should default to \"unnamed\", got %q", created.Name)
+	}
+}
+
+func TestDeleteSigningSecret_RefusesLast(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	user, _ := store.CreateOrGetUser(ctx, "last-secret@example.com", "Last", "google-last-secret")
+
+	secrets, _ := store.ListSigningSecrets(ctx, user.ID)
+	if len(secrets) != 1 {
+		t.Fatalf("setup expected 1 default secret, got %d", len(secrets))
+	}
+	err := store.DeleteSigningSecret(ctx, secrets[0].ID, user.ID)
+	if err == nil {
+		t.Fatal("deleting the last secret should fail")
+	}
+	if !errors.Is(err, identity.ErrCannotDeleteLastSigningSecret) {
+		t.Errorf("expected ErrCannotDeleteLastSigningSecret, got: %v", err)
+	}
+}
+
+func TestDeleteSigningSecret_HappyPath(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	user, _ := store.CreateOrGetUser(ctx, "delete-happy@example.com", "Del", "google-delete-happy")
+
+	created, _ := store.CreateSigningSecret(ctx, user.ID, "extra")
+	if err := store.DeleteSigningSecret(ctx, created.ID, user.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	secrets, _ := store.ListSigningSecrets(ctx, user.ID)
+	if len(secrets) != 1 {
+		t.Errorf("after delete, expected 1 remaining (the default), got %d", len(secrets))
+	}
+}
+
+func TestDeleteSigningSecret_NotOwned(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	owner, _ := store.CreateOrGetUser(ctx, "owner-rls@example.com", "Owner", "google-rls-owner")
+	other, _ := store.CreateOrGetUser(ctx, "other-rls@example.com", "Other", "google-rls-other")
+
+	created, _ := store.CreateSigningSecret(ctx, owner.ID, "owner-only")
+	// Other user tries to delete owner's secret → must fail.
+	err := store.DeleteSigningSecret(ctx, created.ID, other.ID)
+	if err == nil {
+		t.Fatal("delete by non-owner should fail")
+	}
+}
+
+func TestEnsureUserHasSigningSecret_Idempotent(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	user, _ := store.CreateOrGetUser(ctx, "idem@example.com", "Idem", "google-idem")
+
+	// Already has one (auto-created).
+	for i := 0; i < 3; i++ {
+		if err := store.EnsureUserHasSigningSecret(ctx, user.ID); err != nil {
+			t.Fatalf("ensure call %d: %v", i, err)
+		}
+	}
+	secrets, _ := store.ListSigningSecrets(ctx, user.ID)
+	if len(secrets) != 1 {
+		t.Errorf("ensure should be idempotent, got %d secrets", len(secrets))
+	}
+}
+
+// --- Concurrency: TOCTOU race on the cap is closed ---
+
+func TestCreateSigningSecret_ConcurrentCreates_NeverExceedCap(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	user, _ := store.CreateOrGetUser(ctx, "race@example.com", "Race", "google-race")
+
+	// Default secret already exists → cap headroom is MaxSigningSecretsPerUser-1.
+	// Fire 4× the headroom of concurrent creates and assert we never end
+	// above the cap. Without the row lock these would interleave count
+	// checks and over-create.
+	const concurrency = 4 * (identity.MaxSigningSecretsPerUser)
+	var wg sync.WaitGroup
+	wg.Add(concurrency)
+	for i := 0; i < concurrency; i++ {
+		go func(i int) {
+			defer wg.Done()
+			_, _ = store.CreateSigningSecret(ctx, user.ID, fmt.Sprintf("race-%d", i))
+		}(i)
+	}
+	wg.Wait()
+
+	secrets, err := store.ListSigningSecrets(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(secrets) > identity.MaxSigningSecretsPerUser {
+		t.Errorf("cap broken: %d secrets, max %d", len(secrets), identity.MaxSigningSecretsPerUser)
+	}
+}
+
+func TestDeleteSigningSecret_ConcurrentDeletes_NeverGoBelowOne(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	user, _ := store.CreateOrGetUser(ctx, "del-race@example.com", "DR", "google-del-race")
+
+	// Create 3 extra so the user has 4 total. Fire 4 concurrent deletes
+	// for those 3 IDs (one delete will target a non-existent ID after a
+	// successful sibling delete). The floor (1 secret) must hold.
+	created := make([]string, 0, 3)
+	for i := 0; i < 3; i++ {
+		s, err := store.CreateSigningSecret(ctx, user.ID, fmt.Sprintf("d-%d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		created = append(created, s.ID)
+	}
+
+	var wg sync.WaitGroup
+	for _, id := range created {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			_ = store.DeleteSigningSecret(ctx, id, user.ID)
+		}(id)
+	}
+	wg.Wait()
+
+	secrets, _ := store.ListSigningSecrets(ctx, user.ID)
+	if len(secrets) < 1 {
+		t.Errorf("floor broken: %d secrets remain", len(secrets))
+	}
+}
+
+// --- TouchSigningSecretLastSigned ---
+
+func TestTouchSigningSecretLastSigned(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	user, _ := store.CreateOrGetUser(ctx, "touch@example.com", "T", "google-touch")
+
+	secrets, _ := store.ListSigningSecrets(ctx, user.ID)
+	if len(secrets) != 1 {
+		t.Fatalf("setup: expected 1 default secret, got %d", len(secrets))
+	}
+	if secrets[0].LastSignedAt != nil {
+		t.Errorf("LastSignedAt should start nil, got %v", secrets[0].LastSignedAt)
+	}
+
+	if err := store.TouchSigningSecretLastSigned(ctx, secrets[0].ID); err != nil {
+		t.Fatalf("touch: %v", err)
+	}
+
+	refreshed, _ := store.ListSigningSecrets(ctx, user.ID)
+	if refreshed[0].LastSignedAt == nil {
+		t.Fatal("LastSignedAt still nil after touch")
+	}
+	if time.Since(*refreshed[0].LastSignedAt) > 5*time.Second {
+		t.Errorf("LastSignedAt should be ~now, got %v", *refreshed[0].LastSignedAt)
+	}
+}
+
+// --- GetUserSigningSecrets (with IDs) ordering contract ---
+
+func TestGetUserSigningSecrets_MostRecentFirst(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	user, _ := store.CreateOrGetUser(ctx, "order@example.com", "O", "google-order")
+
+	// User starts with one default. Add a "rolling" then a "current" secret.
+	rolling, _ := store.CreateSigningSecret(ctx, user.ID, "rolling")
+	time.Sleep(2 * time.Millisecond) // ensure distinct created_at
+	current, _ := store.CreateSigningSecret(ctx, user.ID, "current")
+
+	got, err := store.GetUserSigningSecrets(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 secrets, got %d", len(got))
+	}
+	if got[0].ID != current.ID {
+		t.Errorf("[0] should be most recent (%q), got %q", current.ID, got[0].ID)
+	}
+	if got[1].ID != rolling.ID {
+		t.Errorf("[1] should be the middle one (%q), got %q", rolling.ID, got[1].ID)
 	}
 }

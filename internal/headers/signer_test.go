@@ -251,3 +251,71 @@ func TestDifferentSecretRejects(t *testing.T) {
 		t.Error("expected Verify with different secret to return false")
 	}
 }
+
+// --- Multi-secret Verify (rotation support) ---
+
+func TestVerify_AcceptsAnyOfMultipleSecrets(t *testing.T) {
+	const oldSecret = "old-secret-during-rotation"
+	const newSecret = "new-secret-current"
+
+	// Sign with the old secret (simulates a webhook in flight from
+	// before a rotation).
+	signed := Sign(oldSecret, AuthPayload{
+		Verified:    true,
+		Sender:      "alice@example.com",
+		EntityType:  "human",
+		DomainCheck: "spf=pass",
+		MessageID:   "msg_test_rotation",
+		BodyHash:    "deadbeef",
+	})
+
+	// Recipient holds both old + new during the rotation window.
+	if !Verify([]string{newSecret, oldSecret}, signed) {
+		t.Error("verify should succeed when ONE of the secrets matches")
+	}
+
+	// Order shouldn't matter.
+	if !Verify([]string{oldSecret, newSecret}, signed) {
+		t.Error("verify should succeed regardless of secret order")
+	}
+
+	// Without the matching secret, verify fails.
+	if Verify([]string{newSecret, "another-wrong-secret"}, signed) {
+		t.Error("verify should fail when no secret matches")
+	}
+}
+
+func TestVerify_EmptySecretsList_Fails(t *testing.T) {
+	signed := Sign("k", AuthPayload{
+		Sender: "a@b.c", MessageID: "msg_x", BodyHash: "z",
+	})
+	if Verify(nil, signed) {
+		t.Error("verify with no secrets must fail")
+	}
+	if Verify([]string{}, signed) {
+		t.Error("verify with empty secrets slice must fail")
+	}
+}
+
+func TestSign_ParametricMatchesSignerWrapper(t *testing.T) {
+	// The legacy Signer wrapper should produce identical output to the
+	// new free Sign function for any given secret. (Timestamp is the
+	// only non-deterministic field; we check everything else.)
+	const secret = "consistency-test"
+	payload := AuthPayload{
+		Verified:    true,
+		Sender:      "consistency@test.example",
+		EntityType:  "human",
+		DomainCheck: "spf=pass; dkim=pass",
+		MessageID:   "msg_consistency",
+		BodyHash:    "abc123",
+	}
+	free := Sign(secret, payload)
+	wrapped := NewSigner(secret).Sign(payload)
+
+	for _, k := range []string{HeaderVerified, HeaderSender, HeaderEntityType, HeaderDomainCheck, HeaderMessageID, HeaderBodyHash} {
+		if free[k] != wrapped[k] {
+			t.Errorf("%s differs: free=%q wrapped=%q", k, free[k], wrapped[k])
+		}
+	}
+}

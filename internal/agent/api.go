@@ -196,6 +196,12 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/v1/users/me/export", a.handleExportUserData).Methods("GET")
 	r.HandleFunc("/api/v1/users/me", a.handleDeleteUserData).Methods("DELETE")
 
+	// Per-user webhook signing secrets — multi-secret rotation, fully
+	// user-managed (create + delete; no auto-rotation, no TTL).
+	r.HandleFunc("/api/v1/users/me/signing-secrets", a.handleListSigningSecrets).Methods("GET")
+	r.HandleFunc("/api/v1/users/me/signing-secrets", a.handleCreateSigningSecret).Methods("POST")
+	r.HandleFunc("/api/v1/users/me/signing-secrets/{id}", a.handleDeleteSigningSecret).Methods("DELETE")
+
 	// HITL approval endpoints — scoped to the user (not a single agent) so
 	// reviewers can see pending messages across all their agents at once.
 	r.HandleFunc("/api/v1/messages", a.handleListMessages).Methods("GET")

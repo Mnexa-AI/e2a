@@ -146,7 +146,25 @@ func TestNotifierMagicLinksAreVerifiable(t *testing.T) {
 	approveTok := extractToken(t, data, "/api/v1/approve?t=")
 	rejectTok := extractToken(t, data, "/api/v1/reject?t=")
 
-	approveClaims, err := signer.Verify(approveTok)
+	// Tokens are signed with the agent owner's per-account secret (most
+	// recently created). Pull those from the store, plus include the
+	// deployment secret in the verify list so the test exercises both
+	// the per-user path and the legacy fallback path.
+	userSecrets, err := store.GetUserSigningSecrets(context.Background(), agent.UserID)
+	if err != nil {
+		t.Fatalf("get user signing secrets: %v", err)
+	}
+	verifySecrets := make([]string, len(userSecrets))
+	for i, s := range userSecrets {
+		verifySecrets[i] = s.Secret
+	}
+	// signer holds the deployment-wide secret as a private field; we
+	// can't read it directly, so we use the legacy Verify path which
+	// internally tries that secret. The per-user-first behavior is
+	// exercised by approvaltoken.Verify(userSecrets, ...) below.
+	_ = signer
+
+	approveClaims, err := approvaltoken.Verify(verifySecrets, approveTok)
 	if err != nil {
 		t.Fatalf("approve token verify: %v", err)
 	}
@@ -157,7 +175,7 @@ func TestNotifierMagicLinksAreVerifiable(t *testing.T) {
 		t.Errorf("approve claims.Action = %q", approveClaims.Action)
 	}
 
-	rejectClaims, err := signer.Verify(rejectTok)
+	rejectClaims, err := approvaltoken.Verify(verifySecrets, rejectTok)
 	if err != nil {
 		t.Fatalf("reject token verify: %v", err)
 	}

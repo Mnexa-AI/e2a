@@ -152,3 +152,74 @@ func TestVerifyRejectsMalformedTokens(t *testing.T) {
 func encodePayload(s string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(s))
 }
+
+// --- Multi-secret Verify (rotation support) ---
+
+func TestVerify_MultipleSecrets_AcceptsAny(t *testing.T) {
+	const oldSecret = "old-secret-during-rotation"
+	const newSecret = "new-secret-current"
+	exp := time.Now().Add(1 * time.Hour)
+
+	tok, err := approvaltoken.Sign(oldSecret, "msg_rot", approvaltoken.ActionApprove, exp)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verifier holds both.
+	claims, err := approvaltoken.Verify([]string{newSecret, oldSecret}, tok)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if claims.MessageID != "msg_rot" {
+		t.Errorf("claims.MessageID = %q", claims.MessageID)
+	}
+
+	// Without the matching secret, fails with ErrInvalidToken.
+	_, err = approvaltoken.Verify([]string{newSecret, "wrong"}, tok)
+	if err != approvaltoken.ErrInvalidToken {
+		t.Errorf("expected ErrInvalidToken, got %v", err)
+	}
+}
+
+func TestVerify_EmptySecrets_Fails(t *testing.T) {
+	tok, _ := approvaltoken.Sign("k", "msg_e", approvaltoken.ActionApprove, time.Now().Add(time.Hour))
+	if _, err := approvaltoken.Verify(nil, tok); err != approvaltoken.ErrInvalidToken {
+		t.Errorf("nil secrets should fail with ErrInvalidToken, got %v", err)
+	}
+}
+
+func TestPeekMessageID_DoesNotVerify(t *testing.T) {
+	// Build a token with a real message_id but a *bogus* signature
+	// suffix (just random bytes after the dot). PeekMessageID should
+	// still pull the message_id without checking HMAC.
+	const secret = "sek"
+	tok, _ := approvaltoken.Sign(secret, "msg_peek", approvaltoken.ActionApprove, time.Now().Add(time.Hour))
+	// Truncate the signature to invalidate it but keep the payload.
+	parts := strings.SplitN(tok, ".", 2)
+	if len(parts) != 2 {
+		t.Fatal("token has no '.'")
+	}
+	tampered := parts[0] + "." + "garbage"
+
+	id, err := approvaltoken.PeekMessageID(tampered)
+	if err != nil {
+		t.Fatalf("peek should succeed even with invalid sig: %v", err)
+	}
+	if id != "msg_peek" {
+		t.Errorf("PeekMessageID = %q, want msg_peek", id)
+	}
+
+	// But Verify must reject the tampered signature.
+	if _, err := approvaltoken.Verify([]string{secret}, tampered); err != approvaltoken.ErrInvalidToken {
+		t.Errorf("Verify must reject tampered sig: %v", err)
+	}
+}
+
+func TestPeekMessageID_MalformedToken(t *testing.T) {
+	if _, err := approvaltoken.PeekMessageID(""); err != approvaltoken.ErrInvalidToken {
+		t.Errorf("empty token: %v", err)
+	}
+	if _, err := approvaltoken.PeekMessageID("not-base64.also-not"); err != approvaltoken.ErrInvalidToken {
+		t.Errorf("bad b64: %v", err)
+	}
+}

@@ -491,3 +491,111 @@ func TestMagicLinkNoCacheAndSecurityHeaders(t *testing.T) {
 		}
 	}
 }
+
+// --- Per-user signing secret verify path + deployment fallback ---
+
+// Tokens signed with the agent owner's per-account secret should
+// verify via the primary path (verifyTokenAnySecret tries user secrets
+// first). The deployment-wide signer is unrelated to this user's
+// secret and should not be consulted.
+func TestMagicApprove_VerifiesWithUserSecret(t *testing.T) {
+	server, store, _, _ := setupMagicLinkAPI(t)
+	a, userID := prepareHITLAgent(t, store, "user-secret-verify")
+	msg := issuePending(t, store, a.ID)
+
+	// Pull the user's most-recent secret (the auto-created default).
+	ctx := context.Background()
+	secrets, err := store.GetUserSigningSecrets(ctx, userID)
+	if err != nil || len(secrets) == 0 {
+		t.Fatalf("get user secrets: %v (n=%d)", err, len(secrets))
+	}
+	tok, err := approvaltoken.Sign(secrets[0].Secret, msg.ID, approvaltoken.ActionApprove, time.Now().Add(1*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp := postForm(t, server.URL+"/api/v1/approve", map[string]string{"t": tok})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("approve via user-secret token: status %d, body=%s", resp.StatusCode, readBody(t, resp))
+	}
+}
+
+// Tokens signed with the deployment-wide signer (the legacy/fallback
+// path) must still verify even though the user has their own secret.
+// This covers tokens issued before the per-user-secrets migration ran.
+func TestMagicApprove_FallsBackToDeploymentSigner(t *testing.T) {
+	server, store, signer, _ := setupMagicLinkAPI(t)
+	a, _ := prepareHITLAgent(t, store, "deployment-fallback")
+	msg := issuePending(t, store, a.ID)
+
+	// Sign with the deployment-wide signer, NOT the user's per-account
+	// secret. verifyTokenAnySecret will try the user's secret (mismatch),
+	// then fall back to the deployment signer (match).
+	tok, err := signer.Sign(msg.ID, approvaltoken.ActionApprove, time.Now().Add(1*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp := postForm(t, server.URL+"/api/v1/approve", map[string]string{"t": tok})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("approve via deployment-signed token: status %d, body=%s", resp.StatusCode, readBody(t, resp))
+	}
+}
+
+// A token signed with neither the user's secret nor the deployment
+// signer must be rejected. Guards against accepting any HMAC-shaped
+// blob just because the message_id resolves.
+func TestMagicApprove_RejectsForeignSecret(t *testing.T) {
+	server, store, _, _ := setupMagicLinkAPI(t)
+	a, _ := prepareHITLAgent(t, store, "foreign-secret-reject")
+	msg := issuePending(t, store, a.ID)
+
+	tok, err := approvaltoken.Sign("attacker-controlled-secret", msg.ID, approvaltoken.ActionApprove, time.Now().Add(1*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp := postForm(t, server.URL+"/api/v1/approve", map[string]string{"t": tok})
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("foreign-secret token MUST be rejected, got %d", resp.StatusCode)
+	}
+}
+
+// Tokens signed with an OLD per-user secret should still verify after
+// the user creates a new one — until the old one is deleted. This is
+// the whole point of multi-secret rotation.
+func TestMagicApprove_OldUserSecretStillVerifiesAfterRotation(t *testing.T) {
+	server, store, _, _ := setupMagicLinkAPI(t)
+	a, userID := prepareHITLAgent(t, store, "rotation-window")
+	msg := issuePending(t, store, a.ID)
+
+	ctx := context.Background()
+	// Capture the original secret.
+	beforeRotation, err := store.GetUserSigningSecrets(ctx, userID)
+	if err != nil || len(beforeRotation) == 0 {
+		t.Fatalf("get user secrets: %v", err)
+	}
+	oldSecret := beforeRotation[0].Secret
+
+	// Sign a token with the OLD secret, then rotate (create new).
+	tok, err := approvaltoken.Sign(oldSecret, msg.ID, approvaltoken.ActionApprove, time.Now().Add(1*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateSigningSecret(ctx, userID, "new-after-rotation"); err != nil {
+		t.Fatal(err)
+	}
+	// User now has 2 secrets; the old one is at index [1] (most-recent
+	// is the new one). The verifier should still accept the old token
+	// because it tries all of the user's secrets.
+
+	resp := postForm(t, server.URL+"/api/v1/approve", map[string]string{"t": tok})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("old-secret token must verify until that secret is deleted, got %d body=%s",
+			resp.StatusCode, readBody(t, resp))
+	}
+}

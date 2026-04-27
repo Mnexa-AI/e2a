@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"html"
@@ -133,12 +134,18 @@ func extractFormToken(r *http.Request) string {
 // returns either claims or an (HTTP status, user-visible message) pair.
 // Shared by GET and POST so both paths reject the same inputs the same
 // way.
+//
+// HMAC verification first tries the *owning user's* per-account signing
+// secrets — multiple may be valid during a rotation window. If those
+// fail (or we can't resolve the user), fall back to the deployment-wide
+// signer for legacy tokens issued before per-user secrets shipped.
 func (a *API) verifyMagicToken(token, endpointAction string) (*approvaltoken.Claims, int, string) {
 	if token == "" {
 		return nil, http.StatusBadRequest,
 			"This approval link is missing its token."
 	}
-	claims, err := a.approvalSigner.Verify(token)
+
+	claims, err := a.verifyTokenAnySecret(context.Background(), token)
 	if err != nil {
 		if errors.Is(err, approvaltoken.ErrTokenExpired) {
 			return nil, http.StatusGone,
@@ -151,6 +158,43 @@ func (a *API) verifyMagicToken(token, endpointAction string) (*approvaltoken.Cla
 			"This approval link isn't valid for this action."
 	}
 	return claims, 0, ""
+}
+
+// verifyTokenAnySecret tries the owning user's per-account secrets
+// first, then falls back to the deployment-wide signer. The per-user
+// path is the primary route post-migration; the fallback exists for
+// (a) tokens issued before the migration ran and (b) self-host
+// configurations where the deployment secret is the only one set.
+//
+// The pre-parse of the token's message_id is unverified — its only
+// use is to look up which user's secrets to try. A forged message_id
+// causes us to load the wrong user's secrets, which won't verify the
+// forged signature, so the token is correctly rejected.
+func (a *API) verifyTokenAnySecret(ctx context.Context, token string) (*approvaltoken.Claims, error) {
+	if messageID, err := approvaltoken.PeekMessageID(token); err == nil && messageID != "" {
+		userID, _, ownerErr := a.store.ResolveOutboundOwner(ctx, messageID)
+		if ownerErr == nil && userID != "" {
+			if userSecrets, secretsErr := a.store.GetUserSigningSecrets(ctx, userID); secretsErr == nil && len(userSecrets) > 0 {
+				values := make([]string, len(userSecrets))
+				for i, s := range userSecrets {
+					values[i] = s.Secret
+				}
+				if claims, err := approvaltoken.Verify(values, token); err == nil {
+					return claims, nil
+				} else if errors.Is(err, approvaltoken.ErrTokenExpired) {
+					// Don't attempt deployment-secret fallback if the token
+					// already verified against a user secret but is just
+					// past its TTL — that's an expired-token signal, not
+					// an invalid-secret one.
+					return nil, err
+				}
+			}
+		}
+	}
+	if a.approvalSigner != nil {
+		return a.approvalSigner.Verify(token)
+	}
+	return nil, approvaltoken.ErrInvalidToken
 }
 
 // --- Action implementations (called after POST + token verify) ---

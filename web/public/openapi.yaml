@@ -93,6 +93,19 @@ definitions:
         example: sent
         type: string
     type: object
+  CreateSigningSecretResponse:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      secret:
+        type: string
+      secret_prefix:
+        type: string
+    type: object
   DNSRecord:
     properties:
       host:
@@ -200,6 +213,13 @@ definitions:
       messages:
         items:
           $ref: '#/definitions/PendingMessageSummary'
+        type: array
+    type: object
+  ListSigningSecretsResponse:
+    properties:
+      secrets:
+        items:
+          $ref: '#/definitions/SigningSecretSummary'
         type: array
     type: object
   MessageDetail:
@@ -535,6 +555,19 @@ definitions:
         example: sent
         type: string
     type: object
+  SigningSecretSummary:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      last_signed_at:
+        type: string
+      name:
+        type: string
+      secret_prefix:
+        type: string
+    type: object
   UpdateAgentRequest:
     properties:
       agent_mode:
@@ -760,6 +793,14 @@ definitions:
         type: string
       filename:
         example: report.pdf
+        type: string
+    type: object
+  internal_agent.CreateSigningSecretRequest:
+    properties:
+      name:
+        description: |-
+          Optional human-readable label so users can tell secrets apart in
+          the dashboard (e.g. "prod", "staging", "rollover-2026-04").
         type: string
     type: object
 host: localhost:8080
@@ -1578,6 +1619,96 @@ paths:
       security:
       - BearerAuth: []
       summary: Export your data
+      tags:
+      - User
+  /api/v1/users/me/signing-secrets:
+    get:
+      description: Returns the authenticated user's webhook signing secrets (metadata
+        + 12-char prefix preview only — full secrets are only shown once at creation).
+        Sorted most-recent-first; the most-recent secret is what the e2a relay uses
+        for new signatures.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ListSigningSecretsResponse'
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: List your webhook signing secrets
+      tags:
+      - User
+    post:
+      consumes:
+      - application/json
+      description: Mints a new HMAC signing secret for the authenticated user. The
+        full plaintext `secret` is returned only in this response — save it now, you
+        cannot retrieve it later. Hard cap is 5 active secrets per user; delete one
+        before creating another.
+      parameters:
+      - description: Optional name/label
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/internal_agent.CreateSigningSecretRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/CreateSigningSecretResponse'
+        "400":
+          description: Bad request (e.g. cap reached)
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Create a new webhook signing secret
+      tags:
+      - User
+  /api/v1/users/me/signing-secrets/{id}:
+    delete:
+      description: Deletes the named secret. Refuses if it would leave the user with
+        zero secrets — create a replacement first. After delete, any in-flight HITL
+        approval magic-link tokens signed under the deleted secret stop verifying.
+      parameters:
+      - description: Signing secret ID (e.g. wsec_abc123...)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+        "400":
+          description: Cannot delete last secret
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "404":
+          description: Secret not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Delete a webhook signing secret
       tags:
       - User
 securityDefinitions:

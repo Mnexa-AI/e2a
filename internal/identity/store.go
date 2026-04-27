@@ -6,10 +6,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/net/idna"
 )
@@ -1553,6 +1555,10 @@ func (s *Store) CreateOrGetUser(ctx context.Context, email, name, googleSub stri
 	if err != nil {
 		return nil, err
 	}
+	// Idempotent: existing users return early in EnsureUserHasSigningSecret.
+	if err := s.EnsureUserHasSigningSecret(ctx, u.ID); err != nil {
+		return nil, fmt.Errorf("ensure signing secret: %w", err)
+	}
 	return u, nil
 }
 
@@ -1565,6 +1571,11 @@ func (s *Store) BootstrapUser(ctx context.Context, email string) (*User, error) 
 		`SELECT id, email, name, google_subject, created_at FROM users WHERE email = $1`, email,
 	).Scan(&u.ID, &u.Email, &u.Name, &u.GoogleSubject, &u.CreatedAt)
 	if err == nil {
+		// Existing user — make sure they still have at least one secret
+		// (covers the case where the migration backfill didn't run yet).
+		if err := s.EnsureUserHasSigningSecret(ctx, u.ID); err != nil {
+			return nil, fmt.Errorf("ensure signing secret: %w", err)
+		}
 		return u, nil
 	}
 	id := generateID()
@@ -1576,6 +1587,9 @@ func (s *Store) BootstrapUser(ctx context.Context, email string) (*User, error) 
 	).Scan(&u.ID, &u.Email, &u.Name, &u.GoogleSubject, &u.CreatedAt)
 	if err != nil {
 		return nil, err
+	}
+	if err := s.EnsureUserHasSigningSecret(ctx, u.ID); err != nil {
+		return nil, fmt.Errorf("ensure signing secret: %w", err)
 	}
 	return u, nil
 }
@@ -1736,4 +1750,252 @@ func generateAPIKey() string {
 	b := make([]byte, 32)
 	rand.Read(b)
 	return "e2a_" + hex.EncodeToString(b)
+}
+
+// --- Webhook signing secrets ---
+
+// MaxSigningSecretsPerUser caps how many active signing secrets a user
+// can hold at once. Two slots covers the standard rotation flow (create
+// new, swap, delete old); a hard cap higher than that mostly catches
+// runaway scripts. Easy to raise later if real users need more.
+const MaxSigningSecretsPerUser = 5
+
+// Sentinel errors so API handlers can map error → HTTP status with
+// errors.Is rather than string-matching the message text. Tests can
+// also assert against them directly.
+var (
+	ErrSigningSecretCapReached     = fmt.Errorf("at most %d signing secrets per user; delete one before creating another", MaxSigningSecretsPerUser)
+	ErrCannotDeleteLastSigningSecret = errors.New("cannot delete the last signing secret; create a new one first")
+	ErrSigningSecretNotFound       = errors.New("signing secret not found or not owned by user")
+)
+
+// SigningSecret is one of a user's HMAC secrets used to sign their
+// agents' inbound webhook payloads and HITL approval magic-link tokens.
+//
+// The plaintext Secret is only set in the response to a fresh
+// CreateSigningSecret call (and what's persisted in the DB row); list
+// operations omit it and surface a SecretPrefix preview instead.
+type SigningSecret struct {
+	ID           string     `json:"id"`
+	UserID       string     `json:"user_id"`
+	Name         string     `json:"name"`
+	Secret       string     `json:"secret,omitempty"`        // only on creation
+	SecretPrefix string     `json:"secret_prefix,omitempty"` // first 12 chars, for list/get
+	CreatedAt    time.Time  `json:"created_at"`
+	LastSignedAt *time.Time `json:"last_signed_at,omitempty"`
+}
+
+// SigningSecretWithValue carries the plaintext Secret alongside the ID
+// so the relay can both sign with the value and (asynchronously)
+// update last_signed_at on the right row. Returned by
+// GetUserSigningSecrets in most-recent-first order.
+type SigningSecretWithValue struct {
+	ID     string
+	Secret string
+}
+
+func generateSigningSecret() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand never returns an error on supported platforms;
+		// if it does, panic — secret generation is a hard prerequisite.
+		panic(fmt.Sprintf("crypto/rand.Read failed: %v", err))
+	}
+	return hex.EncodeToString(b)
+}
+
+// withUserSecretsLock takes a row lock on the user's row for the
+// duration of fn. Serializes concurrent CreateSigningSecret /
+// DeleteSigningSecret / EnsureUserHasSigningSecret calls for the same
+// user so the MaxSigningSecretsPerUser check + insert is race-free, and
+// the "refuse last delete" check + delete is race-free.
+//
+// SELECT ... FOR UPDATE is preferred over pg_advisory_xact_lock here
+// because the lock is scoped to a real row (no name-collision concerns,
+// no interaction with table-level locks like TRUNCATE in test
+// environments). Released when the transaction commits or rolls back.
+func (s *Store) withUserSecretsLock(ctx context.Context, userID string, fn func(tx pgx.Tx) error) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var lockedID string
+	if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedID); err != nil {
+		return fmt.Errorf("lock user %s for signing-secret op: %w", userID, err)
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// EnsureUserHasSigningSecret guarantees the user has at least one
+// signing secret, creating a "default" one if not. Idempotent.
+// Concurrent callers serialize via the per-user advisory lock so we
+// can't accidentally insert two "default" rows.
+func (s *Store) EnsureUserHasSigningSecret(ctx context.Context, userID string) error {
+	return s.withUserSecretsLock(ctx, userID, func(tx pgx.Tx) error {
+		var count int
+		if err := tx.QueryRow(ctx,
+			`SELECT COUNT(*) FROM webhook_signing_secrets WHERE user_id = $1`, userID,
+		).Scan(&count); err != nil {
+			return err
+		}
+		if count > 0 {
+			return nil
+		}
+		_, err := tx.Exec(ctx,
+			`INSERT INTO webhook_signing_secrets (id, user_id, secret, name, created_at)
+			 VALUES ($1, $2, $3, $4, NOW())`,
+			"wsec_"+generateID(), userID, generateSigningSecret(), "default",
+		)
+		return err
+	})
+}
+
+// CreateSigningSecret mints a new secret for the user. The plaintext
+// secret value is set on the returned struct exactly once; subsequent
+// reads (List/Get) only see the prefix.
+//
+// Returns ErrSigningSecretCapReached if the user is already at
+// MaxSigningSecretsPerUser. Race-free under concurrent callers via the
+// per-user advisory lock.
+//
+// Empty `name` is normalized server-side to "unnamed" so the dashboard
+// always has something to display.
+func (s *Store) CreateSigningSecret(ctx context.Context, userID, name string) (*SigningSecret, error) {
+	if name == "" {
+		name = "unnamed"
+	}
+	id := "wsec_" + generateID()
+	plaintext := generateSigningSecret()
+	now := time.Now()
+
+	err := s.withUserSecretsLock(ctx, userID, func(tx pgx.Tx) error {
+		var count int
+		if err := tx.QueryRow(ctx,
+			`SELECT COUNT(*) FROM webhook_signing_secrets WHERE user_id = $1`, userID,
+		).Scan(&count); err != nil {
+			return err
+		}
+		if count >= MaxSigningSecretsPerUser {
+			return ErrSigningSecretCapReached
+		}
+		_, err := tx.Exec(ctx,
+			`INSERT INTO webhook_signing_secrets (id, user_id, secret, name, created_at)
+			 VALUES ($1, $2, $3, $4, $5)`,
+			id, userID, plaintext, name, now,
+		)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &SigningSecret{
+		ID:           id,
+		UserID:       userID,
+		Name:         name,
+		Secret:       plaintext,
+		SecretPrefix: plaintext[:12],
+		CreatedAt:    now,
+	}, nil
+}
+
+// ListSigningSecrets returns the user's secrets in most-recent-first
+// order. The plaintext Secret is intentionally omitted; only the
+// SecretPrefix preview is exposed.
+func (s *Store) ListSigningSecrets(ctx context.Context, userID string) ([]SigningSecret, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, user_id, name, substring(secret, 1, 12), created_at, last_signed_at
+		 FROM webhook_signing_secrets WHERE user_id = $1
+		 ORDER BY created_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SigningSecret
+	for rows.Next() {
+		var s SigningSecret
+		if err := rows.Scan(&s.ID, &s.UserID, &s.Name, &s.SecretPrefix, &s.CreatedAt, &s.LastSignedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// GetUserSigningSecrets returns the plaintext secret values for a user
+// (paired with their IDs), most-recent-first. The relay signs with
+// [0] and asynchronously updates last_signed_at on that ID. The HITL
+// token verifier tries each Secret in turn. Caller must NOT log the
+// Secret values.
+func (s *Store) GetUserSigningSecrets(ctx context.Context, userID string) ([]SigningSecretWithValue, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, secret FROM webhook_signing_secrets WHERE user_id = $1 ORDER BY created_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SigningSecretWithValue
+	for rows.Next() {
+		var v SigningSecretWithValue
+		if err := rows.Scan(&v.ID, &v.Secret); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// DeleteSigningSecret removes a secret. Refuses to delete the user's
+// last secret — every user must keep at least one so webhooks remain
+// verifiable. Race-free under concurrent callers via the per-user
+// row lock.
+//
+// Check order matters: ownership first (so an attacker probing IDs
+// they don't own gets 404, not "cannot delete last" leaking that the
+// caller has only 1 secret), then the floor.
+func (s *Store) DeleteSigningSecret(ctx context.Context, secretID, userID string) error {
+	return s.withUserSecretsLock(ctx, userID, func(tx pgx.Tx) error {
+		var found int
+		if err := tx.QueryRow(ctx,
+			`SELECT 1 FROM webhook_signing_secrets WHERE id = $1 AND user_id = $2`,
+			secretID, userID,
+		).Scan(&found); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrSigningSecretNotFound
+			}
+			return err
+		}
+		var count int
+		if err := tx.QueryRow(ctx,
+			`SELECT COUNT(*) FROM webhook_signing_secrets WHERE user_id = $1`, userID,
+		).Scan(&count); err != nil {
+			return err
+		}
+		if count <= 1 {
+			return ErrCannotDeleteLastSigningSecret
+		}
+		_, err := tx.Exec(ctx,
+			`DELETE FROM webhook_signing_secrets WHERE id = $1 AND user_id = $2`,
+			secretID, userID,
+		)
+		return err
+	})
+}
+
+// TouchSigningSecretLastSigned records that the relay used this secret
+// to sign a payload. Best-effort — failure is logged but does not block
+// the actual signing operation.
+func (s *Store) TouchSigningSecretLastSigned(ctx context.Context, secretID string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE webhook_signing_secrets SET last_signed_at = NOW() WHERE id = $1`,
+		secretID,
+	)
+	return err
 }

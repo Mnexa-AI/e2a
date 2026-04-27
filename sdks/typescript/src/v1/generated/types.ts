@@ -1427,6 +1427,169 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/me/signing-secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List your webhook signing secrets
+         * @description Returns the authenticated user's webhook signing secrets (metadata + 12-char prefix preview only — full secrets are only shown once at creation). Sorted most-recent-first; the most-recent secret is what the e2a relay uses for new signatures.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ListSigningSecretsResponse"];
+                    };
+                };
+                /** @description Missing or invalid API key */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Create a new webhook signing secret
+         * @description Mints a new HMAC signing secret for the authenticated user. The full plaintext `secret` is returned only in this response — save it now, you cannot retrieve it later. Hard cap is 5 active secrets per user; delete one before creating another.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Optional name/label */
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["internal_agent.CreateSigningSecretRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CreateSigningSecretResponse"];
+                    };
+                };
+                /** @description Bad request (e.g. cap reached) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Missing or invalid API key */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/signing-secrets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a webhook signing secret
+         * @description Deletes the named secret. Refuses if it would leave the user with zero secrets — create a replacement first. After delete, any in-flight HITL approval magic-link tokens signed under the deleted secret stop verifying.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Signing secret ID (e.g. wsec_abc123...) */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Cannot delete last secret */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Missing or invalid API key */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Secret not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1482,6 +1645,13 @@ export interface components {
             provider_message_id?: string;
             /** @example sent */
             status?: string;
+        };
+        CreateSigningSecretResponse: {
+            created_at?: string;
+            id?: string;
+            name?: string;
+            secret?: string;
+            secret_prefix?: string;
         };
         DNSRecord: {
             /** @example @ */
@@ -1550,6 +1720,9 @@ export interface components {
         };
         ListPendingMessagesResponse: {
             messages?: components["schemas"]["PendingMessageSummary"][];
+        };
+        ListSigningSecretsResponse: {
+            secrets?: components["schemas"]["SigningSecretSummary"][];
         };
         MessageDetail: {
             auth_headers?: {
@@ -1769,6 +1942,13 @@ export interface components {
              */
             status?: "sent" | "pending_approval";
         };
+        SigningSecretSummary: {
+            created_at?: string;
+            id?: string;
+            last_signed_at?: string;
+            name?: string;
+            secret_prefix?: string;
+        };
         UpdateAgentRequest: {
             /** @enum {string} */
             agent_mode?: "cloud" | "local";
@@ -1888,6 +2068,13 @@ export interface components {
             data?: string;
             /** @example report.pdf */
             filename?: string;
+        };
+        "internal_agent.CreateSigningSecretRequest": {
+            /**
+             * @description Optional human-readable label so users can tell secrets apart in
+             *     the dashboard (e.g. "prod", "staging", "rollover-2026-04").
+             */
+            name?: string;
         };
     };
     responses: never;
