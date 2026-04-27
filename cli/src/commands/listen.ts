@@ -1,4 +1,3 @@
-import { WSListener } from "@e2a/sdk/v1";
 import type { E2AClient, WSNotification } from "@e2a/sdk/v1";
 import { createClient } from "../sdk.js";
 
@@ -23,44 +22,39 @@ export async function listen(opts: ListenOptions): Promise<void> {
 
   process.stderr.write(`Listening for emails to ${agentEmail}...\n`);
 
-  const listener = new WSListener({
-    apiKey: client.api.apiKey,
-    agentEmail,
-    baseUrl: client.api.baseUrl,
-    reconnect: true,
-  });
+  // client.listen() returns a WSStream — both AsyncIterable<WSNotification>
+  // and EventEmitter. We use both: events for connection lifecycle, the
+  // for-await loop for the happy path.
+  const stream = client.listen({ agentEmail });
 
-  listener.on("open", () => {
+  stream.on("open", () => {
     process.stderr.write("Connected.\n");
   });
 
-  listener.on("close", (code: number, reason: string) => {
+  stream.on("close", (code: number, reason: string) => {
     process.stderr.write(`WS closed: code=${code} reason="${reason}"\n`);
   });
 
-  listener.on("error", (err: Error) => {
+  stream.on("error", (err: Error) => {
     process.stderr.write(`Connection error: ${err.message}\n`);
   });
 
-  listener.on("notification", async (notification: WSNotification) => {
+  process.on("SIGINT", () => {
+    stream.close();
+    process.stderr.write("\nDisconnecting...\n");
+    process.exit(0);
+  });
+
+  // Iterate notifications. handleNotification swallows its own errors so
+  // a single bad message doesn't tear down the loop.
+  for await (const notification of stream) {
     try {
       await handleNotification(client, agentEmail, notification, opts);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       process.stderr.write(`Error handling message: ${message}\n`);
     }
-  });
-
-  process.on("SIGINT", () => {
-    listener.close();
-    process.stderr.write("\nDisconnecting...\n");
-    process.exit(0);
-  });
-
-  listener.connect();
-
-  // Keep process alive; exits via SIGINT
-  await new Promise(() => {});
+  }
 }
 
 export async function handleNotification(

@@ -1,6 +1,6 @@
 {
   "name": "@e2a/cli",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "description": "CLI for e2a — email for AI agents",
   "bin": {
     "e2a": "./dist/bin/e2a.js"
@@ -26,7 +26,7 @@
   "homepage": "https://github.com/Mnexa-AI/e2a/tree/main/cli",
   "bugs": "https://github.com/Mnexa-AI/e2a/issues",
   "dependencies": {
-    "@e2a/sdk": "^1.4.0"
+    "@e2a/sdk": "^1.7.0"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
