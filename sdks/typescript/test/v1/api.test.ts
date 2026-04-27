@@ -24,8 +24,30 @@ describe("E2AApi", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("requires apiKey", () => {
-    expect(() => new E2AApi({ apiKey: "" })).toThrow("apiKey is required");
+  it("requires apiKey via arg or env", () => {
+    const prev = process.env.E2A_API_KEY;
+    delete process.env.E2A_API_KEY;
+    try {
+      expect(() => new E2AApi({ apiKey: "" })).toThrow(/apiKey is required/);
+      expect(() => new E2AApi({})).toThrow(/E2A_API_KEY/);
+    } finally {
+      if (prev !== undefined) process.env.E2A_API_KEY = prev;
+    }
+  });
+
+  it("falls back to E2A_API_KEY env var when apiKey not passed", () => {
+    const prev = process.env.E2A_API_KEY;
+    process.env.E2A_API_KEY = "e2a_from_env";
+    try {
+      const a = new E2AApi({});
+      expect(a.apiKey).toBe("e2a_from_env");
+      // Explicit arg still wins.
+      const b = new E2AApi({ apiKey: "e2a_explicit" });
+      expect(b.apiKey).toBe("e2a_explicit");
+    } finally {
+      if (prev === undefined) delete process.env.E2A_API_KEY;
+      else process.env.E2A_API_KEY = prev;
+    }
   });
 
   it("strips trailing slash from baseUrl", () => {

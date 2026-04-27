@@ -1,5 +1,5 @@
 import type { components } from "./generated/types.js";
-import { E2AApi, E2AApiError } from "./api.js";
+import { E2AApi, E2AApiError, envVar } from "./api.js";
 import type { E2AApiOptions } from "./api.js";
 import { InboundEmail } from "./inbound-email.js";
 import type { WebhookPayload } from "./inbound-email.js";
@@ -8,7 +8,10 @@ type Schemas = components["schemas"];
 type MessagePayload = Schemas["MessageDetail"] | WebhookPayload;
 
 export interface E2AClientOptions extends E2AApiOptions {
-  /** Default agent email for message/WS operations. */
+  /**
+   * Default agent email for message/WS operations. Falls back to the
+   * `E2A_AGENT_EMAIL` environment variable when omitted.
+   */
   agentEmail?: string;
 }
 
@@ -21,9 +24,9 @@ export class E2AClient {
   readonly api: E2AApi;
   readonly agentEmail: string;
 
-  constructor(opts: E2AClientOptions) {
+  constructor(opts: E2AClientOptions = {}) {
     this.api = new E2AApi(opts);
-    this.agentEmail = opts.agentEmail ?? "";
+    this.agentEmail = opts.agentEmail || envVar("E2A_AGENT_EMAIL");
   }
 
   private requireEmail(override?: string): string {

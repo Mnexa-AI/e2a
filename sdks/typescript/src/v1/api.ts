@@ -3,12 +3,27 @@ import type { components } from "./generated/types.js";
 type Schemas = components["schemas"];
 
 export interface E2AApiOptions {
-  /** API key (required). */
-  apiKey: string;
+  /**
+   * API key. Falls back to the `E2A_API_KEY` environment variable when
+   * omitted. Throws at construction if neither is set.
+   */
+  apiKey?: string;
   /** Base URL. Defaults to "https://e2a.dev". */
   baseUrl?: string;
   /** Request timeout in ms. Defaults to 30 000. */
   timeout?: number;
+}
+
+/**
+ * Read an env var if `process.env` is reachable (Node), else "".
+ * Exported so the high-level client can share the same browser-safe
+ * lookup for `E2A_AGENT_EMAIL`.
+ */
+export function envVar(name: string): string {
+  if (typeof process !== "undefined" && process.env && process.env[name]) {
+    return process.env[name] as string;
+  }
+  return "";
 }
 
 /**
@@ -22,9 +37,14 @@ export class E2AApi {
   readonly apiKey: string;
   private readonly timeout: number;
 
-  constructor(opts: E2AApiOptions) {
-    if (!opts.apiKey) throw new Error("apiKey is required");
-    this.apiKey = opts.apiKey;
+  constructor(opts: E2AApiOptions = {}) {
+    const apiKey = opts.apiKey || envVar("E2A_API_KEY");
+    if (!apiKey) {
+      throw new Error(
+        "apiKey is required. Pass it to E2AApi() or set E2A_API_KEY in the environment.",
+      );
+    }
+    this.apiKey = apiKey;
     this.baseUrl = (opts.baseUrl ?? "https://e2a.dev").replace(/\/+$/, "");
     this.timeout = opts.timeout ?? 30_000;
   }

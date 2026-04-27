@@ -31,9 +31,34 @@ describe("E2AClient", () => {
   });
 
   it("requires agentEmail at point of use", async () => {
-    const c = new E2AClient({ apiKey: "e2a_test", baseUrl: BASE });
-    globalThis.fetch = mockFetch(200, { messages: [] });
-    await expect(c.listMessages()).rejects.toThrow("agentEmail is required");
+    const prev = process.env.E2A_AGENT_EMAIL;
+    delete process.env.E2A_AGENT_EMAIL;
+    try {
+      const c = new E2AClient({ apiKey: "e2a_test", baseUrl: BASE });
+      globalThis.fetch = mockFetch(200, { messages: [] });
+      await expect(c.listMessages()).rejects.toThrow("agentEmail is required");
+    } finally {
+      if (prev !== undefined) process.env.E2A_AGENT_EMAIL = prev;
+    }
+  });
+
+  it("falls back to E2A_AGENT_EMAIL env var when agentEmail not passed", () => {
+    const prev = process.env.E2A_AGENT_EMAIL;
+    process.env.E2A_AGENT_EMAIL = "env-default@test.dev";
+    try {
+      const c = new E2AClient({ apiKey: "e2a_test", baseUrl: BASE });
+      expect(c.agentEmail).toBe("env-default@test.dev");
+      // Explicit arg still wins.
+      const c2 = new E2AClient({
+        apiKey: "e2a_test",
+        baseUrl: BASE,
+        agentEmail: "explicit@test.dev",
+      });
+      expect(c2.agentEmail).toBe("explicit@test.dev");
+    } finally {
+      if (prev === undefined) delete process.env.E2A_AGENT_EMAIL;
+      else process.env.E2A_AGENT_EMAIL = prev;
+    }
   });
 
   it("exposes the raw api", () => {

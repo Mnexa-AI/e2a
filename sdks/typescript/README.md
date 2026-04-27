@@ -13,7 +13,7 @@ npm install @e2a/sdk
 ### Webhook (cloud agents)
 
 ```typescript
-import { E2AClient } from "e2a";
+import { E2AClient } from "@e2a/sdk";
 
 const client = new E2AClient(); // uses E2A_API_KEY env var
 
@@ -28,7 +28,7 @@ app.post("/webhook", async (req, res) => {
 ### Polling
 
 ```typescript
-import { E2AClient } from "e2a";
+import { E2AClient } from "@e2a/sdk";
 
 const client = new E2AClient({
   apiKey: "e2a_...",
