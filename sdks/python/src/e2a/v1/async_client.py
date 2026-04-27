@@ -307,6 +307,11 @@ class AsyncE2AClient:
         """Parse a webhook payload into an AsyncInboundEmail.
 
         Synchronous (no I/O). The returned email's ``.reply()`` is async.
+
+        Returns an *unverified* AsyncInboundEmail — claim fields raise
+        :class:`UnverifiedEmailError` until you call
+        :meth:`AsyncInboundEmail.verify_signature`. For webhook handlers,
+        prefer :meth:`parse_webhook` which combines parse + verify.
         """
         if isinstance(body, MessageDetail):
             data = body.model_dump(by_alias=True)
@@ -319,6 +324,21 @@ class AsyncE2AClient:
 
         return build_inbound_email_async(data, self)
 
+    def parse_webhook(
+        self,
+        body: bytes | str | dict[str, Any] | MessageDetail,
+        secret: Optional[str] = None,
+    ) -> AsyncInboundEmail:
+        """Parse + HMAC-verify a webhook payload in one call (async client).
+
+        See :meth:`E2AClient.parse_webhook` — identical contract.
+        Synchronous despite living on the async client (no I/O).
+        """
+        email = self.parse(body)
+        if not email.verify_signature(secret):
+            raise PermissionError("HMAC signature verification failed")
+        return email
+
     # ── Messages ──────────────────────────────────────────────────
 
     async def get_message(
@@ -326,11 +346,14 @@ class AsyncE2AClient:
         message_id: str,
         agent_email: Optional[str] = None,
     ) -> AsyncInboundEmail:
-        """Fetch a single message and return a parsed AsyncInboundEmail."""
+        """Fetch a single message and return a parsed AsyncInboundEmail.
+
+        Returned email is pre-verified — see :meth:`E2AClient.get_message`.
+        """
         email = self._require_agent_email(agent_email)
         detail = await self.api.get_message(email, message_id)
         data = detail.model_dump(by_alias=True)
-        return build_inbound_email_async(data, self)
+        return build_inbound_email_async(data, self, trusted=True)
 
     async def get_messages(
         self,

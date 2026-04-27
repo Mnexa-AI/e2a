@@ -123,30 +123,73 @@ function verifyAuthHeaders(
 type MessagePayload = Schemas["MessageDetail"] | WebhookPayload;
 
 /**
+ * Thrown when accessing claim fields on an InboundEmail before
+ * {@link InboundEmail.verifySignature} has succeeded.
+ *
+ * This is a security feature: the SDK refuses to expose
+ * attacker-controllable fields (sender, recipient, body, subject, …)
+ * until you've cryptographically verified the payload. Catch this only
+ * to handle a known unverified path; treat its presence in production
+ * as a bug to fix by calling verifySignature() or using
+ * {@link E2AClient.parseWebhook} (which verifies for you).
+ *
+ * For inspection without verifying (e.g. forensics on a malformed
+ * delivery), use {@link InboundEmail.unverifiedPayload} — explicit,
+ * named, and documented as attacker-controllable.
+ */
+export class UnverifiedEmailError extends Error {
+  constructor(message?: string) {
+    super(
+      message ??
+        "Call verifySignature(secret) before accessing this field. " +
+          "For inspection without verification, use .unverifiedPayload.",
+    );
+    this.name = "UnverifiedEmailError";
+  }
+}
+
+/** Read an env var if `process.env` is reachable (Node), else "". */
+function envHmacSecret(): string {
+  if (typeof process !== "undefined" && process.env && process.env.E2A_HMAC_SECRET) {
+    return process.env.E2A_HMAC_SECRET;
+  }
+  return "";
+}
+
+/**
  * A parsed inbound email with convenience methods.
  *
- * Returned by {@link E2AClient.getMessage} and {@link E2AClient.parse}.
- * The raw `MessageDetail` is available from {@link E2AClient.api.getMessage}
- * for callers that need the exact server response (e.g. `--json` output).
+ * Field access is gated behind {@link verifySignature}: getters like
+ * `sender`, `recipient`, `textBody` throw {@link UnverifiedEmailError}
+ * until verify succeeds. Recommended entry point for webhook handlers
+ * is {@link E2AClient.parseWebhook}, which combines parse + verify.
+ *
+ * Always-available (un-gated) members: `auth`, `rawMessage`,
+ * `isVerified`, `verified`, `verifySignature`, `unverifiedPayload`.
+ *
+ * Gated (require verify first): `messageId`, `conversationId`,
+ * `sender`, `recipient`, `to`, `cc`, `subject`, `textBody`, `htmlBody`,
+ * `attachments`, `receivedAt`, `reply()`.
  */
 export class InboundEmail {
-  readonly messageId: string;
-  readonly conversationId: string | null;
-  readonly sender: string;
-  /** Per-delivery target — this agent's address. Always one value. */
-  readonly recipient: string;
-  /** Parsed To: header — all addresses from the original message. */
-  readonly to: string[];
-  /** Parsed Cc: header. Empty when the message had no CCs. */
-  readonly cc: string[];
-  readonly subject: string;
-  readonly textBody: string;
-  readonly htmlBody: string | null;
-  readonly attachments: Attachment[];
+  // Stored as private fields; public getters check this._verified.
+  private readonly _messageId: string;
+  private readonly _conversationId: string | null;
+  private readonly _sender: string;
+  private readonly _recipient: string;
+  private readonly _to: string[];
+  private readonly _cc: string[];
+  private readonly _subject: string;
+  private readonly _textBody: string;
+  private readonly _htmlBody: string | null;
+  private readonly _attachments: Attachment[];
+  /** Always accessible — verifySignature itself reads this. */
   readonly auth: AuthHeaders;
-  readonly receivedAt: string | null;
+  /** Always accessible — verifySignature itself reads this. */
   readonly rawMessage: Buffer;
+  private readonly _receivedAt: string | null;
   private readonly _client: E2AClient;
+  private _verified = false;
 
   constructor(opts: {
     messageId: string;
@@ -163,52 +206,121 @@ export class InboundEmail {
     receivedAt: string | null;
     rawMessage: Buffer;
     client: E2AClient;
+    /** REST-fetched messages are pre-verified (channel auth via API key). */
+    trusted?: boolean;
   }) {
-    this.messageId = opts.messageId;
-    this.conversationId = opts.conversationId;
-    this.sender = opts.sender;
-    this.recipient = opts.recipient;
-    this.to = opts.to;
-    this.cc = opts.cc;
-    this.subject = opts.subject;
-    this.textBody = opts.textBody;
-    this.htmlBody = opts.htmlBody;
-    this.attachments = opts.attachments;
+    this._messageId = opts.messageId;
+    this._conversationId = opts.conversationId;
+    this._sender = opts.sender;
+    this._recipient = opts.recipient;
+    this._to = opts.to;
+    this._cc = opts.cc;
+    this._subject = opts.subject;
+    this._textBody = opts.textBody;
+    this._htmlBody = opts.htmlBody;
+    this._attachments = opts.attachments;
     this.auth = opts.auth;
-    this.receivedAt = opts.receivedAt;
     this.rawMessage = opts.rawMessage;
+    this._receivedAt = opts.receivedAt;
     this._client = opts.client;
+    this._verified = !!opts.trusted;
+  }
+
+  /** True if {@link verifySignature} has succeeded on this instance. */
+  get verified(): boolean {
+    return this._verified;
   }
 
   /**
    * The server's *claim* that the sender's domain passed SPF/DKIM.
    *
-   * IMPORTANT: This reflects the `X-E2A-Auth-Verified` header value,
-   * **not** a cryptographic check. Anyone who can POST to your
-   * webhook URL can set this to `true`. Call {@link verifySignature}
-   * and trust its return value before making security decisions.
+   * IMPORTANT: this reflects the `X-E2A-Auth-Verified` header — anyone
+   * who can POST to your webhook can set it to `true`. Call
+   * {@link verifySignature} and check {@link verified} for security
+   * decisions.
    */
   get isVerified(): boolean {
     return this.auth.verified;
   }
 
   /**
-   * Cryptographically verify the auth headers were issued by an e2a
-   * instance holding `secret` and are bound to this exact message.
-   *
-   * Checks:
-   * 1. `SHA-256(rawMessage)` matches `X-E2A-Auth-Body-Hash`
-   * 2. `HMAC-SHA256(secret, canonical)` matches `X-E2A-Auth-Signature`
-   * 3. `X-E2A-Auth-Timestamp` is within the 5-minute replay window
-   *
-   * Returns `true` if all three pass. Treat `false` as untrusted —
-   * the {@link isVerified} claim alone is not a security guarantee.
+   * Inspect the parsed payload **without** HMAC verification. Returned
+   * fields are attacker-controllable until verifySignature succeeds —
+   * never feed into security or identity decisions. Useful only for
+   * debugging delivery issues.
    */
-  verifySignature(secret: string): boolean {
-    return verifyAuthHeaders(this.auth, this.rawMessage, secret);
+  get unverifiedPayload(): {
+    messageId: string;
+    conversationId: string | null;
+    sender: string;
+    recipient: string;
+    to: string[];
+    cc: string[];
+    subject: string;
+    textBody: string;
+    htmlBody: string | null;
+    receivedAt: string | null;
+    attachmentsCount: number;
+  } {
+    return {
+      messageId: this._messageId,
+      conversationId: this._conversationId,
+      sender: this._sender,
+      recipient: this._recipient,
+      to: [...this._to],
+      cc: [...this._cc],
+      subject: this._subject,
+      textBody: this._textBody,
+      htmlBody: this._htmlBody,
+      receivedAt: this._receivedAt,
+      attachmentsCount: this._attachments.length,
+    };
   }
 
-  /** Reply to this email. */
+  /**
+   * Cryptographically verify the auth headers and unlock field access.
+   *
+   * On success, transitions this instance to "verified" so subsequent
+   * getters work. `secret` defaults to the `E2A_HMAC_SECRET`
+   * environment variable when omitted.
+   *
+   * Returns `true` if HMAC + body-hash + timestamp checks all pass.
+   * Returns `false` for any tampering / expired / wrong-secret —
+   * instance stays unverified and field access keeps throwing.
+   *
+   * Throws if no secret is available (neither passed nor in env).
+   */
+  verifySignature(secret?: string): boolean {
+    const resolved = secret ?? envHmacSecret();
+    if (!resolved) {
+      throw new Error(
+        "verifySignature requires a secret. Pass it explicitly or set E2A_HMAC_SECRET in the environment.",
+      );
+    }
+    const ok = verifyAuthHeaders(this.auth, this.rawMessage, resolved);
+    if (ok) this._verified = true;
+    return ok;
+  }
+
+  // --- Gated claim getters ---
+
+  private requireVerified(): void {
+    if (!this._verified) throw new UnverifiedEmailError();
+  }
+
+  get messageId(): string { this.requireVerified(); return this._messageId; }
+  get conversationId(): string | null { this.requireVerified(); return this._conversationId; }
+  get sender(): string { this.requireVerified(); return this._sender; }
+  get recipient(): string { this.requireVerified(); return this._recipient; }
+  get to(): string[] { this.requireVerified(); return this._to; }
+  get cc(): string[] { this.requireVerified(); return this._cc; }
+  get subject(): string { this.requireVerified(); return this._subject; }
+  get textBody(): string { this.requireVerified(); return this._textBody; }
+  get htmlBody(): string | null { this.requireVerified(); return this._htmlBody; }
+  get attachments(): Attachment[] { this.requireVerified(); return this._attachments; }
+  get receivedAt(): string | null { this.requireVerified(); return this._receivedAt; }
+
+  /** Reply to this email. Requires the email to be verified first. */
   async reply(
     body: string,
     opts?: {
@@ -220,9 +332,12 @@ export class InboundEmail {
       attachments?: Schemas["internal_agent.Attachment"][];
     },
   ) {
-    return this._client.reply(this.messageId, body, {
+    // Accessing this.messageId / this.recipient would throw too — but
+    // doing the check up front gives a clearer error for callers.
+    this.requireVerified();
+    return this._client.reply(this._messageId, body, {
       ...opts,
-      agentEmail: this.recipient,
+      agentEmail: this._recipient,
     });
   }
 
@@ -231,9 +346,18 @@ export class InboundEmail {
    *
    * Decodes the base64 `raw_message`, parses MIME headers/body/attachments.
    */
+  /**
+   * Build an InboundEmail from a raw `MessageDetail` response.
+   *
+   * `trusted` marks the result as already-verified — used by the REST
+   * polling path (`client.getMessage`), which fetched data over the
+   * authenticated API channel. The webhook path leaves `trusted=false`
+   * (default) so callers must verify before reading claim fields.
+   */
   static async fromPayload(
     detail: MessagePayload,
     client: E2AClient,
+    trusted: boolean = false,
   ): Promise<InboundEmail> {
     let rawBuf = Buffer.alloc(0);
     if (detail.raw_message) {
@@ -252,9 +376,6 @@ export class InboundEmail {
     const receivedAt = (d.created_at as string | undefined) ??
       (d.received_at as string | undefined) ?? null;
 
-    // The server emits `to`/`cc` as parsed address arrays and `recipient` as
-    // the per-delivery target string. We trust those over re-parsing the raw
-    // RFC 2822 headers, which is both wasteful and lossy under group syntax.
     return new InboundEmail({
       messageId: detail.message_id ?? "",
       conversationId: detail.conversation_id ?? null,
@@ -270,6 +391,7 @@ export class InboundEmail {
       receivedAt,
       rawMessage: rawBuf,
       client,
+      trusted,
     });
   }
 

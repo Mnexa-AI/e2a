@@ -4,6 +4,8 @@ import base64
 import json
 from unittest.mock import MagicMock
 
+import pytest
+
 from e2a.v1.handler import (
     Attachment,
     AuthHeaders,
@@ -190,7 +192,7 @@ def test_build_inbound_email_uses_structured_to_cc():
     data["to"] = ["bot@agent.example.com", "other-bot@agent.example.com"]
     data["cc"] = ["watcher@example.com"]
     data["recipient"] = "bot@agent.example.com"
-    email = build_inbound_email(data, _mock_client())
+    email = build_inbound_email(data, _mock_client(), trusted=True)
     assert email.to == ["bot@agent.example.com", "other-bot@agent.example.com"]
     assert email.cc == ["watcher@example.com"]
     assert email.recipient == "bot@agent.example.com"
@@ -202,7 +204,7 @@ def test_build_inbound_email_uses_structured_to_cc():
 def test_build_inbound_email_basic():
     raw = _make_raw_email(subject="Test", text="Hello")
     data = _make_webhook_data(raw)
-    email = build_inbound_email(data, _mock_client())
+    email = build_inbound_email(data, _mock_client(), trusted=True)
 
     assert email.message_id == "msg_123"
     assert email.sender == "alice@gmail.com"
@@ -221,35 +223,35 @@ def test_build_inbound_email_basic():
 def test_build_inbound_email_with_conversation_id():
     raw = _make_raw_email()
     data = _make_webhook_data(raw, conversation_id="conv_abc")
-    email = build_inbound_email(data, _mock_client())
+    email = build_inbound_email(data, _mock_client(), trusted=True)
     assert email.conversation_id == "conv_abc"
 
 
 def test_received_at_from_created_at():
     raw = _make_raw_email()
     data = _make_webhook_data(raw, created_at="2026-03-30T10:00:00Z")
-    email = build_inbound_email(data, _mock_client())
+    email = build_inbound_email(data, _mock_client(), trusted=True)
     assert email.received_at == "2026-03-30T10:00:00Z"
 
 
 def test_received_at_from_received_at():
     raw = _make_raw_email()
     data = _make_webhook_data(raw, received_at="2026-03-30T11:00:00Z")
-    email = build_inbound_email(data, _mock_client())
+    email = build_inbound_email(data, _mock_client(), trusted=True)
     assert email.received_at == "2026-03-30T11:00:00Z"
 
 
 def test_received_at_prefers_created_at():
     raw = _make_raw_email()
     data = _make_webhook_data(raw, created_at="2026-03-30T10:00:00Z", received_at="2026-03-30T11:00:00Z")
-    email = build_inbound_email(data, _mock_client())
+    email = build_inbound_email(data, _mock_client(), trusted=True)
     assert email.received_at == "2026-03-30T10:00:00Z"
 
 
 def test_received_at_none_when_absent():
     raw = _make_raw_email()
     data = _make_webhook_data(raw)
-    email = build_inbound_email(data, _mock_client())
+    email = build_inbound_email(data, _mock_client(), trusted=True)
     assert email.received_at is None
 
 
@@ -322,7 +324,7 @@ def _signed_email(*, secret: str, body: bytes = b"hello world",
         "raw_message": base64.b64encode(body).decode(),
         "auth_headers": headers,
     }
-    return build_inbound_email(data, _mock_client()), headers
+    return build_inbound_email(data, _mock_client(), trusted=True), headers
 
 
 def _email_with(headers, body=b"hello world"):
@@ -332,7 +334,7 @@ def _email_with(headers, body=b"hello world"):
         "raw_message": base64.b64encode(body).decode(),
         "auth_headers": headers,
     }
-    return build_inbound_email(data, _mock_client())
+    return build_inbound_email(data, _mock_client(), trusted=True)
 
 
 def test_verify_signature_legit():
@@ -389,7 +391,7 @@ def test_inbound_email_reply_delegates():
     mock_client = _mock_client()
     mock_client.reply.return_value = SendResult(status="sent", message_id="r1", method="smtp")
 
-    email = build_inbound_email(data, mock_client)
+    email = build_inbound_email(data, mock_client, trusted=True)
     result = email.reply("Thanks!")
 
     mock_client.reply.assert_called_once_with(
@@ -407,10 +409,108 @@ def test_inbound_email_reply_delegates():
 def test_inbound_email_repr():
     raw = _make_raw_email(subject="Hello")
     data = _make_webhook_data(raw, conversation_id="conv_1")
-    email = build_inbound_email(data, _mock_client())
+    email = build_inbound_email(data, _mock_client(), trusted=True)
 
     r = repr(email)
     assert "msg_123" in r
     assert "alice@gmail.com" in r
     assert "Hello" in r
     assert "conv_1" in r
+
+
+# --- Strict-verify gate (PR D / SDK 2.0) ---
+
+def test_unverified_email_raises_on_field_access():
+    """Default state of parse() output: claim fields raise UnverifiedEmailError."""
+    from e2a.v1 import UnverifiedEmailError
+    raw = _make_raw_email()
+    data = _make_webhook_data(raw)
+    email = build_inbound_email(data, _mock_client())  # NOT trusted=True
+
+    for attr in ["sender", "recipient", "to", "cc", "subject", "text_body", "html_body", "attachments", "message_id", "conversation_id", "received_at"]:
+        with pytest.raises(UnverifiedEmailError):
+            getattr(email, attr)
+
+
+def test_unverified_email_allows_verify_inputs():
+    """auth, raw_message, is_verified, verified, unverified_payload work without verify."""
+    raw = _make_raw_email()
+    data = _make_webhook_data(raw)
+    email = build_inbound_email(data, _mock_client())
+
+    # These must NOT raise — verify() needs auth + raw_message.
+    assert email.auth is not None
+    assert email.raw_message == raw
+    assert email.is_verified is True  # the server's claim, not a check
+    assert email.verified is False  # the cryptographic state — not yet verified
+
+    # unverified_payload is the documented escape hatch.
+    payload = email.unverified_payload
+    assert payload["sender"] == "alice@gmail.com"
+    assert payload["subject"] == "Hello"
+
+
+def test_verify_signature_with_no_secret_and_no_env_raises(monkeypatch):
+    """No secret + no env → ValueError (better than silent False)."""
+    monkeypatch.delenv("E2A_HMAC_SECRET", raising=False)
+    raw = _make_raw_email()
+    data = _make_webhook_data(raw)
+    email = build_inbound_email(data, _mock_client())
+
+    with pytest.raises(ValueError, match="E2A_HMAC_SECRET"):
+        email.verify_signature()
+
+
+def test_verify_signature_reads_env_when_no_arg(monkeypatch):
+    """Default secret comes from E2A_HMAC_SECRET when not passed."""
+    monkeypatch.setenv("E2A_HMAC_SECRET", "wrong-secret-but-not-empty")
+    raw = _make_raw_email()
+    data = _make_webhook_data(raw)
+    email = build_inbound_email(data, _mock_client())
+
+    # The fixture isn't HMAC-signed with this secret, so verify returns
+    # False (not raises) — the assertion here is that it CALLED verify
+    # (didn't raise the no-secret ValueError).
+    assert email.verify_signature() is False
+
+
+def test_verify_signature_unlocks_field_access_on_success():
+    """A successful verify_signature() flips _verified and unlocks fields."""
+    raw = _make_raw_email()
+    data = _make_webhook_data(raw)
+    email = build_inbound_email(data, _mock_client())
+
+    # Stub the verify primitive to simulate a successful verification.
+    import e2a.v1.handler as h
+    orig = h._verify_auth_headers
+    h._verify_auth_headers = lambda *a, **kw: True
+    try:
+        ok = email.verify_signature("any-secret")
+    finally:
+        h._verify_auth_headers = orig
+
+    assert ok is True
+    assert email.verified is True
+    # No longer raises:
+    assert email.sender == "alice@gmail.com"
+
+
+def test_verify_signature_failure_keeps_email_locked():
+    """A failing verify must NOT flip _verified."""
+    from e2a.v1 import UnverifiedEmailError
+    raw = _make_raw_email()
+    data = _make_webhook_data(raw)
+    email = build_inbound_email(data, _mock_client())
+
+    import e2a.v1.handler as h
+    orig = h._verify_auth_headers
+    h._verify_auth_headers = lambda *a, **kw: False
+    try:
+        ok = email.verify_signature("wrong-secret")
+    finally:
+        h._verify_auth_headers = orig
+
+    assert ok is False
+    assert email.verified is False
+    with pytest.raises(UnverifiedEmailError):
+        _ = email.sender

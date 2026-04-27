@@ -56,6 +56,7 @@ def test_parse_bytes(httpx_mock):
 
     with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
         email = client.parse(body)
+        email._verified = True  # test fixture: bypass verify gate
 
     assert isinstance(email, InboundEmail)
     assert email.message_id == "msg_123"
@@ -69,6 +70,7 @@ def test_parse_string(httpx_mock):
 
     with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
         email = client.parse(body)
+        email._verified = True  # test fixture: bypass verify gate
 
     assert email.message_id == "msg_123"
 
@@ -78,6 +80,7 @@ def test_parse_dict(httpx_mock):
 
     with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
         email = client.parse(webhook)
+        email._verified = True  # test fixture: bypass verify gate
 
     assert email.message_id == "msg_123"
     assert email.sender == "alice@example.com"
@@ -99,6 +102,7 @@ def test_parse_message_detail(httpx_mock):
 
     with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
         email = client.parse(detail)
+        email._verified = True  # test fixture: bypass verify gate
 
     assert email.message_id == "msg_456"
     assert email.sender == "bob@example.com"
@@ -489,3 +493,79 @@ def test_inbound_email_reply_through_client(httpx_mock):
     requests = httpx_mock.get_requests()
     reply_req = requests[1]
     assert "/agents/bot%40agents.e2a.dev/messages/msg_123/reply" in str(reply_req.url)
+
+
+# --- parse_webhook (combined parse + verify) ---
+
+def test_parse_webhook_returns_verified_email_on_success(monkeypatch):
+    """parse_webhook(body, secret) returns an already-verified email."""
+    import e2a.v1.handler as h
+    monkeypatch.setattr(h, "_verify_auth_headers", lambda *a, **kw: True)
+
+    raw = b"From: alice@gmail.com\r\nSubject: Hi\r\n\r\nbody"
+    payload = json.dumps({
+        "message_id": "msg_pw",
+        "from": "alice@gmail.com",
+        "recipient": "bot@agents.e2a.dev",
+        "to": ["bot@agents.e2a.dev"],
+        "cc": [],
+        "subject": "Hi",
+        "raw_message": base64.b64encode(raw).decode(),
+        "auth_headers": {"X-E2A-Auth-Verified": "true", "X-E2A-Auth-Sender": "alice@gmail.com"},
+    })
+
+    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        email = client.parse_webhook(payload, secret="any-secret")
+
+    assert email.verified is True
+    # Field access works without further intervention.
+    assert email.sender == "alice@gmail.com"
+
+
+def test_parse_webhook_raises_on_signature_failure(monkeypatch):
+    """parse_webhook raises PermissionError when verify returns False."""
+    import e2a.v1.handler as h
+    monkeypatch.setattr(h, "_verify_auth_headers", lambda *a, **kw: False)
+
+    payload = json.dumps({
+        "message_id": "msg_bad",
+        "from": "a@b.c",
+        "recipient": "bot@agents.e2a.dev",
+        "to": ["bot@agents.e2a.dev"], "cc": [],
+        "subject": "x",
+        "raw_message": base64.b64encode(b"x").decode(),
+        "auth_headers": {"X-E2A-Auth-Verified": "true"},
+    })
+
+    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        with pytest.raises(PermissionError, match="HMAC"):
+            client.parse_webhook(payload, secret="wrong")
+
+
+# --- get_message returns trusted (pre-verified) emails ---
+
+def test_get_message_returns_pre_verified_email(httpx_mock):
+    """REST-fetched emails are trusted (channel auth) — no verify needed."""
+    raw = _make_raw_email()
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_rest",
+        method="GET",
+        json={
+            "message_id": "msg_rest",
+            "from": "alice@gmail.com",
+            "recipient": "bot@agents.e2a.dev",
+            "to": ["bot@agents.e2a.dev"], "cc": [],
+            "subject": "REST fetched",
+            "raw_message": base64.b64encode(raw).decode(),
+            "auth_headers": {"X-E2A-Auth-Verified": "true"},
+        },
+    )
+    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev", base_url=BASE) as client:
+        email = client.get_message("msg_rest")
+
+    # Pre-verified — no verify_signature() needed for field access.
+    assert email.verified is True
+    assert email.sender == "alice@gmail.com"
+    # Subject comes from the parsed raw RFC 2822 (the fixture's default
+    # "Hello") since the SDK prefers that over the JSON subject field.
+    assert email.subject == "Hello"

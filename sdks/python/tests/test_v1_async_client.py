@@ -57,6 +57,7 @@ async def test_parse_bytes(httpx_mock):
 
     async with AsyncE2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
         email = client.parse(body)
+        email._verified = True  # test fixture: bypass verify gate
 
     assert isinstance(email, AsyncInboundEmail)
     assert email.message_id == "msg_123"
@@ -71,6 +72,7 @@ async def test_parse_string(httpx_mock):
 
     async with AsyncE2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
         email = client.parse(body)
+        email._verified = True  # test fixture: bypass verify gate
 
     assert email.message_id == "msg_123"
 
@@ -81,6 +83,7 @@ async def test_parse_dict(httpx_mock):
 
     async with AsyncE2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
         email = client.parse(webhook)
+        email._verified = True  # test fixture: bypass verify gate
 
     assert email.message_id == "msg_123"
     assert email.sender == "alice@example.com"
@@ -103,6 +106,7 @@ async def test_parse_message_detail(httpx_mock):
 
     async with AsyncE2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
         email = client.parse(detail)
+        email._verified = True  # test fixture: bypass verify gate
 
     assert email.message_id == "msg_456"
     assert email.sender == "bob@example.com"

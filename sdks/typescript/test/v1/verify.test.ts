@@ -106,3 +106,81 @@ describe("InboundEmail.verifySignature", () => {
     expect(e2.verifySignature(SECRET)).toBe(false);
   });
 });
+
+// --- Strict-verify gate (SDK 2.0) ---
+
+import { UnverifiedEmailError } from "../../src/v1/inbound-email.js";
+
+describe("InboundEmail field-access gate", () => {
+  const SECRET = "test-secret-gate";
+
+  it("throws UnverifiedEmailError on claim-field access before verify", async () => {
+    const { email } = await signedEmail({ secret: SECRET });
+    // Default state: not yet verified.
+    expect(email.verified).toBe(false);
+    // Each gated getter throws.
+    expect(() => email.sender).toThrow(UnverifiedEmailError);
+    expect(() => email.subject).toThrow(UnverifiedEmailError);
+    expect(() => email.recipient).toThrow(UnverifiedEmailError);
+    expect(() => email.to).toThrow(UnverifiedEmailError);
+    expect(() => email.cc).toThrow(UnverifiedEmailError);
+    expect(() => email.textBody).toThrow(UnverifiedEmailError);
+    expect(() => email.attachments).toThrow(UnverifiedEmailError);
+    expect(() => email.messageId).toThrow(UnverifiedEmailError);
+  });
+
+  it("auth, rawMessage, isVerified, unverifiedPayload, verifySignature work without verify", async () => {
+    const { email } = await signedEmail({ secret: SECRET });
+    // None of these should throw.
+    expect(email.auth).toBeDefined();
+    expect(email.rawMessage).toBeInstanceOf(Buffer);
+    expect(email.isVerified).toBe(true); // server's claim
+    expect(email.verified).toBe(false); // not yet checked
+    expect(email.unverifiedPayload.sender).toBe("alice@example.com");
+  });
+
+  it("successful verifySignature unlocks claim-field access", async () => {
+    const { email } = await signedEmail({ secret: SECRET });
+    expect(email.verifySignature(SECRET)).toBe(true);
+    expect(email.verified).toBe(true);
+    // No longer throws:
+    expect(email.sender).toBe("alice@example.com");
+    expect(email.subject).toBeDefined();
+  });
+
+  it("failed verifySignature keeps the email locked", async () => {
+    const { email } = await signedEmail({ secret: SECRET });
+    expect(email.verifySignature("wrong-secret")).toBe(false);
+    expect(email.verified).toBe(false);
+    expect(() => email.sender).toThrow(UnverifiedEmailError);
+  });
+
+  it("verifySignature with no secret + no env throws", async () => {
+    const prev = process.env.E2A_HMAC_SECRET;
+    delete process.env.E2A_HMAC_SECRET;
+    try {
+      const { email } = await signedEmail({ secret: SECRET });
+      expect(() => email.verifySignature()).toThrow(/E2A_HMAC_SECRET/);
+    } finally {
+      if (prev !== undefined) process.env.E2A_HMAC_SECRET = prev;
+    }
+  });
+
+  it("verifySignature falls back to E2A_HMAC_SECRET env var", async () => {
+    const prev = process.env.E2A_HMAC_SECRET;
+    process.env.E2A_HMAC_SECRET = SECRET;
+    try {
+      const { email } = await signedEmail({ secret: SECRET });
+      expect(email.verifySignature()).toBe(true);
+      expect(email.sender).toBe("alice@example.com");
+    } finally {
+      if (prev === undefined) delete process.env.E2A_HMAC_SECRET;
+      else process.env.E2A_HMAC_SECRET = prev;
+    }
+  });
+
+  it("reply() throws if called before verify", async () => {
+    const { email } = await signedEmail({ secret: SECRET });
+    await expect(email.reply("hi")).rejects.toThrow(UnverifiedEmailError);
+  });
+});

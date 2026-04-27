@@ -93,6 +93,12 @@ class E2AClient:
         """Parse a webhook payload or MessageDetail into an InboundEmail.
 
         Accepts bytes, JSON string, dict, or a generated MessageDetail.
+
+        The returned InboundEmail starts in the *unverified* state —
+        property accesses (sender, subject, body, …) will raise
+        :class:`UnverifiedEmailError` until you call
+        :meth:`InboundEmail.verify_signature`. For webhook handlers,
+        prefer :meth:`parse_webhook` which combines parse + verify.
         """
         if isinstance(body, MessageDetail):
             data = body.model_dump(by_alias=True)
@@ -105,6 +111,26 @@ class E2AClient:
 
         return build_inbound_email(data, self)
 
+    def parse_webhook(
+        self,
+        body: bytes | str | dict[str, Any] | MessageDetail,
+        secret: Optional[str] = None,
+    ) -> InboundEmail:
+        """Parse + HMAC-verify a webhook payload in one call.
+
+        Recommended entry point for webhook handlers. Returns an
+        already-verified :class:`InboundEmail` — field access just
+        works. Raises :class:`PermissionError` on signature failure
+        (so a webhook handler can let the exception bubble to a 401).
+
+        ``secret`` defaults to the ``E2A_HMAC_SECRET`` environment
+        variable.
+        """
+        email = self.parse(body)
+        if not email.verify_signature(secret):
+            raise PermissionError("HMAC signature verification failed")
+        return email
+
     # ── Messages ──────────────────────────────────────────────────────
 
     def get_message(
@@ -115,11 +141,17 @@ class E2AClient:
         """Fetch a single message and return a parsed InboundEmail.
 
         Marks the message as read.
+
+        The returned email is **pre-verified** (``trusted=True``) — the
+        REST API channel is authenticated by the bearer token, so an
+        additional HMAC verify on the response would be redundant. This
+        differs from :meth:`parse` (webhook entry), which leaves the
+        email unverified until you explicitly verify it.
         """
         email = self._require_agent_email(agent_email)
         detail = self.api.get_message(email, message_id)
         data = detail.model_dump(by_alias=True)
-        return build_inbound_email(data, self)
+        return build_inbound_email(data, self, trusted=True)
 
     def get_messages(
         self,

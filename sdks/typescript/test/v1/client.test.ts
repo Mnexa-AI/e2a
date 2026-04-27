@@ -145,11 +145,14 @@ describe("E2AClient", () => {
       },
     });
     expect(email).toBeInstanceOf(InboundEmail);
-    expect(email.messageId).toBe("msg_2");
+    // Unverified by default — claim getters throw, but unverifiedPayload
+    // and the always-available auth/isVerified/verified work.
+    expect(email.unverifiedPayload.messageId).toBe("msg_2");
     expect(email.auth.verified).toBe(false);
     expect(email.auth.sender).toBe("bob@example.com");
     expect(email.auth.entityType).toBe("human");
     expect(email.isVerified).toBe(false);
+    expect(email.verified).toBe(false);
   });
 
   it("parse accepts a webhook payload object", async () => {
@@ -170,9 +173,11 @@ describe("E2AClient", () => {
 
     const email = await client.parse(payload);
     expect(email).toBeInstanceOf(InboundEmail);
-    expect(email.messageId).toBe("msg_webhook");
-    expect(email.sender).toBe("carol@example.com");
-    expect(email.textBody).toBe("Payload body");
+    // Unverified by default — read via unverifiedPayload.
+    expect(email.unverifiedPayload.messageId).toBe("msg_webhook");
+    expect(email.unverifiedPayload.sender).toBe("carol@example.com");
+    expect(email.unverifiedPayload.textBody).toBe("Payload body");
+    // auth is always accessible.
     expect(email.auth.sender).toBe("carol@example.com");
   });
 
@@ -190,9 +195,10 @@ describe("E2AClient", () => {
     };
 
     const email = await client.parse(payload);
-    expect(email.to).toEqual(["bot-a@test.dev", "bot-b@test.dev"]);
-    expect(email.cc).toEqual(["watcher@example.com"]);
-    expect(email.recipient).toBe("bot-a@test.dev");
+    // Unverified — read via unverifiedPayload.
+    expect(email.unverifiedPayload.to).toEqual(["bot-a@test.dev", "bot-b@test.dev"]);
+    expect(email.unverifiedPayload.cc).toEqual(["watcher@example.com"]);
+    expect(email.unverifiedPayload.recipient).toBe("bot-a@test.dev");
   });
 
   it("parse accepts JSON string and Buffer webhook payloads", async () => {
@@ -208,14 +214,14 @@ describe("E2AClient", () => {
     };
 
     const fromString = await client.parse(JSON.stringify(payload));
-    expect(fromString.messageId).toBe("msg_string");
-    expect(fromString.textBody).toBe("Buffer body");
+    expect(fromString.unverifiedPayload.messageId).toBe("msg_string");
+    expect(fromString.unverifiedPayload.textBody).toBe("Buffer body");
 
     const fromBuffer = await client.parse(
       Buffer.from(JSON.stringify({ ...payload, message_id: "msg_buffer" })),
     );
-    expect(fromBuffer.messageId).toBe("msg_buffer");
-    expect(fromBuffer.sender).toBe("dana@example.com");
+    expect(fromBuffer.unverifiedPayload.messageId).toBe("msg_buffer");
+    expect(fromBuffer.unverifiedPayload.sender).toBe("dana@example.com");
   });
 
   it("reply", async () => {

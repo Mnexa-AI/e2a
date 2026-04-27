@@ -44,6 +44,11 @@ export class E2AClient {
 
   /**
    * Parse a webhook payload (or raw `MessageDetail`) into an {@link InboundEmail}.
+   *
+   * Returns an *unverified* InboundEmail — claim getters (sender,
+   * subject, body, …) throw `UnverifiedEmailError` until you call
+   * {@link InboundEmail.verifySignature}. For webhook handlers,
+   * prefer {@link parseWebhook} which combines parse + verify.
    */
   async parse(body: Buffer | string | MessagePayload): Promise<InboundEmail> {
     const detail: MessagePayload =
@@ -53,6 +58,26 @@ export class E2AClient {
           ? (JSON.parse(body.toString("utf-8")) as MessagePayload)
           : body;
     return InboundEmail.fromPayload(detail, this);
+  }
+
+  /**
+   * Parse + HMAC-verify a webhook payload in one call.
+   *
+   * Recommended entry point for webhook handlers. Returns an
+   * already-verified {@link InboundEmail} so getters work directly.
+   * Throws on signature failure — let it bubble to a 401 response.
+   *
+   * `secret` defaults to the `E2A_HMAC_SECRET` environment variable.
+   */
+  async parseWebhook(
+    body: Buffer | string | MessagePayload,
+    secret?: string,
+  ): Promise<InboundEmail> {
+    const email = await this.parse(body);
+    if (!email.verifySignature(secret)) {
+      throw new Error("HMAC signature verification failed");
+    }
+    return email;
   }
 
   // ── Agents ──────────────────────────────────────────────────────
@@ -115,6 +140,12 @@ export class E2AClient {
   /**
    * Fetch a message and return a parsed {@link InboundEmail}.
    *
+   * The returned email is **pre-verified** — the REST API channel is
+   * authenticated by the bearer token, so an additional HMAC verify on
+   * the response would be redundant. This differs from {@link parse}
+   * (webhook entry), which leaves the email unverified until you
+   * explicitly verify it.
+   *
    * For the raw `MessageDetail` JSON, use `client.api.getMessage()`.
    */
   async getMessage(
@@ -125,7 +156,7 @@ export class E2AClient {
       this.requireEmail(agentEmail),
       messageId,
     );
-    return InboundEmail.fromPayload(detail, this);
+    return InboundEmail.fromPayload(detail, this, /*trusted=*/ true);
   }
 
   async reply(

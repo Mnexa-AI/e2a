@@ -15,6 +15,7 @@ from e2a.v1.handler import (  # noqa: F401
     MessageList,
     MessageSummary,
     SendResult,
+    UnverifiedEmailError,
 )
 
 __all__ = [
@@ -34,6 +35,7 @@ __all__ = [
     "MessageList",
     "MessageSummary",
     "SendResult",
+    "UnverifiedEmailError",
     # Discovery (mirror of TS E2AApi.fetchInfo)
     "fetch_info",
     "fetch_info_async",
