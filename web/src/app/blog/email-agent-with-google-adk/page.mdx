@@ -1,0 +1,192 @@
+import { getPost } from "../posts";
+
+export const post = getPost("email-agent-with-google-adk");
+
+export const metadata = {
+  title: { absolute: `${post.title} — e2a` },
+  description: post.description,
+  alternates: { canonical: `/blog/${post.slug}` },
+  openGraph: {
+    title: post.title,
+    description: post.description,
+    url: `https://e2a.dev/blog/${post.slug}`,
+    type: "article",
+    publishedTime: new Date(post.date + "T00:00:00Z").toISOString(),
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: post.title,
+    description: post.description,
+  },
+};
+
+<div style={{ fontSize: 11, color: "#A89A8A", fontFamily: "'IBM Plex Mono', monospace", marginBottom: 6 }}>
+  {new Date(post.date + "T00:00:00Z").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })} · {post.readingMinutes} min read
+</div>
+
+# Give your Google ADK agent an email inbox (with conversation memory)
+
+Google's [Agent Development Kit](https://adk.dev/) gives you a clean abstraction for multi-turn agents: define an `LlmAgent`, wire up a `Runner`, hand the runner a `session_id`, and ADK keeps the conversation history straight across turns. Sessions are exactly the right primitive for stateful chat.
+
+The problem is that "stateful chat" usually means a UI you built, a WebSocket you maintain, or a Slack bot whose installation is its own project. None of that reaches the people who actually want to talk to your agent — customers replying from Gmail, vendors using Outlook, anyone who already has an inbox.
+
+This post walks through giving an ADK agent a real email address, with HMAC-verified inbound delivery and multi-turn memory that survives across email replies. The full runnable example lives at [examples/adk-cloud-webhook](https://github.com/Mnexa-AI/e2a/tree/main/examples/adk-cloud-webhook) in the e2a repo; this post is the narrated tour.
+
+## What you'll have when you're done
+
+1. A real email address like `assistant@agents.e2a.dev` that anyone can write to.
+2. An ADK agent (Gemini Flash by default — swap in any model) that receives each email as an agent turn.
+3. **Multi-turn memory across email replies.** When a human replies to your agent's reply, ADK loads the same session — the agent remembers the prior turns without you doing any thread-tracking yourself.
+
+The whole webhook is ~30 lines of business logic. ADK does the memory work; e2a does the email work.
+
+## Prerequisites
+
+- Python 3.10+
+- A free e2a account at [e2a.dev](https://e2a.dev) — you'll register a **cloud-mode** agent (one that receives mail via HTTPS webhook, not WebSocket).
+- A Google AI Studio API key — [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
+- [ngrok](https://ngrok.com/) or [cloudflared](https://github.com/cloudflare/cloudflared) for exposing the local webhook during development.
+
+## Step 1: Clone the example and install
+
+```bash
+git clone https://github.com/Mnexa-AI/e2a.git
+cd e2a/examples/adk-cloud-webhook
+python -m venv .venv && source .venv/bin/activate
+pip install -e .
+cp .env.example .env
+```
+
+The `pyproject.toml` pulls in `google-adk>=1.31`, `e2a>=1.4`, and FastAPI. Edit `.env` with your three secrets when prompted.
+
+## Step 2: Register a cloud-mode agent
+
+In the e2a dashboard, register an agent with `agent_mode: cloud`. You'll get an email address (e.g. `assistant@agents.e2a.dev`) and an API key. The webhook URL field can stay empty for now — we'll fill it in once we have a public URL.
+
+## Step 3: Run the webhook locally
+
+```bash
+uvicorn webhook:app --host 0.0.0.0 --port 18080 --reload
+```
+
+Health check:
+
+```bash
+curl http://localhost:18080/health
+# {"status":"ok"}
+```
+
+## Step 4: Expose it with ngrok
+
+```bash
+ngrok http 18080
+# Forwarding  https://abc123.ngrok.io -> http://localhost:18080
+```
+
+Set that public URL on your agent (replace `<EMAIL>` and `<API_KEY>`; the `@` in `EMAIL` must be URL-encoded as `%40`):
+
+```bash
+curl -X PUT "https://e2a.dev/api/v1/agents/assistant%40agents.e2a.dev" \
+  -H "Authorization: Bearer <API_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"webhook_url":"https://abc123.ngrok.io/webhook"}'
+```
+
+## Step 5: Send the first email
+
+From any inbox, send a plain message to your agent's address:
+
+```
+Subject: Quick question about ADK
+Body:    What's the difference between InMemorySessionService and DatabaseSessionService?
+```
+
+In the uvicorn logs you'll see something like:
+
+```
+INFO replying user=you@gmail.com conv=conv_a1b2c3d4e5f6 msg=msg_xyz reply_chars=412
+```
+
+A few seconds later, the agent's reply lands in your inbox — verified sender, threaded properly.
+
+## Step 6: Reply, and watch ADK remember
+
+Hit reply in your mail client and ask a follow-up that depends on the prior turn — *"what about persistence guarantees?"*, without restating the context. The webhook receives the inbound:
+
+```
+INFO replying user=you@gmail.com conv=conv_a1b2c3d4e5f6 msg=msg_followup reply_chars=389
+```
+
+Note the `conv=` value — **same as the first turn**. ADK loaded the existing session and the agent has full memory of what was just discussed. No thread parsing on your part, no `In-Reply-To` lookup, no hand-rolled state.
+
+## How `conversation_id` keeps memory across turns
+
+This is the only non-obvious part of the whole setup. Email is stateless at the SMTP layer — every message is independent. e2a re-creates threading by carrying an opaque `conversation_id` through each round-trip:
+
+```
+First inbound (conversation_id = None — human just started a thread)
+        │
+        v
+Webhook mints conv_<random>, uses it as ADK session_id
+        │
+        v
+session = sessions.get_session(...)        # returns None
+session = sessions.create_session(..., session_id=conv_<random>)
+        │
+        v
+runner.run_async(...)                       # ADK records turn 1
+        │
+        v
+email.reply(text, conversation_id=conv_<random>)
+        │       e2a stamps X-E2A-Conversation-Id on the outbound
+        v
+... human replies in their mail client ...
+        │
+        v
+Inbound has conversation_id = conv_<random>      ← recovered from
+        │                                          In-Reply-To / References
+        v
+session = sessions.get_session(...)        # returns the existing session
+        │
+        v
+runner.run_async(...)                       # ADK has full prior context
+```
+
+The webhook does the binding in two lines:
+
+```python
+conversation_id = email.conversation_id or f"conv_{uuid.uuid4().hex[:12]}"
+
+session = await sessions.get_session(app_name=APP_NAME, user_id=user_id, session_id=conversation_id)
+if session is None:
+    session = await sessions.create_session(app_name=APP_NAME, user_id=user_id, session_id=conversation_id)
+```
+
+That's it. Any agent framework that lets you supply your own session ID can be wired the same way; ADK's `(app_name, user_id, session_id)` tuple is the easiest case because the IDs are opaque strings and the `get_session` / `create_session` APIs are straightforward.
+
+## Always verify the HMAC
+
+The first thing the webhook does after parsing the payload is:
+
+```python
+if not email.verify_signature(HMAC_SECRET):
+    raise HTTPException(status_code=401, detail="bad signature")
+```
+
+This isn't optional. Anyone on the internet can POST to your public webhook URL — the HMAC signature is what proves the payload came from your e2a relay and not from someone trying to inject a fake email into your agent's session. If you skip the verify, every claim on the payload (sender, recipient, message id, body) becomes attacker-controlled. The SDK's `verify_signature` checks the HMAC against the body hash and rejects replays older than 5 minutes, all in one call.
+
+## What this example deliberately doesn't show
+
+- **Persistence + multi-worker safety.** `InMemorySessionService` loses everything on restart. It also lives in *one* Python process — running `uvicorn ... --workers 4` shards sessions per-worker. For anything beyond the demo, use `DatabaseSessionService` (Postgres / SQLite) — see [ADK sessions docs](https://adk.dev/sessions/session/).
+- **Tools.** The agent has no tools — just text generation. Add them in `agent.py` once the email loop works.
+- **Attachments.** `email.attachments` is exposed by the SDK but ignored here. ADK's `Content` supports inline data parts if you want to feed PDFs or images to a vision model.
+- **Human-in-the-loop.** The agent replies immediately. If you want approval before each outbound, [enable HITL on the agent](/blog/human-in-the-loop-for-agent-email) and the `email.reply()` call returns 202 with the message held for review.
+
+## What to build next
+
+- **Swap to your own domain.** [Register a custom domain](/docs) so mail arrives at `assistant@yourcompany.com` instead of the shared `agents.e2a.dev`.
+- **Add tools to the ADK agent.** Calendar lookup, CRM queries, document retrieval — anything the agent should be able to do mid-thread. ADK's tool calling will weave them into the same session memory.
+- **Move sessions to Postgres.** ADK's `DatabaseSessionService` is a one-line swap and survives restarts + multi-worker deployments.
+- **Run the whole thing in production.** The webhook is a regular FastAPI app; deploy to Cloud Run, Fly, Railway, or anywhere else that runs HTTP. Use a secrets manager for the three env vars and you're done.
+
+The full runnable example, with smoke-testable signature verification and the type hints to make it easy to swap in your own agent, is at [examples/adk-cloud-webhook](https://github.com/Mnexa-AI/e2a/tree/main/examples/adk-cloud-webhook). PRs welcome — particularly for `DatabaseSessionService` recipes, attachment handling, and other framework integrations.

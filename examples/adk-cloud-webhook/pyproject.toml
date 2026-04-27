@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "adk-cloud-webhook"
+version = "0.1.0"
+description = "Example: a Google ADK agent with an e2a email inbox, delivered via webhook."
+readme = "README.md"
+requires-python = ">=3.10"
+
+dependencies = [
+  # google-adk 2.0 is in pre-release as of writing and may reorganize imports.
+  # Pin to the 1.x line until 2.0 ships and the code is verified against it.
+  "google-adk>=1.31,<2",
+  "e2a>=1.4,<2",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "python-dotenv>=1.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["agent", "webhook"]
+only-include = ["agent.py", "webhook.py"]
