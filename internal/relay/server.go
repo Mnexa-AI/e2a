@@ -239,7 +239,9 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 
 	// Record inbound message with full content. Pass messageID so the
 	// stored row uses the same ID we just bound into the auth headers.
-	inboundMsg, err := s.relay.store.CreateInboundMessage(ctx, messageID, agent.ID, displaySender, rcpt, s.inboundMsgID, s.inboundSubject, conversationID, deliveryStatus, body, authHeaders)
+	// toRecipients/cc come from the parsed To:/Cc: headers and are the
+	// same across every fan-out delivery for this inbound message.
+	inboundMsg, err := s.relay.store.CreateInboundMessage(ctx, messageID, agent.ID, displaySender, rcpt, s.inboundMsgID, s.inboundSubject, conversationID, deliveryStatus, body, authHeaders, s.inboundThreadInfo.To, s.inboundThreadInfo.CC)
 	if err != nil {
 		log.Printf("[%s] [%s] failed to record inbound message: %v", s.id, senderEmail, err)
 		return
@@ -267,7 +269,9 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 		MessageID:      messageID,
 		ConversationID: conversationID,
 		From:           displaySender,
-		To:             rcpt,
+		To:             s.inboundThreadInfo.To,
+		CC:             s.inboundThreadInfo.CC,
+		Recipient:      rcpt,
 		RawMessage:     body,
 		AuthHeaders:    authHeaders,
 		ReceivedAt:     time.Now(),
@@ -364,9 +368,11 @@ type threadInfo struct {
 	Subject        string
 	InReplyTo      string
 	References     []string
-	From           string // From header (human-readable sender, not SMTP envelope)
-	ReplyTo        string // Reply-To header, if present
-	ConversationID string // X-E2A-Conversation-ID header, if present
+	From           string   // From header (human-readable sender, not SMTP envelope)
+	ReplyTo        string   // Reply-To header, if present
+	To             []string // To: header addresses (one row per fan-out target sees the same list)
+	CC             []string // Cc: header addresses
+	ConversationID string   // X-E2A-Conversation-ID header, if present
 }
 
 // extractThreadInfo parses threading headers from a raw RFC 2822 message.
@@ -399,8 +405,33 @@ func extractThreadInfo(body []byte) threadInfo {
 		References:     refs,
 		From:           fromHeader,
 		ReplyTo:        replyToHeader,
+		To:             extractAddressList(msg.Header.Get("To")),
+		CC:             extractAddressList(msg.Header.Get("Cc")),
 		ConversationID: msg.Header.Get("X-E2A-Conversation-Id"),
 	}
+}
+
+// extractAddressList parses an RFC 5322 address-list header (To/Cc) into bare
+// email addresses, dropping display names. Returns nil if the header is empty
+// or unparseable; group addresses and malformed entries are silently skipped.
+func extractAddressList(header string) []string {
+	if header == "" {
+		return nil
+	}
+	addrs, err := mail.ParseAddressList(header)
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		if a.Address != "" {
+			out = append(out, a.Address)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func extractDomain(addr string) string {

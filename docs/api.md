@@ -73,13 +73,13 @@ The server pushes lightweight JSON notifications (metadata only):
   "message_id": "msg_abc123",
   "conversation_id": "conv_xyz",
   "from": "alice@example.com",
-  "to": "bot@your-domain.com",
+  "recipient": "bot@your-domain.com",
   "subject": "Meeting tomorrow",
   "received_at": "2026-04-24T10:00:00Z"
 }
 ```
 
-Fetch full content via `GET /agents/{email}/messages/{id}`. On connect, all unread messages are drained as notifications automatically.
+Fetch full content via `GET /agents/{email}/messages/{id}`. The full payload includes the parsed `to` (list) and `cc` (list) headers from the original message; the lightweight notification omits them since the agent fetches the body anyway. On connect, all unread messages are drained as notifications automatically.
 
 ## Other
 

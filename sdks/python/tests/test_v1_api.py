@@ -279,7 +279,8 @@ def test_list_messages(httpx_mock):
                 {
                     "message_id": "msg_1",
                     "from": "alice@example.com",
-                    "to": "bot@agents.e2a.dev",
+                    "to": ["bot@agents.e2a.dev"],
+                    "recipient": "bot@agents.e2a.dev",
                     "subject": "Hello",
                     "status": "unread",
                     "created_at": "2026-03-30T10:00:00Z",
@@ -330,7 +331,8 @@ def test_get_message(httpx_mock):
         json={
             "message_id": "msg_123",
             "from": "alice@example.com",
-            "to": "bot@agents.e2a.dev",
+            "to": ["bot@agents.e2a.dev"],
+            "recipient": "bot@agents.e2a.dev",
             "subject": "Hello",
             "created_at": "2026-03-30T10:00:00Z",
             "raw_message": "U3ViamVjdDogSGVsbG8=",

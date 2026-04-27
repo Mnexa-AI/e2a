@@ -71,7 +71,7 @@ class Message(BaseModel):
     subject: str | None = None
     to_recipients: list[str] | None = Field(
         None,
-        description='Outbound-only multi-recipient fields. Nil for inbound messages.',
+        description='Multi-recipient fields. For outbound, these are the addressed\nTo/Cc/Bcc recipients of the send. For inbound, ToRecipients and CC\nare the parsed To: and Cc: headers of the original message (the\nper-delivery target for this row is in Recipient). BCC is\noutbound-only.',
     )
     type: str | None = None
     webhook_attempts: int | None = None

@@ -151,7 +151,8 @@ def test_parse_webhook_payload(client):
     payload = json.dumps({
         "message_id": "msg_parse_test",
         "from": "test@example.com",
-        "to": "bot@agent.dev",
+        "to": ["bot@agent.dev"],
+        "recipient": "bot@agent.dev",
         "raw_message": base64.b64encode(raw).decode(),
         "auth_headers": {
             "X-E2A-Auth-Verified": "true",

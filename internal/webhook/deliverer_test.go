@@ -28,7 +28,8 @@ func TestDeliverSuccess(t *testing.T) {
 	}
 	payload := Payload{
 		From:       "alice@example.com",
-		To:         "bot@agent.example.com",
+		To:         []string{"bot@agent.example.com"},
+		Recipient:  "bot@agent.example.com",
 		RawMessage: []byte("test message"),
 		AuthHeaders: map[string]string{
 			"X-E2A-Auth-Verified": "true",
@@ -64,7 +65,7 @@ func TestDeliverHTTPSRequired(t *testing.T) {
 	agent := &identity.AgentIdentity{
 		WebhookURL: "http://insecure.example.com/webhook",
 	}
-	payload := Payload{From: "test@test.com", To: "bot@test.com"}
+	payload := Payload{From: "test@test.com", To: []string{"bot@test.com"}, Recipient: "bot@test.com"}
 
 	err := d.Deliver(context.Background(), agent, payload)
 	if err == nil {
@@ -83,7 +84,7 @@ func TestDeliverServerError(t *testing.T) {
 
 	d := NewDeliverer(false)
 	agent := &identity.AgentIdentity{WebhookURL: server.URL}
-	payload := Payload{From: "test@test.com", To: "bot@test.com"}
+	payload := Payload{From: "test@test.com", To: []string{"bot@test.com"}, Recipient: "bot@test.com"}
 
 	err := d.Deliver(context.Background(), agent, payload)
 	if err == nil {
@@ -112,7 +113,7 @@ func TestDeliverRefusesRedirect(t *testing.T) {
 
 	d := NewDeliverer(false)
 	agent := &identity.AgentIdentity{WebhookURL: redirector.URL}
-	payload := Payload{From: "test@test.com", To: "bot@test.com"}
+	payload := Payload{From: "test@test.com", To: []string{"bot@test.com"}, Recipient: "bot@test.com"}
 
 	err := d.Deliver(context.Background(), agent, payload)
 	if err == nil {

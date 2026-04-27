@@ -135,27 +135,31 @@ class MessageDetail(BaseModel):
         populate_by_name=True,
     )
     auth_headers: dict[str, str] | None = None
+    cc: list[str] | None = None
     conversation_id: str | None = None
     created_at: str | None = None
     from_: str | None = Field(None, alias='from', examples=['alice@example.com'])
     message_id: str | None = Field(None, examples=['msg_abc123'])
     raw_message: str | None = None
+    recipient: str | None = Field(None, examples=['my-bot@example.com'])
     status: str | None = Field(None, examples=['read'])
     subject: str | None = Field(None, examples=['Hello'])
-    to: str | None = Field(None, examples=['my-bot@example.com'])
+    to: list[str] | None = Field(None, examples=[['my-bot@example.com']])
 
 
 class MessageSummary(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
+    cc: list[str] | None = None
     conversation_id: str | None = None
     created_at: str | None = Field(None, examples=['2025-01-15T10:30:00Z'])
     from_: str | None = Field(None, alias='from', examples=['alice@example.com'])
     message_id: str | None = Field(None, examples=['msg_abc123'])
+    recipient: str | None = Field(None, examples=['my-bot@example.com'])
     status: Literal['unread', 'read'] | None = Field(None, examples=['unread'])
     subject: str | None = Field(None, examples=['Hello'])
-    to: str | None = Field(None, examples=['my-bot@example.com'])
+    to: list[str] | None = Field(None, examples=[['my-bot@example.com']])
 
 
 class PendingMessageSummary(BaseModel):

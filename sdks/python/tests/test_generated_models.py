@@ -2,12 +2,17 @@ from e2a.v1.generated import MessageDetail, SendEmailRequest
 
 
 def test_generated_models_accept_wire_aliases():
-    detail = MessageDetail.model_validate({"from": "alice@example.com", "to": "bot@agent.dev"})
+    detail = MessageDetail.model_validate({
+        "from": "alice@example.com",
+        "to": ["bot@agent.dev"],
+        "recipient": "bot@agent.dev",
+    })
 
     assert detail.from_ == "alice@example.com"
     assert detail.model_dump(by_alias=True, exclude_none=True) == {
         "from": "alice@example.com",
-        "to": "bot@agent.dev",
+        "to": ["bot@agent.dev"],
+        "recipient": "bot@agent.dev",
     }
 
 

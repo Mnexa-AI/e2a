@@ -97,7 +97,9 @@ Send a new email. `to` is `string[]`. Options: `htmlBody`, `cc`, `bcc`, `convers
 | `messageId`     | `string`          | Unique message ID                  |
 | `conversationId`| `string \| null`  | Thread/conversation ID (see below) |
 | `sender`        | `string`          | Sender email address               |
-| `recipient`     | `string`          | Recipient (your agent) address     |
+| `recipient`     | `string`          | Per-delivery target — your agent's address |
+| `to`            | `string[]`        | Parsed `To:` header — every address from the original message |
+| `cc`            | `string[]`        | Parsed `Cc:` header (empty when no CCs) |
 | `subject`       | `string`          | Email subject                      |
 | `textBody`      | `string`          | Plain-text body                    |
 | `htmlBody`      | `string \| null`  | HTML body                          |

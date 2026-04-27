@@ -349,7 +349,7 @@ func TestReplyToMessageUnverifiedDomain(t *testing.T) {
 	agent, _ := store.CreateAgent(ctx, "agent@unverified-reply.example.com", "unverified-reply.example.com", "", "https://example.com/webhook", "", user.ID)
 
 	// Create an inbound message so the handler can find it and reach the domain verification check
-	msg, _ := store.CreateInboundMessage(ctx, "", agent.ID, "sender@example.com", "agent@unverified-reply.example.com", "<test@example.com>", "Test", "", "", nil, nil)
+	msg, _ := store.CreateInboundMessage(ctx, "", agent.ID, "sender@example.com", "agent@unverified-reply.example.com", "<test@example.com>", "Test", "", "", nil, nil, nil, nil)
 
 	req, _ := http.NewRequest("POST", server.URL+"/api/v1/agents/agent@unverified-reply.example.com/messages/"+msg.ID+"/reply", bytes.NewBufferString(`{"body":"hi"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -399,7 +399,7 @@ func TestReplyToMessageWrongAgent(t *testing.T) {
 	store.CreateAgent(ctx, "agent@reply-b.example.com", "reply-b.example.com", "", "https://example.com/webhook", "", userB.ID)
 
 	// Create inbound message for agent A
-	msg, _ := store.CreateInboundMessage(ctx, "", agentA.ID, "alice@gmail.com", "bot@reply-a.example.com", "<abc@gmail.com>", "Hello", "", "", nil, nil)
+	msg, _ := store.CreateInboundMessage(ctx, "", agentA.ID, "alice@gmail.com", "bot@reply-a.example.com", "<abc@gmail.com>", "Hello", "", "", nil, nil, nil, nil)
 
 	// Agent B tries to reply to agent A's message using B's agent email
 	req, _ := http.NewRequest("POST", server.URL+"/api/v1/agents/agent@reply-b.example.com/messages/"+msg.ID+"/reply", bytes.NewBufferString(`{"body":"hi"}`))
@@ -423,7 +423,7 @@ func TestReplyToMessageMissingBody(t *testing.T) {
 	store.VerifyDomain(ctx, "reply-nobody.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@reply-nobody.example.com", "reply-nobody.example.com", "", "https://example.com/webhook", "", user.ID)
 
-	msg, _ := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@reply-nobody.example.com", "", "", "", "", nil, nil)
+	msg, _ := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@reply-nobody.example.com", "", "", "", "", nil, nil, nil, nil)
 
 	req, _ := http.NewRequest("POST", server.URL+"/api/v1/agents/agent@reply-nobody.example.com/messages/"+msg.ID+"/reply", bytes.NewBufferString(`{"body":""}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -450,7 +450,7 @@ func TestReplyToMessageViaSMTP(t *testing.T) {
 	agentA, _ := store.CreateAgent(ctx, "agent@replier.example.com", "replier.example.com", "", "https://example.com/webhook", "", user.ID)
 
 	// Create inbound message from alice@gmail.com to bot@replier.example.com
-	msg, _ := store.CreateInboundMessage(ctx, "", agentA.ID, "alice@gmail.com", "bot@replier.example.com", "<orig@gmail.com>", "Hello Bot", "", "", nil, nil)
+	msg, _ := store.CreateInboundMessage(ctx, "", agentA.ID, "alice@gmail.com", "bot@replier.example.com", "<orig@gmail.com>", "Hello Bot", "", "", nil, nil, nil, nil)
 
 	// Reply
 	body := `{"body":"Thanks for your email!","html_body":"<p>Thanks for your email!</p>"}`
@@ -500,7 +500,7 @@ func TestReplyToMessageSharedDomainDisplayName(t *testing.T) {
 	agent, _ := store.CreateAgent(ctx, agentEmail, agentEmail, "", "", "local", user.ID)
 
 	// Create inbound message
-	msg, _ := store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", agentEmail, "<orig@gmail.com>", "Hello Bot", "", "", nil, nil)
+	msg, _ := store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", agentEmail, "<orig@gmail.com>", "Hello Bot", "", "", nil, nil, nil, nil)
 
 	// Reply
 	body := `{"body":"Hi from shared domain agent!"}`
@@ -944,7 +944,7 @@ func TestGetMessages_Pagination(t *testing.T) {
 
 	// Create 5 messages
 	for i := 0; i < 5; i++ {
-		store.CreateInboundMessage(ctx, "", a.ID, fmt.Sprintf("sender%d@example.com", i), "agent@pagination.example.com", "", fmt.Sprintf("Subject %d", i), "", "unread", nil, nil)
+		store.CreateInboundMessage(ctx, "", a.ID, fmt.Sprintf("sender%d@example.com", i), "agent@pagination.example.com", "", fmt.Sprintf("Subject %d", i), "", "unread", nil, nil, nil, nil)
 	}
 
 	// Page 1: request 3 messages
@@ -1005,7 +1005,7 @@ func TestGetMessages_PaginationFilterMismatch(t *testing.T) {
 
 	// Create enough messages to get a next_token
 	for i := 0; i < 3; i++ {
-		store.CreateInboundMessage(ctx, "", a.ID, fmt.Sprintf("sender%d@example.com", i), "agent@filtermm.example.com", "", fmt.Sprintf("Subject %d", i), "", "unread", nil, nil)
+		store.CreateInboundMessage(ctx, "", a.ID, fmt.Sprintf("sender%d@example.com", i), "agent@filtermm.example.com", "", fmt.Sprintf("Subject %d", i), "", "unread", nil, nil, nil, nil)
 	}
 
 	// Get first page with status=all and page_size=2
@@ -1063,7 +1063,7 @@ func TestGetMessages_PageSizeDefault(t *testing.T) {
 
 	// Create 2 messages — with default page_size=50, should return all without next_token
 	for i := 0; i < 2; i++ {
-		store.CreateInboundMessage(ctx, "", a.ID, fmt.Sprintf("sender%d@example.com", i), "agent@pagedefault.example.com", "", fmt.Sprintf("Subject %d", i), "", "unread", nil, nil)
+		store.CreateInboundMessage(ctx, "", a.ID, fmt.Sprintf("sender%d@example.com", i), "agent@pagedefault.example.com", "", fmt.Sprintf("Subject %d", i), "", "unread", nil, nil, nil, nil)
 	}
 
 	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@pagedefault.example.com/messages?status=all", nil)
@@ -1355,7 +1355,7 @@ func TestMailLog_ReplyEmail(t *testing.T) {
 	store.VerifyDomain(ctx, "log-reply.example.com", user.ID)
 	ag, _ := store.CreateAgent(ctx, "bot@log-reply.example.com", "log-reply.example.com", "", "https://example.com/webhook", "", user.ID)
 
-	inbound, _ := store.CreateInboundMessage(ctx, "", ag.ID, "alice@example.com", "bot@log-reply.example.com", "<orig@example.com>", "Thread Start", "conv_test123", "", nil, nil)
+	inbound, _ := store.CreateInboundMessage(ctx, "", ag.ID, "alice@example.com", "bot@log-reply.example.com", "<orig@example.com>", "Thread Start", "conv_test123", "", nil, nil, nil, nil)
 
 	payload := `{"body":"got it","conversation_id":"conv_test123"}`
 	req, _ := http.NewRequest("POST", server.URL+"/api/v1/agents/bot@log-reply.example.com/messages/"+inbound.ID+"/reply", bytes.NewBufferString(payload))

@@ -157,6 +157,8 @@ class MessageSummary:
     conversation_id: str | None
     sender: str
     recipient: str
+    to: list[str]
+    cc: list[str]
     subject: str
     status: str  # "unread" or "read"
     created_at: str
@@ -177,9 +179,10 @@ class InboundEmail:
         message_id: Unique e2a message identifier.
         conversation_id: Opaque thread/conversation ID, or ``None``.
         sender: Sender email address.
-        recipient: Recipient email address (your agent).
+        recipient: Per-delivery target — your agent's address.
+        to: Parsed To: header — every address from the original message.
+        cc: Parsed Cc: header. Empty when the message had no CCs.
         subject: Email subject line.
-        cc: List of CC'd email addresses.
         text_body: Plain-text email body.
         html_body: HTML email body, or ``None``.
         attachments: Parsed file attachments.
@@ -195,8 +198,9 @@ class InboundEmail:
         conversation_id: Optional[str],
         sender: str,
         recipient: str,
-        subject: str,
+        to: list[str],
         cc: list[str],
+        subject: str,
         text_body: str,
         html_body: Optional[str],
         attachments: list[Attachment],
@@ -209,8 +213,9 @@ class InboundEmail:
         self.conversation_id = conversation_id
         self.sender = sender
         self.recipient = recipient
-        self.subject = subject
+        self.to = to
         self.cc = cc
+        self.subject = subject
         self.text_body = text_body
         self.html_body = html_body
         self.attachments = attachments
@@ -288,23 +293,19 @@ class InboundEmail:
 # ── Parsing helpers ───────────────────────────────────────────────
 
 
-def _parse_address_list(header_value: str | None) -> list[str]:
-    """Parse an email header value into a list of addresses."""
-    if not header_value:
-        return []
-    from email.utils import getaddresses
-    return [addr for _, addr in getaddresses([header_value]) if addr]
+def parse_raw_email(raw: bytes) -> tuple[str, str, Optional[str], list[Attachment]]:
+    """Extract subject, text body, HTML body, and attachments from raw RFC 2822.
 
-
-def parse_raw_email(raw: bytes) -> tuple[str, str, Optional[str], list[Attachment], list[str]]:
-    """Extract subject, text body, HTML body, attachments, and CC from raw RFC 2822."""
+    The To/Cc address lists are not parsed here: the server emits them as
+    structured fields on every payload, so re-parsing the raw bytes would
+    duplicate work and risk drifting from the server's interpretation.
+    """
     try:
         msg = email_lib.message_from_bytes(raw, policy=default_policy)
     except Exception:
-        return "", "", None, [], []
+        return "", "", None, []
 
     subject = str(msg.get("Subject", ""))
-    cc = _parse_address_list(msg.get("Cc"))
 
     text_body = ""
     html_body = None
@@ -362,7 +363,7 @@ def parse_raw_email(raw: bytes) -> tuple[str, str, Optional[str], list[Attachmen
         else:
             text_body = content
 
-    return subject, text_body, html_body, attachments, cc
+    return subject, text_body, html_body, attachments
 
 
 def _decode_raw_message(data: dict[str, Any] | str | None) -> bytes:
@@ -381,9 +382,14 @@ def _decode_raw_message(data: dict[str, Any] | str | None) -> bytes:
 
 
 def _parse_payload(data: dict[str, Any]) -> dict[str, Any]:
-    """Shared parsing logic for both sync and async builders."""
+    """Shared parsing logic for both sync and async builders.
+
+    The To/Cc address lists and the per-delivery target come straight from
+    the server's structured fields. The raw message is still parsed for the
+    body and attachments, which the server doesn't break out into JSON.
+    """
     raw_message = _decode_raw_message(data)
-    subject, text_body, html_body, attachments, cc = parse_raw_email(raw_message)
+    subject, text_body, html_body, attachments = parse_raw_email(raw_message)
     auth_headers = data.get("auth_headers", {}) or {}
     received_at = data.get("created_at") or data.get("received_at") or None
 
@@ -391,9 +397,10 @@ def _parse_payload(data: dict[str, Any]) -> dict[str, Any]:
         "message_id": data.get("message_id", ""),
         "conversation_id": data.get("conversation_id"),
         "sender": data.get("from", ""),
-        "recipient": data.get("to", ""),
+        "recipient": data.get("recipient", ""),
+        "to": list(data.get("to") or []),
+        "cc": list(data.get("cc") or []),
         "subject": subject or data.get("subject", ""),
-        "cc": cc,
         "text_body": text_body,
         "html_body": html_body,
         "attachments": attachments,
@@ -425,8 +432,9 @@ class AsyncInboundEmail:
         conversation_id: Optional[str],
         sender: str,
         recipient: str,
-        subject: str,
+        to: list[str],
         cc: list[str],
+        subject: str,
         text_body: str,
         html_body: Optional[str],
         attachments: list[Attachment],
@@ -439,8 +447,9 @@ class AsyncInboundEmail:
         self.conversation_id = conversation_id
         self.sender = sender
         self.recipient = recipient
-        self.subject = subject
+        self.to = to
         self.cc = cc
+        self.subject = subject
         self.text_body = text_body
         self.html_body = html_body
         self.attachments = attachments

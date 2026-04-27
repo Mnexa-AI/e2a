@@ -17,10 +17,16 @@ type Payload struct {
 	MessageID      string            `json:"message_id,omitempty"`
 	ConversationID string            `json:"conversation_id,omitempty"`
 	From           string            `json:"from"`
-	To             string            `json:"to"`
-	RawMessage     []byte            `json:"raw_message"`
-	AuthHeaders    map[string]string `json:"auth_headers"`
-	ReceivedAt     time.Time         `json:"received_at"`
+	// To is the parsed To: header from the inbound message — every fan-out
+	// delivery for one inbound message carries the same list. Recipient is
+	// this delivery's per-agent target (always one of the addressed agents,
+	// not necessarily in To: when the agent was Bcc'd).
+	To          []string          `json:"to"`
+	CC          []string          `json:"cc,omitempty"`
+	Recipient   string            `json:"recipient"`
+	RawMessage  []byte            `json:"raw_message"`
+	AuthHeaders map[string]string `json:"auth_headers"`
+	ReceivedAt  time.Time         `json:"received_at"`
 }
 
 type Deliverer struct {

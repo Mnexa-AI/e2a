@@ -77,7 +77,7 @@ def _make_webhook_data(raw_email, message_id="msg_123", conversation_id=None,
     data = {
         "message_id": message_id,
         "from": "alice@gmail.com",
-        "to": "bot@agent.example.com",
+        "to": ["bot@agent.example.com"], "recipient": "bot@agent.example.com",
         "raw_message": base64.b64encode(raw_email).decode(),
         "auth_headers": {
             "X-E2A-Auth-Verified": "true",
@@ -107,7 +107,7 @@ def _mock_client():
 
 def test_parse_plain_text():
     raw = _make_raw_email(subject="Test", text="Hello agent")
-    subject, text, html, atts, _cc = parse_raw_email(raw)
+    subject, text, html, atts = parse_raw_email(raw)
     assert subject == "Test"
     assert text == "Hello agent"
     assert html is None
@@ -116,7 +116,7 @@ def test_parse_plain_text():
 
 def test_parse_multipart_plain_html():
     raw = _make_raw_email(subject="Rich", text="Plain text", html="<p>HTML</p>")
-    subject, text, html, atts, _cc = parse_raw_email(raw)
+    subject, text, html, atts = parse_raw_email(raw)
     assert text == "Plain text"
     assert html == "<p>HTML</p>"
 
@@ -127,7 +127,7 @@ def test_parse_single_attachment():
         text="See attached", filename="report.pdf",
         content_type="application/pdf", file_data=file_data,
     )
-    subject, text, html, atts, _cc = parse_raw_email(raw)
+    subject, text, html, atts = parse_raw_email(raw)
     assert text == "See attached"
     assert len(atts) == 1
     assert atts[0].filename == "report.pdf"
@@ -165,7 +165,7 @@ def test_parse_multiple_attachments():
         att2_data,
         f"--{boundary}--",
     ]).encode()
-    _, text, _, atts, _cc = parse_raw_email(raw)
+    _, text, _, atts = parse_raw_email(raw)
     assert text == "Two files."
     assert len(atts) == 2
     assert atts[0].filename == "photo.png"
@@ -175,25 +175,25 @@ def test_parse_multiple_attachments():
 
 
 def test_parse_empty_bytes():
-    subject, text, html, atts, cc = parse_raw_email(b"")
+    subject, text, html, atts = parse_raw_email(b"")
     assert subject == ""
     assert text == ""
     assert html is None
     assert atts == []
-    assert cc == []
 
 
-def test_parse_cc():
-    raw = (
-        "From: alice@example.com\r\n"
-        "To: bot@agents.e2a.dev\r\n"
-        "Cc: bob@example.com, carol@example.com\r\n"
-        "Subject: With CC\r\n"
-        "\r\n"
-        "Hello"
-    ).encode()
-    _, _, _, _, cc = parse_raw_email(raw)
-    assert cc == ["bob@example.com", "carol@example.com"]
+def test_build_inbound_email_uses_structured_to_cc():
+    """The SDK trusts the server's structured `to`/`cc`/`recipient` fields
+    rather than re-parsing the raw RFC 2822 headers."""
+    raw = _make_raw_email()
+    data = _make_webhook_data(raw)
+    data["to"] = ["bot@agent.example.com", "other-bot@agent.example.com"]
+    data["cc"] = ["watcher@example.com"]
+    data["recipient"] = "bot@agent.example.com"
+    email = build_inbound_email(data, _mock_client())
+    assert email.to == ["bot@agent.example.com", "other-bot@agent.example.com"]
+    assert email.cc == ["watcher@example.com"]
+    assert email.recipient == "bot@agent.example.com"
 
 
 # ── build_inbound_email ──────────────────────────────────────────
@@ -318,7 +318,7 @@ def _signed_email(*, secret: str, body: bytes = b"hello world",
     }
     data = {
         "message_id": message_id,
-        "from": sender, "to": "bot@agent.example.com",
+        "from": sender, "to": ["bot@agent.example.com"], "recipient": "bot@agent.example.com",
         "raw_message": base64.b64encode(body).decode(),
         "auth_headers": headers,
     }
@@ -328,7 +328,7 @@ def _signed_email(*, secret: str, body: bytes = b"hello world",
 def _email_with(headers, body=b"hello world"):
     data = {
         "message_id": "msg_abc",
-        "from": "alice@example.com", "to": "bot@agent.example.com",
+        "from": "alice@example.com", "to": ["bot@agent.example.com"], "recipient": "bot@agent.example.com",
         "raw_message": base64.b64encode(body).decode(),
         "auth_headers": headers,
     }
