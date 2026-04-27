@@ -19,7 +19,7 @@ function makeNotification(overrides: Partial<WSNotification> = {}): WSNotificati
   return {
     message_id: "msg_123",
     from: "alice@example.com",
-    to: "bot@agents.e2a.dev",
+    recipient: "bot@agents.e2a.dev",
     subject: "Hello",
     received_at: "2025-01-15T10:30:00Z",
     ...overrides,

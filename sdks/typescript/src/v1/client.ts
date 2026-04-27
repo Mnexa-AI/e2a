@@ -3,6 +3,7 @@ import { E2AApi, E2AApiError, envVar } from "./api.js";
 import type { E2AApiOptions } from "./api.js";
 import { InboundEmail } from "./inbound-email.js";
 import type { WebhookPayload } from "./inbound-email.js";
+import { WSStream } from "./ws.js";
 
 type Schemas = components["schemas"];
 type MessagePayload = Schemas["MessageDetail"] | WebhookPayload;
@@ -233,6 +234,45 @@ export class E2AClient {
    */
   async rejectMessage(messageId: string, reason?: string) {
     return this.api.rejectMessage(messageId, reason);
+  }
+
+  // ── WebSocket ──────────────────────────────────────────────────
+
+  /**
+   * Listen for inbound mail via WebSocket. Returns a {@link WSStream},
+   * which is both an `AsyncIterable<WSNotification>` and an
+   * `EventEmitter` — pick whichever access pattern fits.
+   *
+   *     for await (const notif of client.listen()) {
+   *       if (notif.subject.startsWith("URGENT")) {
+   *         const email = await client.api.getMessage(notif.recipient, notif.message_id);
+   *         // …
+   *       }
+   *     }
+   *
+   * Yielded notifications are lightweight metadata only — the body is
+   * not auto-fetched. This matches the server's design (small WS
+   * frames, explicit REST fetch) and lets callers skip messages
+   * without a network round-trip.
+   *
+   * Reconnects with exponential backoff (1s → 30s by default).
+   *
+   * @param opts.agentEmail Override the client's default agent email.
+   * @param opts.maxBackoffMs Cap on the reconnect delay (default 30s).
+   */
+  listen(opts: { agentEmail?: string; maxBackoffMs?: number } = {}): WSStream {
+    const agentEmail = opts.agentEmail || this.agentEmail;
+    if (!agentEmail) {
+      throw new Error(
+        "agentEmail is required. Pass it to E2AClient(), set E2A_AGENT_EMAIL, or pass it to listen({ agentEmail }).",
+      );
+    }
+    return new WSStream({
+      apiKey: this.api.apiKey,
+      agentEmail,
+      baseUrl: this.api.baseUrl,
+      maxBackoffMs: opts.maxBackoffMs,
+    });
   }
 }
 
