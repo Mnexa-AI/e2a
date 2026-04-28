@@ -1,6 +1,6 @@
 # Email Skill
 
-<!-- version: 6 -->
+<!-- version: 7 -->
 
 You can give yourself an email address and use it to check your inbox, read, reply to, and send emails.
 
@@ -11,7 +11,7 @@ Email is powered by [e2a](https://e2a.dev) — email for AI agents.
 ```bash
 _E2A_STATE="$HOME/.e2a/skill"
 _E2A_CHECK="$_E2A_STATE/last-check"
-_E2A_LOCAL=6
+_E2A_LOCAL=7
 _E2A_NOW=$(date +%s)
 _E2A_SKIP=0
 if [ -f "$_E2A_CHECK" ]; then
@@ -153,7 +153,8 @@ client = e2a.E2AClient(api_key="e2a_...")  # or set E2A_API_KEY env var
 @app.post("/webhook")
 async def webhook(request: Request):
     # parse_webhook does parse + HMAC-verify in one call.
-    # Reads E2A_HMAC_SECRET from the env automatically.
+    # Reads E2A_HMAC_SECRET from the env automatically — make sure that's
+    # set or you'll get a ValueError on the first request.
     try:
         email = client.parse_webhook(await request.body())
     except PermissionError:
@@ -186,9 +187,11 @@ import express from "express";
 const app = express();
 app.use(express.json());
 
-// Webhook mode: agent_email is optional — it auto-resolves from the payload.
-// E2AClient requires apiKey explicitly; pass it from env or config.
+// Webhook mode: agentEmail is optional — it auto-resolves from email.recipient.
 const client = new E2AClient({ apiKey: process.env.E2A_API_KEY! });
+
+// For single-agent setups, you can also set it explicitly:
+// const client = new E2AClient({ apiKey: process.env.E2A_API_KEY!, agentEmail: "bot@agents.e2a.dev" });
 
 app.post("/webhook", async (req, res) => {
   // parseWebhook does parse + HMAC-verify in one call.
