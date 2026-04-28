@@ -67,7 +67,8 @@ export class E2AClient {
    * already-verified {@link InboundEmail} so getters work directly.
    * Throws on signature failure — let it bubble to a 401 response.
    *
-   * `secret` defaults to the `E2A_HMAC_SECRET` environment variable.
+   * `secret` defaults to the `E2A_WEBHOOK_SECRET` environment variable
+   * (with `E2A_HMAC_SECRET` accepted as a deprecated alias).
    */
   async parseWebhook(
     body: Buffer | string | MessagePayload,

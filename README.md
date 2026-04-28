@@ -153,7 +153,7 @@ The SDKs gate field access behind verification by default — accessing `email.s
 ```python
 from e2a.v1 import E2AClient
 client = E2AClient()  # reads E2A_API_KEY
-email = client.parse_webhook(request_body)  # reads E2A_HMAC_SECRET; raises on bad signature
+email = client.parse_webhook(request_body)  # reads E2A_WEBHOOK_SECRET; raises on bad signature
 # safe to use email.sender, email.subject, …
 ```
 
@@ -162,7 +162,7 @@ import { E2AClient } from "@e2a/sdk";
 const email = await client.parseWebhook(req.body); // throws on bad signature
 ```
 
-Both forms read the secret from `E2A_HMAC_SECRET` by default; pass it explicitly as a second argument if you keep it elsewhere. Under the hood the verify step checks, in order: body_hash matches the raw message bytes, HMAC matches the canonical auth string, and timestamp is within a 5-minute replay window.
+Both forms read the secret from `E2A_WEBHOOK_SECRET` by default; pass it explicitly as a second argument if you keep it elsewhere. Under the hood the verify step checks, in order: body_hash matches the raw message bytes, HMAC matches the canonical auth string, and timestamp is within a 5-minute replay window.
 
 Emails returned by `client.get_message(...)` are pre-verified — the bearer token already authenticated the channel — so field access works directly without a verify step. (Listing endpoints like `get_messages` / `listMessages` return lightweight summaries, not `InboundEmail`, so the gate doesn't apply.)
 
@@ -239,7 +239,7 @@ pip install 'e2a[ws]'      # adds WebSocket support
 from e2a.v1 import E2AClient
 
 client = E2AClient()                          # reads E2A_API_KEY
-email = client.parse_webhook(request_body)    # parse + HMAC-verify (reads E2A_HMAC_SECRET)
+email = client.parse_webhook(request_body)    # parse + HMAC-verify (reads E2A_WEBHOOK_SECRET)
 print(email.sender, email.subject)
 email.reply("Got it!", conversation_id="conv_123")
 ```

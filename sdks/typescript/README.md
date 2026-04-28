@@ -17,7 +17,7 @@ Webhook-parsed emails now refuse to expose claim fields (`sender`, `subject`, `t
 + const email = await client.parseWebhook(req.body);
 ```
 
-`parseWebhook` reads the secret from `E2A_HMAC_SECRET`; set it before upgrading. If you must inspect the payload before verifying, use `email.unverifiedPayload`. REST-fetched emails (`client.getMessage`) are unaffected — they're pre-verified via the bearer token. Full background in the [PR](https://github.com/Mnexa-AI/e2a/pull/57).
+`parseWebhook` reads the secret from `E2A_WEBHOOK_SECRET`; set it before upgrading. If you must inspect the payload before verifying, use `email.unverifiedPayload`. REST-fetched emails (`client.getMessage`) are unaffected — they're pre-verified via the bearer token. Full background in the [PR](https://github.com/Mnexa-AI/e2a/pull/57).
 
 ## Quick Start
 
@@ -33,7 +33,7 @@ const client = new E2AClient(); // uses E2A_API_KEY env var
 app.post("/webhook", async (req, res) => {
   let email;
   try {
-    email = await client.parseWebhook(req.body); // reads E2A_HMAC_SECRET
+    email = await client.parseWebhook(req.body); // reads E2A_WEBHOOK_SECRET
   } catch {
     return res.status(401).end();
   }
@@ -43,7 +43,7 @@ app.post("/webhook", async (req, res) => {
 });
 ```
 
-Get a signing secret from the dashboard's Settings → Webhook signing secrets (or `POST /api/v1/users/me/signing-secrets`). Set it as `E2A_HMAC_SECRET` so `parseWebhook` picks it up automatically, or pass it explicitly: `client.parseWebhook(body, "whsec_...")`.
+Get a signing secret from the dashboard's Settings → Webhook signing secrets (or `POST /api/v1/users/me/signing-secrets`). Set it as `E2A_WEBHOOK_SECRET` so `parseWebhook` picks it up automatically, or pass it explicitly: `client.parseWebhook(body, "whsec_...")`.
 
 ### Polling
 
@@ -92,7 +92,7 @@ await client.send(["alice@example.com", "bob@example.com"], "Hello", "Hi!", {
 
 ### `client.parseWebhook(body, secret?)` → `Promise<InboundEmail>`
 
-Parse + HMAC-verify a webhook payload in one call. Reads `E2A_HMAC_SECRET` if `secret` is omitted; throws on bad signature. Recommended entry point for webhook handlers.
+Parse + HMAC-verify a webhook payload in one call. Reads `E2A_WEBHOOK_SECRET` if `secret` is omitted; throws on bad signature. Recommended entry point for webhook handlers.
 
 ### `client.parse(body)` → `Promise<InboundEmail>`
 
@@ -133,7 +133,7 @@ Send a new email. `to` is `string[]`. Options: `htmlBody`, `cc`, `bcc`, `convers
 | `unverifiedPayload` | `WebhookPayload` | Raw payload pre-verification — escape hatch for inspection; treat as untrusted |
 | `reply(body)`   | method            | Reply to this email                |
 
-All claim fields above (everything except `auth`, `rawMessage`, `verified`, `isVerified`, `unverifiedPayload`) are gated — accessing them on an unverified webhook payload throws `UnverifiedEmailError`. Call `email.verifySignature(secret?)` first (reads `E2A_HMAC_SECRET` by default), or use `client.parseWebhook(body)` which combines parse + verify. `email.unverifiedPayload` is an escape hatch for inspection before verifying — treat its contents as untrusted.
+All claim fields above (everything except `auth`, `rawMessage`, `verified`, `isVerified`, `unverifiedPayload`) are gated — accessing them on an unverified webhook payload throws `UnverifiedEmailError`. Call `email.verifySignature(secret?)` first (reads `E2A_WEBHOOK_SECRET` by default), or use `client.parseWebhook(body)` which combines parse + verify. `email.unverifiedPayload` is an escape hatch for inspection before verifying — treat its contents as untrusted.
 
 Exported error class: `UnverifiedEmailError extends Error`.
 

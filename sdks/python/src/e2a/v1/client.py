@@ -123,8 +123,8 @@ class E2AClient:
         works. Raises :class:`PermissionError` on signature failure
         (so a webhook handler can let the exception bubble to a 401).
 
-        ``secret`` defaults to the ``E2A_HMAC_SECRET`` environment
-        variable.
+        ``secret`` defaults to the ``E2A_WEBHOOK_SECRET`` environment
+        variable (with ``E2A_HMAC_SECRET`` accepted as a deprecated alias).
         """
         email = self.parse(body)
         if not email.verify_signature(secret):
