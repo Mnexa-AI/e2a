@@ -152,8 +152,8 @@ The SDKs gate field access behind verification by default — accessing `email.s
 
 ```python
 from e2a.v1 import E2AClient
-client = E2AClient()
-email = client.parse_webhook(request_body)  # parse + verify, raises on bad signature
+client = E2AClient()  # reads E2A_API_KEY
+email = client.parse_webhook(request_body)  # reads E2A_HMAC_SECRET; raises on bad signature
 # safe to use email.sender, email.subject, …
 ```
 
@@ -164,7 +164,7 @@ const email = await client.parseWebhook(req.body); // throws on bad signature
 
 Both forms read the secret from `E2A_HMAC_SECRET` by default; pass it explicitly as a second argument if you keep it elsewhere. Under the hood the verify step checks, in order: body_hash matches the raw message bytes, HMAC matches the canonical auth string, and timestamp is within a 5-minute replay window.
 
-REST-fetched messages (`client.get_message(...)`, `client.list_messages(...)`) are pre-verified — the bearer token already authenticated the channel — so field access works directly without a verify step.
+Emails returned by `client.get_message(...)` are pre-verified — the bearer token already authenticated the channel — so field access works directly without a verify step. (Listing endpoints like `get_messages` / `listMessages` return lightweight summaries, not `InboundEmail`, so the gate doesn't apply.)
 
 ### Conversation threading
 
@@ -250,8 +250,9 @@ WebSocket (local agents):
 from e2a.v1 import AsyncE2AClient
 
 async with AsyncE2AClient(api_key="e2a_…") as client:
-    async for email in client.listen("bot@your-domain.com"):
-        print(email.sender, email.subject)
+    async for notif in client.listen("bot@your-domain.com"):
+        # notif is lightweight metadata — fetch the body when you want it
+        email = await client.get_message(notif.message_id)
         await email.reply("Got it!")
 ```
 
@@ -322,7 +323,7 @@ e2a doesn't replace webhooks — agents *receive* email via webhooks. It bridges
 
 The relay strips any incoming `X-E2A-Auth-*` from inbound messages and re-signs with HMAC-SHA256 against `signing.hmac_secret`. The signed canonical binds `Sender + Verified + Body-Hash + Message-Id` together — replay attempts, body swaps, and sender-only forgery all fail validation. Each delivery is bound to *that specific message body*, not just the sender claim, so a captured `(headers, signature)` tuple can't be lifted onto a different message.
 
-Receivers verify with the SDK's `verify(headers, secret)` helper (TS and Python both ship one) — no API call back to e2a needed. If the HMAC secret leaks, rotate it and old signatures stop verifying. If it's *stolen from the relay*, the attacker has bigger access than headers anyway.
+Receivers verify with the SDK — `client.parse_webhook(body)` / `client.parseWebhook(body)` does parse + HMAC verify in one call (or `email.verify_signature(secret)` if you parsed first). No API call back to e2a needed. If a signing secret leaks, rotate it via the dashboard and old signatures stop verifying. If it's *stolen from the relay*, the attacker has bigger access than headers anyway.
 
 ### Isn't this just SMTP with extra steps?
 

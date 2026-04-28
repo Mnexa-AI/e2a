@@ -108,7 +108,7 @@ This is the entire trick. The webhook is ~30 lines of business logic;
 ADK does the actual memory work, e2a does the actual email work.
 
 See [webhook.py](webhook.py) for the implementation, including
-[HMAC signature verification](https://github.com/Mnexa-AI/e2a/blob/main/sdks/python/README.md)
+[HMAC signature verification](https://github.com/Mnexa-AI/e2a/blob/main/sdks/python/README.md#quick-start)
 which you should *always* do on a public webhook before trusting any
 field on the parsed payload.
 

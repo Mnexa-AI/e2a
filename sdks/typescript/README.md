@@ -8,6 +8,17 @@ TypeScript/Node.js SDK for [e2a](https://e2a.dev) — email for AI agents.
 npm install @e2a/sdk
 ```
 
+## Upgrading from 1.x to 2.0
+
+Webhook-parsed emails now refuse to expose claim fields (`sender`, `subject`, `textBody`, …) until the HMAC signature is verified — `email.sender` throws `UnverifiedEmailError` instead of silently returning attacker-controllable data. The one-line fix is to switch `client.parse(body)` → `client.parseWebhook(body)`:
+
+```diff
+- const email = await client.parse(req.body);
++ const email = await client.parseWebhook(req.body);
+```
+
+`parseWebhook` reads the secret from `E2A_HMAC_SECRET`; set it before upgrading. If you must inspect the payload before verifying, use `email.unverifiedPayload`. REST-fetched emails (`client.getMessage`) are unaffected — they're pre-verified via the bearer token. Full background in the [PR](https://github.com/Mnexa-AI/e2a/pull/57).
+
 ## Quick Start
 
 ### Webhook (cloud agents)
@@ -119,6 +130,7 @@ Send a new email. `to` is `string[]`. Options: `htmlBody`, `cc`, `bcc`, `convers
 | `attachments`   | `Attachment[]`    | File attachments                   |
 | `auth`          | `AuthHeaders`     | Authentication headers             |
 | `isVerified`    | `boolean`         | Whether sender identity is verified|
+| `unverifiedPayload` | `WebhookPayload` | Raw payload pre-verification — escape hatch for inspection; treat as untrusted |
 | `reply(body)`   | method            | Reply to this email                |
 
 All claim fields above (everything except `auth`, `rawMessage`, `verified`, `isVerified`, `unverifiedPayload`) are gated — accessing them on an unverified webhook payload throws `UnverifiedEmailError`. Call `email.verifySignature(secret?)` first (reads `E2A_HMAC_SECRET` by default), or use `client.parseWebhook(body)` which combines parse + verify. `email.unverifiedPayload` is an escape hatch for inspection before verifying — treat its contents as untrusted.

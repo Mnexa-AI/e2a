@@ -14,6 +14,17 @@ For WebSocket real-time delivery:
 pip install e2a[ws]
 ```
 
+## Upgrading from 1.x to 2.0
+
+Webhook-parsed emails now refuse to expose claim fields (`sender`, `subject`, `text_body`, …) until the HMAC signature is verified — `email.sender` raises `UnverifiedEmailError` instead of silently returning attacker-controllable data. The one-line fix is to switch `client.parse(body)` → `client.parse_webhook(body)`:
+
+```diff
+- email = client.parse(await request.body())
++ email = client.parse_webhook(await request.body())
+```
+
+`parse_webhook` reads the secret from `E2A_HMAC_SECRET`; set it before upgrading. If you must inspect the payload before verifying, use `email.unverified_payload`. REST-fetched emails (`client.get_message`) are unaffected — they're pre-verified via the bearer token. Full background in the [PR](https://github.com/Mnexa-AI/e2a/pull/57).
+
 ## Import paths
 
 The stable, pinned API surface lives under `e2a.v1`:
@@ -52,6 +63,8 @@ async def webhook(request: Request):
         email = client.parse_webhook(await request.body())  # reads E2A_HMAC_SECRET
     except PermissionError:
         raise HTTPException(401, "bad signature")
+    # ValueError is raised if no secret is configured — let it 500 so a misconfig
+    # surfaces loudly, or catch it here to return a clearer message.
     print(f"From: {email.sender}, Subject: {email.subject}")
     email.reply("Thanks for reaching out!")
     return {"ok": True}
@@ -369,7 +382,7 @@ print(result.status, result.message_id)
 | `auth` | `AuthHeaders` | Full authentication details |
 | `raw_message` | `bytes` | Raw RFC 2822 email bytes |
 
-All claim fields (`message_id`, `sender`, `recipient`, `to`, `cc`, `subject`, `text_body`, `html_body`, `attachments`, `conversation_id`, `received_at`) are gated — accessing them on an unverified webhook payload raises `UnverifiedEmailError`. Always-available regardless of verification: `auth`, `raw_message`, `is_verified`, `verified`, `unverified_payload`. Emails returned by `client.get_message(...)` and `client.list_messages(...)` are pre-verified (the bearer token already authenticated the channel).
+All claim fields (`message_id`, `sender`, `recipient`, `to`, `cc`, `subject`, `text_body`, `html_body`, `attachments`, `conversation_id`, `received_at`) are gated — accessing them on an unverified webhook payload raises `UnverifiedEmailError`. Always-available regardless of verification: `auth`, `raw_message`, `is_verified`, `verified`, `unverified_payload`. Emails returned by `client.get_message(...)` are pre-verified (the bearer token already authenticated the channel). `client.get_messages(...)` returns lightweight `MessageSummary` items, not `InboundEmail`, so the gate doesn't apply.
 
 **Methods:**
 
@@ -403,7 +416,7 @@ Same as `E2AClient` — all I/O methods are `async`. `parse()` is sync (no I/O n
 - `InboundEmail` / `AsyncInboundEmail` — parsed email with `.reply()`
 - `Attachment` — `filename`, `content_type`, `data` (bytes), `size`
 - `SendResult` — `status`, `message_id`, `method`
-- `AuthHeaders` — `verified`, `sender`, `entity_type`, `domain_check`, `delegation`, `signature`, `timestamp`
+- `AuthHeaders` — `verified`, `sender`, `entity_type`, `domain_check`, `delegation`, `signature`, `timestamp`, `message_id`, `body_hash`
 
 ### Exceptions
 
