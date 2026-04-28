@@ -156,26 +156,54 @@ describe("InboundEmail field-access gate", () => {
   });
 
   it("verifySignature with no secret + no env throws", async () => {
-    const prev = process.env.E2A_HMAC_SECRET;
+    const prevWebhook = process.env.E2A_WEBHOOK_SECRET;
+    const prevHmac = process.env.E2A_HMAC_SECRET;
+    delete process.env.E2A_WEBHOOK_SECRET;
     delete process.env.E2A_HMAC_SECRET;
     try {
       const { email } = await signedEmail({ secret: SECRET });
-      expect(() => email.verifySignature()).toThrow(/E2A_HMAC_SECRET/);
+      expect(() => email.verifySignature()).toThrow(/E2A_WEBHOOK_SECRET/);
     } finally {
-      if (prev !== undefined) process.env.E2A_HMAC_SECRET = prev;
+      if (prevWebhook !== undefined) process.env.E2A_WEBHOOK_SECRET = prevWebhook;
+      if (prevHmac !== undefined) process.env.E2A_HMAC_SECRET = prevHmac;
     }
   });
 
-  it("verifySignature falls back to E2A_HMAC_SECRET env var", async () => {
-    const prev = process.env.E2A_HMAC_SECRET;
-    process.env.E2A_HMAC_SECRET = SECRET;
+  it("verifySignature reads E2A_WEBHOOK_SECRET env var", async () => {
+    const prevWebhook = process.env.E2A_WEBHOOK_SECRET;
+    const prevHmac = process.env.E2A_HMAC_SECRET;
+    process.env.E2A_WEBHOOK_SECRET = SECRET;
+    delete process.env.E2A_HMAC_SECRET;
     try {
       const { email } = await signedEmail({ secret: SECRET });
       expect(email.verifySignature()).toBe(true);
       expect(email.sender).toBe("alice@example.com");
     } finally {
-      if (prev === undefined) delete process.env.E2A_HMAC_SECRET;
-      else process.env.E2A_HMAC_SECRET = prev;
+      if (prevWebhook === undefined) delete process.env.E2A_WEBHOOK_SECRET;
+      else process.env.E2A_WEBHOOK_SECRET = prevWebhook;
+      if (prevHmac !== undefined) process.env.E2A_HMAC_SECRET = prevHmac;
+    }
+  });
+
+  it("verifySignature falls back to legacy E2A_HMAC_SECRET with a deprecation warning", async () => {
+    const prevWebhook = process.env.E2A_WEBHOOK_SECRET;
+    const prevHmac = process.env.E2A_HMAC_SECRET;
+    delete process.env.E2A_WEBHOOK_SECRET;
+    process.env.E2A_HMAC_SECRET = SECRET;
+    const warnings: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(" "));
+    };
+    try {
+      const { email } = await signedEmail({ secret: SECRET });
+      expect(email.verifySignature()).toBe(true);
+      expect(warnings.some((w) => /E2A_HMAC_SECRET/.test(w) && /deprecated/i.test(w))).toBe(true);
+    } finally {
+      console.warn = origWarn;
+      if (prevWebhook !== undefined) process.env.E2A_WEBHOOK_SECRET = prevWebhook;
+      if (prevHmac === undefined) delete process.env.E2A_HMAC_SECRET;
+      else process.env.E2A_HMAC_SECRET = prevHmac;
     }
   });
 

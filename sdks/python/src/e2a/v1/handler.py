@@ -131,6 +131,36 @@ def _verify_auth_headers(
     return hmac.compare_digest(h.signature, expected)
 
 
+_warned_legacy_env = False
+
+
+def _resolve_webhook_secret() -> str:
+    """Read the webhook signing secret from env, preferring the new name.
+
+    Order: ``E2A_WEBHOOK_SECRET`` (canonical) → ``E2A_HMAC_SECRET`` (legacy
+    alias, kept for backward compatibility with SDK 2.0). Emits a one-time
+    DeprecationWarning when only the legacy name is set so users notice
+    before the alias is removed in a future major release.
+    """
+    val = os.environ.get("E2A_WEBHOOK_SECRET", "")
+    if val:
+        return val
+    legacy = os.environ.get("E2A_HMAC_SECRET", "")
+    if legacy:
+        global _warned_legacy_env
+        if not _warned_legacy_env:
+            import warnings
+            warnings.warn(
+                "E2A_HMAC_SECRET is deprecated; rename it to E2A_WEBHOOK_SECRET. "
+                "The legacy name will be removed in a future major release.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            _warned_legacy_env = True
+        return legacy
+    return ""
+
+
 @dataclass
 class Attachment:
     """An email attachment."""
@@ -312,9 +342,9 @@ class InboundEmail:
         On success, transitions this instance to the "verified" state
         so subsequent property reads (sender, subject, body, …) work.
 
-        ``secret`` defaults to the ``E2A_HMAC_SECRET`` environment
-        variable when omitted, so the standard webhook-handler pattern
-        is just::
+        ``secret`` defaults to the ``E2A_WEBHOOK_SECRET`` environment
+        variable when omitted (with ``E2A_HMAC_SECRET`` accepted as a
+        deprecated alias), so the standard webhook-handler pattern is::
 
             email = client.parse(body)
             if not email.verify_signature():
@@ -336,11 +366,11 @@ class InboundEmail:
         a verify attempt that always fails.
         """
         if secret is None:
-            secret = os.environ.get("E2A_HMAC_SECRET", "")
+            secret = _resolve_webhook_secret()
         if not secret:
             raise ValueError(
                 "verify_signature requires a secret. Pass it explicitly "
-                "or set E2A_HMAC_SECRET in the environment."
+                "or set E2A_WEBHOOK_SECRET in the environment."
             )
         ok = _verify_auth_headers(self._auth, self._raw_message, secret)
         if ok:
@@ -672,11 +702,11 @@ class AsyncInboundEmail:
     def verify_signature(self, secret: Optional[str] = None) -> bool:
         """See :meth:`InboundEmail.verify_signature` — identical contract."""
         if secret is None:
-            secret = os.environ.get("E2A_HMAC_SECRET", "")
+            secret = _resolve_webhook_secret()
         if not secret:
             raise ValueError(
                 "verify_signature requires a secret. Pass it explicitly "
-                "or set E2A_HMAC_SECRET in the environment."
+                "or set E2A_WEBHOOK_SECRET in the environment."
             )
         ok = _verify_auth_headers(self._auth, self._raw_message, secret)
         if ok:

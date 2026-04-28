@@ -1,6 +1,6 @@
 # Email Skill
 
-<!-- version: 7 -->
+<!-- version: 8 -->
 
 You can give yourself an email address and use it to check your inbox, read, reply to, and send emails.
 
@@ -11,7 +11,7 @@ Email is powered by [e2a](https://e2a.dev) — email for AI agents.
 ```bash
 _E2A_STATE="$HOME/.e2a/skill"
 _E2A_CHECK="$_E2A_STATE/last-check"
-_E2A_LOCAL=7
+_E2A_LOCAL=8
 _E2A_NOW=$(date +%s)
 _E2A_SKIP=0
 if [ -f "$_E2A_CHECK" ]; then
@@ -124,7 +124,7 @@ Go to https://e2a.dev and register a new agent in "Cloud" mode. Enter your webho
 
 ### 2. Create a signing secret
 
-In the dashboard's Settings → Webhook signing secrets, create one and copy it (shown once). Set it as `E2A_HMAC_SECRET` in your webhook environment so the SDK can verify inbound payloads automatically.
+In the dashboard's Settings → Webhook signing secrets, create one and copy it (shown once). Set it as `E2A_WEBHOOK_SECRET` in your webhook environment so the SDK can verify inbound payloads automatically.
 
 ### 3. Implement the webhook endpoint
 
@@ -153,7 +153,7 @@ client = e2a.E2AClient(api_key="e2a_...")  # or set E2A_API_KEY env var
 @app.post("/webhook")
 async def webhook(request: Request):
     # parse_webhook does parse + HMAC-verify in one call.
-    # Reads E2A_HMAC_SECRET from the env automatically — make sure that's
+    # Reads E2A_WEBHOOK_SECRET from the env automatically — make sure that's
     # set or you'll get a ValueError on the first request.
     try:
         email = client.parse_webhook(await request.body())
@@ -195,7 +195,7 @@ const client = new E2AClient({ apiKey: process.env.E2A_API_KEY! });
 
 app.post("/webhook", async (req, res) => {
   // parseWebhook does parse + HMAC-verify in one call.
-  // Reads E2A_HMAC_SECRET from the env automatically.
+  // Reads E2A_WEBHOOK_SECRET from the env automatically.
   let email;
   try {
     email = await client.parseWebhook(req.body);
@@ -277,7 +277,7 @@ The `--agent` flag is optional if `agent_email` is set in your config.
 ## Reference
 
 - Config file: `~/.e2a/config.json` (JSON with `api_key`, `api_url`, `agent_email`, `shared_domain`)
-- Environment variables that override config: `E2A_API_KEY`, `E2A_URL`, `E2A_SHARED_DOMAIN` (CLI). `E2A_AGENT_EMAIL` is honored by the Python/TS SDK constructors when you don't pass `agent_email` explicitly. `E2A_HMAC_SECRET` is read by `client.parse_webhook` / `client.parseWebhook` and `email.verify_signature()` / `email.verifySignature()` to verify inbound webhook signatures.
+- Environment variables that override config: `E2A_API_KEY`, `E2A_URL`, `E2A_SHARED_DOMAIN` (CLI). `E2A_AGENT_EMAIL` is honored by the Python/TS SDK constructors when you don't pass `agent_email` explicitly. `E2A_WEBHOOK_SECRET` is read by `client.parse_webhook` / `client.parseWebhook` and `email.verify_signature()` / `email.verifySignature()` to verify inbound webhook signatures.
 - CLI docs: https://www.npmjs.com/package/@e2a/cli
 - TypeScript SDK: https://www.npmjs.com/package/@e2a/sdk
 - Python SDK: https://e2a.dev/python-sdk

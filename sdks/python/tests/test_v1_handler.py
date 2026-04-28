@@ -452,18 +452,20 @@ def test_unverified_email_allows_verify_inputs():
 
 def test_verify_signature_with_no_secret_and_no_env_raises(monkeypatch):
     """No secret + no env → ValueError (better than silent False)."""
+    monkeypatch.delenv("E2A_WEBHOOK_SECRET", raising=False)
     monkeypatch.delenv("E2A_HMAC_SECRET", raising=False)
     raw = _make_raw_email()
     data = _make_webhook_data(raw)
     email = build_inbound_email(data, _mock_client())
 
-    with pytest.raises(ValueError, match="E2A_HMAC_SECRET"):
+    with pytest.raises(ValueError, match="E2A_WEBHOOK_SECRET"):
         email.verify_signature()
 
 
 def test_verify_signature_reads_env_when_no_arg(monkeypatch):
-    """Default secret comes from E2A_HMAC_SECRET when not passed."""
-    monkeypatch.setenv("E2A_HMAC_SECRET", "wrong-secret-but-not-empty")
+    """Default secret comes from E2A_WEBHOOK_SECRET when not passed."""
+    monkeypatch.delenv("E2A_HMAC_SECRET", raising=False)
+    monkeypatch.setenv("E2A_WEBHOOK_SECRET", "wrong-secret-but-not-empty")
     raw = _make_raw_email()
     data = _make_webhook_data(raw)
     email = build_inbound_email(data, _mock_client())
@@ -472,6 +474,46 @@ def test_verify_signature_reads_env_when_no_arg(monkeypatch):
     # False (not raises) — the assertion here is that it CALLED verify
     # (didn't raise the no-secret ValueError).
     assert email.verify_signature() is False
+
+
+def test_verify_signature_falls_back_to_legacy_env(monkeypatch, recwarn):
+    """E2A_HMAC_SECRET still works for SDK 2.0 users, with a deprecation warning."""
+    # Reset the module-level "warned once" flag so this test sees the warning
+    # regardless of test ordering.
+    from e2a.v1 import handler as _handler
+    _handler._warned_legacy_env = False
+
+    monkeypatch.delenv("E2A_WEBHOOK_SECRET", raising=False)
+    monkeypatch.setenv("E2A_HMAC_SECRET", "wrong-secret-but-not-empty")
+    raw = _make_raw_email()
+    data = _make_webhook_data(raw)
+    email = build_inbound_email(data, _mock_client())
+
+    assert email.verify_signature() is False  # called the verify path
+    deprecations = [w for w in recwarn.list if issubclass(w.category, DeprecationWarning)]
+    assert any("E2A_HMAC_SECRET" in str(w.message) for w in deprecations), (
+        "expected DeprecationWarning mentioning E2A_HMAC_SECRET"
+    )
+
+
+def test_verify_signature_prefers_canonical_env_over_legacy(monkeypatch):
+    """When both names are set, E2A_WEBHOOK_SECRET wins (no warning)."""
+    from e2a.v1 import handler as _handler
+    _handler._warned_legacy_env = False
+
+    monkeypatch.setenv("E2A_WEBHOOK_SECRET", "canonical-wrong")
+    monkeypatch.setenv("E2A_HMAC_SECRET", "legacy-wrong")
+    raw = _make_raw_email()
+    data = _make_webhook_data(raw)
+    email = build_inbound_email(data, _mock_client())
+
+    import warnings
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert email.verify_signature() is False
+        assert not any(issubclass(w.category, DeprecationWarning) for w in caught), (
+            "should not warn when canonical env var is set"
+        )
 
 
 def test_verify_signature_unlocks_field_access_on_success():

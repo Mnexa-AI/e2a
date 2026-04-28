@@ -23,7 +23,7 @@ Webhook-parsed emails now refuse to expose claim fields (`sender`, `subject`, `t
 + email = client.parse_webhook(await request.body())
 ```
 
-`parse_webhook` reads the secret from `E2A_HMAC_SECRET`; set it before upgrading. If you must inspect the payload before verifying, use `email.unverified_payload`. REST-fetched emails (`client.get_message`) are unaffected — they're pre-verified via the bearer token. Full background in the [PR](https://github.com/Mnexa-AI/e2a/pull/57).
+`parse_webhook` reads the secret from `E2A_WEBHOOK_SECRET`; set it before upgrading. If you must inspect the payload before verifying, use `email.unverified_payload`. REST-fetched emails (`client.get_message`) are unaffected — they're pre-verified via the bearer token. Full background in the [PR](https://github.com/Mnexa-AI/e2a/pull/57).
 
 ## Import paths
 
@@ -60,7 +60,7 @@ app = FastAPI()
 @app.post("/webhook")
 async def webhook(request: Request):
     try:
-        email = client.parse_webhook(await request.body())  # reads E2A_HMAC_SECRET
+        email = client.parse_webhook(await request.body())  # reads E2A_WEBHOOK_SECRET
     except PermissionError:
         raise HTTPException(401, "bad signature")
     # ValueError is raised if no secret is configured — let it 500 so a misconfig
@@ -86,7 +86,7 @@ def webhook():
     return {"ok": True}
 ```
 
-Get a signing secret from the dashboard's Settings → Webhook signing secrets (or `POST /api/v1/users/me/signing-secrets`). Set it as `E2A_HMAC_SECRET` so `parse_webhook` picks it up automatically, or pass it explicitly: `client.parse_webhook(body, secret="whsec_...")`.
+Get a signing secret from the dashboard's Settings → Webhook signing secrets (or `POST /api/v1/users/me/signing-secrets`). Set it as `E2A_WEBHOOK_SECRET` so `parse_webhook` picks it up automatically, or pass it explicitly: `client.parse_webhook(body, secret="whsec_...")`.
 
 ## Raw vs high-level API
 
@@ -386,7 +386,7 @@ All claim fields (`message_id`, `sender`, `recipient`, `to`, `cc`, `subject`, `t
 
 **Methods:**
 
-- `email.verify_signature(secret=None)` → `bool` — verifies the HMAC; falls back to `E2A_HMAC_SECRET`. Sets the verified flag on success so claim fields become accessible.
+- `email.verify_signature(secret=None)` → `bool` — verifies the HMAC; falls back to `E2A_WEBHOOK_SECRET`. Sets the verified flag on success so claim fields become accessible.
 - `email.reply(body, html_body=None, conversation_id=None, attachments=None)` → `SendResult`
 - `email.unverified_payload` — escape hatch for inspection (debugging, logging) without verifying. Treat as untrusted.
 
@@ -396,7 +396,7 @@ All claim fields (`message_id`, `sender`, `recipient`, `to`, `cc`, `subject`, `t
 
 High-level sync client. `api_key` falls back to `E2A_API_KEY` env var.
 
-- `client.parse_webhook(body, secret=None)` → `InboundEmail` — parse + HMAC-verify (recommended for webhook handlers). Reads `E2A_HMAC_SECRET` if no secret is passed; raises `PermissionError` on bad signature.
+- `client.parse_webhook(body, secret=None)` → `InboundEmail` — parse + HMAC-verify (recommended for webhook handlers). Reads `E2A_WEBHOOK_SECRET` if no secret is passed; raises `PermissionError` on bad signature.
 - `client.parse(body)` → `InboundEmail` — accepts bytes, str, dict, or `MessageDetail`. Returns *unverified* — claim fields raise `UnverifiedEmailError` until `email.verify_signature()` succeeds.
 - `client.get_message(message_id)` → `InboundEmail` — pre-verified (REST channel auth)
 - `client.get_messages(status="unread", page_size=50)` → `MessageList`

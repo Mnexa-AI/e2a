@@ -55,11 +55,11 @@ def _require_env(name: str) -> str:
     return val
 
 
-# Both E2A_API_KEY (for E2AClient) and E2A_HMAC_SECRET (for parse_webhook)
+# Both E2A_API_KEY (for E2AClient) and E2A_WEBHOOK_SECRET (for parse_webhook)
 # are consumed implicitly by the SDK. We just assert presence here so a
 # missing secret fails fast at startup rather than on the first request.
 _require_env("E2A_API_KEY")
-_require_env("E2A_HMAC_SECRET")
+_require_env("E2A_WEBHOOK_SECRET")
 _require_env("GOOGLE_API_KEY")
 
 
@@ -86,7 +86,7 @@ async def health() -> dict[str, str]:
 async def webhook(request: Request) -> dict[str, str]:
     body = await request.body()
     # parse_webhook does parse + HMAC-verify in one call. Reads
-    # E2A_HMAC_SECRET from the env, raises PermissionError on bad signature.
+    # E2A_WEBHOOK_SECRET from the env, raises PermissionError on bad signature.
     # Anyone can reach a public webhook URL; this is what proves the payload
     # came from your e2a relay.
     try:

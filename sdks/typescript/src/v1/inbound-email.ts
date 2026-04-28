@@ -148,9 +148,25 @@ export class UnverifiedEmailError extends Error {
   }
 }
 
-/** Read an env var if `process.env` is reachable (Node), else "". */
-function envHmacSecret(): string {
-  if (typeof process !== "undefined" && process.env && process.env.E2A_HMAC_SECRET) {
+let warnedLegacyEnv = false;
+
+/**
+ * Resolve the webhook signing secret from env. Prefers `E2A_WEBHOOK_SECRET`
+ * (canonical); falls back to `E2A_HMAC_SECRET` (deprecated alias kept for
+ * backward compat with SDK 2.0). Warns once when only the legacy name is set.
+ */
+function envWebhookSecret(): string {
+  if (typeof process === "undefined" || !process.env) return "";
+  if (process.env.E2A_WEBHOOK_SECRET) return process.env.E2A_WEBHOOK_SECRET;
+  if (process.env.E2A_HMAC_SECRET) {
+    if (!warnedLegacyEnv) {
+      warnedLegacyEnv = true;
+      // eslint-disable-next-line no-console
+      console.warn(
+        "[e2a] E2A_HMAC_SECRET is deprecated; rename it to E2A_WEBHOOK_SECRET. " +
+          "The legacy name will be removed in a future major release.",
+      );
+    }
     return process.env.E2A_HMAC_SECRET;
   }
   return "";
@@ -281,8 +297,9 @@ export class InboundEmail {
    * Cryptographically verify the auth headers and unlock field access.
    *
    * On success, transitions this instance to "verified" so subsequent
-   * getters work. `secret` defaults to the `E2A_HMAC_SECRET`
-   * environment variable when omitted.
+   * getters work. `secret` defaults to the `E2A_WEBHOOK_SECRET`
+   * environment variable when omitted (with `E2A_HMAC_SECRET` accepted
+   * as a deprecated alias — set the new name to silence the warning).
    *
    * Returns `true` if HMAC + body-hash + timestamp checks all pass.
    * Returns `false` for any tampering / expired / wrong-secret —
@@ -291,10 +308,10 @@ export class InboundEmail {
    * Throws if no secret is available (neither passed nor in env).
    */
   verifySignature(secret?: string): boolean {
-    const resolved = secret ?? envHmacSecret();
+    const resolved = secret ?? envWebhookSecret();
     if (!resolved) {
       throw new Error(
-        "verifySignature requires a secret. Pass it explicitly or set E2A_HMAC_SECRET in the environment.",
+        "verifySignature requires a secret. Pass it explicitly or set E2A_WEBHOOK_SECRET in the environment.",
       );
     }
     const ok = verifyAuthHeaders(this.auth, this.rawMessage, resolved);

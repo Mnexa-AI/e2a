@@ -61,7 +61,7 @@ Per-user HMAC secrets used to sign inbound webhook payloads. Up to 5 active per 
 | `POST` | `/users/me/signing-secrets` | Create a new signing secret. Returns the plaintext exactly once (in the `secret` field) — store it immediately. Body: `{"name": "..."}`. Returns `400` if the user already has 5 secrets. |
 | `DELETE` | `/users/me/signing-secrets/{id}` | Delete a signing secret. Returns `400` if it's the user's last remaining secret; rotate by creating a new one first, switching consumers over, then deleting the old one. |
 
-The SDKs read the secret from `E2A_HMAC_SECRET` by default — `client.parse_webhook(body)` / `client.parseWebhook(body)` does parse + verify in one call. See [sdks/python/README.md](../sdks/python/README.md#quick-start) and [sdks/typescript/README.md](../sdks/typescript/README.md#webhook-cloud-agents).
+The SDKs read the secret from `E2A_WEBHOOK_SECRET` by default (with `E2A_HMAC_SECRET` accepted as a deprecated alias for SDK 2.0 users) — `client.parse_webhook(body)` / `client.parseWebhook(body)` does parse + verify in one call. See [sdks/python/README.md](../sdks/python/README.md#quick-start) and [sdks/typescript/README.md](../sdks/typescript/README.md#webhook-cloud-agents).
 
 ## HITL magic links
 
