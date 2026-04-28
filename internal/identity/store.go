@@ -1742,13 +1742,22 @@ func (s *Store) GetUserByAPIKey(ctx context.Context, apiKey string) (*User, erro
 
 func generateID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand failure means the OS RNG is broken — without it
+		// we'd silently emit an all-zero ID. Panic to surface a 500
+		// rather than poison the database with predictable identifiers.
+		panic(fmt.Sprintf("identity: crypto/rand failed: %v", err))
+	}
 	return hex.EncodeToString(b)
 }
 
 func generateAPIKey() string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// Same reasoning as generateID — an all-zero API key would be
+		// catastrophic (predictable auth credential).
+		panic(fmt.Sprintf("identity: crypto/rand failed: %v", err))
+	}
 	return "e2a_" + hex.EncodeToString(b)
 }
 

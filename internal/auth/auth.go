@@ -152,7 +152,12 @@ func NewUserAuthWithOAuthConfig(cfg *config.OAuthConfig, oauthCfg *oauth2.Config
 
 func generateNonce() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// OAuth state nonce — an all-zero nonce defeats the CSRF
+		// protection it exists to provide. Panic rather than silently
+		// emit a predictable value.
+		panic(fmt.Sprintf("auth: crypto/rand failed: %v", err))
+	}
 	return hex.EncodeToString(b)
 }
 
