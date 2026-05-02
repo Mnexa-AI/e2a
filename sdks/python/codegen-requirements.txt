@@ -12,7 +12,7 @@ isort==8.0.1
 more-itertools==10.8.0
 mypy_extensions==1.1.0
 packaging==26.2
-pathspec==1.1.0
+pathspec==1.1.1
 platformdirs==4.9.4
 pydantic==2.13.3
 pydantic_core==2.46.3
