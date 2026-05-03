@@ -110,6 +110,7 @@ func (w *Worker) autoApprove(ctx context.Context, c identity.ExpirationCandidate
 			if err != nil {
 				return identity.SendResult{}, err
 			}
+			w.attachReferencesChain(ctx, agent.ID, &req)
 			result, err := w.sender.Send(agent, req)
 			if err != nil {
 				return identity.SendResult{}, err
@@ -159,6 +160,23 @@ func (w *Worker) autoReject(ctx context.Context, messageID, reason string) {
 	}
 	log.Printf("[mail:%s] dir=outbound type=%s status=expired_rejected agent=%s reason=%q auto_rejected=true",
 		rejected.ID, rejected.Type, rejected.AgentID, reason)
+}
+
+// attachReferencesChain rebuilds the References chain on a HITL-approved
+// SendRequest by looking up the parent inbound's raw message via
+// email_message_id. Duplicates the equivalent helper in internal/agent
+// for the same reason sendRequestFromStoredMessage does — keep this
+// low-level package free of upward imports. See that helper's docstring
+// for the full rationale.
+func (w *Worker) attachReferencesChain(ctx context.Context, agentID string, req *outbound.SendRequest) {
+	if req.ReplyToMessageID == "" {
+		return
+	}
+	inbound, err := w.store.GetInboundByEmailMessageID(ctx, agentID, req.ReplyToMessageID)
+	if err != nil || inbound == nil {
+		return
+	}
+	req.References = outbound.BuildReferencesChain(inbound.RawMessage, req.ReplyToMessageID)
 }
 
 // sendRequestFromStoredMessage reconstructs a SendRequest from a locked

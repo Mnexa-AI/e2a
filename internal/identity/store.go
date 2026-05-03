@@ -563,6 +563,35 @@ func (s *Store) GetInboundMessage(ctx context.Context, id string) (*Message, err
 	return m, nil
 }
 
+// GetInboundByEmailMessageID looks up an inbound message by its RFC 5322
+// Message-ID for the given agent. Used by HITL flows to reach the parent
+// inbound at approval time so the References chain can be rebuilt — the
+// pending-outbound row only stores the parent's Message-ID, not its raw
+// message. Scoped to agent_id to prevent any cross-agent reach across
+// shared infra. Returns sql.ErrNoRows when the inbound has expired or
+// was never persisted; callers must tolerate that and fall back to
+// legacy single-id threading.
+func (s *Store) GetInboundByEmailMessageID(ctx context.Context, agentID, emailMessageID string) (*Message, error) {
+	if emailMessageID == "" {
+		return nil, fmt.Errorf("empty email_message_id")
+	}
+	m := &Message{}
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, subject, email_message_id, raw_message, created_at, expires_at
+		 FROM messages
+		 WHERE agent_id = $1
+		   AND direction = 'inbound'
+		   AND email_message_id = $2
+		   AND expires_at > now()
+		 ORDER BY created_at DESC LIMIT 1`,
+		agentID, emailMessageID,
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.Subject, &m.EmailMessageID, &m.RawMessage, &m.CreatedAt, &m.ExpiresAt)
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // CreateOutboundMessage stores an outbound message with multi-recipient support.
 // The recipient param is kept for backward compat with the singular recipient column;
 // toRecipients, cc, and bcc are the canonical outbound-only multi-recipient fields.

@@ -221,6 +221,7 @@ func (a *API) magicApprove(w http.ResponseWriter, r *http.Request, messageID, us
 			if err != nil {
 				return identity.SendResult{}, err
 			}
+			attachReferencesChain(r.Context(), a.store, agent.ID, &sendReq)
 			result, err := a.sender.Send(agent, sendReq)
 			if err != nil {
 				return identity.SendResult{}, err

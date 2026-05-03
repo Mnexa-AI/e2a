@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -275,6 +276,7 @@ func (a *API) handleApprovePendingMessage(w http.ResponseWriter, r *http.Request
 			if err != nil {
 				return identity.SendResult{}, err
 			}
+			attachReferencesChain(r.Context(), a.store, agent.ID, &sendReq)
 			result, err := a.sender.Send(agent, sendReq)
 			if err != nil {
 				return identity.SendResult{}, err
@@ -322,6 +324,36 @@ func (a *API) handleApprovePendingMessage(w http.ResponseWriter, r *http.Request
 		"method":     sent.Method,
 		"edited":     sent.Edited,
 	})
+}
+
+// attachReferencesChain rebuilds the References chain on a HITL-approved
+// SendRequest by looking up the parent inbound's raw message via
+// email_message_id. Required because the pending-outbound row only
+// persists the parent's Message-ID, not its raw message — without
+// re-deriving here, HITL-protected replies fall back to single-id
+// References and fork Gmail threads in multi-party conversations.
+//
+// No-op when ReplyToMessageID is empty (a fresh /send, not a reply) or
+// when the parent inbound has expired / been deleted. In the expiry
+// case we silently fall back to legacy single-id behavior — better
+// than refusing the send. Callers must keep ReplyToMessageID populated
+// regardless; only References is filled in here.
+func attachReferencesChain(ctx context.Context, store hitlInboundLookup, agentID string, req *outbound.SendRequest) {
+	if req.ReplyToMessageID == "" {
+		return
+	}
+	inbound, err := store.GetInboundByEmailMessageID(ctx, agentID, req.ReplyToMessageID)
+	if err != nil || inbound == nil {
+		return
+	}
+	req.References = outbound.BuildReferencesChain(inbound.RawMessage, req.ReplyToMessageID)
+}
+
+// hitlInboundLookup is the narrow store contract attachReferencesChain
+// needs. Defined as an interface so tests can stub it without spinning
+// up the full identity store.
+type hitlInboundLookup interface {
+	GetInboundByEmailMessageID(ctx context.Context, agentID, emailMessageID string) (*identity.Message, error)
 }
 
 // buildSendRequestFromMessage reconstructs a SendRequest from a stored
