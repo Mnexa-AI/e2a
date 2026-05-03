@@ -22,7 +22,21 @@ import (
 // When conversationID is non-empty, an X-E2A-Conversation-ID header is written
 // so recipient agents on this platform can continue the same application thread
 // without depending on In-Reply-To chains.
-func ComposeMessage(from string, to []string, cc []string, subject, body, contentType, replyToMsgID, fromDomain, replyTo, conversationID string) ([]byte, error) {
+//
+// Threading headers (RFC 5322 § 3.6.4):
+//   - replyToMsgID is the immediate parent's Message-ID — written to In-Reply-To.
+//   - references is the FULL ancestor chain in conversation order (oldest →
+//     newest, including the immediate parent). When non-empty, written as the
+//     References header in space-separated form. When empty but replyToMsgID
+//     is set, References falls back to [replyToMsgID] for backwards compat.
+//
+// Why the full chain matters: in multi-party email threads, some participants
+// may not have seen every prior Message-ID (e.g. agent A replies only to
+// agent B; agent B then replies-all back to user — user has no record of
+// agent A's reply). Without the full References chain, the user's mail client
+// (Gmail) can't anchor the reply to the existing thread and forks a new one.
+// With the full chain, the client matches on ANY prior ID and threads correctly.
+func ComposeMessage(from string, to []string, cc []string, subject, body, contentType, replyToMsgID string, references []string, fromDomain, replyTo, conversationID string) ([]byte, error) {
 	if contentType == "" {
 		contentType = "text/plain"
 	}
@@ -45,10 +59,7 @@ func ComposeMessage(from string, to []string, cc []string, subject, body, conten
 	writeHeader("MIME-Version", "1.0")
 	writeHeader("Content-Type", contentType+"; charset=utf-8")
 
-	if replyToMsgID != "" {
-		writeHeader("In-Reply-To", replyToMsgID)
-		writeHeader("References", replyToMsgID)
-	}
+	writeThreadingHeaders(writeHeader, replyToMsgID, references)
 	if conversationID != "" {
 		writeHeader("X-E2A-Conversation-ID", conversationID)
 	}
@@ -61,9 +72,10 @@ func ComposeMessage(from string, to []string, cc []string, subject, body, conten
 
 // ComposeMultipartMessage builds an RFC 2822 multipart/alternative email with text and HTML parts.
 // If htmlBody is empty, falls back to a single text/plain message via ComposeMessage.
-func ComposeMultipartMessage(from string, to []string, cc []string, subject, textBody, htmlBody, replyToMsgID, fromDomain, replyTo, conversationID string) ([]byte, error) {
+// See ComposeMessage for replyToMsgID / references semantics.
+func ComposeMultipartMessage(from string, to []string, cc []string, subject, textBody, htmlBody, replyToMsgID string, references []string, fromDomain, replyTo, conversationID string) ([]byte, error) {
 	if htmlBody == "" {
-		return ComposeMessage(from, to, cc, subject, textBody, "text/plain", replyToMsgID, fromDomain, replyTo, conversationID)
+		return ComposeMessage(from, to, cc, subject, textBody, "text/plain", replyToMsgID, references, fromDomain, replyTo, conversationID)
 	}
 
 	boundary := generateBoundary()
@@ -86,10 +98,7 @@ func ComposeMultipartMessage(from string, to []string, cc []string, subject, tex
 	writeHeader("MIME-Version", "1.0")
 	writeHeader("Content-Type", fmt.Sprintf("multipart/alternative; boundary=%q", boundary))
 
-	if replyToMsgID != "" {
-		writeHeader("In-Reply-To", replyToMsgID)
-		writeHeader("References", replyToMsgID)
-	}
+	writeThreadingHeaders(writeHeader, replyToMsgID, references)
 	if conversationID != "" {
 		writeHeader("X-E2A-Conversation-ID", conversationID)
 	}
@@ -116,7 +125,8 @@ func ComposeMultipartMessage(from string, to []string, cc []string, subject, tex
 
 // ComposeMessageWithAttachments builds an RFC 2822 multipart/mixed email with attachments.
 // If no attachments are provided, falls back to ComposeMultipartMessage.
-func ComposeMessageWithAttachments(from string, to []string, cc []string, subject, textBody, htmlBody, replyToMsgID, fromDomain, replyTo, conversationID string, attachments []Attachment) ([]byte, error) {
+// See ComposeMessage for replyToMsgID / references semantics.
+func ComposeMessageWithAttachments(from string, to []string, cc []string, subject, textBody, htmlBody, replyToMsgID string, references []string, fromDomain, replyTo, conversationID string, attachments []Attachment) ([]byte, error) {
 	// Defense-in-depth header-injection guard: reject any attachment
 	// whose user-supplied Filename or ContentType contains CR or LF.
 	// fmt.Sprintf("%q", ...) escapes Filename safely, but ContentType
@@ -131,7 +141,7 @@ func ComposeMessageWithAttachments(from string, to []string, cc []string, subjec
 		}
 	}
 	if len(attachments) == 0 {
-		return ComposeMultipartMessage(from, to, cc, subject, textBody, htmlBody, replyToMsgID, fromDomain, replyTo, conversationID)
+		return ComposeMultipartMessage(from, to, cc, subject, textBody, htmlBody, replyToMsgID, references, fromDomain, replyTo, conversationID)
 	}
 
 	mixedBoundary := generateBoundary()
@@ -154,10 +164,7 @@ func ComposeMessageWithAttachments(from string, to []string, cc []string, subjec
 	writeHeader("MIME-Version", "1.0")
 	writeHeader("Content-Type", fmt.Sprintf("multipart/mixed; boundary=%q", mixedBoundary))
 
-	if replyToMsgID != "" {
-		writeHeader("In-Reply-To", replyToMsgID)
-		writeHeader("References", replyToMsgID)
-	}
+	writeThreadingHeaders(writeHeader, replyToMsgID, references)
 	if conversationID != "" {
 		writeHeader("X-E2A-Conversation-ID", conversationID)
 	}
@@ -217,6 +224,25 @@ func ComposeMessageWithAttachments(from string, to []string, cc []string, subjec
 // DecodeAttachmentData decodes a base64-encoded attachment data string.
 func DecodeAttachmentData(data string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(data)
+}
+
+// writeThreadingHeaders writes the In-Reply-To and References headers per
+// RFC 5322 § 3.6.4. References is the full ancestor chain in conversation
+// order (oldest → newest) and must be space-separated message-ids; mail
+// clients use it to anchor a reply to an existing thread by matching ANY
+// id in the chain. When references is empty but replyToMsgID is set, the
+// References header falls back to a single id (legacy behavior); use a
+// non-empty references slice for any reply that may reach a recipient who
+// did not see the immediate parent (multi-party / agent-mediated threads).
+func writeThreadingHeaders(writeHeader func(string, string), replyToMsgID string, references []string) {
+	if replyToMsgID != "" {
+		writeHeader("In-Reply-To", replyToMsgID)
+	}
+	if len(references) > 0 {
+		writeHeader("References", strings.Join(references, " "))
+	} else if replyToMsgID != "" {
+		writeHeader("References", replyToMsgID)
+	}
 }
 
 func headerWriter(buf *strings.Builder) func(string, string) {

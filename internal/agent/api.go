@@ -1107,7 +1107,7 @@ func (a *API) handleSendTestEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	message, err := outbound.ComposeMessage(headerFrom, to, nil, subject, body, "text/plain", "", a.fromDomain, "", "")
+	message, err := outbound.ComposeMessage(headerFrom, to, nil, subject, body, "text/plain", "", nil, a.fromDomain, "", "")
 	if err != nil {
 		log.Printf("[api] compose test email failed: %v", err)
 		http.Error(w, "failed to compose test email", http.StatusInternalServerError)
@@ -1233,6 +1233,11 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 		replyTo = []string{inbound.Sender}
 	}
 
+	// Build the full References chain from the inbound's prior chain plus
+	// the inbound itself. Required so multi-party replies thread correctly
+	// for participants who didn't see the immediate parent's Message-ID.
+	references := outbound.BuildReferencesChain(inbound.RawMessage, inbound.EmailMessageID)
+
 	// Build the SendRequest and route through Sender
 	sendReq := outbound.SendRequest{
 		To:               replyTo,
@@ -1242,6 +1247,7 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 		Body:             req.Body,
 		HTMLBody:         req.HTMLBody,
 		ReplyToMessageID: inbound.EmailMessageID,
+		References:       references,
 		ConversationID:   req.ConversationID,
 		Attachments:      req.Attachments,
 	}

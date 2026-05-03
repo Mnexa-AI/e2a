@@ -16,6 +16,7 @@ func TestComposeMessageBasic(t *testing.T) {
 		"This is a test message.",
 		"text/plain",
 		"",
+		nil,
 		"relay.e2a.dev",
 		"",
 		"",
@@ -49,7 +50,7 @@ func TestComposeMessageBasic(t *testing.T) {
 func TestComposeMessageSubjectRFC2047Encoding(t *testing.T) {
 	raw, err := ComposeMessage(
 		"from@test.com", []string{"to@test.com"}, nil,
-		"Résumé 📄 for アリス", "Body", "text/plain", "", "test.dev", "", "",
+		"Résumé 📄 for アリス", "Body", "text/plain", "", nil, "test.dev", "", "",
 	)
 	if err != nil {
 		t.Fatalf("ComposeMessage failed: %v", err)
@@ -85,7 +86,7 @@ func TestComposeMessageASCIISubjectUnchanged(t *testing.T) {
 	// Pure-ASCII subjects should pass through without encoded-word wrapping.
 	raw, err := ComposeMessage(
 		"from@test.com", []string{"to@test.com"}, nil,
-		"Hello Alice", "Body", "text/plain", "", "test.dev", "", "",
+		"Hello Alice", "Body", "text/plain", "", nil, "test.dev", "", "",
 	)
 	if err != nil {
 		t.Fatalf("ComposeMessage failed: %v", err)
@@ -105,6 +106,7 @@ func TestComposeMessageMultipleRecipients(t *testing.T) {
 		"Body",
 		"text/plain",
 		"",
+		nil,
 		"test.dev",
 		"",
 		"",
@@ -131,6 +133,7 @@ func TestComposeMessageCCOnlyOmitsToHeader(t *testing.T) {
 		"Body",
 		"text/plain",
 		"",
+		nil,
 		"test.dev",
 		"",
 		"",
@@ -158,6 +161,7 @@ func TestComposeMessageNoBccHeader(t *testing.T) {
 		"Body",
 		"text/plain",
 		"",
+		nil,
 		"test.dev",
 		"",
 		"",
@@ -172,7 +176,7 @@ func TestComposeMessageNoBccHeader(t *testing.T) {
 }
 
 func TestComposeMessageDefaultContentType(t *testing.T) {
-	raw, err := ComposeMessage("from@test.com", []string{"to@test.com"}, nil, "Sub", "Body", "", "", "test.dev", "", "")
+	raw, err := ComposeMessage("from@test.com", []string{"to@test.com"}, nil, "Sub", "Body", "", "", nil, "test.dev", "", "")
 	if err != nil {
 		t.Fatalf("ComposeMessage failed: %v", err)
 	}
@@ -187,7 +191,7 @@ func TestComposeMessageDefaultContentType(t *testing.T) {
 func TestComposeMessageReplyTo(t *testing.T) {
 	raw, err := ComposeMessage(
 		"from@test.com", []string{"to@test.com"}, nil, "Re: Hello", "Reply body",
-		"text/plain", "<original-msg-id@example.com>", "test.dev", "", "",
+		"text/plain", "<original-msg-id@example.com>", nil, "test.dev", "", "",
 	)
 	if err != nil {
 		t.Fatalf("ComposeMessage failed: %v", err)
@@ -203,7 +207,7 @@ func TestComposeMessageReplyTo(t *testing.T) {
 }
 
 func TestComposeMessageNoReplyTo(t *testing.T) {
-	raw, err := ComposeMessage("from@test.com", []string{"to@test.com"}, nil, "Sub", "Body", "", "", "test.dev", "", "")
+	raw, err := ComposeMessage("from@test.com", []string{"to@test.com"}, nil, "Sub", "Body", "", "", nil, "test.dev", "", "")
 	if err != nil {
 		t.Fatalf("ComposeMessage failed: %v", err)
 	}
@@ -220,7 +224,7 @@ func TestComposeMessageNoReplyTo(t *testing.T) {
 func TestComposeMessageConversationIDHeader(t *testing.T) {
 	raw, err := ComposeMessage(
 		"from@test.com", []string{"to@test.com"}, nil,
-		"Hello", "Body", "text/plain", "", "test.dev", "", "081158ac-bf25-4eb6-a6b0-02828ec670c3",
+		"Hello", "Body", "text/plain", "", nil, "test.dev", "", "081158ac-bf25-4eb6-a6b0-02828ec670c3",
 	)
 	if err != nil {
 		t.Fatalf("ComposeMessage failed: %v", err)
@@ -234,7 +238,7 @@ func TestComposeMessageConversationIDHeader(t *testing.T) {
 func TestComposeMessageNoConversationIDHeader(t *testing.T) {
 	raw, err := ComposeMessage(
 		"from@test.com", []string{"to@test.com"}, nil,
-		"Hello", "Body", "text/plain", "", "test.dev", "", "",
+		"Hello", "Body", "text/plain", "", nil, "test.dev", "", "",
 	)
 	if err != nil {
 		t.Fatalf("ComposeMessage failed: %v", err)
@@ -248,7 +252,7 @@ func TestComposeMultipartMessage(t *testing.T) {
 	raw, err := ComposeMultipartMessage(
 		"bot@agent.example.com", []string{"alice@gmail.com"}, nil,
 		"Re: Hello", "Plain text body", "<p>HTML body</p>",
-		"<orig@example.com>", "relay.e2a.dev", "", "",
+		"<orig@example.com>", nil, "relay.e2a.dev", "", "",
 	)
 	if err != nil {
 		t.Fatalf("ComposeMultipartMessage failed: %v", err)
@@ -280,7 +284,7 @@ func TestComposeMultipartMessageFallsBackToPlain(t *testing.T) {
 	raw, err := ComposeMultipartMessage(
 		"bot@agent.example.com", []string{"alice@gmail.com"}, nil,
 		"Hello", "Plain text only", "",
-		"", "relay.e2a.dev", "", "",
+		"", nil, "relay.e2a.dev", "", "",
 	)
 	if err != nil {
 		t.Fatalf("ComposeMultipartMessage failed: %v", err)
@@ -299,7 +303,7 @@ func TestComposeMultipartMessageWithCC(t *testing.T) {
 		[]string{"alice@gmail.com"},
 		[]string{"bob@gmail.com", "carol@gmail.com"},
 		"Hello", "Plain", "<p>HTML</p>",
-		"", "relay.e2a.dev", "", "",
+		"", nil, "relay.e2a.dev", "", "",
 	)
 	if err != nil {
 		t.Fatalf("ComposeMultipartMessage failed: %v", err)
@@ -315,7 +319,7 @@ func TestComposeMultipartMessageConversationIDHeader(t *testing.T) {
 	raw, err := ComposeMultipartMessage(
 		"bot@agent.example.com", []string{"alice@gmail.com"}, nil,
 		"Hi", "Plain", "<p>HTML</p>",
-		"", "relay.e2a.dev", "", "conv-xyz",
+		"", nil, "relay.e2a.dev", "", "conv-xyz",
 	)
 	if err != nil {
 		t.Fatalf("ComposeMultipartMessage failed: %v", err)
@@ -337,7 +341,7 @@ func TestComposeMessageStripsCRLFFromConversationID(t *testing.T) {
 		"sender@agents.e2a.dev",
 		[]string{"target@victim.com"}, nil,
 		"hi", "benign", "text/plain",
-		"", "agents.e2a.dev", "",
+		"", nil, "agents.e2a.dev", "",
 		malicious,
 	)
 	if err != nil {
@@ -360,5 +364,96 @@ func TestComposeMessageStripsCRLFFromConversationID(t *testing.T) {
 	}
 	if parsed.Header.Get("Bcc") != "" {
 		t.Errorf("Bcc header should be absent, got %q", parsed.Header.Get("Bcc"))
+	}
+}
+
+// References header behavior — multi-id chain (RFC 5322 § 3.6.4).
+//
+// In multi-party threads where the immediate-parent Message-ID is not in
+// every recipient's mailbox, References must include the full ancestor
+// chain so receiving clients can anchor on ANY known id. A single-id
+// References (legacy behavior) forks the thread for any participant that
+// missed the parent.
+
+func TestComposeMessageReferencesMultiIDChain(t *testing.T) {
+	chain := []string{"<u1@gmail>", "<a1@e2a>", "<b1@e2a>"}
+	raw, err := ComposeMessage(
+		"from@test.com", []string{"to@test.com"}, nil,
+		"Re: Hello", "Body", "text/plain",
+		"<b1@e2a>", chain, // immediate parent + full chain
+		"test.dev", "", "",
+	)
+	if err != nil {
+		t.Fatalf("ComposeMessage failed: %v", err)
+	}
+
+	msg, _ := mail.ReadMessage(strings.NewReader(string(raw)))
+	if got := msg.Header.Get("In-Reply-To"); got != "<b1@e2a>" {
+		t.Errorf("In-Reply-To = %q, want <b1@e2a>", got)
+	}
+	if got := msg.Header.Get("References"); got != "<u1@gmail> <a1@e2a> <b1@e2a>" {
+		t.Errorf("References = %q, want full space-separated chain", got)
+	}
+}
+
+func TestComposeMessageReferencesFallbackToSingleID(t *testing.T) {
+	// Legacy callers that pass replyToMsgID without a chain should still
+	// produce a valid (single-id) References header — backwards-compatible.
+	raw, err := ComposeMessage(
+		"from@test.com", []string{"to@test.com"}, nil,
+		"Re: Hello", "Body", "text/plain",
+		"<orig@example.com>", nil,
+		"test.dev", "", "",
+	)
+	if err != nil {
+		t.Fatalf("ComposeMessage failed: %v", err)
+	}
+
+	msg, _ := mail.ReadMessage(strings.NewReader(string(raw)))
+	if got := msg.Header.Get("References"); got != "<orig@example.com>" {
+		t.Errorf("References = %q, want single-id fallback", got)
+	}
+}
+
+func TestComposeMessageReferencesWithoutInReplyTo(t *testing.T) {
+	// Edge: a caller could pass references with no parent (shouldn't
+	// happen in practice). References should still be written; In-Reply-To
+	// is omitted. Belt-and-suspenders so the headers are at least
+	// internally consistent if a caller forgets to set replyToMsgID.
+	chain := []string{"<u1@host>"}
+	raw, err := ComposeMessage(
+		"from@test.com", []string{"to@test.com"}, nil,
+		"Sub", "Body", "text/plain",
+		"", chain,
+		"test.dev", "", "",
+	)
+	if err != nil {
+		t.Fatalf("ComposeMessage failed: %v", err)
+	}
+
+	msg, _ := mail.ReadMessage(strings.NewReader(string(raw)))
+	if got := msg.Header.Get("In-Reply-To"); got != "" {
+		t.Errorf("In-Reply-To = %q, want empty", got)
+	}
+	if got := msg.Header.Get("References"); got != "<u1@host>" {
+		t.Errorf("References = %q, want <u1@host>", got)
+	}
+}
+
+func TestComposeMultipartMessageReferencesMultiIDChain(t *testing.T) {
+	chain := []string{"<u1@gmail>", "<a1@e2a>"}
+	raw, err := ComposeMultipartMessage(
+		"bot@example.com", []string{"to@test.com"}, nil,
+		"Re: Hi", "Plain", "<p>HTML</p>",
+		"<a1@e2a>", chain,
+		"relay.e2a.dev", "", "",
+	)
+	if err != nil {
+		t.Fatalf("ComposeMultipartMessage failed: %v", err)
+	}
+
+	msg, _ := mail.ReadMessage(strings.NewReader(string(raw)))
+	if got := msg.Header.Get("References"); got != "<u1@gmail> <a1@e2a>" {
+		t.Errorf("References = %q, want full chain", got)
 	}
 }

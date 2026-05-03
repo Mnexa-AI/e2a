@@ -47,7 +47,7 @@ func simulateInbound(t *testing.T, raw []byte, envelopeFrom string, lookup func(
 func composeAgentOutbound(t *testing.T, agentAddr string, to []string, subject, body, replyToMsgID, conversationID string) []byte {
 	t.Helper()
 	headerFrom := fmt.Sprintf("%q <%s>", agentAddr+" via e2a", platformFrom)
-	raw, err := outbound.ComposeMessage(headerFrom, to, nil, subject, body, "text/plain", replyToMsgID, relayFromDomain, agentAddr, conversationID)
+	raw, err := outbound.ComposeMessage(headerFrom, to, nil, subject, body, "text/plain", replyToMsgID, nil, relayFromDomain, agentAddr, conversationID)
 	if err != nil {
 		t.Fatalf("compose: %v", err)
 	}

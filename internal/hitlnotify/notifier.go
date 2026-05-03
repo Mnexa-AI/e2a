@@ -127,6 +127,7 @@ func (n *Notifier) NotifyPendingApproval(ctx context.Context, msg *identity.Mess
 		fromHeader, []string{owner.Email}, nil,
 		subject, text, htmlBody,
 		"",            // no reply-to-message-id (fresh notification)
+		nil,           // no references chain (fresh notification)
 		n.fromDomain,  // from_domain (Message-ID generation)
 		fromAddr,      // reply_to — point replies back at the platform, not the agent
 		"",            // no conversation_id

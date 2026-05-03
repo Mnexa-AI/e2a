@@ -17,6 +17,14 @@ type Attachment struct {
 } // @name Attachment
 
 // SendRequest is the outbound email contract.
+//
+// References is the full ancestor Message-ID chain for a reply, oldest →
+// newest. When non-empty, it is written verbatim into the References:
+// header so receiving mail clients can anchor the reply to an existing
+// thread by matching ANY id in the chain — required for multi-party
+// threads where the immediate-parent Message-ID may not be in every
+// participant's mailbox. When empty but ReplyToMessageID is set, the
+// References header falls back to a single id (legacy behavior).
 type SendRequest struct {
 	From             string       `json:"from,omitempty"`
 	To               []string     `json:"to"`
@@ -26,6 +34,7 @@ type SendRequest struct {
 	Body             string       `json:"body"`
 	HTMLBody         string       `json:"html_body,omitempty"`
 	ReplyToMessageID string       `json:"reply_to_message_id"`
+	References       []string     `json:"references,omitempty"`
 	ConversationID   string       `json:"conversation_id,omitempty"`
 	Attachments      []Attachment `json:"attachments,omitempty"`
 }
@@ -127,11 +136,11 @@ func (s *Sender) Send(agent *identity.AgentIdentity, req SendRequest) (*SendResu
 
 	var message []byte
 	if len(req.Attachments) > 0 {
-		message, err = ComposeMessageWithAttachments(headerFrom, to, cc, req.Subject, req.Body, req.HTMLBody, req.ReplyToMessageID, s.fromDomain, replyTo, req.ConversationID, req.Attachments)
+		message, err = ComposeMessageWithAttachments(headerFrom, to, cc, req.Subject, req.Body, req.HTMLBody, req.ReplyToMessageID, req.References, s.fromDomain, replyTo, req.ConversationID, req.Attachments)
 	} else if req.HTMLBody != "" {
-		message, err = ComposeMultipartMessage(headerFrom, to, cc, req.Subject, req.Body, req.HTMLBody, req.ReplyToMessageID, s.fromDomain, replyTo, req.ConversationID)
+		message, err = ComposeMultipartMessage(headerFrom, to, cc, req.Subject, req.Body, req.HTMLBody, req.ReplyToMessageID, req.References, s.fromDomain, replyTo, req.ConversationID)
 	} else {
-		message, err = ComposeMessage(headerFrom, to, cc, req.Subject, req.Body, "text/plain", req.ReplyToMessageID, s.fromDomain, replyTo, req.ConversationID)
+		message, err = ComposeMessage(headerFrom, to, cc, req.Subject, req.Body, "text/plain", req.ReplyToMessageID, req.References, s.fromDomain, replyTo, req.ConversationID)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("compose message: %w", err)

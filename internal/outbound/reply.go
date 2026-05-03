@@ -69,6 +69,77 @@ func ParseReplyRecipients(rawMessage []byte, replyAll bool, extraCC []string) (*
 	return result, nil
 }
 
+// BuildReferencesChain returns the References chain to write on a reply,
+// per RFC 5322 § 3.6.4:
+//
+//   - If the parent has a References header, return: parent.References ++ [parentMsgID]
+//   - Else if the parent has an In-Reply-To header, return: parent.InReplyTo ++ [parentMsgID]
+//   - Else return: [parentMsgID] (the reply still has at least the parent in its chain)
+//
+// parentMsgID must be the canonicalized RFC 5322 Message-ID of the inbound
+// being replied to (i.e. the same value the caller passes as
+// SendRequest.ReplyToMessageID for the In-Reply-To header). Empty input
+// yields an empty chain — callers fall back to legacy single-id behavior.
+//
+// This chain matters for multi-party threads where one participant's reply
+// is delivered only to a subset of the recipients (e.g. agent-mediated
+// scheduler scenarios). Without the full chain, a downstream reply-to-all
+// has In-Reply-To pointing at a Message-ID that recipients outside the
+// subset have never seen, and Gmail/other clients fork the thread.
+func BuildReferencesChain(rawMessage []byte, parentMsgID string) []string {
+	if parentMsgID == "" {
+		return nil
+	}
+
+	var prior []string
+	if len(rawMessage) > 0 {
+		if msg, err := mail.ReadMessage(bytes.NewReader(rawMessage)); err == nil {
+			if refs := strings.TrimSpace(msg.Header.Get("References")); refs != "" {
+				prior = parseMessageIDList(refs)
+			} else if irt := strings.TrimSpace(msg.Header.Get("In-Reply-To")); irt != "" {
+				// In-Reply-To SHOULD contain a single id, but some clients
+				// pack multiple. Treat it the same way as References as a
+				// pragmatic recovery — better than dropping prior context.
+				prior = parseMessageIDList(irt)
+			}
+		}
+		// Parse failures fall through silently — better to send a reply
+		// with a shorter chain than to fail the whole send. The reply
+		// will still thread for participants who saw the parent.
+	}
+
+	chain := make([]string, 0, len(prior)+1)
+	for _, id := range prior {
+		// Drop the parent if it was already in the prior chain — append it
+		// once at the end so the chain ends with the immediate parent
+		// (which mirrors what In-Reply-To points at).
+		if id != parentMsgID {
+			chain = append(chain, id)
+		}
+	}
+	chain = append(chain, parentMsgID)
+	return chain
+}
+
+// parseMessageIDList splits a References / In-Reply-To header value into
+// individual message-ids. The header format is one or more <local@domain>
+// tokens separated by whitespace (RFC 5322 § 3.6.4); the official grammar
+// is permissive enough that we tokenize on whitespace and then trim — any
+// fragment that isn't bracketed is dropped.
+func parseMessageIDList(header string) []string {
+	if header == "" {
+		return nil
+	}
+	fields := strings.Fields(header)
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		if strings.HasPrefix(f, "<") && strings.HasSuffix(f, ">") && len(f) > 2 {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // parseAddressList parses an RFC 5322 address list header and returns
 // lowercased bare email addresses. Invalid entries are silently skipped.
 func parseAddressList(header string) []string {
