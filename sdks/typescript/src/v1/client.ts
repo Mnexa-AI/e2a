@@ -8,6 +8,27 @@ import { WSStream } from "./ws.js";
 type Schemas = components["schemas"];
 type MessagePayload = Schemas["MessageDetail"] | WebhookPayload;
 
+// Module-scoped flag so the deprecation message appears once per
+// process, not once per call. Mirrors the standard Node deprecation
+// pattern (cf. util.deprecate). Tests that need to assert the warning
+// fires can reset this via the exported test helper below.
+let _parseWarnedOnce = false;
+function warnParseDeprecated(): void {
+  if (_parseWarnedOnce) return;
+  _parseWarnedOnce = true;
+  console.warn(
+    "[e2a] E2AClient.parse() is deprecated and will be removed in 3.0. " +
+      "For webhook handlers, use client.parseWebhook(body) — it parses " +
+      "and HMAC-verifies in one call. For inspection without " +
+      "verification, use email.unverifiedPayload after parseWebhook.",
+  );
+}
+
+/** Test-only: reset the once-per-process deprecation flag. */
+export function _resetParseDeprecationWarningForTests(): void {
+  _parseWarnedOnce = false;
+}
+
 export interface E2AClientOptions extends E2AApiOptions {
   /**
    * Default agent email for message/WS operations. Falls back to the
@@ -45,12 +66,32 @@ export class E2AClient {
   /**
    * Parse a webhook payload (or raw `MessageDetail`) into an {@link InboundEmail}.
    *
+   * @deprecated since 2.2 — will be removed in 3.0. For webhook
+   * handlers, use {@link parseWebhook} (parse + HMAC-verify in one
+   * call). For inspection without verification, call `parseWebhook`
+   * and then read `email.unverifiedPayload` after catching the
+   * verification failure. Calling `parse` logs a one-time deprecation
+   * warning to `console.warn`.
+   *
    * Returns an *unverified* InboundEmail — claim getters (sender,
    * subject, body, …) throw `UnverifiedEmailError` until you call
-   * {@link InboundEmail.verifySignature}. For webhook handlers,
-   * prefer {@link parseWebhook} which combines parse + verify.
+   * {@link InboundEmail.verifySignature}. The "looks usable until you
+   * touch a field" shape is precisely the trap that motivated the
+   * deprecation.
    */
   async parse(body: Buffer | string | MessagePayload): Promise<InboundEmail> {
+    warnParseDeprecated();
+    return this._parseUnverified(body);
+  }
+
+  /**
+   * Internal parse without the deprecation warning. `parseWebhook`
+   * delegates here so the recommended path doesn't emit the warning
+   * meant for direct `parse` callers.
+   */
+  private async _parseUnverified(
+    body: Buffer | string | MessagePayload,
+  ): Promise<InboundEmail> {
     const detail: MessagePayload =
       typeof body === "string"
         ? (JSON.parse(body) as MessagePayload)
@@ -74,7 +115,7 @@ export class E2AClient {
     body: Buffer | string | MessagePayload,
     secret?: string,
   ): Promise<InboundEmail> {
-    const email = await this.parse(body);
+    const email = await this._parseUnverified(body);
     if (!email.verifySignature(secret)) {
       throw new Error("HMAC signature verification failed");
     }

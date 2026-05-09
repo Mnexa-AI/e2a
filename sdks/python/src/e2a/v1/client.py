@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import warnings
 from typing import Any, Optional
 
 from e2a.v1.api import E2AApi
@@ -92,14 +93,39 @@ class E2AClient:
     ) -> InboundEmail:
         """Parse a webhook payload or MessageDetail into an InboundEmail.
 
+        .. deprecated:: 2.2
+           Use :meth:`parse_webhook` for webhook handlers (parse + verify
+           in one call) or :attr:`InboundEmail.unverified_payload` for
+           inspection without verification. ``parse`` will be removed in
+           3.0.
+
         Accepts bytes, JSON string, dict, or a generated MessageDetail.
 
         The returned InboundEmail starts in the *unverified* state —
-        property accesses (sender, subject, body, …) will raise
-        :class:`UnverifiedEmailError` until you call
-        :meth:`InboundEmail.verify_signature`. For webhook handlers,
-        prefer :meth:`parse_webhook` which combines parse + verify.
+        property accesses (sender, subject, body, …) raise
+        :class:`UnverifiedEmailError` until :meth:`InboundEmail.verify_signature`
+        succeeds. The combination of "looks usable" + "blows up on first
+        field access" is precisely the trap that motivated the deprecation;
+        ``parse_webhook`` raises immediately on bad signatures and returns
+        a ready-to-use object on success.
         """
+        warnings.warn(
+            "E2AClient.parse() is deprecated and will be removed in 3.0. "
+            "For webhook handlers, use client.parse_webhook(body) — it "
+            "parses and HMAC-verifies in one call. For inspection without "
+            "verification, use email.unverified_payload after parse_webhook.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._parse_unverified(body)
+
+    def _parse_unverified(
+        self,
+        body: bytes | str | dict[str, Any] | MessageDetail,
+    ) -> InboundEmail:
+        """Internal parse without the deprecation warning. ``parse_webhook``
+        delegates here so the recommended path doesn't emit the warning
+        meant for direct ``parse`` callers."""
         if isinstance(body, MessageDetail):
             data = body.model_dump(by_alias=True)
         elif isinstance(body, dict):
@@ -126,7 +152,7 @@ class E2AClient:
         ``secret`` defaults to the ``E2A_WEBHOOK_SECRET`` environment
         variable (with ``E2A_HMAC_SECRET`` accepted as a deprecated alias).
         """
-        email = self.parse(body)
+        email = self._parse_unverified(body)
         if not email.verify_signature(secret):
             raise PermissionError("HMAC signature verification failed")
         return email

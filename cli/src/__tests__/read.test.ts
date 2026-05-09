@@ -1,15 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mockGetMessage = vi.fn();
-const mockParse = vi.fn();
 
 vi.mock("../sdk.js", () => ({
   createClient: vi.fn(() => ({
     agentEmail: "bot@agents.e2a.dev",
-    api: {
-      getMessage: mockGetMessage,
-    },
-    parse: mockParse,
+    getMessage: mockGetMessage,
   })),
 }));
 
@@ -36,7 +32,6 @@ describe("read", () => {
       throw new Error("process.exit");
     });
     mockGetMessage.mockReset();
-    mockParse.mockReset();
   });
 
   afterEach(() => {
@@ -52,16 +47,7 @@ describe("read", () => {
   });
 
   it("displays parsed InboundEmail fields including date", async () => {
-    const detail = {
-      message_id: "msg_123",
-      from: "alice@example.com",
-      to: "bot@agents.e2a.dev",
-      subject: "Hello",
-      created_at: "2025-01-15T10:30:00Z",
-      raw_message: "U3ViamVjdDogSGVsbG8NCg0KSGkgdGhlcmUh",
-    };
-    mockGetMessage.mockResolvedValue(detail);
-    mockParse.mockResolvedValue({
+    mockGetMessage.mockResolvedValue({
       messageId: "msg_123",
       sender: "alice@example.com",
       recipient: "bot@agents.e2a.dev",
@@ -69,12 +55,12 @@ describe("read", () => {
       cc: [],
       subject: "Hello",
       textBody: "Hi there!",
+      receivedAt: "2025-01-15T10:30:00Z",
     });
 
     await read("msg_123", undefined);
 
-    expect(mockGetMessage).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_123");
-    expect(mockParse).toHaveBeenCalledWith(detail);
+    expect(mockGetMessage).toHaveBeenCalledWith("msg_123");
     expect(mockStdout).toHaveBeenCalledWith("Message ID: msg_123\n");
     expect(mockStdout).toHaveBeenCalledWith("From: alice@example.com\n");
     expect(mockStdout).toHaveBeenCalledWith("Date: 2025-01-15T10:30:00Z\n");
@@ -87,8 +73,7 @@ describe("read", () => {
   });
 
   it("prints Also-To and Cc when the message had other recipients", async () => {
-    mockGetMessage.mockResolvedValue({});
-    mockParse.mockResolvedValue({
+    mockGetMessage.mockResolvedValue({
       messageId: "msg_group",
       sender: "alice@example.com",
       recipient: "bot-a@agents.e2a.dev",
@@ -97,6 +82,7 @@ describe("read", () => {
       cc: ["watcher@example.com"],
       subject: "Group",
       textBody: "",
+      receivedAt: null,
     });
 
     await read("msg_group", undefined);
@@ -106,8 +92,7 @@ describe("read", () => {
   });
 
   it("prints Also-To when the agent was Bcc'd (not in the To: header)", async () => {
-    mockGetMessage.mockResolvedValue({});
-    mockParse.mockResolvedValue({
+    mockGetMessage.mockResolvedValue({
       messageId: "msg_bcc",
       sender: "alice@example.com",
       recipient: "bot-bcc@agents.e2a.dev",
@@ -115,6 +100,7 @@ describe("read", () => {
       cc: [],
       subject: "BCC",
       textBody: "",
+      receivedAt: null,
     });
 
     await read("msg_bcc", undefined);
@@ -125,16 +111,7 @@ describe("read", () => {
   });
 
   it("shows 'unknown' when receivedAt is null", async () => {
-    const detail = {
-      message_id: "msg_456",
-      from: "bob@example.com",
-      to: "bot@agents.e2a.dev",
-      subject: "Test",
-      created_at: undefined,
-      raw_message: "",
-    };
-    mockGetMessage.mockResolvedValue(detail);
-    mockParse.mockResolvedValue({
+    mockGetMessage.mockResolvedValue({
       messageId: "msg_456",
       sender: "bob@example.com",
       recipient: "bot@agents.e2a.dev",
@@ -142,6 +119,7 @@ describe("read", () => {
       cc: [],
       subject: "Test",
       textBody: "",
+      receivedAt: null,
     });
 
     await read("msg_456", undefined);

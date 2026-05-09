@@ -96,7 +96,9 @@ Parse + HMAC-verify a webhook payload in one call. Reads `E2A_WEBHOOK_SECRET` if
 
 ### `client.parse(body)` → `Promise<InboundEmail>`
 
-Parse a webhook payload (Buffer, string, or object) into an `InboundEmail`. Returns *unverified* — accessing claim fields like `sender` or `subject` throws `UnverifiedEmailError` until `email.verifySignature()` succeeds. Prefer `parseWebhook` unless you need to inspect the payload before verifying.
+**Deprecated since 2.2 — will be removed in 3.0.** Use `parseWebhook` for webhook handlers, or call `parseWebhook` and read `email.unverifiedPayload` after the verification failure for inspection without verification. Calling `parse` logs a one-time deprecation warning to `console.warn`.
+
+Parses a webhook payload (Buffer, string, or object) into an `InboundEmail` and returns it in the unverified state — accessing claim fields like `sender` or `subject` throws `UnverifiedEmailError` until `email.verifySignature()` succeeds.
 
 ### `client.getMessages(opts?)` → `Promise<MessageList>`
 

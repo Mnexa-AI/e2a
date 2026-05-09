@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import warnings
 from typing import TYPE_CHECKING, Any, AsyncIterator, Optional
 from urllib.parse import quote
 
@@ -306,13 +307,33 @@ class AsyncE2AClient:
     ) -> AsyncInboundEmail:
         """Parse a webhook payload into an AsyncInboundEmail.
 
+        .. deprecated:: 2.2
+           Use :meth:`parse_webhook` for webhook handlers (parse + verify
+           in one call) or :attr:`AsyncInboundEmail.unverified_payload`
+           for inspection without verification. ``parse`` will be removed
+           in 3.0.
+
         Synchronous (no I/O). The returned email's ``.reply()`` is async.
 
         Returns an *unverified* AsyncInboundEmail — claim fields raise
         :class:`UnverifiedEmailError` until you call
-        :meth:`AsyncInboundEmail.verify_signature`. For webhook handlers,
-        prefer :meth:`parse_webhook` which combines parse + verify.
+        :meth:`AsyncInboundEmail.verify_signature`.
         """
+        warnings.warn(
+            "AsyncE2AClient.parse() is deprecated and will be removed in 3.0. "
+            "For webhook handlers, use client.parse_webhook(body) — it "
+            "parses and HMAC-verifies in one call. For inspection without "
+            "verification, use email.unverified_payload after parse_webhook.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._parse_unverified(body)
+
+    def _parse_unverified(
+        self,
+        body: bytes | str | dict[str, Any] | MessageDetail,
+    ) -> AsyncInboundEmail:
+        """Internal parse without the deprecation warning."""
         if isinstance(body, MessageDetail):
             data = body.model_dump(by_alias=True)
         elif isinstance(body, dict):
@@ -334,7 +355,7 @@ class AsyncE2AClient:
         See :meth:`E2AClient.parse_webhook` — identical contract.
         Synchronous despite living on the async client (no I/O).
         """
-        email = self.parse(body)
+        email = self._parse_unverified(body)
         if not email.verify_signature(secret):
             raise PermissionError("HMAC signature verification failed")
         return email

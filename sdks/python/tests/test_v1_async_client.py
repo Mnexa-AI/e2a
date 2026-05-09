@@ -121,6 +121,36 @@ async def test_parse_unsupported_type():
             client.parse(12345)
 
 
+@pytest.mark.anyio
+async def test_parse_emits_deprecation_warning():
+    """Mirror of the sync test — async client's `parse` must also emit
+    the deprecation warning so async webhook handlers see the same
+    migration signal."""
+    webhook = _make_message_detail_json()
+    async with AsyncE2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        with pytest.warns(DeprecationWarning, match="parse_webhook"):
+            client.parse(webhook)
+
+
+@pytest.mark.anyio
+async def test_parse_webhook_does_not_emit_deprecation_warning(monkeypatch):
+    """Same regression guard as the sync test — `parse_webhook` must not
+    surface the deprecation warning meant for direct `parse` callers."""
+    import warnings
+
+    monkeypatch.setenv("E2A_WEBHOOK_SECRET", "secret-xyz")
+    webhook = _make_message_detail_json()
+    async with AsyncE2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            try:
+                client.parse_webhook(webhook)
+            except DeprecationWarning:
+                pytest.fail("parse_webhook should not emit DeprecationWarning")
+            except PermissionError:
+                pass
+
+
 # ── get_message() ────────────────────────────────────────────────
 
 

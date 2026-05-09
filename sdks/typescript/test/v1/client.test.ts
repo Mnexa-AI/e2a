@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { E2AClient } from "../../src/v1/client.js";
+import {
+  E2AClient,
+  _resetParseDeprecationWarningForTests,
+} from "../../src/v1/client.js";
 import { InboundEmail } from "../../src/v1/inbound-email.js";
 import type { WebhookPayload } from "../../src/v1/inbound-email.js";
 
@@ -222,6 +225,82 @@ describe("E2AClient", () => {
     );
     expect(fromBuffer.unverifiedPayload.messageId).toBe("msg_buffer");
     expect(fromBuffer.unverifiedPayload.sender).toBe("dana@example.com");
+  });
+
+  // ── Deprecation contract for parse() ─────────────────────────────
+
+  it("parse() logs a deprecation warning pointing at parseWebhook", async () => {
+    // Mirrors the Python SDK contract — pin so the warning isn't silently
+    // dropped before the 3.0 removal.
+    _resetParseDeprecationWarningForTests();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const payload: WebhookPayload = {
+        message_id: "msg_dep_1",
+        from: "x@example.com",
+        to: ["bot@test.dev"],
+        recipient: "bot@test.dev",
+        raw_message: Buffer.from(
+          "From: x@example.com\r\nTo: bot@test.dev\r\nSubject: D\r\n\r\nbody",
+        ).toString("base64"),
+      };
+      await client.parse(payload);
+      expect(warn).toHaveBeenCalledOnce();
+      expect(warn.mock.calls[0][0]).toContain("parseWebhook");
+      expect(warn.mock.calls[0][0]).toContain("deprecated");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("parse() warning is once-per-process, not once-per-call", async () => {
+    // The warning would be obnoxious if it fired on every call in a hot
+    // webhook handler. Pin the once-per-process behaviour so future
+    // refactors don't regress it.
+    _resetParseDeprecationWarningForTests();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const payload: WebhookPayload = {
+        message_id: "msg_dep_2",
+        from: "x@example.com",
+        to: ["bot@test.dev"],
+        recipient: "bot@test.dev",
+        raw_message: Buffer.from(
+          "From: x@example.com\r\nTo: bot@test.dev\r\nSubject: D\r\n\r\nbody",
+        ).toString("base64"),
+      };
+      await client.parse(payload);
+      await client.parse(payload);
+      await client.parse(payload);
+      expect(warn).toHaveBeenCalledOnce();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("parseWebhook() does not emit the parse() deprecation warning", async () => {
+    // Regression: an early refactor had parseWebhook delegate to parse(),
+    // which made every correct caller see the deprecation message.
+    _resetParseDeprecationWarningForTests();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const payload: WebhookPayload = {
+        message_id: "msg_dep_3",
+        from: "x@example.com",
+        to: ["bot@test.dev"],
+        recipient: "bot@test.dev",
+        raw_message: Buffer.from(
+          "From: x@example.com\r\nTo: bot@test.dev\r\nSubject: D\r\n\r\nbody",
+        ).toString("base64"),
+        auth_headers: {},
+      };
+      await expect(
+        client.parseWebhook(payload, "any-secret"),
+      ).rejects.toThrow();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("reply", async () => {

@@ -397,7 +397,7 @@ All claim fields (`message_id`, `sender`, `recipient`, `to`, `cc`, `subject`, `t
 High-level sync client. `api_key` falls back to `E2A_API_KEY` env var.
 
 - `client.parse_webhook(body, secret=None)` → `InboundEmail` — parse + HMAC-verify (recommended for webhook handlers). Reads `E2A_WEBHOOK_SECRET` if no secret is passed; raises `PermissionError` on bad signature.
-- `client.parse(body)` → `InboundEmail` — accepts bytes, str, dict, or `MessageDetail`. Returns *unverified* — claim fields raise `UnverifiedEmailError` until `email.verify_signature()` succeeds.
+- `client.parse(body)` → `InboundEmail` — *deprecated since 2.2, removed in 3.0.* Accepts bytes, str, dict, or `MessageDetail` and returns an unverified email. Use `parse_webhook` for webhook handlers, or `email.unverified_payload` for inspection without verification. Calling `parse` emits a `DeprecationWarning`.
 - `client.get_message(message_id)` → `InboundEmail` — pre-verified (REST channel auth)
 - `client.get_messages(status="unread", page_size=50)` → `MessageList`
 - `client.reply(message_id, body, ...)` → `SendResult`

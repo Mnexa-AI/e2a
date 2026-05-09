@@ -116,6 +116,40 @@ def test_parse_unsupported_type():
             client.parse(12345)
 
 
+def test_parse_emits_deprecation_warning():
+    """Calling the legacy `parse` method on the sync client emits a
+    DeprecationWarning that points users at parse_webhook. Pin the
+    deprecation contract so it isn't silently dropped before 3.0."""
+    webhook = _make_message_detail_json()
+    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        with pytest.warns(DeprecationWarning, match="parse_webhook"):
+            client.parse(webhook)
+
+
+def test_parse_webhook_does_not_emit_deprecation_warning(monkeypatch):
+    """The recommended path must not emit the deprecation warning even
+    though it shares the underlying parse logic. Regression: an early
+    refactor had parse_webhook delegate to parse(), which made every
+    correct caller see the deprecation message."""
+    import warnings
+
+    monkeypatch.setenv("E2A_WEBHOOK_SECRET", "secret-xyz")
+    webhook = _make_message_detail_json()
+    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            try:
+                client.parse_webhook(webhook)
+            except DeprecationWarning:
+                pytest.fail("parse_webhook should not emit DeprecationWarning")
+            except PermissionError:
+                # Expected — fixture body has no real signature, so
+                # verify_signature returns False and parse_webhook raises.
+                # The point of this test is the absence of DeprecationWarning,
+                # which we'd have hit before the PermissionError if present.
+                pass
+
+
 # ── get_message() ────────────────────────────────────────────────
 
 

@@ -344,11 +344,14 @@ class InboundEmail:
 
         ``secret`` defaults to the ``E2A_WEBHOOK_SECRET`` environment
         variable when omitted (with ``E2A_HMAC_SECRET`` accepted as a
-        deprecated alias), so the standard webhook-handler pattern is::
+        deprecated alias).
 
-            email = client.parse(body)
-            if not email.verify_signature():
-                return 401
+        Most webhook handlers should use :meth:`E2AClient.parse_webhook`
+        instead — it calls ``verify_signature`` internally and raises
+        ``PermissionError`` on failure, so the handler reads as one
+        concise call. Use ``verify_signature`` directly only when you
+        need to inspect ``unverified_payload`` first or have some other
+        reason to keep the unverified object around.
 
         Checks (in order):
 
