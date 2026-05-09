@@ -59,6 +59,6 @@
     "swagger2openapi": "^7.0.8",
     "typescript": "^5.4",
     "vitest": "^4.1.5",
-    "yaml": "^2.8.3"
+    "yaml": "^2.8.4"
   }
 }
