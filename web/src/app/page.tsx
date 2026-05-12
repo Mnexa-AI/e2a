@@ -98,6 +98,22 @@ export default function Home() {
             Read the docs
           </Link>
         </div>
+        <div style={{ marginTop: 28, display: "flex", justifyContent: "center" }}>
+          <a
+            href="https://www.producthunt.com/products/e2a-open-source-email-api-for-agents?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-e2a-open-source-email-api-for-agents"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1145559&theme=light&t=1778615217650"
+              alt="e2a – open-source email API for agents - Give your AI agents a real, authenticated email address. | Product Hunt"
+              width={250}
+              height={54}
+              style={{ display: "block" }}
+            />
+          </a>
+        </div>
       </section>
 
       <div style={{ height: "0.5px", background: "#E8E0D4" }} />
