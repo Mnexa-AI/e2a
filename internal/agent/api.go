@@ -1394,6 +1394,7 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		From           string   `json:"from"`
 		To             []string `json:"to"`
 		CC             []string `json:"cc,omitempty"`
+		ReplyTo        []string `json:"reply_to,omitempty"`
 		Recipient      string   `json:"recipient"`
 		Subject        string   `json:"subject"`
 		ConversationID string   `json:"conversation_id,omitempty"`
@@ -1408,6 +1409,7 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 			From:           m.Sender,
 			To:             orEmptySlice(m.ToRecipients),
 			CC:             m.CC,
+			ReplyTo:        m.ReplyTo,
 			Recipient:      m.Recipient,
 			Subject:        m.Subject,
 			ConversationID: m.ConversationID,
@@ -1493,6 +1495,7 @@ func (a *API) handleGetMessage(w http.ResponseWriter, r *http.Request) {
 		"from":            msg.Sender,
 		"to":              orEmptySlice(msg.ToRecipients),
 		"cc":              msg.CC,
+		"reply_to":        msg.ReplyTo,
 		"recipient":       msg.Recipient,
 		"subject":         msg.Subject,
 		"conversation_id": msg.ConversationID,

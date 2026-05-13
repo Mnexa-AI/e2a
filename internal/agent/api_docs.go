@@ -72,12 +72,15 @@ type ListMessagesResponse struct {
 
 // MessageSummary is a lightweight message summary for the list endpoint.
 // To and CC are the parsed To: / Cc: headers from the original message;
-// Recipient is this delivery's per-agent target.
+// Recipient is this delivery's per-agent target. ReplyTo is the parsed
+// Reply-To: header — empty when the sender did not request a different
+// reply mailbox (the server never falls back to From: silently).
 type MessageSummary struct {
 	MessageID      string   `json:"message_id" example:"msg_abc123"`
 	From           string   `json:"from" example:"alice@example.com"`
 	To             []string `json:"to" example:"my-bot@example.com"`
 	CC             []string `json:"cc,omitempty"`
+	ReplyTo        []string `json:"reply_to,omitempty"`
 	Recipient      string   `json:"recipient" example:"my-bot@example.com"`
 	Subject        string   `json:"subject" example:"Hello"`
 	ConversationID string   `json:"conversation_id,omitempty"`
@@ -88,12 +91,15 @@ type MessageSummary struct {
 // MessageDetail is the full message content returned by GET /api/v1/agents/{email}/messages/{id},
 // which marks unread messages as read when fetched. To and CC are the parsed
 // To: / Cc: headers from the original message; Recipient is this delivery's
-// per-agent target.
+// per-agent target. ReplyTo carries the parsed Reply-To: header so consumers
+// can identify the intended reply mailbox for forwarded / notification mail
+// (e.g. From: notifications@..., Reply-To: <real-user>).
 type MessageDetail struct {
 	MessageID      string            `json:"message_id" example:"msg_abc123"`
 	From           string            `json:"from" example:"alice@example.com"`
 	To             []string          `json:"to" example:"my-bot@example.com"`
 	CC             []string          `json:"cc,omitempty"`
+	ReplyTo        []string          `json:"reply_to,omitempty"`
 	Recipient      string            `json:"recipient" example:"my-bot@example.com"`
 	Subject        string            `json:"subject" example:"Hello"`
 	ConversationID string            `json:"conversation_id,omitempty"`

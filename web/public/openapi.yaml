@@ -247,6 +247,10 @@ definitions:
       recipient:
         example: my-bot@example.com
         type: string
+      reply_to:
+        items:
+          type: string
+        type: array
       status:
         example: read
         type: string
@@ -280,6 +284,10 @@ definitions:
       recipient:
         example: my-bot@example.com
         type: string
+      reply_to:
+        items:
+          type: string
+        type: array
       status:
         enum:
         - unread

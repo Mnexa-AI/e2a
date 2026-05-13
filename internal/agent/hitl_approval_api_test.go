@@ -340,7 +340,7 @@ func TestApproveReplyFromHITLUsesStoredReplyTo(t *testing.T) {
 
 	inbound, _ := store.CreateInboundMessage(ctx, "", agent.ID,
 		"alice@gmail.com", "bot@apprv-reply.example.com",
-		"<orig@gmail.com>", "Hello Bot", "", "", nil, nil, nil, nil)
+		"<orig@gmail.com>", "Hello Bot", "", "", nil, nil, nil, nil, nil)
 
 	replyResp := authed(t, "POST",
 		server.URL+"/api/v1/agents/bot@apprv-reply.example.com/messages/"+inbound.ID+"/reply",

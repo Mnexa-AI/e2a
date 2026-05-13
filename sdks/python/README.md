@@ -373,6 +373,7 @@ print(result.status, result.message_id)
 | `recipient` | `str` | Per-delivery target — your agent's address |
 | `to` | `list[str]` | Parsed `To:` header — every address from the original message |
 | `cc` | `list[str]` | Parsed `Cc:` header (empty when no CCs) |
+| `reply_to` | `list[str]` | Parsed `Reply-To:` header — empty when absent (never falls back to `sender`). Useful when `sender` is a no-reply notifications address (Granola, GitHub, etc.) and the real correspondent is in Reply-To. |
 | `subject` | `str` | Email subject line |
 | `text_body` | `str` | Plain-text email body |
 | `html_body` | `str \| None` | HTML email body, if present |
@@ -382,7 +383,7 @@ print(result.status, result.message_id)
 | `auth` | `AuthHeaders` | Full authentication details |
 | `raw_message` | `bytes` | Raw RFC 2822 email bytes |
 
-All claim fields (`message_id`, `sender`, `recipient`, `to`, `cc`, `subject`, `text_body`, `html_body`, `attachments`, `conversation_id`, `received_at`) are gated — accessing them on an unverified webhook payload raises `UnverifiedEmailError`. Always-available regardless of verification: `auth`, `raw_message`, `is_verified`, `verified`, `unverified_payload`. Emails returned by `client.get_message(...)` are pre-verified (the bearer token already authenticated the channel). `client.get_messages(...)` returns lightweight `MessageSummary` items, not `InboundEmail`, so the gate doesn't apply.
+All claim fields (`message_id`, `sender`, `recipient`, `to`, `cc`, `reply_to`, `subject`, `text_body`, `html_body`, `attachments`, `conversation_id`, `received_at`) are gated — accessing them on an unverified webhook payload raises `UnverifiedEmailError`. Always-available regardless of verification: `auth`, `raw_message`, `is_verified`, `verified`, `unverified_payload`. Emails returned by `client.get_message(...)` are pre-verified (the bearer token already authenticated the channel). `client.get_messages(...)` returns lightweight `MessageSummary` items, not `InboundEmail`, so the gate doesn't apply.
 
 **Methods:**
 

@@ -190,6 +190,7 @@ class MessageSummary:
     recipient: str
     to: list[str]
     cc: list[str]
+    reply_to: list[str]
     subject: str
     status: str  # "unread" or "read"
     created_at: str
@@ -242,8 +243,8 @@ class InboundEmail:
         - :attr:`verified` — has verify_signature succeeded yet?
 
     Gated (require verify_signature first):
-        message_id, conversation_id, sender, recipient, to, cc, subject,
-        text_body, html_body, attachments, received_at, reply().
+        message_id, conversation_id, sender, recipient, to, cc, reply_to,
+        subject, text_body, html_body, attachments, received_at, reply().
     """
 
     def __init__(
@@ -255,6 +256,7 @@ class InboundEmail:
         recipient: str,
         to: list[str],
         cc: list[str],
+        reply_to: list[str],
         subject: str,
         text_body: str,
         html_body: Optional[str],
@@ -273,6 +275,7 @@ class InboundEmail:
         self._recipient = recipient
         self._to = to
         self._cc = cc
+        self._reply_to = reply_to
         self._subject = subject
         self._text_body = text_body
         self._html_body = html_body
@@ -329,6 +332,7 @@ class InboundEmail:
             "recipient": self._recipient,
             "to": list(self._to),
             "cc": list(self._cc),
+            "reply_to": list(self._reply_to),
             "subject": self._subject,
             "text_body": self._text_body,
             "html_body": self._html_body,
@@ -418,6 +422,35 @@ class InboundEmail:
     def cc(self) -> list[str]:
         self._require_verified()
         return self._cc
+
+    @property
+    def reply_to(self) -> list[str]:
+        """Parsed Reply-To: header — addresses the sender wants replies sent to.
+
+        Empty list when the header was absent (the SDK never silently falls
+        back to :attr:`sender`; that decision belongs to the caller).
+        Distinct from :attr:`sender` so consumers can recover the original
+        From: address of forwarded / notification mail whose Reply-To
+        points at a different mailbox.
+
+        .. note::
+           Trust path: e2a's HMAC binds the body hash of ``raw_message``,
+           and Reply-To lives inside ``raw_message`` — so tampering with
+           it breaks :meth:`verify_signature`, the same protection that
+           :attr:`to` and :attr:`cc` enjoy. The list shipped here is the
+           server's parse of that header; cross-verify against
+           ``raw_message`` if you need byte-exact assurance.
+
+           This is **not** an upstream-DKIM coverage check. If the original
+           sender's DKIM signature does not cover Reply-To (whether
+           because they did not sign it, or there was no DKIM at all), a
+           MITM between sender and e2a could have rewritten it without
+           detection. For routing decisions where attacker-controlled
+           Reply-To would matter, also confirm :attr:`is_verified` and
+           that the sender's domain is one you expect.
+        """
+        self._require_verified()
+        return self._reply_to
 
     @property
     def subject(self) -> str:
@@ -593,6 +626,9 @@ def _parse_payload(data: dict[str, Any]) -> dict[str, Any]:
         "recipient": data.get("recipient", ""),
         "to": list(data.get("to") or []),
         "cc": list(data.get("cc") or []),
+        # reply_to comes from the server's parse of the Reply-To: header.
+        # Empty list when absent — the server never falls back to From:.
+        "reply_to": list(data.get("reply_to") or []),
         "subject": subject or data.get("subject", ""),
         "text_body": text_body,
         "html_body": html_body,
@@ -641,6 +677,7 @@ class AsyncInboundEmail:
         recipient: str,
         to: list[str],
         cc: list[str],
+        reply_to: list[str],
         subject: str,
         text_body: str,
         html_body: Optional[str],
@@ -656,6 +693,7 @@ class AsyncInboundEmail:
         self._recipient = recipient
         self._to = to
         self._cc = cc
+        self._reply_to = reply_to
         self._subject = subject
         self._text_body = text_body
         self._html_body = html_body
@@ -695,6 +733,7 @@ class AsyncInboundEmail:
             "recipient": self._recipient,
             "to": list(self._to),
             "cc": list(self._cc),
+            "reply_to": list(self._reply_to),
             "subject": self._subject,
             "text_body": self._text_body,
             "html_body": self._html_body,
@@ -754,6 +793,35 @@ class AsyncInboundEmail:
     def cc(self) -> list[str]:
         self._require_verified()
         return self._cc
+
+    @property
+    def reply_to(self) -> list[str]:
+        """Parsed Reply-To: header — addresses the sender wants replies sent to.
+
+        Empty list when the header was absent (the SDK never silently falls
+        back to :attr:`sender`; that decision belongs to the caller).
+        Distinct from :attr:`sender` so consumers can recover the original
+        From: address of forwarded / notification mail whose Reply-To
+        points at a different mailbox.
+
+        .. note::
+           Trust path: e2a's HMAC binds the body hash of ``raw_message``,
+           and Reply-To lives inside ``raw_message`` — so tampering with
+           it breaks :meth:`verify_signature`, the same protection that
+           :attr:`to` and :attr:`cc` enjoy. The list shipped here is the
+           server's parse of that header; cross-verify against
+           ``raw_message`` if you need byte-exact assurance.
+
+           This is **not** an upstream-DKIM coverage check. If the original
+           sender's DKIM signature does not cover Reply-To (whether
+           because they did not sign it, or there was no DKIM at all), a
+           MITM between sender and e2a could have rewritten it without
+           detection. For routing decisions where attacker-controlled
+           Reply-To would matter, also confirm :attr:`is_verified` and
+           that the sender's domain is one you expect.
+        """
+        self._require_verified()
+        return self._reply_to
 
     @property
     def subject(self) -> str:

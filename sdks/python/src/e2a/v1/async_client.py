@@ -394,6 +394,7 @@ class AsyncE2AClient:
                 recipient=m.recipient or "",
                 to=list(m.to or []),
                 cc=list(m.cc or []),
+                reply_to=list(m.reply_to or []),
                 subject=m.subject or "",
                 status=m.status or "",
                 created_at=m.created_at or "",

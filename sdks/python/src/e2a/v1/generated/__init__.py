@@ -153,6 +153,7 @@ class MessageDetail(BaseModel):
     message_id: str | None = Field(None, examples=['msg_abc123'])
     raw_message: str | None = None
     recipient: str | None = Field(None, examples=['my-bot@example.com'])
+    reply_to: list[str] | None = None
     status: str | None = Field(None, examples=['read'])
     subject: str | None = Field(None, examples=['Hello'])
     to: list[str] | None = Field(None, examples=[['my-bot@example.com']])
@@ -168,6 +169,7 @@ class MessageSummary(BaseModel):
     from_: str | None = Field(None, alias='from', examples=['alice@example.com'])
     message_id: str | None = Field(None, examples=['msg_abc123'])
     recipient: str | None = Field(None, examples=['my-bot@example.com'])
+    reply_to: list[str] | None = None
     status: Literal['unread', 'read'] | None = Field(None, examples=['unread'])
     subject: str | None = Field(None, examples=['Hello'])
     to: list[str] | None = Field(None, examples=[['my-bot@example.com']])

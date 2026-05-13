@@ -249,12 +249,14 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 		authHeaders = s.relay.signer.Sign(authPayload)
 	}
 
-	// Display sender for webhook / stored message prefers Reply-To when set,
-	// so recipients reply to the intended mailbox (matches how mail clients
-	// treat Reply-To). Auth headers above retain the From: address.
+	// Display sender for webhook / stored message prefers the first Reply-To
+	// when set, so recipients reply to the intended mailbox (matches how
+	// mail clients treat Reply-To). Auth headers above retain the From:
+	// address. The full Reply-To list is shipped separately on the
+	// webhook payload so downstream consumers can see all addresses.
 	displaySender := senderEmail
-	if s.inboundThreadInfo.ReplyTo != "" {
-		displaySender = s.inboundThreadInfo.ReplyTo
+	if len(s.inboundThreadInfo.ReplyTo) > 0 {
+		displaySender = s.inboundThreadInfo.ReplyTo[0]
 	}
 
 	// Record inbound usage (fail-open — never block inbound email)
@@ -277,7 +279,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// stored row uses the same ID we just bound into the auth headers.
 	// toRecipients/cc come from the parsed To:/Cc: headers and are the
 	// same across every fan-out delivery for this inbound message.
-	inboundMsg, err := s.relay.store.CreateInboundMessage(ctx, messageID, agent.ID, displaySender, rcpt, s.inboundMsgID, s.inboundSubject, conversationID, deliveryStatus, body, authHeaders, s.inboundThreadInfo.To, s.inboundThreadInfo.CC)
+	inboundMsg, err := s.relay.store.CreateInboundMessage(ctx, messageID, agent.ID, displaySender, rcpt, s.inboundMsgID, s.inboundSubject, conversationID, deliveryStatus, body, authHeaders, s.inboundThreadInfo.To, s.inboundThreadInfo.CC, s.inboundThreadInfo.ReplyTo)
 	if err != nil {
 		log.Printf("[%s] [%s] failed to record inbound message: %v", s.id, senderEmail, err)
 		return
@@ -307,6 +309,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 		From:           displaySender,
 		To:             s.inboundThreadInfo.To,
 		CC:             s.inboundThreadInfo.CC,
+		ReplyTo:        s.inboundThreadInfo.ReplyTo,
 		Recipient:      rcpt,
 		RawMessage:     body,
 		AuthHeaders:    authHeaders,
@@ -405,7 +408,7 @@ type threadInfo struct {
 	InReplyTo      string
 	References     []string
 	From           string   // From header (human-readable sender, not SMTP envelope)
-	ReplyTo        string   // Reply-To header, if present
+	ReplyTo        []string // Reply-To header addresses — empty when absent (RFC 5322 allows multiple)
 	To             []string // To: header addresses (one row per fan-out target sees the same list)
 	CC             []string // Cc: header addresses
 	ConversationID string   // X-E2A-Conversation-ID header, if present
@@ -428,19 +431,16 @@ func extractThreadInfo(body []byte) threadInfo {
 	if addr, err := mail.ParseAddress(msg.Header.Get("From")); err == nil {
 		fromHeader = addr.Address
 	}
-	// Extract Reply-To header email address
-	replyToHeader := ""
-	if addr, err := mail.ParseAddress(msg.Header.Get("Reply-To")); err == nil {
-		replyToHeader = addr.Address
-	}
-
 	return threadInfo{
 		MessageID:      msg.Header.Get("Message-Id"),
 		Subject:        msg.Header.Get("Subject"),
 		InReplyTo:      msg.Header.Get("In-Reply-To"),
 		References:     refs,
 		From:           fromHeader,
-		ReplyTo:        replyToHeader,
+		// RFC 5322 § 3.6.2 allows multiple addresses in Reply-To. Mirror
+		// the same parser used for To/Cc so display names get stripped
+		// the same way and the field shape is uniform across consumers.
+		ReplyTo:        extractAddressList(msg.Header.Get("Reply-To")),
 		To:             extractAddressList(msg.Header.Get("To")),
 		CC:             extractAddressList(msg.Header.Get("Cc")),
 		ConversationID: msg.Header.Get("X-E2A-Conversation-Id"),

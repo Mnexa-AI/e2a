@@ -222,7 +222,7 @@ func TestReplyHITLGateHoldsWithReplyTo(t *testing.T) {
 
 	inbound, _ := store.CreateInboundMessage(ctx, "", agent.ID,
 		"alice@gmail.com", "bot@hitl-reply.example.com",
-		"<orig@gmail.com>", "Hello Bot", "", "", nil, nil, nil, nil)
+		"<orig@gmail.com>", "Hello Bot", "", "", nil, nil, nil, nil, nil)
 
 	payload := `{"body":"Thanks!","html_body":"<p>Thanks!</p>","conversation_id":"conv_r"}`
 	url := server.URL + "/api/v1/agents/bot@hitl-reply.example.com/messages/" + inbound.ID + "/reply"
