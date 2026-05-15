@@ -166,6 +166,21 @@ jobs:
       - run: npm test --workspace @e2a/cli
       - run: npm run build --workspace @e2a/cli
 
+  mcp:
+    name: MCP server tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm install --package-lock=false
+      - run: npm run build --workspace @e2a/sdk
+      - run: npm test --workspace @e2a/mcp-server
+      - run: npm run build --workspace @e2a/mcp-server
+
   swagger:
     name: Swagger spec freshness
     runs-on: ubuntu-latest
