@@ -565,6 +565,8 @@ definitions:
         type: string
       name:
         type: string
+      secret:
+        type: string
       secret_prefix:
         type: string
     type: object
@@ -1623,10 +1625,9 @@ paths:
       - User
   /api/v1/users/me/signing-secrets:
     get:
-      description: Returns the authenticated user's webhook signing secrets (metadata
-        + 12-char prefix preview only — full secrets are only shown once at creation).
-        Sorted most-recent-first; the most-recent secret is what the e2a relay uses
-        for new signatures.
+      description: Returns the authenticated user's webhook signing secrets (metadata,
+        12-char prefix, and full plaintext secret). Sorted most-recent-first; the
+        most-recent secret is what the e2a relay uses for new signatures.
       produces:
       - application/json
       responses:

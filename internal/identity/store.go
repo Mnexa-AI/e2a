@@ -1941,11 +1941,12 @@ func (s *Store) CreateSigningSecret(ctx context.Context, userID, name string) (*
 }
 
 // ListSigningSecrets returns the user's secrets in most-recent-first
-// order. The plaintext Secret is intentionally omitted; only the
-// SecretPrefix preview is exposed.
+// order. Populates both Secret (plaintext) and SecretPrefix; callers
+// that build a list shape for the dashboard get to choose which to
+// surface.
 func (s *Store) ListSigningSecrets(ctx context.Context, userID string) ([]SigningSecret, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, user_id, name, substring(secret, 1, 12), created_at, last_signed_at
+		`SELECT id, user_id, name, secret, substring(secret, 1, 12), created_at, last_signed_at
 		 FROM webhook_signing_secrets WHERE user_id = $1
 		 ORDER BY created_at DESC`,
 		userID,
@@ -1957,7 +1958,7 @@ func (s *Store) ListSigningSecrets(ctx context.Context, userID string) ([]Signin
 	var out []SigningSecret
 	for rows.Next() {
 		var s SigningSecret
-		if err := rows.Scan(&s.ID, &s.UserID, &s.Name, &s.SecretPrefix, &s.CreatedAt, &s.LastSignedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.UserID, &s.Name, &s.Secret, &s.SecretPrefix, &s.CreatedAt, &s.LastSignedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, s)

@@ -261,6 +261,7 @@ class SigningSecretSummary(BaseModel):
     id: str | None = None
     last_signed_at: str | None = None
     name: str | None = None
+    secret: str | None = None
     secret_prefix: str | None = None
 
 

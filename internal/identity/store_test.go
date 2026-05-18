@@ -608,8 +608,13 @@ func TestCreateOrGetUser_AutoCreatesSigningSecret(t *testing.T) {
 	if secrets[0].SecretPrefix == "" {
 		t.Error("SecretPrefix should be set on list")
 	}
-	if secrets[0].Secret != "" {
-		t.Error("plaintext Secret must NOT be returned by List")
+	// Plaintext is exposed on List so the dashboard can render the full
+	// value on demand. The first 12 chars must equal the prefix.
+	if len(secrets[0].Secret) != 64 {
+		t.Errorf("plaintext Secret should be 64 hex chars on list, got len=%d", len(secrets[0].Secret))
+	}
+	if secrets[0].Secret[:12] != secrets[0].SecretPrefix {
+		t.Errorf("Secret prefix mismatch: Secret[:12]=%q, SecretPrefix=%q", secrets[0].Secret[:12], secrets[0].SecretPrefix)
 	}
 }
 

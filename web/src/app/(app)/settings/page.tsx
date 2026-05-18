@@ -84,6 +84,10 @@ function ExportSection() {
 type SigningSecretSummary = {
   id: string;
   name: string;
+  // The server returns the full plaintext on every list response, so
+  // the dashboard can offer a "show secret" reveal after creation.
+  // `secret_prefix` is kept for compact list views.
+  secret: string;
   secret_prefix: string;
   created_at: string;
   last_signed_at?: string;
@@ -168,6 +172,7 @@ function SigningSecretsSection() {
         with your most recently created secret; older ones stay valid for
         verification until you delete them, so rotation is: create new → swap
         in your code → delete old. Up to 5 active secrets at a time.
+        Click <strong>Show</strong> below to reveal the full secret at any time.
       </p>
 
       {created && <CreatedSecretBanner secret={created} onDismiss={() => setCreated(null)} />}
@@ -289,7 +294,7 @@ function SigningSecretsTable({ secrets, onChange }: { secrets: SigningSecretSumm
         <thead className="bg-surface text-muted">
           <tr>
             <th className="text-left px-4 py-2 font-medium">Name</th>
-            <th className="text-left px-4 py-2 font-medium">Prefix</th>
+            <th className="text-left px-4 py-2 font-medium">Secret</th>
             <th className="text-left px-4 py-2 font-medium">Created</th>
             <th className="text-left px-4 py-2 font-medium">Last used</th>
             <th className="px-4 py-2"></th>
@@ -322,6 +327,8 @@ function SigningSecretRow({
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -345,10 +352,43 @@ function SigningSecretRow({
     }
   };
 
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(secret.secret);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Older browsers / test envs without clipboard support — silently
+      // do nothing; the value is visible once revealed.
+    }
+  };
+
   return (
     <tr className="border-t border-border">
       <td className="px-4 py-3">{secret.name || "—"}</td>
-      <td className="px-4 py-3 font-mono text-xs">{secret.secret_prefix}…</td>
+      <td className="px-4 py-3 font-mono text-xs">
+        <div className="flex items-center gap-2">
+          <span className="break-all">
+            {revealed ? secret.secret : `${secret.secret_prefix}…`}
+          </span>
+          <button
+            type="button"
+            onClick={() => setRevealed((v) => !v)}
+            className="px-2 py-1 border border-border rounded text-xs hover:bg-background transition shrink-0"
+          >
+            {revealed ? "Hide" : "Show"}
+          </button>
+          {revealed && (
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="px-2 py-1 border border-border rounded text-xs hover:bg-background transition shrink-0"
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          )}
+        </div>
+      </td>
       <td className="px-4 py-3 text-muted">{formatDate(secret.created_at)}</td>
       <td className="px-4 py-3 text-muted">
         {secret.last_signed_at ? formatRelative(secret.last_signed_at) : "Never"}

@@ -86,14 +86,18 @@ function errResp(text: string, status: number): MockResponse {
 }
 
 describe("Settings — Signing secrets section", () => {
+  // The list endpoint now returns the full plaintext `secret` so the
+  // dashboard can offer a Show/Hide toggle. Fixtures include both
+  // prefix and full secret for that reason.
   const defaultSecret = {
     id: "wsec_default0001",
     name: "default",
+    secret: "abcd1234efgh".repeat(5).slice(0, 64),
     secret_prefix: "abcd1234efgh",
     created_at: "2026-04-15T10:00:00Z",
   };
 
-  it("lists existing secrets without exposing plaintext", async () => {
+  it("lists existing secrets with the prefix hidden by default", async () => {
     global.fetch = makeFetchMock({
       "/api/v1/users/me/signing-secrets": () => jsonResp({ secrets: [defaultSecret] }),
     }) as unknown as typeof fetch;
@@ -102,11 +106,26 @@ describe("Settings — Signing secrets section", () => {
     await waitFor(() => {
       expect(screen.getByText("default")).toBeInTheDocument();
     });
-    // Prefix is shown with a trailing ellipsis.
+    // Prefix is shown with a trailing ellipsis until the user clicks Show.
     expect(screen.getByText("abcd1234efgh…")).toBeInTheDocument();
-    // Critical: nothing in the rendered DOM should contain a 32+ char
-    // hex blob (the full plaintext form). The mock never returns one.
-    expect(document.body.innerHTML).not.toMatch(/[a-f0-9]{32,}/i);
+    expect(screen.queryByText(defaultSecret.secret)).not.toBeInTheDocument();
+  });
+
+  it("toggles the full secret on Show / Hide", async () => {
+    global.fetch = makeFetchMock({
+      "/api/v1/users/me/signing-secrets": () => jsonResp({ secrets: [defaultSecret] }),
+    }) as unknown as typeof fetch;
+
+    render(<SettingsPage />);
+    await waitFor(() => expect(screen.getByText("default")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /^show$/i }));
+    expect(screen.getByText(defaultSecret.secret)).toBeInTheDocument();
+    expect(screen.queryByText("abcd1234efgh…")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^hide$/i }));
+    expect(screen.queryByText(defaultSecret.secret)).not.toBeInTheDocument();
+    expect(screen.getByText("abcd1234efgh…")).toBeInTheDocument();
   });
 
   it("disables Delete when only one secret exists", async () => {
@@ -177,7 +196,7 @@ describe("Settings — Signing secrets section", () => {
   });
 
   it("DELETEs the right id when confirming a row delete", async () => {
-    const second = { ...defaultSecret, id: "wsec_other", name: "other", secret_prefix: "1111" };
+    const second = { ...defaultSecret, id: "wsec_other", name: "other", secret: "1111".repeat(16), secret_prefix: "1111" };
     const deletedIDs: string[] = [];
     global.fetch = makeFetchMock({
       "GET /api/v1/users/me/signing-secrets": () => jsonResp({ secrets: [defaultSecret, second] }),
@@ -202,7 +221,7 @@ describe("Settings — Signing secrets section", () => {
   });
 
   it("surfaces a 'cannot delete the last' error inline", async () => {
-    const second = { ...defaultSecret, id: "wsec_other", name: "other", secret_prefix: "1111" };
+    const second = { ...defaultSecret, id: "wsec_other", name: "other", secret: "1111".repeat(16), secret_prefix: "1111" };
     global.fetch = makeFetchMock({
       "GET /api/v1/users/me/signing-secrets": () => jsonResp({ secrets: [defaultSecret, second] }),
       [`DELETE /api/v1/users/me/signing-secrets/${encodeURIComponent("wsec_other")}`]: () =>

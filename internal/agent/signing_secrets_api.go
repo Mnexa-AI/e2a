@@ -19,12 +19,16 @@ type CreateSigningSecretRequest struct {
 	Name string `json:"name"`
 }
 
-// SigningSecretSummary is the safe-to-list shape: prefix only, no
-// plaintext. Returned by GET (list) and as a field of the create
-// response so callers can confirm what they just made.
+// SigningSecretSummary is the list shape. Includes the full plaintext
+// `secret` so the dashboard can show it on demand — this is a known
+// relaxation of the previous "show once at creation" posture; the
+// hashes-only flow for API keys is the longer-term direction. The
+// `secret_prefix` field is still populated for backwards-compatible
+// list views that only want the preview.
 type SigningSecretSummary struct {
 	ID           string  `json:"id"`
 	Name         string  `json:"name"`
+	Secret       string  `json:"secret"`
 	SecretPrefix string  `json:"secret_prefix"`
 	CreatedAt    string  `json:"created_at"`
 	LastSignedAt *string `json:"last_signed_at,omitempty"`
@@ -52,7 +56,7 @@ type ListSigningSecretsResponse struct {
 // this response; they're only shown at creation.
 //
 // @Summary      List your webhook signing secrets
-// @Description  Returns the authenticated user's webhook signing secrets (metadata + 12-char prefix preview only — full secrets are only shown once at creation). Sorted most-recent-first; the most-recent secret is what the e2a relay uses for new signatures.
+// @Description  Returns the authenticated user's webhook signing secrets (metadata, 12-char prefix, and full plaintext secret). Sorted most-recent-first; the most-recent secret is what the e2a relay uses for new signatures.
 // @Tags         User
 // @Produce      json
 // @Security     BearerAuth
@@ -171,6 +175,7 @@ func toSummary(s identity.SigningSecret) SigningSecretSummary {
 	out := SigningSecretSummary{
 		ID:           s.ID,
 		Name:         s.Name,
+		Secret:       s.Secret,
 		SecretPrefix: s.SecretPrefix,
 		CreatedAt:    s.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}

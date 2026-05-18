@@ -18,6 +18,7 @@ import (
 type signingSecretSummary struct {
 	ID           string  `json:"id"`
 	Name         string  `json:"name"`
+	Secret       string  `json:"secret"`
 	SecretPrefix string  `json:"secret_prefix"`
 	CreatedAt    string  `json:"created_at"`
 	LastSignedAt *string `json:"last_signed_at,omitempty"`
@@ -81,9 +82,13 @@ func TestSigningSecrets_Unauthenticated(t *testing.T) {
 
 // --- List ---
 
-func TestSigningSecrets_List_OmitsPlaintext(t *testing.T) {
+// The list endpoint now exposes the plaintext `secret` so the
+// dashboard can display the full value on demand. The 12-char
+// `secret_prefix` is kept for clients that only want the preview and
+// must equal the first 12 chars of the secret.
+func TestSigningSecrets_List_IncludesPlaintext(t *testing.T) {
 	server, store, _ := setupAPI(t)
-	apiKey := createTestUser(t, store, "list-omits@example.com")
+	apiKey := createTestUser(t, store, "list-includes@example.com")
 
 	resp := authedReq(t, "GET", server.URL+"/api/v1/users/me/signing-secrets", "", apiKey)
 	defer resp.Body.Close()
@@ -105,11 +110,11 @@ func TestSigningSecrets_List_OmitsPlaintext(t *testing.T) {
 	if got.Secrets[0].SecretPrefix == "" {
 		t.Error("SecretPrefix should be populated")
 	}
-
-	// CRITICAL: the raw response must not contain the field "secret"
-	// or any 64-char-hex-looking thing (the prefix is only 12 chars).
-	if strings.Contains(string(body), `"secret":`) {
-		t.Errorf("list response leaks plaintext secret field:\n%s", body)
+	if len(got.Secrets[0].Secret) != 64 {
+		t.Errorf("Secret length = %d, want 64 hex chars on list", len(got.Secrets[0].Secret))
+	}
+	if got.Secrets[0].Secret[:12] != got.Secrets[0].SecretPrefix {
+		t.Errorf("Secret[:12] = %q, SecretPrefix = %q", got.Secrets[0].Secret[:12], got.Secrets[0].SecretPrefix)
 	}
 }
 
@@ -157,12 +162,13 @@ func TestSigningSecrets_Create_ReturnsPlaintextOnce(t *testing.T) {
 		t.Error("created secret not found in store")
 	}
 
-	// Subsequent list MUST NOT include the plaintext.
+	// Subsequent list must include the same plaintext (this is the
+	// "view secret again" behavior the dashboard needs).
 	listR := authedReq(t, "GET", server.URL+"/api/v1/users/me/signing-secrets", "", apiKey)
 	defer listR.Body.Close()
 	listBody, _ := io.ReadAll(listR.Body)
-	if strings.Contains(string(listBody), got.Secret) {
-		t.Errorf("list leaks plaintext after create:\n%s", listBody)
+	if !strings.Contains(string(listBody), got.Secret) {
+		t.Errorf("list missing plaintext after create:\n%s", listBody)
 	}
 }
 

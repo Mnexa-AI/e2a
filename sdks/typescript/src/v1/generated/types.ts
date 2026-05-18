@@ -1436,7 +1436,7 @@ export interface paths {
         };
         /**
          * List your webhook signing secrets
-         * @description Returns the authenticated user's webhook signing secrets (metadata + 12-char prefix preview only — full secrets are only shown once at creation). Sorted most-recent-first; the most-recent secret is what the e2a relay uses for new signatures.
+         * @description Returns the authenticated user's webhook signing secrets (metadata, 12-char prefix, and full plaintext secret). Sorted most-recent-first; the most-recent secret is what the e2a relay uses for new signatures.
          */
         get: {
             parameters: {
@@ -1947,6 +1947,7 @@ export interface components {
             id?: string;
             last_signed_at?: string;
             name?: string;
+            secret?: string;
             secret_prefix?: string;
         };
         UpdateAgentRequest: {
