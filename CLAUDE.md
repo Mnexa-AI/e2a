@@ -126,6 +126,15 @@ Triggered by GitHub release publish or `workflow_dispatch`.
 3. Commit and push to main
 4. `gh workflow run "Publish CLI" --ref main`
 
+### MCP server
+Triggered by tag push (`mcp-v*`) or `workflow_dispatch`. Publishes `@e2a/mcp-server` to npm with provenance.
+1. Bump `version` in `mcp/package.json`
+2. `npm run build --workspace @e2a/mcp-server`
+3. Commit and push to main
+4. `git tag mcp-v<VERSION> && git push origin mcp-v<VERSION>`
+
+The first publish requires `@e2a/mcp-server` to be configured as a trusted publisher on npmjs.com against `Mnexa-AI/e2a` + `publish-mcp.yml` (one-time, done in the npm web UI).
+
 ## Key Conventions
 
 - **npm workspaces**: root `package.json` declares `cli` and `sdks/typescript` as workspaces. Always use `--workspace` flag for workspace commands. Use `--package-lock=false` for install.

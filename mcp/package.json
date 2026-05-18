@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "MCP server for e2a — email for AI agents",
   "bin": {
-    "e2a-mcp": "./dist/index.js"
+    "e2a-mcp": "dist/index.js"
   },
   "type": "module",
   "main": "./dist/index.js",
@@ -36,7 +36,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Mnexa-AI/e2a",
+    "url": "git+https://github.com/Mnexa-AI/e2a.git",
     "directory": "mcp"
   },
   "homepage": "https://github.com/Mnexa-AI/e2a/tree/main/mcp",
