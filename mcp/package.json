@@ -18,6 +18,21 @@
   "engines": {
     "node": ">=18"
   },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "email",
+    "agent",
+    "ai",
+    "e2a",
+    "adk",
+    "google-adk",
+    "langchain",
+    "claude",
+    "anthropic",
+    "openai",
+    "agents"
+  ],
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

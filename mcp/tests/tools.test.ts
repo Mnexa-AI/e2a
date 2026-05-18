@@ -5,20 +5,30 @@ import type { E2AClient } from "@e2a/sdk/v1";
 import { buildServer } from "../src/server.js";
 
 // Minimal stub of E2AClient — only the methods our tools actually call.
-function makeStubClient(): E2AClient {
+function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): E2AClient {
   const stub = {
-    agentEmail: "bot@example.com",
+    agentEmail: overrides.agentEmail ?? "bot@example.com",
     api: {
       getMessage: vi.fn(async (_email: string, id: string) => ({
         message_id: id,
         from: "alice@example.com",
         subject: "hi",
       })),
+      getAgent: vi.fn(async (email: string) => ({
+        id: email,
+        email,
+        agent_mode: "local",
+      })),
     },
     send: vi.fn(async () => ({ message_id: "msg_sent", status: "sent" })),
     reply: vi.fn(async () => ({ message_id: "msg_reply", status: "sent" })),
     listMessages: vi.fn(async () => ({ messages: [], next_token: undefined })),
     listAgents: vi.fn(async () => ({ agents: [{ email: "bot@example.com" }] })),
+    registerAgent: vi.fn(async (body: Record<string, unknown>) => ({
+      email: `${body.slug}@agents.example.com`,
+      domain: "agents.example.com",
+      id: `${body.slug}@agents.example.com`,
+    })),
     listPendingMessages: vi.fn(async () => ({ messages: [] })),
     getPendingMessage: vi.fn(async (id: string) => ({ id, status: "pending_approval" })),
     approveMessage: vi.fn(async () => ({ message_id: "msg_x", status: "sent" })),
@@ -54,8 +64,10 @@ describe("e2a MCP server", () => {
         "list_messages",
         "get_message",
         "list_agents",
-        "list_pending_approvals",
-        "get_pending_approval",
+        "whoami",
+        "create_agent",
+        "list_pending_messages",
+        "get_pending_message",
         "approve_pending_message",
         "reject_pending_message",
       ].sort(),
@@ -111,6 +123,64 @@ describe("e2a MCP server", () => {
     expect(stub.api.getMessage).toHaveBeenCalledWith("bot@example.com", "msg_abc");
   });
 
+  it("whoami returns the env-scoped agent record", async () => {
+    const res = await client.callTool({ name: "whoami", arguments: {} });
+    expect(stub.api.getAgent).toHaveBeenCalledWith("bot@example.com");
+    const content = res.content as Array<{ type: string; text: string }>;
+    expect(content[0]?.text).toContain("bot@example.com");
+  });
+
+  it("whoami errors clearly when no default agent is configured", async () => {
+    const bareStub = makeStubClient({ agentEmail: "" });
+    const bareClient = await connect(bareStub);
+    const res = await bareClient.callTool({ name: "whoami", arguments: {} });
+    expect(res.isError).toBe(true);
+    const content = res.content as Array<{ type: string; text: string }>;
+    expect(content[0]?.text).toMatch(/E2A_AGENT_EMAIL/);
+  });
+
+  it("create_agent defaults agent_mode to local", async () => {
+    await client.callTool({
+      name: "create_agent",
+      arguments: { slug: "new-bot" },
+    });
+    expect(stub.registerAgent).toHaveBeenCalledWith({
+      slug: "new-bot",
+      agent_mode: "local",
+    });
+  });
+
+  it("create_agent forwards cloud-mode webhook", async () => {
+    await client.callTool({
+      name: "create_agent",
+      arguments: {
+        slug: "cloud-bot",
+        agent_mode: "cloud",
+        webhook_url: "https://example.com/hook",
+        name: "Cloud Bot",
+      },
+    });
+    expect(stub.registerAgent).toHaveBeenCalledWith({
+      slug: "cloud-bot",
+      agent_mode: "cloud",
+      name: "Cloud Bot",
+      webhook_url: "https://example.com/hook",
+    });
+  });
+
+  it("list_pending_messages calls the SDK", async () => {
+    await client.callTool({ name: "list_pending_messages", arguments: {} });
+    expect(stub.listPendingMessages).toHaveBeenCalledOnce();
+  });
+
+  it("get_pending_message forwards the id", async () => {
+    await client.callTool({
+      name: "get_pending_message",
+      arguments: { message_id: "msg_p" },
+    });
+    expect(stub.getPendingMessage).toHaveBeenCalledWith("msg_p");
+  });
+
   it("approve_pending_message strips message_id and forwards overrides", async () => {
     await client.callTool({
       name: "approve_pending_message",
@@ -124,6 +194,14 @@ describe("e2a MCP server", () => {
       subject: "edited subject",
       body_text: "edited body",
     });
+  });
+
+  it("approve_pending_message approve-as-is sends empty overrides", async () => {
+    await client.callTool({
+      name: "approve_pending_message",
+      arguments: { message_id: "msg_p" },
+    });
+    expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", {});
   });
 
   it("reject_pending_message forwards the reason", async () => {

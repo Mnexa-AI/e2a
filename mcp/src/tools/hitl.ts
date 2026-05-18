@@ -5,18 +5,18 @@ import { runTool } from "./util.js";
 
 export function registerHitlTools(server: McpServer, client: E2AClient): void {
   server.registerTool(
-    "list_pending_approvals",
+    "list_pending_messages",
     {
       title: "List outbound messages awaiting approval",
       description:
-        "List outbound emails composed by HITL-enabled agents that are held pending human review, sorted by soonest-expiring first. Use this when the user asks what's waiting for them to approve. Body content is not included in summaries — call `get_pending_approval` for the full draft.",
+        "List outbound emails composed by HITL-enabled agents that are held pending human review, sorted by soonest-expiring first. Use this when the user asks what's waiting for them to approve. Body content is not included in summaries — call `get_pending_message` for the full draft.",
       inputSchema: {},
     },
     async () => runTool(() => client.listPendingMessages()),
   );
 
   server.registerTool(
-    "get_pending_approval",
+    "get_pending_message",
     {
       title: "Get a pending-approval message",
       description:
