@@ -127,7 +127,9 @@ Add to the MCP config (`claude_desktop_config.json`, `cline_mcp_settings.json`, 
 | --- | --- |
 | `whoami` | Get the default agent's full record (requires `E2A_AGENT_EMAIL`). |
 | `list_agents` | List every agent inbox owned by the authenticated user. |
-| `create_agent` | Register a new inbox using a slug on the shared domain. Defaults to `local` mode — no webhook required. |
+| `create_agent` | Register a new inbox using a slug on the shared domain. Defaults to `local` mode — no webhook required. See note below for cloud mode. |
+
+> **Cloud-mode agents must verify webhook signatures.** When you create an agent with `agent_mode: "cloud"`, e2a HMAC-signs every webhook delivery against your account's webhook signing secret (`E2A_WEBHOOK_SECRET`, shown in the [e2a dashboard](https://e2a.dev)). Your webhook handler must verify the signature on every request — the [e2a SDK](https://www.npmjs.com/package/@e2a/sdk) exposes `parseWebhook(body, secret)` which parses and verifies in one call. Local-mode agents (the default) avoid this entirely by polling via `list_messages`.
 
 ### Messages
 

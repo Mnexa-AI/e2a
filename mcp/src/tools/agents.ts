@@ -40,7 +40,7 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
     {
       title: "Create a new agent inbox on the shared domain",
       description:
-        "Register a new agent using a slug on the deployment's shared domain (e.g. slug 'support-bot' → support-bot@<shared-domain>). Defaults to `local` mode so the agent receives mail via `list_messages` polling — no webhook server required. Pass `agent_mode: 'cloud'` and `webhook_url` for push delivery. For custom (non-shared) domains, use the e2a CLI or dashboard. Slug must be lowercase letters, numbers, and hyphens.",
+        "Register a new agent using a slug on the deployment's shared domain (e.g. slug 'support-bot' → support-bot@<shared-domain>). Defaults to `local` mode so the agent receives mail via `list_messages` polling — no webhook server required. Pass `agent_mode: 'cloud'` and `webhook_url` for push delivery; in that case the webhook handler MUST HMAC-verify every delivery against the account's webhook signing secret (`E2A_WEBHOOK_SECRET`, shown in the dashboard) — the e2a SDK exposes `parseWebhook(body, secret)` for this. For custom (non-shared) domains, use the e2a CLI or dashboard. Slug must be lowercase letters, numbers, and hyphens.",
       inputSchema: {
         slug: z
           .string()
