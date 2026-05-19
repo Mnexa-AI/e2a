@@ -1,0 +1,24 @@
+# BuildKit reads <Dockerfile>.dockerignore from the same directory as
+# the Dockerfile when present, falling back to the build-context root
+# `.dockerignore` otherwise. We use this file to scope MCP-specific
+# exclusions (Go source trees, web/, migrations, tests) to the
+# mcp/Dockerfile build only — the repo-root .dockerignore stays
+# minimal so the Go server's Dockerfile (which needs cmd/, internal/,
+# migrations/) builds correctly.
+**/node_modules
+**/dist
+**/.git
+**/.github
+**/.DS_Store
+**/coverage
+**/.next
+**/web
+**/cmd
+**/internal
+**/migrations
+**/examples
+**/test
+**/tests
+**/*.test.ts
+**/*.md
+**/*.log
