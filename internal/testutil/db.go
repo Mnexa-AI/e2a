@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -88,7 +89,14 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 			return err
 		}
 		if _, err := pool.Exec(ctx, string(migration)); err != nil {
-			// Tables may already exist, ignore errors from IF NOT EXISTS.
+			// Existing tables / repeated extensions are expected when a
+			// previous run already applied the schema; ignoring those is
+			// the established convention here. But we log to stderr so a
+			// genuine SQL error in a new migration surfaces during
+			// `go test` instead of being absorbed silently — that would
+			// otherwise let a broken migration ship and only fail later
+			// in the real RunMigrations path.
+			fmt.Fprintf(os.Stderr, "[testutil] migration %s: %v\n", entry.Name(), err)
 		}
 	}
 	return nil

@@ -393,6 +393,76 @@ VACUUM users;`,
 	})
 }
 
+// TestRunMigrations_NoTransactionDirective_RejectsMultiStatement
+// verifies that a migration with the directive AND multiple statements
+// fails with a clear, actionable error — rather than the confusing
+// "cannot run inside a transaction block" Postgres would otherwise
+// emit when its simple protocol implicitly wraps multi-statement
+// scripts in a server-side txn.
+func TestRunMigrations_NoTransactionDirective_RejectsMultiStatement(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	const filename = "multi_nostmt.sql"
+	_, _ = pool.Exec(ctx, "DELETE FROM schema_migrations WHERE filename = $1", filename)
+
+	// Multi-statement script with the directive. Should be refused at
+	// runtime; the error must name the migration and the multi-statement
+	// problem so the operator can fix it without diving into pg internals.
+	fsys := stubFS(map[string]string{
+		filename: `-- e2a:no-transaction
+SELECT 1;
+SELECT 2;`,
+	})
+
+	err := identity.RunMigrations(ctx, pool, fsys, identity.ModeAuto)
+	if err == nil {
+		t.Fatal("expected error: multi-statement no-transaction migration should be refused")
+	}
+	if !strings.Contains(err.Error(), "multiple statements") {
+		t.Fatalf("error should mention multi-statement issue, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), filename) {
+		t.Fatalf("error should name the migration, got: %v", err)
+	}
+
+	// Nothing recorded — the runner refused before any SQL ran.
+	var count int
+	if err := pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM schema_migrations WHERE filename = $1", filename,
+	).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("refused migration should not be recorded, got count=%d", count)
+	}
+}
+
+// TestRunMigrations_NoTransactionDirective_AcceptsSemicolonInComment
+// makes sure the multi-statement detector ignores semicolons inside
+// comments and string literals.
+func TestRunMigrations_NoTransactionDirective_AcceptsSemicolonInComment(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	const filename = "tricky_nostmt.sql"
+	_, _ = pool.Exec(ctx, "DELETE FROM schema_migrations WHERE filename = $1", filename)
+
+	// Single SQL statement, but with ';' appearing inside both a
+	// comment and a string literal — must not trip the detector.
+	fsys := stubFS(map[string]string{
+		filename: `-- e2a:no-transaction
+-- This comment has a semicolon; see?
+SELECT 'literal with ; inside' FROM users LIMIT 1;`,
+	})
+
+	if err := identity.RunMigrations(ctx, pool, fsys, identity.ModeAuto); err != nil {
+		t.Fatalf("single-statement migration with semicolons in comments/strings should succeed: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, "DELETE FROM schema_migrations WHERE filename = $1", filename)
+	})
+}
+
 // TestRunMigrations_NoTransactionDirective_RejectsInsideTx is the
 // negative: the same VACUUM without the directive must fail,
 // confirming the directive is what makes it work.

@@ -85,6 +85,13 @@ const e2aMigrationLockID int64 = 0x65325F4D49475200
 // this directive (the CONCURRENTLY statement).
 const noTransactionDirective = "e2a:no-transaction"
 
+// acquireConnTimeout caps how long the runner will wait for a pooled
+// connection to be available before bailing out. Hit during rolling
+// restarts when the old container is still holding pgxpool.MaxConns
+// connections (queries, autovacuum, idle); without this bound the new
+// binary would block in pool.Acquire forever with no log line.
+const acquireConnTimeout = 60 * time.Second
+
 // RunMigrations applies every embedded migration that isn't yet recorded
 // in the schema_migrations table. Migrations run in filename-sorted
 // order, each in its own transaction (unless tagged with the
@@ -108,17 +115,20 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool, migrationsFS fs.FS, 
 
 	// Acquire a dedicated connection: pg_advisory_lock is session-scoped,
 	// so the holder of the lock must be the same backend until release.
-	// pool.Acquire borrows a connection that we release back to the pool
-	// when the function returns.
-	conn, err := pool.Acquire(ctx)
+	// Bounded by acquireConnTimeout — without it, a rolling deploy could
+	// hang forever if the previous instance still holds every conn.
+	acqCtx, cancel := context.WithTimeout(ctx, acquireConnTimeout)
+	defer cancel()
+	conn, err := pool.Acquire(acqCtx)
 	if err != nil {
-		return fmt.Errorf("acquire connection: %w", err)
+		return fmt.Errorf("acquire connection for migration within %s: %w (previous instance may still be holding connections)", acquireConnTimeout, err)
 	}
 	defer conn.Release()
 
 	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", e2aMigrationLockID); err != nil {
 		return fmt.Errorf("acquire migration advisory lock: %w", err)
 	}
+	log.Printf("[migrate] holding advisory lock %d (e2a-migrations namespace)", e2aMigrationLockID)
 	defer func() {
 		// Use a fresh context for unlock: if ctx is cancelled by the time
 		// we get here, we still want to release the lock cleanly. The
@@ -257,6 +267,72 @@ func hasNoTransactionDirective(body string) bool {
 	return false
 }
 
+// looksMultiStatement returns true if body appears to contain more
+// than one SQL statement. Not a full parser — handles the common
+// shapes (line comments, block comments, single-quoted strings) and
+// catches the case the no-transaction directive is most likely to
+// trip on: a user writing `SET something; CREATE INDEX CONCURRENTLY …`
+// and getting a confusing Postgres error about txn blocks.
+//
+// Doesn't handle dollar-quoted strings or PL/pgSQL function bodies;
+// those would need a real parser. The directive isn't intended for
+// those cases anyway — it's for single CONCURRENTLY-class statements.
+func looksMultiStatement(body string) bool {
+	stripped := stripSQLCommentsAndStrings(body)
+	// A single statement (with optional trailing whitespace + semicolon)
+	// has zero ';' after we trim. A multi-statement script has 1+.
+	stripped = strings.TrimRight(stripped, "; \t\n\r")
+	return strings.Contains(stripped, ";")
+}
+
+// stripSQLCommentsAndStrings removes -- line comments, /* */ block
+// comments, and '...' single-quoted strings from the body. Used by
+// looksMultiStatement so semicolons inside comments / strings don't
+// false-positive the multi-statement check.
+func stripSQLCommentsAndStrings(body string) string {
+	var b strings.Builder
+	i := 0
+	for i < len(body) {
+		// -- line comment
+		if i+1 < len(body) && body[i] == '-' && body[i+1] == '-' {
+			for i < len(body) && body[i] != '\n' {
+				i++
+			}
+			continue
+		}
+		// /* block comment */
+		if i+1 < len(body) && body[i] == '/' && body[i+1] == '*' {
+			i += 2
+			for i+1 < len(body) && !(body[i] == '*' && body[i+1] == '/') {
+				i++
+			}
+			if i+1 < len(body) {
+				i += 2 // consume the closing */
+			}
+			continue
+		}
+		// '...' single-quoted string (Postgres uses '' for escaped quotes,
+		// not \'; tolerate both since these are migrations not adversarial)
+		if body[i] == '\'' {
+			i++
+			for i < len(body) && body[i] != '\'' {
+				if body[i] == '\\' && i+1 < len(body) {
+					i += 2
+					continue
+				}
+				i++
+			}
+			if i < len(body) {
+				i++ // consume closing '
+			}
+			continue
+		}
+		b.WriteByte(body[i])
+		i++
+	}
+	return b.String()
+}
+
 // applyOne reads a migration file and applies it.
 //
 // For migrations without the no-transaction directive: SQL + tracker
@@ -278,6 +354,15 @@ func applyOne(ctx context.Context, conn *pgxpool.Conn, fsys fs.FS, name string) 
 	}
 
 	if hasNoTransactionDirective(string(body)) {
+		// pgx's simple protocol sends multi-statement strings to the
+		// server as a single Query message, which Postgres wraps in an
+		// implicit transaction — defeating the directive's purpose and
+		// surfacing as a confusing "cannot run inside a transaction
+		// block" error from the actual offending statement. Catch it
+		// here with a clear message.
+		if looksMultiStatement(string(body)) {
+			return fmt.Errorf("migration %s uses -- e2a:no-transaction but contains multiple statements; split into separate files (one per statement)", name)
+		}
 		if _, err := conn.Exec(ctx, string(body)); err != nil {
 			return fmt.Errorf("exec migration (no-transaction): %w", err)
 		}
