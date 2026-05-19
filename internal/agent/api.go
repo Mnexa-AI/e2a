@@ -140,6 +140,7 @@ type API struct {
 	regLimit       *ratelimit.Limiter
 	pollLimit      *ratelimit.Limiter
 	feedbackLimit  *ratelimit.Limiter
+	dcrLimit       *ratelimit.Limiter // Dynamic Client Registration — anonymous endpoint, per-IP
 	approvalSigner *approvaltoken.Signer // optional; if nil, magic-link endpoints return 404
 	notifier       *hitlnotify.Notifier  // optional; if nil, holdForApproval doesn't send notification email
 }
@@ -178,6 +179,7 @@ func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.
 		regLimit:      ratelimit.New(1*time.Hour, 20),   // 20 registrations per IP per hour
 		pollLimit:     ratelimit.New(1*time.Minute, 60), // 60 poll requests per user per minute
 		feedbackLimit: ratelimit.New(1*time.Hour, 10),   // 10 feedback submissions per IP per hour
+		dcrLimit:      ratelimit.New(1*time.Hour, 10),   // 10 OAuth client registrations per IP per hour
 	}
 }
 
@@ -242,6 +244,11 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	// cacheable; clients hit this once at startup to learn the
 	// authorize/token/register/revoke endpoints.
 	r.HandleFunc("/.well-known/oauth-authorization-server", a.handleOAuthDiscovery).Methods("GET")
+
+	// OAuth 2.1 Dynamic Client Registration (RFC 7591). Public clients
+	// only (PKCE-based) — confidential clients aren't supported in v0.3.
+	// Per-IP rate limited.
+	r.HandleFunc("/api/oauth/register", a.handleOAuthRegister).Methods("POST")
 
 	// User auth (Google OAuth for agent developers)
 	if a.userAuth != nil {

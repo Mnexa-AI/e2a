@@ -98,6 +98,13 @@ func TestOAuthDiscovery_Enabled(t *testing.T) {
 	if !equalStringSlice(meta.ScopesSupported, wantScopes) {
 		t.Errorf("scopes_supported: want %v, got %v", wantScopes, meta.ScopesSupported)
 	}
+	// v0.3 supports public clients only (PKCE). Asserting "none" only
+	// keeps discovery and DCR consistent — if a future slice adds
+	// confidential support, both files must change together.
+	wantAuthMethods := []string{"none"}
+	if !equalStringSlice(meta.TokenEndpointAuthMethodsSupported, wantAuthMethods) {
+		t.Errorf("token_endpoint_auth_methods_supported: want %v, got %v", wantAuthMethods, meta.TokenEndpointAuthMethodsSupported)
+	}
 }
 
 // TestOAuthDiscovery_NoOAuthStore_404 covers a deployment that hasn't
