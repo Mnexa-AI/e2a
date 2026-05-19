@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/net/idna"
 )
@@ -366,6 +367,24 @@ func (s *Store) GetAgentByEmail(ctx context.Context, email string) (*AgentIdenti
 // CreateAgent inserts an agent with a domain FK. Does NOT check domain ownership —
 // that's the API handler's responsibility (shared domain skips the check).
 func (s *Store) CreateAgent(ctx context.Context, agentEmail, domain, name, webhookURL, agentMode, userID string) (*AgentIdentity, error) {
+	return createAgent(ctx, s.pool, agentEmail, domain, name, webhookURL, agentMode, userID)
+}
+
+// CreateAgentTx inserts an agent inside a caller-owned transaction.
+// Used by OAuth consent so agent creation and authorization-code
+// issuance commit together (or both roll back on partial failure).
+func (s *Store) CreateAgentTx(ctx context.Context, tx pgx.Tx, agentEmail, domain, name, webhookURL, agentMode, userID string) (*AgentIdentity, error) {
+	return createAgent(ctx, tx, agentEmail, domain, name, webhookURL, agentMode, userID)
+}
+
+// agentExecutor is the subset of pgxpool.Pool + pgx.Tx that createAgent
+// needs. Lets the same body serve both stand-alone and in-transaction
+// callers without duplicating the SQL.
+type agentExecutor interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
+func createAgent(ctx context.Context, exec agentExecutor, agentEmail, domain, name, webhookURL, agentMode, userID string) (*AgentIdentity, error) {
 	if agentMode == "" {
 		agentMode = "cloud"
 	}
@@ -383,7 +402,7 @@ func (s *Store) CreateAgent(ctx context.Context, agentEmail, domain, name, webho
 		HITLTTLSeconds:       HITLDefaultTTLSeconds,
 		HITLExpirationAction: HITLDefaultExpirationAct,
 	}
-	_, err := s.pool.Exec(ctx,
+	_, err := exec.Exec(ctx,
 		`INSERT INTO agent_identities (id, domain, user_id, name, webhook_url, agent_mode, public, created_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		a.ID, a.Domain, a.UserID, a.Name, a.WebhookURL, a.AgentMode, a.Public, a.CreatedAt,

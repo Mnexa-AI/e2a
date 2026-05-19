@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -297,3 +298,32 @@ func assertOAuthError(t *testing.T, resp *http.Response, wantStatus int, wantCod
 // the test file is otherwise context-free and we don't want to pull in
 // context.Background() at every callsite.
 func testCtx() context.Context { return context.Background() }
+
+// TestOAuthRegister_RateLimited asserts the per-IP cap kicks in. The
+// httptest server uses 127.0.0.1 for every request, so all calls share
+// the same rate-limit bucket — 10 succeed, the 11th 429s. Guard against
+// a regression that disables the limiter or silently drops the IP key.
+func TestOAuthRegister_RateLimited(t *testing.T) {
+	server, _ := newDCRServer(t)
+
+	good := func(i int) agent.OAuthRegisterRequest {
+		return agent.OAuthRegisterRequest{
+			ClientName:   fmt.Sprintf("ratelimit-client-%d", i),
+			RedirectURIs: []string{"https://example.com/callback"},
+		}
+	}
+
+	// First 10 should succeed (the configured cap).
+	for i := 0; i < 10; i++ {
+		resp := postJSON(t, server, "/api/oauth/register", good(i))
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("request %d should have succeeded under the cap: got %d: %s", i+1, resp.StatusCode, string(body))
+		}
+	}
+	// 11th must 429.
+	resp := postJSON(t, server, "/api/oauth/register", good(11))
+	defer resp.Body.Close()
+	assertOAuthError(t, resp, http.StatusTooManyRequests, "rate_limited")
+}

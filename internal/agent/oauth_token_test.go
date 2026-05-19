@@ -71,8 +71,13 @@ func decodeToken(t *testing.T, resp *http.Response) agent.OAuthTokenResponse {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("want 200, got %d: %s", resp.StatusCode, string(body))
 	}
+	// RFC 6749 §5.1 requires both Cache-Control: no-store AND
+	// Pragma: no-cache so old HTTP/1.0 caches don't persist tokens.
 	if cc := resp.Header.Get("Cache-Control"); !strings.Contains(cc, "no-store") {
 		t.Errorf("Cache-Control must contain no-store per RFC 6749 §5.1: got %q", cc)
+	}
+	if pr := resp.Header.Get("Pragma"); pr != "no-cache" {
+		t.Errorf("Pragma must be no-cache per RFC 6749 §5.1: got %q", pr)
 	}
 	var tr agent.OAuthTokenResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
@@ -84,8 +89,11 @@ func decodeToken(t *testing.T, resp *http.Response) agent.OAuthTokenResponse {
 	if tr.TokenType != "Bearer" {
 		t.Errorf("token_type must be Bearer: got %q", tr.TokenType)
 	}
-	if tr.ExpiresIn <= 0 {
-		t.Errorf("expires_in must be > 0: got %d", tr.ExpiresIn)
+	// Exact match — a future regression that changed unit (ms vs s)
+	// or introduced rounding would pass a > 0 check.
+	wantExpiresIn := int(oauth.AccessTokenLifetime / time.Second)
+	if tr.ExpiresIn != wantExpiresIn {
+		t.Errorf("expires_in must equal AccessTokenLifetime in seconds: want %d, got %d", wantExpiresIn, tr.ExpiresIn)
 	}
 	return tr
 }

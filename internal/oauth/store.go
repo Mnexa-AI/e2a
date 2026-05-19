@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -97,6 +98,21 @@ type Store struct {
 
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
+}
+
+// Pool returns the underlying pgxpool. Exposed so callers that need
+// to span multiple stores in one transaction (e.g. consent's combined
+// agent-create + code-issue) can BeginTx themselves. Don't reach for
+// this from new code — prefer adding a method that runs the work
+// inside the store.
+func (s *Store) Pool() *pgxpool.Pool { return s.pool }
+
+// dbExecutor is the subset of pgx.Tx + pgxpool.Pool that issueCode/
+// related helpers need. Lets the same SQL body run against either a
+// pool (for stand-alone calls) or an externally-owned tx (for
+// multi-statement consent flow).
+type dbExecutor interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
 
 // ───────────────────────── token / ID generation ─────────────────────────
@@ -182,14 +198,25 @@ func (s *Store) GetClient(ctx context.Context, clientID string) (*Client, error)
 
 // ───────────────────────── authorization codes ─────────────────────────
 
-// IssueCode inserts a fresh authorization code. expires_at must be set
-// by the caller (typically time.Now().Add(AuthCodeLifetime)).
+// IssueCode inserts a fresh authorization code on the pool. expires_at
+// must be set by the caller (typically time.Now().Add(AuthCodeLifetime)).
 func (s *Store) IssueCode(ctx context.Context, c *AuthorizationCode) error {
+	return issueCode(ctx, s.pool, c)
+}
+
+// IssueCodeTx inserts a fresh authorization code inside a caller-owned
+// transaction. Used by consent when agent creation and code issuance
+// must commit together — see the create_new branch of handleOAuthConsent.
+func (s *Store) IssueCodeTx(ctx context.Context, tx pgx.Tx, c *AuthorizationCode) error {
+	return issueCode(ctx, tx, c)
+}
+
+func issueCode(ctx context.Context, exec dbExecutor, c *AuthorizationCode) error {
 	var agentEmail *string
 	if c.AgentEmail != "" {
 		agentEmail = &c.AgentEmail
 	}
-	_, err := s.pool.Exec(ctx, `
+	_, err := exec.Exec(ctx, `
 		INSERT INTO oauth_authorization_codes
 		    (code, client_id, user_id, agent_email, redirect_uri,
 		     code_challenge, code_challenge_method, scope, expires_at)

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -8,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -15,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/oauth"
+	"github.com/jackc/pgx/v5"
 )
 
 // OAuthAuthorizationServerMetadata is the RFC 8414 response shape for
@@ -132,21 +135,21 @@ func writeOAuthError(w http.ResponseWriter, status int, code, desc string) {
 //   - URIs without scheme/authority for http(s)
 func validateRedirectURI(raw string) error {
 	if raw == "" {
-		return errOAuthInvalid("redirect_uri cannot be empty")
+		return errors.New("redirect_uri cannot be empty")
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return errOAuthInvalid("redirect_uri is not a valid URI")
+		return errors.New("redirect_uri is not a valid URI")
 	}
 	if u.Fragment != "" {
-		return errOAuthInvalid("redirect_uri must not contain a fragment")
+		return errors.New("redirect_uri must not contain a fragment")
 	}
 	switch u.Scheme {
 	case "":
-		return errOAuthInvalid("redirect_uri must include a scheme")
+		return errors.New("redirect_uri must include a scheme")
 	case "https":
 		if u.Host == "" {
-			return errOAuthInvalid("https redirect_uri must include a host")
+			return errors.New("https redirect_uri must include a host")
 		}
 		return nil
 	case "http":
@@ -155,21 +158,13 @@ func validateRedirectURI(raw string) error {
 		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
 			return nil
 		}
-		return errOAuthInvalid("http redirect_uri must use a loopback host (localhost, 127.0.0.1, or ::1)")
+		return errors.New("http redirect_uri must use a loopback host (localhost, 127.0.0.1, or ::1)")
 	default:
 		// Custom scheme (e.g. "myapp://callback"). Must have a non-empty
 		// scheme; that's all RFC 8252 §7.1 requires.
 		return nil
 	}
 }
-
-// errOAuthInvalid is a sentinel-like helper to make validation read
-// linearly; the caller maps these to HTTP 400 invalid_client_metadata.
-type oauthValidationError struct{ msg string }
-
-func (e *oauthValidationError) Error() string { return e.msg }
-
-func errOAuthInvalid(msg string) error { return &oauthValidationError{msg: msg} }
 
 // handleOAuthRegister implements RFC 7591 Dynamic Client Registration.
 // Anonymous endpoint (RFC 7591 §2 — "open registration"). Per-IP rate
@@ -372,9 +367,10 @@ func validateAuthorizeParamsLogical(p *oauthAuthorizeParams) (errCode, errDesc s
 }
 
 // redirectWithOAuthError 302s the user-agent back to redirect_uri with
-// an error code in the query, per RFC 6749 §4.1.2.1. Use this only when
-// redirect_uri has been validated against the registered client.
-func redirectWithOAuthError(w http.ResponseWriter, r *http.Request, redirectURI, errCode, state string) {
+// an error code (and optional description) in the query, per RFC 6749
+// §4.1.2.1. Use this only when redirect_uri has been validated against
+// the registered client. errDesc is omitted from the URL when empty.
+func redirectWithOAuthError(w http.ResponseWriter, r *http.Request, redirectURI, errCode, errDesc, state string) {
 	u, err := url.Parse(redirectURI)
 	if err != nil {
 		// Should be unreachable — caller has already validated.
@@ -383,6 +379,9 @@ func redirectWithOAuthError(w http.ResponseWriter, r *http.Request, redirectURI,
 	}
 	q := u.Query()
 	q.Set("error", errCode)
+	if errDesc != "" {
+		q.Set("error_description", errDesc)
+	}
 	if state != "" {
 		q.Set("state", state)
 	}
@@ -449,8 +448,7 @@ func (a *API) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if errCode, errDesc := validateAuthorizeParamsLogical(p); errCode != "" {
-		_ = errDesc // logged via the OAuth error code; description is descriptive only
-		redirectWithOAuthError(w, r, p.RedirectURI, errCode, p.State)
+		redirectWithOAuthError(w, r, p.RedirectURI, errCode, errDesc, p.State)
 		return
 	}
 
@@ -577,8 +575,7 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errCode, errDesc := validateAuthorizeParamsLogical(p); errCode != "" {
-		_ = errDesc
-		redirectWithOAuthError(w, r, p.RedirectURI, errCode, p.State)
+		redirectWithOAuthError(w, r, p.RedirectURI, errCode, errDesc, p.State)
 		return
 	}
 
@@ -590,7 +587,7 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 
 	action := r.PostFormValue("action")
 	if action == "deny" {
-		redirectWithOAuthError(w, r, p.RedirectURI, "access_denied", p.State)
+		redirectWithOAuthError(w, r, p.RedirectURI, "access_denied", "user denied consent", p.State)
 		return
 	}
 	if action != "allow" {
@@ -599,7 +596,17 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agentChoice := r.PostFormValue("agent_choice")
-	var agentEmail string
+	authCode := &oauth.AuthorizationCode{
+		Code:                oauth.NewAuthCode(),
+		ClientID:            p.ClientID,
+		UserID:              user.ID,
+		RedirectURI:         p.RedirectURI,
+		CodeChallenge:       p.CodeChallenge,
+		CodeChallengeMethod: "S256",
+		Scope:               "e2a",
+		ExpiresAt:           time.Now().Add(oauth.AuthCodeLifetime),
+	}
+
 	switch {
 	case strings.HasPrefix(agentChoice, "existing:"):
 		email := strings.TrimPrefix(agentChoice, "existing:")
@@ -612,7 +619,12 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 			writeOAuthError(w, http.StatusForbidden, "access_denied", "you do not own that agent")
 			return
 		}
-		agentEmail = email
+		authCode.AgentEmail = email
+		// Single-statement path — IssueCode on its own pool conn is fine.
+		if err := a.oauthStore.IssueCode(r.Context(), authCode); err != nil {
+			writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue authorization code")
+			return
+		}
 
 	case agentChoice == "create_new":
 		if a.sharedDomain == "" {
@@ -631,10 +643,24 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 			writeOAuthError(w, http.StatusBadRequest, "invalid_request", "invalid slug: "+err.Error())
 			return
 		}
-		agentEmail = slug + "@" + a.sharedDomain
-		// Local-mode agent (no webhook). PR B's UI will let the user
-		// switch this later.
-		if _, err := a.store.CreateAgent(r.Context(), agentEmail, a.sharedDomain, "", "", "local", user.ID); err != nil {
+		authCode.AgentEmail = slug + "@" + a.sharedDomain
+
+		// Multi-statement path: agent creation + code insertion must
+		// commit together so a partial failure (IssueCode dies after
+		// CreateAgent commits) doesn't leave a phantom agent the user
+		// never authorized. Both stores share the same pool — we begin
+		// the tx on the oauth pool, pass it to both Tx-accepting
+		// variants, and only commit at the end.
+		tx, err := a.oauthStore.Pool().BeginTx(r.Context(), pgx.TxOptions{})
+		if err != nil {
+			writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to begin transaction")
+			return
+		}
+		// Rollback is a no-op after a successful commit — safe to defer
+		// unconditionally.
+		defer func() { _ = tx.Rollback(r.Context()) }()
+
+		if _, err := a.store.CreateAgentTx(r.Context(), tx, authCode.AgentEmail, a.sharedDomain, "", "", "local", user.ID); err != nil {
 			if strings.Contains(err.Error(), "duplicate") {
 				writeOAuthError(w, http.StatusConflict, "invalid_request", "that slug is already taken — pick another")
 				return
@@ -642,27 +668,17 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 			writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to create agent")
 			return
 		}
+		if err := a.oauthStore.IssueCodeTx(r.Context(), tx, authCode); err != nil {
+			writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue authorization code")
+			return
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to commit consent")
+			return
+		}
 
 	default:
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "agent_choice must be 'existing:<email>' or 'create_new'")
-		return
-	}
-
-	// Mint the authorization code. AuthCodeLifetime is 60s — the client
-	// must POST /api/oauth/token immediately.
-	authCode := &oauth.AuthorizationCode{
-		Code:                oauth.NewAuthCode(),
-		ClientID:            p.ClientID,
-		UserID:              user.ID,
-		AgentEmail:          agentEmail,
-		RedirectURI:         p.RedirectURI,
-		CodeChallenge:       p.CodeChallenge,
-		CodeChallengeMethod: "S256",
-		Scope:               "e2a",
-		ExpiresAt:           time.Now().Add(oauth.AuthCodeLifetime),
-	}
-	if err := a.oauthStore.IssueCode(r.Context(), authCode); err != nil {
-		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue authorization code")
 		return
 	}
 
@@ -783,7 +799,14 @@ func (a *API) handleTokenAuthCode(w http.ResponseWriter, r *http.Request) {
 		// consumed; use its client_id/user_id, not the request's, so a
 		// replayer can't redirect the revocation to a different account.
 		if authCode != nil {
-			_, _ = a.oauthStore.RevokeAllByClientUser(r.Context(), authCode.ClientID, authCode.UserID)
+			n, revErr := a.oauthStore.RevokeAllByClientUser(r.Context(), authCode.ClientID, authCode.UserID)
+			if revErr != nil {
+				log.Printf("[oauth][SECURITY] auth-code reuse detected for client=%s user=%s — revocation FAILED: %v",
+					authCode.ClientID, authCode.UserID, revErr)
+			} else {
+				log.Printf("[oauth][SECURITY] auth-code reuse detected for client=%s user=%s — revoked %d token(s)",
+					authCode.ClientID, authCode.UserID, n)
+			}
 		}
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant",
 			"authorization code already used; associated tokens revoked")
@@ -866,7 +889,9 @@ func (a *API) handleTokenRefresh(w http.ResponseWriter, r *http.Request) {
 	// the chain — a different client presenting this refresh means
 	// either token confusion at the client or theft.
 	if oldTok.ClientID != clientID {
-		_, _ = a.oauthStore.RevokeChainByID(r.Context(), oldTok.RefreshChainID)
+		n, revErr := a.oauthStore.RevokeChainByID(r.Context(), oldTok.RefreshChainID)
+		log.Printf("[oauth][SECURITY] refresh client_id mismatch: token-owner=%s presenter=%s — chain=%s revoked %d row(s) err=%v",
+			oldTok.ClientID, clientID, oldTok.RefreshChainID, n, revErr)
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "client_id does not match the refresh token")
 		return
 	}
@@ -876,7 +901,9 @@ func (a *API) handleTokenRefresh(w http.ResponseWriter, r *http.Request) {
 	if oldTok.RevokedAt != nil || expired {
 		// Presenting a refresh that's revoked or past TTL is suspect.
 		// Revoke the chain so any sibling tokens are torn down too.
-		_, _ = a.oauthStore.RevokeChainByID(r.Context(), oldTok.RefreshChainID)
+		n, revErr := a.oauthStore.RevokeChainByID(r.Context(), oldTok.RefreshChainID)
+		log.Printf("[oauth][SECURITY] refresh on revoked/expired token: client=%s user=%s revoked=%v expired=%v — chain=%s revoked %d row(s) err=%v",
+			oldTok.ClientID, oldTok.UserID, oldTok.RevokedAt != nil, expired, oldTok.RefreshChainID, n, revErr)
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "refresh token revoked or expired")
 		return
 	}
@@ -901,6 +928,49 @@ func (a *API) handleTokenRefresh(w http.ResponseWriter, r *http.Request) {
 }
 
 // ───────────────────────── Revoke endpoint (RFC 7009) ─────────────────────────
+
+// lookupRevocableToken tries access-token then refresh-token lookups
+// (or refresh-first when the hint asks). Returns:
+//   - (token, isRefresh, nil) when found
+//   - (nil, false, nil)        when both lookups returned ErrTokenNotFound
+//   - (nil, false, err)        when a lookup returned anything else
+//     (e.g. DB connection error) — caller should 500 rather than silently
+//     pretending the token was unknown
+func (a *API) lookupRevocableToken(ctx context.Context, token, hint string) (*oauth.Token, bool, error) {
+	if hint == "refresh_token" {
+		t, err := a.oauthStore.LookupTokenByRefresh(ctx, token)
+		if err == nil {
+			return t, true, nil
+		}
+		if !errors.Is(err, oauth.ErrTokenNotFound) {
+			return nil, false, err
+		}
+		t, err = a.oauthStore.LookupTokenByAccess(ctx, token)
+		if err == nil {
+			return t, false, nil
+		}
+		if errors.Is(err, oauth.ErrTokenNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+
+	t, err := a.oauthStore.LookupTokenByAccess(ctx, token)
+	if err == nil {
+		return t, false, nil
+	}
+	if !errors.Is(err, oauth.ErrTokenNotFound) {
+		return nil, false, err
+	}
+	t, err = a.oauthStore.LookupTokenByRefresh(ctx, token)
+	if err == nil {
+		return t, true, nil
+	}
+	if errors.Is(err, oauth.ErrTokenNotFound) {
+		return nil, false, nil
+	}
+	return nil, false, err
+}
 
 // handleOAuthRevoke implements RFC 7009 §2. Public clients revoke their
 // own tokens by presenting client_id (no client_secret since they're
@@ -936,24 +1006,14 @@ func (a *API) handleOAuthRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Try the lookup order suggested by the hint; fall back to the
-	// other type if the first returns nothing. Hint is advisory per
-	// RFC 7009 §2.1 — we MUST handle the "wrong hint" case gracefully.
-	var (
-		found  *oauth.Token
-		isRefresh bool
-	)
-	if hint == "refresh_token" {
-		if t, err := a.oauthStore.LookupTokenByRefresh(r.Context(), token); err == nil {
-			found, isRefresh = t, true
-		} else if t, err := a.oauthStore.LookupTokenByAccess(r.Context(), token); err == nil {
-			found = t
-		}
-	} else {
-		if t, err := a.oauthStore.LookupTokenByAccess(r.Context(), token); err == nil {
-			found = t
-		} else if t, err := a.oauthStore.LookupTokenByRefresh(r.Context(), token); err == nil {
-			found, isRefresh = t, true
-		}
+	// other type if the first returns ErrTokenNotFound. Hint is
+	// advisory per RFC 7009 §2.1 — we MUST handle the "wrong hint"
+	// case gracefully. Other errors (DB down, etc.) bubble up as 500
+	// so ops sees the real failure instead of a silent 200.
+	found, isRefresh, err := a.lookupRevocableToken(r.Context(), token, hint)
+	if err != nil {
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "token lookup failed")
+		return
 	}
 
 	// Not found — silently 200 (don't leak token existence). Some
