@@ -19,6 +19,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/auth"
 	"github.com/Mnexa-AI/e2a/internal/hitlnotify"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/ratelimit"
 	"github.com/Mnexa-AI/e2a/internal/usage"
@@ -119,6 +120,7 @@ func validateSlug(slug string) error {
 
 type API struct {
 	store          *identity.Store
+	oauthStore     *oauth.Store // nil when OAuth isn't enabled; dispatch falls back to API-key-only
 	sender         *outbound.Sender
 	smtpRelay      *outbound.SMTPRelay
 	userAuth       *auth.UserAuth
@@ -152,6 +154,13 @@ func (a *API) SetApprovalSigner(s *approvaltoken.Signer) { a.approvalSigner = s 
 // still persists the pending message but doesn't fire the email — useful
 // for tests that don't want the async SMTP traffic.
 func (a *API) SetNotifier(n *hitlnotify.Notifier) { a.notifier = n }
+
+// SetOAuthStore wires in the OAuth storage layer so authenticateUser
+// can resolve ate2a_-prefixed bearer tokens to a User. When nil, only
+// the legacy API-key path (e2a_ prefix or no prefix) authenticates;
+// OAuth tokens get rejected as "not configured". Matches the optional
+// dependency pattern of SetApprovalSigner / SetNotifier above.
+func (a *API) SetOAuthStore(s *oauth.Store) { a.oauthStore = s }
 
 func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.SMTPRelay, userAuth *auth.UserAuth, usage usage.UsageTracker, smtpDomain, fromDomain, sharedDomain, publicURL string, production bool) *API {
 	return &API{
@@ -253,13 +262,26 @@ func (a *API) RegisterWSRoute(r *mux.Router, handle http.HandlerFunc) {
 	r.HandleFunc("/api/v1/agents/{email}/ws", handle)
 }
 
-// authenticateUser extracts and validates the API key from the request, returning the owning user.
-// Falls back to session cookie auth if no Authorization header is present.
+// authenticateUser extracts and validates the bearer credential from
+// the request, returning the owning user.
+//
+// Dispatch is by token prefix:
+//   - ate2a_  → OAuth access token (oauth_tokens table). The MCP/web
+//     UX path: client got it from the /api/oauth/token endpoint.
+//     Rejected if missing, revoked, or past expires_at.
+//   - anything else (typically e2a_, but we accept legacy unprefixed
+//     keys too) → API key (api_keys table). The CLI/SDK path.
+//
+// If no Authorization header is present, falls back to the session
+// cookie used by the web dashboard.
 func (a *API) authenticateUser(r *http.Request) (*identity.User, error) {
-	apiKey := r.Header.Get("Authorization")
-	if apiKey != "" {
-		apiKey = strings.TrimPrefix(apiKey, "Bearer ")
-		return a.store.GetUserByAPIKey(r.Context(), apiKey)
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "" {
+		bearer := strings.TrimPrefix(authHeader, "Bearer ")
+		if strings.HasPrefix(bearer, oauth.AccessTokenPrefix) {
+			return a.lookupUserByOAuthToken(r, bearer)
+		}
+		return a.store.GetUserByAPIKey(r.Context(), bearer)
 	}
 	// Fall back to session cookie auth
 	if a.userAuth != nil {
@@ -268,6 +290,31 @@ func (a *API) authenticateUser(r *http.Request) (*identity.User, error) {
 		}
 	}
 	return nil, fmt.Errorf("authorization required")
+}
+
+// lookupUserByOAuthToken resolves an ate2a_-prefixed bearer to the
+// owning user. Fails closed if OAuth isn't configured on this
+// deployment, if the token has been revoked, or if the access portion
+// has expired (refresh expiry is irrelevant here — the client needs
+// to have already exchanged for a fresh access token).
+func (a *API) lookupUserByOAuthToken(r *http.Request, bearer string) (*identity.User, error) {
+	if a.oauthStore == nil {
+		return nil, fmt.Errorf("oauth tokens not enabled on this deployment")
+	}
+	tok, err := a.oauthStore.LookupTokenByAccess(r.Context(), bearer)
+	if err != nil {
+		// ErrTokenNotFound is the common case (bad/expired token);
+		// other errors are infrastructure failures. Both surface as
+		// 401 to the caller via the same path.
+		return nil, fmt.Errorf("oauth token invalid: %w", err)
+	}
+	if !tok.IsActive(time.Now()) {
+		if tok.RevokedAt != nil {
+			return nil, fmt.Errorf("oauth token revoked")
+		}
+		return nil, fmt.Errorf("oauth token expired")
+	}
+	return a.store.GetUserByID(r.Context(), tok.UserID)
 }
 
 // resolveAgentForUser loads an agent by email address and verifies the user owns it.
