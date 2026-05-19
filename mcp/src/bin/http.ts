@@ -1,24 +1,76 @@
 #!/usr/bin/env node
 import { startHttpServer } from "../http-server.js";
 
-const port = Number(process.env.PORT ?? 3000);
-const baseUrl = process.env.E2A_BASE_URL ?? "https://e2a.dev";
-const allowedHosts = (process.env.MCP_ALLOWED_HOSTS ?? "mcp.e2a.dev")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-const sessionIdleMs = Number(process.env.MCP_SESSION_IDLE_MS ?? 5 * 60_000);
-const maxSessions = Number(process.env.MCP_MAX_SESSIONS ?? 500);
+interface BinConfig {
+  port: number;
+  baseUrl: string;
+  allowedHosts: string[];
+  sessionIdleMs: number;
+  maxSessions: number;
+}
+
+class ConfigError extends Error {}
+
+function parsePositiveInt(name: string, raw: string, def: number): number {
+  if (raw === "") return def;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+    throw new ConfigError(`${name} must be a positive integer; got ${JSON.stringify(raw)}`);
+  }
+  return n;
+}
+
+function parsePort(name: string, raw: string, def: number): number {
+  if (raw === "") return def;
+  const n = Number(raw);
+  // Port 0 is valid (OS-assigned), but reject NaN / negatives / >65535.
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0 || n > 65535) {
+    throw new ConfigError(`${name} must be 0..65535; got ${JSON.stringify(raw)}`);
+  }
+  return n;
+}
+
+function parseHostList(raw: string, def: string): string[] {
+  const source = raw === "" ? def : raw;
+  const list = source.split(",").map((s) => s.trim()).filter(Boolean);
+  if (list.length === 0) {
+    throw new ConfigError(`MCP_ALLOWED_HOSTS resolved to an empty list (raw=${JSON.stringify(raw)})`);
+  }
+  return list;
+}
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): BinConfig {
+  return {
+    port: parsePort("PORT", env.PORT ?? "", 3000),
+    baseUrl: env.E2A_BASE_URL ?? "https://e2a.dev",
+    allowedHosts: parseHostList(env.MCP_ALLOWED_HOSTS ?? "", "mcp.e2a.dev"),
+    sessionIdleMs: parsePositiveInt("MCP_SESSION_IDLE_MS", env.MCP_SESSION_IDLE_MS ?? "", 5 * 60_000),
+    maxSessions: parsePositiveInt("MCP_MAX_SESSIONS", env.MCP_MAX_SESSIONS ?? "", 500),
+  };
+}
+
+export { ConfigError };
 
 async function main(): Promise<void> {
-  const { close, port: bound } = await startHttpServer(port, {
-    baseUrl,
-    allowedHosts,
-    sessionIdleMs,
-    maxSessions,
+  let cfg: BinConfig;
+  try {
+    cfg = loadConfig();
+  } catch (err) {
+    if (err instanceof ConfigError) {
+      process.stderr.write(`e2a-mcp-http config error: ${err.message}\n`);
+      process.exit(2);
+    }
+    throw err;
+  }
+
+  const { close, port: bound } = await startHttpServer(cfg.port, {
+    baseUrl: cfg.baseUrl,
+    allowedHosts: cfg.allowedHosts,
+    sessionIdleMs: cfg.sessionIdleMs,
+    maxSessions: cfg.maxSessions,
   });
   process.stderr.write(
-    `e2a-mcp-http listening on :${bound} (base ${baseUrl}, hosts ${allowedHosts.join(",")})\n`,
+    `e2a-mcp-http listening on :${bound} (base ${cfg.baseUrl}, hosts ${cfg.allowedHosts.join(",")})\n`,
   );
 
   // Graceful shutdown: stop accepting new connections, drain active
@@ -35,8 +87,10 @@ async function main(): Promise<void> {
     drainTimeout.unref();
     try {
       await close();
+      clearTimeout(drainTimeout);
       process.exit(0);
     } catch (err) {
+      clearTimeout(drainTimeout);
       const message = err instanceof Error ? err.message : String(err);
       process.stderr.write(`shutdown error: ${message}\n`);
       process.exit(1);
@@ -46,8 +100,13 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => void shutdown("SIGINT"));
 }
 
-main().catch((err) => {
-  const message = err instanceof Error ? err.stack ?? err.message : String(err);
-  process.stderr.write(`e2a-mcp-http fatal: ${message}\n`);
-  process.exit(1);
-});
+// Only run main() when invoked as the entry point — keeps `loadConfig`
+// importable from tests without spinning up the server.
+const isMain = import.meta.url === `file://${process.argv[1]}`;
+if (isMain) {
+  main().catch((err) => {
+    const message = err instanceof Error ? err.stack ?? err.message : String(err);
+    process.stderr.write(`e2a-mcp-http fatal: ${message}\n`);
+    process.exit(1);
+  });
+}

@@ -78,11 +78,16 @@ export function buildApp(opts: HttpServerOptions): BuiltApp {
 
   // Spec-mandated discovery for hosts probing where the auth server lives.
   // Served unconditionally (even pre-OAuth) so clients don't get a confusing
-  // 404 between v0.2 and v0.3.
+  // 404 between v0.2 and v0.3. Validates Host against the allowlist to
+  // avoid reflecting attacker-controlled hosts back in the `resource` URL.
   app.get("/.well-known/oauth-protected-resource", (req, res) => {
-    const host = req.headers.host ?? opts.allowedHosts[0];
+    const incoming = req.headers.host?.split(":")[0]?.toLowerCase();
+    if (!incoming || !allowedHosts.has(incoming)) {
+      res.status(421).end();
+      return;
+    }
     res.json({
-      resource: `https://${host}`,
+      resource: `https://${req.headers.host}`,
       authorization_servers: [opts.baseUrl],
       scopes_supported: ["e2a"],
       bearer_methods_supported: ["header"],
@@ -134,13 +139,33 @@ async function handleClientRequest(
         sessions.put(id, { transport, server, lastSeen: Date.now() });
       },
     });
+    // SDK chains any pre-existing onclose with its own internal cleanup
+    // (protocol.js:220-223), so setting before connect() is safe — both
+    // our handler and the SDK's run on transport close.
     transport.onclose = () => {
       const id = transport.sessionId;
       if (id) void sessions.delete(id);
     };
-    await server.connect(transport);
-    entry = { transport, server, lastSeen: Date.now() };
-  } else if (!entry) {
+    try {
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    } catch (err) {
+      // Initialize failed mid-flow. If onsessioninitialized fired, the
+      // entry is in the map — delete() closes the transport. Otherwise
+      // close directly to release SDK state. Either path is best-effort:
+      // we're already on the error path and don't want to mask the
+      // original failure.
+      const sid = transport.sessionId;
+      if (sid) {
+        await sessions.delete(sid).catch(() => undefined);
+      } else {
+        await transport.close().catch(() => undefined);
+      }
+      throw err;
+    }
+    return;
+  }
+  if (!entry) {
     res.status(400).json(jsonRpcError(req.body, -32000, "no session — send initialize first"));
     return;
   }
@@ -153,6 +178,19 @@ async function handleStreamingOrDelete(
   res: Response,
   sessions: Sessions,
 ): Promise<void> {
+  // Require Bearer on every /mcp request, including SSE GET and session
+  // DELETE — knowing a session id should not be sufficient to read its
+  // notification stream or terminate it.
+  const bearer = extractBearer(req);
+  if (!bearer) {
+    res.setHeader(
+      "WWW-Authenticate",
+      `Bearer realm="e2a", resource_metadata="https://${req.headers.host}/.well-known/oauth-protected-resource"`,
+    );
+    res.status(401).end();
+    return;
+  }
+
   const sessionId = req.headers["mcp-session-id"] as string | undefined;
   if (!sessionId) {
     res.status(400).end();

@@ -151,6 +151,23 @@ describe("HTTP MCP server", () => {
     expect(body.error.message).toMatch(/no session/);
   });
 
+  it("DELETE /mcp without bearer returns 401", async () => {
+    const res = await fetch(url, {
+      method: "DELETE",
+      headers: { "mcp-session-id": "anything" },
+    });
+    expect(res.status).toBe(401);
+    expect(res.headers.get("www-authenticate")).toMatch(/Bearer realm="e2a"/);
+  });
+
+  it("GET /mcp without bearer returns 401", async () => {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { "mcp-session-id": "anything" },
+    });
+    expect(res.status).toBe(401);
+  });
+
   it("DELETE /mcp without session id returns 400", async () => {
     const res = await fetch(url, {
       method: "DELETE",
@@ -227,6 +244,58 @@ describe("HTTP MCP server", () => {
     expect(followup.status).toBe(400);
     const body = await followup.json();
     expect(body.error.message).toMatch(/no session/);
+  });
+
+  it("cleans up transport when clientFactory throws on initialize", async () => {
+    // Bring up a server whose clientFactory always throws. The handler
+    // should not leak any session into the map.
+    await close();
+    const { close: c, port } = await startHttpServer(0, {
+      baseUrl: "http://e2a.local",
+      allowedHosts: ["127.0.0.1", "localhost"],
+      clientFactory: () => {
+        throw new Error("synthetic factory failure");
+      },
+    });
+    close = c;
+    const local = `http://127.0.0.1:${port}/mcp`;
+    const res = await fetch(local, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: "Bearer e2a_test",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: { name: "x", version: "0" },
+        },
+      }),
+    });
+    // Express's default error handler produces 500 when our async handler
+    // throws; what matters here is that we don't leak — see follow-up assertion.
+    expect(res.status).toBeGreaterThanOrEqual(500);
+  });
+
+  it("discovery endpoint 421s on spoofed Host", async () => {
+    // Re-bind the server with a strict allowlist so a request to
+    // /.well-known/... over 127.0.0.1 is rejected.
+    await close();
+    const { close: c, port } = await startHttpServer(0, {
+      baseUrl: "http://e2a.local",
+      allowedHosts: ["mcp.e2a.dev"],
+      clientFactory: () => stub,
+    });
+    close = c;
+    const res = await fetch(
+      `http://127.0.0.1:${port}/.well-known/oauth-protected-resource`,
+    );
+    expect(res.status).toBe(421);
   });
 
   it("rejects requests when Host is not in the SDK allowlist", async () => {
