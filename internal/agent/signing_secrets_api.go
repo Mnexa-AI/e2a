@@ -51,9 +51,9 @@ type ListSigningSecretsResponse struct {
 } // @name ListSigningSecretsResponse
 
 // handleListSigningSecrets returns the authenticated user's webhook
-// signing secrets — id, name, prefix, created_at, last_signed_at —
-// sorted most-recent-first. The plaintext secret values are NOT in
-// this response; they're only shown at creation.
+// signing secrets — id, name, prefix, plaintext secret, created_at,
+// last_signed_at — sorted most-recent-first. See SigningSecretSummary
+// for the rationale on exposing the plaintext on list.
 //
 // @Summary      List your webhook signing secrets
 // @Description  Returns the authenticated user's webhook signing secrets (metadata, 12-char prefix, and full plaintext secret). Sorted most-recent-first; the most-recent secret is what the e2a relay uses for new signatures.

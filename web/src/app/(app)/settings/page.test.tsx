@@ -92,7 +92,7 @@ describe("Settings — Signing secrets section", () => {
   const defaultSecret = {
     id: "wsec_default0001",
     name: "default",
-    secret: "abcd1234efgh".repeat(5).slice(0, 64),
+    secret: "abcd1234efgh".repeat(6).slice(0, 64),
     secret_prefix: "abcd1234efgh",
     created_at: "2026-04-15T10:00:00Z",
   };
@@ -139,7 +139,7 @@ describe("Settings — Signing secrets section", () => {
     expect(delBtn).toBeDisabled();
   });
 
-  it("creates a new secret and shows the plaintext exactly once, then hides it on dismiss", async () => {
+  it("creates a new secret, shows the plaintext in the banner, and hides the banner on dismiss", async () => {
     const created = {
       id: "wsec_new0002",
       name: "rolling",
@@ -152,7 +152,10 @@ describe("Settings — Signing secrets section", () => {
       "GET /api/v1/users/me/signing-secrets": () => {
         listCallCount++;
         if (listCallCount === 1) return jsonResp({ secrets: [defaultSecret] });
-        return jsonResp({ secrets: [defaultSecret, { ...created, secret: undefined }] });
+        // Second list reflects the row added by POST. The row carries
+        // `secret` because it's the reveal source for Show — we just
+        // start collapsed so the plaintext isn't in the rendered DOM.
+        return jsonResp({ secrets: [defaultSecret, created] });
       },
       "POST /api/v1/users/me/signing-secrets": () => jsonResp(created, 201),
     }) as unknown as typeof fetch;
@@ -164,16 +167,18 @@ describe("Settings — Signing secrets section", () => {
     fireEvent.change(screen.getByPlaceholderText(/rolling-2026/i), { target: { value: "rolling" } });
     fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
 
-    // The plaintext is now in a readonly input with the warning banner.
+    // The plaintext appears in a readonly input inside the new-secret banner.
     await waitFor(() => {
-      expect(screen.getByText(/Save this secret now/i)).toBeInTheDocument();
+      expect(screen.getByText(/new signing secret created/i)).toBeInTheDocument();
     });
     const plaintextInput = screen.getByLabelText(/plaintext signing secret/i) as HTMLInputElement;
     expect(plaintextInput.value).toBe(created.secret);
 
-    // After dismiss, the plaintext disappears from the rendered DOM.
+    // After dismiss the banner is gone. The plaintext still lives in
+    // the table row state (so Show works) but is not in the rendered
+    // DOM because the row starts collapsed.
     fireEvent.click(screen.getByRole("button", { name: /^dismiss$/i }));
-    expect(screen.queryByText(/save this secret now/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/new signing secret created/i)).not.toBeInTheDocument();
     expect(document.body.innerHTML).not.toContain(created.secret);
   });
 

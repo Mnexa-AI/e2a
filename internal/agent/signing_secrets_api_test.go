@@ -120,9 +120,9 @@ func TestSigningSecrets_List_IncludesPlaintext(t *testing.T) {
 
 // --- Create ---
 
-func TestSigningSecrets_Create_ReturnsPlaintextOnce(t *testing.T) {
+func TestSigningSecrets_Create_ReturnsPlaintext(t *testing.T) {
 	server, store, _ := setupAPI(t)
-	apiKey := createTestUser(t, store, "create-once@example.com")
+	apiKey := createTestUser(t, store, "create-plaintext@example.com")
 
 	resp := authedReq(t, "POST", server.URL+"/api/v1/users/me/signing-secrets",
 		`{"name":"prod"}`, apiKey)

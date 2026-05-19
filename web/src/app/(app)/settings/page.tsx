@@ -250,10 +250,10 @@ function CreatedSecretBanner({ secret, onDismiss }: { secret: CreatedSecret; onD
 
   return (
     <div className="mb-4 border border-amber-300 dark:border-amber-800/40 bg-amber-50 dark:bg-amber-950/20 rounded-lg p-4">
-      <h3 className="text-sm font-semibold mb-1">Save this secret now — you can&apos;t see it again</h3>
+      <h3 className="text-sm font-semibold mb-1">New signing secret created</h3>
       <p className="text-sm text-muted mb-3">
-        This is the only time the full plaintext value will be shown. Copy it
-        into your environment variable (commonly <code className="font-mono text-xs">E2A_HMAC_SECRET</code>) before dismissing.
+        Copy it into your environment variable (commonly <code className="font-mono text-xs">E2A_HMAC_SECRET</code>).
+        You can also reveal it later from the table below.
       </p>
       <div className="flex gap-2 items-start">
         <input
