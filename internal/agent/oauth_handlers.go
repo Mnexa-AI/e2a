@@ -2,6 +2,9 @@ package agent
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -671,4 +674,228 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 	}
 	redirectURL.RawQuery = q.Encode()
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+}
+
+// ───────────────────────── Token endpoint (RFC 6749 §4.1.3, §6) ─────────────────────────
+
+// OAuthTokenResponse is the success body for /api/oauth/token. Field
+// names follow RFC 6749 §5.1 verbatim.
+type OAuthTokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"` // always "Bearer"
+	ExpiresIn    int    `json:"expires_in"` // seconds; access-token lifetime
+	RefreshToken string `json:"refresh_token,omitempty"`
+	Scope        string `json:"scope,omitempty"`
+}
+
+// pkceVerifierPattern enforces RFC 7636 §4.1 — same unreserved char set
+// as the challenge, length 43–128.
+var pkceVerifierPattern = regexp.MustCompile(`^[A-Za-z0-9._~-]{43,128}$`)
+
+// verifyPKCE_S256 confirms BASE64URL-NO-PAD(SHA256(verifier)) ==
+// challenge using a constant-time comparison so timing channels can't
+// be used to brute-force the challenge.
+func verifyPKCE_S256(verifier, challenge string) bool {
+	if !pkceVerifierPattern.MatchString(verifier) {
+		return false
+	}
+	h := sha256.Sum256([]byte(verifier))
+	computed := base64.RawURLEncoding.EncodeToString(h[:])
+	return subtle.ConstantTimeCompare([]byte(computed), []byte(challenge)) == 1
+}
+
+// writeTokenResponse emits the RFC 6749 §5.1 success body, including
+// the no-store cache directive required by §5.1 (so caches and dev
+// tools don't accidentally persist the access token).
+func writeTokenResponse(w http.ResponseWriter, t *oauth.Token) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	writeJSON(w, OAuthTokenResponse{
+		AccessToken:  t.AccessToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    int(oauth.AccessTokenLifetime / time.Second),
+		RefreshToken: t.RefreshToken,
+		Scope:        t.Scope,
+	})
+}
+
+// handleOAuthToken dispatches by grant_type. Both grant types are
+// public-client only (no client_secret); identity is bound via PKCE on
+// the auth_code grant and via possession of the refresh on the refresh
+// grant.
+//
+// Per RFC 6749 §3.2, the request MUST be application/x-www-form-urlencoded.
+func (a *API) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
+	if a.oauthStore == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "could not parse form body")
+		return
+	}
+	switch r.PostFormValue("grant_type") {
+	case "authorization_code":
+		a.handleTokenAuthCode(w, r)
+	case "refresh_token":
+		a.handleTokenRefresh(w, r)
+	case "":
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "grant_type is required")
+	default:
+		writeOAuthError(w, http.StatusBadRequest, "unsupported_grant_type",
+			"only authorization_code and refresh_token grants are supported")
+	}
+}
+
+// handleTokenAuthCode implements the authorization_code grant (RFC 6749 §4.1.3).
+// Order matters:
+//  1. Atomically consume the code. A replay (already-consumed) triggers
+//     RFC 6749 §10.5 defense — revoke all tokens for the same
+//     (client_id, user_id) pair and return invalid_grant.
+//  2. Bind: client_id and redirect_uri on the request must match the
+//     code's recorded values.
+//  3. PKCE: verify code_verifier ⇒ recomputed challenge matches.
+//  4. Issue tokens (access + refresh) with a fresh refresh_chain_id.
+func (a *API) handleTokenAuthCode(w http.ResponseWriter, r *http.Request) {
+	code := r.PostFormValue("code")
+	redirectURI := r.PostFormValue("redirect_uri")
+	clientID := r.PostFormValue("client_id")
+	codeVerifier := r.PostFormValue("code_verifier")
+
+	if code == "" || redirectURI == "" || clientID == "" || codeVerifier == "" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request",
+			"code, redirect_uri, client_id, and code_verifier are required")
+		return
+	}
+
+	authCode, state, err := a.oauthStore.AtomicConsumeCode(r.Context(), code)
+	if err != nil {
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "code consume failed")
+		return
+	}
+	switch state {
+	case oauth.ConsumeFresh:
+		// proceed
+	case oauth.ConsumeAlreadyConsumed:
+		// RFC 6749 §10.5 — revoke every token issued via this (client,
+		// user) pair. We have the row even though it was already
+		// consumed; use its client_id/user_id, not the request's, so a
+		// replayer can't redirect the revocation to a different account.
+		if authCode != nil {
+			_, _ = a.oauthStore.RevokeAllByClientUser(r.Context(), authCode.ClientID, authCode.UserID)
+		}
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant",
+			"authorization code already used; associated tokens revoked")
+		return
+	case oauth.ConsumeExpired:
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "authorization code expired")
+		return
+	case oauth.ConsumeNotFound:
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "unknown authorization code")
+		return
+	}
+
+	if authCode.ClientID != clientID {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "client_id does not match the code")
+		return
+	}
+	if authCode.RedirectURI != redirectURI {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "redirect_uri does not match the code")
+		return
+	}
+	if !verifyPKCE_S256(codeVerifier, authCode.CodeChallenge) {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "code_verifier does not match code_challenge")
+		return
+	}
+
+	now := time.Now()
+	refreshExp := now.Add(oauth.RefreshTokenLifetime)
+	tok := &oauth.Token{
+		AccessToken:      oauth.NewAccessToken(),
+		RefreshToken:     oauth.NewRefreshToken(),
+		RefreshChainID:   oauth.NewChainID(),
+		ClientID:         authCode.ClientID,
+		UserID:           authCode.UserID,
+		AgentEmail:       authCode.AgentEmail,
+		Scope:            authCode.Scope,
+		ExpiresAt:        now.Add(oauth.AccessTokenLifetime),
+		RefreshExpiresAt: &refreshExp,
+	}
+	if err := a.oauthStore.IssueToken(r.Context(), tok); err != nil {
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue tokens")
+		return
+	}
+	writeTokenResponse(w, tok)
+}
+
+// handleTokenRefresh implements the refresh_token grant (RFC 6749 §6)
+// with rotation per OAuth 2.1 / §10.4 reuse defense.
+//
+// Behavior:
+//  1. Look up the refresh. If not found at all, return invalid_grant
+//     — we can't distinguish "never existed" from "already rotated";
+//     full chain-level reuse defense on rotated rows is tracked as a
+//     follow-up (would require schema work to keep rotated values
+//     indexed). Rotation still provides single-use defense.
+//  2. If found but revoked or refresh-expired: revoke the entire
+//     chain (§10.4) and return invalid_grant.
+//  3. If client_id mismatch: revoke chain and return invalid_grant
+//     — an unexpected client presenting this refresh is malicious.
+//  4. Atomically rotate: NULL the old refresh, INSERT the new row
+//     under the same chain_id.
+func (a *API) handleTokenRefresh(w http.ResponseWriter, r *http.Request) {
+	refreshToken := r.PostFormValue("refresh_token")
+	clientID := r.PostFormValue("client_id")
+	if refreshToken == "" || clientID == "" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request",
+			"refresh_token and client_id are required")
+		return
+	}
+
+	oldTok, err := a.oauthStore.LookupTokenByRefresh(r.Context(), refreshToken)
+	if err != nil {
+		// Either never existed or already rotated. Both surface as
+		// invalid_grant; chain-level revocation on the rotated case
+		// requires schema support not yet present.
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "refresh token invalid")
+		return
+	}
+
+	// client_id binding (§10.4). Treat mismatch as hostile and burn
+	// the chain — a different client presenting this refresh means
+	// either token confusion at the client or theft.
+	if oldTok.ClientID != clientID {
+		_, _ = a.oauthStore.RevokeChainByID(r.Context(), oldTok.RefreshChainID)
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "client_id does not match the refresh token")
+		return
+	}
+
+	now := time.Now()
+	expired := oldTok.RefreshExpiresAt != nil && now.After(*oldTok.RefreshExpiresAt)
+	if oldTok.RevokedAt != nil || expired {
+		// Presenting a refresh that's revoked or past TTL is suspect.
+		// Revoke the chain so any sibling tokens are torn down too.
+		_, _ = a.oauthStore.RevokeChainByID(r.Context(), oldTok.RefreshChainID)
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "refresh token revoked or expired")
+		return
+	}
+
+	refreshExp := now.Add(oauth.RefreshTokenLifetime)
+	newTok := &oauth.Token{
+		AccessToken:      oauth.NewAccessToken(),
+		RefreshToken:     oauth.NewRefreshToken(),
+		RefreshChainID:   oldTok.RefreshChainID, // inherit chain
+		ClientID:         oldTok.ClientID,
+		UserID:           oldTok.UserID,
+		AgentEmail:       oldTok.AgentEmail,
+		Scope:            oldTok.Scope,
+		ExpiresAt:        now.Add(oauth.AccessTokenLifetime),
+		RefreshExpiresAt: &refreshExp,
+	}
+	if err := a.oauthStore.RotateRefreshToken(r.Context(), refreshToken, newTok); err != nil {
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to rotate refresh token")
+		return
+	}
+	writeTokenResponse(w, newTok)
 }

@@ -256,6 +256,10 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/oauth/authorize", a.handleOAuthAuthorize).Methods("GET")
 	r.HandleFunc("/api/oauth/consent", a.handleOAuthConsent).Methods("POST")
 
+	// OAuth 2.1 token endpoint — authorization_code (with PKCE) and
+	// refresh_token grants. Public clients only; no client_secret.
+	r.HandleFunc("/api/oauth/token", a.handleOAuthToken).Methods("POST")
+
 	// User auth (Google OAuth for agent developers)
 	if a.userAuth != nil {
 		r.HandleFunc("/api/auth/login", a.userAuth.HandleLogin).Methods("GET")
