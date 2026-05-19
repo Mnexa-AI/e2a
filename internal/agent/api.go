@@ -260,6 +260,10 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	// refresh_token grants. Public clients only; no client_secret.
 	r.HandleFunc("/api/oauth/token", a.handleOAuthToken).Methods("POST")
 
+	// RFC 7009 revoke endpoint. Refresh-token revocation cascades to
+	// the whole chain; access-token revocation is single-row.
+	r.HandleFunc("/api/oauth/revoke", a.handleOAuthRevoke).Methods("POST")
+
 	// User auth (Google OAuth for agent developers)
 	if a.userAuth != nil {
 		r.HandleFunc("/api/auth/login", a.userAuth.HandleLogin).Methods("GET")

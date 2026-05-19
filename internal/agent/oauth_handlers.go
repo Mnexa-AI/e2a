@@ -899,3 +899,89 @@ func (a *API) handleTokenRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 	writeTokenResponse(w, newTok)
 }
+
+// ───────────────────────── Revoke endpoint (RFC 7009) ─────────────────────────
+
+// handleOAuthRevoke implements RFC 7009 §2. Public clients revoke their
+// own tokens by presenting client_id (no client_secret since they're
+// public).
+//
+// Per §2.2:
+//   - Successful revocation responds with 200 and empty body.
+//   - An invalid token (already revoked, never existed, etc.) ALSO
+//     responds 200 — the server "MUST NOT" leak which tokens are valid.
+//   - Bad inputs (missing token, missing client_id, client_id mismatch)
+//     return 400.
+//
+// Refresh-token revocation cascades to the whole refresh chain because
+// §2 says "the authorization server SHOULD also invalidate all access
+// tokens based on the same authorization grant." Our chain_id groups
+// exactly that set.
+func (a *API) handleOAuthRevoke(w http.ResponseWriter, r *http.Request) {
+	if a.oauthStore == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "could not parse form body")
+		return
+	}
+	token := strings.TrimSpace(r.PostFormValue("token"))
+	clientID := strings.TrimSpace(r.PostFormValue("client_id"))
+	hint := r.PostFormValue("token_type_hint") // optional
+
+	if token == "" || clientID == "" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "token and client_id are required")
+		return
+	}
+
+	// Try the lookup order suggested by the hint; fall back to the
+	// other type if the first returns nothing. Hint is advisory per
+	// RFC 7009 §2.1 — we MUST handle the "wrong hint" case gracefully.
+	var (
+		found  *oauth.Token
+		isRefresh bool
+	)
+	if hint == "refresh_token" {
+		if t, err := a.oauthStore.LookupTokenByRefresh(r.Context(), token); err == nil {
+			found, isRefresh = t, true
+		} else if t, err := a.oauthStore.LookupTokenByAccess(r.Context(), token); err == nil {
+			found = t
+		}
+	} else {
+		if t, err := a.oauthStore.LookupTokenByAccess(r.Context(), token); err == nil {
+			found = t
+		} else if t, err := a.oauthStore.LookupTokenByRefresh(r.Context(), token); err == nil {
+			found, isRefresh = t, true
+		}
+	}
+
+	// Not found — silently 200 (don't leak token existence). Some
+	// clients call revoke on logout regardless of validity; making them
+	// branch on the response would be unfriendly.
+	if found == nil {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Client binding. Mismatch is a real protocol error (the client
+	// shouldn't have this token), so 400 — but per §2.1 we use
+	// "invalid_client" since the client_id doesn't authenticate.
+	if found.ClientID != clientID {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client", "client_id does not match the token")
+		return
+	}
+
+	if isRefresh {
+		if _, err := a.oauthStore.RevokeChainByID(r.Context(), found.RefreshChainID); err != nil {
+			writeOAuthError(w, http.StatusInternalServerError, "server_error", "revocation failed")
+			return
+		}
+	} else {
+		if err := a.oauthStore.RevokeToken(r.Context(), found.AccessToken); err != nil {
+			writeOAuthError(w, http.StatusInternalServerError, "server_error", "revocation failed")
+			return
+		}
+	}
+	w.WriteHeader(http.StatusOK)
+}
