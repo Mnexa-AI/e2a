@@ -283,7 +283,7 @@ func scanMessagesForUser(ctx context.Context, tx pgx.Tx, userID string) ([]Messa
 		        m.raw_message, m.auth_headers, m.conversation_id,
 		        COALESCE(m.inbox_status, ''),
 		        m.created_at, m.expires_at,
-		        m.to_recipients, m.cc, m.bcc,
+		        m.to_recipients, m.cc, m.bcc, m.reply_to,
 		        m.status, m.approval_expires_at, m.reviewed_at,
 		        COALESCE(m.rejection_reason, ''),
 		        m.edited, COALESCE(m.body_text, ''), COALESCE(m.body_html, ''),
@@ -306,7 +306,7 @@ func scanMessagesForUser(ctx context.Context, tx pgx.Tx, userID string) ([]Messa
 			&m.Subject, &m.EmailMessageID, &m.ProviderMessageID, &m.Method, &m.Type,
 			&m.RawMessage, &authHeadersJSON, &m.ConversationID, &m.DeliveryStatus,
 			&m.CreatedAt, &m.ExpiresAt,
-			&m.ToRecipients, &m.CC, &m.BCC,
+			&m.ToRecipients, &m.CC, &m.BCC, &m.ReplyTo,
 			&m.Status, &m.ApprovalExpiresAt, &m.ReviewedAt, &m.RejectionReason,
 			&m.Edited, &m.BodyText, &m.BodyHTML, &attachmentsJSON,
 		); err != nil {

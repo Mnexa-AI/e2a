@@ -350,13 +350,28 @@ export class InboundEmail {
    * (Granola, GitHub CI bots, …) and the real correspondent lives in
    * Reply-To.
    *
-   * Trust path: e2a's HMAC binds the body hash of `rawMessage`, and
-   * Reply-To lives inside `rawMessage` — so tampering with it breaks
-   * {@link verifySignature}, the same protection that `to`/`cc` enjoy.
-   * This is **not** an upstream-DKIM coverage check; if the original
-   * sender's DKIM did not sign Reply-To, a MITM between sender and e2a
-   * could have rewritten it. For high-stakes routing, also confirm
-   * {@link isVerified} and the sender domain.
+   * ⚠️ Trust path is weaker than you might assume. The HMAC binds a
+   * fixed set of auth headers and `bodyHash = SHA-256(rawMessage)`. It
+   * does **not** sign the JSON envelope, and the SDK reads this field
+   * from the JSON envelope — not from `rawMessage`. So `replyTo` is
+   * trusted on the same terms as `to`, `cc`, `recipient`, `subject`,
+   * and the body fields: the server placed it in the JSON, TLS
+   * protected the wire to your webhook URL, and you trust your
+   * relay-to-webhook connection. The HMAC alone does not prevent an
+   * attacker who can modify the JSON envelope after signing from
+   * rewriting `replyTo` while {@link verifySignature} still returns
+   * true.
+   *
+   * If you need byte-exact integrity (e.g. routing decisions where an
+   * attacker who can break TLS would matter), re-parse the `Reply-To:`
+   * header from {@link rawMessage} yourself — that bytes-level
+   * integrity *is* covered by `bodyHash`.
+   *
+   * Separately, this is **not** an upstream-DKIM coverage check. If
+   * the original sender's DKIM signature did not cover Reply-To, a
+   * MITM between sender and e2a could have rewritten the header
+   * before it reached the relay. For high-stakes routing, also
+   * confirm {@link isVerified} and the sender domain.
    */
   get replyTo(): string[] { this.requireVerified(); return this._replyTo; }
   get subject(): string { this.requireVerified(); return this._subject; }

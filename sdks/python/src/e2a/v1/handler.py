@@ -12,7 +12,7 @@ import email as email_lib
 import hashlib
 import hmac
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from email.policy import default as default_policy
 from typing import TYPE_CHECKING, Any, Optional
@@ -190,10 +190,13 @@ class MessageSummary:
     recipient: str
     to: list[str]
     cc: list[str]
-    reply_to: list[str]
     subject: str
     status: str  # "unread" or "read"
     created_at: str
+    # Added after the initial release; defaulted to [] so existing
+    # positional constructors (test fixtures, custom adapters) keep
+    # working without shifting the trailing args.
+    reply_to: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -256,7 +259,6 @@ class InboundEmail:
         recipient: str,
         to: list[str],
         cc: list[str],
-        reply_to: list[str],
         subject: str,
         text_body: str,
         html_body: Optional[str],
@@ -265,6 +267,10 @@ class InboundEmail:
         received_at: Optional[str],
         raw_message: bytes,
         client: E2AClient,
+        # Added after the initial release; defaulted to None so existing
+        # constructors keep working. Normalized to [] below to match the
+        # SDK contract that reply_to is always a list, never None.
+        reply_to: Optional[list[str]] = None,
     ) -> None:
         # Stored as private fields. Public access flows through @property
         # gates that check self._verified. The constructor takes the
@@ -275,7 +281,7 @@ class InboundEmail:
         self._recipient = recipient
         self._to = to
         self._cc = cc
-        self._reply_to = reply_to
+        self._reply_to = reply_to if reply_to is not None else []
         self._subject = subject
         self._text_body = text_body
         self._html_body = html_body
@@ -433,20 +439,32 @@ class InboundEmail:
         From: address of forwarded / notification mail whose Reply-To
         points at a different mailbox.
 
-        .. note::
-           Trust path: e2a's HMAC binds the body hash of ``raw_message``,
-           and Reply-To lives inside ``raw_message`` — so tampering with
-           it breaks :meth:`verify_signature`, the same protection that
-           :attr:`to` and :attr:`cc` enjoy. The list shipped here is the
-           server's parse of that header; cross-verify against
-           ``raw_message`` if you need byte-exact assurance.
+        .. warning::
+           Trust path is weaker than you might assume. The HMAC binds a
+           fixed set of auth headers (sender, timestamp, message_id,
+           body_hash, …) and ``body_hash = SHA-256(raw_message)``. It
+           does **not** sign the JSON envelope, and the SDK reads this
+           field from the JSON envelope — not from ``raw_message``. So
+           ``reply_to`` here is trusted on the same terms as :attr:`to`,
+           :attr:`cc`, :attr:`recipient`, :attr:`subject`, and the body
+           fields: the server placed it in the JSON, TLS protected the
+           wire to your webhook URL, and you trust your relay-to-webhook
+           connection. The HMAC alone does not prevent an attacker who
+           can modify the JSON envelope after signing from rewriting
+           ``reply_to`` while ``verify_signature`` still returns
+           ``True``.
 
-           This is **not** an upstream-DKIM coverage check. If the original
-           sender's DKIM signature does not cover Reply-To (whether
-           because they did not sign it, or there was no DKIM at all), a
-           MITM between sender and e2a could have rewritten it without
-           detection. For routing decisions where attacker-controlled
-           Reply-To would matter, also confirm :attr:`is_verified` and
+           If you need byte-exact integrity (e.g. routing decisions
+           where an attacker who can break TLS would matter), re-parse
+           the ``Reply-To:`` header from :attr:`raw_message` yourself —
+           that bytes-level integrity *is* covered by ``body_hash``.
+
+           Separately, this is **not** an upstream-DKIM coverage check.
+           If the original sender's DKIM signature did not cover
+           Reply-To (whether because they did not sign it, or there was
+           no DKIM at all), a MITM between sender and e2a could have
+           rewritten the header before it reached the relay. For
+           high-stakes routing, also confirm :attr:`is_verified` and
            that the sender's domain is one you expect.
         """
         self._require_verified()
@@ -677,7 +695,6 @@ class AsyncInboundEmail:
         recipient: str,
         to: list[str],
         cc: list[str],
-        reply_to: list[str],
         subject: str,
         text_body: str,
         html_body: Optional[str],
@@ -686,6 +703,9 @@ class AsyncInboundEmail:
         received_at: Optional[str],
         raw_message: bytes,
         client: AsyncE2AClient,
+        # See InboundEmail.__init__ for the rationale on positioning
+        # reply_to last with a None default.
+        reply_to: Optional[list[str]] = None,
     ) -> None:
         self._message_id = message_id
         self._conversation_id = conversation_id
@@ -693,7 +713,7 @@ class AsyncInboundEmail:
         self._recipient = recipient
         self._to = to
         self._cc = cc
-        self._reply_to = reply_to
+        self._reply_to = reply_to if reply_to is not None else []
         self._subject = subject
         self._text_body = text_body
         self._html_body = html_body
@@ -804,20 +824,32 @@ class AsyncInboundEmail:
         From: address of forwarded / notification mail whose Reply-To
         points at a different mailbox.
 
-        .. note::
-           Trust path: e2a's HMAC binds the body hash of ``raw_message``,
-           and Reply-To lives inside ``raw_message`` — so tampering with
-           it breaks :meth:`verify_signature`, the same protection that
-           :attr:`to` and :attr:`cc` enjoy. The list shipped here is the
-           server's parse of that header; cross-verify against
-           ``raw_message`` if you need byte-exact assurance.
+        .. warning::
+           Trust path is weaker than you might assume. The HMAC binds a
+           fixed set of auth headers (sender, timestamp, message_id,
+           body_hash, …) and ``body_hash = SHA-256(raw_message)``. It
+           does **not** sign the JSON envelope, and the SDK reads this
+           field from the JSON envelope — not from ``raw_message``. So
+           ``reply_to`` here is trusted on the same terms as :attr:`to`,
+           :attr:`cc`, :attr:`recipient`, :attr:`subject`, and the body
+           fields: the server placed it in the JSON, TLS protected the
+           wire to your webhook URL, and you trust your relay-to-webhook
+           connection. The HMAC alone does not prevent an attacker who
+           can modify the JSON envelope after signing from rewriting
+           ``reply_to`` while ``verify_signature`` still returns
+           ``True``.
 
-           This is **not** an upstream-DKIM coverage check. If the original
-           sender's DKIM signature does not cover Reply-To (whether
-           because they did not sign it, or there was no DKIM at all), a
-           MITM between sender and e2a could have rewritten it without
-           detection. For routing decisions where attacker-controlled
-           Reply-To would matter, also confirm :attr:`is_verified` and
+           If you need byte-exact integrity (e.g. routing decisions
+           where an attacker who can break TLS would matter), re-parse
+           the ``Reply-To:`` header from :attr:`raw_message` yourself —
+           that bytes-level integrity *is* covered by ``body_hash``.
+
+           Separately, this is **not** an upstream-DKIM coverage check.
+           If the original sender's DKIM signature did not cover
+           Reply-To (whether because they did not sign it, or there was
+           no DKIM at all), a MITM between sender and e2a could have
+           rewritten the header before it reached the relay. For
+           high-stakes routing, also confirm :attr:`is_verified` and
            that the sender's domain is one you expect.
         """
         self._require_verified()
