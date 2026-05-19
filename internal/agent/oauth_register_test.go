@@ -299,6 +299,138 @@ func assertOAuthError(t *testing.T, resp *http.Response, wantStatus int, wantCod
 // context.Background() at every callsite.
 func testCtx() context.Context { return context.Background() }
 
+// TestOAuthRegister_RejectsUserinfoInRedirect guards L8: rejects URIs
+// with embedded userinfo (e.g. "https://anything@evil.com/cb"). The
+// authority section is attacker-controlled in those — the URI looks
+// legit to a human reviewer of client metadata.
+func TestOAuthRegister_RejectsUserinfoInRedirect(t *testing.T) {
+	server, _ := newDCRServer(t)
+	resp := postJSON(t, server, "/api/oauth/register", agent.OAuthRegisterRequest{
+		ClientName:   "userinfo-rejection",
+		RedirectURIs: []string{"https://anything@evil.com/cb"},
+	})
+	defer resp.Body.Close()
+	assertOAuthError(t, resp, http.StatusBadRequest, "invalid_redirect_uri")
+}
+
+// TestOAuthRegister_DedupesRedirectURIs guards M5 — submitting the
+// same URI twice stores it once. Otherwise a hostile DCR caller can
+// fill the 10-URI cap with one effective URL.
+func TestOAuthRegister_DedupesRedirectURIs(t *testing.T) {
+	server, oauthStore := newDCRServer(t)
+	resp := postJSON(t, server, "/api/oauth/register", agent.OAuthRegisterRequest{
+		ClientName: "dup",
+		RedirectURIs: []string{
+			"https://example.com/cb",
+			"https://example.com/cb",
+			"https://example.com/cb",
+		},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("dedup should not reject: got %d", resp.StatusCode)
+	}
+	var got agent.OAuthRegisterResponse
+	_ = json.NewDecoder(resp.Body).Decode(&got)
+	resp.Body.Close()
+	if len(got.RedirectURIs) != 1 {
+		t.Errorf("response should reflect deduped list: got %d entries", len(got.RedirectURIs))
+	}
+	row, err := oauthStore.GetClient(testCtx(), got.ClientID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(row.RedirectURIs) != 1 {
+		t.Errorf("stored row should have 1 URI, got %d", len(row.RedirectURIs))
+	}
+}
+
+// postJSONWithHeaders is postJSON + a header bag, so M4 tests can set
+// X-Forwarded-For or CF-Connecting-IP per request.
+func postJSONWithHeaders(t *testing.T, server *httptest.Server, path string, body any, headers map[string]string) *http.Response {
+	t.Helper()
+	buf, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest("POST", server.URL+path, bytes.NewReader(buf))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+// TestOAuthRegister_XFFCannotBypassRateLimit guards M4: an attacker
+// rotating X-Forwarded-For must NOT defeat dcrLimit. We send 11 DCR
+// requests, each with a different XFF value, all from the same
+// RemoteAddr (the httptest loopback). With the old clientIP() helper
+// the 11th would have succeeded (each XFF was a "different IP"); with
+// dcrSourceIP() the 11th must 429 because RemoteAddr is the shared
+// bucket key.
+func TestOAuthRegister_XFFCannotBypassRateLimit(t *testing.T) {
+	server, _ := newDCRServer(t)
+	good := func(i int) agent.OAuthRegisterRequest {
+		return agent.OAuthRegisterRequest{
+			ClientName:   fmt.Sprintf("xff-bypass-%d", i),
+			RedirectURIs: []string{"https://example.com/callback"},
+		}
+	}
+	for i := 0; i < 10; i++ {
+		resp := postJSONWithHeaders(t, server, "/api/oauth/register", good(i), map[string]string{
+			"X-Forwarded-For": fmt.Sprintf("198.51.100.%d", i+1),
+		})
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("burn-in request %d: want 201, got %d", i+1, resp.StatusCode)
+		}
+	}
+	resp := postJSONWithHeaders(t, server, "/api/oauth/register", good(11), map[string]string{
+		"X-Forwarded-For": "203.0.113.99",
+	})
+	defer resp.Body.Close()
+	assertOAuthError(t, resp, http.StatusTooManyRequests, "rate_limited")
+}
+
+// TestOAuthRegister_CFConnectingIPGivesSeparateBuckets confirms the
+// flipside: legit Cloudflare-fronted traffic with different real
+// client IPs DOES get separate buckets, so we don't accidentally
+// punish all users behind one upstream proxy.
+func TestOAuthRegister_CFConnectingIPGivesSeparateBuckets(t *testing.T) {
+	server, _ := newDCRServer(t)
+	good := func(i int) agent.OAuthRegisterRequest {
+		return agent.OAuthRegisterRequest{
+			ClientName:   fmt.Sprintf("cf-ip-%d", i),
+			RedirectURIs: []string{"https://example.com/callback"},
+		}
+	}
+	// 10 requests as IP A, then 10 requests as IP B — all should pass.
+	for i := 0; i < 10; i++ {
+		resp := postJSONWithHeaders(t, server, "/api/oauth/register", good(i), map[string]string{
+			"CF-Connecting-IP": "203.0.113.10",
+		})
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("ip-A request %d: want 201, got %d", i+1, resp.StatusCode)
+		}
+	}
+	for i := 10; i < 20; i++ {
+		resp := postJSONWithHeaders(t, server, "/api/oauth/register", good(i), map[string]string{
+			"CF-Connecting-IP": "203.0.113.20",
+		})
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("ip-B request %d (should be separate bucket): want 201, got %d", i+1, resp.StatusCode)
+		}
+	}
+}
+
 // TestOAuthRegister_RateLimited asserts the per-IP cap kicks in. The
 // httptest server uses 127.0.0.1 for every request, so all calls share
 // the same rate-limit bucket — 10 succeed, the 11th 429s. Guard against

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -26,16 +27,17 @@ import (
 // — omitting an OPTIONAL field (e.g. introspection_endpoint, jwks_uri) is
 // itself a signal to clients that the feature isn't supported.
 type OAuthAuthorizationServerMetadata struct {
-	Issuer                            string   `json:"issuer"`
-	AuthorizationEndpoint             string   `json:"authorization_endpoint"`
-	TokenEndpoint                     string   `json:"token_endpoint"`
-	RegistrationEndpoint              string   `json:"registration_endpoint"`
-	RevocationEndpoint                string   `json:"revocation_endpoint"`
-	ResponseTypesSupported            []string `json:"response_types_supported"`
-	GrantTypesSupported               []string `json:"grant_types_supported"`
-	CodeChallengeMethodsSupported     []string `json:"code_challenge_methods_supported"`
-	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported"`
-	ScopesSupported                   []string `json:"scopes_supported"`
+	Issuer                                 string   `json:"issuer"`
+	AuthorizationEndpoint                  string   `json:"authorization_endpoint"`
+	TokenEndpoint                          string   `json:"token_endpoint"`
+	RegistrationEndpoint                   string   `json:"registration_endpoint"`
+	RevocationEndpoint                     string   `json:"revocation_endpoint"`
+	ResponseTypesSupported                 []string `json:"response_types_supported"`
+	GrantTypesSupported                    []string `json:"grant_types_supported"`
+	CodeChallengeMethodsSupported          []string `json:"code_challenge_methods_supported"`
+	TokenEndpointAuthMethodsSupported      []string `json:"token_endpoint_auth_methods_supported"`
+	RevocationEndpointAuthMethodsSupported []string `json:"revocation_endpoint_auth_methods_supported"`
+	ScopesSupported                        []string `json:"scopes_supported"`
 }
 
 // handleOAuthDiscovery serves the RFC 8414 authorization-server metadata
@@ -63,11 +65,12 @@ func (a *API) handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
 		TokenEndpoint:                     base + "/api/oauth/token",
 		RegistrationEndpoint:              base + "/api/oauth/register",
 		RevocationEndpoint:                base + "/api/oauth/revoke",
-		ResponseTypesSupported:            []string{"code"},
-		GrantTypesSupported:               []string{"authorization_code", "refresh_token"},
-		CodeChallengeMethodsSupported:     []string{"S256"},
-		TokenEndpointAuthMethodsSupported: []string{"none"},
-		ScopesSupported:                   []string{"e2a"},
+		ResponseTypesSupported:                 []string{"code"},
+		GrantTypesSupported:                    []string{"authorization_code", "refresh_token"},
+		CodeChallengeMethodsSupported:          []string{"S256"},
+		TokenEndpointAuthMethodsSupported:      []string{"none"},
+		RevocationEndpointAuthMethodsSupported: []string{"none"},
+		ScopesSupported:                        []string{"e2a"},
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
@@ -144,6 +147,14 @@ func validateRedirectURI(raw string) error {
 	if u.Fragment != "" {
 		return errors.New("redirect_uri must not contain a fragment")
 	}
+	// Reject userinfo (e.g. "https://anything@evil.com/cb" parses as
+	// host=evil.com). The URI looks legitimate to a human reviewing
+	// client metadata but the authority is attacker-controlled. Exact-
+	// string match at consent saves us, but rejecting at registration
+	// keeps the stored set readable and the surface tight.
+	if u.User != nil {
+		return errors.New("redirect_uri must not contain userinfo")
+	}
 	switch u.Scheme {
 	case "":
 		return errors.New("redirect_uri must include a scheme")
@@ -166,6 +177,32 @@ func validateRedirectURI(raw string) error {
 	}
 }
 
+// dcrSourceIP returns the IP we'll bucket DCR rate-limits by. The
+// repo-wide clientIP() trusts X-Forwarded-For unconditionally, which is
+// safe enough for authed endpoints (the auth happens first) but is a
+// real bypass on the only unauthenticated persistent-write endpoint —
+// DCR. An attacker rotating XFF defeats the 10/IP/hr cap and fills
+// oauth_clients.
+//
+// Preference order:
+//  1. CF-Connecting-IP — set by Cloudflare at the edge and stripped
+//     from inbound requests, so it can't be spoofed by a client. Used
+//     in prod (orange-cloud is on).
+//  2. r.RemoteAddr — the direct peer. In prod this is Caddy's loopback
+//     address, so all real clients share one bucket; that's
+//     conservative-but-correct. In dev (direct connections) it's the
+//     real client IP.
+//
+// XFF is never consulted here. If we add other unauthenticated
+// persistent-write endpoints, they should use this helper too.
+func dcrSourceIP(r *http.Request) string {
+	if ip := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); ip != "" {
+		return ip
+	}
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	return host
+}
+
 // handleOAuthRegister implements RFC 7591 Dynamic Client Registration.
 // Anonymous endpoint (RFC 7591 §2 — "open registration"). Per-IP rate
 // limited because anyone on the internet can hit it.
@@ -179,7 +216,7 @@ func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if !a.dcrLimit.Allow(clientIP(r)) {
+	if !a.dcrLimit.Allow(dcrSourceIP(r)) {
 		writeOAuthError(w, http.StatusTooManyRequests, "rate_limited", "too many registrations from this IP; try again later")
 		return
 	}
@@ -208,12 +245,23 @@ func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_redirect_uri", "too many redirect_uris (max 10)")
 		return
 	}
+	// Dedupe + validate. Duplicate URIs serve no functional purpose
+	// (exact-match lookup short-circuits on the first hit) and let a
+	// hostile DCR caller exhaust the soft cap with no real value.
+	seen := make(map[string]struct{}, len(req.RedirectURIs))
+	deduped := req.RedirectURIs[:0]
 	for _, raw := range req.RedirectURIs {
 		if err := validateRedirectURI(raw); err != nil {
 			writeOAuthError(w, http.StatusBadRequest, "invalid_redirect_uri", err.Error())
 			return
 		}
+		if _, ok := seen[raw]; ok {
+			continue
+		}
+		seen[raw] = struct{}{}
+		deduped = append(deduped, raw)
 	}
+	req.RedirectURIs = deduped
 
 	// Defaults. RFC 7591 §2 lets the server fill in unspecified
 	// metadata; we default to the only combination v0.3 supports.
@@ -878,9 +926,17 @@ func (a *API) handleTokenRefresh(w http.ResponseWriter, r *http.Request) {
 
 	oldTok, err := a.oauthStore.LookupTokenByRefresh(r.Context(), refreshToken)
 	if err != nil {
-		// Either never existed or already rotated. Both surface as
-		// invalid_grant; chain-level revocation on the rotated case
-		// requires schema support not yet present.
+		// Either never existed, already rotated, or a DB error.
+		// ErrTokenNotFound is by far the common case: a rotated-and-
+		// replayed refresh hits this path because the column gets
+		// NULLed on rotation. We can't distinguish "stolen and
+		// replayed" from "never existed" without a separate
+		// rotated-history index (tracked follow-up). Until that lands,
+		// log every miss as a SECURITY event so ops can spot a pattern.
+		if errors.Is(err, oauth.ErrTokenNotFound) {
+			log.Printf("[oauth][SECURITY] refresh-grant lookup miss for client=%s — token never existed OR was rotated (possible replay)",
+				clientID)
+		}
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "refresh token invalid")
 		return
 	}
@@ -921,6 +977,20 @@ func (a *API) handleTokenRefresh(w http.ResponseWriter, r *http.Request) {
 		RefreshExpiresAt: &refreshExp,
 	}
 	if err := a.oauthStore.RotateRefreshToken(r.Context(), refreshToken, newTok); err != nil {
+		// ErrTokenNotFound here is the rotation race: two refresh
+		// requests with the same token arrived simultaneously, both
+		// passed the earlier LookupTokenByRefresh, and now the loser
+		// finds the row already NULLed. That's an invalid_grant from
+		// the caller's POV — not a 500. Still log it: even legitimate
+		// races indicate buggy client code (clients should serialize
+		// their refresh attempts), and the same path catches actual
+		// replay attempts.
+		if errors.Is(err, oauth.ErrTokenNotFound) {
+			log.Printf("[oauth][SECURITY] refresh rotation race or replay for client=%s user=%s chain=%s",
+				oldTok.ClientID, oldTok.UserID, oldTok.RefreshChainID)
+			writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "refresh token was already consumed")
+			return
+		}
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to rotate refresh token")
 		return
 	}

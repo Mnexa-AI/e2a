@@ -389,6 +389,41 @@ func TestToken_Refresh_ClientIDMismatch_RevokesChain(t *testing.T) {
 	}
 }
 
+// TestToken_Refresh_RotationRace simulates a lost race: two refresh
+// requests with the same token both pass lookup, then one wins the
+// rotation. The loser hits RowsAffected==0 inside RotateRefreshToken,
+// which surfaces as ErrTokenNotFound. Per M3, the handler must turn
+// that into 400 invalid_grant, not 500.
+//
+// We can't realistically race against an in-flight handler, so we
+// stage the same end state directly: mint tokens, rotate via the API
+// to NULL the old refresh, then re-attempt the original refresh.
+// LookupTokenByRefresh on a NULLed row returns ErrTokenNotFound — same
+// path the actual race takes, so the assertion (400 + invalid_grant)
+// covers both.
+func TestToken_Refresh_RotationRace(t *testing.T) {
+	f := newAuthzFixture(t)
+	tr := mintInitialTokens(t, f)
+
+	form := url.Values{}
+	form.Set("grant_type", "refresh_token")
+	form.Set("refresh_token", tr.RefreshToken)
+	form.Set("client_id", f.client.ClientID)
+
+	// Win the race.
+	winner := postToken(t, f.server.URL, form)
+	_ = decodeToken(t, winner)
+	winner.Body.Close()
+
+	// Loser replays the same refresh.
+	loser := postToken(t, f.server.URL, form)
+	defer loser.Body.Close()
+	if loser.StatusCode != http.StatusBadRequest {
+		t.Fatalf("rotation race loser must 400 (not 500): got %d", loser.StatusCode)
+	}
+	assertOAuthError(t, loser, http.StatusBadRequest, "invalid_grant")
+}
+
 func TestToken_Refresh_UnknownToken(t *testing.T) {
 	f := newAuthzFixture(t)
 	form := url.Values{}

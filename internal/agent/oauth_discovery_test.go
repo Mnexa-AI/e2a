@@ -105,6 +105,12 @@ func TestOAuthDiscovery_Enabled(t *testing.T) {
 	if !equalStringSlice(meta.TokenEndpointAuthMethodsSupported, wantAuthMethods) {
 		t.Errorf("token_endpoint_auth_methods_supported: want %v, got %v", wantAuthMethods, meta.TokenEndpointAuthMethodsSupported)
 	}
+	// L7: revocation_endpoint_auth_methods_supported must also be
+	// advertised so RFC 8414 §2 strict clients don't warn on missing
+	// metadata for the revoke endpoint.
+	if !equalStringSlice(meta.RevocationEndpointAuthMethodsSupported, wantAuthMethods) {
+		t.Errorf("revocation_endpoint_auth_methods_supported: want %v, got %v", wantAuthMethods, meta.RevocationEndpointAuthMethodsSupported)
+	}
 }
 
 // TestOAuthDiscovery_NoOAuthStore_404 covers a deployment that hasn't
