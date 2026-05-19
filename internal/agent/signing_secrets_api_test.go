@@ -298,3 +298,47 @@ func TestSigningSecrets_Delete_OtherUsersSecret_Returns404(t *testing.T) {
 		t.Error("A's secret was somehow deleted by B")
 	}
 }
+
+// Regression test for the most-load-bearing property of this
+// endpoint: now that List returns plaintext, a cross-user query must
+// never see another user's secret. The scoping is implicit in the SQL
+// `WHERE user_id = $1`, and this test exists to catch a future
+// refactor that loosens it.
+func TestSigningSecrets_List_DoesNotLeakOtherUsers(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	keyA := createTestUser(t, store, "leak-a@example.com")
+	keyB := createTestUser(t, store, "leak-b@example.com")
+
+	// A creates a named secret so we have a specific plaintext to look for.
+	r := authedReq(t, "POST", server.URL+"/api/v1/users/me/signing-secrets",
+		`{"name":"a-only"}`, keyA)
+	var aCreated createResp
+	json.NewDecoder(r.Body).Decode(&aCreated)
+	r.Body.Close()
+
+	// B lists. The response body must not contain A's plaintext or ID.
+	listR := authedReq(t, "GET", server.URL+"/api/v1/users/me/signing-secrets", "", keyB)
+	defer listR.Body.Close()
+	body, _ := io.ReadAll(listR.Body)
+	if strings.Contains(string(body), aCreated.Secret) {
+		t.Errorf("B's list leaked A's plaintext secret:\n%s", body)
+	}
+	if strings.Contains(string(body), aCreated.ID) {
+		t.Errorf("B's list leaked A's secret ID:\n%s", body)
+	}
+}
+
+// The list response carries live credentials, so it must instruct
+// intermediaries not to cache it. Defense-in-depth — the
+// Authorization header should already prevent shared caches from
+// storing it, but we set Cache-Control: no-store explicitly.
+func TestSigningSecrets_List_SetsNoStore(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	apiKey := createTestUser(t, store, "no-store@example.com")
+
+	resp := authedReq(t, "GET", server.URL+"/api/v1/users/me/signing-secrets", "", apiKey)
+	defer resp.Body.Close()
+	if got := resp.Header.Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", got)
+	}
+}

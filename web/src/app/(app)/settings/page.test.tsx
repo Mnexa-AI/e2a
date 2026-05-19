@@ -1,6 +1,13 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import SettingsPage from "./page";
 
+// jsdom doesn't provide navigator.clipboard. The signing-secret Copy
+// button calls writeText, so we install a jest mock once at module
+// level so individual tests can assert on it.
+const writeText = jest.fn(async () => {});
+Object.assign(navigator, { clipboard: { writeText } });
+beforeEach(() => writeText.mockClear());
+
 // Mock next/link to plain anchors so we don't need a router in jsdom.
 jest.mock("next/link", () => {
   return function MockLink({ href, children, ...rest }: { href: string; children: React.ReactNode; [k: string]: unknown }) {
@@ -126,6 +133,28 @@ describe("Settings — Signing secrets section", () => {
     fireEvent.click(screen.getByRole("button", { name: /^hide$/i }));
     expect(screen.queryByText(defaultSecret.secret)).not.toBeInTheDocument();
     expect(screen.getByText("abcd1234efgh…")).toBeInTheDocument();
+  });
+
+  it("copies the full plaintext to the clipboard and flips the Copy label", async () => {
+    global.fetch = makeFetchMock({
+      "/api/v1/users/me/signing-secrets": () => jsonResp({ secrets: [defaultSecret] }),
+    }) as unknown as typeof fetch;
+
+    render(<SettingsPage />);
+    await waitFor(() => expect(screen.getByText("default")).toBeInTheDocument());
+
+    // Copy is only rendered once the row is revealed — that's the
+    // point of the feature, you can't copy what you haven't disclosed.
+    expect(screen.queryByRole("button", { name: /^copy$/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^show$/i }));
+
+    fireEvent.click(screen.getByRole("button", { name: /^copy$/i }));
+    expect(writeText).toHaveBeenCalledWith(defaultSecret.secret);
+    // The handler is async (await writeText) so the "Copied" flip is
+    // applied on the next microtask — waitFor lets jsdom flush it.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /^copied$/i })).toBeInTheDocument();
+    });
   });
 
   it("disables Delete when only one secret exists", async () => {

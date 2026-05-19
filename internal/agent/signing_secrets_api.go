@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -20,11 +21,12 @@ type CreateSigningSecretRequest struct {
 }
 
 // SigningSecretSummary is the list shape. Includes the full plaintext
-// `secret` so the dashboard can show it on demand — this is a known
-// relaxation of the previous "show once at creation" posture; the
-// hashes-only flow for API keys is the longer-term direction. The
-// `secret_prefix` field is still populated for backwards-compatible
-// list views that only want the preview.
+// `secret` because the relay already stores it that way (it has to —
+// it signs with it on every inbound). Surfacing it on list lets the
+// dashboard show the value on demand without storing yet another copy.
+// API keys are deliberately not handled the same way: their
+// hashes-only posture is intentional and we keep it.
+// The `secret_prefix` field stays populated for compact list views.
 type SigningSecretSummary struct {
 	ID           string  `json:"id"`
 	Name         string  `json:"name"`
@@ -78,6 +80,14 @@ func (a *API) handleListSigningSecrets(w http.ResponseWriter, r *http.Request) {
 	for _, s := range secrets {
 		out.Secrets = append(out.Secrets, toSummary(s))
 	}
+	// Audit trail: this endpoint hands out live HMAC credentials, so we
+	// record every call. No secret values in the log, just count and
+	// user — enough for "who pulled their secrets and when" forensics
+	// without making the log itself a leak vector.
+	log.Printf("[api] signing-secrets list: user=%s count=%d", user.ID, len(out.Secrets))
+	// Defense-in-depth against intermediary caches: the response body
+	// contains credentials, so it must never sit in a shared cache.
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
 }
