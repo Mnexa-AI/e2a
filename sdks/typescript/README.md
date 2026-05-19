@@ -126,6 +126,7 @@ Send a new email. `to` is `string[]`. Options: `htmlBody`, `cc`, `bcc`, `convers
 | `recipient`     | `string`          | Per-delivery target — your agent's address |
 | `to`            | `string[]`        | Parsed `To:` header — every address from the original message |
 | `cc`            | `string[]`        | Parsed `Cc:` header (empty when no CCs) |
+| `replyTo`       | `string[]`        | Parsed `Reply-To:` header — empty when absent (never falls back to `sender`). Useful when `sender` is a no-reply notifications address (Granola, GitHub CI bots, etc.) and the real correspondent is in Reply-To. |
 | `subject`       | `string`          | Email subject                      |
 | `textBody`      | `string`          | Plain-text body                    |
 | `htmlBody`      | `string \| null`  | HTML body                          |
