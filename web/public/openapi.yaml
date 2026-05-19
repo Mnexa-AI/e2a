@@ -761,6 +761,15 @@ definitions:
         type: string
       rejection_reason:
         type: string
+      reply_to:
+        description: |-
+          ReplyTo is the parsed Reply-To: header on inbound messages — empty
+          when the header was absent. Distinct from Sender so consumers can
+          recover the original From: of forwarded / notification mail whose
+          Reply-To points at a different mailbox. Outbound-irrelevant.
+        items:
+          type: string
+        type: array
       reviewed_at:
         type: string
       sender:

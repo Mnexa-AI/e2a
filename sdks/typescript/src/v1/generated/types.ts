@@ -1738,6 +1738,7 @@ export interface components {
             raw_message?: string;
             /** @example my-bot@example.com */
             recipient?: string;
+            reply_to?: string[];
             /** @example read */
             status?: string;
             /** @example Hello */
@@ -1760,6 +1761,7 @@ export interface components {
             message_id?: string;
             /** @example my-bot@example.com */
             recipient?: string;
+            reply_to?: string[];
             /**
              * @example unread
              * @enum {string}
@@ -2037,6 +2039,13 @@ export interface components {
             raw_message?: number[];
             recipient?: string;
             rejection_reason?: string;
+            /**
+             * @description ReplyTo is the parsed Reply-To: header on inbound messages — empty
+             *     when the header was absent. Distinct from Sender so consumers can
+             *     recover the original From: of forwarded / notification mail whose
+             *     Reply-To points at a different mailbox. Outbound-irrelevant.
+             */
+            reply_to?: string[];
             reviewed_at?: string;
             sender?: string;
             /**

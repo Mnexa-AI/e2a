@@ -62,6 +62,10 @@ class Message(BaseModel):
     raw_message: list[int] | None = None
     recipient: str | None = None
     rejection_reason: str | None = None
+    reply_to: list[str] | None = Field(
+        None,
+        description='ReplyTo is the parsed Reply-To: header on inbound messages — empty\nwhen the header was absent. Distinct from Sender so consumers can\nrecover the original From: of forwarded / notification mail whose\nReply-To points at a different mailbox. Outbound-irrelevant.',
+    )
     reviewed_at: str | None = None
     sender: str | None = None
     status: str | None = Field(
