@@ -44,10 +44,16 @@
   "dependencies": {
     "@e2a/sdk": "^2.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "cors": "^2.8.5",
+    "express": "^5.0.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
+    "supertest": "^7.0.0",
+    "@types/supertest": "^6.0.2",
     "typescript": "^5.4",
     "vitest": "^4.1.6"
   }
