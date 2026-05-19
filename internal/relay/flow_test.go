@@ -34,8 +34,8 @@ func simulateInbound(t *testing.T, raw []byte, envelopeFrom string, lookup func(
 	info := extractThreadInfo(raw)
 	trusted := strings.EqualFold(extractDomain(envelopeFrom), relayFromDomain)
 	sender = info.From
-	if info.ReplyTo != "" {
-		sender = info.ReplyTo
+	if len(info.ReplyTo) > 0 {
+		sender = info.ReplyTo[0]
 	}
 	conversationID = resolveConversationID(context.Background(), info, trusted, lookup)
 	return sender, conversationID

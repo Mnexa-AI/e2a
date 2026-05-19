@@ -31,6 +31,12 @@ export interface WebhookPayload {
   to: string[];
   /** Parsed Cc: header. Empty when the message had no CCs. */
   cc?: string[];
+  /**
+   * Parsed Reply-To: header (RFC 5322 § 3.6.2 — list, single value is
+   * typical but multi is legal). Empty / omitted when the header is
+   * absent; the relay never silently falls back to `from`.
+   */
+  reply_to?: string[];
   /** Per-delivery target — this agent's address. */
   recipient: string;
   subject?: string;
@@ -184,8 +190,8 @@ function envWebhookSecret(): string {
  * `isVerified`, `verified`, `verifySignature`, `unverifiedPayload`.
  *
  * Gated (require verify first): `messageId`, `conversationId`,
- * `sender`, `recipient`, `to`, `cc`, `subject`, `textBody`, `htmlBody`,
- * `attachments`, `receivedAt`, `reply()`.
+ * `sender`, `recipient`, `to`, `cc`, `replyTo`, `subject`, `textBody`,
+ * `htmlBody`, `attachments`, `receivedAt`, `reply()`.
  */
 export class InboundEmail {
   // Stored as private fields; public getters check this._verified.
@@ -195,6 +201,7 @@ export class InboundEmail {
   private readonly _recipient: string;
   private readonly _to: string[];
   private readonly _cc: string[];
+  private readonly _replyTo: string[];
   private readonly _subject: string;
   private readonly _textBody: string;
   private readonly _htmlBody: string | null;
@@ -214,6 +221,7 @@ export class InboundEmail {
     recipient: string;
     to: string[];
     cc: string[];
+    replyTo: string[];
     subject: string;
     textBody: string;
     htmlBody: string | null;
@@ -231,6 +239,7 @@ export class InboundEmail {
     this._recipient = opts.recipient;
     this._to = opts.to;
     this._cc = opts.cc;
+    this._replyTo = opts.replyTo;
     this._subject = opts.subject;
     this._textBody = opts.textBody;
     this._htmlBody = opts.htmlBody;
@@ -272,6 +281,7 @@ export class InboundEmail {
     recipient: string;
     to: string[];
     cc: string[];
+    replyTo: string[];
     subject: string;
     textBody: string;
     htmlBody: string | null;
@@ -285,6 +295,7 @@ export class InboundEmail {
       recipient: this._recipient,
       to: [...this._to],
       cc: [...this._cc],
+      replyTo: [...this._replyTo],
       subject: this._subject,
       textBody: this._textBody,
       htmlBody: this._htmlBody,
@@ -331,6 +342,38 @@ export class InboundEmail {
   get recipient(): string { this.requireVerified(); return this._recipient; }
   get to(): string[] { this.requireVerified(); return this._to; }
   get cc(): string[] { this.requireVerified(); return this._cc; }
+  /**
+   * Parsed Reply-To: header — addresses the sender wants replies sent to.
+   * Empty list when the header was absent (the SDK never silently falls
+   * back to {@link sender}; that decision belongs to the caller). Use
+   * this when {@link sender} is a no-reply notifications address
+   * (Granola, GitHub CI bots, …) and the real correspondent lives in
+   * Reply-To.
+   *
+   * ⚠️ Trust path is weaker than you might assume. The HMAC binds a
+   * fixed set of auth headers and `bodyHash = SHA-256(rawMessage)`. It
+   * does **not** sign the JSON envelope, and the SDK reads this field
+   * from the JSON envelope — not from `rawMessage`. So `replyTo` is
+   * trusted on the same terms as `to`, `cc`, `recipient`, `subject`,
+   * and the body fields: the server placed it in the JSON, TLS
+   * protected the wire to your webhook URL, and you trust your
+   * relay-to-webhook connection. The HMAC alone does not prevent an
+   * attacker who can modify the JSON envelope after signing from
+   * rewriting `replyTo` while {@link verifySignature} still returns
+   * true.
+   *
+   * If you need byte-exact integrity (e.g. routing decisions where an
+   * attacker who can break TLS would matter), re-parse the `Reply-To:`
+   * header from {@link rawMessage} yourself — that bytes-level
+   * integrity *is* covered by `bodyHash`.
+   *
+   * Separately, this is **not** an upstream-DKIM coverage check. If
+   * the original sender's DKIM signature did not cover Reply-To, a
+   * MITM between sender and e2a could have rewritten the header
+   * before it reached the relay. For high-stakes routing, also
+   * confirm {@link isVerified} and the sender domain.
+   */
+  get replyTo(): string[] { this.requireVerified(); return this._replyTo; }
   get subject(): string { this.requireVerified(); return this._subject; }
   get textBody(): string { this.requireVerified(); return this._textBody; }
   get htmlBody(): string | null { this.requireVerified(); return this._htmlBody; }
@@ -400,6 +443,9 @@ export class InboundEmail {
       recipient: detail.recipient ?? "",
       to: detail.to ?? [],
       cc: detail.cc ?? [],
+      // reply_to comes from the server's parse of the Reply-To: header.
+      // Empty list when absent — the server never falls back to From:.
+      replyTo: detail.reply_to ?? [],
       subject: subject || detail.subject || "",
       textBody,
       htmlBody,

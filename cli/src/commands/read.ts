@@ -31,6 +31,9 @@ export async function read(messageId: string | undefined, from: string | undefin
   if (email.cc.length > 0) {
     process.stdout.write(`Cc: ${email.cc.join(", ")}\n`);
   }
+  if (email.replyTo.length > 0) {
+    process.stdout.write(`Reply-To: ${email.replyTo.join(", ")}\n`);
+  }
   process.stdout.write(`Date: ${email.receivedAt ?? "unknown"}\n`);
   process.stdout.write(`Subject: ${email.subject}\n`);
   process.stdout.write("\n");

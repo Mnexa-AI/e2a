@@ -135,6 +135,12 @@ type Message struct {
 	CC           []string `json:"cc,omitempty"`
 	BCC          []string `json:"bcc,omitempty"`
 
+	// ReplyTo is the parsed Reply-To: header on inbound messages — empty
+	// when the header was absent. Distinct from Sender so consumers can
+	// recover the original From: of forwarded / notification mail whose
+	// Reply-To points at a different mailbox. Outbound-irrelevant.
+	ReplyTo []string `json:"reply_to,omitempty"`
+
 	// HITL approval fields. Status defaults to 'sent'; body and attachments
 	// are populated only while a message is in 'pending_approval', and are
 	// scrubbed on any terminal transition.
@@ -502,8 +508,9 @@ func NewMessageID() string {
 // stored. toRecipients and cc are the parsed To: and Cc: headers from
 // the original RFC 2822 message; recipient is the per-delivery target
 // for this row (may be one of the To: addresses, or absent from the
-// header list when the agent was Bcc'd).
-func (s *Store) CreateInboundMessage(ctx context.Context, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus string, rawMessage []byte, authHeaders map[string]string, toRecipients, cc []string) (*Message, error) {
+// header list when the agent was Bcc'd). replyTo is the parsed Reply-To:
+// header (empty when absent — never silently falls back to sender).
+func (s *Store) CreateInboundMessage(ctx context.Context, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus string, rawMessage []byte, authHeaders map[string]string, toRecipients, cc, replyTo []string) (*Message, error) {
 	if id == "" {
 		id = NewMessageID()
 	}
@@ -526,6 +533,7 @@ func (s *Store) CreateInboundMessage(ctx context.Context, id, agentID, senderEma
 		Recipient:      recipient,
 		ToRecipients:   toRecipients,
 		CC:             cc,
+		ReplyTo:        replyTo,
 		Subject:        subject,
 		EmailMessageID: emailMessageID,
 		RawMessage:     rawMessage,
@@ -541,9 +549,9 @@ func (s *Store) CreateInboundMessage(ctx context.Context, id, agentID, senderEma
 		inboxStatus = &m.DeliveryStatus
 	}
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO messages (id, agent_id, direction, sender, recipient, to_recipients, cc, subject, email_message_id, raw_message, auth_headers, conversation_id, inbox_status, created_at, expires_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-		m.ID, m.AgentID, m.Direction, m.Sender, m.Recipient, m.ToRecipients, m.CC, m.Subject, m.EmailMessageID, m.RawMessage, authHeadersJSON, m.ConversationID, inboxStatus, m.CreatedAt, m.ExpiresAt,
+		`INSERT INTO messages (id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, auth_headers, conversation_id, inbox_status, created_at, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+		m.ID, m.AgentID, m.Direction, m.Sender, m.Recipient, m.ToRecipients, m.CC, m.ReplyTo, m.Subject, m.EmailMessageID, m.RawMessage, authHeadersJSON, m.ConversationID, inboxStatus, m.CreatedAt, m.ExpiresAt,
 	)
 	if err != nil {
 		return nil, err
@@ -554,9 +562,9 @@ func (s *Store) CreateInboundMessage(ctx context.Context, id, agentID, senderEma
 func (s *Store) GetInboundMessage(ctx context.Context, id string) (*Message, error) {
 	m := &Message{}
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, subject, email_message_id, raw_message, created_at, expires_at
+		`SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, created_at, expires_at
 		 FROM messages WHERE id = $1 AND direction = 'inbound' AND expires_at > now()`, id,
-	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.Subject, &m.EmailMessageID, &m.RawMessage, &m.CreatedAt, &m.ExpiresAt)
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.RawMessage, &m.CreatedAt, &m.ExpiresAt)
 	if err != nil {
 		return nil, err
 	}
@@ -577,7 +585,7 @@ func (s *Store) GetInboundByEmailMessageID(ctx context.Context, agentID, emailMe
 	}
 	m := &Message{}
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, subject, email_message_id, raw_message, created_at, expires_at
+		`SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, created_at, expires_at
 		 FROM messages
 		 WHERE agent_id = $1
 		   AND direction = 'inbound'
@@ -585,7 +593,7 @@ func (s *Store) GetInboundByEmailMessageID(ctx context.Context, agentID, emailMe
 		   AND expires_at > now()
 		 ORDER BY created_at DESC LIMIT 1`,
 		agentID, emailMessageID,
-	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.Subject, &m.EmailMessageID, &m.RawMessage, &m.CreatedAt, &m.ExpiresAt)
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.RawMessage, &m.CreatedAt, &m.ExpiresAt)
 	if err != nil {
 		return nil, err
 	}
@@ -1458,7 +1466,7 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, agentID, status string, 
 	var query string
 	var args []interface{}
 
-	baseSelect := `SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, subject, email_message_id, conversation_id, COALESCE(inbox_status, ''), created_at
+	baseSelect := `SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, conversation_id, COALESCE(inbox_status, ''), created_at
 		 FROM messages
 		 WHERE agent_id = $1 AND direction = 'inbound' AND expires_at > now()`
 
@@ -1490,7 +1498,7 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, agentID, status string, 
 	var messages []Message
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.DeliveryStatus, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.DeliveryStatus, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		messages = append(messages, m)
@@ -1506,9 +1514,9 @@ func (s *Store) GetMessageWithContent(ctx context.Context, messageID, agentID st
 	err := s.pool.QueryRow(ctx,
 		`UPDATE messages SET inbox_status = CASE WHEN inbox_status = 'unread' THEN 'read' ELSE inbox_status END
 		 WHERE id = $1 AND agent_id = $2 AND expires_at > now()
-		 RETURNING id, agent_id, direction, sender, recipient, to_recipients, cc, subject, email_message_id, conversation_id, COALESCE(inbox_status, ''), raw_message, auth_headers, created_at, expires_at`,
+		 RETURNING id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, conversation_id, COALESCE(inbox_status, ''), raw_message, auth_headers, created_at, expires_at`,
 		messageID, agentID,
-	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.DeliveryStatus, &m.RawMessage, &authHeadersJSON, &m.CreatedAt, &m.ExpiresAt)
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.DeliveryStatus, &m.RawMessage, &authHeadersJSON, &m.CreatedAt, &m.ExpiresAt)
 	if err != nil {
 		return nil, err
 	}

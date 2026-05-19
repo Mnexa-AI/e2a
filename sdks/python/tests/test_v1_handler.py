@@ -198,6 +198,94 @@ def test_build_inbound_email_uses_structured_to_cc():
     assert email.recipient == "bot@agent.example.com"
 
 
+# ── reply_to (server-parsed Reply-To: header) ─────────────────────
+
+
+def test_reply_to_absent_is_empty_list():
+    """No Reply-To header → reply_to is [], never falls back to sender.
+
+    Callers decide whether to address replies to sender or somewhere else.
+    """
+    raw = _make_raw_email()
+    data = _make_webhook_data(raw)
+    # _make_webhook_data does not set reply_to; the server would omit it too.
+    email = build_inbound_email(data, _mock_client(), trusted=True)
+    assert email.reply_to == []
+
+
+def test_reply_to_single_address():
+    """Most common case: notifications@foo with Reply-To: user@bar."""
+    raw = _make_raw_email()
+    data = _make_webhook_data(raw)
+    data["reply_to"] = ["user@bar.com"]
+    email = build_inbound_email(data, _mock_client(), trusted=True)
+    assert email.reply_to == ["user@bar.com"]
+
+
+def test_reply_to_multi_address():
+    """RFC 5322 § 3.6.2 permits multiple addresses in Reply-To."""
+    raw = _make_raw_email()
+    data = _make_webhook_data(raw)
+    data["reply_to"] = ["support@company.com", "ceo@company.com"]
+    email = build_inbound_email(data, _mock_client(), trusted=True)
+    assert email.reply_to == ["support@company.com", "ceo@company.com"]
+
+
+def test_reply_to_display_names_stripped_by_server():
+    """The SDK mirrors `to`/`cc`: it trusts the server's normalized list
+    (bare addresses, display names already stripped). This test pins the
+    contract — if the server sends bare addresses, the SDK surfaces them
+    unchanged."""
+    raw = _make_raw_email()
+    data = _make_webhook_data(raw)
+    # Server would have sent ParseAddressList("Foo Bar" <foo@bar.com>) →
+    # ["foo@bar.com"]; the SDK does not re-parse.
+    data["reply_to"] = ["foo@bar.com"]
+    email = build_inbound_email(data, _mock_client(), trusted=True)
+    assert email.reply_to == ["foo@bar.com"]
+
+
+def test_reply_to_gated_until_verified():
+    """reply_to obeys the same UnverifiedEmailError gate as `to`/`cc` —
+    a webhook delivery is not safe to read until verify_signature() has
+    confirmed the HMAC."""
+    from e2a.v1 import UnverifiedEmailError
+    raw = _make_raw_email()
+    data = _make_webhook_data(raw)
+    data["reply_to"] = ["user@bar.com"]
+    email = build_inbound_email(data, _mock_client())  # NOT trusted=True
+    with pytest.raises(UnverifiedEmailError):
+        _ = email.reply_to
+
+
+def test_reply_to_trusted_through_body_hash():
+    """The trust path for reply_to: e2a's HMAC binds SHA-256(raw_message),
+    and Reply-To is in raw_message bytes. Tampering with the structured
+    reply_to alone doesn't change body_hash, so the SDK trusts what the
+    server parses — same model as `to`/`cc`. This test pins the property:
+    a successfully-verified message exposes reply_to without re-parsing.
+    """
+    secret = "x" * 32
+    raw = b"From: notifications@example.com\r\nReply-To: real-user@example.com\r\nSubject: Hi\r\n\r\nbody"
+    email, _ = _signed_email(secret=secret, body=raw)
+    # The verified path: HMAC over body_hash succeeds → field access unlocks.
+    assert email.verify_signature(secret) is True
+    # _signed_email's fixture doesn't set reply_to in the JSON; this also
+    # confirms the safe default (empty) when the server didn't ship it.
+    assert email.reply_to == []
+
+
+def test_reply_to_in_unverified_payload():
+    """The escape hatch for inspecting unverified payloads also includes
+    reply_to so forensics can see what arrived without unlocking gates."""
+    raw = _make_raw_email()
+    data = _make_webhook_data(raw)
+    data["reply_to"] = ["user@bar.com"]
+    email = build_inbound_email(data, _mock_client())  # unverified
+    payload = email.unverified_payload
+    assert payload["reply_to"] == ["user@bar.com"]
+
+
 # ── build_inbound_email ──────────────────────────────────────────
 
 

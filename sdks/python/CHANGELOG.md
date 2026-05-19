@@ -1,0 +1,59 @@
+# Changelog
+
+## Unreleased
+
+### Added
+- `InboundEmail.reply_to` and `AsyncInboundEmail.reply_to` (`list[str]`) — the
+  parsed `Reply-To:` header from the inbound message, surfaced as a first-class
+  field so consumers no longer need to re-parse `raw_message` with stdlib
+  `email.message_from_bytes()`. Empty list when the header is absent; the SDK
+  never silently falls back to `sender`. Use this when the sender is a no-reply
+  notifications mailbox (Granola, GitHub, CI bots) and you need the actual
+  correspondent.
+- `MessageSummary.reply_to` (`list[str]`) on the REST polling path — the list
+  endpoint now mirrors the same field.
+- `reply_to` added to `unverified_payload` for forensic inspection without
+  unlocking gated access.
+
+### Reply-To trust path (decision)
+`reply_to` is trusted on the same terms as `to`, `cc`, `recipient`,
+`subject`, and the body fields: the e2a server parses it from
+`raw_message`, places it in the JSON envelope, and TLS protects the wire
+to your webhook URL. Treat the field as trustworthy once
+`verify_signature()` succeeds **and** you're confident in your
+relay-to-webhook connection (or via `client.get_message(...)`, which uses
+the authenticated REST channel).
+
+**What `verify_signature()` does not prove:** the HMAC binds a fixed set
+of auth headers and `body_hash = SHA-256(raw_message)`. It does not sign
+the JSON envelope itself, and the SDK reads `reply_to`, `to`, `cc`, etc.
+from that envelope rather than re-parsing `raw_message`. So an attacker
+who can modify the JSON wrapping after signing — but cannot modify
+`raw_message` or the signed headers — can rewrite `reply_to` and the
+HMAC will still verify. TLS to your webhook URL is the actual integrity
+layer for the envelope fields; the HMAC is defense-in-depth for proven
+origin and covers the body bytes. If you need byte-exact assurance for a
+specific field, re-parse it from `raw_message` (whose integrity
+`body_hash` *does* cover).
+
+**Also not guaranteed:** upstream-DKIM coverage of `Reply-To:`. If the
+original sender's DKIM signature did not sign `Reply-To` (whether
+because they didn't sign it, or there was no DKIM at all), a MITM
+between sender and e2a could have rewritten the header before it reached
+the relay. e2a does not re-verify or surface per-header DKIM coverage
+today — the `Authentication-Results` / SPF/DKIM surface is unchanged.
+For routing decisions where attacker-controlled `Reply-To` would matter,
+also confirm `email.is_verified` and that the sender's domain is one you
+expect.
+
+We chose to keep `reply_to` populated whenever it's present (rather than
+masking it on partially-trusted messages or exposing a `reply_to_signed`
+flag) so the field shape stays uniform with `to`/`cc` and consumers can
+make their own policy decision. The trust model is documented on the
+property docstring.
+
+### Wire change
+The webhook payload schema now includes an optional `reply_to: string[]`
+field. Existing consumers that ignore unknown fields are unaffected; older
+SDK versions parsing the same payload continue to work and simply do not
+see the new key.

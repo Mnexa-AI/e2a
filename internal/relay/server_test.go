@@ -82,8 +82,8 @@ func TestExtractThreadInfoReplyTo(t *testing.T) {
 	if info.From != "agent@send.e2a.dev" {
 		t.Errorf("From = %q, want agent@send.e2a.dev", info.From)
 	}
-	if info.ReplyTo != "test-alice@agent.mnexa.ai" {
-		t.Errorf("ReplyTo = %q, want test-alice@agent.mnexa.ai", info.ReplyTo)
+	if !reflect.DeepEqual(info.ReplyTo, []string{"test-alice@agent.mnexa.ai"}) {
+		t.Errorf("ReplyTo = %v, want [test-alice@agent.mnexa.ai]", info.ReplyTo)
 	}
 }
 
@@ -92,8 +92,24 @@ func TestExtractThreadInfoNoReplyTo(t *testing.T) {
 
 	info := extractThreadInfo(raw)
 
-	if info.ReplyTo != "" {
-		t.Errorf("ReplyTo should be empty, got %q", info.ReplyTo)
+	if info.ReplyTo != nil {
+		t.Errorf("ReplyTo should be nil, got %v", info.ReplyTo)
+	}
+}
+
+func TestExtractThreadInfoReplyToMultiAddress(t *testing.T) {
+	// RFC 5322 § 3.6.2 permits Reply-To to carry multiple addresses; SDK
+	// consumers receive the full list so they can fan replies out themselves.
+	raw := []byte("Message-Id: <x@example.com>\r\nSubject: Hi\r\n" +
+		"From: notifications@mail.example.com\r\n" +
+		"Reply-To: \"Alice\" <alice@example.com>, ceo@company.com\r\n" +
+		"To: bot@agent.example.com\r\n\r\nBody\r\n")
+
+	info := extractThreadInfo(raw)
+
+	want := []string{"alice@example.com", "ceo@company.com"}
+	if !reflect.DeepEqual(info.ReplyTo, want) {
+		t.Errorf("ReplyTo = %v, want %v", info.ReplyTo, want)
 	}
 }
 

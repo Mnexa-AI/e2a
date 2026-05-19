@@ -230,7 +230,7 @@ func TestCreateAndGetInboundMessage(t *testing.T) {
 	store.ClaimOrCreateDomain(ctx, "inbound.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@inbound.example.com", "inbound.example.com", "", "https://example.com/webhook", "", user.ID)
 
-	msg, err := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@inbound.example.com", "<abc123@gmail.com>", "Hello Bot", "", "", nil, nil, nil, nil)
+	msg, err := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@inbound.example.com", "<abc123@gmail.com>", "Hello Bot", "", "", nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateInboundMessage: %v", err)
 	}
@@ -273,8 +273,12 @@ func TestInboundMessageRoundTripsToCcLists(t *testing.T) {
 
 	to := []string{"bot-a@tcc.example.com", "bot-b@tcc.example.com"}
 	cc := []string{"watcher@example.com", "audit@example.com"}
+	// Two addresses to exercise the multi-value path; RFC 5322 § 3.6.2
+	// permits more than one Reply-To. Single-value is the common case
+	// and is covered transitively by other tests that pass nil here.
+	replyTo := []string{"real-user@example.com", "delegate@example.com"}
 
-	msg, err := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot-a@tcc.example.com", "<x@gmail.com>", "Group thread", "", "", nil, nil, to, cc)
+	msg, err := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot-a@tcc.example.com", "<x@gmail.com>", "Group thread", "", "", nil, nil, to, cc, replyTo)
 	if err != nil {
 		t.Fatalf("CreateInboundMessage: %v", err)
 	}
@@ -288,6 +292,38 @@ func TestInboundMessageRoundTripsToCcLists(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.CC, cc) {
 		t.Errorf("CC = %v, want %v", got.CC, cc)
+	}
+	if !reflect.DeepEqual(got.ReplyTo, replyTo) {
+		t.Errorf("ReplyTo = %v, want %v", got.ReplyTo, replyTo)
+	}
+
+	// Also exercise the consumer-facing read path (GET /messages/{id})
+	// — different SELECT columns, easy to drift independently.
+	gotDetail, err := store.GetMessageWithContent(ctx, msg.ID, a.ID)
+	if err != nil {
+		t.Fatalf("GetMessageWithContent: %v", err)
+	}
+	if !reflect.DeepEqual(gotDetail.ReplyTo, replyTo) {
+		t.Errorf("GetMessageWithContent ReplyTo = %v, want %v", gotDetail.ReplyTo, replyTo)
+	}
+
+	// And the list path (GET /messages) — yet another SELECT.
+	msgs, err := store.GetMessagesByAgent(ctx, a.ID, "all", 10, time.Time{}, "")
+	if err != nil {
+		t.Fatalf("GetMessagesByAgent: %v", err)
+	}
+	var found *identity.Message
+	for i := range msgs {
+		if msgs[i].ID == msg.ID {
+			found = &msgs[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("GetMessagesByAgent did not return %s", msg.ID)
+	}
+	if !reflect.DeepEqual(found.ReplyTo, replyTo) {
+		t.Errorf("GetMessagesByAgent ReplyTo = %v, want %v", found.ReplyTo, replyTo)
 	}
 }
 
@@ -309,7 +345,7 @@ func TestGetInboundMessageExpired(t *testing.T) {
 	user, _ := store.CreateOrGetUser(ctx, "owner@example.com", "Owner", "google-expired-inbound")
 	store.ClaimOrCreateDomain(ctx, "expired-inbound.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@expired-inbound.example.com", "expired-inbound.example.com", "", "https://example.com/webhook", "", user.ID)
-	msg, _ := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@expired-inbound.example.com", "", "", "", "", nil, nil, nil, nil)
+	msg, _ := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@expired-inbound.example.com", "", "", "", "", nil, nil, nil, nil, nil)
 
 	// Set expiry to the past
 	pool.Exec(ctx, `UPDATE messages SET expires_at = $1 WHERE id = $2`, time.Now().Add(-1*time.Hour), msg.ID)
@@ -328,7 +364,7 @@ func TestDeleteExpiredMessages(t *testing.T) {
 	user, _ := store.CreateOrGetUser(ctx, "owner@example.com", "Owner", "google-cleanup-inbound")
 	store.ClaimOrCreateDomain(ctx, "cleanup-inbound.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@cleanup-inbound.example.com", "cleanup-inbound.example.com", "", "https://example.com/webhook", "", user.ID)
-	msg, _ := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@cleanup-inbound.example.com", "", "", "", "", nil, nil, nil, nil)
+	msg, _ := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@cleanup-inbound.example.com", "", "", "", "", nil, nil, nil, nil, nil)
 
 	// Set expiry to the past
 	pool.Exec(ctx, `UPDATE messages SET expires_at = $1 WHERE id = $2`, time.Now().Add(-1*time.Hour), msg.ID)
@@ -381,9 +417,9 @@ func TestListActivityByAgent(t *testing.T) {
 	store.ClaimOrCreateDomain(ctx, "activity.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@activity.example.com", "activity.example.com", "", "https://example.com/webhook", "", user.ID)
 
-	store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@activity.example.com", "", "Hello", "", "", nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@activity.example.com", "", "Hello", "", "", nil, nil, nil, nil, nil)
 	store.CreateOutboundMessage(ctx, a.ID, []string{"alice@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "", "")
-	store.CreateInboundMessage(ctx, "", a.ID, "bob@gmail.com", "bot@activity.example.com", "", "Hi", "", "", nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", a.ID, "bob@gmail.com", "bot@activity.example.com", "", "Hi", "", "", nil, nil, nil, nil, nil)
 
 	activity, err := store.ListActivityByAgent(ctx, a.ID, 50)
 	if err != nil {
@@ -503,7 +539,7 @@ func TestLookupConversationID_EmailThread(t *testing.T) {
 		"alice@gmail.com", "bot@thread.example.com",
 		"<CAMCKtby_first@mail.gmail.com>", "Hello",
 		"", // no conversation_id on first message
-		"pending", nil, nil, nil, nil)
+		"pending", nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateInboundMessage: %v", err)
 	}

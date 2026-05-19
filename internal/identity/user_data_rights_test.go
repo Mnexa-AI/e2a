@@ -3,6 +3,7 @@ package identity_test
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 
@@ -36,14 +37,16 @@ func seedUserData(t *testing.T, store *identity.Store, ctx context.Context, labe
 		t.Fatalf("seed: CreateAgent custom: %v", err)
 	}
 
-	// Inbound message on the custom-domain agent.
+	// Inbound message on the custom-domain agent. Populate reply_to so
+	// the export covers the GDPR-Art.15 right-of-access claim that all
+	// stored data about the user is returned.
 	if _, err := store.CreateInboundMessage(ctx,
 		"msg_in_"+label, customAgent.ID,
 		"alice@gmail.com", customAgent.EmailAddress(),
 		"<orig@gmail.com>", "Hi there", "", "delivered",
 		[]byte("From: alice@gmail.com\r\nSubject: Hi\r\n\r\nbody"),
 		map[string]string{"X-E2A-Auth-Verified": "true"},
-		nil, nil,
+		nil, nil, []string{"real-alice@example.com"},
 	); err != nil {
 		t.Fatalf("seed: CreateInboundMessage: %v", err)
 	}
@@ -100,6 +103,25 @@ func TestExportUserData(t *testing.T) {
 	}
 	if len(dump.Messages) != 2 {
 		t.Errorf("messages: got %d, want 2 (1 inbound + 1 outbound)", len(dump.Messages))
+	}
+
+	// Right-of-access requires every stored header field to round-trip
+	// through the export. Reply-To regression-guard: if a future SELECT
+	// drops the column, the user's export silently loses data — exactly
+	// the kind of gap that fails a data-rights audit.
+	var inbound *identity.Message
+	for i := range dump.Messages {
+		if dump.Messages[i].Direction == "inbound" {
+			inbound = &dump.Messages[i]
+			break
+		}
+	}
+	if inbound == nil {
+		t.Fatal("no inbound message in export")
+	}
+	wantReplyTo := []string{"real-alice@example.com"}
+	if !reflect.DeepEqual(inbound.ReplyTo, wantReplyTo) {
+		t.Errorf("inbound ReplyTo in export = %v, want %v", inbound.ReplyTo, wantReplyTo)
 	}
 
 	// Confirm the export doesn't leak internal identifiers. We marshal

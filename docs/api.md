@@ -91,7 +91,7 @@ The server pushes lightweight JSON notifications (metadata only):
 }
 ```
 
-Fetch full content via `GET /agents/{email}/messages/{id}`. The full payload includes the parsed `to` (list) and `cc` (list) headers from the original message; the lightweight notification omits them since the agent fetches the body anyway. On connect, all unread messages are drained as notifications automatically.
+Fetch full content via `GET /agents/{email}/messages/{id}`. The full payload includes the parsed `to` (list), `cc` (list), and `reply_to` (list) headers from the original message; the lightweight notification omits them since the agent fetches the body anyway. `reply_to` is the addresses the sender wants replies sent to — useful when `from` is a no-reply notifications mailbox; empty list when the header was absent (the server never silently falls back to `from`). On connect, all unread messages are drained as notifications automatically.
 
 ## Other
 
