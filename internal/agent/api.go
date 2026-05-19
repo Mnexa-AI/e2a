@@ -237,6 +237,12 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/health", a.handleHealth).Methods("GET", "HEAD")
 	r.HandleFunc("/api/feedback", a.handleFeedback).Methods("POST")
 
+	// OAuth 2.1 authorization server discovery (RFC 8414). 404s when
+	// OAuth isn't configured on the deployment. Unauthenticated and
+	// cacheable; clients hit this once at startup to learn the
+	// authorize/token/register/revoke endpoints.
+	r.HandleFunc("/.well-known/oauth-authorization-server", a.handleOAuthDiscovery).Methods("GET")
+
 	// User auth (Google OAuth for agent developers)
 	if a.userAuth != nil {
 		r.HandleFunc("/api/auth/login", a.userAuth.HandleLogin).Methods("GET")
