@@ -2,8 +2,8 @@ package identity_test
 
 import (
 	"context"
-	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 
@@ -251,8 +251,21 @@ func TestRunMigrations_OrdersByFilename(t *testing.T) {
 		}
 		rowsSeen = append(rowsSeen, [2]int{n, ord})
 	}
-	if errors.Is(rows.Err(), nil) && len(rowsSeen) != 2 {
-		t.Fatalf("expected 2 rows, got %v", rowsSeen)
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows iteration error: %v", err)
+	}
+	if len(rowsSeen) != 2 {
+		t.Fatalf("expected 2 rows (from 002 and 003), got %d: %v", len(rowsSeen), rowsSeen)
+	}
+	// Verify the inserts landed in apply order — if 003 had run before
+	// 002 (or before 001), one would have errored or the rows would be
+	// missing. Belt-and-suspenders on top of the fact that out-of-order
+	// would have errored at RunMigrations.
+	if rowsSeen[0] != [2]int{2, 2} {
+		t.Fatalf("first row should be (2,2) from migration 002, got %v", rowsSeen[0])
+	}
+	if rowsSeen[1] != [2]int{3, 3} {
+		t.Fatalf("second row should be (3,3) from migration 003, got %v", rowsSeen[1])
 	}
 
 	t.Cleanup(func() {
@@ -260,6 +273,176 @@ func TestRunMigrations_OrdersByFilename(t *testing.T) {
 		for _, n := range []string{"001_seq.sql", "002_seq.sql", "003_seq.sql"} {
 			_, _ = pool.Exec(ctx, "DELETE FROM schema_migrations WHERE filename = $1", n)
 		}
+	})
+}
+
+// TestRunMigrations_ConcurrentInvocations exercises the advisory-lock
+// path. Four goroutines call RunMigrations simultaneously against the
+// same DB and the same set of pending migrations. The lock should
+// serialize them; the result must be exactly one application per file
+// (no double-records, no duplicate side effects from a
+// not-quite-idempotent migration).
+func TestRunMigrations_ConcurrentInvocations(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	const filename = "concurrent_target.sql"
+	_, _ = pool.Exec(ctx, "DROP TABLE IF EXISTS migrate_test_concurrent")
+	_, _ = pool.Exec(ctx, "DELETE FROM schema_migrations WHERE filename = $1", filename)
+
+	// A non-trivially-idempotent migration: insert a row but no
+	// UNIQUE constraint to catch a double-apply. If two runners both
+	// pass the NOT EXISTS check and both INSERT, we'd see 2 rows.
+	fsys := stubFS(map[string]string{
+		filename: `
+			CREATE TABLE IF NOT EXISTS migrate_test_concurrent (id TEXT, marker TEXT);
+			INSERT INTO migrate_test_concurrent (id, marker)
+			SELECT 'sentinel', 'inserted'
+			WHERE NOT EXISTS (
+				SELECT 1 FROM migrate_test_concurrent WHERE id = 'sentinel'
+			);
+		`,
+	})
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, 4)
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := identity.RunMigrations(ctx, pool, fsys, identity.ModeAuto); err != nil {
+				errCh <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Fatalf("RunMigrations from a goroutine: %v", err)
+	}
+
+	// Exactly one row recorded in the tracker.
+	var trackerCount int
+	if err := pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM schema_migrations WHERE filename = $1", filename,
+	).Scan(&trackerCount); err != nil {
+		t.Fatal(err)
+	}
+	if trackerCount != 1 {
+		t.Fatalf("expected tracker count = 1, got %d (lock failed to serialize?)", trackerCount)
+	}
+
+	// Exactly one row in the target table — proves the migration body
+	// ran exactly once, not four times. Without the advisory lock, the
+	// non-atomic NOT EXISTS check would let multiple inserts through.
+	var bodyCount int
+	if err := pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM migrate_test_concurrent WHERE id = 'sentinel'",
+	).Scan(&bodyCount); err != nil {
+		t.Fatal(err)
+	}
+	if bodyCount != 1 {
+		t.Fatalf("expected one body insert, got %d — migration ran more than once under concurrency", bodyCount)
+	}
+
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, "DROP TABLE IF EXISTS migrate_test_concurrent")
+		_, _ = pool.Exec(ctx, "DELETE FROM schema_migrations WHERE filename = $1", filename)
+	})
+}
+
+// TestRunMigrations_NoTransactionDirective verifies that migrations
+// with the "-- e2a:no-transaction" directive run on the connection
+// directly rather than inside BeginTx. We use VACUUM as the canary
+// (illegal in a transaction block, legal outside). VACUUM also acts
+// as a sanity check for the single-statement constraint: multi-
+// statement scripts get implicitly wrapped server-side under pgx's
+// simple protocol, so no-tx migrations must be one statement —
+// matching the real-world use case (CREATE INDEX CONCURRENTLY is
+// always one statement).
+func TestRunMigrations_NoTransactionDirective(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	const filename = "no_tx.sql"
+	_, _ = pool.Exec(ctx, "DELETE FROM schema_migrations WHERE filename = $1", filename)
+
+	// VACUUM users — `users` table exists from the testutil's pre-
+	// applied 001_init.sql migration. Single statement; would error
+	// in a transaction block.
+	fsys := stubFS(map[string]string{
+		filename: `-- e2a:no-transaction
+VACUUM users;`,
+	})
+
+	if err := identity.RunMigrations(ctx, pool, fsys, identity.ModeAuto); err != nil {
+		t.Fatalf("RunMigrations should succeed with no-transaction directive: %v", err)
+	}
+
+	// Recorded in the tracker.
+	var count int
+	if err := pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM schema_migrations WHERE filename = $1", filename,
+	).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("expected tracker count = 1, got %d", count)
+	}
+
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, "DELETE FROM schema_migrations WHERE filename = $1", filename)
+	})
+}
+
+// TestRunMigrations_NoTransactionDirective_RejectsInsideTx is the
+// negative: the same VACUUM without the directive must fail,
+// confirming the directive is what makes it work.
+func TestRunMigrations_NoTransactionDirective_RejectsInsideTx(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	const filename = "wraps_vacuum.sql"
+	_, _ = pool.Exec(ctx, "DELETE FROM schema_migrations WHERE filename = $1", filename)
+
+	fsys := stubFS(map[string]string{
+		filename: `VACUUM users;`,
+	})
+
+	err := identity.RunMigrations(ctx, pool, fsys, identity.ModeAuto)
+	if err == nil {
+		t.Fatal("expected error: VACUUM inside transaction should fail")
+	}
+
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, "DELETE FROM schema_migrations WHERE filename = $1", filename)
+	})
+}
+
+// TestRunMigrations_OrphanedTrackerRecord exercises the orphan-warning
+// path: a filename recorded in schema_migrations that no longer exists
+// in the FS should produce a WARN log but NOT fail the run.
+func TestRunMigrations_OrphanedTrackerRecord(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	const orphan = "999_removed_migration.sql"
+	_, _ = pool.Exec(ctx, "DELETE FROM schema_migrations WHERE filename = $1", orphan)
+
+	// Ensure schema_migrations exists, then plant the orphan.
+	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (filename TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "INSERT INTO schema_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING", orphan); err != nil {
+		t.Fatal(err)
+	}
+
+	// Empty FS — every recorded migration is now an orphan.
+	fsys := stubFS(map[string]string{})
+
+	// Should NOT error — orphans are warnings, not failures.
+	if err := identity.RunMigrations(ctx, pool, fsys, identity.ModeAuto); err != nil {
+		t.Fatalf("orphan record should not fail RunMigrations: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, "DELETE FROM schema_migrations WHERE filename = $1", orphan)
 	})
 }
 

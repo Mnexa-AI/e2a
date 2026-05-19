@@ -7,6 +7,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -55,23 +56,81 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     applied_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );`
 
+// e2aMigrationLockID is the Postgres advisory-lock key reserved for
+// serializing schema migrations across concurrent binary instances.
+// The compose deploy pattern (`docker compose up -d` with
+// `restart: always` and no health-conditioned depends_on) routinely
+// runs two containers simultaneously during a rolling restart; without
+// this lock both would race into the same migration set. Idempotent
+// migrations would mostly absorb the race, but a backfill like
+// `INSERT ... WHERE NOT EXISTS` at READ COMMITTED is NOT race-free —
+// two transactions can both see NOT EXISTS and double-insert.
+//
+// Value is an arbitrary stable int64; the only requirement is that all
+// instances connecting to the same database use the same constant.
+// Hex bytes spell "e2_MIGR\x00" — easy to grep, won't collide with
+// random libraries.
+const e2aMigrationLockID int64 = 0x65325F4D49475200
+
+// noTransactionDirective marks a migration that must NOT run inside a
+// transaction (Postgres rejects e.g. CREATE INDEX CONCURRENTLY or
+// REINDEX CONCURRENTLY in a txn block). The runner scans leading
+// comment lines for this string and bypasses the BeginTx wrapper.
+//
+// IMPORTANT: such migrations MUST be a single SQL statement. Multi-
+// statement scripts sent through pgx's simple protocol get wrapped in
+// an implicit transaction server-side, defeating the purpose. If you
+// need a CREATE INDEX CONCURRENTLY plus surrounding setup, split them
+// into two numbered files: one transactional (the setup), one with
+// this directive (the CONCURRENTLY statement).
+const noTransactionDirective = "e2a:no-transaction"
+
 // RunMigrations applies every embedded migration that isn't yet recorded
 // in the schema_migrations table. Migrations run in filename-sorted
-// order, each in its own transaction; on the first error the function
+// order, each in its own transaction (unless tagged with the
+// "e2a:no-transaction" directive); on the first error the function
 // returns without applying later migrations.
 //
+// A Postgres session advisory lock serializes concurrent invocations
+// from rolling restarts and multi-instance deploys. The lock is held
+// for the duration of the function and auto-released on session
+// disconnect (so a crashed binary doesn't leave the DB stuck).
+//
 // All migrations should be written idempotent (CREATE/ALTER ... IF NOT
-// EXISTS) so re-runs are harmless. The tracker is the source of truth
-// for "should we attempt to run this one again"; idempotence is the
-// safety net.
+// EXISTS) so even-without-the-lock re-runs are harmless. The tracker
+// is the source of truth for "should we attempt to run this one
+// again"; idempotence + the lock are layered safety nets.
 func RunMigrations(ctx context.Context, pool *pgxpool.Pool, migrationsFS fs.FS, mode MigrationMode) error {
 	if mode == ModeSkip {
 		log.Printf("[migrate] mode=skip — not running migrations (operator override)")
 		return nil
 	}
 
-	if _, err := pool.Exec(ctx, schemaMigrationsDDL); err != nil {
-		return fmt.Errorf("create schema_migrations table: %w", err)
+	// Acquire a dedicated connection: pg_advisory_lock is session-scoped,
+	// so the holder of the lock must be the same backend until release.
+	// pool.Acquire borrows a connection that we release back to the pool
+	// when the function returns.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire connection: %w", err)
+	}
+	defer conn.Release()
+
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", e2aMigrationLockID); err != nil {
+		return fmt.Errorf("acquire migration advisory lock: %w", err)
+	}
+	defer func() {
+		// Use a fresh context for unlock: if ctx is cancelled by the time
+		// we get here, we still want to release the lock cleanly. The
+		// session would auto-release on disconnect anyway, but explicit
+		// unlock is hygiene.
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = conn.Exec(releaseCtx, "SELECT pg_advisory_unlock($1)", e2aMigrationLockID)
+	}()
+
+	if _, err := conn.Exec(ctx, schemaMigrationsDDL); err != nil {
+		return fmt.Errorf("create schema_migrations table: %w (does this DB user have CREATE privileges?)", err)
 	}
 
 	files, err := listMigrations(migrationsFS)
@@ -79,10 +138,16 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool, migrationsFS fs.FS, 
 		return err
 	}
 
-	applied, err := loadApplied(ctx, pool)
+	applied, err := loadApplied(ctx, conn)
 	if err != nil {
 		return fmt.Errorf("load applied migrations: %w", err)
 	}
+
+	// Defensive: warn about migrations recorded in schema_migrations
+	// that no longer exist in the embedded FS (rename/delete since
+	// they were applied). This is exactly the silent-drift class we're
+	// trying to prevent; logging it surfaces the drift to operators.
+	warnOrphans(applied, files)
 
 	pending := make([]string, 0, len(files))
 	for _, f := range files {
@@ -103,13 +168,16 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool, migrationsFS fs.FS, 
 		)
 	}
 
+	start := time.Now()
 	for _, name := range pending {
-		if err := applyOne(ctx, pool, migrationsFS, name); err != nil {
+		migStart := time.Now()
+		if err := applyOne(ctx, conn, migrationsFS, name); err != nil {
 			return fmt.Errorf("apply %s: %w", name, err)
 		}
-		log.Printf("[migrate] applied %s", name)
+		log.Printf("[migrate] applied %s in %s", name, time.Since(migStart).Round(time.Millisecond))
 	}
-	log.Printf("[migrate] applied %d new migration(s) (%d total)", len(pending), len(files))
+	log.Printf("[migrate] applied %d new migration(s) (%d total) in %s",
+		len(pending), len(files), time.Since(start).Round(time.Millisecond))
 	return nil
 }
 
@@ -132,8 +200,8 @@ func listMigrations(fsys fs.FS) ([]string, error) {
 	return out, nil
 }
 
-func loadApplied(ctx context.Context, pool *pgxpool.Pool) (map[string]bool, error) {
-	rows, err := pool.Query(ctx, "SELECT filename FROM schema_migrations")
+func loadApplied(ctx context.Context, conn *pgxpool.Conn) (map[string]bool, error) {
+	rows, err := conn.Query(ctx, "SELECT filename FROM schema_migrations")
 	if err != nil {
 		return nil, err
 	}
@@ -149,16 +217,80 @@ func loadApplied(ctx context.Context, pool *pgxpool.Pool) (map[string]bool, erro
 	return applied, rows.Err()
 }
 
-// applyOne reads a migration file and applies it in a single transaction
-// alongside the schema_migrations bookkeeping insert. If the SQL fails,
-// the bookkeeping is rolled back too, so a partial-failure migration is
-// safe to retry.
-func applyOne(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS, name string) error {
+// warnOrphans logs a warning for every filename recorded in
+// schema_migrations that's missing from the current FS — a rename or
+// deletion across versions. We don't fail because a legitimate
+// squash-migration workflow could intentionally retire old files; the
+// warning surfaces drift to operators who can investigate.
+func warnOrphans(applied map[string]bool, files []string) {
+	fileSet := make(map[string]bool, len(files))
+	for _, f := range files {
+		fileSet[f] = true
+	}
+	for name := range applied {
+		if !fileSet[name] {
+			log.Printf("[migrate] WARN: %s recorded in schema_migrations but not in embedded migrations/ — possible rename or deletion", name)
+		}
+	}
+}
+
+// hasNoTransactionDirective scans the leading comment block of a
+// migration body for the "e2a:no-transaction" marker. Only inspects
+// the first few lines so an in-body reference (e.g. inside a string
+// literal) doesn't trigger.
+func hasNoTransactionDirective(body string) bool {
+	for i, line := range strings.SplitN(body, "\n", 6) {
+		if i >= 5 {
+			break
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if !strings.HasPrefix(trimmed, "--") {
+			return false // first non-comment line — stop scanning
+		}
+		if strings.Contains(trimmed, noTransactionDirective) {
+			return true
+		}
+	}
+	return false
+}
+
+// applyOne reads a migration file and applies it.
+//
+// For migrations without the no-transaction directive: SQL + tracker
+// insert run in a single transaction so a partial-failure migration is
+// safe to retry. Tx isolation defaults to READ COMMITTED, which is
+// correct here (we don't want SERIALIZABLE forcing retries on every
+// concurrent backfill — we already hold the migration advisory lock).
+//
+// For migrations tagged with the no-transaction directive (e.g.
+// CREATE INDEX CONCURRENTLY): SQL runs directly on the connection,
+// then the tracker insert in a separate small transaction. This
+// breaks the "both apply atomically" invariant for the migration
+// itself; the directive is opt-in for the specific Postgres features
+// that require it.
+func applyOne(ctx context.Context, conn *pgxpool.Conn, fsys fs.FS, name string) error {
 	body, err := fs.ReadFile(fsys, name)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", name, err)
 	}
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+
+	if hasNoTransactionDirective(string(body)) {
+		if _, err := conn.Exec(ctx, string(body)); err != nil {
+			return fmt.Errorf("exec migration (no-transaction): %w", err)
+		}
+		if _, err := conn.Exec(ctx,
+			"INSERT INTO schema_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING",
+			name,
+		); err != nil {
+			return fmt.Errorf("record migration: %w", err)
+		}
+		return nil
+	}
+
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -178,4 +310,3 @@ func applyOne(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS, name string) 
 	}
 	return nil
 }
-
