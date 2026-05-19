@@ -24,6 +24,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
 	"github.com/Mnexa-AI/e2a/internal/ws"
+	"github.com/Mnexa-AI/e2a/migrations"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
@@ -84,6 +85,19 @@ func main() {
 
 	if err := pool.Ping(ctx); err != nil {
 		log.Fatalf("Failed to ping database: %v", err)
+	}
+
+	// Apply any pending schema migrations before anything else touches
+	// the DB. E2A_MIGRATION_MODE controls behavior — auto (default)
+	// applies pending; verify refuses to apply and errors if any are
+	// pending; skip is a no-op for emergency surgery. See
+	// internal/identity/migrate.go for the contract.
+	migrationMode, err := identity.ParseMigrationMode(os.Getenv("E2A_MIGRATION_MODE"))
+	if err != nil {
+		log.Fatalf("Invalid E2A_MIGRATION_MODE: %v", err)
+	}
+	if err := identity.RunMigrations(ctx, pool, migrations.FS, migrationMode); err != nil {
+		log.Fatalf("Schema migration failed: %v", err)
 	}
 
 	// Bootstrap mode: create a user + API key and exit. Used by self-host
