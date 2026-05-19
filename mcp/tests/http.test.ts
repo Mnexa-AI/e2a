@@ -151,6 +151,84 @@ describe("HTTP MCP server", () => {
     expect(body.error.message).toMatch(/no session/);
   });
 
+  it("DELETE /mcp without session id returns 400", async () => {
+    const res = await fetch(url, {
+      method: "DELETE",
+      headers: { Authorization: "Bearer e2a_test" },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("DELETE /mcp with unknown session id returns 404", async () => {
+    const res = await fetch(url, {
+      method: "DELETE",
+      headers: {
+        Authorization: "Bearer e2a_test",
+        "mcp-session-id": "ghost-session-id",
+      },
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /mcp without session id returns 400", async () => {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { Authorization: "Bearer e2a_test" },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("DELETE-then-POST: terminating a session makes follow-up POSTs return 400", async () => {
+    // initialize via raw fetch so we can capture the SDK-issued Mcp-Session-Id
+    const initRes = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: "Bearer e2a_test",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: { name: "x", version: "0" },
+        },
+      }),
+    });
+    // SSE body — drain so the connection closes cleanly before we DELETE.
+    await initRes.text();
+    const sessionId = initRes.headers.get("mcp-session-id");
+    expect(sessionId).toBeTruthy();
+
+    const delRes = await fetch(url, {
+      method: "DELETE",
+      headers: {
+        Authorization: "Bearer e2a_test",
+        "mcp-session-id": sessionId!,
+      },
+    });
+    expect(delRes.status).toBeLessThan(400);
+
+    // Post-deletion: the same session id should no longer resolve, and
+    // a non-initialize body must surface as "no session".
+    const followup = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: "Bearer e2a_test",
+        "mcp-session-id": sessionId!,
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
+    });
+    expect(followup.status).toBe(400);
+    const body = await followup.json();
+    expect(body.error.message).toMatch(/no session/);
+  });
+
   it("rejects requests when Host is not in the SDK allowlist", async () => {
     // Tear down the loopback-friendly server and bring up one with a strict
     // allowlist so the SDK's DNS-rebinding guard fires on a normal request.

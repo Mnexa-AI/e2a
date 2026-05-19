@@ -69,7 +69,9 @@ export class Sessions {
 
   /**
    * Sweep entries whose `lastSeen` is older than `idleTimeoutMs`. Runs on
-   * the GC timer; safe to call manually in tests.
+   * the GC timer; safe to call manually in tests. Uses allSettled so a
+   * single misbehaving transport.close() doesn't abort the whole sweep
+   * and leave the other stale entries unreaped until the next tick.
    */
   async gc(): Promise<void> {
     if (this.shuttingDown) return;
@@ -78,7 +80,7 @@ export class Sessions {
     for (const [id, entry] of this.map) {
       if (entry.lastSeen < cutoff) stale.push(id);
     }
-    await Promise.all(stale.map((id) => this.delete(id)));
+    await Promise.allSettled(stale.map((id) => this.delete(id)));
   }
 
   /**

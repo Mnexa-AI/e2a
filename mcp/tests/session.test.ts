@@ -103,6 +103,25 @@ describe("Sessions", () => {
     expect(sessions.size()).toBe(0);
   });
 
+  it("gc reaps remaining entries even when one close() throws", async () => {
+    let t = 0;
+    const sessions = new Sessions({ idleTimeoutMs: 100, maxSessions: 10, now: () => t });
+    const bad = {
+      transport: { close: vi.fn(async () => { throw new Error("boom"); }) },
+      server: {},
+      lastSeen: 0,
+    } as unknown as SessionEntry;
+    const ok = fakeEntry(0);
+    sessions.put("bad", bad);
+    sessions.put("ok", ok);
+    t = 1_000;
+    // Should not throw; both stale entries should be removed from the map.
+    await sessions.gc();
+    expect(bad.transport.close).toHaveBeenCalledOnce();
+    expect(ok.transport.close).toHaveBeenCalledOnce();
+    expect(sessions.size()).toBe(0);
+  });
+
   it("startGc + manual gc combined leaves no side effects", async () => {
     let t = 0;
     const sessions = new Sessions({ idleTimeoutMs: 100, maxSessions: 10, now: () => t });
