@@ -250,6 +250,12 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	// Per-IP rate limited.
 	r.HandleFunc("/api/oauth/register", a.handleOAuthRegister).Methods("POST")
 
+	// OAuth 2.1 Authorization Code + PKCE flow.
+	// GET /api/oauth/authorize  — entry point; 302s to consent UI.
+	// POST /api/oauth/consent   — form processor; mints code + 302s back to client.
+	r.HandleFunc("/api/oauth/authorize", a.handleOAuthAuthorize).Methods("GET")
+	r.HandleFunc("/api/oauth/consent", a.handleOAuthConsent).Methods("POST")
+
 	// User auth (Google OAuth for agent developers)
 	if a.userAuth != nil {
 		r.HandleFunc("/api/auth/login", a.userAuth.HandleLogin).Methods("GET")
