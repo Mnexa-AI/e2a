@@ -273,8 +273,12 @@ func TestInboundMessageRoundTripsToCcLists(t *testing.T) {
 
 	to := []string{"bot-a@tcc.example.com", "bot-b@tcc.example.com"}
 	cc := []string{"watcher@example.com", "audit@example.com"}
+	// Two addresses to exercise the multi-value path; RFC 5322 § 3.6.2
+	// permits more than one Reply-To. Single-value is the common case
+	// and is covered transitively by other tests that pass nil here.
+	replyTo := []string{"real-user@example.com", "delegate@example.com"}
 
-	msg, err := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot-a@tcc.example.com", "<x@gmail.com>", "Group thread", "", "", nil, nil, to, cc, nil)
+	msg, err := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot-a@tcc.example.com", "<x@gmail.com>", "Group thread", "", "", nil, nil, to, cc, replyTo)
 	if err != nil {
 		t.Fatalf("CreateInboundMessage: %v", err)
 	}
@@ -288,6 +292,38 @@ func TestInboundMessageRoundTripsToCcLists(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.CC, cc) {
 		t.Errorf("CC = %v, want %v", got.CC, cc)
+	}
+	if !reflect.DeepEqual(got.ReplyTo, replyTo) {
+		t.Errorf("ReplyTo = %v, want %v", got.ReplyTo, replyTo)
+	}
+
+	// Also exercise the consumer-facing read path (GET /messages/{id})
+	// — different SELECT columns, easy to drift independently.
+	gotDetail, err := store.GetMessageWithContent(ctx, msg.ID, a.ID)
+	if err != nil {
+		t.Fatalf("GetMessageWithContent: %v", err)
+	}
+	if !reflect.DeepEqual(gotDetail.ReplyTo, replyTo) {
+		t.Errorf("GetMessageWithContent ReplyTo = %v, want %v", gotDetail.ReplyTo, replyTo)
+	}
+
+	// And the list path (GET /messages) — yet another SELECT.
+	msgs, err := store.GetMessagesByAgent(ctx, a.ID, "all", 10, time.Time{}, "")
+	if err != nil {
+		t.Fatalf("GetMessagesByAgent: %v", err)
+	}
+	var found *identity.Message
+	for i := range msgs {
+		if msgs[i].ID == msg.ID {
+			found = &msgs[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("GetMessagesByAgent did not return %s", msg.ID)
+	}
+	if !reflect.DeepEqual(found.ReplyTo, replyTo) {
+		t.Errorf("GetMessagesByAgent ReplyTo = %v, want %v", found.ReplyTo, replyTo)
 	}
 }
 

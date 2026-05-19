@@ -53,6 +53,7 @@ describe("read", () => {
       recipient: "bot@agents.e2a.dev",
       to: ["bot@agents.e2a.dev"],
       cc: [],
+      replyTo: [],
       subject: "Hello",
       textBody: "Hi there!",
       receivedAt: "2025-01-15T10:30:00Z",
@@ -66,10 +67,11 @@ describe("read", () => {
     expect(mockStdout).toHaveBeenCalledWith("Date: 2025-01-15T10:30:00Z\n");
     expect(mockStdout).toHaveBeenCalledWith("Subject: Hello\n");
     expect(mockStdout).toHaveBeenCalledWith("Hi there!\n");
-    // Sole-recipient case: no Also-To or Cc lines emitted.
+    // Sole-recipient case: no Also-To, Cc, or Reply-To lines emitted.
     const writes: string[] = mockStdout.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(writes.some((w: string) => w.startsWith("Also-To:"))).toBe(false);
     expect(writes.some((w: string) => w.startsWith("Cc:"))).toBe(false);
+    expect(writes.some((w: string) => w.startsWith("Reply-To:"))).toBe(false);
   });
 
   it("prints Also-To and Cc when the message had other recipients", async () => {
@@ -80,6 +82,7 @@ describe("read", () => {
       // Server-emitted To: header has the agent itself plus another bot.
       to: ["bot-a@agents.e2a.dev", "bot-b@agents.e2a.dev"],
       cc: ["watcher@example.com"],
+      replyTo: [],
       subject: "Group",
       textBody: "",
       receivedAt: null,
@@ -98,6 +101,7 @@ describe("read", () => {
       recipient: "bot-bcc@agents.e2a.dev",
       to: ["bot-a@agents.e2a.dev", "bot-b@agents.e2a.dev"],
       cc: [],
+      replyTo: [],
       subject: "BCC",
       textBody: "",
       receivedAt: null,
@@ -117,6 +121,7 @@ describe("read", () => {
       recipient: "bot@agents.e2a.dev",
       to: ["bot@agents.e2a.dev"],
       cc: [],
+      replyTo: [],
       subject: "Test",
       textBody: "",
       receivedAt: null,
@@ -125,5 +130,24 @@ describe("read", () => {
     await read("msg_456", undefined);
 
     expect(mockStdout).toHaveBeenCalledWith("Date: unknown\n");
+  });
+
+  it("prints Reply-To when the sender requested a different reply mailbox", async () => {
+    // Motivating case: notifications@... with Reply-To: <real-user>.
+    mockGetMessage.mockResolvedValue({
+      messageId: "msg_granola",
+      sender: "notifications@mail.granola.ai",
+      recipient: "bot@agents.e2a.dev",
+      to: ["bot@agents.e2a.dev"],
+      cc: [],
+      replyTo: ["real-user@example.com"],
+      subject: "Meeting summary",
+      textBody: "",
+      receivedAt: null,
+    });
+
+    await read("msg_granola", undefined);
+
+    expect(mockStdout).toHaveBeenCalledWith("Reply-To: real-user@example.com\n");
   });
 });

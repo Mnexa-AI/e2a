@@ -212,3 +212,59 @@ describe("InboundEmail field-access gate", () => {
     await expect(email.reply("hi")).rejects.toThrow(UnverifiedEmailError);
   });
 });
+
+// --- reply_to (server-parsed Reply-To: header) ---
+
+describe("InboundEmail.replyTo", () => {
+  // Helper: build an InboundEmail with a given reply_to payload, marked
+  // trusted so we can read gated getters without HMAC plumbing. The
+  // gating behavior itself is exercised by the signed test below.
+  async function emailWithReplyTo(replyTo: string[] | undefined) {
+    return InboundEmail.fromPayload(
+      {
+        message_id: "msg_abc",
+        from: "notifications@example.com",
+        to: ["bot@example.com"],
+        cc: [],
+        reply_to: replyTo,
+        raw_message: Buffer.from("body").toString("base64"),
+        auth_headers: {},
+      } as unknown as Parameters<typeof InboundEmail.fromPayload>[0],
+      {} as never,
+      /*trusted=*/ true,
+    );
+  }
+
+  it("defaults to [] when reply_to is absent", async () => {
+    const email = await emailWithReplyTo(undefined);
+    expect(email.replyTo).toEqual([]);
+  });
+
+  it("surfaces a single Reply-To address", async () => {
+    const email = await emailWithReplyTo(["user@bar.com"]);
+    expect(email.replyTo).toEqual(["user@bar.com"]);
+  });
+
+  it("surfaces multi-address Reply-To (RFC 5322 § 3.6.2)", async () => {
+    const addrs = ["support@company.com", "ceo@company.com"];
+    const email = await emailWithReplyTo(addrs);
+    expect(email.replyTo).toEqual(addrs);
+  });
+
+  it("is gated by verifySignature like to/cc", async () => {
+    // Sign an email with no reply_to in headers, then attach reply_to
+    // on the payload separately — reply_to is in raw_message bytes for
+    // real deliveries, but this test pins the SDK-layer gate behavior.
+    const { email } = await signedEmail({ secret: SECRET });
+    // Defaulted to [] because signedEmail's fixture omits reply_to.
+    // Accessing it before verify must still throw.
+    expect(() => email.replyTo).toThrow(UnverifiedEmailError);
+    expect(email.verifySignature(SECRET)).toBe(true);
+    expect(email.replyTo).toEqual([]);
+  });
+
+  it("appears in unverifiedPayload for forensic inspection", async () => {
+    const email = await emailWithReplyTo(["user@bar.com"]);
+    expect(email.unverifiedPayload.replyTo).toEqual(["user@bar.com"]);
+  });
+});
