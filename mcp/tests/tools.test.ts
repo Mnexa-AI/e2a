@@ -41,6 +41,26 @@ function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): E2ACli
       ...body,
     })),
     deleteAgent: vi.fn(async () => undefined),
+    listDomains: vi.fn(async () => ({
+      domains: [
+        { domain: "mail.acme.com", verified: true, verification_token: "tok1" },
+      ],
+    })),
+    registerDomain: vi.fn(async (domain: string) => ({
+      domain,
+      verified: false,
+      verification_token: "tok_new",
+      dns_records: {
+        mx: { host: domain, value: "mx.e2a.dev", priority: 10 },
+        txt: { host: domain, value: "e2a-verify=tok_new" },
+      },
+    })),
+    verifyDomain: vi.fn(async (domain: string) => ({
+      domain,
+      verified: true,
+      verification_token: "tok_new",
+    })),
+    deleteDomain: vi.fn(async () => undefined),
     listPendingMessages: vi.fn(async () => ({ messages: [] })),
     getPendingMessage: vi.fn(async (id: string) => ({ id, status: "pending_approval" })),
     approveMessage: vi.fn(async () => ({ message_id: "msg_x", status: "sent" })),
@@ -80,6 +100,10 @@ describe("e2a MCP server", () => {
         "create_agent",
         "update_agent",
         "delete_agent",
+        "list_domains",
+        "register_domain",
+        "verify_domain",
+        "delete_domain",
         "list_pending_messages",
         "get_pending_message",
         "approve_pending_message",
@@ -238,6 +262,59 @@ describe("e2a MCP server", () => {
       arguments: { confirm: true },
     });
     expect(stub.deleteAgent).toHaveBeenCalledWith(undefined);
+  });
+
+  // ── Domain tools ────────────────────────────────────────────────
+
+  it("list_domains forwards to client.listDomains", async () => {
+    const res = await client.callTool({ name: "list_domains", arguments: {} });
+    expect(stub.listDomains).toHaveBeenCalledOnce();
+    const content = res.content as Array<{ type: string; text: string }>;
+    expect(content[0]?.text).toContain("mail.acme.com");
+  });
+
+  it("register_domain returns the DNS records the user must publish", async () => {
+    const res = await client.callTool({
+      name: "register_domain",
+      arguments: { domain: "mail.acme.com" },
+    });
+    expect(stub.registerDomain).toHaveBeenCalledWith("mail.acme.com");
+    const content = res.content as Array<{ type: string; text: string }>;
+    // The returned shape must surface the DNS records so the LLM can
+    // hand them to a DNS-provider MCP. If a future SDK change drops
+    // them from the response, this test trips immediately.
+    expect(content[0]?.text).toContain("dns_records");
+    expect(content[0]?.text).toContain("mx.e2a.dev");
+    expect(content[0]?.text).toContain("tok_new");
+  });
+
+  it("verify_domain forwards the domain and surfaces verified flag", async () => {
+    const res = await client.callTool({
+      name: "verify_domain",
+      arguments: { domain: "mail.acme.com" },
+    });
+    expect(stub.verifyDomain).toHaveBeenCalledWith("mail.acme.com");
+    const content = res.content as Array<{ type: string; text: string }>;
+    expect(content[0]?.text).toContain('"verified": true');
+  });
+
+  it("delete_domain requires confirm:true — schema validator catches the omission", async () => {
+    const res = await client.callTool({
+      name: "delete_domain",
+      arguments: { domain: "mail.acme.com" },
+    });
+    expect(res.isError).toBe(true);
+    expect(stub.deleteDomain).not.toHaveBeenCalled();
+  });
+
+  it("delete_domain forwards on explicit confirm:true", async () => {
+    const res = await client.callTool({
+      name: "delete_domain",
+      arguments: { domain: "mail.acme.com", confirm: true },
+    });
+    expect(stub.deleteDomain).toHaveBeenCalledWith("mail.acme.com");
+    const content = res.content as Array<{ type: string; text: string }>;
+    expect(content[0]?.text).toMatch(/mail\.acme\.com/);
   });
 
   it("list_pending_messages calls the SDK", async () => {
