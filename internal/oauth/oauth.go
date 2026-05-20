@@ -39,6 +39,9 @@
 package oauth
 
 import (
+	"context"
+
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -67,8 +70,38 @@ func NewStorage(pool *pgxpool.Pool) *Storage {
 	return &Storage{pool: pool}
 }
 
-// Pool exposes the underlying pgxpool. Used by callers (e.g. the
-// consent handler) that need to span a fosite-driven write and a
-// non-fosite write (agent creation) inside a single transaction.
-// Don't reach for this from new code unless that's the actual need.
+// Pool exposes the underlying pgxpool. Reserved for callers that need
+// the raw pool — for example, opening a transaction that this package
+// then participates in via WithTx. Prefer WithTx over direct pool use:
+// it's the supported atomicity pattern across the oauth/agent
+// boundary.
 func (s *Storage) Pool() *pgxpool.Pool { return s.pool }
+
+// txCtxKey is the canonical context key for a pgx.Tx that should be
+// used by storage methods. Unexported so the only way to populate it
+// is through WithTx; storage.go's db(ctx) is the only consumer.
+type txCtxKey struct{}
+
+// WithTx returns a derived context that routes oauth Storage method
+// reads/writes through the given pgx.Tx instead of the pool. The
+// consent handler is the motivating caller: it opens a transaction
+// on Storage.Pool(), inserts an agent row via the agent package
+// (which threads the same tx), then hands the tx-carrying context
+// to fosite (which calls back into Storage methods). Storage.db(ctx)
+// reads the same key, so all writes land in the one transaction.
+//
+// Storage.BeginTX is the inverse path: when fosite itself opens the
+// tx, it uses BeginTX which delegates to WithTx — one canonical key
+// regardless of who started the transaction.
+func WithTx(ctx context.Context, tx pgx.Tx) context.Context {
+	return context.WithValue(ctx, txCtxKey{}, tx)
+}
+
+// TxFromContext returns the pgx.Tx stashed by WithTx, if any. The
+// second return is false when no tx is present (the pool will be
+// used instead). Callers that need to share a transaction across
+// package boundaries can use this to detect and join a parent tx.
+func TxFromContext(ctx context.Context) (pgx.Tx, bool) {
+	tx, ok := ctx.Value(txCtxKey{}).(pgx.Tx)
+	return tx, ok
+}

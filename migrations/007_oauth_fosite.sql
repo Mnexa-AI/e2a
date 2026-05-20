@@ -2,6 +2,23 @@
 -- (.claude/design/mcp-system.md §4.3; reshaped to fit fosite's storage
 -- interfaces).
 --
+-- This migration supersedes both the never-shipped hand-rolled OAuth
+-- migration on feat/oauth-backend (oauth_authorization_codes +
+-- oauth_tokens) and the foundation-only earlier draft of the fosite
+-- schema (was 006_oauth_fosite.sql, before CHECK constraints landed).
+-- Any environment that ran either earlier version gets the obsolete
+-- tables dropped here. The migration runner records by filename, so
+-- this file lands as a new migration regardless of which predecessor
+-- the environment saw — and it is never-shipped today, so the DROPs
+-- only hit dev/test machines.
+DROP TABLE IF EXISTS oauth_authorization_codes CASCADE;
+DROP TABLE IF EXISTS oauth_tokens CASCADE;
+DROP TABLE IF EXISTS oauth_pkce_requests CASCADE;
+DROP TABLE IF EXISTS oauth_refresh_tokens CASCADE;
+DROP TABLE IF EXISTS oauth_access_tokens CASCADE;
+DROP TABLE IF EXISTS oauth_auth_codes CASCADE;
+DROP TABLE IF EXISTS oauth_clients CASCADE;
+
 -- Five tables:
 --   oauth_clients          — registered clients (DCR-issued or admin)
 --   oauth_auth_codes       — fosite AuthorizeCodeStorage (60s, single-use)
@@ -61,7 +78,22 @@ CREATE TABLE IF NOT EXISTS oauth_clients (
     -- where no user-of-record is meaningful. When the referenced
     -- user is deleted, this clears to NULL; the row itself persists
     -- because other users may have authorized the same client_id.
-    created_by_user_id         TEXT REFERENCES users(id) ON DELETE SET NULL
+    created_by_user_id         TEXT REFERENCES users(id) ON DELETE SET NULL,
+
+    -- Auth-method must match public/confidential status. Public
+    -- clients (PKCE-only DCR registrations) use 'none'; confidential
+    -- clients must declare a real auth method. Without this, an
+    -- admin INSERT with public=FALSE and the default 'none' would
+    -- silently produce a confidential client with no authentication.
+    CHECK (
+        (public = TRUE  AND token_endpoint_auth_method = 'none')
+        OR
+        (public = FALSE AND token_endpoint_auth_method IN ('client_secret_basic', 'client_secret_post'))
+    ),
+    -- Confidential clients must carry a stored secret hash. Belt-
+    -- and-braces with the auth-method check: any confidential row
+    -- without a secret is structurally unauthenticatable.
+    CHECK (public = TRUE OR client_secret_hash IS NOT NULL)
 );
 
 -- Authorization codes (60s lifetime, single-use w/ RFC 6749 §10.5 reuse defense)

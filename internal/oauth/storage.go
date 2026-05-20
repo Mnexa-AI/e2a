@@ -46,8 +46,6 @@ var (
 // whole flow; Commit/Rollback are called by fosite's handler at the
 // end.
 
-type txCtxKey struct{}
-
 // dbExecutor is the subset of pgxpool.Pool and pgx.Tx that the
 // storage methods touch. Lets db(ctx) return either without forcing
 // callers to type-switch.
@@ -57,11 +55,12 @@ type dbExecutor interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-// db returns the active transaction if one was started via BeginTX,
-// otherwise the connection pool. Every read/write in this file must
-// route through this so transactional flows are atomic.
+// db returns the active transaction if one is on the context (set by
+// BeginTX or by an out-of-package caller via WithTx), otherwise the
+// pool. Every read/write in this file must route through this so
+// transactional flows — fosite-driven or cross-package — are atomic.
 func (s *Storage) db(ctx context.Context) dbExecutor {
-	if tx, ok := ctx.Value(txCtxKey{}).(pgx.Tx); ok {
+	if tx, ok := TxFromContext(ctx); ok {
 		return tx
 	}
 	return s.pool
@@ -69,17 +68,19 @@ func (s *Storage) db(ctx context.Context) dbExecutor {
 
 // BeginTX starts a new pgx transaction and returns a context carrying
 // it. fosite's handlers pass this context to every subsequent storage
-// call until Commit or Rollback.
+// call until Commit or Rollback. Uses WithTx so the key is the same
+// one cross-package callers (e.g. the consent handler) use to thread
+// their own transactions through.
 func (s *Storage) BeginTX(ctx context.Context) (context.Context, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ctx, err
 	}
-	return context.WithValue(ctx, txCtxKey{}, tx), nil
+	return WithTx(ctx, tx), nil
 }
 
 func (s *Storage) Commit(ctx context.Context) error {
-	tx, ok := ctx.Value(txCtxKey{}).(pgx.Tx)
+	tx, ok := TxFromContext(ctx)
 	if !ok {
 		// No tx on context — caller didn't BeginTX, or already
 		// committed. Treat as no-op (matches Memory store's behavior;
@@ -90,7 +91,7 @@ func (s *Storage) Commit(ctx context.Context) error {
 }
 
 func (s *Storage) Rollback(ctx context.Context) error {
-	tx, ok := ctx.Value(txCtxKey{}).(pgx.Tx)
+	tx, ok := TxFromContext(ctx)
 	if !ok {
 		return nil
 	}
@@ -130,15 +131,17 @@ func (s *Storage) GetClient(ctx context.Context, id string) (fosite.Client, erro
 
 // ClientAssertionJWTValid is for the JWT-Bearer client authentication
 // method (RFC 7523). We don't support that auth method — public
-// clients only, no JWT assertions. Always return nil so the validity
-// check passes vacuously; we'd reject the auth method earlier at the
-// /token endpoint anyway.
+// clients only, no JWT assertions. Returning a non-nil error here is
+// defense in depth: if a future compose misconfiguration ever enables
+// the JWT-Bearer factory, this storage call will refuse rather than
+// silently accept every JTI as valid. The /token endpoint will still
+// reject the auth method earlier; this is the second line.
 func (s *Storage) ClientAssertionJWTValid(ctx context.Context, jti string) error {
-	return nil
+	return errors.New("oauth: jwt-bearer client auth not supported")
 }
 
 func (s *Storage) SetClientAssertionJWT(ctx context.Context, jti string, exp time.Time) error {
-	return nil
+	return errors.New("oauth: jwt-bearer client auth not supported")
 }
 
 // ───────────────────────── AuthorizeCodeStorage ─────────────────────────
@@ -269,10 +272,27 @@ func (s *Storage) GetAuthorizeCodeSession(ctx context.Context, code string, sess
 	return req, nil
 }
 
+// InvalidateAuthorizeCodeSession marks the code consumed via a CAS
+// `WHERE signature = $1 AND active = TRUE`. The CAS is load-bearing:
+// without it, two concurrent token exchanges at READ COMMITTED can
+// each pass GetAuthorizeCodeSession (both see active=TRUE before
+// either UPDATE lands) and both InvalidateAuthorizeCodeSession calls
+// succeed against the same row — letting fosite issue two token pairs
+// for one consent (RFC 6749 §10.5 violation). Adding active=TRUE to
+// the WHERE makes the second UPDATE re-evaluate the predicate after
+// the lock releases and return zero rows. Returning
+// ErrInvalidatedAuthorizeCode triggers fosite's deferred rollback in
+// flow_authorize_code_token.go.
 func (s *Storage) InvalidateAuthorizeCodeSession(ctx context.Context, code string) error {
-	_, err := s.db(ctx).Exec(ctx,
-		`UPDATE oauth_auth_codes SET active = FALSE WHERE signature = $1`, code)
-	return err
+	tag, err := s.db(ctx).Exec(ctx,
+		`UPDATE oauth_auth_codes SET active = FALSE WHERE signature = $1 AND active = TRUE`, code)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fosite.ErrInvalidatedAuthorizeCode
+	}
+	return nil
 }
 
 // ───────────────────────── AccessTokenStorage ─────────────────────────
@@ -350,22 +370,18 @@ func (s *Storage) CreateRefreshTokenSession(ctx context.Context, signature, acce
 	}
 	// fosite signals "no expiry" by leaving the session ExpiresAt at
 	// zero (the RefreshTokenLifespan=-1 config path). Persist NULL in
-	// that case so the retention reaper doesn't silently delete rows
-	// the operator asked to keep forever. Otherwise use the session
-	// value (which already reflects the configured lifetime).
+	// that case so the retention reaper — which must skip NULLs — keeps
+	// the row forever as the operator asked. Otherwise use the session
+	// value, which already reflects the configured lifetime.
+	//
+	// On configured-lifetime deployments, fosite's refresh strategy
+	// always sets a non-zero session expiry before this method is
+	// called; a zero value here is unambiguous opt-in.
 	var expiresAt *time.Time
 	if sess != nil {
 		if t := sess.GetExpiresAt(fosite.RefreshToken); !t.IsZero() {
 			expiresAt = &t
 		}
-	}
-	if expiresAt == nil {
-		// Defensive fallback: a session with zero expiry only happens
-		// when the operator opted into no-expiry. If we got here on a
-		// configured-lifetime deployment something's off — write a
-		// 30d default so the row at least eventually GCs.
-		def := request.GetRequestedAt().Add(30 * 24 * time.Hour)
-		expiresAt = &def
 	}
 	_, err = s.db(ctx).Exec(ctx, `
 		INSERT INTO oauth_refresh_tokens
@@ -409,24 +425,35 @@ func (s *Storage) DeleteRefreshTokenSession(ctx context.Context, signature strin
 	return err
 }
 
-// RotateRefreshToken marks the refresh row inactive and ALSO revokes
-// every access token for the same request_id. Without the cascade,
-// an attacker who captured the pre-refresh access token could
-// continue using it for up to its remaining lifetime (~1h) after the
-// legitimate client rotated. The convention is set by fosite's
-// reference in-memory store; we match it.
+// RotateRefreshToken marks the refresh row inactive (via CAS) and
+// ALSO revokes every access token for the same request_id. Without
+// the cascade, an attacker who captured the pre-refresh access token
+// could continue using it for up to its remaining lifetime (~1h)
+// after the legitimate client rotated. The convention is set by
+// fosite's reference in-memory store; we match it.
+//
+// The CAS on the refresh row (`AND active = TRUE`) defends against
+// concurrent refresh exchanges: same shape as
+// InvalidateAuthorizeCodeSession. Returning ErrInactiveToken when
+// the predicate doesn't match drives fosite into the
+// handleRefreshTokenReuse path (flow_refresh.go:178), which rolls the
+// in-progress exchange back.
 //
 // Runs through db(ctx) so when fosite wraps this call in
 // MaybeBeginTx the two UPDATEs land in the same transaction.
 func (s *Storage) RotateRefreshToken(ctx context.Context, requestID, refreshTokenSignature string) error {
 	db := s.db(ctx)
-	if _, err := db.Exec(ctx,
-		`UPDATE oauth_refresh_tokens SET active = FALSE WHERE signature = $1`,
+	tag, err := db.Exec(ctx,
+		`UPDATE oauth_refresh_tokens SET active = FALSE WHERE signature = $1 AND active = TRUE`,
 		refreshTokenSignature,
-	); err != nil {
+	)
+	if err != nil {
 		return err
 	}
-	_, err := db.Exec(ctx,
+	if tag.RowsAffected() == 0 {
+		return fosite.ErrInactiveToken
+	}
+	_, err = db.Exec(ctx,
 		`UPDATE oauth_access_tokens SET revoked_at = NOW() WHERE request_id = $1 AND revoked_at IS NULL`,
 		requestID,
 	)
