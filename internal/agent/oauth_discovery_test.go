@@ -111,6 +111,13 @@ func TestOAuthDiscovery_Enabled(t *testing.T) {
 	if !equalStringSlice(meta.RevocationEndpointAuthMethodsSupported, wantAuthMethods) {
 		t.Errorf("revocation_endpoint_auth_methods_supported: want %v, got %v", wantAuthMethods, meta.RevocationEndpointAuthMethodsSupported)
 	}
+	// RFC 9207 §3: advertising support tells clients to expect an
+	// `iss` parameter on the authorization response. Mix-up-aware
+	// clients (incl. MCP clients) use this to decide whether to
+	// enforce the check.
+	if !meta.AuthorizationResponseIssParameterSupported {
+		t.Error("authorization_response_iss_parameter_supported should be advertised true (RFC 9207)")
+	}
 }
 
 // TestOAuthDiscovery_NoOAuthStore_404 covers a deployment that hasn't

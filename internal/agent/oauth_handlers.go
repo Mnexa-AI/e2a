@@ -37,11 +37,10 @@ type OAuthAuthorizationServerMetadata struct {
 	CodeChallengeMethodsSupported          []string `json:"code_challenge_methods_supported"`
 	TokenEndpointAuthMethodsSupported      []string `json:"token_endpoint_auth_methods_supported"`
 	RevocationEndpointAuthMethodsSupported []string `json:"revocation_endpoint_auth_methods_supported"`
-	ScopesSupported                        []string `json:"scopes_supported"`
-	// Per RFC 8414 §2 — pointer to human-readable docs for e2a's OAuth
-	// surface (scope semantics, agent-pinning, slug conventions, etc.).
-	// Optional in the RFC but useful for client devs probing discovery.
-	ServiceDocumentation string `json:"service_documentation,omitempty"`
+	ScopesSupported []string `json:"scopes_supported"`
+	// RFC 9207 §3 — clients use this to know they should expect an
+	// `iss` parameter on the authorization response (mix-up defense).
+	AuthorizationResponseIssParameterSupported bool `json:"authorization_response_iss_parameter_supported,omitempty"`
 }
 
 // handleOAuthDiscovery serves the RFC 8414 authorization-server metadata
@@ -69,13 +68,13 @@ func (a *API) handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
 		TokenEndpoint:                     base + "/api/oauth/token",
 		RegistrationEndpoint:              base + "/api/oauth/register",
 		RevocationEndpoint:                base + "/api/oauth/revoke",
-		ResponseTypesSupported:                 []string{"code"},
-		GrantTypesSupported:                    []string{"authorization_code", "refresh_token"},
-		CodeChallengeMethodsSupported:          []string{"S256"},
-		TokenEndpointAuthMethodsSupported:      []string{"none"},
-		RevocationEndpointAuthMethodsSupported: []string{"none"},
-		ScopesSupported:                        []string{"e2a"},
-		ServiceDocumentation:                   "https://e2a.dev/docs/oauth",
+		ResponseTypesSupported:                     []string{"code"},
+		GrantTypesSupported:                        []string{"authorization_code", "refresh_token"},
+		CodeChallengeMethodsSupported:              []string{"S256"},
+		TokenEndpointAuthMethodsSupported:          []string{"none"},
+		RevocationEndpointAuthMethodsSupported:     []string{"none"},
+		ScopesSupported:                            []string{"e2a"},
+		AuthorizationResponseIssParameterSupported: true,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
@@ -244,7 +243,7 @@ func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(req.ClientName) > 200 {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "client_name must be ≤200 characters")
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "client_name must be 200 characters or fewer")
 		return
 	}
 	if len(req.RedirectURIs) == 0 {
@@ -414,10 +413,14 @@ func validateAuthorizeParamsLogical(p *oauthAuthorizeParams) (errCode, errDesc s
 		return "invalid_request", "code_challenge is required (PKCE mandatory)"
 	}
 	if !pkceChallengePattern.MatchString(p.CodeChallenge) {
-		return "invalid_request", "code_challenge format invalid (must be unreserved-chars, 43–128)"
+		return "invalid_request", "code_challenge format invalid (must be unreserved-chars, length 43 to 128)"
 	}
-	if p.CodeChallengeMethod != "" && p.CodeChallengeMethod != "S256" {
-		return "invalid_request", "code_challenge_method must be 'S256'"
+	// RFC 7636 §4.3 says an absent code_challenge_method defaults to
+	// "plain", and OAuth 2.1 §4.1.1 makes it REQUIRED when
+	// code_challenge is present. Discovery advertises S256 only, so
+	// reject anything but explicit "S256" — including absence.
+	if p.CodeChallengeMethod != "S256" {
+		return "invalid_request", "code_challenge_method must be S256"
 	}
 	// Scope: only "e2a" supported. Empty defaults to "e2a".
 	if p.Scope != "" && p.Scope != "e2a" {
@@ -430,7 +433,10 @@ func validateAuthorizeParamsLogical(p *oauthAuthorizeParams) (errCode, errDesc s
 // an error code (and optional description) in the query, per RFC 6749
 // §4.1.2.1. Use this only when redirect_uri has been validated against
 // the registered client. errDesc is omitted from the URL when empty.
-func redirectWithOAuthError(w http.ResponseWriter, r *http.Request, redirectURI, errCode, errDesc, state string) {
+// issuer (RFC 9207) is included unconditionally so mix-up-aware clients
+// can verify which AS produced the response — including error
+// responses, which §2.4 of RFC 9207 explicitly covers.
+func redirectWithOAuthError(w http.ResponseWriter, r *http.Request, redirectURI, errCode, errDesc, state, issuer string) {
 	u, err := url.Parse(redirectURI)
 	if err != nil {
 		// Should be unreachable — caller has already validated.
@@ -445,18 +451,70 @@ func redirectWithOAuthError(w http.ResponseWriter, r *http.Request, redirectURI,
 	if state != "" {
 		q.Set("state", state)
 	}
+	if issuer != "" {
+		q.Set("iss", issuer)
+	}
 	u.RawQuery = q.Encode()
 	http.Redirect(w, r, u.String(), http.StatusFound)
 }
 
 // redirectMatchesRegistered does an exact-string match per OAuth 2.1
-// guidance. No prefix matching, no scheme-only matching — every
-// registered URI is enumerated explicitly.
+// guidance, with one carve-out: per RFC 8252 §7.3, loopback
+// redirect_uris (http on localhost / 127.0.0.1 / ::1) match
+// port-agnostically. Native MCP clients (Cursor, Cline, Claude Code's
+// local listener) get an OS-assigned ephemeral port at runtime, so
+// requiring the registered port to match exactly breaks them under
+// port contention.
+//
+// The carve-out is scoped: only http loopback URIs get the port-
+// ignored match. https and custom schemes still require byte-exact
+// match (they don't have the ephemeral-port problem and exact match
+// closes a class of attacks via attacker-controlled URI tails).
 func redirectMatchesRegistered(want string, registered []string) bool {
 	for _, r := range registered {
 		if r == want {
 			return true
 		}
+	}
+	wantU, err := url.Parse(want)
+	if err != nil || !isLoopbackHTTP(wantU) {
+		return false
+	}
+	for _, r := range registered {
+		regU, err := url.Parse(r)
+		if err != nil || !isLoopbackHTTP(regU) {
+			continue
+		}
+		// Hostname must match exactly — RFC 8252 §7.3 calls out
+		// "127.0.0.1" and "[::1]" specifically; "localhost" is
+		// SHOULD-NOT for the client per §8.3 but we accept all three
+		// and require them to round-trip. The match deliberately
+		// doesn't equate 127.0.0.1 with localhost.
+		if wantU.Scheme == regU.Scheme &&
+			wantU.Hostname() == regU.Hostname() &&
+			wantU.Path == regU.Path {
+			return true
+		}
+	}
+	return false
+}
+
+// issuer returns the canonical issuer URL for this deployment — the
+// same string the discovery doc advertises, the same value clients
+// should expect to see in the `iss` parameter of an authorization
+// response (RFC 9207) or a JWT `iss` claim if we ever add JWT access
+// tokens. Centralized so the TrimRight invariant is enforced once.
+func (a *API) issuer() string {
+	return strings.TrimRight(a.publicURL, "/")
+}
+
+func isLoopbackHTTP(u *url.URL) bool {
+	if u.Scheme != "http" {
+		return false
+	}
+	switch u.Hostname() {
+	case "localhost", "127.0.0.1", "::1":
+		return true
 	}
 	return false
 }
@@ -508,7 +566,7 @@ func (a *API) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if errCode, errDesc := validateAuthorizeParamsLogical(p); errCode != "" {
-		redirectWithOAuthError(w, r, p.RedirectURI, errCode, errDesc, p.State)
+		redirectWithOAuthError(w, r, p.RedirectURI, errCode, errDesc, p.State, a.issuer())
 		return
 	}
 
@@ -640,19 +698,19 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errCode, errDesc := validateAuthorizeParamsLogical(p); errCode != "" {
-		redirectWithOAuthError(w, r, p.RedirectURI, errCode, errDesc, p.State)
+		redirectWithOAuthError(w, r, p.RedirectURI, errCode, errDesc, p.State, a.issuer())
 		return
 	}
 
 	user := a.userAuth.AuthenticateRequest(r)
 	if user == nil {
-		writeOAuthError(w, http.StatusUnauthorized, "access_denied", "session required — log in before consenting")
+		writeOAuthError(w, http.StatusUnauthorized, "access_denied", "session required: log in before consenting")
 		return
 	}
 
 	action := r.PostFormValue("action")
 	if action == "deny" {
-		redirectWithOAuthError(w, r, p.RedirectURI, "access_denied", "user denied consent", p.State)
+		redirectWithOAuthError(w, r, p.RedirectURI, "access_denied", "user denied consent", p.State, a.issuer())
 		return
 	}
 	if action != "allow" {
@@ -727,7 +785,7 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 
 		if _, err := a.store.CreateAgentTx(r.Context(), tx, authCode.AgentEmail, a.sharedDomain, "", "", "local", user.ID); err != nil {
 			if strings.Contains(err.Error(), "duplicate") {
-				writeOAuthError(w, http.StatusConflict, "invalid_request", "that slug is already taken — pick another")
+				writeOAuthError(w, http.StatusConflict, "invalid_request", "that slug is already taken; pick another")
 				return
 			}
 			writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to create agent")
@@ -753,6 +811,9 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 	if p.State != "" {
 		q.Set("state", p.State)
 	}
+	// RFC 9207 §2: include the issuer in the authorization response so
+	// mix-up-aware clients can verify which AS minted the code.
+	q.Set("iss", a.issuer())
 	redirectURL.RawQuery = q.Encode()
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 }

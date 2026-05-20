@@ -270,6 +270,93 @@ func TestAuthorize_UnsupportedResponseType_RedirectError(t *testing.T) {
 	}
 }
 
+// TestAuthorize_LoopbackPortAgnostic guards the RFC 8252 §7.3 fix:
+// when a client registers http://127.0.0.1:8765/cb (its development
+// port at registration time) but actually binds to a different
+// ephemeral port (say 8932) at runtime, the request's redirect_uri
+// must still match. Native MCP clients hit this routinely because
+// the OS assigns the port at socket-bind time.
+func TestAuthorize_LoopbackPortAgnostic(t *testing.T) {
+	pool := testutil.TestDB(t)
+	identStore := identity.NewStore(pool)
+	oauthStore := oauth.NewStore(pool)
+	smtpRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{})
+	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
+
+	ua := auth.NewUserAuth(&config.OAuthConfig{
+		GoogleClientID:     "test-id",
+		GoogleClientSecret: "test-secret",
+		RedirectURL:        "http://localhost/api/auth/callback",
+	}, identStore, false)
+
+	api := agent.NewAPI(identStore, sender, smtpRelay, ua, usage.NewNoopUsageTracker(), "e2a.dev", "test.e2a.dev", "agents.e2a.dev", "https://e2a.dev", false)
+	api.SetOAuthStore(oauthStore)
+	router := mux.NewRouter()
+	api.RegisterRoutes(router)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	user, err := identStore.CreateOrGetUser(context.Background(), "loopback@example.com", "U", "google-loopback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := identStore.CreateUserSession(context.Background(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Client registers with port 8765; later requests with port 8932.
+	client := &oauth.Client{
+		ClientID:     oauth.NewClientID(),
+		ClientName:   "loopback client",
+		RedirectURIs: []string{"http://127.0.0.1:8765/cb"},
+		ClientType:   "public",
+		CreatedVia:   "dcr",
+	}
+	if err := oauthStore.RegisterClient(context.Background(), client); err != nil {
+		t.Fatal(err)
+	}
+
+	q := url.Values{}
+	q.Set("response_type", "code")
+	q.Set("client_id", client.ClientID)
+	q.Set("redirect_uri", "http://127.0.0.1:8932/cb") // different port
+	q.Set("code_challenge", testPKCEChallenge)
+	q.Set("code_challenge_method", "S256")
+	q.Set("scope", "e2a")
+	q.Set("state", "x")
+
+	resp := doGET(t, server.URL+"/api/oauth/authorize?"+q.Encode(), token)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("loopback port mismatch should be accepted per RFC 8252 §7.3, got %d", resp.StatusCode)
+	}
+
+	// Negative: non-loopback https mismatch is still rejected.
+	q.Set("redirect_uri", "https://attacker.example.com/cb")
+	resp2 := doGET(t, server.URL+"/api/oauth/authorize?"+q.Encode(), token)
+	defer resp2.Body.Close()
+	assertOAuthError(t, resp2, http.StatusBadRequest, "invalid_request")
+}
+
+// TestAuthorize_MissingPKCEMethod_RedirectError guards the spec fix:
+// per RFC 7636 §4.3 an absent code_challenge_method defaults to
+// "plain", which we don't support. OAuth 2.1 §4.1.1 promotes it to
+// REQUIRED. The authorize endpoint must reject (with the same
+// redirect-with-error path as other logical errors).
+func TestAuthorize_MissingPKCEMethod_RedirectError(t *testing.T) {
+	f := newAuthzFixture(t)
+	resp := doGET(t, f.authorizeURL(map[string]string{"code_challenge_method": ""}), f.sessionToken)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("expected 302 with error, got %d", resp.StatusCode)
+	}
+	loc := parseLocation(t, resp)
+	if loc.Query().Get("error") != "invalid_request" {
+		t.Errorf("expected error=invalid_request, got %q", loc.Query().Get("error"))
+	}
+}
+
 func TestAuthorize_MissingPKCE_RedirectError(t *testing.T) {
 	f := newAuthzFixture(t)
 	resp := doGET(t, f.authorizeURL(map[string]string{"code_challenge": ""}), f.sessionToken)
@@ -419,6 +506,12 @@ func TestConsent_Deny_RedirectsWithError(t *testing.T) {
 	if loc.Query().Get("state") != "test-state" {
 		t.Errorf("state must round-trip, got %q", loc.Query().Get("state"))
 	}
+	// RFC 9207 §2.4: the issuer identifier MUST appear on error
+	// authorization responses too, so a mix-up-aware client can
+	// distinguish errors from this AS vs an attacker's AS.
+	if got := loc.Query().Get("iss"); got != "https://e2a.dev" {
+		t.Errorf("iss param missing on error redirect: got %q", got)
+	}
 }
 
 func TestConsent_InvalidAction_400(t *testing.T) {
@@ -446,6 +539,12 @@ func TestConsent_Allow_CreateNew_DefaultSlug(t *testing.T) {
 	}
 	if loc.Query().Get("state") != "test-state" {
 		t.Errorf("state must round-trip, got %q", loc.Query().Get("state"))
+	}
+	// RFC 9207 §2: the authorization response must include the
+	// issuer identifier so a mix-up-aware client can verify which
+	// AS minted the code. Must match the discovery `issuer`.
+	if got := loc.Query().Get("iss"); got != "https://e2a.dev" {
+		t.Errorf("iss param mismatch: want %q, got %q", "https://e2a.dev", got)
 	}
 
 	// The auth code row should be present and bound to a new agent on
