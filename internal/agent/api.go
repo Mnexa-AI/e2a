@@ -24,6 +24,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/google/go-github/v72/github"
 	"github.com/gorilla/mux"
+	"github.com/ory/fosite"
 )
 
 // writeJSON encodes payload as the response body. Logs encoding errors
@@ -138,8 +139,9 @@ type API struct {
 	regLimit       *ratelimit.Limiter
 	pollLimit      *ratelimit.Limiter
 	feedbackLimit  *ratelimit.Limiter
-	approvalSigner *approvaltoken.Signer // optional; if nil, magic-link endpoints return 404
-	notifier       *hitlnotify.Notifier  // optional; if nil, holdForApproval doesn't send notification email
+	approvalSigner *approvaltoken.Signer  // optional; if nil, magic-link endpoints return 404
+	notifier       *hitlnotify.Notifier   // optional; if nil, holdForApproval doesn't send notification email
+	oauthProvider  fosite.OAuth2Provider  // optional; if nil, /api/oauth/* endpoints return 404
 }
 
 // SetApprovalSigner wires in the magic-link signer after construction so
@@ -152,6 +154,13 @@ func (a *API) SetApprovalSigner(s *approvaltoken.Signer) { a.approvalSigner = s 
 // still persists the pending message but doesn't fire the email — useful
 // for tests that don't want the async SMTP traffic.
 func (a *API) SetNotifier(n *hitlnotify.Notifier) { a.notifier = n }
+
+// SetOAuthProvider wires in the fosite-backed OAuth provider. When
+// nil, /api/oauth/* endpoints return 404 (matches the
+// SetApprovalSigner / SetNotifier pattern of "optional capability,
+// silently absent when not wired"). Operators who don't want OAuth
+// enabled simply don't call this.
+func (a *API) SetOAuthProvider(p fosite.OAuth2Provider) { a.oauthProvider = p }
 
 func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.SMTPRelay, userAuth *auth.UserAuth, usage usage.UsageTracker, smtpDomain, fromDomain, sharedDomain, publicURL string, production bool) *API {
 	return &API{
@@ -227,6 +236,12 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	// --- Non-versioned operational endpoints ---
 	r.HandleFunc("/api/health", a.handleHealth).Methods("GET", "HEAD")
 	r.HandleFunc("/api/feedback", a.handleFeedback).Methods("POST")
+
+	// OAuth 2.1 / RFC 6749 endpoints. The handler 404s when
+	// SetOAuthProvider wasn't called, so registering unconditionally
+	// is safe. Additional endpoints (authorize, consent, revoke, DCR,
+	// discovery) land in later slices.
+	r.HandleFunc("/api/oauth/token", a.handleOAuthToken).Methods("POST")
 
 	// User auth (Google OAuth for agent developers)
 	if a.userAuth != nil {

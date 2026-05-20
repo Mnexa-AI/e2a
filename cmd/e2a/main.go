@@ -19,6 +19,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/hitlnotify"
 	"github.com/Mnexa-AI/e2a/internal/hitlworker"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/relay"
 	"github.com/Mnexa-AI/e2a/internal/usage"
@@ -166,6 +167,21 @@ func main() {
 	} else {
 		api.SetNotifier(hitlnotify.New(store, smtpRelay, approvalSigner, cfg.OutboundSMTP.FromDomain, cfg.HTTP.PublicURL))
 	}
+
+	// OAuth 2.1 / fosite-backed authorization server. Needs the same
+	// HMAC secret (signing.hmac_secret) for token HMAC signing and the
+	// public URL as the canonical issuer. Without PublicURL, RFC 9207
+	// `iss` emission + discovery would emit empty/inconsistent values
+	// — skip wiring so /api/oauth/* return 404 and operators get a
+	// loud signal that the deployment needs http.public_url set.
+	if cfg.HTTP.PublicURL == "" {
+		log.Printf("[oauth] provider disabled: http.public_url is not set (required for issuer identity)")
+	} else {
+		oauthStorage := oauth.NewStorage(pool)
+		oauthProvider := oauth.NewProvider(oauthStorage, cfg.HTTP.PublicURL, []byte(cfg.Signing.HMACSecret))
+		api.SetOAuthProvider(oauthProvider)
+	}
+
 	api.RegisterRoutes(router)
 
 	// WebSocket route for local-mode agents
