@@ -282,10 +282,23 @@ func (a *API) RegisterWSRoute(r *mux.Router, handle http.HandlerFunc) {
 // errOAuthBearerInvalid is returned by authenticateUser when an
 // ate2a_-prefixed bearer fails validation (revoked, expired, unknown,
 // or provider not wired). writeAuthError checks errors.Is on this to
-// decide whether to emit the RFC 6750 §3 WWW-Authenticate header —
-// MCP clients use that signal to re-trigger the OAuth flow rather
-// than treat the 401 as "bad API key."
+// decide whether the WWW-Authenticate challenge should include the
+// OAuth-specific error params per RFC 6750 §3.1.
 var errOAuthBearerInvalid = errors.New("oauth bearer invalid")
+
+// stripBearerScheme removes the "Bearer " prefix from an Authorization
+// header value. RFC 6750 §2.1 specifies the scheme name as case-
+// INSENSITIVE; a literal `TrimPrefix(h, "Bearer ")` would silently fail
+// on `bearer ate2a_…` or `BEARER ate2a_…`. Returns the raw header value
+// when no Bearer scheme was used (lets the legacy unprefixed API-key
+// path continue to work).
+func stripBearerScheme(h string) string {
+	parts := strings.SplitN(h, " ", 2)
+	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+		return parts[1]
+	}
+	return h
+}
 
 // authenticateUser extracts and validates the bearer credential from
 // the request, returning the owning user.
@@ -302,7 +315,7 @@ var errOAuthBearerInvalid = errors.New("oauth bearer invalid")
 func (a *API) authenticateUser(r *http.Request) (*identity.User, error) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader != "" {
-		bearer := strings.TrimPrefix(authHeader, "Bearer ")
+		bearer := stripBearerScheme(authHeader)
 		if strings.HasPrefix(bearer, oauth.AccessTokenPrefix) {
 			return a.lookupUserByOAuthToken(r, bearer)
 		}
@@ -322,8 +335,8 @@ func (a *API) authenticateUser(r *http.Request) (*identity.User, error) {
 // same strategy that issued the token, looks up the row via our
 // Storage, and checks revoked/expired). On success we read the
 // e2a-specific user_id from the session and resolve to the user
-// record. All failure modes wrap errOAuthBearerInvalid so the
-// response layer can emit the right WWW-Authenticate header.
+// record. Every failure mode wraps errOAuthBearerInvalid so the
+// response layer reliably classifies these as OAuth-bearer rejections.
 func (a *API) lookupUserByOAuthToken(r *http.Request, bearer string) (*identity.User, error) {
 	if a.oauthProvider == nil {
 		// OAuth not enabled on this deployment. Fail closed rather
@@ -333,9 +346,20 @@ func (a *API) lookupUserByOAuthToken(r *http.Request, bearer string) (*identity.
 		return nil, fmt.Errorf("%w: provider not configured", errOAuthBearerInvalid)
 	}
 	session := &oauth.Session{}
-	_, ar, err := a.oauthProvider.IntrospectToken(r.Context(), bearer, fosite.AccessToken, session)
+	tu, ar, err := a.oauthProvider.IntrospectToken(r.Context(), bearer, fosite.AccessToken, session)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errOAuthBearerInvalid, err)
+		// Preserve fosite's typed error via %w so writeAuthError can
+		// errors.Is(...) against fosite.ErrTokenExpired below.
+		return nil, fmt.Errorf("%w: %w", errOAuthBearerInvalid, err)
+	}
+	// Defense in depth: fosite v0.49's IntrospectToken with
+	// tokenUse=AccessToken doesn't HARD-reject a refresh-token row —
+	// it falls back to refresh-token validation if access fails. We
+	// rely on table separation in storage to keep them disjoint, but
+	// an explicit check at the seam means a future fosite/storage
+	// refactor can't silently break the type guard.
+	if tu != fosite.AccessToken {
+		return nil, fmt.Errorf("%w: token is not an access token (got %q)", errOAuthBearerInvalid, tu)
 	}
 	// Trust the session, not the request — the session was loaded
 	// from the DB row fosite hydrated.
@@ -343,32 +367,49 @@ func (a *API) lookupUserByOAuthToken(r *http.Request, bearer string) (*identity.
 	if !ok || sess.UserID == "" {
 		return nil, fmt.Errorf("%w: session missing user_id", errOAuthBearerInvalid)
 	}
-	return a.store.GetUserByID(r.Context(), sess.UserID)
+	u, err := a.store.GetUserByID(r.Context(), sess.UserID)
+	if err != nil {
+		// Wrap so writeAuthError emits the OAuth challenge instead of
+		// a bare 401 (the bearer that got us here was valid; the user
+		// row vanished out from under it).
+		return nil, fmt.Errorf("%w: user lookup: %v", errOAuthBearerInvalid, err)
+	}
+	return u, nil
 }
 
-// writeAuthError writes a 401 response, attaching an RFC 6750 §3
-// WWW-Authenticate challenge when the failed credential was an OAuth
-// access token. Without the header, MCP clients can't distinguish
-// "your access token is invalid, run OAuth again" from "your API key
-// is bad" — both surface as a generic 401 and the client can't auto-
-// trigger re-auth. The error_description varies by failure mode
-// (revoked / expired / invalid) so SDKs can surface a useful message.
+// writeAuthError writes a 401 response with an RFC 6750 §3
+// WWW-Authenticate challenge.
+//
+// Every 401 on an endpoint that accepts Bearer auth MUST advertise
+// the Bearer scheme so clients know how to retry (§3, first paragraph).
+// When the failing credential WAS an OAuth bearer (sentinel err wrap
+// or `ate2a_` prefix observed on the request), we additionally emit
+// the §3.1 error params so MCP clients can trigger the OAuth re-flow.
+//
+// We deliberately do NOT distinguish "revoked" from "unknown token" in
+// error_description: that distinction would be a token-existence
+// oracle (an attacker with a candidate ate2a_ string could probe
+// whether it once existed by reading the description). fosite's
+// `ErrTokenExpired` is the one signal we expose because it fires
+// from the strategy's expiry check, never from the storage layer, so
+// "expired" doesn't leak existence.
+//
+// TODO(slice: RFC 9728 resource metadata): when the protected-resource
+// metadata document lands, add `resource_metadata="<url>"` here so MCP
+// clients can auto-discover the authorization server.
 func (a *API) writeAuthError(w http.ResponseWriter, r *http.Request, err error) {
-	bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if errors.Is(err, errOAuthBearerInvalid) || strings.HasPrefix(bearer, oauth.AccessTokenPrefix) {
+	bearer := stripBearerScheme(r.Header.Get("Authorization"))
+	isOAuthFailure := errors.Is(err, errOAuthBearerInvalid) || strings.HasPrefix(bearer, oauth.AccessTokenPrefix)
+
+	challenge := `Bearer realm="e2a"`
+	if isOAuthFailure {
 		desc := "the access token is invalid"
-		msg := err.Error()
-		switch {
-		case strings.Contains(msg, "revoked"):
-			desc = "the access token has been revoked"
-		case strings.Contains(msg, "expired"):
+		if errors.Is(err, fosite.ErrTokenExpired) {
 			desc = "the access token has expired"
 		}
-		// RFC 6750 §3: WWW-Authenticate challenge with realm + error +
-		// error_description. Quoted strings; ASCII per RFC 6749 §5.2.
-		w.Header().Set("WWW-Authenticate",
-			`Bearer realm="e2a", error="invalid_token", error_description="`+desc+`"`)
+		challenge = `Bearer realm="e2a", error="invalid_token", error_description="` + desc + `"`
 	}
+	w.Header().Set("WWW-Authenticate", challenge)
 	http.Error(w, "authentication required", http.StatusUnauthorized)
 }
 

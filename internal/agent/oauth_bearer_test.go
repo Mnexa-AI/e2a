@@ -106,6 +106,11 @@ func TestBearer_OAuthToken_Active(t *testing.T) {
 // TestBearer_OAuthToken_Revoked: after a manual revocation of the
 // access-token row, the same bearer returns 401 with the OAuth
 // WWW-Authenticate challenge.
+//
+// We deliberately do NOT assert the error_description distinguishes
+// "revoked" from "unknown" — that distinction would be a token-
+// existence oracle. Revoked-and-unknown collapse to the same
+// "invalid" description by design (see writeAuthError docstring).
 func TestBearer_OAuthToken_Revoked(t *testing.T) {
 	f := newConsentFixture(t)
 	access, _ := mintTokensForFixture(t, f)
@@ -126,6 +131,77 @@ func TestBearer_OAuthToken_Revoked(t *testing.T) {
 	}
 	if !strings.Contains(wa, `error="invalid_token"`) {
 		t.Errorf(`WWW-Authenticate should contain error="invalid_token": got %q`, wa)
+	}
+	// Existence-oracle guard: revoked tokens and unknown tokens must
+	// produce identical error_description ("the access token is
+	// invalid"). The expired case below is the only exception.
+	if !strings.Contains(wa, `error_description="the access token is invalid"`) {
+		t.Errorf("revoked WWW-Authenticate should use generic invalid description: got %q", wa)
+	}
+}
+
+// TestBearer_OAuthToken_Expired asserts that fosite's typed
+// ErrTokenExpired surfaces as error_description="...has expired".
+// Unlike revoked, "expired" is safe to distinguish — the signal
+// comes from the HMAC strategy's expiry check, not from storage,
+// so it doesn't reveal whether a token ever existed.
+//
+// To force a clearly-expired token we drive the storage directly:
+// insert a row whose expires_at is in the past, then call the API
+// with a bearer whose signature matches that row. This exercises
+// fosite's expiry-check branch end-to-end.
+func TestBearer_OAuthToken_Expired(t *testing.T) {
+	f := newConsentFixture(t)
+	access, _ := mintTokensForFixture(t, f)
+
+	// Backdate the session's persisted ExpiresAt map. The strategy
+	// reads expiry from the HYDRATED session, not from the column —
+	// the session is stored as JSONB inside the request column. The
+	// map is keyed by fosite.TokenType ("access_token"), so the
+	// jsonb_set path is {session,expires_at,access_token}.
+	if _, err := f.pool.Exec(context.Background(), `
+		UPDATE oauth_access_tokens
+		SET expires_at = NOW() - INTERVAL '1 hour',
+		    request = jsonb_set(
+		        request,
+		        '{session,expires_at,access_token}',
+		        '"2020-01-01T00:00:00Z"'::jsonb
+		    )
+		WHERE user_id = $1
+	`, f.userID); err != nil {
+		t.Fatal(err)
+	}
+
+	status, wa := callAPIWithBearer(t, f.server.URL, access)
+	if status != http.StatusUnauthorized {
+		t.Fatalf("expired OAuth token should 401: got %d", status)
+	}
+	if !strings.Contains(wa, `error="invalid_token"`) {
+		t.Errorf(`WWW-Authenticate should contain error="invalid_token": got %q`, wa)
+	}
+	if !strings.Contains(wa, "expired") {
+		t.Errorf("expired-token WWW-Authenticate should mention 'expired': got %q", wa)
+	}
+}
+
+// TestBearer_OAuthToken_LowercaseBearer covers RFC 6750 §2.1 — the
+// Bearer scheme name is case-insensitive. A client that sends
+// `Authorization: bearer ate2a_…` must still authenticate. A
+// case-sensitive TrimPrefix would have routed this to the API-key
+// path and produced a misleading 401 without the OAuth challenge.
+func TestBearer_OAuthToken_LowercaseBearer(t *testing.T) {
+	f := newConsentFixture(t)
+	access, _ := mintTokensForFixture(t, f)
+
+	req, _ := http.NewRequest("GET", f.server.URL+"/api/v1/agents", nil)
+	req.Header.Set("Authorization", "bearer "+access) // lowercase scheme
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("lowercase-bearer should still authenticate (RFC 6750 §2.1): got %d", resp.StatusCode)
 	}
 }
 
@@ -161,34 +237,46 @@ func TestBearer_APIKey_StillWorks(t *testing.T) {
 		t.Fatalf("API key auth regressed: got %d", status)
 	}
 	if wa != "" {
-		t.Errorf("API-key path must not emit WWW-Authenticate: got %q", wa)
+		t.Errorf("API-key path on a successful 200 must not emit WWW-Authenticate: got %q", wa)
 	}
 }
 
-// TestBearer_APIKey_Bad: a bad API key 401s without the OAuth
-// challenge. Distinguishing OAuth-bearer failure from API-key
-// failure is the point of the WWW-Authenticate header.
+// TestBearer_APIKey_Bad: a bad API key 401s with the BARE Bearer
+// challenge (no error param). RFC 6750 §3 says any 401 on an
+// endpoint that accepts Bearer must advertise the scheme; but only
+// OAuth-bearer failures get the `error="invalid_token"` extension
+// per §3.1. This distinguishes "your API key is bad" (bare Bearer,
+// no further action info) from "your OAuth token is bad — re-auth"
+// (error=invalid_token).
 func TestBearer_APIKey_Bad(t *testing.T) {
 	f := newConsentFixture(t)
 	status, wa := callAPIWithBearer(t, f.server.URL, "e2a_definitely_not_a_real_key")
 	if status != http.StatusUnauthorized {
 		t.Errorf("bad API key should 401: got %d", status)
 	}
-	if wa != "" {
-		t.Errorf("API-key path must not emit WWW-Authenticate even on failure: got %q", wa)
+	if wa == "" {
+		t.Error("401 must advertise the Bearer scheme per RFC 6750 §3")
+	}
+	if strings.Contains(wa, `error="invalid_token"`) {
+		t.Errorf("API-key failure must not carry OAuth error params: got %q", wa)
 	}
 }
 
 // TestBearer_NoAuth: no Authorization header and no session cookie
-// returns 401 without any challenge (fallback path).
+// returns 401 with the BARE Bearer challenge (no error param). The
+// challenge tells the client our auth scheme; the absence of an
+// `error` param distinguishes this from a failed-OAuth response.
 func TestBearer_NoAuth(t *testing.T) {
 	f := newConsentFixture(t)
 	status, wa := callAPIWithBearer(t, f.server.URL, "")
 	if status != http.StatusUnauthorized {
 		t.Errorf("no-auth should 401: got %d", status)
 	}
-	if wa != "" {
-		t.Errorf("no-auth path should not emit OAuth challenge: got %q", wa)
+	if wa == "" {
+		t.Error("401 must advertise the Bearer scheme per RFC 6750 §3 even with no credentials")
+	}
+	if strings.Contains(wa, `error="invalid_token"`) {
+		t.Errorf("no-credentials path must not carry OAuth error params: got %q", wa)
 	}
 }
 
