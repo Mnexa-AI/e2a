@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -193,10 +194,14 @@ func validateCLICallbackURL(raw string) (*url.URL, error) {
 
 // OAuthState is encoded into the OAuth state parameter. It carries the CSRF
 // nonce and, for CLI-initiated logins, the callback URL and CLI state token.
+// ReturnTo, if set, is a same-origin server-path the user is bounced back to
+// after callback succeeds — used by the MCP authorize flow to resume after
+// a session is established. Validated at HandleLogin time.
 type OAuthState struct {
 	Nonce       string `json:"n"`
 	CLICallback string `json:"cb,omitempty"`
 	CLIState    string `json:"cs,omitempty"`
+	ReturnTo    string `json:"rt,omitempty"`
 }
 
 func EncodeOAuthState(s *OAuthState) string {
@@ -254,6 +259,9 @@ func (ua *UserAuth) writeCLIHandoffPage(w http.ResponseWriter, r *http.Request, 
 // HandleLogin redirects the user to Google OAuth.
 // CLI login params (cli_callback, cli_state) are encoded into the OAuth state
 // parameter so they survive the redirect through Google without relying on cookies.
+// return_to (optional) is a same-origin server path the user resumes on after
+// callback success — only paths under /api/oauth/ are permitted, used to bounce
+// MCP OAuth clients back into /api/oauth/authorize after a session is created.
 func (ua *UserAuth) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	cliCallback := r.URL.Query().Get("cli_callback")
 	cliState := r.URL.Query().Get("cli_state")
@@ -275,9 +283,46 @@ func (ua *UserAuth) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		state.CLIState = cliState
 	}
 
+	if returnTo := r.URL.Query().Get("return_to"); returnTo != "" {
+		if err := validateReturnToPath(returnTo); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		state.ReturnTo = returnTo
+	}
+
 	ua.setCookie(w, StateCookieName, nonce, 600)
 
 	http.Redirect(w, r, ua.oauthConfig.AuthCodeURL(EncodeOAuthState(state)), http.StatusFound)
+}
+
+// validateReturnToPath enforces the same-origin / known-prefix allow-list
+// for return_to values. Accepting an arbitrary URL would turn /api/auth/login
+// into an open redirector that an attacker could chain with phishing-class
+// social engineering. Limiting to /api/oauth/-prefixed server paths means
+// the bounce can only land inside the OAuth flow we own.
+func validateReturnToPath(raw string) error {
+	if !strings.HasPrefix(raw, "/api/oauth/") {
+		return errors.New("return_to must be a server path starting with /api/oauth/")
+	}
+	// Reject protocol-relative ("//evil") and backslash-tricks. After the
+	// /api/oauth/ prefix check, any additional sentinel must keep this an
+	// absolute server path with no authority component.
+	if strings.HasPrefix(raw, "//") {
+		return errors.New("return_to must not be protocol-relative")
+	}
+	if strings.ContainsAny(raw, "\\\n\r\x00") {
+		return errors.New("return_to contains forbidden characters")
+	}
+	// url.Parse should produce a clean path-only URL: no scheme, no host.
+	u, err := url.Parse(raw)
+	if err != nil {
+		return errors.New("return_to is not a valid URL path")
+	}
+	if u.Scheme != "" || u.Host != "" || u.User != nil {
+		return errors.New("return_to must be a path with no scheme or authority")
+	}
+	return nil
 }
 
 // HandleCallback processes the Google OAuth callback and creates a session.
@@ -354,6 +399,18 @@ func (ua *UserAuth) HandleCallback(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
+	}
+
+	// If this login was triggered by an /api/oauth/ flow that wanted the
+	// user to land back where they started, bounce to that path. The
+	// allow-list was enforced at HandleLogin time; re-validate defensively
+	// in case state was tampered with somehow (the OAuth state is integrity-
+	// protected by the nonce cookie, but cheap to double-check).
+	if state.ReturnTo != "" {
+		if err := validateReturnToPath(state.ReturnTo); err == nil {
+			http.Redirect(w, r, ua.baseURL+state.ReturnTo, http.StatusFound)
+			return
+		}
 	}
 
 	http.Redirect(w, r, ua.baseURL+"/dashboard", http.StatusFound)

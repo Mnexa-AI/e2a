@@ -177,8 +177,10 @@ func authorizeParams(challenge, clientID, state string) url.Values {
 // ──────────────────────── /authorize ────────────────────────
 
 // TestHTTP_Authorize_NoSession redirects to /api/auth/login when the
-// request lacks the session cookie. Today we don't carry return_to;
-// the test asserts the basic redirect target.
+// request lacks the session cookie, carrying the original authorize
+// request URI as return_to so the user lands back here after Google
+// callback completes. Without that bounce the user would land on
+// /dashboard and have to re-trigger the flow from their MCP client.
 func TestHTTP_Authorize_NoSession(t *testing.T) {
 	f := newConsentFixture(t)
 	_, challenge := newPKCE(t)
@@ -193,6 +195,13 @@ func TestHTTP_Authorize_NoSession(t *testing.T) {
 	}
 	if !strings.HasSuffix(loc.Path, "/api/auth/login") {
 		t.Errorf("Location path = %q, want /api/auth/login", loc.Path)
+	}
+	returnTo := loc.Query().Get("return_to")
+	if !strings.HasPrefix(returnTo, "/api/oauth/authorize") {
+		t.Errorf("return_to should preserve the authorize request URI: got %q", returnTo)
+	}
+	if !strings.Contains(returnTo, "client_id=") || !strings.Contains(returnTo, "code_challenge=") {
+		t.Errorf("return_to should carry the original query string: got %q", returnTo)
 	}
 }
 

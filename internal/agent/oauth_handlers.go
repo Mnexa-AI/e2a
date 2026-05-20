@@ -532,11 +532,16 @@ func (a *API) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if user := a.userAuth.AuthenticateRequest(r); user == nil {
-		// TODO: thread r.URL.RequestURI() through HandleLogin's
-		// return_to once that exists on this branch. Today the user
-		// lands on /dashboard and re-triggers from their MCP client.
-		log.Printf("[oauth] /authorize no session; redirecting to login (return_to not yet wired)")
-		http.Redirect(w, r, strings.TrimRight(a.publicURL, "/")+"/api/auth/login", http.StatusFound)
+		// Bounce through Google login, then resume back here. We only
+		// pass the path portion (not host/scheme) so the same-origin
+		// invariant of validateReturnToPath holds. After callback the
+		// user lands back on /api/oauth/authorize with the same params
+		// and the now-valid session cookie.
+		loginURL, _ := url.Parse(strings.TrimRight(a.publicURL, "/") + "/api/auth/login")
+		q := loginURL.Query()
+		q.Set("return_to", r.URL.RequestURI())
+		loginURL.RawQuery = q.Encode()
+		http.Redirect(w, r, loginURL.String(), http.StatusFound)
 		return
 	}
 
