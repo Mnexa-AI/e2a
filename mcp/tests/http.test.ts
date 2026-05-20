@@ -90,7 +90,7 @@ describe("HTTP MCP server", () => {
     expect(body.bearer_methods_supported).toEqual(["header"]);
   });
 
-  it("lists all 11 tools after initialize", async () => {
+  it("lists every registered tool after initialize", async () => {
     const { client, transport } = await connect();
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(
@@ -102,6 +102,8 @@ describe("HTTP MCP server", () => {
         "list_agents",
         "whoami",
         "create_agent",
+        "update_agent",
+        "delete_agent",
         "list_pending_messages",
         "get_pending_message",
         "approve_pending_message",

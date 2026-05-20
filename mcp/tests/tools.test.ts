@@ -29,6 +29,18 @@ function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): E2ACli
       domain: "agents.example.com",
       id: `${body.slug}@agents.example.com`,
     })),
+    getAgent: vi.fn(async (email: string) => ({
+      id: email,
+      email,
+      agent_mode: "local",
+      hitl_enabled: false,
+    })),
+    updateAgent: vi.fn(async (body: Record<string, unknown>) => ({
+      id: "bot@example.com",
+      email: "bot@example.com",
+      ...body,
+    })),
+    deleteAgent: vi.fn(async () => undefined),
     listPendingMessages: vi.fn(async () => ({ messages: [] })),
     getPendingMessage: vi.fn(async (id: string) => ({ id, status: "pending_approval" })),
     approveMessage: vi.fn(async () => ({ message_id: "msg_x", status: "sent" })),
@@ -66,6 +78,8 @@ describe("e2a MCP server", () => {
         "list_agents",
         "whoami",
         "create_agent",
+        "update_agent",
+        "delete_agent",
         "list_pending_messages",
         "get_pending_message",
         "approve_pending_message",
@@ -125,7 +139,9 @@ describe("e2a MCP server", () => {
 
   it("whoami returns the env-scoped agent record", async () => {
     const res = await client.callTool({ name: "whoami", arguments: {} });
-    expect(stub.api.getAgent).toHaveBeenCalledWith("bot@example.com");
+    // High-level client.getAgent — used to be client.api.getAgent before
+    // we tidied the leftover raw-API call. Both paths hit the same row.
+    expect(stub.getAgent).toHaveBeenCalledWith("bot@example.com");
     const content = res.content as Array<{ type: string; text: string }>;
     expect(content[0]?.text).toContain("bot@example.com");
   });
@@ -166,6 +182,62 @@ describe("e2a MCP server", () => {
       name: "Cloud Bot",
       webhook_url: "https://example.com/hook",
     });
+  });
+
+  it("update_agent forwards body fields and uses env email by default", async () => {
+    await client.callTool({
+      name: "update_agent",
+      arguments: { hitl_enabled: true, hitl_ttl_seconds: 3600 },
+    });
+    expect(stub.updateAgent).toHaveBeenCalledWith(
+      { hitl_enabled: true, hitl_ttl_seconds: 3600 },
+      {}, // no agent_email override → falls back to env-scoped agentEmail in the SDK
+    );
+  });
+
+  it("update_agent threads explicit agent_email into opts.agentEmail", async () => {
+    await client.callTool({
+      name: "update_agent",
+      arguments: {
+        agent_email: "other@example.com",
+        agent_mode: "cloud",
+        webhook_url: "https://example.com/hook",
+      },
+    });
+    expect(stub.updateAgent).toHaveBeenCalledWith(
+      { agent_mode: "cloud", webhook_url: "https://example.com/hook" },
+      { agentEmail: "other@example.com" },
+    );
+  });
+
+  it("delete_agent requires confirm:true — server-side schema rejects when omitted", async () => {
+    // The Zod schema marks `confirm` as required-literal(true); the MCP
+    // server's validator surfaces that as an isError content before any
+    // runTool body runs, so deleteAgent must NOT have been called.
+    const res = await client.callTool({
+      name: "delete_agent",
+      arguments: { agent_email: "bot@example.com" },
+    });
+    expect(res.isError).toBe(true);
+    expect(stub.deleteAgent).not.toHaveBeenCalled();
+  });
+
+  it("delete_agent forwards on explicit confirm:true", async () => {
+    const res = await client.callTool({
+      name: "delete_agent",
+      arguments: { agent_email: "bot@example.com", confirm: true },
+    });
+    expect(stub.deleteAgent).toHaveBeenCalledWith("bot@example.com");
+    const content = res.content as Array<{ type: string; text: string }>;
+    expect(content[0]?.text).toMatch(/bot@example\.com/);
+  });
+
+  it("delete_agent uses env-scoped email when agent_email omitted", async () => {
+    await client.callTool({
+      name: "delete_agent",
+      arguments: { confirm: true },
+    });
+    expect(stub.deleteAgent).toHaveBeenCalledWith(undefined);
   });
 
   it("list_pending_messages calls the SDK", async () => {
