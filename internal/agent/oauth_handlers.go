@@ -1,0 +1,1195 @@
+package agent
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"net/url"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/Mnexa-AI/e2a/internal/oauth"
+	"github.com/jackc/pgx/v5"
+)
+
+// OAuthAuthorizationServerMetadata is the RFC 8414 response shape for
+// GET /.well-known/oauth-authorization-server. Field names use snake_case
+// per the RFC. Only fields the e2a server actually advertises are listed
+// — omitting an OPTIONAL field (e.g. introspection_endpoint, jwks_uri) is
+// itself a signal to clients that the feature isn't supported.
+type OAuthAuthorizationServerMetadata struct {
+	Issuer                                 string   `json:"issuer"`
+	AuthorizationEndpoint                  string   `json:"authorization_endpoint"`
+	TokenEndpoint                          string   `json:"token_endpoint"`
+	RegistrationEndpoint                   string   `json:"registration_endpoint"`
+	RevocationEndpoint                     string   `json:"revocation_endpoint"`
+	ResponseTypesSupported                 []string `json:"response_types_supported"`
+	GrantTypesSupported                    []string `json:"grant_types_supported"`
+	CodeChallengeMethodsSupported          []string `json:"code_challenge_methods_supported"`
+	TokenEndpointAuthMethodsSupported      []string `json:"token_endpoint_auth_methods_supported"`
+	RevocationEndpointAuthMethodsSupported []string `json:"revocation_endpoint_auth_methods_supported"`
+	ScopesSupported []string `json:"scopes_supported"`
+	// RFC 9207 §3 — clients use this to know they should expect an
+	// `iss` parameter on the authorization response (mix-up defense).
+	AuthorizationResponseIssParameterSupported bool `json:"authorization_response_iss_parameter_supported,omitempty"`
+}
+
+// handleOAuthDiscovery serves the RFC 8414 authorization-server metadata
+// document so MCP clients (and any other OAuth 2.1 client) can locate the
+// authorize/token/register/revoke endpoints from a single well-known URL.
+//
+// Unauthenticated by design — RFC 8414 §3 requires the document be
+// publicly retrievable. Cache for 1h: values are stable for the lifetime
+// of a deployment.
+//
+// 404 when OAuth isn't configured on this deployment (no oauthStore wired
+// in via SetOAuthStore) or when http.public_url isn't set, since the
+// metadata MUST contain absolute URLs and we'd rather hide the endpoint
+// than emit values derived from request headers (X-Forwarded-Host
+// spoofing → issuer confusion).
+func (a *API) handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
+	if a.oauthStore == nil || a.publicURL == "" {
+		http.NotFound(w, r)
+		return
+	}
+	base := strings.TrimRight(a.publicURL, "/")
+	meta := OAuthAuthorizationServerMetadata{
+		Issuer:                            base,
+		AuthorizationEndpoint:             base + "/api/oauth/authorize",
+		TokenEndpoint:                     base + "/api/oauth/token",
+		RegistrationEndpoint:              base + "/api/oauth/register",
+		RevocationEndpoint:                base + "/api/oauth/revoke",
+		ResponseTypesSupported:                     []string{"code"},
+		GrantTypesSupported:                        []string{"authorization_code", "refresh_token"},
+		CodeChallengeMethodsSupported:              []string{"S256"},
+		TokenEndpointAuthMethodsSupported:          []string{"none"},
+		RevocationEndpointAuthMethodsSupported:     []string{"none"},
+		ScopesSupported:                            []string{"e2a"},
+		AuthorizationResponseIssParameterSupported: true,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	writeJSON(w, meta)
+}
+
+// ───────────────────────── Dynamic Client Registration (RFC 7591) ─────────────────────────
+
+// OAuthRegisterRequest is the RFC 7591 §2 client metadata POSTed to
+// /api/oauth/register. We only accept the fields v0.3 supports —
+// unknown fields are tolerated (forward-compat with RFC 7591 extensions)
+// but ignored. Public clients only: token_endpoint_auth_method must be
+// "none" or omitted.
+type OAuthRegisterRequest struct {
+	ClientName              string   `json:"client_name"`
+	RedirectURIs            []string `json:"redirect_uris"`
+	GrantTypes              []string `json:"grant_types,omitempty"`
+	ResponseTypes           []string `json:"response_types,omitempty"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method,omitempty"`
+	Scope                   string   `json:"scope,omitempty"`
+}
+
+// OAuthRegisterResponse is the RFC 7591 §3.2.1 success response. Echoes
+// back the metadata the server actually stored (after defaults applied)
+// plus the assigned client_id and issuance timestamp. No client_secret
+// is returned — v0.3 supports public clients only.
+type OAuthRegisterResponse struct {
+	ClientID                string   `json:"client_id"`
+	ClientIDIssuedAt        int64    `json:"client_id_issued_at"`
+	ClientName              string   `json:"client_name"`
+	RedirectURIs            []string `json:"redirect_uris"`
+	GrantTypes              []string `json:"grant_types"`
+	ResponseTypes           []string `json:"response_types"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+	Scope                   string   `json:"scope"`
+}
+
+// OAuthError is the RFC 7591 §3.2.2 / RFC 6749 §5.2 error response.
+// Always use this shape for OAuth-endpoint errors (rather than plain
+// http.Error) so RFC-compliant clients can parse machine-readable
+// error codes instead of free-form strings.
+type OAuthError struct {
+	Error            string `json:"error"`
+	ErrorDescription string `json:"error_description,omitempty"`
+}
+
+// writeOAuthError sends the RFC-shaped JSON error with the given status.
+func writeOAuthError(w http.ResponseWriter, status int, code, desc string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	writeJSON(w, OAuthError{Error: code, ErrorDescription: desc})
+}
+
+// validateRedirectURI enforces our redirect_uri allow-list per RFC 8252
+// §7 (native apps) and the OAuth 2.1 draft (web). Allowed:
+//   - https://… (web apps, must have host)
+//   - http://localhost[:port]/… and http://127.0.0.1[:port]/… and
+//     http://[::1][:port]/… (loopback for desktop dev; OAuth 2.1 §10.3.3)
+//   - custom-scheme://… (native apps registering a private-use URI)
+//
+// Rejected:
+//   - http://anything-non-loopback (would expose codes in transit)
+//   - URIs with fragments (RFC 6749 §3.1.2)
+//   - URIs without scheme/authority for http(s)
+func validateRedirectURI(raw string) error {
+	if raw == "" {
+		return errors.New("redirect_uri cannot be empty")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return errors.New("redirect_uri is not a valid URI")
+	}
+	if u.Fragment != "" {
+		return errors.New("redirect_uri must not contain a fragment")
+	}
+	// Reject userinfo (e.g. "https://anything@evil.com/cb" parses as
+	// host=evil.com). The URI looks legitimate to a human reviewing
+	// client metadata but the authority is attacker-controlled. Exact-
+	// string match at consent saves us, but rejecting at registration
+	// keeps the stored set readable and the surface tight.
+	if u.User != nil {
+		return errors.New("redirect_uri must not contain userinfo")
+	}
+	switch u.Scheme {
+	case "":
+		return errors.New("redirect_uri must include a scheme")
+	case "https":
+		if u.Host == "" {
+			return errors.New("https redirect_uri must include a host")
+		}
+		return nil
+	case "http":
+		// Only loopback is allowed for http://.
+		host := u.Hostname()
+		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+			return nil
+		}
+		return errors.New("http redirect_uri must use a loopback host (localhost, 127.0.0.1, or ::1)")
+	default:
+		// Custom scheme (e.g. "myapp://callback"). Must have a non-empty
+		// scheme; that's all RFC 8252 §7.1 requires.
+		return nil
+	}
+}
+
+// dcrSourceIP returns the IP we'll bucket DCR rate-limits by. The
+// repo-wide clientIP() trusts X-Forwarded-For unconditionally, which is
+// safe enough for authed endpoints (the auth happens first) but is a
+// real bypass on the only unauthenticated persistent-write endpoint —
+// DCR. An attacker rotating XFF defeats the 10/IP/hr cap and fills
+// oauth_clients.
+//
+// Preference order:
+//  1. CF-Connecting-IP — set by Cloudflare at the edge and stripped
+//     from inbound requests, so it can't be spoofed by a client. Used
+//     in prod (orange-cloud is on).
+//  2. r.RemoteAddr — the direct peer. In prod this is Caddy's loopback
+//     address, so all real clients share one bucket; that's
+//     conservative-but-correct. In dev (direct connections) it's the
+//     real client IP.
+//
+// XFF is never consulted here. If we add other unauthenticated
+// persistent-write endpoints, they should use this helper too.
+func dcrSourceIP(r *http.Request) string {
+	if ip := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); ip != "" {
+		return ip
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		// RemoteAddr lacks the expected "host:port" shape (unix socket,
+		// future transport, malformed test setup). Fall back to the raw
+		// value rather than bucket all such requests under "" — which
+		// would let any single weird peer DoS the limiter for everyone.
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// handleOAuthRegister implements RFC 7591 Dynamic Client Registration.
+// Anonymous endpoint (RFC 7591 §2 — "open registration"). Per-IP rate
+// limited because anyone on the internet can hit it.
+//
+// 404 when OAuth isn't configured (parity with discovery).
+// 429 when the per-IP limit is exceeded.
+// 400 invalid_client_metadata for bad input (RFC 7591 §3.2.2).
+// 201 on success with the full registered metadata (RFC 7591 §3.2.1).
+func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
+	if a.oauthStore == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !a.dcrLimit.Allow(dcrSourceIP(r)) {
+		writeOAuthError(w, http.StatusTooManyRequests, "rate_limited", "too many registrations from this IP; try again later")
+		return
+	}
+
+	var req OAuthRegisterRequest
+	if err := readJSON(w, r, &req, maxRequestBytesSmall); err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "request body must be JSON")
+		return
+	}
+
+	if strings.TrimSpace(req.ClientName) == "" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "client_name is required")
+		return
+	}
+	if len(req.ClientName) > 200 {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "client_name must be 200 characters or fewer")
+		return
+	}
+	if len(req.RedirectURIs) == 0 {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_redirect_uri", "at least one redirect_uri is required")
+		return
+	}
+	if len(req.RedirectURIs) > 10 {
+		// Soft cap to keep one client from filling a row with hundreds
+		// of URIs. Real apps register 1-3.
+		writeOAuthError(w, http.StatusBadRequest, "invalid_redirect_uri", "too many redirect_uris (max 10)")
+		return
+	}
+	// Dedupe + validate. Duplicate URIs serve no functional purpose
+	// (exact-match lookup short-circuits on the first hit) and let a
+	// hostile DCR caller exhaust the soft cap with no real value.
+	seen := make(map[string]struct{}, len(req.RedirectURIs))
+	deduped := req.RedirectURIs[:0]
+	for _, raw := range req.RedirectURIs {
+		if err := validateRedirectURI(raw); err != nil {
+			writeOAuthError(w, http.StatusBadRequest, "invalid_redirect_uri", err.Error())
+			return
+		}
+		if _, ok := seen[raw]; ok {
+			continue
+		}
+		seen[raw] = struct{}{}
+		deduped = append(deduped, raw)
+	}
+	req.RedirectURIs = deduped
+
+	// Defaults. RFC 7591 §2 lets the server fill in unspecified
+	// metadata; we default to the only combination v0.3 supports.
+	if len(req.GrantTypes) == 0 {
+		req.GrantTypes = []string{"authorization_code", "refresh_token"}
+	}
+	if len(req.ResponseTypes) == 0 {
+		req.ResponseTypes = []string{"code"}
+	}
+	if req.TokenEndpointAuthMethod == "" {
+		req.TokenEndpointAuthMethod = "none"
+	}
+	if req.Scope == "" {
+		req.Scope = "e2a"
+	}
+
+	// Capability enforcement — reject anything outside what we actually
+	// implement, so a client gets a clear error at registration time
+	// rather than a confusing one at /token time.
+	for _, gt := range req.GrantTypes {
+		if gt != "authorization_code" && gt != "refresh_token" {
+			writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "unsupported grant_type: "+gt)
+			return
+		}
+	}
+	for _, rt := range req.ResponseTypes {
+		if rt != "code" {
+			writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "unsupported response_type: "+rt)
+			return
+		}
+	}
+	if req.TokenEndpointAuthMethod != "none" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata",
+			`only token_endpoint_auth_method="none" (public clients with PKCE) is supported in v0.3`)
+		return
+	}
+	if req.Scope != "e2a" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", `only scope="e2a" is supported`)
+		return
+	}
+
+	client := &oauth.Client{
+		ClientID:     oauth.NewClientID(),
+		ClientName:   req.ClientName,
+		RedirectURIs: req.RedirectURIs,
+		ClientType:   "public",
+		CreatedVia:   "dcr",
+	}
+	if err := a.oauthStore.RegisterClient(r.Context(), client); err != nil {
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to register client")
+		return
+	}
+	// Use the handler's wall clock for client_id_issued_at — RegisterClient
+	// doesn't read created_at back. The DB's DEFAULT now() will differ by
+	// at most milliseconds; this field is informational per RFC 7591 §3.2.1.
+	issuedAt := time.Now().Unix()
+
+	resp := OAuthRegisterResponse{
+		ClientID:                client.ClientID,
+		ClientIDIssuedAt:        issuedAt,
+		ClientName:              client.ClientName,
+		RedirectURIs:            client.RedirectURIs,
+		GrantTypes:              req.GrantTypes,
+		ResponseTypes:           req.ResponseTypes,
+		TokenEndpointAuthMethod: req.TokenEndpointAuthMethod,
+		Scope:                   req.Scope,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusCreated)
+	writeJSON(w, resp)
+}
+
+// ───────────────────────── Authorize + Consent (RFC 6749 §4.1) ─────────────────────────
+
+// oauthAuthorizeParams is the parsed + validated form of an
+// authorization request. The same struct is used for both GET /authorize
+// (params in query string) and the re-passed hidden form values in
+// POST /consent — re-parsing on POST defends against client_id / scope
+// tampering between the two requests.
+type oauthAuthorizeParams struct {
+	ResponseType        string
+	ClientID            string
+	RedirectURI         string
+	CodeChallenge       string
+	CodeChallengeMethod string
+	Scope               string
+	State               string
+}
+
+// pkceChallengePattern enforces the RFC 7636 §4.2 char set: unreserved
+// (ALPHA / DIGIT / "-" / "." / "_" / "~"). Length 43–128 since the
+// S256 method always produces a 43-char base64url-encoded SHA-256
+// digest, but RFC allows up to 128 to leave room for future methods.
+var pkceChallengePattern = regexp.MustCompile(`^[A-Za-z0-9._~-]{43,128}$`)
+
+// parseAuthorizeParams pulls the OAuth params from r.Form (which works
+// for both query strings on GET and form bodies on POST after
+// ParseForm). Returns *oauthAuthorizeParams + nil on success.
+func parseAuthorizeParams(values url.Values) *oauthAuthorizeParams {
+	return &oauthAuthorizeParams{
+		ResponseType:        strings.TrimSpace(values.Get("response_type")),
+		ClientID:            strings.TrimSpace(values.Get("client_id")),
+		RedirectURI:         strings.TrimSpace(values.Get("redirect_uri")),
+		CodeChallenge:       strings.TrimSpace(values.Get("code_challenge")),
+		CodeChallengeMethod: strings.TrimSpace(values.Get("code_challenge_method")),
+		Scope:               strings.TrimSpace(values.Get("scope")),
+		State:               values.Get("state"),
+	}
+}
+
+// validateAuthorizeParamsShape checks the params we can validate without
+// hitting the DB. Used before the redirect_uri is known to be safe.
+// Returns a descriptive error suitable for a 400 response — RFC 6749
+// §4.1.2.1 requires we *not* redirect to an unverified URI, so these
+// must surface as direct HTTP errors, not as redirect-with-error.
+func validateAuthorizeParamsShape(p *oauthAuthorizeParams) error {
+	if p.ClientID == "" {
+		return errors.New("client_id is required")
+	}
+	if p.RedirectURI == "" {
+		return errors.New("redirect_uri is required")
+	}
+	if err := validateRedirectURI(p.RedirectURI); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateAuthorizeParamsLogical checks params that, if invalid, are
+// safe to surface via redirect-with-error (because the redirect_uri
+// already verified-good). Per RFC 6749 §4.1.2.1.
+func validateAuthorizeParamsLogical(p *oauthAuthorizeParams) (errCode, errDesc string) {
+	if p.ResponseType != "code" {
+		return "unsupported_response_type", "response_type must be 'code'"
+	}
+	if p.CodeChallenge == "" {
+		return "invalid_request", "code_challenge is required (PKCE mandatory)"
+	}
+	if !pkceChallengePattern.MatchString(p.CodeChallenge) {
+		return "invalid_request", "code_challenge format invalid (must be unreserved-chars, length 43 to 128)"
+	}
+	// RFC 7636 §4.3 says an absent code_challenge_method defaults to
+	// "plain", and OAuth 2.1 §4.1.1 makes it REQUIRED when
+	// code_challenge is present. Discovery advertises S256 only, so
+	// reject anything but explicit "S256" — including absence.
+	if p.CodeChallengeMethod != "S256" {
+		return "invalid_request", "code_challenge_method must be S256"
+	}
+	// Scope: only "e2a" supported. Empty defaults to "e2a".
+	if p.Scope != "" && p.Scope != "e2a" {
+		return "invalid_scope", `only scope "e2a" is supported`
+	}
+	return "", ""
+}
+
+// redirectWithOAuthError 302s the user-agent back to redirect_uri with
+// an error code (and optional description) in the query, per RFC 6749
+// §4.1.2.1. Use this only when redirect_uri has been validated against
+// the registered client. errDesc is omitted from the URL when empty.
+// issuer (RFC 9207) is included unconditionally so mix-up-aware clients
+// can verify which AS produced the response — including error
+// responses, which §2.4 of RFC 9207 explicitly covers.
+func redirectWithOAuthError(w http.ResponseWriter, r *http.Request, redirectURI, errCode, errDesc, state, issuer string) {
+	u, err := url.Parse(redirectURI)
+	if err != nil {
+		// Should be unreachable — caller has already validated.
+		http.Error(w, "invalid redirect_uri", http.StatusBadRequest)
+		return
+	}
+	q := u.Query()
+	q.Set("error", errCode)
+	if errDesc != "" {
+		q.Set("error_description", errDesc)
+	}
+	if state != "" {
+		q.Set("state", state)
+	}
+	if issuer != "" {
+		q.Set("iss", issuer)
+	}
+	u.RawQuery = q.Encode()
+	http.Redirect(w, r, u.String(), http.StatusFound)
+}
+
+// redirectMatchesRegistered does an exact-string match per OAuth 2.1
+// guidance, with one carve-out: per RFC 8252 §7.3, loopback
+// redirect_uris (http on localhost / 127.0.0.1 / ::1) match
+// port-agnostically. Native MCP clients (Cursor, Cline, Claude Code's
+// local listener) get an OS-assigned ephemeral port at runtime, so
+// requiring the registered port to match exactly breaks them under
+// port contention.
+//
+// The carve-out is scoped: only http loopback URIs get the port-
+// ignored match. https and custom schemes still require byte-exact
+// match (they don't have the ephemeral-port problem and exact match
+// closes a class of attacks via attacker-controlled URI tails).
+func redirectMatchesRegistered(want string, registered []string) bool {
+	for _, r := range registered {
+		if r == want {
+			return true
+		}
+	}
+	wantU, err := url.Parse(want)
+	if err != nil || !isLoopbackHTTP(wantU) {
+		return false
+	}
+	for _, r := range registered {
+		regU, err := url.Parse(r)
+		if err != nil || !isLoopbackHTTP(regU) {
+			continue
+		}
+		// Hostname must match exactly — RFC 8252 §7.3 calls out
+		// "127.0.0.1" and "[::1]" specifically; "localhost" is
+		// SHOULD-NOT for the client per §8.3 but we accept all three
+		// and require them to round-trip. The match deliberately
+		// doesn't equate 127.0.0.1 with localhost.
+		if wantU.Scheme == regU.Scheme &&
+			wantU.Hostname() == regU.Hostname() &&
+			wantU.Path == regU.Path {
+			return true
+		}
+	}
+	return false
+}
+
+// issuer returns the canonical issuer URL for this deployment — the
+// same string the discovery doc advertises, the same value clients
+// should expect to see in the `iss` parameter of an authorization
+// response (RFC 9207) or a JWT `iss` claim if we ever add JWT access
+// tokens. Centralized so the TrimRight invariant is enforced once.
+func (a *API) issuer() string {
+	return strings.TrimRight(a.publicURL, "/")
+}
+
+func isLoopbackHTTP(u *url.URL) bool {
+	if u.Scheme != "http" {
+		return false
+	}
+	switch u.Hostname() {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	return false
+}
+
+// handleOAuthAuthorize is the authorization endpoint (RFC 6749 §4.1.1).
+//
+// Flow:
+//  1. Parse + shape-validate query params. If client_id / redirect_uri
+//     are bad → direct 400 (cannot safely redirect).
+//  2. Load client and verify redirect_uri is in its registered set.
+//     If not → direct 400.
+//  3. Logically validate remaining params. If any fails → redirect to
+//     the now-known-safe redirect_uri with error=… &state=… (§4.1.2.1).
+//  4. Check session cookie. If absent → 302 to /api/auth/login so the
+//     user signs in with Google. (Return-to-authorize after login lands
+//     in v0.3 PR B; for now the user re-launches the MCP flow.)
+//  5. If session present → 302 to {publicURL}/oauth/consent with the
+//     authorize params encoded as query string. The web app renders
+//     the consent UI and POSTs back to /api/oauth/consent.
+func (a *API) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
+	if a.oauthStore == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if a.publicURL == "" {
+		writeOAuthError(w, http.StatusServiceUnavailable, "server_error", "OAuth flow not configured: http.public_url is unset")
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "could not parse query string")
+		return
+	}
+	p := parseAuthorizeParams(r.Form)
+
+	if err := validateAuthorizeParamsShape(p); err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	client, err := a.oauthStore.GetClient(r.Context(), p.ClientID)
+	if err != nil {
+		// Per RFC: client_id mismatch is a direct error, not a redirect.
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "unknown client_id")
+		return
+	}
+	if !redirectMatchesRegistered(p.RedirectURI, client.RedirectURIs) {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "redirect_uri does not match any registered URI")
+		return
+	}
+
+	if errCode, errDesc := validateAuthorizeParamsLogical(p); errCode != "" {
+		redirectWithOAuthError(w, r, p.RedirectURI, errCode, errDesc, p.State, a.issuer())
+		return
+	}
+
+	// Session check. Without userAuth wired we can't authenticate the
+	// browser — fail closed.
+	if a.userAuth == nil {
+		writeOAuthError(w, http.StatusServiceUnavailable, "server_error", "user auth not configured on this deployment")
+		return
+	}
+	if user := a.userAuth.AuthenticateRequest(r); user == nil {
+		// Carry the full authorize request (path + query) through login
+		// so the user resumes consent after Google completes instead of
+		// dropping onto the dashboard. HandleLogin validates return_to
+		// against an /api/oauth/-only allow-list, so this is safe even
+		// with attacker-controlled query params.
+		returnTo := r.URL.RequestURI() // path + query, no host
+		loginURL := strings.TrimRight(a.publicURL, "/") + "/api/auth/login?return_to=" + url.QueryEscape(returnTo)
+		http.Redirect(w, r, loginURL, http.StatusFound)
+		return
+	}
+
+	// 302 to consent UI (web/), passing all params through. The consent
+	// page itself reads /api/auth/me + /api/dashboard/agents to populate
+	// the agent dropdown and pre-fill the suggested slug.
+	consentURL, _ := url.Parse(strings.TrimRight(a.publicURL, "/") + "/oauth/consent")
+	q := consentURL.Query()
+	q.Set("response_type", p.ResponseType)
+	q.Set("client_id", p.ClientID)
+	q.Set("redirect_uri", p.RedirectURI)
+	q.Set("code_challenge", p.CodeChallenge)
+	q.Set("code_challenge_method", "S256")
+	q.Set("scope", "e2a")
+	if p.State != "" {
+		q.Set("state", p.State)
+	}
+	consentURL.RawQuery = q.Encode()
+	http.Redirect(w, r, consentURL.String(), http.StatusFound)
+}
+
+// generateSlugSuffix returns a 6-hex-char nanoid-style suffix used to
+// disambiguate auto-generated agent slugs (e.g. "claude-code-a1b2c3").
+// 24 bits is plenty given the slug uniqueness constraint is per shared
+// domain and collisions only need to be statistically negligible during
+// a single retry window.
+func generateSlugSuffix() string {
+	b := make([]byte, 3)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("oauth: crypto/rand failed: %v", err))
+	}
+	return hex.EncodeToString(b)
+}
+
+// slugifyClientName lowercases and sanitizes a client name into a
+// slug-safe prefix. Falls back to "agent" when the name produces an
+// empty slug (all punctuation / non-ASCII).
+func slugifyClientName(name string) string {
+	var b strings.Builder
+	prevHyphen := false
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prevHyphen = false
+		default:
+			// Collapse any non-alnum into single hyphen; skip leading hyphens
+			if b.Len() > 0 && !prevHyphen {
+				b.WriteRune('-')
+				prevHyphen = true
+			}
+		}
+	}
+	out := strings.TrimRight(b.String(), "-")
+	if out == "" {
+		out = "agent"
+	}
+	// Cap the prefix so the final "{prefix}-{6hex}" stays under the
+	// 40-char slug limit (slug rule: 2–40 chars). 30 + 1 + 6 = 37.
+	if len(out) > 30 {
+		out = strings.TrimRight(out[:30], "-")
+	}
+	return out
+}
+
+// generateDefaultAgentSlug returns "{slug(client_name)}-{6hex}" — the
+// pre-populated default we'd suggest if the user clicks "Create new
+// inbox" without typing anything. Users can override entirely.
+func generateDefaultAgentSlug(clientName string) string {
+	return slugifyClientName(clientName) + "-" + generateSlugSuffix()
+}
+
+// handleOAuthConsent processes the consent form (RFC 6749 §4.1.2). The
+// form is POSTed by the web consent UI; we re-validate the OAuth params
+// (anti-tamper), check the user's session, then either redirect with
+// an authorization code (action=allow) or with error=access_denied
+// (action=deny).
+//
+// On allow + agent_choice=create_new the agent is created in the same
+// request so the issued code can already carry a valid agent_email —
+// downstream tool calls don't need to handle "code valid but agent
+// missing" as a separate case.
+func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
+	if a.oauthStore == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if a.userAuth == nil {
+		writeOAuthError(w, http.StatusServiceUnavailable, "server_error", "user auth not configured on this deployment")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "could not parse form body")
+		return
+	}
+	p := parseAuthorizeParams(r.Form)
+
+	// Shape + client_id + redirect_uri match. Same chain as /authorize
+	// — we don't trust the form was honestly re-passed.
+	if err := validateAuthorizeParamsShape(p); err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	client, err := a.oauthStore.GetClient(r.Context(), p.ClientID)
+	if err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "unknown client_id")
+		return
+	}
+	if !redirectMatchesRegistered(p.RedirectURI, client.RedirectURIs) {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "redirect_uri does not match any registered URI")
+		return
+	}
+	if errCode, errDesc := validateAuthorizeParamsLogical(p); errCode != "" {
+		redirectWithOAuthError(w, r, p.RedirectURI, errCode, errDesc, p.State, a.issuer())
+		return
+	}
+
+	user := a.userAuth.AuthenticateRequest(r)
+	if user == nil {
+		writeOAuthError(w, http.StatusUnauthorized, "access_denied", "session required: log in before consenting")
+		return
+	}
+
+	action := r.PostFormValue("action")
+	if action == "deny" {
+		redirectWithOAuthError(w, r, p.RedirectURI, "access_denied", "user denied consent", p.State, a.issuer())
+		return
+	}
+	if action != "allow" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "action must be 'allow' or 'deny'")
+		return
+	}
+
+	agentChoice := r.PostFormValue("agent_choice")
+	authCode := &oauth.AuthorizationCode{
+		Code:                oauth.NewAuthCode(),
+		ClientID:            p.ClientID,
+		UserID:              user.ID,
+		RedirectURI:         p.RedirectURI,
+		CodeChallenge:       p.CodeChallenge,
+		CodeChallengeMethod: "S256",
+		Scope:               "e2a",
+		ExpiresAt:           time.Now().Add(oauth.AuthCodeLifetime),
+	}
+
+	switch {
+	case strings.HasPrefix(agentChoice, "existing:"):
+		email := strings.TrimPrefix(agentChoice, "existing:")
+		agent, err := a.store.GetAgentByEmail(r.Context(), email)
+		if err != nil {
+			writeOAuthError(w, http.StatusBadRequest, "invalid_request", "chosen agent does not exist")
+			return
+		}
+		if agent.UserID != user.ID {
+			writeOAuthError(w, http.StatusForbidden, "access_denied", "you do not own that agent")
+			return
+		}
+		authCode.AgentEmail = email
+		// Single-statement path — IssueCode on its own pool conn is fine.
+		if err := a.oauthStore.IssueCode(r.Context(), authCode); err != nil {
+			writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue authorization code")
+			return
+		}
+
+	case agentChoice == "create_new":
+		if a.sharedDomain == "" {
+			writeOAuthError(w, http.StatusServiceUnavailable, "server_error", "shared-domain auto-create is not configured")
+			return
+		}
+		slug := strings.TrimSpace(r.PostFormValue("new_agent_slug"))
+		if slug == "" {
+			// Default — used when web/ submits with the placeholder
+			// unmodified. We re-resolve client.ClientName here (rather
+			// than trusting the form) so a tampered form can't poison
+			// the slug.
+			slug = generateDefaultAgentSlug(client.ClientName)
+		}
+		if err := validateSlug(slug); err != nil {
+			writeOAuthError(w, http.StatusBadRequest, "invalid_request", "invalid slug: "+err.Error())
+			return
+		}
+		authCode.AgentEmail = slug + "@" + a.sharedDomain
+
+		// Multi-statement path: agent creation + code insertion must
+		// commit together so a partial failure (IssueCode dies after
+		// CreateAgent commits) doesn't leave a phantom agent the user
+		// never authorized. Both stores share the same pool — we begin
+		// the tx on the oauth pool, pass it to both Tx-accepting
+		// variants, and only commit at the end.
+		tx, err := a.oauthStore.Pool().BeginTx(r.Context(), pgx.TxOptions{})
+		if err != nil {
+			writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to begin transaction")
+			return
+		}
+		// Rollback is a no-op after a successful commit — safe to defer
+		// unconditionally.
+		defer func() { _ = tx.Rollback(r.Context()) }()
+
+		if _, err := a.store.CreateAgentTx(r.Context(), tx, authCode.AgentEmail, a.sharedDomain, "", "", "local", user.ID); err != nil {
+			if strings.Contains(err.Error(), "duplicate") {
+				writeOAuthError(w, http.StatusConflict, "invalid_request", "that slug is already taken; pick another")
+				return
+			}
+			writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to create agent")
+			return
+		}
+		if err := a.oauthStore.IssueCodeTx(r.Context(), tx, authCode); err != nil {
+			writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue authorization code")
+			return
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to commit consent")
+			return
+		}
+
+	default:
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "agent_choice must be 'existing:<email>' or 'create_new'")
+		return
+	}
+
+	redirectURL, _ := url.Parse(p.RedirectURI)
+	q := redirectURL.Query()
+	q.Set("code", authCode.Code)
+	if p.State != "" {
+		q.Set("state", p.State)
+	}
+	// RFC 9207 §2: include the issuer in the authorization response so
+	// mix-up-aware clients can verify which AS minted the code.
+	q.Set("iss", a.issuer())
+	redirectURL.RawQuery = q.Encode()
+	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+}
+
+// ───────────────────────── Token endpoint (RFC 6749 §4.1.3, §6) ─────────────────────────
+
+// OAuthTokenResponse is the success body for /api/oauth/token. Field
+// names follow RFC 6749 §5.1 verbatim.
+type OAuthTokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"` // always "Bearer"
+	ExpiresIn    int    `json:"expires_in"` // seconds; access-token lifetime
+	RefreshToken string `json:"refresh_token,omitempty"`
+	Scope        string `json:"scope,omitempty"`
+}
+
+// pkceVerifierPattern enforces RFC 7636 §4.1 — same unreserved char set
+// as the challenge, length 43–128.
+var pkceVerifierPattern = regexp.MustCompile(`^[A-Za-z0-9._~-]{43,128}$`)
+
+// verifyPKCE_S256 confirms BASE64URL-NO-PAD(SHA256(verifier)) ==
+// challenge using a constant-time comparison so timing channels can't
+// be used to brute-force the challenge.
+func verifyPKCE_S256(verifier, challenge string) bool {
+	if !pkceVerifierPattern.MatchString(verifier) {
+		return false
+	}
+	h := sha256.Sum256([]byte(verifier))
+	computed := base64.RawURLEncoding.EncodeToString(h[:])
+	return subtle.ConstantTimeCompare([]byte(computed), []byte(challenge)) == 1
+}
+
+// writeTokenResponse emits the RFC 6749 §5.1 success body, including
+// the no-store cache directive required by §5.1 (so caches and dev
+// tools don't accidentally persist the access token).
+func writeTokenResponse(w http.ResponseWriter, t *oauth.Token) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	writeJSON(w, OAuthTokenResponse{
+		AccessToken:  t.AccessToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    int(oauth.AccessTokenLifetime / time.Second),
+		RefreshToken: t.RefreshToken,
+		Scope:        t.Scope,
+	})
+}
+
+// handleOAuthToken dispatches by grant_type. Both grant types are
+// public-client only (no client_secret); identity is bound via PKCE on
+// the auth_code grant and via possession of the refresh on the refresh
+// grant.
+//
+// Per RFC 6749 §3.2, the request MUST be application/x-www-form-urlencoded.
+func (a *API) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
+	if a.oauthStore == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "could not parse form body")
+		return
+	}
+	switch r.PostFormValue("grant_type") {
+	case "authorization_code":
+		a.handleTokenAuthCode(w, r)
+	case "refresh_token":
+		a.handleTokenRefresh(w, r)
+	case "":
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "grant_type is required")
+	default:
+		writeOAuthError(w, http.StatusBadRequest, "unsupported_grant_type",
+			"only authorization_code and refresh_token grants are supported")
+	}
+}
+
+// handleTokenAuthCode implements the authorization_code grant (RFC 6749 §4.1.3).
+// Order matters:
+//  1. Atomically consume the code. A replay (already-consumed) triggers
+//     RFC 6749 §10.5 defense — revoke all tokens for the same
+//     (client_id, user_id) pair and return invalid_grant.
+//  2. Bind: client_id and redirect_uri on the request must match the
+//     code's recorded values.
+//  3. PKCE: verify code_verifier ⇒ recomputed challenge matches.
+//  4. Issue tokens (access + refresh) with a fresh refresh_chain_id.
+func (a *API) handleTokenAuthCode(w http.ResponseWriter, r *http.Request) {
+	code := r.PostFormValue("code")
+	redirectURI := r.PostFormValue("redirect_uri")
+	clientID := r.PostFormValue("client_id")
+	codeVerifier := r.PostFormValue("code_verifier")
+
+	if code == "" || redirectURI == "" || clientID == "" || codeVerifier == "" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request",
+			"code, redirect_uri, client_id, and code_verifier are required")
+		return
+	}
+
+	authCode, state, err := a.oauthStore.AtomicConsumeCode(r.Context(), code)
+	if err != nil {
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "code consume failed")
+		return
+	}
+	switch state {
+	case oauth.ConsumeFresh:
+		// proceed
+	case oauth.ConsumeAlreadyConsumed:
+		// RFC 6749 §10.5 — revoke every token issued via this (client,
+		// user) pair. We have the row even though it was already
+		// consumed; use its client_id/user_id, not the request's, so a
+		// replayer can't redirect the revocation to a different account.
+		if authCode != nil {
+			n, revErr := a.oauthStore.RevokeAllByClientUser(r.Context(), authCode.ClientID, authCode.UserID)
+			if revErr != nil {
+				log.Printf("[oauth][SECURITY] auth-code reuse detected for client=%s user=%s — revocation FAILED: %v",
+					authCode.ClientID, authCode.UserID, revErr)
+			} else {
+				log.Printf("[oauth][SECURITY] auth-code reuse detected for client=%s user=%s — revoked %d token(s)",
+					authCode.ClientID, authCode.UserID, n)
+			}
+		}
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant",
+			"authorization code already used; associated tokens revoked")
+		return
+	case oauth.ConsumeExpired:
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "authorization code expired")
+		return
+	case oauth.ConsumeNotFound:
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "unknown authorization code")
+		return
+	}
+
+	if authCode.ClientID != clientID {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "client_id does not match the code")
+		return
+	}
+	if authCode.RedirectURI != redirectURI {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "redirect_uri does not match the code")
+		return
+	}
+	if !verifyPKCE_S256(codeVerifier, authCode.CodeChallenge) {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "code_verifier does not match code_challenge")
+		return
+	}
+
+	now := time.Now()
+	refreshExp := now.Add(oauth.RefreshTokenLifetime)
+	tok := &oauth.Token{
+		AccessToken:      oauth.NewAccessToken(),
+		RefreshToken:     oauth.NewRefreshToken(),
+		RefreshChainID:   oauth.NewChainID(),
+		ClientID:         authCode.ClientID,
+		UserID:           authCode.UserID,
+		AgentEmail:       authCode.AgentEmail,
+		Scope:            authCode.Scope,
+		ExpiresAt:        now.Add(oauth.AccessTokenLifetime),
+		RefreshExpiresAt: &refreshExp,
+	}
+	if err := a.oauthStore.IssueToken(r.Context(), tok); err != nil {
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue tokens")
+		return
+	}
+	writeTokenResponse(w, tok)
+}
+
+// handleTokenRefresh implements the refresh_token grant (RFC 6749 §6)
+// with rotation per OAuth 2.1 / §10.4 reuse defense.
+//
+// Behavior:
+//  1. Look up the refresh. If not found at all, return invalid_grant
+//     — we can't distinguish "never existed" from "already rotated";
+//     full chain-level reuse defense on rotated rows is tracked as a
+//     follow-up (would require schema work to keep rotated values
+//     indexed). Rotation still provides single-use defense.
+//  2. If found but revoked or refresh-expired: revoke the entire
+//     chain (§10.4) and return invalid_grant.
+//  3. If client_id mismatch: revoke chain and return invalid_grant
+//     — an unexpected client presenting this refresh is malicious.
+//  4. Atomically rotate: NULL the old refresh, INSERT the new row
+//     under the same chain_id.
+func (a *API) handleTokenRefresh(w http.ResponseWriter, r *http.Request) {
+	refreshToken := r.PostFormValue("refresh_token")
+	clientID := r.PostFormValue("client_id")
+	if refreshToken == "" || clientID == "" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request",
+			"refresh_token and client_id are required")
+		return
+	}
+
+	oldTok, err := a.oauthStore.LookupTokenByRefresh(r.Context(), refreshToken)
+	if err != nil {
+		// Either never existed, already rotated, or a DB error.
+		// ErrTokenNotFound is by far the common case: a rotated-and-
+		// replayed refresh hits this path because the column gets
+		// NULLed on rotation. We can't distinguish "stolen and
+		// replayed" from "never existed" without a separate
+		// rotated-history index (tracked follow-up). Until that lands,
+		// log every miss as a SECURITY event so ops can spot a pattern.
+		if errors.Is(err, oauth.ErrTokenNotFound) {
+			log.Printf("[oauth][SECURITY] refresh-grant lookup miss for client=%s — token never existed OR was rotated (possible replay)",
+				clientID)
+		}
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "refresh token invalid")
+		return
+	}
+
+	// client_id binding (§10.4). Treat mismatch as hostile and burn
+	// the chain — a different client presenting this refresh means
+	// either token confusion at the client or theft.
+	if oldTok.ClientID != clientID {
+		n, revErr := a.oauthStore.RevokeChainByID(r.Context(), oldTok.RefreshChainID)
+		log.Printf("[oauth][SECURITY] refresh client_id mismatch: token-owner=%s presenter=%s — chain=%s revoked %d row(s) err=%v",
+			oldTok.ClientID, clientID, oldTok.RefreshChainID, n, revErr)
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "client_id does not match the refresh token")
+		return
+	}
+
+	now := time.Now()
+	expired := oldTok.RefreshExpiresAt != nil && now.After(*oldTok.RefreshExpiresAt)
+	if oldTok.RevokedAt != nil || expired {
+		// Presenting a refresh that's revoked or past TTL is suspect.
+		// Revoke the chain so any sibling tokens are torn down too.
+		n, revErr := a.oauthStore.RevokeChainByID(r.Context(), oldTok.RefreshChainID)
+		log.Printf("[oauth][SECURITY] refresh on revoked/expired token: client=%s user=%s revoked=%v expired=%v — chain=%s revoked %d row(s) err=%v",
+			oldTok.ClientID, oldTok.UserID, oldTok.RevokedAt != nil, expired, oldTok.RefreshChainID, n, revErr)
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "refresh token revoked or expired")
+		return
+	}
+
+	refreshExp := now.Add(oauth.RefreshTokenLifetime)
+	newTok := &oauth.Token{
+		AccessToken:      oauth.NewAccessToken(),
+		RefreshToken:     oauth.NewRefreshToken(),
+		RefreshChainID:   oldTok.RefreshChainID, // inherit chain
+		ClientID:         oldTok.ClientID,
+		UserID:           oldTok.UserID,
+		AgentEmail:       oldTok.AgentEmail,
+		Scope:            oldTok.Scope,
+		ExpiresAt:        now.Add(oauth.AccessTokenLifetime),
+		RefreshExpiresAt: &refreshExp,
+	}
+	if err := a.oauthStore.RotateRefreshToken(r.Context(), refreshToken, newTok); err != nil {
+		// ErrTokenNotFound here is the rotation race: two refresh
+		// requests with the same token arrived simultaneously, both
+		// passed the earlier LookupTokenByRefresh, and now the loser
+		// finds the row already NULLed. That's an invalid_grant from
+		// the caller's POV — not a 500. Still log it: even legitimate
+		// races indicate buggy client code (clients should serialize
+		// their refresh attempts), and the same path catches actual
+		// replay attempts.
+		if errors.Is(err, oauth.ErrTokenNotFound) {
+			log.Printf("[oauth][SECURITY] refresh rotation race or replay for client=%s user=%s chain=%s",
+				oldTok.ClientID, oldTok.UserID, oldTok.RefreshChainID)
+			writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "refresh token was already consumed")
+			return
+		}
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to rotate refresh token")
+		return
+	}
+	writeTokenResponse(w, newTok)
+}
+
+// ───────────────────────── Revoke endpoint (RFC 7009) ─────────────────────────
+
+// lookupRevocableToken tries access-token then refresh-token lookups
+// (or refresh-first when the hint asks). Returns:
+//   - (token, isRefresh, nil) when found
+//   - (nil, false, nil)        when both lookups returned ErrTokenNotFound
+//   - (nil, false, err)        when a lookup returned anything else
+//     (e.g. DB connection error) — caller should 500 rather than silently
+//     pretending the token was unknown
+func (a *API) lookupRevocableToken(ctx context.Context, token, hint string) (*oauth.Token, bool, error) {
+	if hint == "refresh_token" {
+		t, err := a.oauthStore.LookupTokenByRefresh(ctx, token)
+		if err == nil {
+			return t, true, nil
+		}
+		if !errors.Is(err, oauth.ErrTokenNotFound) {
+			return nil, false, err
+		}
+		t, err = a.oauthStore.LookupTokenByAccess(ctx, token)
+		if err == nil {
+			return t, false, nil
+		}
+		if errors.Is(err, oauth.ErrTokenNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+
+	t, err := a.oauthStore.LookupTokenByAccess(ctx, token)
+	if err == nil {
+		return t, false, nil
+	}
+	if !errors.Is(err, oauth.ErrTokenNotFound) {
+		return nil, false, err
+	}
+	t, err = a.oauthStore.LookupTokenByRefresh(ctx, token)
+	if err == nil {
+		return t, true, nil
+	}
+	if errors.Is(err, oauth.ErrTokenNotFound) {
+		return nil, false, nil
+	}
+	return nil, false, err
+}
+
+// handleOAuthRevoke implements RFC 7009 §2. Public clients revoke their
+// own tokens by presenting client_id (no client_secret since they're
+// public).
+//
+// Per §2.2:
+//   - Successful revocation responds with 200 and empty body.
+//   - An invalid token (already revoked, never existed, etc.) ALSO
+//     responds 200 — the server "MUST NOT" leak which tokens are valid.
+//   - Bad inputs (missing token, missing client_id, client_id mismatch)
+//     return 400.
+//
+// Refresh-token revocation cascades to the whole refresh chain because
+// §2 says "the authorization server SHOULD also invalidate all access
+// tokens based on the same authorization grant." Our chain_id groups
+// exactly that set.
+func (a *API) handleOAuthRevoke(w http.ResponseWriter, r *http.Request) {
+	if a.oauthStore == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "could not parse form body")
+		return
+	}
+	token := strings.TrimSpace(r.PostFormValue("token"))
+	clientID := strings.TrimSpace(r.PostFormValue("client_id"))
+	hint := r.PostFormValue("token_type_hint") // optional
+
+	if token == "" || clientID == "" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "token and client_id are required")
+		return
+	}
+
+	// Try the lookup order suggested by the hint; fall back to the
+	// other type if the first returns ErrTokenNotFound. Hint is
+	// advisory per RFC 7009 §2.1 — we MUST handle the "wrong hint"
+	// case gracefully. Other errors (DB down, etc.) bubble up as 500
+	// so ops sees the real failure instead of a silent 200.
+	found, isRefresh, err := a.lookupRevocableToken(r.Context(), token, hint)
+	if err != nil {
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "token lookup failed")
+		return
+	}
+
+	// Not found — silently 200 (don't leak token existence). Some
+	// clients call revoke on logout regardless of validity; making them
+	// branch on the response would be unfriendly.
+	if found == nil {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Client binding. Mismatch is a real protocol error (the client
+	// shouldn't have this token), so 400 — but per §2.1 we use
+	// "invalid_client" since the client_id doesn't authenticate.
+	if found.ClientID != clientID {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client", "client_id does not match the token")
+		return
+	}
+
+	if isRefresh {
+		if _, err := a.oauthStore.RevokeChainByID(r.Context(), found.RefreshChainID); err != nil {
+			writeOAuthError(w, http.StatusInternalServerError, "server_error", "revocation failed")
+			return
+		}
+	} else {
+		if err := a.oauthStore.RevokeToken(r.Context(), found.AccessToken); err != nil {
+			writeOAuthError(w, http.StatusInternalServerError, "server_error", "revocation failed")
+			return
+		}
+	}
+	w.WriteHeader(http.StatusOK)
+}

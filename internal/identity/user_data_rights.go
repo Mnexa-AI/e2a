@@ -20,15 +20,32 @@ import (
 //     the user and is omitted on purpose.
 //   - User session tokens are transient and excluded.
 type UserExport struct {
-	GeneratedAt    time.Time            `json:"generated_at"`
-	SchemaVersion  string               `json:"schema_version"`
-	User           UserExportUser       `json:"user"`
-	Domains        []Domain             `json:"domains"`
-	Agents         []AgentIdentity      `json:"agents"`
-	APIKeys        []APIKeyExportEntry  `json:"api_keys"`
-	Messages       []Message            `json:"messages"`
-	UsageEvents    []UsageEventEntry    `json:"usage_events,omitempty"`
+	GeneratedAt      time.Time                  `json:"generated_at"`
+	SchemaVersion    string                     `json:"schema_version"`
+	User             UserExportUser             `json:"user"`
+	Domains          []Domain                   `json:"domains"`
+	Agents           []AgentIdentity            `json:"agents"`
+	APIKeys          []APIKeyExportEntry        `json:"api_keys"`
+	Messages         []Message                  `json:"messages"`
+	UsageEvents      []UsageEventEntry          `json:"usage_events,omitempty"`
+	OAuthConnections []OAuthConnectionEntry     `json:"oauth_connections"`
 } // @name UserExport
+
+// OAuthConnectionEntry is one row of oauth_tokens for the user, joined
+// with the client metadata that authorized it. Token hashes are NOT
+// exported — they're credential equivalents and aren't recoverable
+// from the column anyway. The export reflects "which apps you've
+// connected and when," which is the user's own data.
+type OAuthConnectionEntry struct {
+	ClientID         string     `json:"client_id"`
+	ClientName       string     `json:"client_name"`
+	Scope            string     `json:"scope"`
+	AgentEmail       string     `json:"agent_email,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	ExpiresAt        time.Time  `json:"expires_at"`
+	RefreshExpiresAt *time.Time `json:"refresh_expires_at,omitempty"`
+	RevokedAt        *time.Time `json:"revoked_at,omitempty"`
+} // @name OAuthConnectionEntry
 
 // UserExportUser mirrors User but omits the google_subject internal
 // identifier from the export payload.
@@ -113,20 +130,60 @@ func (s *Store) ExportUserData(ctx context.Context, userID string) (*UserExport,
 		return nil, fmt.Errorf("export: load usage events: %w", err)
 	}
 
+	// OAuth connections — the user's authorized MCP/web clients,
+	// joined with the client metadata. Token hashes are intentionally
+	// not included.
+	oauthConns, err := scanOAuthConnectionsForUser(ctx, tx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("export: load oauth connections: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("export: commit: %w", err)
 	}
 
 	return &UserExport{
-		GeneratedAt:   time.Now().UTC(),
-		SchemaVersion: "1",
-		User:          u,
-		Domains:       domains,
-		Agents:        agents,
-		APIKeys:       keys,
-		Messages:      messages,
-		UsageEvents:   events,
+		GeneratedAt:      time.Now().UTC(),
+		SchemaVersion:    "1",
+		User:             u,
+		Domains:          domains,
+		Agents:           agents,
+		APIKeys:          keys,
+		Messages:         messages,
+		UsageEvents:      events,
+		OAuthConnections: oauthConns,
 	}, nil
+}
+
+func scanOAuthConnectionsForUser(ctx context.Context, tx pgx.Tx, userID string) ([]OAuthConnectionEntry, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT t.client_id, COALESCE(c.client_name, ''), t.scope, t.agent_email,
+		       t.created_at, t.expires_at, t.refresh_expires_at, t.revoked_at
+		FROM oauth_tokens t
+		LEFT JOIN oauth_clients c ON c.client_id = t.client_id
+		WHERE t.user_id = $1
+		ORDER BY t.created_at
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []OAuthConnectionEntry{}
+	for rows.Next() {
+		var e OAuthConnectionEntry
+		var agentEmail *string
+		if err := rows.Scan(
+			&e.ClientID, &e.ClientName, &e.Scope, &agentEmail,
+			&e.CreatedAt, &e.ExpiresAt, &e.RefreshExpiresAt, &e.RevokedAt,
+		); err != nil {
+			return nil, err
+		}
+		if agentEmail != nil {
+			e.AgentEmail = *agentEmail
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 // DeleteUserDataResult breaks out per-table row counts for audit logs.

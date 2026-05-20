@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
 )
 
@@ -144,6 +146,85 @@ func TestExportUserData(t *testing.T) {
 	}
 	if dump.GeneratedAt.IsZero() {
 		t.Error("export is missing generated_at")
+	}
+}
+
+// TestExportUserData_OAuthConnections covers the P1 finding: the user's
+// authorized MCP/web clients must appear in the right-of-access export.
+// Token hashes must NOT be exported (credential equivalents) — the
+// metadata-only payload is what GDPR Art. 15 covers.
+func TestExportUserData_OAuthConnections(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	oauthStore := oauth.NewStore(pool)
+	ctx := context.Background()
+
+	user := seedUserData(t, store, ctx, "oauth-exporter")
+
+	// Seed a registered client + an active token for the user.
+	client := &oauth.Client{
+		ClientID:     oauth.NewClientID(),
+		ClientName:   "Test MCP Client",
+		RedirectURIs: []string{"https://client.example.com/cb"},
+		ClientType:   "public",
+		CreatedVia:   "dcr",
+	}
+	if err := oauthStore.RegisterClient(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	refreshExp := now.Add(oauth.RefreshTokenLifetime)
+	tok := &oauth.Token{
+		AccessToken:      oauth.NewAccessToken(),
+		RefreshToken:     oauth.NewRefreshToken(),
+		RefreshChainID:   oauth.NewChainID(),
+		ClientID:         client.ClientID,
+		UserID:           user.ID,
+		AgentEmail:       "exporter-bot@agents.e2a.dev",
+		Scope:            "e2a",
+		ExpiresAt:        now.Add(oauth.AccessTokenLifetime),
+		RefreshExpiresAt: &refreshExp,
+	}
+	if err := oauthStore.IssueToken(ctx, tok); err != nil {
+		t.Fatal(err)
+	}
+
+	dump, err := store.ExportUserData(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dump.OAuthConnections) != 1 {
+		t.Fatalf("oauth_connections: want 1, got %d", len(dump.OAuthConnections))
+	}
+	got := dump.OAuthConnections[0]
+	if got.ClientID != client.ClientID {
+		t.Errorf("ClientID: want %q, got %q", client.ClientID, got.ClientID)
+	}
+	if got.ClientName != "Test MCP Client" {
+		t.Errorf("ClientName: want %q, got %q", "Test MCP Client", got.ClientName)
+	}
+	if got.AgentEmail != "exporter-bot@agents.e2a.dev" {
+		t.Errorf("AgentEmail: want %q, got %q", "exporter-bot@agents.e2a.dev", got.AgentEmail)
+	}
+	if got.Scope != "e2a" {
+		t.Errorf("Scope: want %q, got %q", "e2a", got.Scope)
+	}
+
+	// Token hashes are credential equivalents and MUST NOT appear in
+	// the export. The JSON shape doesn't have token fields, but a
+	// regression that exposed them would surface here.
+	raw, err := json.Marshal(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), tok.AccessToken) {
+		t.Error("export leaks access_token plaintext")
+	}
+	if strings.Contains(string(raw), tok.RefreshToken) {
+		t.Error("export leaks refresh_token plaintext")
+	}
+	if strings.Contains(string(raw), oauth.HashToken(tok.AccessToken)) {
+		t.Error("export leaks access_token_hash — credential-equivalent for offline preimage attacks against the table")
 	}
 }
 

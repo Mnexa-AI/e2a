@@ -19,6 +19,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/hitlnotify"
 	"github.com/Mnexa-AI/e2a/internal/hitlworker"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/relay"
 	"github.com/Mnexa-AI/e2a/internal/usage"
@@ -149,6 +150,12 @@ func main() {
 	// HTTP API
 	router := mux.NewRouter()
 	api := agent.NewAPI(store, sender, smtpRelay, userAuth, usageTracker, cfg.SMTP.Domain, cfg.OutboundSMTP.FromDomain, cfg.SharedDomain, cfg.HTTP.PublicURL, cfg.IsProduction())
+	// OAuth storage for ate2a_-prefixed bearer tokens. Endpoints land
+	// in v0.3 PR B; this enables the *validation* path so OAuth tokens
+	// inserted directly into the DB (or via future endpoints) can
+	// authenticate against /api/v1/*.
+	oauthStore := oauth.NewStore(pool)
+	api.SetOAuthStore(oauthStore)
 	// HITL magic-link token signer reuses the shared HMAC secret so operators
 	// don't have to configure a second key.
 	approvalSigner := approvaltoken.NewSigner(cfg.Signing.HMACSecret)
@@ -236,6 +243,17 @@ func main() {
 				log.Printf("Failed to clean up expired webhook deliveries: %v", err)
 			} else if deleted > 0 {
 				log.Printf("Cleaned up %d expired webhook delivery record(s)", deleted)
+			}
+
+			// OAuth retention: drop auth codes older than 7d (60s
+			// useful life, kept briefly for replay-detection logs)
+			// and revoked/rotated tokens older than 30d. Rows still
+			// carry user_id + agent_email (PII) — minimizing past
+			// usefulness.
+			if res, err := oauthStore.DeleteExpired(context.Background()); err != nil {
+				log.Printf("Failed to clean up expired oauth rows: %v", err)
+			} else if res.Codes > 0 || res.Tokens > 0 {
+				log.Printf("Cleaned up %d expired oauth code(s), %d token(s)", res.Codes, res.Tokens)
 			}
 		}
 	}()
