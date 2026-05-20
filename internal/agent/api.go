@@ -140,6 +140,7 @@ type API struct {
 	regLimit       *ratelimit.Limiter
 	pollLimit      *ratelimit.Limiter
 	feedbackLimit  *ratelimit.Limiter
+	dcrLimit       *ratelimit.Limiter // OAuth Dynamic Client Registration — anonymous endpoint, per-IP
 	approvalSigner *approvaltoken.Signer  // optional; if nil, magic-link endpoints return 404
 	notifier       *hitlnotify.Notifier   // optional; if nil, holdForApproval doesn't send notification email
 	oauthProvider  fosite.OAuth2Provider  // optional; if nil, /api/oauth/* endpoints return 404
@@ -188,6 +189,7 @@ func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.
 		regLimit:      ratelimit.New(1*time.Hour, 20),   // 20 registrations per IP per hour
 		pollLimit:     ratelimit.New(1*time.Minute, 60), // 60 poll requests per user per minute
 		feedbackLimit: ratelimit.New(1*time.Hour, 10),   // 10 feedback submissions per IP per hour
+		dcrLimit:      ratelimit.New(1*time.Hour, 10),   // 10 OAuth client registrations per IP per hour
 	}
 }
 
@@ -249,10 +251,13 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 
 	// OAuth 2.1 / RFC 6749 endpoints. Handlers 404 when
 	// SetOAuthProvider wasn't called, so registering unconditionally
-	// is safe. Revoke + DCR + discovery land in later slices.
+	// is safe.
 	r.HandleFunc("/api/oauth/authorize", a.handleOAuthAuthorize).Methods("GET")
 	r.HandleFunc("/api/oauth/consent", a.handleOAuthConsent).Methods("POST")
 	r.HandleFunc("/api/oauth/token", a.handleOAuthToken).Methods("POST")
+	r.HandleFunc("/api/oauth/revoke", a.handleOAuthRevoke).Methods("POST")
+	r.HandleFunc("/api/oauth/register", a.handleOAuthRegister).Methods("POST")
+	r.HandleFunc("/.well-known/oauth-authorization-server", a.handleOAuthDiscovery).Methods("GET")
 
 	// User auth (Google OAuth for agent developers)
 	if a.userAuth != nil {

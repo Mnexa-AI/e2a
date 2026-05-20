@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/jackc/pgx/v5"
@@ -58,6 +60,365 @@ func (a *API) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.oauthProvider.WriteAccessResponse(ctx, w, accessReq, accessResp)
+}
+
+// ───────────────────────── DCR (RFC 7591) ─────────────────────────
+
+// OAuthRegisterRequest is the RFC 7591 §2 client metadata POSTed to
+// /api/oauth/register. Unknown fields are tolerated (forward-compat
+// with RFC 7591 extensions) but ignored.
+type OAuthRegisterRequest struct {
+	ClientName              string   `json:"client_name"`
+	RedirectURIs            []string `json:"redirect_uris"`
+	GrantTypes              []string `json:"grant_types,omitempty"`
+	ResponseTypes           []string `json:"response_types,omitempty"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method,omitempty"`
+	Scope                   string   `json:"scope,omitempty"`
+}
+
+// OAuthRegisterResponse is the RFC 7591 §3.2.1 success envelope.
+// Echoes the metadata the server stored (after defaults applied) plus
+// the assigned client_id and issuance timestamp. No client_secret —
+// public clients only.
+type OAuthRegisterResponse struct {
+	ClientID                string   `json:"client_id"`
+	ClientIDIssuedAt        int64    `json:"client_id_issued_at"`
+	ClientName              string   `json:"client_name"`
+	RedirectURIs            []string `json:"redirect_uris"`
+	GrantTypes              []string `json:"grant_types"`
+	ResponseTypes           []string `json:"response_types"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+	Scope                   string   `json:"scope"`
+}
+
+// OAuthError is the RFC 7591 §3.2.2 / RFC 6749 §5.2 JSON error body.
+// Used for DCR-side errors and direct (non-redirected) authorize errors.
+type OAuthError struct {
+	Error            string `json:"error"`
+	ErrorDescription string `json:"error_description,omitempty"`
+}
+
+func writeOAuthError(w http.ResponseWriter, status int, code, desc string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(OAuthError{Error: code, ErrorDescription: desc})
+}
+
+// dcrSourceIP returns the per-IP key for DCR rate-limiting. DCR is
+// the only anonymous persistent-write endpoint; we can't trust
+// X-Forwarded-For because an attacker can rotate it to bypass the
+// limit. CF-Connecting-IP is set by Cloudflare and stripped from
+// inbound requests at the edge, so it's spoofable only by someone
+// who can reach the origin directly — operators should firewall
+// the origin to CF anyway.
+//
+// Falls back to RemoteAddr if CF-Connecting-IP is empty (dev /
+// non-CF deployments). Doesn't fall back to XFF.
+func dcrSourceIP(r *http.Request) string {
+	if ip := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); ip != "" {
+		return ip
+	}
+	host := r.RemoteAddr
+	if i := strings.LastIndex(host, ":"); i > 0 {
+		host = host[:i]
+	}
+	return host
+}
+
+// validateRedirectURI enforces e2a's redirect_uri allow-list, mirroring
+// the rules fosite applies at /authorize time so DCR rejects invalid
+// URIs at registration rather than at first-use.
+//
+// Allowed:
+//   - https://… (web apps; must have host)
+//   - http://localhost[:port]/…, http://127.0.0.1[:port]/…,
+//     http://[::1][:port]/… (loopback for desktop dev; RFC 8252 §7.3
+//     also allows ANY port at request-time, but at registration we
+//     just need a representative entry)
+//   - custom-scheme://… (native apps registering a private-use URI)
+//
+// Rejected:
+//   - http:// to anything non-loopback (codes would leak in transit)
+//   - URIs with fragments (RFC 6749 §3.1.2)
+//   - URIs with userinfo (https://anyone@evil.com/cb — looks legit
+//     to a human but the authority is attacker-controlled)
+//   - URIs missing scheme/authority for http(s)
+func validateRedirectURI(raw string) error {
+	if raw == "" {
+		return errors.New("redirect_uri cannot be empty")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return errors.New("redirect_uri is not a valid URI")
+	}
+	if u.Fragment != "" {
+		return errors.New("redirect_uri must not contain a fragment")
+	}
+	if u.User != nil {
+		return errors.New("redirect_uri must not contain userinfo")
+	}
+	switch u.Scheme {
+	case "":
+		return errors.New("redirect_uri must include a scheme")
+	case "https":
+		if u.Host == "" {
+			return errors.New("https redirect_uri must include a host")
+		}
+		return nil
+	case "http":
+		host := u.Hostname()
+		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+			return nil
+		}
+		return errors.New("http redirect_uri must use a loopback host (localhost, 127.0.0.1, or ::1)")
+	default:
+		return nil // custom scheme — RFC 8252 §7.1 accepts any non-empty scheme
+	}
+}
+
+// handleOAuthRegister is the RFC 7591 Dynamic Client Registration
+// endpoint. Anonymous ("open" registration per §2); rate-limited per
+// real IP via dcrSourceIP so an attacker can't fill oauth_clients.
+//
+// Public clients only (token_endpoint_auth_method must be "none" or
+// omitted). The schema's CHECK constraint enforces this at the DB
+// level as a second line of defense.
+//
+// 404 when OAuth isn't configured. 429 when over the per-IP cap.
+// 400 invalid_client_metadata / invalid_redirect_uri for bad input.
+// 201 on success with the full registered metadata.
+func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
+	if a.oauthStorage == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !a.dcrLimit.Allow(dcrSourceIP(r)) {
+		writeOAuthError(w, http.StatusTooManyRequests, "rate_limited",
+			"too many registrations from this IP; try again later")
+		return
+	}
+
+	var req OAuthRegisterRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&req); err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "request body must be JSON")
+		return
+	}
+
+	// client_name: required, length-bound.
+	if strings.TrimSpace(req.ClientName) == "" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "client_name is required")
+		return
+	}
+	if len(req.ClientName) > 200 {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata",
+			"client_name must be 200 characters or fewer")
+		return
+	}
+
+	// redirect_uris: required, ≤10, each one a valid loopback/https/
+	// custom URI, deduped to prevent a hostile DCR caller from
+	// padding the soft cap with identical URLs.
+	if len(req.RedirectURIs) == 0 {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_redirect_uri",
+			"at least one redirect_uri is required")
+		return
+	}
+	if len(req.RedirectURIs) > 10 {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_redirect_uri",
+			"too many redirect_uris (max 10)")
+		return
+	}
+	seen := make(map[string]struct{}, len(req.RedirectURIs))
+	deduped := req.RedirectURIs[:0]
+	for _, raw := range req.RedirectURIs {
+		if err := validateRedirectURI(raw); err != nil {
+			writeOAuthError(w, http.StatusBadRequest, "invalid_redirect_uri", err.Error())
+			return
+		}
+		if _, ok := seen[raw]; ok {
+			continue
+		}
+		seen[raw] = struct{}{}
+		deduped = append(deduped, raw)
+	}
+	req.RedirectURIs = deduped
+
+	// Defaults — fill in unspecified fields per RFC 7591 §2.
+	if len(req.GrantTypes) == 0 {
+		req.GrantTypes = []string{"authorization_code", "refresh_token"}
+	}
+	if len(req.ResponseTypes) == 0 {
+		req.ResponseTypes = []string{"code"}
+	}
+	if req.TokenEndpointAuthMethod == "" {
+		req.TokenEndpointAuthMethod = "none"
+	}
+	if req.Scope == "" {
+		req.Scope = "mcp"
+	}
+
+	// Capability enforcement — reject anything outside what we
+	// support. Failing here gives a clear error at registration time
+	// instead of a confusing one at /token.
+	for _, gt := range req.GrantTypes {
+		if gt != "authorization_code" && gt != "refresh_token" {
+			writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata",
+				"unsupported grant_type: "+gt)
+			return
+		}
+	}
+	for _, rt := range req.ResponseTypes {
+		if rt != "code" {
+			writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata",
+				"unsupported response_type: "+rt)
+			return
+		}
+	}
+	if req.TokenEndpointAuthMethod != "none" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata",
+			`only token_endpoint_auth_method="none" (public clients with PKCE) is supported`)
+		return
+	}
+	if req.Scope != "mcp" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata",
+			`only scope="mcp" is supported`)
+		return
+	}
+
+	// Generate the client_id and persist. The DB CHECK constraints
+	// validate (public, auth_method) and (public, secret_hash)
+	// alignment as the second line of defense — if a future code
+	// path tried to insert a confidential client without a secret,
+	// the INSERT would fail at the DB level rather than persist
+	// garbage.
+	clientID := generateClientID()
+	if _, err := a.oauthStorage.Pool().Exec(r.Context(), `
+		INSERT INTO oauth_clients
+		    (client_id, client_name, redirect_uris, grant_types,
+		     response_types, scopes, audiences, token_endpoint_auth_method,
+		     public, created_via)
+		VALUES ($1, $2, $3, $4, $5, $6, ARRAY[]::TEXT[], $7, TRUE, 'dcr')
+	`, clientID, req.ClientName, req.RedirectURIs, req.GrantTypes,
+		req.ResponseTypes, []string{req.Scope}, req.TokenEndpointAuthMethod); err != nil {
+		log.Printf("[oauth] DCR insert failed: %v", err)
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to register client")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(OAuthRegisterResponse{
+		ClientID:                clientID,
+		ClientIDIssuedAt:        timeNow().Unix(),
+		ClientName:              req.ClientName,
+		RedirectURIs:            req.RedirectURIs,
+		GrantTypes:              req.GrantTypes,
+		ResponseTypes:           req.ResponseTypes,
+		TokenEndpointAuthMethod: req.TokenEndpointAuthMethod,
+		Scope:                   req.Scope,
+	})
+}
+
+// generateClientID returns a fresh mcp_-prefixed client_id. 12 hex chars
+// (6 bytes / 48 bits) is enough entropy to make accidental collision
+// negligible; client_ids are identifiers, not secrets.
+func generateClientID() string {
+	b := make([]byte, 6)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("oauth: crypto/rand failed: %v", err))
+	}
+	return oauth.ClientIDPrefix + hex.EncodeToString(b)
+}
+
+// timeNow is a seam for tests. Returns wall-clock by default.
+var timeNow = func() time.Time { return time.Now() }
+
+// OAuthMetadata is the RFC 8414 authorization-server metadata document
+// served at /.well-known/oauth-authorization-server. Field names use
+// snake_case per §2 of the RFC. Only the fields e2a actually advertises
+// are present — omitting an OPTIONAL field (introspection_endpoint,
+// jwks_uri, …) signals to clients that the feature isn't supported.
+type OAuthMetadata struct {
+	Issuer                                 string   `json:"issuer"`
+	AuthorizationEndpoint                  string   `json:"authorization_endpoint"`
+	TokenEndpoint                          string   `json:"token_endpoint"`
+	RegistrationEndpoint                   string   `json:"registration_endpoint"`
+	RevocationEndpoint                     string   `json:"revocation_endpoint"`
+	ResponseTypesSupported                 []string `json:"response_types_supported"`
+	GrantTypesSupported                    []string `json:"grant_types_supported"`
+	CodeChallengeMethodsSupported          []string `json:"code_challenge_methods_supported"`
+	TokenEndpointAuthMethodsSupported      []string `json:"token_endpoint_auth_methods_supported"`
+	RevocationEndpointAuthMethodsSupported []string `json:"revocation_endpoint_auth_methods_supported"`
+	ScopesSupported                        []string `json:"scopes_supported"`
+	// RFC 9207 §3 — advertises that authorize responses carry `iss`
+	// (we emit it manually in writeAuthorizeRedirect since fosite
+	// v0.49 doesn't ship native RFC 9207 support).
+	AuthorizationResponseIssParameterSupported bool `json:"authorization_response_iss_parameter_supported,omitempty"`
+}
+
+// handleOAuthDiscovery serves the RFC 8414 metadata document.
+//
+// Unauthenticated by design — RFC 8414 §3 requires the document be
+// publicly retrievable. Cache for 1h: values are deployment-static.
+//
+// 404 when publicURL is empty: the metadata MUST contain absolute URLs
+// (RFC 8414 §2) and we'd rather hide the endpoint than emit values
+// derived from request headers (X-Forwarded-Host spoofing → issuer
+// confusion). 404 when OAuth isn't configured (provider not wired) so
+// the announcement matches actual behavior.
+func (a *API) handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
+	if a.oauthProvider == nil || a.publicURL == "" {
+		http.NotFound(w, r)
+		return
+	}
+	base := strings.TrimRight(a.publicURL, "/")
+	meta := OAuthMetadata{
+		Issuer:                                 base,
+		AuthorizationEndpoint:                  base + "/api/oauth/authorize",
+		TokenEndpoint:                          base + "/api/oauth/token",
+		RegistrationEndpoint:                   base + "/api/oauth/register",
+		RevocationEndpoint:                     base + "/api/oauth/revoke",
+		ResponseTypesSupported:                 []string{"code"},
+		GrantTypesSupported:                    []string{"authorization_code", "refresh_token"},
+		CodeChallengeMethodsSupported:          []string{"S256"},
+		TokenEndpointAuthMethodsSupported:      []string{"none"},
+		RevocationEndpointAuthMethodsSupported: []string{"none"},
+		ScopesSupported:                        []string{"mcp"},
+		AuthorizationResponseIssParameterSupported: true,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_ = json.NewEncoder(w).Encode(meta)
+}
+
+// handleOAuthRevoke is the /api/oauth/revoke endpoint (RFC 7009).
+// Thin shim over fosite's NewRevocationRequest → WriteRevocationResponse:
+//
+//   - parses + validates the token + token_type_hint per RFC 7009 §2.1
+//   - dispatches by hint (or both if absent) to the right storage layer
+//   - on access-token revoke: marks the row revoked
+//   - on refresh-token revoke: cascades to the whole request_id family
+//     (every access token issued from the same grant)
+//   - on unknown token: 200 silently (RFC 7009 §2.2 — don't reveal
+//     whether tokens exist)
+//
+// 404s when SetOAuthProvider wasn't called. Otherwise fosite writes
+// the RFC 7009 §2.2-shaped response itself (200 OK with no body on
+// success, or §5.2 JSON error on parse/auth failure).
+func (a *API) handleOAuthRevoke(w http.ResponseWriter, r *http.Request) {
+	if a.oauthProvider == nil {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	err := a.oauthProvider.NewRevocationRequest(ctx, r)
+	// WriteRevocationResponse handles both the success (200, no body)
+	// and the failure (JSON error envelope) paths. Per RFC 7009 §2.2
+	// it treats "token not found" the same as success — fosite
+	// already does that internally.
+	a.oauthProvider.WriteRevocationResponse(ctx, w, err)
 }
 
 // logTokenError emits a structured line for a failed /token exchange.

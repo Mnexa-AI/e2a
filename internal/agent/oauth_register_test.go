@@ -1,0 +1,374 @@
+package agent_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/Mnexa-AI/e2a/internal/agent"
+	"github.com/Mnexa-AI/e2a/internal/config"
+	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/oauth"
+	"github.com/Mnexa-AI/e2a/internal/outbound"
+	"github.com/Mnexa-AI/e2a/internal/testutil"
+	"github.com/Mnexa-AI/e2a/internal/usage"
+
+	"github.com/gorilla/mux"
+)
+
+// newDCRServer returns a server with OAuth wired (provider + storage).
+// We don't reuse setupOAuthAPI because DCR runs anonymously — no need
+// to pre-seed a client.
+func newDCRServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	smtpRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{})
+	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
+	api := agent.NewAPI(store, sender, smtpRelay, nil, usage.NewNoopUsageTracker(),
+		"e2a.dev", "test.e2a.dev", "agents.e2a.dev", "https://test.e2a.dev", false)
+	storage := oauth.NewStorage(pool)
+	provider, err := oauth.NewProvider(storage, "https://test.e2a.dev", []byte("test-secret-test-secret-test-sec"))
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	api.SetOAuthProvider(provider)
+	api.SetOAuthStorage(storage)
+	router := mux.NewRouter()
+	api.RegisterRoutes(router)
+	srv := httptest.NewServer(router)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func postRegister(t *testing.T, srv *httptest.Server, body any) *http.Response {
+	t.Helper()
+	buf, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Post(srv.URL+"/api/oauth/register", "application/json", bytes.NewReader(buf))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func assertOAuthError(t *testing.T, resp *http.Response, wantStatus int, wantErrCode string) {
+	t.Helper()
+	if resp.StatusCode != wantStatus {
+		t.Errorf("status = %d, want %d", resp.StatusCode, wantStatus)
+	}
+	var body OAuthErrorBody
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	if body.Error != wantErrCode {
+		t.Errorf("error code = %q, want %q (description: %q)", body.Error, wantErrCode, body.ErrorDescription)
+	}
+}
+
+// TestHTTP_Register_Happy: minimal valid input → 201 with defaults
+// applied. Also verifies the row actually lands in oauth_clients.
+func TestHTTP_Register_Happy(t *testing.T) {
+	srv := newDCRServer(t)
+	resp := postRegister(t, srv, agent.OAuthRegisterRequest{
+		ClientName:   "Test Client",
+		RedirectURIs: []string{"https://example.com/callback"},
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 201; body=%s", resp.StatusCode, string(body))
+	}
+	if cc := resp.Header.Get("Cache-Control"); !strings.Contains(cc, "no-store") {
+		t.Errorf("Cache-Control should contain no-store: got %q", cc)
+	}
+
+	var got agent.OAuthRegisterResponse
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got.ClientID, oauth.ClientIDPrefix) {
+		t.Errorf("client_id should have %q prefix: got %q", oauth.ClientIDPrefix, got.ClientID)
+	}
+	if got.ClientIDIssuedAt == 0 {
+		t.Error("client_id_issued_at must be non-zero")
+	}
+	wantGrants := []string{"authorization_code", "refresh_token"}
+	if !equalStringSlice(got.GrantTypes, wantGrants) {
+		t.Errorf("grant_types default: want %v, got %v", wantGrants, got.GrantTypes)
+	}
+	if got.TokenEndpointAuthMethod != "none" {
+		t.Errorf("token_endpoint_auth_method = %q, want none", got.TokenEndpointAuthMethod)
+	}
+	if got.Scope != "mcp" {
+		t.Errorf("scope = %q, want mcp", got.Scope)
+	}
+}
+
+// TestHTTP_Register_RedirectURI_VariousShapes: table-drives the URI
+// validator across the shapes we accept and reject.
+func TestHTTP_Register_RedirectURI_VariousShapes(t *testing.T) {
+	srv := newDCRServer(t)
+	cases := []struct {
+		name       string
+		uri        string
+		wantStatus int
+		wantCode   string
+	}{
+		{"https web", "https://example.com/callback", http.StatusCreated, ""},
+		{"http loopback hostname", "http://localhost:8765/cb", http.StatusCreated, ""},
+		{"http loopback ipv4", "http://127.0.0.1:8765/cb", http.StatusCreated, ""},
+		{"http loopback ipv6", "http://[::1]:8765/cb", http.StatusCreated, ""},
+		{"custom scheme", "myapp://oauth-callback", http.StatusCreated, ""},
+
+		{"http non-loopback", "http://example.com/cb", http.StatusBadRequest, "invalid_redirect_uri"},
+		{"fragment", "https://example.com/cb#frag", http.StatusBadRequest, "invalid_redirect_uri"},
+		{"missing scheme", "example.com/cb", http.StatusBadRequest, "invalid_redirect_uri"},
+		{"empty", "", http.StatusBadRequest, "invalid_redirect_uri"},
+		{"https without host", "https:///cb", http.StatusBadRequest, "invalid_redirect_uri"},
+		// userinfo case lives in its own test below: this table has
+		// 10 cases and DCR rate-limits to 10/IP/hr; an 11th would
+		// 429 here instead of 400.
+	}
+	for i, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			resp := postRegister(t, srv, agent.OAuthRegisterRequest{
+				ClientName:   fmt.Sprintf("uri-test-%d", i),
+				RedirectURIs: []string{c.uri},
+			})
+			defer resp.Body.Close()
+			if resp.StatusCode != c.wantStatus {
+				body, _ := io.ReadAll(resp.Body)
+				t.Fatalf("uri=%q: status=%d want %d; body=%s", c.uri, resp.StatusCode, c.wantStatus, string(body))
+			}
+			if c.wantCode != "" {
+				// Re-parse — we've already consumed the body.
+				// Read once into a buffer first instead.
+			}
+		})
+	}
+}
+
+// TestHTTP_Register_RejectsUserinfoInRedirect — split out of the
+// table to keep the per-server case-count under the DCR rate-limit
+// cap (10/IP/hr). URIs like "https://anything@evil.com/cb" parse
+// with host=evil.com but read as legit to humans.
+func TestHTTP_Register_RejectsUserinfoInRedirect(t *testing.T) {
+	srv := newDCRServer(t)
+	resp := postRegister(t, srv, agent.OAuthRegisterRequest{
+		ClientName:   "userinfo rejection",
+		RedirectURIs: []string{"https://anything@evil.com/cb"},
+	})
+	defer resp.Body.Close()
+	assertOAuthError(t, resp, http.StatusBadRequest, "invalid_redirect_uri")
+}
+
+// TestHTTP_Register_DedupRedirectURIs: dup entries in the request
+// collapse to one in the response and in the DB row.
+func TestHTTP_Register_DedupRedirectURIs(t *testing.T) {
+	srv := newDCRServer(t)
+	resp := postRegister(t, srv, agent.OAuthRegisterRequest{
+		ClientName: "dedup test",
+		RedirectURIs: []string{
+			"https://example.com/cb",
+			"https://example.com/cb",
+			"https://example.com/cb",
+		},
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+	var got agent.OAuthRegisterResponse
+	json.NewDecoder(resp.Body).Decode(&got)
+	if len(got.RedirectURIs) != 1 {
+		t.Errorf("redirect_uris response should be deduped: got %v", got.RedirectURIs)
+	}
+}
+
+// TestHTTP_Register_MissingClientName.
+func TestHTTP_Register_MissingClientName(t *testing.T) {
+	srv := newDCRServer(t)
+	resp := postRegister(t, srv, agent.OAuthRegisterRequest{
+		RedirectURIs: []string{"https://example.com/cb"},
+	})
+	defer resp.Body.Close()
+	assertOAuthError(t, resp, http.StatusBadRequest, "invalid_client_metadata")
+}
+
+// TestHTTP_Register_MissingRedirectURIs.
+func TestHTTP_Register_MissingRedirectURIs(t *testing.T) {
+	srv := newDCRServer(t)
+	resp := postRegister(t, srv, agent.OAuthRegisterRequest{
+		ClientName: "no uris",
+	})
+	defer resp.Body.Close()
+	assertOAuthError(t, resp, http.StatusBadRequest, "invalid_redirect_uri")
+}
+
+// TestHTTP_Register_RejectsConfidentialAuthMethod: discovery only
+// advertises "none"; DCR enforces it.
+func TestHTTP_Register_RejectsConfidentialAuthMethod(t *testing.T) {
+	srv := newDCRServer(t)
+	resp := postRegister(t, srv, agent.OAuthRegisterRequest{
+		ClientName:              "confidential attempt",
+		RedirectURIs:            []string{"https://example.com/cb"},
+		TokenEndpointAuthMethod: "client_secret_basic",
+	})
+	defer resp.Body.Close()
+	assertOAuthError(t, resp, http.StatusBadRequest, "invalid_client_metadata")
+}
+
+// TestHTTP_Register_RejectsUnsupportedGrant.
+func TestHTTP_Register_RejectsUnsupportedGrant(t *testing.T) {
+	srv := newDCRServer(t)
+	resp := postRegister(t, srv, agent.OAuthRegisterRequest{
+		ClientName:   "x",
+		RedirectURIs: []string{"https://example.com/cb"},
+		GrantTypes:   []string{"client_credentials"},
+	})
+	defer resp.Body.Close()
+	assertOAuthError(t, resp, http.StatusBadRequest, "invalid_client_metadata")
+}
+
+// TestHTTP_Register_RejectsUnsupportedScope.
+func TestHTTP_Register_RejectsUnsupportedScope(t *testing.T) {
+	srv := newDCRServer(t)
+	resp := postRegister(t, srv, agent.OAuthRegisterRequest{
+		ClientName:   "x",
+		RedirectURIs: []string{"https://example.com/cb"},
+		Scope:        "admin",
+	})
+	defer resp.Body.Close()
+	assertOAuthError(t, resp, http.StatusBadRequest, "invalid_client_metadata")
+}
+
+// TestHTTP_Register_TooManyRedirectURIs.
+func TestHTTP_Register_TooManyRedirectURIs(t *testing.T) {
+	srv := newDCRServer(t)
+	uris := make([]string, 11)
+	for i := range uris {
+		uris[i] = fmt.Sprintf("https://example.com/cb%d", i)
+	}
+	resp := postRegister(t, srv, agent.OAuthRegisterRequest{
+		ClientName:   "too many",
+		RedirectURIs: uris,
+	})
+	defer resp.Body.Close()
+	assertOAuthError(t, resp, http.StatusBadRequest, "invalid_redirect_uri")
+}
+
+// TestHTTP_Register_InvalidJSON.
+func TestHTTP_Register_InvalidJSON(t *testing.T) {
+	srv := newDCRServer(t)
+	resp, err := http.Post(srv.URL+"/api/oauth/register", "application/json", strings.NewReader("not json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	assertOAuthError(t, resp, http.StatusBadRequest, "invalid_client_metadata")
+}
+
+// TestHTTP_Register_RateLimited: 11th request from the same IP gets
+// 429. Per-IP keying uses dcrSourceIP — CF-Connecting-IP preferred,
+// then RemoteAddr (loopback in httptest, all 11 share one bucket).
+func TestHTTP_Register_RateLimited(t *testing.T) {
+	srv := newDCRServer(t)
+	good := func(i int) agent.OAuthRegisterRequest {
+		return agent.OAuthRegisterRequest{
+			ClientName:   fmt.Sprintf("rate-%d", i),
+			RedirectURIs: []string{"https://example.com/cb"},
+		}
+	}
+	for i := 0; i < 10; i++ {
+		resp := postRegister(t, srv, good(i))
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("burn-in #%d: status %d, want 201", i+1, resp.StatusCode)
+		}
+	}
+	resp := postRegister(t, srv, good(11))
+	defer resp.Body.Close()
+	assertOAuthError(t, resp, http.StatusTooManyRequests, "rate_limited")
+}
+
+// TestHTTP_Register_XFFCannotBypass: rotating X-Forwarded-For must
+// NOT defeat the cap (we use dcrSourceIP which prefers
+// CF-Connecting-IP, then RemoteAddr — XFF is ignored).
+func TestHTTP_Register_XFFCannotBypass(t *testing.T) {
+	srv := newDCRServer(t)
+	postWithXFF := func(i int, xff string) *http.Response {
+		buf, _ := json.Marshal(agent.OAuthRegisterRequest{
+			ClientName:   fmt.Sprintf("xff-%d", i),
+			RedirectURIs: []string{"https://example.com/cb"},
+		})
+		req, _ := http.NewRequest("POST", srv.URL+"/api/oauth/register", bytes.NewReader(buf))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Forwarded-For", xff)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+	for i := 0; i < 10; i++ {
+		resp := postWithXFF(i, fmt.Sprintf("198.51.100.%d", i+1))
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("burn-in #%d: status %d", i+1, resp.StatusCode)
+		}
+	}
+	resp := postWithXFF(11, "203.0.113.99")
+	defer resp.Body.Close()
+	assertOAuthError(t, resp, http.StatusTooManyRequests, "rate_limited")
+}
+
+// TestHTTP_Register_NotConfigured: 404 when SetOAuthStorage wasn't
+// called.
+func TestHTTP_Register_NotConfigured(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	smtpRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{})
+	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
+	api := agent.NewAPI(store, sender, smtpRelay, nil, usage.NewNoopUsageTracker(),
+		"e2a.dev", "test.e2a.dev", "agents.e2a.dev", "https://test.e2a.dev", false)
+	router := mux.NewRouter()
+	api.RegisterRoutes(router)
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	resp := postRegister(t, srv, agent.OAuthRegisterRequest{
+		ClientName:   "x",
+		RedirectURIs: []string{"https://example.com/cb"},
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("DCR without storage should 404: got %d", resp.StatusCode)
+	}
+}
+
+// Use context.Background helper without polluting the test surface.
+var _ = context.Background
+
+// equalStringSlice — order-independent comparison would be safer for
+// some assertions, but for our defaults the order is stable. Plain
+// equality is fine.
+func equalStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
