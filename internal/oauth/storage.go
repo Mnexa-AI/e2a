@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/ory/fosite"
 	"github.com/ory/fosite/handler/oauth2"
 	"github.com/ory/fosite/handler/pkce"
+	fositestorage "github.com/ory/fosite/storage"
 )
 
 // Compile-time interface assertions: *Storage must satisfy every
@@ -18,15 +20,82 @@ import (
 // adds methods between versions, the build fails here rather than at
 // runtime when a /token request comes in.
 var (
-	_ fosite.Storage                  = (*Storage)(nil)
-	_ fosite.ClientManager            = (*Storage)(nil)
-	_ oauth2.CoreStorage              = (*Storage)(nil)
-	_ oauth2.AuthorizeCodeStorage     = (*Storage)(nil)
-	_ oauth2.AccessTokenStorage       = (*Storage)(nil)
-	_ oauth2.RefreshTokenStorage      = (*Storage)(nil)
-	_ oauth2.TokenRevocationStorage   = (*Storage)(nil)
-	_ pkce.PKCERequestStorage         = (*Storage)(nil)
+	_ fosite.Storage                = (*Storage)(nil)
+	_ fosite.ClientManager          = (*Storage)(nil)
+	_ oauth2.CoreStorage            = (*Storage)(nil)
+	_ oauth2.AuthorizeCodeStorage   = (*Storage)(nil)
+	_ oauth2.AccessTokenStorage     = (*Storage)(nil)
+	_ oauth2.RefreshTokenStorage    = (*Storage)(nil)
+	_ oauth2.TokenRevocationStorage = (*Storage)(nil)
+	_ pkce.PKCERequestStorage       = (*Storage)(nil)
+	_ fositestorage.Transactional   = (*Storage)(nil)
 )
+
+// ───────────────────────── Transactional ─────────────────────────
+//
+// fosite's auth-code-exchange and refresh-rotation flows call
+// storage.MaybeBeginTx / MaybeCommitTx so the (invalidate-code +
+// issue-access + issue-refresh) sequence or the (rotate-refresh +
+// revoke-paired-access) sequence runs atomically. Storages that
+// don't implement Transactional get no-ops — fatal: a crash between
+// statements leaves the DB in a half-issued state.
+//
+// We stash the pgx.Tx on the context. Every storage method routes
+// its query through db(ctx) which prefers the tx when present and
+// falls back to the pool otherwise. The tx is reused across the
+// whole flow; Commit/Rollback are called by fosite's handler at the
+// end.
+
+type txCtxKey struct{}
+
+// dbExecutor is the subset of pgxpool.Pool and pgx.Tx that the
+// storage methods touch. Lets db(ctx) return either without forcing
+// callers to type-switch.
+type dbExecutor interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// db returns the active transaction if one was started via BeginTX,
+// otherwise the connection pool. Every read/write in this file must
+// route through this so transactional flows are atomic.
+func (s *Storage) db(ctx context.Context) dbExecutor {
+	if tx, ok := ctx.Value(txCtxKey{}).(pgx.Tx); ok {
+		return tx
+	}
+	return s.pool
+}
+
+// BeginTX starts a new pgx transaction and returns a context carrying
+// it. fosite's handlers pass this context to every subsequent storage
+// call until Commit or Rollback.
+func (s *Storage) BeginTX(ctx context.Context) (context.Context, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return ctx, err
+	}
+	return context.WithValue(ctx, txCtxKey{}, tx), nil
+}
+
+func (s *Storage) Commit(ctx context.Context) error {
+	tx, ok := ctx.Value(txCtxKey{}).(pgx.Tx)
+	if !ok {
+		// No tx on context — caller didn't BeginTX, or already
+		// committed. Treat as no-op (matches Memory store's behavior;
+		// fosite's MaybeCommitTx never reaches here without a tx).
+		return nil
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Storage) Rollback(ctx context.Context) error {
+	tx, ok := ctx.Value(txCtxKey{}).(pgx.Tx)
+	if !ok {
+		return nil
+	}
+	return tx.Rollback(ctx)
+}
 
 // ───────────────────────── ClientManager ─────────────────────────
 
@@ -37,7 +106,7 @@ func (s *Storage) GetClient(ctx context.Context, id string) (fosite.Client, erro
 	var c Client
 	c.ID = id
 	var secretHash *string
-	err := s.pool.QueryRow(ctx, `
+	err := s.db(ctx).QueryRow(ctx, `
 		SELECT client_name, redirect_uris, grant_types, response_types,
 		       scopes, audiences, token_endpoint_auth_method,
 		       client_secret_hash, public
@@ -152,16 +221,25 @@ func (s *Storage) CreateAuthorizeCodeSession(ctx context.Context, code string, r
 	if sess != nil {
 		userID = sess.UserID
 	}
-	_, err = s.pool.Exec(ctx, `
+	// Honor fosite's session-supplied expiry — it reflects the
+	// AuthorizeCodeLifespan from the compose config. Falling back to a
+	// hardcoded value here would let the retention reaper truncate
+	// codes fosite still considers valid (different lifetimes on each
+	// side of the HMAC). Default is fosite's 15min if the caller
+	// somehow didn't set one.
+	expiresAt := request.GetRequestedAt().Add(15 * time.Minute)
+	if sess != nil {
+		if t := sess.GetExpiresAt(fosite.AuthorizeCode); !t.IsZero() {
+			expiresAt = t
+		}
+	}
+	_, err = s.db(ctx).Exec(ctx, `
 		INSERT INTO oauth_auth_codes
 		    (signature, request_id, client_id, user_id, request,
 		     requested_at, expires_at, active)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
 	`, code, request.GetID(), request.GetClient().GetID(), userID,
-		raw, request.GetRequestedAt(),
-		// Authorize codes live 60s — fosite's default. We persist the
-		// concrete expiry so DB-side reaping can act without recomputing.
-		request.GetRequestedAt().Add(time.Minute),
+		raw, request.GetRequestedAt(), expiresAt,
 	)
 	return err
 }
@@ -169,7 +247,7 @@ func (s *Storage) CreateAuthorizeCodeSession(ctx context.Context, code string, r
 func (s *Storage) GetAuthorizeCodeSession(ctx context.Context, code string, session fosite.Session) (fosite.Requester, error) {
 	var raw []byte
 	var active bool
-	err := s.pool.QueryRow(ctx, `
+	err := s.db(ctx).QueryRow(ctx, `
 		SELECT request, active FROM oauth_auth_codes WHERE signature = $1
 	`, code).Scan(&raw, &active)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -192,7 +270,7 @@ func (s *Storage) GetAuthorizeCodeSession(ctx context.Context, code string, sess
 }
 
 func (s *Storage) InvalidateAuthorizeCodeSession(ctx context.Context, code string) error {
-	_, err := s.pool.Exec(ctx,
+	_, err := s.db(ctx).Exec(ctx,
 		`UPDATE oauth_auth_codes SET active = FALSE WHERE signature = $1`, code)
 	return err
 }
@@ -213,7 +291,7 @@ func (s *Storage) CreateAccessTokenSession(ctx context.Context, signature string
 			expiresAt = t
 		}
 	}
-	_, err = s.pool.Exec(ctx, `
+	_, err = s.db(ctx).Exec(ctx, `
 		INSERT INTO oauth_access_tokens
 		    (signature, request_id, client_id, user_id, request,
 		     requested_at, expires_at)
@@ -227,7 +305,7 @@ func (s *Storage) CreateAccessTokenSession(ctx context.Context, signature string
 func (s *Storage) GetAccessTokenSession(ctx context.Context, signature string, session fosite.Session) (fosite.Requester, error) {
 	var raw []byte
 	var revokedAt *time.Time
-	err := s.pool.QueryRow(ctx, `
+	err := s.db(ctx).QueryRow(ctx, `
 		SELECT request, revoked_at FROM oauth_access_tokens WHERE signature = $1
 	`, signature).Scan(&raw, &revokedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -247,7 +325,7 @@ func (s *Storage) GetAccessTokenSession(ctx context.Context, signature string, s
 }
 
 func (s *Storage) DeleteAccessTokenSession(ctx context.Context, signature string) error {
-	_, err := s.pool.Exec(ctx,
+	_, err := s.db(ctx).Exec(ctx,
 		`DELETE FROM oauth_access_tokens WHERE signature = $1`, signature)
 	return err
 }
@@ -255,6 +333,12 @@ func (s *Storage) DeleteAccessTokenSession(ctx context.Context, signature string
 // ───────────────────────── RefreshTokenStorage ─────────────────────────
 
 func (s *Storage) CreateRefreshTokenSession(ctx context.Context, signature, accessSignature string, request fosite.Requester) error {
+	// accessSignature is intentionally ignored — RotateRefreshToken
+	// cascades via request_id (the fosite-managed grouping ID) which
+	// is also what RevokeAccessToken keys on. Storing the paired
+	// signature would just duplicate that linkage with no benefit.
+	_ = accessSignature
+
 	raw, err := marshalRequest(request)
 	if err != nil {
 		return err
@@ -264,25 +348,32 @@ func (s *Storage) CreateRefreshTokenSession(ctx context.Context, signature, acce
 	if sess != nil {
 		userID = sess.UserID
 	}
-	var accessSig *string
-	if accessSignature != "" {
-		accessSig = &accessSignature
-	}
-	// Refresh TTL: 30 days. fosite will set ExpiresAt on the session
-	// if a non-default lifetime is configured; we use that when present.
-	expiresAt := request.GetRequestedAt().Add(30 * 24 * time.Hour)
+	// fosite signals "no expiry" by leaving the session ExpiresAt at
+	// zero (the RefreshTokenLifespan=-1 config path). Persist NULL in
+	// that case so the retention reaper doesn't silently delete rows
+	// the operator asked to keep forever. Otherwise use the session
+	// value (which already reflects the configured lifetime).
+	var expiresAt *time.Time
 	if sess != nil {
 		if t := sess.GetExpiresAt(fosite.RefreshToken); !t.IsZero() {
-			expiresAt = t
+			expiresAt = &t
 		}
 	}
-	_, err = s.pool.Exec(ctx, `
+	if expiresAt == nil {
+		// Defensive fallback: a session with zero expiry only happens
+		// when the operator opted into no-expiry. If we got here on a
+		// configured-lifetime deployment something's off — write a
+		// 30d default so the row at least eventually GCs.
+		def := request.GetRequestedAt().Add(30 * 24 * time.Hour)
+		expiresAt = &def
+	}
+	_, err = s.db(ctx).Exec(ctx, `
 		INSERT INTO oauth_refresh_tokens
-		    (signature, request_id, client_id, user_id, access_signature,
+		    (signature, request_id, client_id, user_id,
 		     request, requested_at, expires_at, active)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
 	`, signature, request.GetID(), request.GetClient().GetID(), userID,
-		accessSig, raw, request.GetRequestedAt(), expiresAt,
+		raw, request.GetRequestedAt(), expiresAt,
 	)
 	return err
 }
@@ -291,7 +382,7 @@ func (s *Storage) GetRefreshTokenSession(ctx context.Context, signature string, 
 	var raw []byte
 	var active bool
 	var revokedAt *time.Time
-	err := s.pool.QueryRow(ctx, `
+	err := s.db(ctx).QueryRow(ctx, `
 		SELECT request, active, revoked_at FROM oauth_refresh_tokens WHERE signature = $1
 	`, signature).Scan(&raw, &active, &revokedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -313,26 +404,39 @@ func (s *Storage) GetRefreshTokenSession(ctx context.Context, signature string, 
 }
 
 func (s *Storage) DeleteRefreshTokenSession(ctx context.Context, signature string) error {
-	_, err := s.pool.Exec(ctx,
+	_, err := s.db(ctx).Exec(ctx,
 		`DELETE FROM oauth_refresh_tokens WHERE signature = $1`, signature)
 	return err
 }
 
-// RotateRefreshToken marks the row as inactive but keeps it for reuse
-// detection. fosite calls this on a successful refresh-grant exchange;
-// a subsequent presenter of the same refresh sees active=false and
-// fosite's handler fires the RFC 6749 §10.4 chain revoke.
+// RotateRefreshToken marks the refresh row inactive and ALSO revokes
+// every access token for the same request_id. Without the cascade,
+// an attacker who captured the pre-refresh access token could
+// continue using it for up to its remaining lifetime (~1h) after the
+// legitimate client rotated. The convention is set by fosite's
+// reference in-memory store; we match it.
+//
+// Runs through db(ctx) so when fosite wraps this call in
+// MaybeBeginTx the two UPDATEs land in the same transaction.
 func (s *Storage) RotateRefreshToken(ctx context.Context, requestID, refreshTokenSignature string) error {
-	_, err := s.pool.Exec(ctx,
+	db := s.db(ctx)
+	if _, err := db.Exec(ctx,
 		`UPDATE oauth_refresh_tokens SET active = FALSE WHERE signature = $1`,
-		refreshTokenSignature)
+		refreshTokenSignature,
+	); err != nil {
+		return err
+	}
+	_, err := db.Exec(ctx,
+		`UPDATE oauth_access_tokens SET revoked_at = NOW() WHERE request_id = $1 AND revoked_at IS NULL`,
+		requestID,
+	)
 	return err
 }
 
 // ───────────────────────── TokenRevocationStorage ─────────────────────────
 
 func (s *Storage) RevokeRefreshToken(ctx context.Context, requestID string) error {
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.db(ctx).Exec(ctx, `
 		UPDATE oauth_refresh_tokens
 		SET revoked_at = NOW(), active = FALSE
 		WHERE request_id = $1 AND revoked_at IS NULL
@@ -341,7 +445,7 @@ func (s *Storage) RevokeRefreshToken(ctx context.Context, requestID string) erro
 }
 
 func (s *Storage) RevokeAccessToken(ctx context.Context, requestID string) error {
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.db(ctx).Exec(ctx, `
 		UPDATE oauth_access_tokens
 		SET revoked_at = NOW()
 		WHERE request_id = $1 AND revoked_at IS NULL
@@ -356,21 +460,27 @@ func (s *Storage) CreatePKCERequestSession(ctx context.Context, signature string
 	if err != nil {
 		return err
 	}
-	// PKCE sessions are short-lived; tie expiry to the auth-code window
-	// (60s) plus a small grace so the token-exchange step doesn't race
-	// the reaper.
-	_, err = s.pool.Exec(ctx, `
+	// Mirror the auth-code expiry source. PKCE sessions are paired
+	// with codes (consumed at the same /token call) so using the same
+	// expiry keeps them in lockstep — the reaper won't drop the PKCE
+	// row out from under a still-valid code.
+	sess, _ := request.GetSession().(*Session)
+	expiresAt := request.GetRequestedAt().Add(15 * time.Minute)
+	if sess != nil {
+		if t := sess.GetExpiresAt(fosite.AuthorizeCode); !t.IsZero() {
+			expiresAt = t
+		}
+	}
+	_, err = s.db(ctx).Exec(ctx, `
 		INSERT INTO oauth_pkce_requests (signature, request_id, client_id, request, expires_at)
 		VALUES ($1, $2, $3, $4, $5)
-	`, signature, request.GetID(), request.GetClient().GetID(), raw,
-		request.GetRequestedAt().Add(2*time.Minute),
-	)
+	`, signature, request.GetID(), request.GetClient().GetID(), raw, expiresAt)
 	return err
 }
 
 func (s *Storage) GetPKCERequestSession(ctx context.Context, signature string, session fosite.Session) (fosite.Requester, error) {
 	var raw []byte
-	err := s.pool.QueryRow(ctx,
+	err := s.db(ctx).QueryRow(ctx,
 		`SELECT request FROM oauth_pkce_requests WHERE signature = $1`,
 		signature).Scan(&raw)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -383,7 +493,7 @@ func (s *Storage) GetPKCERequestSession(ctx context.Context, signature string, s
 }
 
 func (s *Storage) DeletePKCERequestSession(ctx context.Context, signature string) error {
-	_, err := s.pool.Exec(ctx,
+	_, err := s.db(ctx).Exec(ctx,
 		`DELETE FROM oauth_pkce_requests WHERE signature = $1`, signature)
 	return err
 }

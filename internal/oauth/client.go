@@ -32,20 +32,25 @@ type Client struct {
 // Client) are deliberately not implemented because we don't support
 // those flows.
 
-func (c *Client) GetID() string                                  { return c.ID }
-func (c *Client) GetHashedSecret() []byte                        { return c.SecretHash }
-func (c *Client) GetRedirectURIs() []string                      { return c.RedirectURIs }
-func (c *Client) GetGrantTypes() fosite.Arguments                { return fosite.Arguments(c.GrantTypeStrings) }
-func (c *Client) GetResponseTypes() fosite.Arguments             { return fosite.Arguments(c.ResponseTypeStrings) }
-func (c *Client) GetScopes() fosite.Arguments                    { return fosite.Arguments(c.ScopeStrings) }
-func (c *Client) IsPublic() bool                                 { return c.Public }
-func (c *Client) GetAudience() fosite.Arguments                  { return fosite.Arguments(c.AudienceStrings) }
-func (c *Client) GetTokenEndpointAuthMethod() string             { return c.TokenEndpointAuthMethodS }
-func (c *Client) GetTokenEndpointAuthSigningAlgorithm() string   { return "" }
-func (c *Client) GetRequestObjectSigningAlgorithm() string       { return "" }
-func (c *Client) GetRequestURIs() []string                       { return nil }
-func (c *Client) GetJSONWebKeys() interface{}                    { return nil }
-func (c *Client) GetJSONWebKeysURI() string                      { return "" }
+func (c *Client) GetID() string                      { return c.ID }
+func (c *Client) GetHashedSecret() []byte             { return c.SecretHash }
+func (c *Client) GetRedirectURIs() []string           { return c.RedirectURIs }
+func (c *Client) GetGrantTypes() fosite.Arguments     { return fosite.Arguments(c.GrantTypeStrings) }
+func (c *Client) GetResponseTypes() fosite.Arguments  { return fosite.Arguments(c.ResponseTypeStrings) }
+func (c *Client) GetScopes() fosite.Arguments         { return fosite.Arguments(c.ScopeStrings) }
+func (c *Client) IsPublic() bool                      { return c.Public }
+func (c *Client) GetAudience() fosite.Arguments       { return fosite.Arguments(c.AudienceStrings) }
 
-// Compile-time check that *Client satisfies fosite.Client.
+// GetTokenEndpointAuthMethod returns the registered auth method.
+// fosite reads this opportunistically via a runtime type-assert on
+// the AuthMethodClient interface; we keep it because the value is
+// meaningful (we only accept "none" for public clients in DCR).
+func (c *Client) GetTokenEndpointAuthMethod() string { return c.TokenEndpointAuthMethodS }
+
+// We intentionally do NOT implement OpenIDConnectClient (its
+// GetJSONWebKeys signature requires *jose.JSONWebKeySet, not
+// interface{}). If OIDC is ever added, those methods land in a
+// separate file with the correct types and a separate compile-time
+// assertion. Until then, the minimal fosite.Client surface is enough
+// for auth_code + PKCE + refresh + revoke.
 var _ fosite.Client = (*Client)(nil)

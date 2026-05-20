@@ -116,12 +116,10 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
     request_id        TEXT NOT NULL,
     client_id         TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
     user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    -- Signature of the paired access token, when known. fosite
-    -- passes this on CreateRefreshTokenSession so a future revoke can
-    -- cascade to the access row without a separate index lookup.
-    access_signature  TEXT,
     request           JSONB NOT NULL,
     requested_at      TIMESTAMPTZ NOT NULL,
+    -- NULL when the operator opted into no-expiry refresh (fosite
+    -- RefreshTokenLifespan=-1). Retention worker skips these.
     expires_at        TIMESTAMPTZ,
     -- Same "soft inactive for reuse detection" semantic as auth codes.
     active            BOOLEAN NOT NULL DEFAULT TRUE,
