@@ -19,6 +19,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/auth"
 	"github.com/Mnexa-AI/e2a/internal/hitlnotify"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/ratelimit"
 	"github.com/Mnexa-AI/e2a/internal/usage"
@@ -142,6 +143,7 @@ type API struct {
 	approvalSigner *approvaltoken.Signer  // optional; if nil, magic-link endpoints return 404
 	notifier       *hitlnotify.Notifier   // optional; if nil, holdForApproval doesn't send notification email
 	oauthProvider  fosite.OAuth2Provider  // optional; if nil, /api/oauth/* endpoints return 404
+	oauthStorage   *oauth.Storage         // optional; consent handler needs Pool() for cross-package tx
 }
 
 // SetApprovalSigner wires in the magic-link signer after construction so
@@ -161,6 +163,14 @@ func (a *API) SetNotifier(n *hitlnotify.Notifier) { a.notifier = n }
 // silently absent when not wired"). Operators who don't want OAuth
 // enabled simply don't call this.
 func (a *API) SetOAuthProvider(p fosite.OAuth2Provider) { a.oauthProvider = p }
+
+// SetOAuthStorage wires in the OAuth storage handle separately from
+// the provider. The consent handler needs Pool() to begin a pgx tx
+// that spans the agent-create (identity pkg) and the auth-code insert
+// (fosite → oauth pkg). Provider-only callers (e.g. /token) don't need
+// it, but it's required for /consent to work; setting one without the
+// other is a misconfiguration the consent handler surfaces as a 503.
+func (a *API) SetOAuthStorage(s *oauth.Storage) { a.oauthStorage = s }
 
 func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.SMTPRelay, userAuth *auth.UserAuth, usage usage.UsageTracker, smtpDomain, fromDomain, sharedDomain, publicURL string, production bool) *API {
 	return &API{
@@ -237,10 +247,11 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/health", a.handleHealth).Methods("GET", "HEAD")
 	r.HandleFunc("/api/feedback", a.handleFeedback).Methods("POST")
 
-	// OAuth 2.1 / RFC 6749 endpoints. The handler 404s when
+	// OAuth 2.1 / RFC 6749 endpoints. Handlers 404 when
 	// SetOAuthProvider wasn't called, so registering unconditionally
-	// is safe. Additional endpoints (authorize, consent, revoke, DCR,
-	// discovery) land in later slices.
+	// is safe. Revoke + DCR + discovery land in later slices.
+	r.HandleFunc("/api/oauth/authorize", a.handleOAuthAuthorize).Methods("GET")
+	r.HandleFunc("/api/oauth/consent", a.handleOAuthConsent).Methods("POST")
 	r.HandleFunc("/api/oauth/token", a.handleOAuthToken).Methods("POST")
 
 	// User auth (Google OAuth for agent developers)

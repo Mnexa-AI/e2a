@@ -183,6 +183,9 @@ func main() {
 			log.Fatalf("[oauth] provider wiring failed: %v", err)
 		}
 		api.SetOAuthProvider(oauthProvider)
+		// Consent handler also needs the storage pool for the cross-
+		// package transaction (agent insert + auth-code insert atomic).
+		api.SetOAuthStorage(oauthStorage)
 		log.Printf("[oauth] provider enabled: issuer=%s", cfg.HTTP.PublicURL)
 	}
 
