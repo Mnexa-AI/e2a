@@ -115,6 +115,11 @@ func TestHTTP_Register_Happy(t *testing.T) {
 
 // TestHTTP_Register_RedirectURI_VariousShapes: table-drives the URI
 // validator across the shapes we accept and reject.
+//
+// Loopback is by IP literal only — "localhost" is rejected because
+// fosite's RFC 8252 §7.3 port-rewrite uses net.ParseIP(hostname)
+// .IsLoopback() and "localhost" parses to nil. Custom schemes must
+// be in reverse-domain form (RFC 8252 §7.1 / RFC 7595 §3.8).
 func TestHTTP_Register_RedirectURI_VariousShapes(t *testing.T) {
 	srv := newDCRServer(t)
 	cases := []struct {
@@ -124,19 +129,19 @@ func TestHTTP_Register_RedirectURI_VariousShapes(t *testing.T) {
 		wantCode   string
 	}{
 		{"https web", "https://example.com/callback", http.StatusCreated, ""},
-		{"http loopback hostname", "http://localhost:8765/cb", http.StatusCreated, ""},
 		{"http loopback ipv4", "http://127.0.0.1:8765/cb", http.StatusCreated, ""},
 		{"http loopback ipv6", "http://[::1]:8765/cb", http.StatusCreated, ""},
-		{"custom scheme", "myapp://oauth-callback", http.StatusCreated, ""},
+		{"reverse-domain custom scheme", "com.example.app:/oauth-callback", http.StatusCreated, ""},
 
+		{"http localhost rejected", "http://localhost:8765/cb", http.StatusBadRequest, "invalid_redirect_uri"},
 		{"http non-loopback", "http://example.com/cb", http.StatusBadRequest, "invalid_redirect_uri"},
+		{"single-label custom scheme", "myapp://oauth-callback", http.StatusBadRequest, "invalid_redirect_uri"},
 		{"fragment", "https://example.com/cb#frag", http.StatusBadRequest, "invalid_redirect_uri"},
-		{"missing scheme", "example.com/cb", http.StatusBadRequest, "invalid_redirect_uri"},
 		{"empty", "", http.StatusBadRequest, "invalid_redirect_uri"},
 		{"https without host", "https:///cb", http.StatusBadRequest, "invalid_redirect_uri"},
-		// userinfo case lives in its own test below: this table has
-		// 10 cases and DCR rate-limits to 10/IP/hr; an 11th would
-		// 429 here instead of 400.
+		// userinfo and dangerous-scheme cases live in their own tests
+		// below: this table has 10 cases and DCR rate-limits to
+		// 10/IP/hr; an 11th would 429 here instead of 400.
 	}
 	for i, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -145,14 +150,41 @@ func TestHTTP_Register_RedirectURI_VariousShapes(t *testing.T) {
 				RedirectURIs: []string{c.uri},
 			})
 			defer resp.Body.Close()
-			if resp.StatusCode != c.wantStatus {
-				body, _ := io.ReadAll(resp.Body)
-				t.Fatalf("uri=%q: status=%d want %d; body=%s", c.uri, resp.StatusCode, c.wantStatus, string(body))
+			if c.wantCode == "" {
+				if resp.StatusCode != c.wantStatus {
+					body, _ := io.ReadAll(resp.Body)
+					t.Fatalf("uri=%q: status=%d want %d; body=%s", c.uri, resp.StatusCode, c.wantStatus, string(body))
+				}
+				return
 			}
-			if c.wantCode != "" {
-				// Re-parse — we've already consumed the body.
-				// Read once into a buffer first instead.
-			}
+			// Error cases: status + RFC 7591 §3.2.2 error-code shape.
+			assertOAuthError(t, resp, c.wantStatus, c.wantCode)
+		})
+	}
+}
+
+// TestHTTP_Register_RejectsDangerousSchemes — split out because the
+// per-IP DCR rate limit (10/hr) caps the main table. Schemes that
+// would smuggle the auth code into JS/HTML execution contexts via
+// http.Redirect Location must be rejected at registration.
+func TestHTTP_Register_RejectsDangerousSchemes(t *testing.T) {
+	srv := newDCRServer(t)
+	dangerous := []string{
+		"javascript:alert(1)",
+		"data:text/html,<script>alert(1)</script>",
+		"file:///etc/passwd",
+		"vbscript:msgbox(1)",
+		"blob:https://example.com/abc",
+		"about:blank",
+	}
+	for i, uri := range dangerous {
+		t.Run(uri, func(t *testing.T) {
+			resp := postRegister(t, srv, agent.OAuthRegisterRequest{
+				ClientName:   fmt.Sprintf("danger-%d", i),
+				RedirectURIs: []string{uri},
+			})
+			defer resp.Body.Close()
+			assertOAuthError(t, resp, http.StatusBadRequest, "invalid_redirect_uri")
 		})
 	}
 }

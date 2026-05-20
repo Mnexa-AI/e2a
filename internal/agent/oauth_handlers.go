@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -119,11 +120,16 @@ func dcrSourceIP(r *http.Request) string {
 	if ip := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); ip != "" {
 		return ip
 	}
-	host := r.RemoteAddr
-	if i := strings.LastIndex(host, ":"); i > 0 {
-		host = host[:i]
+	// net.SplitHostPort handles bracketed IPv6 ("[::1]:443"), bare IPv4
+	// with port, and reports an error when no port is present (rare in
+	// stdlib http but possible behind some proxies / in tests). On
+	// error fall back to the raw RemoteAddr so we still bucket on
+	// something stable instead of collapsing all such requests onto
+	// the empty string.
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
 	}
-	return host
+	return r.RemoteAddr
 }
 
 // validateRedirectURI enforces e2a's redirect_uri allow-list, mirroring
@@ -132,18 +138,28 @@ func dcrSourceIP(r *http.Request) string {
 //
 // Allowed:
 //   - https://… (web apps; must have host)
-//   - http://localhost[:port]/…, http://127.0.0.1[:port]/…,
-//     http://[::1][:port]/… (loopback for desktop dev; RFC 8252 §7.3
-//     also allows ANY port at request-time, but at registration we
-//     just need a representative entry)
-//   - custom-scheme://… (native apps registering a private-use URI)
+//   - http://127.0.0.1[:port]/…, http://[::1][:port]/… (loopback for
+//     desktop dev; RFC 8252 §7.3 also allows ANY port at request-time,
+//     fosite implements that by net.ParseIP(hostname).IsLoopback() so
+//     we require the IP-literal form here — "localhost" parses to nil
+//     and breaks fosite's port-rewrite, leaving native apps unable to
+//     bind a fresh ephemeral port per session)
+//   - reverse-domain custom schemes per RFC 8252 §7.1 (com.example.app:/cb)
 //
 // Rejected:
 //   - http:// to anything non-loopback (codes would leak in transit)
+//   - the string "localhost" (use 127.0.0.1 — see above)
 //   - URIs with fragments (RFC 6749 §3.1.2)
 //   - URIs with userinfo (https://anyone@evil.com/cb — looks legit
 //     to a human but the authority is attacker-controlled)
 //   - URIs missing scheme/authority for http(s)
+//   - dangerous schemes (javascript:, data:, file:, vbscript:, blob:,
+//     about:) — embedded webviews and some MCP host clients honor a
+//     non-HTTP(S) Location header, which would deliver the auth code
+//     into attacker-controlled JS/HTML via http.Redirect
+//   - single-label custom schemes (myapp:) — RFC 7595 §3.8 reserves
+//     these for future IANA registration, and they bypass the OS-level
+//     scheme registry collision protections RFC 8252 §7.1 relies on
 func validateRedirectURI(raw string) error {
 	if raw == "" {
 		return errors.New("redirect_uri cannot be empty")
@@ -168,12 +184,36 @@ func validateRedirectURI(raw string) error {
 		return nil
 	case "http":
 		host := u.Hostname()
-		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		if host == "localhost" {
+			return errors.New(`http redirect_uri must use 127.0.0.1 or ::1 (RFC 8252 §7.3 port-rewrite requires an IP literal, not the "localhost" name)`)
+		}
+		ip := net.ParseIP(host)
+		if ip != nil && ip.IsLoopback() {
 			return nil
 		}
-		return errors.New("http redirect_uri must use a loopback host (localhost, 127.0.0.1, or ::1)")
+		return errors.New("http redirect_uri must use a loopback IP (127.0.0.1 or ::1)")
 	default:
-		return nil // custom scheme — RFC 8252 §7.1 accepts any non-empty scheme
+		// Block well-known dangerous schemes outright. Even though
+		// fosite's exact-match at /authorize time would normally
+		// prevent these from being reached, http.Redirect writes the
+		// Location header verbatim regardless of scheme — see
+		// writeAuthorizeRedirect for the matching defense-in-depth check.
+		switch u.Scheme {
+		case "javascript", "data", "file", "vbscript", "blob", "about":
+			return errors.New("redirect_uri scheme not permitted")
+		}
+		// RFC 8252 §7.1: private-use URI schemes MUST be in reverse-
+		// domain notation; RFC 7595 §3.8 reserves single-label schemes
+		// for IANA. Require a dot to enforce that.
+		if !strings.Contains(u.Scheme, ".") {
+			return errors.New("custom scheme must use reverse-domain notation (RFC 8252 §7.1)")
+		}
+		// Require an actual destination — neither bare scheme nor a
+		// stray opaque-only ("myapp:") qualifies.
+		if u.Host == "" && u.Path == "" && u.Opaque == "" {
+			return errors.New("redirect_uri must include a path or authority")
+		}
+		return nil
 	}
 }
 
@@ -189,7 +229,12 @@ func validateRedirectURI(raw string) error {
 // 400 invalid_client_metadata / invalid_redirect_uri for bad input.
 // 201 on success with the full registered metadata.
 func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
-	if a.oauthStorage == nil {
+	// Gate on BOTH provider and storage. SetOAuthProvider wires the
+	// flow surface (authorize/token/revoke); SetOAuthStorage wires the
+	// DB-backed adapter we INSERT into here. Registering a client when
+	// the provider isn't wired would persist rows that the rest of the
+	// surface can't redeem — better to 404 than create dead state.
+	if a.oauthProvider == nil || a.oauthStorage == nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -347,6 +392,7 @@ type OAuthMetadata struct {
 	RegistrationEndpoint                   string   `json:"registration_endpoint"`
 	RevocationEndpoint                     string   `json:"revocation_endpoint"`
 	ResponseTypesSupported                 []string `json:"response_types_supported"`
+	ResponseModesSupported                 []string `json:"response_modes_supported"`
 	GrantTypesSupported                    []string `json:"grant_types_supported"`
 	CodeChallengeMethodsSupported          []string `json:"code_challenge_methods_supported"`
 	TokenEndpointAuthMethodsSupported      []string `json:"token_endpoint_auth_methods_supported"`
@@ -381,6 +427,9 @@ func (a *API) handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
 		RegistrationEndpoint:                   base + "/api/oauth/register",
 		RevocationEndpoint:                     base + "/api/oauth/revoke",
 		ResponseTypesSupported:                 []string{"code"},
+		// response_mode=query is the only mode we emit at the redirect
+		// URI; explicit so strict MCP clients don't try "fragment".
+		ResponseModesSupported:                 []string{"query"},
 		GrantTypesSupported:                    []string{"authorization_code", "refresh_token"},
 		CodeChallengeMethodsSupported:          []string{"S256"},
 		TokenEndpointAuthMethodsSupported:      []string{"none"},
@@ -701,6 +750,15 @@ func (a *API) writeAuthorizeRedirect(w http.ResponseWriter, r *http.Request, ar 
 	redirect, err := url.Parse(ar.GetRedirectURI().String())
 	if err != nil {
 		http.Error(w, "invalid redirect_uri", http.StatusBadRequest)
+		return
+	}
+	// Defense-in-depth: DCR's validateRedirectURI is the primary gate
+	// against dangerous schemes, but if a row was inserted by some
+	// other path (operator script, future endpoint, migration replay
+	// of legacy data), refuse to emit Location: javascript:… here.
+	switch strings.ToLower(redirect.Scheme) {
+	case "javascript", "data", "file", "vbscript", "blob", "about":
+		http.Error(w, "invalid redirect_uri scheme", http.StatusBadRequest)
 		return
 	}
 	q := redirect.Query()
