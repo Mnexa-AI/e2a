@@ -519,9 +519,14 @@ func (a *API) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if user := a.userAuth.AuthenticateRequest(r); user == nil {
-		// PR B will add return_to here. For now: kick to login so the
-		// user at least lands on a working sign-in page.
-		http.Redirect(w, r, strings.TrimRight(a.publicURL, "/")+"/api/auth/login", http.StatusFound)
+		// Carry the full authorize request (path + query) through login
+		// so the user resumes consent after Google completes instead of
+		// dropping onto the dashboard. HandleLogin validates return_to
+		// against an /api/oauth/-only allow-list, so this is safe even
+		// with attacker-controlled query params.
+		returnTo := r.URL.RequestURI() // path + query, no host
+		loginURL := strings.TrimRight(a.publicURL, "/") + "/api/auth/login?return_to=" + url.QueryEscape(returnTo)
+		http.Redirect(w, r, loginURL, http.StatusFound)
 		return
 	}
 

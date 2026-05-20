@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -160,6 +161,35 @@ func TestAuth_OAuthToken_Revoked(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("revoked OAuth token should be rejected: got %d", resp.StatusCode)
+	}
+	// U11: revoked-token 401 must carry RFC 6750 §3 WWW-Authenticate
+	// challenge so MCP clients can distinguish "re-OAuth" from "API
+	// key bad" and trigger their re-auth flow.
+	wa := resp.Header.Get("WWW-Authenticate")
+	if wa == "" {
+		t.Fatal("revoked OAuth token 401 missing WWW-Authenticate header")
+	}
+	if !strings.Contains(wa, `error="invalid_token"`) {
+		t.Errorf(`WWW-Authenticate should contain error="invalid_token": got %q`, wa)
+	}
+	if !strings.Contains(wa, "revoked") {
+		t.Errorf("WWW-Authenticate error_description should mention 'revoked': got %q", wa)
+	}
+}
+
+// TestAuth_OAuthToken_Revoked_Challenge is covered above. This test
+// covers the parallel API-key path: a bad API key 401 must NOT carry
+// WWW-Authenticate (different auth scheme; clients shouldn't try to
+// re-OAuth a bad API key).
+func TestAuth_APIKey_No_OAuthChallenge(t *testing.T) {
+	server, _, _, _ := setupAPIWithOAuth(t)
+	resp := getWithBearer(t, server, "e2a_definitely_not_a_real_key_value_here")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("bad API key should 401: got %d", resp.StatusCode)
+	}
+	if wa := resp.Header.Get("WWW-Authenticate"); wa != "" {
+		t.Errorf("API-key path must not emit OAuth WWW-Authenticate: got %q", wa)
 	}
 }
 

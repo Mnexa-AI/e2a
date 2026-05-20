@@ -293,6 +293,28 @@ func TestAuthorize_NoSession_RedirectsToLogin(t *testing.T) {
 	if !strings.HasSuffix(loc.Path, "/api/auth/login") {
 		t.Errorf("expected redirect to /api/auth/login, got %q", loc.String())
 	}
+	// U2: the login redirect MUST carry return_to so Google-callback
+	// can resume the OAuth flow. Without it, the user lands on
+	// /dashboard with no way to restart consent except by re-invoking
+	// from their MCP client.
+	rt := loc.Query().Get("return_to")
+	if rt == "" {
+		t.Fatal("login redirect missing return_to — user can't resume OAuth after Google completes")
+	}
+	if !strings.HasPrefix(rt, "/api/oauth/authorize") {
+		t.Errorf("return_to should be /api/oauth/authorize…: got %q", rt)
+	}
+	// And the original authorize params must round-trip through it.
+	rtURL, err := url.Parse(rt)
+	if err != nil {
+		t.Fatalf("return_to should be parseable: %v", err)
+	}
+	if rtURL.Query().Get("client_id") != f.client.ClientID {
+		t.Errorf("return_to must carry client_id: got %q", rtURL.Query().Get("client_id"))
+	}
+	if rtURL.Query().Get("state") != "test-state" {
+		t.Errorf("return_to must carry state: got %q", rtURL.Query().Get("state"))
+	}
 }
 
 func TestAuthorize_WithSession_RedirectsToConsentUI(t *testing.T) {

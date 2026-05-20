@@ -193,10 +193,15 @@ func validateCLICallbackURL(raw string) (*url.URL, error) {
 
 // OAuthState is encoded into the OAuth state parameter. It carries the CSRF
 // nonce and, for CLI-initiated logins, the callback URL and CLI state token.
+// For browser-initiated logins triggered mid-flow (e.g. /api/oauth/authorize
+// 302-ing through /api/auth/login), ReturnTo carries the relative path the
+// user should land on after Google completes — letting them resume the OAuth
+// flow instead of dropping onto the dashboard.
 type OAuthState struct {
 	Nonce       string `json:"n"`
 	CLICallback string `json:"cb,omitempty"`
 	CLIState    string `json:"cs,omitempty"`
+	ReturnTo    string `json:"rt,omitempty"`
 }
 
 func EncodeOAuthState(s *OAuthState) string {
@@ -252,11 +257,19 @@ func (ua *UserAuth) writeCLIHandoffPage(w http.ResponseWriter, r *http.Request, 
 }
 
 // HandleLogin redirects the user to Google OAuth.
+//
 // CLI login params (cli_callback, cli_state) are encoded into the OAuth state
-// parameter so they survive the redirect through Google without relying on cookies.
+// so they survive the redirect through Google without cookies.
+//
+// Browser logins triggered mid-OAuth (the /api/oauth/authorize handler 302s
+// here when the user has no session) pass return_to so the post-login
+// redirect resumes the original flow instead of dropping the user on the
+// dashboard. The path is restricted to /api/oauth/… on our own origin so it
+// can't be repurposed as an open redirect.
 func (ua *UserAuth) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	cliCallback := r.URL.Query().Get("cli_callback")
 	cliState := r.URL.Query().Get("cli_state")
+	returnTo := r.URL.Query().Get("return_to")
 	if (cliCallback == "") != (cliState == "") {
 		http.Error(w, "cli_callback and cli_state must be provided together", http.StatusBadRequest)
 		return
@@ -274,10 +287,37 @@ func (ua *UserAuth) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		state.CLICallback = callbackURL.String()
 		state.CLIState = cliState
 	}
+	if returnTo != "" {
+		safe, err := validateReturnTo(returnTo)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		state.ReturnTo = safe
+	}
 
 	ua.setCookie(w, StateCookieName, nonce, 600)
 
 	http.Redirect(w, r, ua.oauthConfig.AuthCodeURL(EncodeOAuthState(state)), http.StatusFound)
+}
+
+// validateReturnTo restricts return_to to an /api/oauth/… path on our own
+// origin (a relative path with no scheme/host, or an absolute URL whose
+// path begins with /api/oauth/). This prevents the param from being used
+// as an open redirect to attacker-controlled hosts.
+func validateReturnTo(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("return_to is not a valid URL")
+	}
+	if u.Scheme != "" || u.Host != "" {
+		// Disallow absolute URLs entirely — keeps the surface tiny.
+		return "", fmt.Errorf("return_to must be a relative path on this origin")
+	}
+	if !strings.HasPrefix(u.Path, "/api/oauth/") {
+		return "", fmt.Errorf("return_to must be an /api/oauth/ path")
+	}
+	return u.RequestURI(), nil
 }
 
 // HandleCallback processes the Google OAuth callback and creates a session.
@@ -354,6 +394,17 @@ func (ua *UserAuth) HandleCallback(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
+	}
+
+	// Mid-flow login (e.g. /api/oauth/authorize 302-ed here) — return
+	// the user to where they came from. validateReturnTo at /login time
+	// guarantees this is an /api/oauth/ path on our origin; revalidate
+	// here defensively in case the encoded state was tampered.
+	if state.ReturnTo != "" {
+		if safe, err := validateReturnTo(state.ReturnTo); err == nil {
+			http.Redirect(w, r, ua.baseURL+safe, http.StatusFound)
+			return
+		}
 	}
 
 	http.Redirect(w, r, ua.baseURL+"/dashboard", http.StatusFound)
