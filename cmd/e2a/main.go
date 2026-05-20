@@ -266,9 +266,10 @@ func main() {
 				if res, err := oauthStorage.CleanupExpired(context.Background(), time.Now()); err != nil {
 					log.Printf("Failed to clean up expired OAuth rows: %v", err)
 				} else if res.Total() > 0 {
-					log.Printf("Cleaned up OAuth rows: codes=%d pkce=%d access=%d refresh=%d",
+					log.Printf("Cleaned up OAuth rows: codes=%d pkce=%d access=%d refresh=%d clients=%d",
 						res.AuthCodesDeleted, res.PKCERequestsDeleted,
-						res.AccessTokensDeleted, res.RefreshTokensDeleted)
+						res.AccessTokensDeleted, res.RefreshTokensDeleted,
+						res.ClientsDeleted)
 				}
 			}
 		}

@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -305,12 +306,6 @@ func validateReturnToPath(raw string) error {
 	if !strings.HasPrefix(raw, "/api/oauth/") {
 		return errors.New("return_to must be a server path starting with /api/oauth/")
 	}
-	// Reject protocol-relative ("//evil") and backslash-tricks. After the
-	// /api/oauth/ prefix check, any additional sentinel must keep this an
-	// absolute server path with no authority component.
-	if strings.HasPrefix(raw, "//") {
-		return errors.New("return_to must not be protocol-relative")
-	}
 	if strings.ContainsAny(raw, "\\\n\r\x00") {
 		return errors.New("return_to contains forbidden characters")
 	}
@@ -321,6 +316,23 @@ func validateReturnToPath(raw string) error {
 	}
 	if u.Scheme != "" || u.Host != "" || u.User != nil {
 		return errors.New("return_to must be a path with no scheme or authority")
+	}
+	// Reject path traversal that survives the HasPrefix check by being
+	// collapsed by the browser. e.g. raw "/api/oauth/../../dashboard"
+	// matches the prefix but http.Redirect emits a Location header that
+	// the browser resolves to "/dashboard" — escaping the allow-list.
+	// path.Clean folds the "../" segments and we re-check the prefix on
+	// the normalized form.
+	cleaned := path.Clean(u.Path)
+	if !strings.HasPrefix(cleaned, "/api/oauth/") && cleaned != "/api/oauth" {
+		return errors.New("return_to escapes the allow-list after normalization")
+	}
+	// Also reject empty segments which a future router refactor might
+	// treat as authority. "/api/oauth//foo" survives path.Clean as
+	// "/api/oauth/foo" but the raw value carries the empty segment
+	// which some HTTP stacks parse differently — fail closed.
+	if strings.Contains(u.Path, "//") {
+		return errors.New("return_to must not contain empty path segments")
 	}
 	return nil
 }

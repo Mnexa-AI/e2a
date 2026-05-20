@@ -157,6 +157,9 @@ func TestHandleLogin_RejectsReturnToOutsideAllowList(t *testing.T) {
 		"/api/oauth/authorize\nSet-Cookie: x=y",         // header injection
 		"\\api\\oauth\\authorize",                       // backslash bypass
 		"http://localhost/api/oauth/authorize",          // scheme present
+		"/api/oauth/../../dashboard",                    // path traversal escaping the allow-list
+		"/api/oauth/../v1/agents",                       // path traversal into another API surface
+		"/api/oauth//evil.com/path",                     // empty segment after prefix
 	}
 	for _, rt := range bad {
 		t.Run(rt, func(t *testing.T) {
