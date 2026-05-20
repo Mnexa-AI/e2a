@@ -146,9 +146,15 @@ func NewProvider(storage *Storage, issuerURL string, hmacSecret []byte) (fosite.
 		// JWT bearer, OIDC, introspection, PAR) is intentionally
 		// not wired. fosite returns "unsupported_grant_type" /
 		// "unsupported_response_type" for those by default.
-		compose.OAuth2AuthorizeExplicitFactory, // authorize-code grant
-		compose.OAuth2RefreshTokenGrantFactory, // refresh-token grant
-		compose.OAuth2PKCEFactory,              // PKCE (S256-only here)
-		compose.OAuth2TokenRevocationFactory,   // RFC 7009 /revoke
+		compose.OAuth2AuthorizeExplicitFactory,    // authorize-code grant
+		compose.OAuth2RefreshTokenGrantFactory,    // refresh-token grant
+		compose.OAuth2PKCEFactory,                 // PKCE (S256-only here)
+		compose.OAuth2TokenRevocationFactory,      // RFC 7009 /revoke endpoint
+		// Token-introspection HANDLER (not endpoint). Wires the
+		// CoreValidator that authenticateUser's bearer dispatch uses
+		// via provider.IntrospectToken(). We don't expose the RFC
+		// 7662 /introspect endpoint — adding the factory only
+		// registers the in-process validator.
+		compose.OAuth2TokenIntrospectionFactory,
 	), nil
 }

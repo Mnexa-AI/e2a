@@ -279,13 +279,34 @@ func (a *API) RegisterWSRoute(r *mux.Router, handle http.HandlerFunc) {
 	r.HandleFunc("/api/v1/agents/{email}/ws", handle)
 }
 
-// authenticateUser extracts and validates the API key from the request, returning the owning user.
-// Falls back to session cookie auth if no Authorization header is present.
+// errOAuthBearerInvalid is returned by authenticateUser when an
+// ate2a_-prefixed bearer fails validation (revoked, expired, unknown,
+// or provider not wired). writeAuthError checks errors.Is on this to
+// decide whether to emit the RFC 6750 §3 WWW-Authenticate header —
+// MCP clients use that signal to re-trigger the OAuth flow rather
+// than treat the 401 as "bad API key."
+var errOAuthBearerInvalid = errors.New("oauth bearer invalid")
+
+// authenticateUser extracts and validates the bearer credential from
+// the request, returning the owning user.
+//
+// Dispatch is by token prefix:
+//   - ate2a_  → OAuth access token (fosite-validated via the configured
+//     provider). Rejected if missing, revoked, expired, or the
+//     provider isn't wired.
+//   - anything else (typically e2a_, but we accept legacy unprefixed
+//     keys too) → API key (api_keys table).
+//
+// If no Authorization header is present, falls back to the session
+// cookie used by the web dashboard.
 func (a *API) authenticateUser(r *http.Request) (*identity.User, error) {
-	apiKey := r.Header.Get("Authorization")
-	if apiKey != "" {
-		apiKey = strings.TrimPrefix(apiKey, "Bearer ")
-		return a.store.GetUserByAPIKey(r.Context(), apiKey)
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "" {
+		bearer := strings.TrimPrefix(authHeader, "Bearer ")
+		if strings.HasPrefix(bearer, oauth.AccessTokenPrefix) {
+			return a.lookupUserByOAuthToken(r, bearer)
+		}
+		return a.store.GetUserByAPIKey(r.Context(), bearer)
 	}
 	// Fall back to session cookie auth
 	if a.userAuth != nil {
@@ -294,6 +315,61 @@ func (a *API) authenticateUser(r *http.Request) (*identity.User, error) {
 		}
 	}
 	return nil, fmt.Errorf("authorization required")
+}
+
+// lookupUserByOAuthToken validates an ate2a_-prefixed bearer via
+// fosite's IntrospectToken (which derives the signature using the
+// same strategy that issued the token, looks up the row via our
+// Storage, and checks revoked/expired). On success we read the
+// e2a-specific user_id from the session and resolve to the user
+// record. All failure modes wrap errOAuthBearerInvalid so the
+// response layer can emit the right WWW-Authenticate header.
+func (a *API) lookupUserByOAuthToken(r *http.Request, bearer string) (*identity.User, error) {
+	if a.oauthProvider == nil {
+		// OAuth not enabled on this deployment. Fail closed rather
+		// than fall through to the API-key path (which would compare
+		// the ate2a_ token against the api_keys hash and miss — a
+		// slower path to the same 401, with a less actionable log).
+		return nil, fmt.Errorf("%w: provider not configured", errOAuthBearerInvalid)
+	}
+	session := &oauth.Session{}
+	_, ar, err := a.oauthProvider.IntrospectToken(r.Context(), bearer, fosite.AccessToken, session)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", errOAuthBearerInvalid, err)
+	}
+	// Trust the session, not the request — the session was loaded
+	// from the DB row fosite hydrated.
+	sess, ok := ar.GetSession().(*oauth.Session)
+	if !ok || sess.UserID == "" {
+		return nil, fmt.Errorf("%w: session missing user_id", errOAuthBearerInvalid)
+	}
+	return a.store.GetUserByID(r.Context(), sess.UserID)
+}
+
+// writeAuthError writes a 401 response, attaching an RFC 6750 §3
+// WWW-Authenticate challenge when the failed credential was an OAuth
+// access token. Without the header, MCP clients can't distinguish
+// "your access token is invalid, run OAuth again" from "your API key
+// is bad" — both surface as a generic 401 and the client can't auto-
+// trigger re-auth. The error_description varies by failure mode
+// (revoked / expired / invalid) so SDKs can surface a useful message.
+func (a *API) writeAuthError(w http.ResponseWriter, r *http.Request, err error) {
+	bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if errors.Is(err, errOAuthBearerInvalid) || strings.HasPrefix(bearer, oauth.AccessTokenPrefix) {
+		desc := "the access token is invalid"
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "revoked"):
+			desc = "the access token has been revoked"
+		case strings.Contains(msg, "expired"):
+			desc = "the access token has expired"
+		}
+		// RFC 6750 §3: WWW-Authenticate challenge with realm + error +
+		// error_description. Quoted strings; ASCII per RFC 6749 §5.2.
+		w.Header().Set("WWW-Authenticate",
+			`Bearer realm="e2a", error="invalid_token", error_description="`+desc+`"`)
+	}
+	http.Error(w, "authentication required", http.StatusUnauthorized)
 }
 
 // resolveAgentForUser loads an agent by email address and verifies the user owns it.
@@ -366,7 +442,7 @@ func (a *API) handleRegisterAgent(w http.ResponseWriter, r *http.Request) {
 	// Require authentication (API key or session) for agent registration.
 	user, err := a.authenticateUser(r)
 	if err != nil {
-		http.Error(w, "authentication required", http.StatusUnauthorized)
+		a.writeAuthError(w, r, err)
 		return
 	}
 
@@ -459,7 +535,7 @@ func (a *API) handleRegisterAgent(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticateUser(r)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		a.writeAuthError(w, r, err)
 		return
 	}
 
@@ -496,7 +572,7 @@ func (a *API) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 
 	user, err := a.authenticateUser(r)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		a.writeAuthError(w, r, err)
 		return
 	}
 	ag, err := a.resolveAgentForUser(r, email, user)
@@ -555,7 +631,7 @@ func (a *API) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 
 	user, err := a.authenticateUser(r)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		a.writeAuthError(w, r, err)
 		return
 	}
 	ag, err := a.resolveAgentForUser(r, email, user)
@@ -658,7 +734,7 @@ func (a *API) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 
 	user, err := a.authenticateUser(r)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		a.writeAuthError(w, r, err)
 		return
 	}
 
@@ -695,7 +771,7 @@ func (a *API) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleRegisterDomain(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticateUser(r)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		a.writeAuthError(w, r, err)
 		return
 	}
 
@@ -742,7 +818,7 @@ func (a *API) handleRegisterDomain(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleVerifyDomain(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticateUser(r)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		a.writeAuthError(w, r, err)
 		return
 	}
 
@@ -828,7 +904,7 @@ func (a *API) handleVerifyDomain(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleListDomains(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticateUser(r)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		a.writeAuthError(w, r, err)
 		return
 	}
 
@@ -862,7 +938,7 @@ func (a *API) handleListDomains(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleDeleteDomain(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticateUser(r)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		a.writeAuthError(w, r, err)
 		return
 	}
 
@@ -990,7 +1066,7 @@ func (a *API) holdForApproval(w http.ResponseWriter, r *http.Request, agent *ide
 func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticateUser(r)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		a.writeAuthError(w, r, err)
 		return
 	}
 
@@ -1103,7 +1179,7 @@ func (a *API) handleSendTestEmail(w http.ResponseWriter, r *http.Request) {
 
 	user, err := a.authenticateUser(r)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		a.writeAuthError(w, r, err)
 		return
 	}
 
@@ -1187,7 +1263,7 @@ type ReplyRequest struct {
 func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticateUser(r)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		a.writeAuthError(w, r, err)
 		return
 	}
 
@@ -1338,7 +1414,7 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticateUser(r)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		a.writeAuthError(w, r, err)
 		return
 	}
 
@@ -1488,7 +1564,7 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleGetMessage(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticateUser(r)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		a.writeAuthError(w, r, err)
 		return
 	}
 
