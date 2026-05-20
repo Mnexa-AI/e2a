@@ -174,10 +174,11 @@ func main() {
 	// `iss` emission + discovery would emit empty/inconsistent values
 	// — skip wiring so /api/oauth/* return 404 and operators get a
 	// loud signal that the deployment needs http.public_url set.
+	var oauthStorage *oauth.Storage
 	if cfg.HTTP.PublicURL == "" {
 		log.Printf("[oauth] provider disabled: http.public_url is not set (required for issuer identity)")
 	} else {
-		oauthStorage := oauth.NewStorage(pool)
+		oauthStorage = oauth.NewStorage(pool)
 		oauthProvider, err := oauth.NewProvider(oauthStorage, cfg.HTTP.PublicURL, []byte(cfg.Signing.HMACSecret))
 		if err != nil {
 			log.Fatalf("[oauth] provider wiring failed: %v", err)
@@ -259,6 +260,16 @@ func main() {
 				log.Printf("Failed to clean up expired webhook deliveries: %v", err)
 			} else if deleted > 0 {
 				log.Printf("Cleaned up %d expired webhook delivery record(s)", deleted)
+			}
+
+			if oauthStorage != nil {
+				if res, err := oauthStorage.CleanupExpired(context.Background(), time.Now()); err != nil {
+					log.Printf("Failed to clean up expired OAuth rows: %v", err)
+				} else if res.Total() > 0 {
+					log.Printf("Cleaned up OAuth rows: codes=%d pkce=%d access=%d refresh=%d",
+						res.AuthCodesDeleted, res.PKCERequestsDeleted,
+						res.AccessTokensDeleted, res.RefreshTokensDeleted)
+				}
 			}
 		}
 	}()

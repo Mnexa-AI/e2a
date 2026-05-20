@@ -20,15 +20,30 @@ import (
 //     the user and is omitted on purpose.
 //   - User session tokens are transient and excluded.
 type UserExport struct {
-	GeneratedAt    time.Time            `json:"generated_at"`
-	SchemaVersion  string               `json:"schema_version"`
-	User           UserExportUser       `json:"user"`
-	Domains        []Domain             `json:"domains"`
-	Agents         []AgentIdentity      `json:"agents"`
-	APIKeys        []APIKeyExportEntry  `json:"api_keys"`
-	Messages       []Message            `json:"messages"`
-	UsageEvents    []UsageEventEntry    `json:"usage_events,omitempty"`
+	GeneratedAt      time.Time              `json:"generated_at"`
+	SchemaVersion    string                 `json:"schema_version"`
+	User             UserExportUser         `json:"user"`
+	Domains          []Domain               `json:"domains"`
+	Agents           []AgentIdentity        `json:"agents"`
+	APIKeys          []APIKeyExportEntry    `json:"api_keys"`
+	Messages         []Message              `json:"messages"`
+	UsageEvents      []UsageEventEntry      `json:"usage_events,omitempty"`
+	OAuthConnections []OAuthConnectionEntry `json:"oauth_connections,omitempty"`
 } // @name UserExport
+
+// OAuthConnectionEntry is one OAuth/MCP client connection. The
+// underlying token signatures are intentionally excluded — they are
+// credential-equivalent. The agent_email is the per-grant binding
+// captured at consent time.
+type OAuthConnectionEntry struct {
+	ClientID   string     `json:"client_id"`
+	ClientName string     `json:"client_name"`
+	AgentEmail string     `json:"agent_email"`
+	Scope      string     `json:"scope"`
+	IssuedAt   time.Time  `json:"issued_at"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+} // @name OAuthConnectionEntry
 
 // UserExportUser mirrors User but omits the google_subject internal
 // identifier from the export payload.
@@ -133,14 +148,17 @@ func (s *Store) ExportUserData(ctx context.Context, userID string) (*UserExport,
 // Operators receiving a deletion request often have to attest to what
 // was removed; returning structured counts beats parsing a log line.
 type DeleteUserDataResult struct {
-	UsageEventsDeleted     int64 `json:"usage_events_deleted"`
-	UsageSummariesDeleted  int64 `json:"usage_summaries_deleted"`
-	MessagesDeleted        int64 `json:"messages_deleted"`
-	AgentsDeleted          int64 `json:"agents_deleted"`
-	DomainsDeleted         int64 `json:"domains_deleted"`
-	APIKeysDeleted         int64 `json:"api_keys_deleted"`
-	SessionsDeleted        int64 `json:"sessions_deleted"`
-	UserDeleted            bool  `json:"user_deleted"`
+	UsageEventsDeleted        int64 `json:"usage_events_deleted"`
+	UsageSummariesDeleted     int64 `json:"usage_summaries_deleted"`
+	MessagesDeleted           int64 `json:"messages_deleted"`
+	AgentsDeleted             int64 `json:"agents_deleted"`
+	DomainsDeleted            int64 `json:"domains_deleted"`
+	APIKeysDeleted            int64 `json:"api_keys_deleted"`
+	SessionsDeleted           int64 `json:"sessions_deleted"`
+	OAuthAuthCodesDeleted     int64 `json:"oauth_auth_codes_deleted,omitempty"`
+	OAuthAccessTokensDeleted  int64 `json:"oauth_access_tokens_deleted,omitempty"`
+	OAuthRefreshTokensDeleted int64 `json:"oauth_refresh_tokens_deleted,omitempty"`
+	UserDeleted               bool  `json:"user_deleted"`
 } // @name DeleteUserDataResult
 
 // DeleteUserData wipes everything tied to a user in a single transaction.
