@@ -298,16 +298,28 @@ func (s *Store) AtomicConsumeCode(ctx context.Context, code string) (*Authorizat
 
 	// Update returned no rows. Disambiguate: was it not found, expired,
 	// or already consumed? Use the same tx for a read-after-failed-write.
-	now := time.Now()
+	//
+	// CRITICAL: the expiry check must use the DB clock, not Go's wall
+	// clock. The UPDATE above used Postgres NOW(); if Go's time.Now()
+	// disagrees by even a few ms (normal NTP skew between an app VM
+	// and a managed Postgres) we can land in a state where:
+	//   UPDATE fails:  DB sees NOW() > expires_at  → 0 rows
+	//   Go disagrees:  expires_at > go_now         → "not expired"
+	// and the code falls through to "shouldn't happen" → and we
+	// previously defaulted to ConsumeAlreadyConsumed, which triggers
+	// RevokeAllByClientUser at the caller — wiping the user's other
+	// live tokens for that client. Now we compute is_expired in SQL
+	// using the same clock the UPDATE used.
+	var isExpired bool
 	err = tx.QueryRow(ctx, `
 		SELECT code, client_id, user_id, agent_email, redirect_uri,
 		       code_challenge, code_challenge_method, scope,
-		       expires_at, consumed_at
+		       expires_at, consumed_at, (NOW() > expires_at) AS is_expired
 		FROM oauth_authorization_codes WHERE code = $1
 	`, code).Scan(
 		&c.Code, &c.ClientID, &c.UserID, &agentEmail, &c.RedirectURI,
 		&c.CodeChallenge, &c.CodeChallengeMethod, &c.Scope,
-		&c.ExpiresAt, &consumedAtRaw,
+		&c.ExpiresAt, &consumedAtRaw, &isExpired,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		_ = tx.Commit(ctx)
@@ -328,12 +340,16 @@ func (s *Store) AtomicConsumeCode(ctx context.Context, code string) (*Authorizat
 	if c.ConsumedAt != nil {
 		return &c, ConsumeAlreadyConsumed, nil
 	}
-	if !c.ExpiresAt.After(now) {
+	if isExpired {
 		return &c, ConsumeExpired, nil
 	}
-	// Shouldn't happen — the UPDATE should have matched. Treat as
-	// already-consumed defensively.
-	return &c, ConsumeAlreadyConsumed, nil
+	// Defensive fallthrough: row exists, isn't consumed, isn't expired,
+	// yet the UPDATE didn't take. Genuinely shouldn't happen with the
+	// same-tx read above. Treat as ConsumeExpired rather than
+	// ConsumeAlreadyConsumed — the latter is more destructive (triggers
+	// RevokeAllByClientUser at the caller), and we'd rather over-reject
+	// than over-revoke.
+	return &c, ConsumeExpired, nil
 }
 
 // ───────────────────────── tokens ─────────────────────────

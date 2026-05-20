@@ -38,6 +38,10 @@ type OAuthAuthorizationServerMetadata struct {
 	TokenEndpointAuthMethodsSupported      []string `json:"token_endpoint_auth_methods_supported"`
 	RevocationEndpointAuthMethodsSupported []string `json:"revocation_endpoint_auth_methods_supported"`
 	ScopesSupported                        []string `json:"scopes_supported"`
+	// Per RFC 8414 §2 — pointer to human-readable docs for e2a's OAuth
+	// surface (scope semantics, agent-pinning, slug conventions, etc.).
+	// Optional in the RFC but useful for client devs probing discovery.
+	ServiceDocumentation string `json:"service_documentation,omitempty"`
 }
 
 // handleOAuthDiscovery serves the RFC 8414 authorization-server metadata
@@ -71,6 +75,7 @@ func (a *API) handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
 		TokenEndpointAuthMethodsSupported:      []string{"none"},
 		RevocationEndpointAuthMethodsSupported: []string{"none"},
 		ScopesSupported:                        []string{"e2a"},
+		ServiceDocumentation:                   "https://e2a.dev/docs/oauth",
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
@@ -199,7 +204,14 @@ func dcrSourceIP(r *http.Request) string {
 	if ip := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); ip != "" {
 		return ip
 	}
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		// RemoteAddr lacks the expected "host:port" shape (unix socket,
+		// future transport, malformed test setup). Fall back to the raw
+		// value rather than bucket all such requests under "" — which
+		// would let any single weird peer DoS the limiter for everyone.
+		return r.RemoteAddr
+	}
 	return host
 }
 
