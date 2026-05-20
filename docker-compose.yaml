@@ -39,7 +39,10 @@ services:
         required: false
     environment:
       E2A_DATABASE_URL: "postgres://e2a:e2a@postgres:5432/e2a?sslmode=disable"
-      E2A_HMAC_SECRET: "change-me-in-production"
+      # Demo-only HMAC secret. ≥32 bytes is required by the OAuth
+      # provider (fosite) for HKDF-derived token signing — shorter
+      # values refuse to wire. Override via .env for any non-demo run.
+      E2A_HMAC_SECRET: "demo-hmac-secret-do-not-use-in-production-32"
       # Demo shared domain so the README's slug-based `agents register`
       # example works without DNS setup. agents.localhost never resolves
       # externally, so no real mail will arrive — fine for an API smoke
@@ -64,6 +67,37 @@ services:
       # Caddy proxies /api/* to this URL. The default service name "e2a"
       # resolves on the compose network — no extra config needed.
       E2A_BACKEND: "http://e2a:8080"
+
+  # MCP HTTP transport. Forwards Bearer tokens to the e2a backend
+  # unchanged; the backend's prefix dispatch (ate2a_ vs e2a_) decides
+  # whether to validate via fosite (OAuth) or the API-key path. Local
+  # dev port 8765 is what Claude Code's `claude mcp add` expects.
+  mcp:
+    build:
+      context: .
+      dockerfile: mcp/Dockerfile
+    depends_on:
+      e2a:
+        condition: service_started
+    restart: unless-stopped
+    ports:
+      - "8765:3000"
+    environment:
+      # e2a backend reachable from inside the compose network.
+      E2A_BASE_URL: "http://e2a:8080"
+      # Allow loopback Host headers so Claude Code (which calls via
+      # http://localhost:8765) doesn't trip the DNS-rebinding guard.
+      MCP_ALLOWED_HOSTS: "localhost,127.0.0.1"
+      # Externally reachable URL. Used in the RFC 9728 protected-
+      # resource metadata + WWW-Authenticate header so OAuth clients
+      # bootstrap onto the right host.
+      MCP_PUBLIC_URL: "http://localhost:8765"
+      # Container-internal baseUrl ≠ host-reachable AS URL. The MCP
+      # server forwards bearers via the compose-network hostname
+      # (E2A_BASE_URL above) but Claude Code runs on the host and
+      # must reach the AS at localhost. This split keeps both paths
+      # working.
+      MCP_AUTHORIZATION_SERVER_URL: "http://localhost:8080"
 
 volumes:
   pgdata:

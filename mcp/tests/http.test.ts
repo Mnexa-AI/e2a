@@ -282,6 +282,48 @@ describe("HTTP MCP server", () => {
     expect(res.status).toBeGreaterThanOrEqual(500);
   });
 
+  it("publicUrl override drives both protected-resource metadata and WWW-Authenticate", async () => {
+    // Local-dev shape: publicUrl set to http://localhost:8765 so the
+    // resource/resource_metadata values reflect the externally-
+    // reachable URL exactly (the DNS-rebinding allowlist still gates
+    // /mcp on the Host header — local dev adds 127.0.0.1 there too).
+    // Also pins the local "mcp" scope so the consent UI's scope-list
+    // aligns with the e2a backend.
+    await close();
+    const { close: c, port } = await startHttpServer(0, {
+      baseUrl: "http://e2a.local",
+      allowedHosts: ["127.0.0.1", "localhost"],
+      publicUrl: "http://localhost:8765",
+      clientFactory: () => stub,
+    });
+    close = c;
+
+    // Discovery: the resource/scope/auth-server fields all reflect
+    // publicUrl + the backend's advertised scope.
+    const disc = await fetch(`http://127.0.0.1:${port}/.well-known/oauth-protected-resource`);
+    expect(disc.status).toBe(200);
+    const meta = await disc.json();
+    expect(meta.resource).toBe("http://localhost:8765");
+    expect(meta.scopes_supported).toEqual(["mcp"]);
+
+    // 401 on /mcp without bearer: WWW-Authenticate's resource_metadata
+    // URL must use publicUrl, not "https://127.0.0.1:port".
+    const unauth = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "x", version: "0" } },
+      }),
+    });
+    expect(unauth.status).toBe(401);
+    expect(unauth.headers.get("www-authenticate")).toContain(
+      `resource_metadata="http://localhost:8765/.well-known/oauth-protected-resource"`,
+    );
+  });
+
   it("discovery endpoint 421s on spoofed Host", async () => {
     // Re-bind the server with a strict allowlist so a request to
     // /.well-known/... over 127.0.0.1 is rejected.
