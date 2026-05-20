@@ -291,6 +291,74 @@ func newTestToken(clientID, userID string) *oauth.Token {
 	}
 }
 
+// TestIssueToken_StoresHashNotPlaintext is the regression guard for the
+// at-rest hashing fix. We issue a token, then query the raw column
+// directly and confirm:
+//   - the access_token_hash column equals SHA-256(plaintext)
+//   - the access_token_hash column does NOT equal the plaintext itself
+//   - same for refresh_token_hash
+//   - there is no column named "access_token" or "refresh_token" we can
+//     still query for the plaintext (defense against a partial schema
+//     migration)
+//
+// If anyone reverts the store to write plaintext, or adds a debug
+// column that does, this test fails loud.
+func TestIssueToken_StoresHashNotPlaintext(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	store := oauth.NewStore(pool)
+	idStore := identity.NewStore(pool)
+	clientID := seedClient(t, store)
+	userID := seedUser(t, idStore)
+
+	tok := newTestToken(clientID, userID)
+	if err := store.IssueToken(ctx, tok); err != nil {
+		t.Fatal(err)
+	}
+
+	var storedAccessHash, storedRefreshHash string
+	err := pool.QueryRow(ctx, `
+		SELECT access_token_hash, refresh_token_hash
+		FROM oauth_tokens
+		WHERE refresh_chain_id = $1
+	`, tok.RefreshChainID).Scan(&storedAccessHash, &storedRefreshHash)
+	if err != nil {
+		t.Fatalf("raw query: %v", err)
+	}
+
+	wantAccessHash := oauth.HashToken(tok.AccessToken)
+	if storedAccessHash != wantAccessHash {
+		t.Errorf("access_token_hash mismatch: want %q, got %q", wantAccessHash, storedAccessHash)
+	}
+	if storedAccessHash == tok.AccessToken {
+		t.Error("FAIL: access_token_hash column contains the plaintext token (should be SHA-256 hex)")
+	}
+	if strings.HasPrefix(storedAccessHash, oauth.AccessTokenPrefix) {
+		t.Errorf("access_token_hash should not have the bearer prefix: got %q", storedAccessHash)
+	}
+
+	wantRefreshHash := oauth.HashToken(tok.RefreshToken)
+	if storedRefreshHash != wantRefreshHash {
+		t.Errorf("refresh_token_hash mismatch: want %q, got %q", wantRefreshHash, storedRefreshHash)
+	}
+	if storedRefreshHash == tok.RefreshToken {
+		t.Error("FAIL: refresh_token_hash column contains the plaintext token (should be SHA-256 hex)")
+	}
+
+	// Defense against partial migration: the old plaintext columns must
+	// not exist. Querying them should fail with a "column does not
+	// exist" error from Postgres.
+	var dummy string
+	err = pool.QueryRow(ctx, `SELECT access_token FROM oauth_tokens LIMIT 1`).Scan(&dummy)
+	if err == nil {
+		t.Error("FAIL: access_token column still exists — plaintext fallback present")
+	}
+	err = pool.QueryRow(ctx, `SELECT refresh_token FROM oauth_tokens LIMIT 1`).Scan(&dummy)
+	if err == nil {
+		t.Error("FAIL: refresh_token column still exists — plaintext fallback present")
+	}
+}
+
 func TestIssueTokenAndLookupByAccess(t *testing.T) {
 	ctx := context.Background()
 	pool := testutil.TestDB(t)
@@ -308,8 +376,16 @@ func TestIssueTokenAndLookupByAccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.AccessToken != tok.AccessToken || got.RefreshToken != tok.RefreshToken {
-		t.Errorf("round-trip mismatch")
+	// Plaintext access token is reconstructed from the lookup input
+	// (we hash it for the WHERE; the column stores only the hash).
+	if got.AccessToken != tok.AccessToken {
+		t.Errorf("AccessToken should round-trip via input: want %q, got %q", tok.AccessToken, got.AccessToken)
+	}
+	// Refresh-token plaintext is NOT recoverable from a by-access
+	// lookup — we don't store it. Confirm it's empty so callers don't
+	// accidentally treat a stale field as a live credential.
+	if got.RefreshToken != "" {
+		t.Errorf("RefreshToken must NOT be populated on LookupTokenByAccess (cannot reconstruct from hash): got %q", got.RefreshToken)
 	}
 	if got.AgentEmail != "bot@agents.e2a.dev" {
 		t.Errorf("agent_email: %q", got.AgentEmail)
@@ -346,8 +422,20 @@ func TestLookupTokenByRefresh_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.AccessToken != tok.AccessToken {
-		t.Errorf("refresh→access round-trip mismatch")
+	// Refresh-token plaintext round-trips via input (we hashed it for
+	// the WHERE). Access-token plaintext is NOT recoverable from this
+	// lookup path; verify the field is empty so a future caller that
+	// reads got.AccessToken doesn't quietly authenticate as nothing.
+	if got.RefreshToken != tok.RefreshToken {
+		t.Errorf("RefreshToken should round-trip via input: want %q, got %q", tok.RefreshToken, got.RefreshToken)
+	}
+	if got.AccessToken != "" {
+		t.Errorf("AccessToken must NOT be populated on LookupTokenByRefresh: got %q", got.AccessToken)
+	}
+	// The non-credential fields (chain, client, user) MUST round-trip
+	// since handlers depend on them for the refresh-grant decision.
+	if got.RefreshChainID != tok.RefreshChainID {
+		t.Errorf("RefreshChainID round-trip: want %q, got %q", tok.RefreshChainID, got.RefreshChainID)
 	}
 }
 

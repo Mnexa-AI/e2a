@@ -10,6 +10,7 @@ package oauth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,18 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// HashToken returns the SHA-256 hex of a plaintext token. We store
+// SHA-256 (not bcrypt/argon2) because tokens are 128-bit random — slow
+// hashes buy nothing against an input space that can't be brute-forced
+// in any realistic timeframe, and the hot bearer-validation path runs
+// on every authed request. SHA-256 also matches the existing
+// identity.hashAPIKey pattern in the same DB so a DB read is uniformly
+// non-credential-bearing.
+func HashToken(plaintext string) string {
+	h := sha256.Sum256([]byte(plaintext))
+	return hex.EncodeToString(h[:])
+}
 
 // Token / ID prefixes. Kept here as a single source of truth so the
 // dispatch in identity.GetUserByBearer can grep for them.
@@ -328,22 +341,27 @@ func (s *Store) AtomicConsumeCode(ctx context.Context, code string) (*Authorizat
 // IssueToken inserts an oauth_tokens row. Used both at code-exchange
 // time (initial token issuance) and refresh time (a new row in the
 // same RefreshChainID — caller separately nulls the prior row's
-// refresh_token via RotateRefreshToken).
+// refresh_token_hash via RotateRefreshToken).
+//
+// The plaintext t.AccessToken / t.RefreshToken are hashed before write;
+// only the hashes hit disk. The plaintext stays on the struct so the
+// caller can return it in the issuance HTTP response (one-time view).
 func (s *Store) IssueToken(ctx context.Context, t *Token) error {
 	var agentEmail *string
 	if t.AgentEmail != "" {
 		agentEmail = &t.AgentEmail
 	}
-	var refreshToken *string
+	var refreshHash *string
 	if t.RefreshToken != "" {
-		refreshToken = &t.RefreshToken
+		h := HashToken(t.RefreshToken)
+		refreshHash = &h
 	}
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO oauth_tokens
-		    (access_token, refresh_token, refresh_chain_id, client_id,
+		    (access_token_hash, refresh_token_hash, refresh_chain_id, client_id,
 		     user_id, agent_email, scope, expires_at, refresh_expires_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, t.AccessToken, refreshToken, t.RefreshChainID, t.ClientID,
+	`, HashToken(t.AccessToken), refreshHash, t.RefreshChainID, t.ClientID,
 		t.UserID, agentEmail, t.Scope, t.ExpiresAt, t.RefreshExpiresAt)
 	return err
 }
@@ -354,36 +372,54 @@ var ErrTokenNotFound = errors.New("oauth: token not found")
 
 // LookupTokenByAccess fetches the row for an access token, regardless
 // of revoked/expired state. Callers must check IsActive() or the
-// individual fields. This shape lets the auth middleware emit clear
-// errors ("revoked" vs "expired") without re-querying.
+// individual fields. The returned Token.AccessToken is populated with
+// the caller's plaintext (we can't reconstruct it from the hash);
+// Token.RefreshToken is left empty because we no longer have the
+// plaintext for sibling refresh tokens.
 func (s *Store) LookupTokenByAccess(ctx context.Context, accessToken string) (*Token, error) {
-	return s.lookupToken(ctx, "access_token = $1", accessToken)
+	t, err := s.lookupToken(ctx, "access_token_hash = $1", HashToken(accessToken))
+	if err != nil {
+		return nil, err
+	}
+	t.AccessToken = accessToken
+	return t, nil
 }
 
 // LookupTokenByRefresh fetches the row by refresh_token. Returns
 // ErrTokenNotFound when the refresh_token doesn't exist OR has been
-// rotated (set NULL). Caller should not distinguish: both cases
-// indicate a replayed or stale refresh.
+// rotated (refresh_token_hash set NULL). Caller should not distinguish:
+// both cases indicate a replayed or stale refresh.
+//
+// Token.RefreshToken is populated with the caller's plaintext;
+// Token.AccessToken is left empty.
 func (s *Store) LookupTokenByRefresh(ctx context.Context, refreshToken string) (*Token, error) {
-	return s.lookupToken(ctx, "refresh_token = $1", refreshToken)
+	t, err := s.lookupToken(ctx, "refresh_token_hash = $1", HashToken(refreshToken))
+	if err != nil {
+		return nil, err
+	}
+	t.RefreshToken = refreshToken
+	return t, nil
 }
 
-func (s *Store) lookupToken(ctx context.Context, whereClause, arg string) (*Token, error) {
+// lookupToken returns the row fields that aren't the bearer plaintext.
+// AccessToken / RefreshToken on the returned struct are intentionally
+// blank — the caller knows which one they queried with and sets it.
+func (s *Store) lookupToken(ctx context.Context, whereClause, hashedArg string) (*Token, error) {
 	var t Token
 	var (
-		refreshToken     *string
+		hasRefresh       bool
 		agentEmail       *string
 		refreshExpiresAt *time.Time
 		revokedAt        *time.Time
 	)
 	err := s.pool.QueryRow(ctx, `
-		SELECT access_token, refresh_token, refresh_chain_id, client_id,
+		SELECT (refresh_token_hash IS NOT NULL), refresh_chain_id, client_id,
 		       user_id, agent_email, scope, expires_at,
 		       refresh_expires_at, revoked_at, created_at
 		FROM oauth_tokens WHERE `+whereClause,
-		arg,
+		hashedArg,
 	).Scan(
-		&t.AccessToken, &refreshToken, &t.RefreshChainID, &t.ClientID,
+		&hasRefresh, &t.RefreshChainID, &t.ClientID,
 		&t.UserID, &agentEmail, &t.Scope, &t.ExpiresAt,
 		&refreshExpiresAt, &revokedAt, &t.CreatedAt,
 	)
@@ -393,9 +429,7 @@ func (s *Store) lookupToken(ctx context.Context, whereClause, arg string) (*Toke
 	if err != nil {
 		return nil, err
 	}
-	if refreshToken != nil {
-		t.RefreshToken = *refreshToken
-	}
+	_ = hasRefresh // hash presence is implicit in revoked_at/rotation state; reserved for future "has live refresh" callers
 	if agentEmail != nil {
 		t.AgentEmail = *agentEmail
 	}
@@ -419,8 +453,8 @@ func (s *Store) RotateRefreshToken(ctx context.Context, oldRefresh string, newTo
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	res, err := tx.Exec(ctx,
-		`UPDATE oauth_tokens SET refresh_token = NULL WHERE refresh_token = $1`,
-		oldRefresh,
+		`UPDATE oauth_tokens SET refresh_token_hash = NULL WHERE refresh_token_hash = $1`,
+		HashToken(oldRefresh),
 	)
 	if err != nil {
 		return fmt.Errorf("invalidate old refresh: %w", err)
@@ -437,16 +471,17 @@ func (s *Store) RotateRefreshToken(ctx context.Context, oldRefresh string, newTo
 	if newToken.AgentEmail != "" {
 		agentEmail = &newToken.AgentEmail
 	}
-	var refreshTokenArg *string
+	var refreshHash *string
 	if newToken.RefreshToken != "" {
-		refreshTokenArg = &newToken.RefreshToken
+		h := HashToken(newToken.RefreshToken)
+		refreshHash = &h
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO oauth_tokens
-		    (access_token, refresh_token, refresh_chain_id, client_id,
+		    (access_token_hash, refresh_token_hash, refresh_chain_id, client_id,
 		     user_id, agent_email, scope, expires_at, refresh_expires_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, newToken.AccessToken, refreshTokenArg, newToken.RefreshChainID,
+	`, HashToken(newToken.AccessToken), refreshHash, newToken.RefreshChainID,
 		newToken.ClientID, newToken.UserID, agentEmail, newToken.Scope,
 		newToken.ExpiresAt, newToken.RefreshExpiresAt,
 	); err != nil {
@@ -457,14 +492,14 @@ func (s *Store) RotateRefreshToken(ctx context.Context, oldRefresh string, newTo
 }
 
 // RevokeToken marks a single access token revoked (sets revoked_at).
-// Also NULLs the refresh_token so a refresh-grant attempt on this row
-// fails the lookup. Used by /api/oauth/revoke (RFC 7009).
+// Also NULLs the refresh_token_hash so a refresh-grant attempt on this
+// row fails the lookup. Used by /api/oauth/revoke (RFC 7009).
 func (s *Store) RevokeToken(ctx context.Context, accessToken string) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE oauth_tokens
-		SET revoked_at = NOW(), refresh_token = NULL
-		WHERE access_token = $1 AND revoked_at IS NULL
-	`, accessToken)
+		SET revoked_at = NOW(), refresh_token_hash = NULL
+		WHERE access_token_hash = $1 AND revoked_at IS NULL
+	`, HashToken(accessToken))
 	return err
 }
 
@@ -475,7 +510,7 @@ func (s *Store) RevokeToken(ctx context.Context, accessToken string) error {
 func (s *Store) RevokeChainByID(ctx context.Context, chainID string) (int, error) {
 	res, err := s.pool.Exec(ctx, `
 		UPDATE oauth_tokens
-		SET revoked_at = NOW(), refresh_token = NULL
+		SET revoked_at = NOW(), refresh_token_hash = NULL
 		WHERE refresh_chain_id = $1 AND revoked_at IS NULL
 	`, chainID)
 	if err != nil {
@@ -492,7 +527,7 @@ func (s *Store) RevokeChainByID(ctx context.Context, chainID string) (int, error
 func (s *Store) RevokeAllByClientUser(ctx context.Context, clientID, userID string) (int, error) {
 	res, err := s.pool.Exec(ctx, `
 		UPDATE oauth_tokens
-		SET revoked_at = NOW(), refresh_token = NULL
+		SET revoked_at = NOW(), refresh_token_hash = NULL
 		WHERE client_id = $1 AND user_id = $2 AND revoked_at IS NULL
 	`, clientID, userID)
 	if err != nil {

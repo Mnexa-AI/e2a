@@ -15,8 +15,19 @@
 -- Token format conventions (enforced in application code, not DB):
 --   client_id      = 'mcp_'   + nanoid(12)
 --   code           = 'oace_'  + hex(32)
---   access_token   = 'ate2a_' + hex(32)
---   refresh_token  = 'rte2a_' + hex(32)
+--   access_token   = 'ate2a_' + hex(32)  — plaintext returned ONCE at issuance; DB stores SHA-256 hex.
+--   refresh_token  = 'rte2a_' + hex(32)  — same.
+--
+-- Tokens are STORED HASHED (SHA-256 hex of the plaintext). A DB read
+-- (replica leak, backup exfil, SQL injection in any other package
+-- against this DB) therefore yields no usable bearer credentials —
+-- the attacker would need to break SHA-256 preimage on a 128-bit
+-- input space. The plaintext is only ever in memory while the
+-- issuance response is being written; we never log it.
+--
+-- This matches the existing api_keys.key_hash pattern (see
+-- internal/identity/store.go:hashAPIKey). Lookups compute SHA-256
+-- of the candidate bearer in Go and query by the hash column.
 --
 -- All FKs CASCADE on user_id / client_id deletion: tokens die with their owner.
 
@@ -56,10 +67,13 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
 CREATE INDEX IF NOT EXISTS oauth_codes_user ON oauth_authorization_codes(user_id);
 
 CREATE TABLE IF NOT EXISTS oauth_tokens (
-    access_token         TEXT PRIMARY KEY,
-    -- Unique when present; null after rotation (a refresh-grant
-    -- invalidates the previous refresh_token by NULLing it out).
-    refresh_token        TEXT UNIQUE,
+    -- SHA-256 hex of the plaintext access_token. Lookups compute the
+    -- hash in Go and query by it; the plaintext never lands on disk.
+    access_token_hash    TEXT PRIMARY KEY,
+    -- SHA-256 hex of the plaintext refresh_token. Unique when present;
+    -- null after rotation (a refresh-grant invalidates the previous
+    -- refresh_token by NULLing the hash column out).
+    refresh_token_hash   TEXT UNIQUE,
     -- Groups all access/refresh tokens in a rotation chain so reuse
     -- of an old refresh_token can revoke every sibling at once.
     refresh_chain_id     TEXT NOT NULL,
@@ -80,10 +94,10 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
 CREATE INDEX IF NOT EXISTS oauth_tokens_user_active
     ON oauth_tokens(user_id) WHERE revoked_at IS NULL;
 
--- Refresh-grant lookup: find by refresh_token.
--- Partial because rotated rows have refresh_token = NULL.
+-- Refresh-grant lookup: find by refresh_token_hash.
+-- Partial because rotated rows have refresh_token_hash = NULL.
 CREATE INDEX IF NOT EXISTS oauth_tokens_refresh
-    ON oauth_tokens(refresh_token) WHERE refresh_token IS NOT NULL;
+    ON oauth_tokens(refresh_token_hash) WHERE refresh_token_hash IS NOT NULL;
 
 -- "List my OAuth connections" query — per (client, user) pair.
 CREATE INDEX IF NOT EXISTS oauth_tokens_client
