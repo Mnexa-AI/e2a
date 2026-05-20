@@ -257,6 +257,7 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/oauth/token", a.handleOAuthToken).Methods("POST")
 	r.HandleFunc("/api/oauth/revoke", a.handleOAuthRevoke).Methods("POST")
 	r.HandleFunc("/api/oauth/register", a.handleOAuthRegister).Methods("POST")
+	r.HandleFunc("/api/oauth/clients/{client_id}", a.handleOAuthGetClient).Methods("GET")
 	r.HandleFunc("/.well-known/oauth-authorization-server", a.handleOAuthDiscovery).Methods("GET")
 
 	// User auth (Google OAuth for agent developers)

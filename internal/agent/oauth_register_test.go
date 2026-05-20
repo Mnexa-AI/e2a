@@ -390,6 +390,120 @@ func TestHTTP_Register_NotConfigured(t *testing.T) {
 // Use context.Background helper without polluting the test surface.
 var _ = context.Background
 
+// TestHTTP_GetClient_PublicMetadata covers the GET /api/oauth/clients/{id}
+// lookup the consent UI calls to render the friendly client_name.
+// Asserts: 200 + correct fields on a real client, 404 on unknown, 404
+// when OAuth is not wired, no secret fields in the JSON body, and the
+// caching header.
+func TestHTTP_GetClient_PublicMetadata(t *testing.T) {
+	srv := newDCRServer(t)
+
+	// Seed via the DCR endpoint to exercise the real registration path.
+	regResp := postRegister(t, srv, agent.OAuthRegisterRequest{
+		ClientName:   "Consent UI Test Client",
+		RedirectURIs: []string{"https://app.example.com/oauth/cb"},
+	})
+	defer regResp.Body.Close()
+	var reg agent.OAuthRegisterResponse
+	if err := json.NewDecoder(regResp.Body).Decode(&reg); err != nil {
+		t.Fatalf("decode DCR response: %v", err)
+	}
+
+	t.Run("happy", func(t *testing.T) {
+		resp, err := http.Get(srv.URL + "/api/oauth/clients/" + reg.ClientID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("status = %d, want 200; body=%s", resp.StatusCode, string(body))
+		}
+		if cc := resp.Header.Get("Cache-Control"); !strings.Contains(cc, "max-age=") {
+			t.Errorf("Cache-Control should advertise caching: got %q", cc)
+		}
+		var got agent.OAuthClientPublicMetadata
+		if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got.ClientID != reg.ClientID {
+			t.Errorf("client_id = %q, want %q", got.ClientID, reg.ClientID)
+		}
+		if got.ClientName != "Consent UI Test Client" {
+			t.Errorf("client_name = %q, want Consent UI Test Client", got.ClientName)
+		}
+		if !equalStringSlice(got.RedirectURIs, []string{"https://app.example.com/oauth/cb"}) {
+			t.Errorf("redirect_uris = %v", got.RedirectURIs)
+		}
+		if !equalStringSlice(got.Scopes, []string{"mcp"}) {
+			t.Errorf("scopes = %v, want [mcp]", got.Scopes)
+		}
+		if got.ClientIDIssuedAt == 0 {
+			t.Error("client_id_issued_at must be non-zero")
+		}
+	})
+
+	t.Run("no secret fields", func(t *testing.T) {
+		// Defensive: even though OAuthClientPublicMetadata's Go type
+		// doesn't have a secret field, the JSON body could in theory
+		// carry one via misconfigured serialization. Grep the raw body.
+		resp, _ := http.Get(srv.URL + "/api/oauth/clients/" + reg.ClientID)
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		raw := strings.ToLower(string(body))
+		for _, forbidden := range []string{"secret", "secret_hash", "audience", "created_by_user"} {
+			if strings.Contains(raw, forbidden) {
+				t.Errorf("response body must not contain %q: %s", forbidden, body)
+			}
+		}
+	})
+
+	t.Run("unknown client_id 404", func(t *testing.T) {
+		resp, _ := http.Get(srv.URL + "/api/oauth/clients/mcp_does_not_exist")
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("unknown client status = %d, want 404", resp.StatusCode)
+		}
+	})
+
+	t.Run("empty client_id 404", func(t *testing.T) {
+		// gorilla/mux requires the path segment to be present, so a
+		// trailing slash or empty segment falls through to the default
+		// router 404.
+		resp, _ := http.Get(srv.URL + "/api/oauth/clients/")
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("empty client_id status = %d, want 404", resp.StatusCode)
+		}
+	})
+}
+
+// TestHTTP_GetClient_NotConfigured: when SetOAuthStorage hasn't been
+// called the endpoint must 404, matching the discovery/DCR pattern.
+// We share the bare scaffolding from oauth_discovery_test.go.
+func TestHTTP_GetClient_NotConfigured(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	smtpRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{})
+	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
+	api := agent.NewAPI(store, sender, smtpRelay, nil, usage.NewNoopUsageTracker(),
+		"e2a.dev", "test.e2a.dev", "agents.e2a.dev", "https://test.e2a.dev", false)
+	// No SetOAuthStorage call.
+	router := mux.NewRouter()
+	api.RegisterRoutes(router)
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/oauth/clients/mcp_anything")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", resp.StatusCode)
+	}
+}
+
 // equalStringSlice — order-independent comparison would be safer for
 // some assertions, but for our defaults the order is stable. Plain
 // equality is fine.

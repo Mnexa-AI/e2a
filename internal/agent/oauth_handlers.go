@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/oauth"
+	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5"
 	"github.com/ory/fosite"
 )
@@ -363,6 +364,65 @@ func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 		ResponseTypes:           req.ResponseTypes,
 		TokenEndpointAuthMethod: req.TokenEndpointAuthMethod,
 		Scope:                   req.Scope,
+	})
+}
+
+// OAuthClientPublicMetadata is the subset of an oauth_clients row we
+// surface to anonymous readers. The consent page (web/) fetches this
+// so it can render the friendly client_name beside the requested
+// scope. No secrets are present in this struct; secret_hash and
+// internal bookkeeping fields are deliberately omitted.
+type OAuthClientPublicMetadata struct {
+	ClientID         string   `json:"client_id"`
+	ClientName       string   `json:"client_name"`
+	RedirectURIs     []string `json:"redirect_uris"`
+	Scopes           []string `json:"scopes"`
+	ClientIDIssuedAt int64    `json:"client_id_issued_at"`
+}
+
+// handleOAuthGetClient is the public read endpoint the consent UI
+// uses to look up client metadata by client_id. Anonymous: RFC 7591
+// §4 says client metadata is generally not secret, and the consent
+// screen needs the friendly name to give the user a meaningful
+// "Allow X to access Y" prompt. 404 when oauth is not wired or the
+// client_id is unknown. No rate limit — this is a one-off read off
+// the consent path, indexed by primary key.
+func (a *API) handleOAuthGetClient(w http.ResponseWriter, r *http.Request) {
+	if a.oauthStorage == nil {
+		http.NotFound(w, r)
+		return
+	}
+	clientID := mux.Vars(r)["client_id"]
+	if clientID == "" {
+		http.NotFound(w, r)
+		return
+	}
+	var (
+		name      string
+		redirects []string
+		scopes    []string
+		createdAt time.Time
+	)
+	err := a.oauthStorage.Pool().QueryRow(r.Context(), `
+		SELECT client_name, redirect_uris, scopes, created_at
+		  FROM oauth_clients
+		 WHERE client_id = $1
+	`, clientID).Scan(&name, &redirects, &scopes, &createdAt)
+	if err != nil {
+		// pgx returns pgx.ErrNoRows on a missing row; conflate any read
+		// failure with 404 so we don't leak existence via timing or
+		// error-message granularity.
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=60")
+	_ = json.NewEncoder(w).Encode(OAuthClientPublicMetadata{
+		ClientID:         clientID,
+		ClientName:       name,
+		RedirectURIs:     redirects,
+		Scopes:           scopes,
+		ClientIDIssuedAt: createdAt.Unix(),
 	})
 }
 
