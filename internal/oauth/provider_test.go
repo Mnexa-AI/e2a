@@ -31,7 +31,10 @@ func newProviderFixture(t *testing.T) (fosite.OAuth2Provider, *oauth.Storage, *p
 	secret := []byte("test-secret-test-secret-test-sec")
 
 	storage := oauth.NewStorage(pool)
-	provider := oauth.NewProvider(storage, "https://test.e2a.dev", secret)
+	provider, err := oauth.NewProvider(storage, "https://test.e2a.dev", secret)
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
 
 	// Seed a public DCR client + a user. The same seeders the storage
 	// tests use; we re-walk them here so a future test that imports

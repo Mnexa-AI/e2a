@@ -178,8 +178,12 @@ func main() {
 		log.Printf("[oauth] provider disabled: http.public_url is not set (required for issuer identity)")
 	} else {
 		oauthStorage := oauth.NewStorage(pool)
-		oauthProvider := oauth.NewProvider(oauthStorage, cfg.HTTP.PublicURL, []byte(cfg.Signing.HMACSecret))
+		oauthProvider, err := oauth.NewProvider(oauthStorage, cfg.HTTP.PublicURL, []byte(cfg.Signing.HMACSecret))
+		if err != nil {
+			log.Fatalf("[oauth] provider wiring failed: %v", err)
+		}
 		api.SetOAuthProvider(oauthProvider)
+		log.Printf("[oauth] provider enabled: issuer=%s", cfg.HTTP.PublicURL)
 	}
 
 	api.RegisterRoutes(router)

@@ -41,7 +41,11 @@ func setupOAuthAPI(t *testing.T) (server *httptest.Server, provider fosite.OAuth
 
 	secret := []byte("test-secret-test-secret-test-sec")
 	storage := oauth.NewStorage(pool)
-	provider = oauth.NewProvider(storage, "https://test.e2a.dev", secret)
+	var err error
+	provider, err = oauth.NewProvider(storage, "https://test.e2a.dev", secret)
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
 	api.SetOAuthProvider(provider)
 
 	router := mux.NewRouter()
@@ -337,20 +341,36 @@ func TestHTTP_Token_CodeReplay(t *testing.T) {
 	}
 
 	// And the tokens from the first exchange must be revoked (the
-	// §10.5 reuse defense fosite drives via RevokeAccessToken).
-	var revoked bool
-	err = pool.QueryRow(context.Background(), `
+	// §10.5 reuse defense fosite drives via RevokeAccessToken +
+	// RevokeRefreshToken). Both halves must fire — checking only the
+	// access side would miss a regression that broke the refresh
+	// cascade.
+	var accessRevoked bool
+	if err := pool.QueryRow(context.Background(), `
 		SELECT revoked_at IS NOT NULL FROM oauth_access_tokens
 		WHERE request_id IN (
 		    SELECT request_id FROM oauth_auth_codes WHERE active = FALSE
 		)
 		LIMIT 1
-	`).Scan(&revoked)
-	if err != nil {
-		t.Fatalf("query revoked status: %v", err)
+	`).Scan(&accessRevoked); err != nil {
+		t.Fatalf("query access revoked status: %v", err)
 	}
-	if !revoked {
+	if !accessRevoked {
 		t.Error("expected the originally-issued access token to be revoked after code replay")
+	}
+
+	var refreshRevoked bool
+	if err := pool.QueryRow(context.Background(), `
+		SELECT revoked_at IS NOT NULL FROM oauth_refresh_tokens
+		WHERE request_id IN (
+		    SELECT request_id FROM oauth_auth_codes WHERE active = FALSE
+		)
+		LIMIT 1
+	`).Scan(&refreshRevoked); err != nil {
+		t.Fatalf("query refresh revoked status: %v", err)
+	}
+	if !refreshRevoked {
+		t.Error("expected the originally-issued refresh token to be revoked after code replay (RFC 6749 §10.5)")
 	}
 }
 
