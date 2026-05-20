@@ -551,3 +551,47 @@ func (s *Store) RevokeAllByClientUser(ctx context.Context, clientID, userID stri
 	}
 	return int(res.RowsAffected()), nil
 }
+
+// DeleteExpiredResult breaks out per-table counts for the periodic
+// cleanup worker's log line. Both counts contribute to the same data-
+// minimization goal (stop retaining PII past usefulness) but it's
+// useful in operations to see which table is doing the work.
+type DeleteExpiredResult struct {
+	Codes  int
+	Tokens int
+}
+
+// DeleteExpired removes oauth_* rows that are no longer useful.
+//
+// Authorization codes: 60s live; we keep them around briefly past
+// expiry so replay attempts still hit ConsumeAlreadyConsumed (for the
+// SECURITY log), then delete after 7 days.
+//
+// Tokens: keep revoked rows for 30d (audit window) and let already-
+// rotated rows die at 30d past their access expiry. Active rows are
+// untouched.
+//
+// Called from the cmd/e2a periodic worker. Returns row counts and any
+// error from the first failing DELETE.
+func (s *Store) DeleteExpired(ctx context.Context) (DeleteExpiredResult, error) {
+	var res DeleteExpiredResult
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM oauth_authorization_codes
+		WHERE expires_at < NOW() - INTERVAL '7 days'
+	`)
+	if err != nil {
+		return res, fmt.Errorf("delete expired codes: %w", err)
+	}
+	res.Codes = int(tag.RowsAffected())
+
+	tag, err = s.pool.Exec(ctx, `
+		DELETE FROM oauth_tokens
+		WHERE (revoked_at IS NOT NULL AND revoked_at < NOW() - INTERVAL '30 days')
+		   OR (expires_at < NOW() - INTERVAL '30 days' AND refresh_token_hash IS NULL)
+	`)
+	if err != nil {
+		return res, fmt.Errorf("delete expired tokens: %w", err)
+	}
+	res.Tokens = int(tag.RowsAffected())
+	return res, nil
+}

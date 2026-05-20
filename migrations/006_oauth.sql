@@ -42,7 +42,15 @@ CREATE TABLE IF NOT EXISTS oauth_clients (
     client_secret_hash   TEXT,
     metadata             JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_via          TEXT NOT NULL CHECK (created_via IN ('dcr', 'admin'))
+    created_via          TEXT NOT NULL CHECK (created_via IN ('dcr', 'admin')),
+    -- Optional attribution to a registering user. NULL for DCR
+    -- registrations (anonymous per RFC 7591 §2) and for admin-
+    -- curated rows where no user-of-record is meaningful. When a
+    -- referenced user is deleted, this clears to NULL — the client
+    -- row persists because client_ids are shared across users
+    -- (Claude Code's client_id is the same for every user who's
+    -- authorized it).
+    created_by_user_id   TEXT REFERENCES users(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS oauth_authorization_codes (

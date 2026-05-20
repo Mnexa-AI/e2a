@@ -291,6 +291,76 @@ func newTestToken(clientID, userID string) *oauth.Token {
 	}
 }
 
+// TestDeleteExpired guards PM1: the periodic worker must reclaim
+// PII-bearing rows past usefulness. We seed four scenarios and verify
+// the GC deletes exactly the right ones, leaving active rows alone.
+func TestDeleteExpired(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	store := oauth.NewStore(pool)
+	idStore := identity.NewStore(pool)
+	clientID := seedClient(t, store)
+	userID := seedUser(t, idStore)
+
+	insertCode := func(label string, expiresAt time.Time) string {
+		t.Helper()
+		c := &oauth.AuthorizationCode{
+			Code:                oauth.NewAuthCode(),
+			ClientID:            clientID,
+			UserID:              userID,
+			RedirectURI:         "https://example.com/cb",
+			CodeChallenge:       "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLM1234",
+			CodeChallengeMethod: "S256",
+			Scope:               "e2a",
+			ExpiresAt:           expiresAt,
+		}
+		if err := store.IssueCode(ctx, c); err != nil {
+			t.Fatalf("seed %s: %v", label, err)
+		}
+		return c.Code
+	}
+
+	// Code well past the 7d cleanup horizon — should be deleted.
+	oldCode := insertCode("old", time.Now().Add(-8*24*time.Hour))
+	// Code recently expired (1h ago) — should be kept (within 7d).
+	recentCode := insertCode("recent", time.Now().Add(-time.Hour))
+	// Active code — should be kept.
+	activeCode := insertCode("active", time.Now().Add(time.Hour))
+
+	// An active token — should be kept.
+	active := newTestToken(clientID, userID)
+	if err := store.IssueToken(ctx, active); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := store.DeleteExpired(ctx)
+	if err != nil {
+		t.Fatalf("DeleteExpired: %v", err)
+	}
+
+	if res.Codes != 1 {
+		t.Errorf("expected 1 code deleted (the 8d-old one), got %d", res.Codes)
+	}
+
+	// Confirm what stayed vs went. We use AtomicConsumeCode as a
+	// presence-and-state probe: deleted codes return ConsumeNotFound;
+	// kept ones return their actual state.
+	if _, state, _ := store.AtomicConsumeCode(ctx, oldCode); state != oauth.ConsumeNotFound {
+		t.Errorf("old code should be gone, got state=%v", state)
+	}
+	if _, state, _ := store.AtomicConsumeCode(ctx, recentCode); state != oauth.ConsumeExpired {
+		t.Errorf("recent expired code should still exist (state=ConsumeExpired), got state=%v", state)
+	}
+	if _, state, _ := store.AtomicConsumeCode(ctx, activeCode); state != oauth.ConsumeFresh {
+		t.Errorf("active code should be consumable, got state=%v", state)
+	}
+
+	// Active token survives.
+	if _, err := store.LookupTokenByAccess(ctx, active.AccessToken); err != nil {
+		t.Errorf("active token should still exist: %v", err)
+	}
+}
+
 // TestIssueToken_StoresHashNotPlaintext is the regression guard for the
 // at-rest hashing fix. We issue a token, then query the raw column
 // directly and confirm:
