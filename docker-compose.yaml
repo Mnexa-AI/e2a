@@ -95,9 +95,12 @@ services:
       # Container-internal baseUrl ≠ host-reachable AS URL. The MCP
       # server forwards bearers via the compose-network hostname
       # (E2A_BASE_URL above) but Claude Code runs on the host and
-      # must reach the AS at localhost. This split keeps both paths
-      # working.
-      MCP_AUTHORIZATION_SERVER_URL: "http://localhost:8080"
+      # must reach the AS through the same web frontend that serves
+      # the consent UI. :3000 is the host-mapped web container, which
+      # proxies /api/oauth/* back to the e2a backend via Caddy. This
+      # keeps everything (issuer, AS endpoints, consent UI) on one
+      # origin — the way production runs behind a single Caddy.
+      MCP_AUTHORIZATION_SERVER_URL: "http://localhost:3000"
 
 volumes:
   pgdata:

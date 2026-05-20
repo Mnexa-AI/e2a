@@ -26,6 +26,14 @@
         reverse_proxy {$E2A_BACKEND:http://e2a:8080}
     }
 
+    # RFC 8414 OAuth authorization-server metadata. Lives at the
+    # well-known path (NOT under /api/*) per spec, so it needs its
+    # own proxy rule. Without this the web frontend would return
+    # a 404 HTML page when OAuth clients probe for discovery.
+    handle /.well-known/oauth-authorization-server {
+        reverse_proxy {$E2A_BACKEND:http://e2a:8080}
+    }
+
     # Next.js static export emits routes as foo.html or foo/index.html.
     # try_files probes both before falling through to the literal path,
     # which makes /dashboard, /dashboard/, and direct file requests all
