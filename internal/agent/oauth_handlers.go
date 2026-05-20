@@ -139,17 +139,21 @@ func dcrSourceIP(r *http.Request) string {
 //
 // Allowed:
 //   - https://… (web apps; must have host)
-//   - http://127.0.0.1[:port]/…, http://[::1][:port]/… (loopback for
-//     desktop dev; RFC 8252 §7.3 also allows ANY port at request-time,
-//     fosite implements that by net.ParseIP(hostname).IsLoopback() so
-//     we require the IP-literal form here — "localhost" parses to nil
-//     and breaks fosite's port-rewrite, leaving native apps unable to
-//     bind a fresh ephemeral port per session)
+//   - http://localhost[:port]/…, http://127.0.0.1[:port]/…,
+//     http://[::1][:port]/… (loopback for native apps; "localhost" is
+//     accepted because every mainstream native MCP client — Claude
+//     Code included — uses it for its callback. fosite's RFC 8252 §7.3
+//     port-rewrite path only matches the IP-literal form because it
+//     uses net.ParseIP(hostname).IsLoopback(); the practical
+//     consequence is that clients registering with "localhost" must
+//     re-use the same port at /authorize time. Clients that need
+//     ephemeral-port-per-session should register with 127.0.0.1
+//     instead. DCR-driven clients (the common case) re-register every
+//     session so this isn't a real limitation in practice.)
 //   - reverse-domain custom schemes per RFC 8252 §7.1 (com.example.app:/cb)
 //
 // Rejected:
 //   - http:// to anything non-loopback (codes would leak in transit)
-//   - the string "localhost" (use 127.0.0.1 — see above)
 //   - URIs with fragments (RFC 6749 §3.1.2)
 //   - URIs with userinfo (https://anyone@evil.com/cb — looks legit
 //     to a human but the authority is attacker-controlled)
@@ -186,13 +190,13 @@ func validateRedirectURI(raw string) error {
 	case "http":
 		host := u.Hostname()
 		if host == "localhost" {
-			return errors.New(`http redirect_uri must use 127.0.0.1 or ::1 (RFC 8252 §7.3 port-rewrite requires an IP literal, not the "localhost" name)`)
+			return nil
 		}
 		ip := net.ParseIP(host)
 		if ip != nil && ip.IsLoopback() {
 			return nil
 		}
-		return errors.New("http redirect_uri must use a loopback IP (127.0.0.1 or ::1)")
+		return errors.New("http redirect_uri must use a loopback host (localhost, 127.0.0.1, or ::1)")
 	default:
 		// Block well-known dangerous schemes outright. Even though
 		// fosite's exact-match at /authorize time would normally

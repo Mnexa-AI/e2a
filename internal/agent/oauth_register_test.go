@@ -116,10 +116,10 @@ func TestHTTP_Register_Happy(t *testing.T) {
 // TestHTTP_Register_RedirectURI_VariousShapes: table-drives the URI
 // validator across the shapes we accept and reject.
 //
-// Loopback is by IP literal only — "localhost" is rejected because
-// fosite's RFC 8252 §7.3 port-rewrite uses net.ParseIP(hostname)
-// .IsLoopback() and "localhost" parses to nil. Custom schemes must
-// be in reverse-domain form (RFC 8252 §7.1 / RFC 7595 §3.8).
+// Loopback covers "localhost", 127.0.0.1, ::1 — every mainstream
+// native MCP client (Claude Code included) registers with "localhost",
+// so accepting it is non-negotiable. Custom schemes must be in
+// reverse-domain form (RFC 8252 §7.1 / RFC 7595 §3.8).
 func TestHTTP_Register_RedirectURI_VariousShapes(t *testing.T) {
 	srv := newDCRServer(t)
 	cases := []struct {
@@ -129,11 +129,11 @@ func TestHTTP_Register_RedirectURI_VariousShapes(t *testing.T) {
 		wantCode   string
 	}{
 		{"https web", "https://example.com/callback", http.StatusCreated, ""},
+		{"http loopback localhost", "http://localhost:8765/cb", http.StatusCreated, ""},
 		{"http loopback ipv4", "http://127.0.0.1:8765/cb", http.StatusCreated, ""},
 		{"http loopback ipv6", "http://[::1]:8765/cb", http.StatusCreated, ""},
 		{"reverse-domain custom scheme", "com.example.app:/oauth-callback", http.StatusCreated, ""},
 
-		{"http localhost rejected", "http://localhost:8765/cb", http.StatusBadRequest, "invalid_redirect_uri"},
 		{"http non-loopback", "http://example.com/cb", http.StatusBadRequest, "invalid_redirect_uri"},
 		{"single-label custom scheme", "myapp://oauth-callback", http.StatusBadRequest, "invalid_redirect_uri"},
 		{"fragment", "https://example.com/cb#frag", http.StatusBadRequest, "invalid_redirect_uri"},
