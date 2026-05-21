@@ -108,6 +108,75 @@ func TestHandleLogin_WebLoginOmitsCliParams(t *testing.T) {
 	}
 }
 
+// TestHandleLogin_EncodesReturnToInOAuthState: /api/auth/login?return_to=
+// /api/oauth/authorize?... encodes that path into the Google OAuth state
+// so HandleCallback can bounce the user back into the MCP authorize flow.
+func TestHandleLogin_EncodesReturnToInOAuthState(t *testing.T) {
+	ua, _, _ := setupUserAuth(t)
+
+	returnTo := "/api/oauth/authorize?client_id=mcp_abc&response_type=code&state=xyz"
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/auth/login?return_to="+url.QueryEscape(returnTo),
+		nil,
+	)
+	w := httptest.NewRecorder()
+
+	ua.HandleLogin(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusFound)
+	}
+
+	loc, _ := url.Parse(w.Result().Header.Get("Location"))
+	stateParam := loc.Query().Get("state")
+	stateJSON, _ := base64.URLEncoding.DecodeString(stateParam)
+	var state struct {
+		ReturnTo string `json:"rt"`
+	}
+	if err := json.Unmarshal(stateJSON, &state); err != nil {
+		t.Fatalf("unmarshal state: %v", err)
+	}
+	if state.ReturnTo != returnTo {
+		t.Errorf("return_to = %q, want %q", state.ReturnTo, returnTo)
+	}
+}
+
+// TestHandleLogin_RejectsReturnToOutsideAllowList: every value the
+// allow-list refuses must produce 400 rather than silently strip — a
+// silent strip would land the user on /dashboard, leaving the original
+// flow stuck without a visible error.
+func TestHandleLogin_RejectsReturnToOutsideAllowList(t *testing.T) {
+	ua, _, _ := setupUserAuth(t)
+
+	bad := []string{
+		"/dashboard",                                    // wrong prefix
+		"/api/v1/agents",                                // wrong prefix
+		"https://evil.com/api/oauth/authorize",          // absolute
+		"//evil.com/api/oauth/authorize",                // protocol-relative
+		"/api/oauth/authorize\nSet-Cookie: x=y",         // header injection
+		"\\api\\oauth\\authorize",                       // backslash bypass
+		"http://localhost/api/oauth/authorize",          // scheme present
+		"/api/oauth/../../dashboard",                    // path traversal escaping the allow-list
+		"/api/oauth/../v1/agents",                       // path traversal into another API surface
+		"/api/oauth//evil.com/path",                     // empty segment after prefix
+	}
+	for _, rt := range bad {
+		t.Run(rt, func(t *testing.T) {
+			req := httptest.NewRequest(
+				http.MethodGet,
+				"/api/auth/login?return_to="+url.QueryEscape(rt),
+				nil,
+			)
+			w := httptest.NewRecorder()
+			ua.HandleLogin(w, req)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("return_to=%q: status=%d, want 400", rt, w.Code)
+			}
+		})
+	}
+}
+
 func TestHandleLogin_RejectsInvalidCLICallback(t *testing.T) {
 	ua, _, _ := setupUserAuth(t)
 
@@ -249,6 +318,43 @@ func TestHandleCallback_WebLogin_RedirectsToDashboard(t *testing.T) {
 	location := w.Header().Get("Location")
 	if !strings.Contains(location, "/dashboard") {
 		t.Fatalf("expected redirect to dashboard, got %q", location)
+	}
+}
+
+// TestHandleCallback_ReturnTo_BouncesUser: a successful callback whose
+// state.ReturnTo passes the allow-list redirects there instead of
+// /dashboard, so the MCP /authorize flow can resume on the now-
+// authenticated request.
+func TestHandleCallback_ReturnTo_BouncesUser(t *testing.T) {
+	ua, _, srv := setupUserAuthWithFakeOAuth(t)
+
+	nonce := "nonce-rt-bounce"
+	returnTo := "/api/oauth/authorize?client_id=mcp_abc&state=xyz"
+	state := auth.EncodeOAuthState(&auth.OAuthState{
+		Nonce:    nonce,
+		ReturnTo: returnTo,
+	})
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		fmt.Sprintf("/api/auth/callback?code=fake-code&state=%s", url.QueryEscape(state)),
+		nil,
+	)
+	req.AddCookie(&http.Cookie{Name: "e2a_oauth_state", Value: nonce})
+	_ = srv
+	w := httptest.NewRecorder()
+
+	ua.HandleCallback(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302; body: %s", w.Code, w.Body.String())
+	}
+	loc := w.Header().Get("Location")
+	if !strings.HasSuffix(loc, returnTo) {
+		t.Fatalf("Location = %q, want suffix %q", loc, returnTo)
+	}
+	if strings.Contains(loc, "/dashboard") {
+		t.Errorf("ReturnTo path should preempt the /dashboard fallback: got %q", loc)
 	}
 }
 

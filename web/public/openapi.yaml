@@ -135,6 +135,12 @@ definitions:
         type: integer
       messages_deleted:
         type: integer
+      oauth_access_tokens_deleted:
+        type: integer
+      oauth_auth_codes_deleted:
+        type: integer
+      oauth_refresh_tokens_deleted:
+        type: integer
       sessions_deleted:
         type: integer
       usage_events_deleted:
@@ -303,6 +309,23 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  OAuthConnectionEntry:
+    properties:
+      agent_email:
+        type: string
+      client_id:
+        type: string
+      client_name:
+        type: string
+      expires_at:
+        type: string
+      issued_at:
+        type: string
+      revoked_at:
+        type: string
+      scope:
+        type: string
     type: object
   PendingMessageDetail:
     properties:
@@ -632,6 +655,10 @@ definitions:
       messages:
         items:
           $ref: '#/definitions/github_com_Mnexa-AI_e2a_internal_identity.Message'
+        type: array
+      oauth_connections:
+        items:
+          $ref: '#/definitions/OAuthConnectionEntry'
         type: array
       schema_version:
         type: string

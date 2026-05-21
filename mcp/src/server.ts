@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { E2AClient } from "@e2a/sdk/v1";
 import { registerMessageTools } from "./tools/messages.js";
 import { registerAgentTools } from "./tools/agents.js";
+import { registerDomainTools } from "./tools/domains.js";
 import { registerHitlTools } from "./tools/hitl.js";
 
 export interface BuildServerOptions {
@@ -16,6 +17,7 @@ export function buildServer({ client, version = "0.1.0" }: BuildServerOptions): 
   });
   registerMessageTools(server, client);
   registerAgentTools(server, client);
+  registerDomainTools(server, client);
   registerHitlTools(server, client);
   return server;
 }

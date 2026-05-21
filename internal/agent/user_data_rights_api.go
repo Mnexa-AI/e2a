@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+
+	"github.com/Mnexa-AI/e2a/internal/identity"
 )
 
 // handleExportUserData returns a complete dump of the authenticated
@@ -31,6 +33,31 @@ func (a *API) handleExportUserData(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[api] export user data failed: user=%s err=%v", user.ID, err)
 		http.Error(w, "failed to export user data", http.StatusInternalServerError)
 		return
+	}
+
+	// Append OAuth connections, if OAuth is wired on this deployment.
+	// Done as a side-call (not inside ExportUserData) so the identity
+	// package doesn't need an oauth dependency. Failure here is logged
+	// but does not abort the export — the rest of the data is still
+	// useful to the user.
+	if a.oauthStorage != nil {
+		conns, err := a.oauthStorage.ExportConnectionsForUser(r.Context(), user.ID)
+		if err != nil {
+			log.Printf("[api] export oauth connections failed: user=%s err=%v", user.ID, err)
+		} else {
+			dump.OAuthConnections = make([]identity.OAuthConnectionEntry, len(conns))
+			for i, c := range conns {
+				dump.OAuthConnections[i] = identity.OAuthConnectionEntry{
+					ClientID:   c.ClientID,
+					ClientName: c.ClientName,
+					AgentEmail: c.AgentEmail,
+					Scope:      c.Scope,
+					IssuedAt:   c.IssuedAt,
+					ExpiresAt:  c.ExpiresAt,
+					RevokedAt:  c.RevokedAt,
+				}
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -77,12 +104,33 @@ func (a *API) handleDeleteUserData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If OAuth is wired, count token rows BEFORE the DELETE so the
+	// audit log carries the correct "what got cascaded" report. The
+	// counts must be taken under the same SERIALIZABLE isolation level
+	// the DeleteUserData transaction uses; here we accept a small race
+	// (a token issued between count and delete won't appear in the
+	// count but will still be removed by CASCADE) — acceptable for an
+	// operator audit line.
+	var oauthCounts struct {
+		AuthCodes, AccessTokens, RefreshTokens int64
+	}
+	if a.oauthStorage != nil {
+		if c, err := a.oauthStorage.CountUserOAuthRows(r.Context(), user.ID); err == nil {
+			oauthCounts.AuthCodes = c.AuthCodes
+			oauthCounts.AccessTokens = c.AccessTokens
+			oauthCounts.RefreshTokens = c.RefreshTokens
+		}
+	}
+
 	res, err := a.store.DeleteUserData(r.Context(), user.ID)
 	if err != nil {
 		log.Printf("[api] delete user data failed: user=%s err=%v", user.ID, err)
 		http.Error(w, "failed to delete user data", http.StatusInternalServerError)
 		return
 	}
+	res.OAuthAuthCodesDeleted = oauthCounts.AuthCodes
+	res.OAuthAccessTokensDeleted = oauthCounts.AccessTokens
+	res.OAuthRefreshTokensDeleted = oauthCounts.RefreshTokens
 
 	log.Printf("[api] user deleted: id=%s email=%s removed=%+v", user.ID, user.Email, res)
 

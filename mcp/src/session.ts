@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
@@ -5,6 +6,29 @@ export interface SessionEntry {
   transport: StreamableHTTPServerTransport;
   server: McpServer;
   lastSeen: number;
+  /**
+   * SHA-256 of the bearer token used at session initialize. Subsequent
+   * requests targeting this session MUST present the same bearer; the
+   * MCP server compares fingerprints in handleClientRequest before
+   * dispatching to the session's transport. Without this binding a
+   * leaked `Mcp-Session-Id` (CORS-exposed via Access-Control-Expose-
+   * Headers; visible in logs / devtools / proxies) would let any
+   * caller with any non-empty bearer act as the session's owner —
+   * the per-session E2AClient holds the original bearer baked in and
+   * forwards it verbatim to the backend, so the privilege check the
+   * bearer-presence gate did upstream is meaningless to the dispatch.
+   */
+  bearerFingerprint: string;
+}
+
+/**
+ * SHA-256 the bearer token. Used as the binding key for session
+ * ↔ bearer pairing — we store this on SessionEntry instead of the
+ * raw bearer so a memory dump of the sessions map doesn't carry
+ * cleartext credentials. Hex digest, 64 chars.
+ */
+export function fingerprintBearer(bearer: string): string {
+  return createHash("sha256").update(bearer).digest("hex");
 }
 
 export interface SessionsOptions {

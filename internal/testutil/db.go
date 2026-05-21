@@ -104,7 +104,9 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 
 func truncateAll(ctx context.Context, pool *pgxpool.Pool) error {
 	_, err := pool.Exec(ctx, `
-		TRUNCATE usage_summaries, usage_events, webhook_deliveries, messages,
+		TRUNCATE oauth_pkce_requests, oauth_refresh_tokens, oauth_access_tokens,
+		         oauth_auth_codes, oauth_clients,
+		         usage_summaries, usage_events, webhook_deliveries, messages,
 		         api_keys, webhook_signing_secrets, agent_identities, domains,
 		         user_sessions, users CASCADE
 	`)
