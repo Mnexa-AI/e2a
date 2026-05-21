@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
@@ -35,6 +36,16 @@ func isSelfSend(req outbound.SendRequest, agentEmail string) bool {
 // list_messages, threading, and downstream tooling don't need any
 // special-casing.
 //
+// The inbound row's raw_message is a full, RFC 5322-conformant MIME
+// message — composed via outbound.ComposeMessageWithAttachments, the
+// same function the real SMTP path uses — and prefixed with one
+// synthetic `Received:` line per RFC 5321 §4.4 documenting that
+// delivery happened via the local loopback rather than over SMTP.
+// Doing the composition here (instead of stashing just the body text)
+// means the SDK's InboundEmail.fromPayload parser finds attachments
+// + body parts naturally; without it, self-sends with attachments
+// would silently drop the attachments on read.
+//
 // Notable behavior choices (documented because they diverge from a
 // pure-SMTP send):
 //   - HITL is bypassed before this function is called. Holding a
@@ -46,6 +57,10 @@ func isSelfSend(req outbound.SendRequest, agentEmail string) bool {
 //     via the next list_messages poll, which IS the intended UX.
 //   - Domain verification + rate limit are still enforced upstream;
 //     loopback isn't a backdoor to bypass those gates.
+//   - auth_headers stays NULL on the inbound row: no DKIM/SPF was
+//     actually evaluated because nothing arrived over the wire. The
+//     operator-facing signal "this row didn't come from external mail"
+//     is preserved by that null column.
 //
 // Returns the provider-style message id used for the outbound row.
 // Method on the outbound row is "loopback" so operators can tell the
@@ -73,10 +88,11 @@ func (a *API) performSelfSend(
 		return "", fmt.Errorf("self-send outbound row: %w", err)
 	}
 
-	rawBody := []byte(req.Body)
-	if req.HTMLBody != "" {
-		rawBody = []byte(req.HTMLBody)
+	rawMessage, err := composeLoopbackMIME(agent, req, providerID, a.fromDomain)
+	if err != nil {
+		return "", fmt.Errorf("self-send compose: %w", err)
 	}
+
 	if _, err := a.store.CreateInboundMessage(
 		ctx,
 		"", // generate fresh id; mirrors the SMTP path which never reuses outbound ids
@@ -87,7 +103,7 @@ func (a *API) performSelfSend(
 		req.Subject,
 		req.ConversationID,
 		"unread",
-		rawBody,
+		rawMessage,
 		nil, // no DKIM/SPF auth headers on a synthetic loopback
 		[]string{email},
 		nil, // cc
@@ -97,6 +113,99 @@ func (a *API) performSelfSend(
 	}
 
 	return providerID, nil
+}
+
+// composeLoopbackMIME builds the RFC 5322 / 2046 message bytes the
+// inbound row will store as raw_message.
+//
+// We delegate to the same composer the real SMTP path uses
+// (outbound.ComposeMessageWithAttachments) so the produced message is
+// byte-equivalent to what an external roundtrip would have generated
+// — same headers, same multipart structure, same attachment encoding.
+// The SDK's InboundEmail.fromPayload → parseRawEmail pipeline then
+// finds body text/html AND attachments without any loopback-specific
+// branch.
+//
+// We prepend ONE synthetic Received: line per RFC 5321 §4.4 ("each
+// time a message is relayed... the receiving SMTP server MUST insert
+// a 'Received:' line"). Mature local-delivery MTAs (sendmail's local
+// mailer, Postfix's local daemon, Exim's local_smtp transport) all
+// add such a line even for same-host delivery; doing the same here
+// keeps stored messages forensically self-documenting. The "loopback"
+// keyword is the searchable signal — `grep "with loopback"` over raw
+// messages finds every self-send.
+func composeLoopbackMIME(
+	agent *identity.AgentIdentity,
+	req outbound.SendRequest,
+	providerID, fromDomain string,
+) ([]byte, error) {
+	email := agent.EmailAddress()
+	headerFrom := fmt.Sprintf("%q <%s>", agent.Name, email)
+	if agent.Name == "" {
+		headerFrom = email
+	}
+
+	var msg []byte
+	var err error
+	if len(req.Attachments) > 0 {
+		msg, err = outbound.ComposeMessageWithAttachments(
+			headerFrom,
+			[]string{email},
+			nil, // cc
+			req.Subject,
+			req.Body,
+			req.HTMLBody,
+			"",  // reply_to_message_id — self-send is never a reply
+			nil, // references
+			fromDomain,
+			"", // reply_to header
+			req.ConversationID,
+			req.Attachments,
+		)
+	} else {
+		// No attachments → simpler single-part path. Lets us keep the
+		// stored MIME small for the common "note to self" case rather
+		// than always emitting a multipart envelope.
+		contentType := "text/plain"
+		body := req.Body
+		if req.HTMLBody != "" {
+			contentType = "text/html"
+			body = req.HTMLBody
+		}
+		msg, err = outbound.ComposeMessage(
+			headerFrom,
+			[]string{email},
+			nil, // cc
+			req.Subject,
+			body,
+			contentType,
+			"",  // reply_to_message_id
+			nil, // references
+			fromDomain,
+			"", // reply_to header
+			req.ConversationID,
+		)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Prepend the synthetic Received: line. CRLF line endings to match
+	// the rest of the MIME message ComposeMessage produces. The "with
+	// loopback" keyword is the canonical local-delivery indicator,
+	// mirroring sendmail's "with local" and Postfix's "with LMTP".
+	host := fromDomain
+	if host == "" {
+		host = "e2a.local"
+	}
+	received := fmt.Sprintf(
+		"Received: by %s (e2a) with loopback id %s for <%s>;\r\n\t%s\r\n",
+		host,
+		providerID,
+		email,
+		time.Now().UTC().Format(time.RFC1123Z),
+	)
+	return append([]byte(received), msg...), nil
 }
 
 // loopbackProviderID synthesizes an RFC 5322-shaped Message-ID for the
