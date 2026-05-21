@@ -41,8 +41,13 @@ export interface HttpServerOptions {
   /**
    * Test seam: override how the per-session E2AClient is built. The
    * default constructs `new E2AClient({ apiKey: bearer, baseUrl })`.
+   *
+   * The optional second arg carries the agent_email resolved by the
+   * single-agent prefetch (see {@link buildSessionClient}). Tests that
+   * want to exercise the prefetch path can pass it through to their
+   * stub; tests that only care about the bearer can ignore it.
    */
-  clientFactory?: (bearer: string) => E2AClient;
+  clientFactory?: (bearer: string, opts?: { agentEmail?: string }) => E2AClient;
 }
 
 interface BuiltApp {
@@ -195,9 +200,7 @@ async function handleClientRequest(
   }
 
   if (!entry && isInitializeRequest(req.body)) {
-    const client = opts.clientFactory
-      ? opts.clientFactory(bearer)
-      : new E2AClient({ apiKey: bearer, baseUrl: opts.baseUrl });
+    const client = await buildSessionClient(opts, bearer);
     const server = buildServer({ client });
     const bearerFp = fingerprintBearer(bearer);
     const transport = new StreamableHTTPServerTransport({
@@ -289,6 +292,66 @@ async function handleStreamingOrDelete(
     return;
   }
   await entry.transport.handleRequest(req, res);
+}
+
+/**
+ * Construct the per-session E2AClient, opportunistically resolving a
+ * default agent_email when the user has exactly one agent.
+ *
+ * Why this lives here and not in the SDK: the SDK is a thin contract
+ * shared by CLI, browser, server, and Python users — auto-resolving an
+ * agent on construction would be too magical for those callers. The
+ * MCP transport, on the other hand, has a clear notion of "session
+ * init": one prefetch per session is cheap and lets every subsequent
+ * tool call dispatch without forcing the LLM (or the user) to pass
+ * agent_email explicitly. The OAuth grant already binds the user to
+ * one agent at consent, so for the dominant single-agent case the
+ * default is unambiguous.
+ *
+ * Resolution order (highest precedence first):
+ *   1. `E2A_AGENT_EMAIL` env var (constructor reads it into agentEmail).
+ *   2. listAgents() yields exactly one agent — use it.
+ *   3. Otherwise leave agentEmail empty. Tools that take an optional
+ *      agent_email arg keep their existing fall-back behavior
+ *      (whoami's manual single-agent resolution, error with hint
+ *      otherwise).
+ *
+ * listAgents failures are swallowed: a transient backend hiccup
+ * shouldn't break MCP initialize. Worst case, the user sees the same
+ * "agentEmail is required" error they'd see today.
+ */
+export async function buildSessionClient(
+  opts: HttpServerOptions,
+  bearer: string,
+): Promise<E2AClient> {
+  const make = (agentEmail?: string): E2AClient => {
+    if (opts.clientFactory) {
+      // Preserve the no-arg-factory shape for callers (and tests) that
+      // don't care about the resolved email. Pass the email through
+      // only when we actually have one.
+      return agentEmail
+        ? opts.clientFactory(bearer, { agentEmail })
+        : opts.clientFactory(bearer);
+    }
+    return new E2AClient({ apiKey: bearer, baseUrl: opts.baseUrl, agentEmail });
+  };
+
+  const client = make();
+  // Env-var path already populated agentEmail — operator opted in
+  // explicitly, don't second-guess them with an API call.
+  if (client.agentEmail) return client;
+
+  let resolved: string | undefined;
+  try {
+    const { agents } = await client.listAgents();
+    if (Array.isArray(agents) && agents.length === 1) {
+      resolved = agents[0]?.email;
+    }
+  } catch {
+    // Best-effort. Multi-agent / zero-agent / network-failed all land
+    // here and leave agentEmail empty.
+  }
+  return resolved ? make(resolved) : client;
 }
 
 function extractBearer(req: Request): string | null {

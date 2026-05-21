@@ -218,6 +218,138 @@ describe("HTTP MCP server", () => {
     await transport.close();
   });
 
+  describe("session-init agent prefetch", () => {
+    // The prefetch resolves a default agent_email at session-init when
+    // (a) E2A_AGENT_EMAIL is unset on the constructed client, and
+    // (b) listAgents() yields exactly one agent.
+    // We drive it via clientFactory so we can stub listAgents and
+    // observe whether the resolved email gets passed back through.
+
+    function makeProbeClient(opts: {
+      initialEmail?: string;
+      agents: Array<{ email: string }>;
+      listAgentsThrows?: boolean;
+    }): E2AClient {
+      return {
+        agentEmail: opts.initialEmail ?? "",
+        api: {},
+        send: vi.fn(),
+        reply: vi.fn(),
+        listMessages: vi.fn(async () => ({ messages: [] })),
+        listAgents: vi.fn(async () => {
+          if (opts.listAgentsThrows) throw new Error("upstream 500");
+          return { agents: opts.agents };
+        }),
+        registerAgent: vi.fn(),
+        listPendingMessages: vi.fn(async () => ({ messages: [] })),
+        getPendingMessage: vi.fn(),
+        approveMessage: vi.fn(),
+        rejectMessage: vi.fn(),
+      } as unknown as E2AClient;
+    }
+
+    it("resolves agent_email when listAgents returns exactly one agent", async () => {
+      const probe = makeProbeClient({ agents: [{ email: "solo@bot.example.com" }] });
+      const final = makeProbeClient({
+        initialEmail: "solo@bot.example.com",
+        agents: [{ email: "solo@bot.example.com" }],
+      });
+      const factory = vi.fn((_bearer: string, factoryOpts?: { agentEmail?: string }) =>
+        factoryOpts?.agentEmail ? final : probe,
+      );
+
+      await close();
+      const { close: c, port } = await startHttpServer(0, {
+        baseUrl: "http://e2a.local",
+        allowedHosts: ["127.0.0.1", "localhost"],
+        clientFactory: factory,
+      });
+      close = c;
+      url = `http://127.0.0.1:${port}/mcp`;
+
+      const { transport } = await connect();
+      // Factory called twice: probe construction (no agentEmail), then
+      // final construction with the resolved email.
+      expect(factory).toHaveBeenCalledTimes(2);
+      expect(factory.mock.calls[0]).toEqual(["e2a_test"]);
+      expect(factory.mock.calls[1]).toEqual([
+        "e2a_test",
+        { agentEmail: "solo@bot.example.com" },
+      ]);
+      expect(probe.listAgents).toHaveBeenCalledOnce();
+      await transport.close();
+    });
+
+    it("skips the listAgents probe when agentEmail is already set", async () => {
+      // Stub from beforeEach already has agentEmail "bot@example.com".
+      const factory = vi.fn(() => stub);
+      await close();
+      const { close: c, port } = await startHttpServer(0, {
+        baseUrl: "http://e2a.local",
+        allowedHosts: ["127.0.0.1", "localhost"],
+        clientFactory: factory,
+      });
+      close = c;
+      url = `http://127.0.0.1:${port}/mcp`;
+
+      const { transport } = await connect();
+      // Factory called once with just the bearer — no resolved email
+      // since the env-var path (constructor) already populated it.
+      expect(factory).toHaveBeenCalledTimes(1);
+      expect(factory.mock.calls[0]).toEqual(["e2a_test"]);
+      // And listAgents was NOT invoked as a probe at session init.
+      expect(stub.listAgents).not.toHaveBeenCalled();
+      await transport.close();
+    });
+
+    it("leaves agentEmail empty when the account has multiple agents", async () => {
+      const probe = makeProbeClient({
+        agents: [
+          { email: "a@bot.example.com" },
+          { email: "b@bot.example.com" },
+        ],
+      });
+      const factory = vi.fn(() => probe);
+      await close();
+      const { close: c, port } = await startHttpServer(0, {
+        baseUrl: "http://e2a.local",
+        allowedHosts: ["127.0.0.1", "localhost"],
+        clientFactory: factory,
+      });
+      close = c;
+      url = `http://127.0.0.1:${port}/mcp`;
+
+      const { transport } = await connect();
+      // Factory called exactly once — probe ran, but no resolution
+      // (>1 agent), so the second construction was skipped.
+      expect(factory).toHaveBeenCalledTimes(1);
+      expect(probe.listAgents).toHaveBeenCalledOnce();
+      await transport.close();
+    });
+
+    it("does not block session init when listAgents throws", async () => {
+      const probe = makeProbeClient({ agents: [], listAgentsThrows: true });
+      const factory = vi.fn(() => probe);
+      await close();
+      const { close: c, port } = await startHttpServer(0, {
+        baseUrl: "http://e2a.local",
+        allowedHosts: ["127.0.0.1", "localhost"],
+        clientFactory: factory,
+      });
+      close = c;
+      url = `http://127.0.0.1:${port}/mcp`;
+
+      // Initialize should succeed even though the prefetch errored.
+      const { client, transport } = await connect();
+      const { tools } = await client.listTools();
+      expect(tools.length).toBeGreaterThan(0);
+      expect(probe.listAgents).toHaveBeenCalledOnce();
+      // No re-construction since resolution failed.
+      expect(factory).toHaveBeenCalledTimes(1);
+      await transport.close();
+    });
+  });
+
   it("forwards Bearer transparently to the per-session E2AClient", async () => {
     // The factory we passed receives the bearer string. We can assert it
     // gets exactly what the client sent without any rewriting.
