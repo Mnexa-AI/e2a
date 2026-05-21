@@ -112,21 +112,112 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
     {
       title: "Get a message",
       description:
-        "Fetch full detail for one inbound message — body, headers, auth results, and attachment metadata. Pass the `message_id` from `list_messages`.",
+        "Fetch full detail for one inbound message — body, headers, conversation id, and attachment metadata. Pass the `message_id` from `list_messages`. Attachment bytes are NOT included (would blow context for any non-trivial PDF); the response lists each attachment's filename, content_type, and size_bytes only. Use `get_attachment_data` to fetch the actual bytes of one attachment when you need to inspect or forward it. The raw MIME blob is also omitted from this response for the same reason.",
       inputSchema: {
         message_id: z.string(),
         agent_email: z.string().optional(),
       },
     },
     async (args) =>
-      runTool(() => {
+      runTool(async () => {
         const agentEmail = args.agent_email ?? client.agentEmail;
         if (!agentEmail) {
           throw new Error(
             "agent_email is required (no E2A_AGENT_EMAIL in environment).",
           );
         }
-        return client.api.getMessage(agentEmail, args.message_id);
+        // Hit the high-level client so we get the parsed InboundEmail
+        // (MIME-decoded attachments, decoded text+html bodies). The
+        // bearer authenticated this channel — pre-verified is the
+        // correct trust level for getMessage's return value.
+        const email = await client.getMessage(args.message_id, agentEmail);
+        // Plain JSON shape: every getter (which throws if unverified)
+        // wrapped in a single object. Omit `raw_message` entirely —
+        // the LLM should never see the full MIME blob unless it
+        // explicitly asks for an attachment via get_attachment_data.
+        return {
+          message_id: email.messageId,
+          conversation_id: email.conversationId,
+          from: email.sender,
+          recipient: email.recipient,
+          to: email.to,
+          cc: email.cc,
+          reply_to: email.replyTo,
+          subject: email.subject,
+          body_text: email.textBody,
+          body_html: email.htmlBody,
+          received_at: email.receivedAt,
+          attachments: email.attachments.map((a, index) => ({
+            index,
+            filename: a.filename,
+            content_type: a.contentType,
+            size_bytes: a.size,
+          })),
+        };
+      }),
+  );
+
+  // 2 MB hard cap on inline attachment-fetch. Bigger than the typical
+  // PDF/image inline-share pattern this tool is designed for; small
+  // enough that a single tool result stays under most LLM context
+  // budgets even after base64 inflation. Files above this are an
+  // anti-pattern for inline retrieval — the LLM should ask the user
+  // / a host-side tool to handle them out of band.
+  const MAX_INLINE_BYTES = 2 * 1024 * 1024;
+
+  server.registerTool(
+    "get_attachment_data",
+    {
+      title: "Fetch one attachment's bytes from an inbound message",
+      description:
+        "Returns the base64-encoded content of one attachment from an inbound message. Use this when you want to inspect, forward, or hand off an attachment surfaced by `get_message`. Indexes are 0-based and stable within a message (see `attachments[].index` from get_message). To forward to another recipient, pass the returned `{filename, content_type, data}` verbatim as an entry in `send_email`'s or `reply_to_message`'s `attachments[]` array. Refuses attachments larger than 2 MB after decoding — these are too big for inline retrieval and the LLM context cost would be prohibitive.",
+      inputSchema: {
+        message_id: z.string(),
+        attachment_index: z
+          .number()
+          .int()
+          .min(0)
+          .describe(
+            "0-based index into the `attachments[]` returned by get_message. The index reflects the order attachments appear in the MIME message and is stable for a given message_id.",
+          ),
+        agent_email: z
+          .string()
+          .optional()
+          .describe(
+            "Agent inbox holding the message. Omit when E2A_AGENT_EMAIL is set in the server environment.",
+          ),
+      },
+    },
+    async (args) =>
+      runTool(async () => {
+        const agentEmail = args.agent_email ?? client.agentEmail;
+        if (!agentEmail) {
+          throw new Error(
+            "agent_email is required (no E2A_AGENT_EMAIL in environment).",
+          );
+        }
+        const email = await client.getMessage(args.message_id, agentEmail);
+        const list = email.attachments;
+        if (args.attachment_index < 0 || args.attachment_index >= list.length) {
+          throw new Error(
+            `attachment_index ${args.attachment_index} out of range (message has ${list.length} attachment${list.length === 1 ? "" : "s"})`,
+          );
+        }
+        const a = list[args.attachment_index];
+        if (a.size > MAX_INLINE_BYTES) {
+          throw new Error(
+            `attachment too large for inline retrieval: ${a.size} bytes (max ${MAX_INLINE_BYTES}). Ask a host-side tool to write the raw_message MIME to disk and extract this attachment out of band.`,
+          );
+        }
+        return {
+          filename: a.filename,
+          content_type: a.contentType,
+          size_bytes: a.size,
+          // Buffer → standard-alphabet base64. This matches the wire
+          // shape send_email/reply_to_message expect on the way back
+          // out, so a forward-attachment workflow is a verbatim copy.
+          data: a.data.toString("base64"),
+        };
       }),
   );
 }

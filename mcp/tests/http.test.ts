@@ -99,6 +99,7 @@ describe("HTTP MCP server", () => {
         "reply_to_message",
         "list_messages",
         "get_message",
+        "get_attachment_data",
         "list_agents",
         "whoami",
         "create_agent",

@@ -61,6 +61,35 @@ function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): E2ACli
       verification_token: "tok_new",
     })),
     deleteDomain: vi.fn(async () => undefined),
+    // Stand-in for the SDK's client.getMessage() which returns an
+    // InboundEmail with verified=true (the REST channel is bearer-
+    // authenticated so the SDK marks pre-verified). The production
+    // tool reads the getters which on the real class throw if
+    // unverified — but TypeScript's structural typing doesn't
+    // distinguish data properties from getters, so this plain
+    // object satisfies the call site. Attachments default to one
+    // small PDF; tests override via mockResolvedValueOnce.
+    getMessage: vi.fn(async (id: string, _email?: string) => ({
+      messageId: id,
+      conversationId: "conv_x",
+      sender: "alice@example.com",
+      recipient: "bot@example.com",
+      to: ["bot@example.com"],
+      cc: [],
+      replyTo: [],
+      subject: "hi",
+      textBody: "hello world",
+      htmlBody: null,
+      receivedAt: "2026-05-20T10:00:00Z",
+      attachments: [
+        {
+          filename: "report.pdf",
+          contentType: "application/pdf",
+          data: Buffer.from("%PDF-1.4 fake pdf bytes"),
+          size: 23,
+        },
+      ],
+    })),
     listPendingMessages: vi.fn(async () => ({ messages: [] })),
     getPendingMessage: vi.fn(async (id: string) => ({ id, status: "pending_approval" })),
     approveMessage: vi.fn(async () => ({ message_id: "msg_x", status: "sent" })),
@@ -95,6 +124,7 @@ describe("e2a MCP server", () => {
         "reply_to_message",
         "list_messages",
         "get_message",
+        "get_attachment_data",
         "list_agents",
         "whoami",
         "create_agent",
@@ -153,12 +183,93 @@ describe("e2a MCP server", () => {
     });
   });
 
-  it("get_message uses the env agent email when omitted", async () => {
-    await client.callTool({
+  it("get_message uses the env agent email when omitted and returns parsed shape", async () => {
+    const res = await client.callTool({
       name: "get_message",
       arguments: { message_id: "msg_abc" },
     });
-    expect(stub.api.getMessage).toHaveBeenCalledWith("bot@example.com", "msg_abc");
+    // High-level client.getMessage (the parsed InboundEmail path) —
+    // not client.api.getMessage. The MCP server is responsible for
+    // unwrapping to plain JSON so the LLM gets a digestible shape
+    // without the raw_message MIME blob.
+    expect(stub.getMessage).toHaveBeenCalledWith("msg_abc", "bot@example.com");
+    const content = res.content as Array<{ type: string; text: string }>;
+    const parsed = JSON.parse(content[0]!.text) as Record<string, unknown>;
+    expect(parsed.message_id).toBe("msg_abc");
+    expect(parsed.from).toBe("alice@example.com");
+    expect(parsed.body_text).toBe("hello world");
+    // Critical: attachments surfaced as metadata-only (no `data`)
+    // — bytes blow the LLM's context if returned here. Same reason
+    // raw_message is omitted from this response entirely.
+    expect(parsed.attachments).toEqual([
+      {
+        index: 0,
+        filename: "report.pdf",
+        content_type: "application/pdf",
+        size_bytes: 23,
+      },
+    ]);
+    expect(parsed).not.toHaveProperty("raw_message");
+    expect((parsed.attachments as Array<{ data?: unknown }>)[0]!.data).toBeUndefined();
+  });
+
+  it("get_attachment_data returns one attachment with base64 data", async () => {
+    const res = await client.callTool({
+      name: "get_attachment_data",
+      arguments: { message_id: "msg_abc", attachment_index: 0 },
+    });
+    expect(stub.getMessage).toHaveBeenCalledWith("msg_abc", "bot@example.com");
+    const content = res.content as Array<{ type: string; text: string }>;
+    const parsed = JSON.parse(content[0]!.text) as Record<string, unknown>;
+    expect(parsed.filename).toBe("report.pdf");
+    expect(parsed.content_type).toBe("application/pdf");
+    expect(parsed.size_bytes).toBe(23);
+    // Round-trip-decodable base64 of the original bytes.
+    expect(Buffer.from(parsed.data as string, "base64").toString()).toBe(
+      "%PDF-1.4 fake pdf bytes",
+    );
+  });
+
+  it("get_attachment_data rejects out-of-range index with a clear error", async () => {
+    const res = await client.callTool({
+      name: "get_attachment_data",
+      arguments: { message_id: "msg_abc", attachment_index: 5 },
+    });
+    expect(res.isError).toBe(true);
+    const content = res.content as Array<{ type: string; text: string }>;
+    expect(content[0]!.text).toMatch(/out of range/);
+  });
+
+  it("get_attachment_data refuses attachments above the 2 MB inline cap", async () => {
+    // One-shot override: pretend the message has a 5 MB attachment.
+    (stub.getMessage as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      messageId: "msg_big",
+      conversationId: null,
+      sender: "alice@example.com",
+      recipient: "bot@example.com",
+      to: ["bot@example.com"],
+      cc: [],
+      replyTo: [],
+      subject: "huge",
+      textBody: "",
+      htmlBody: null,
+      receivedAt: null,
+      attachments: [
+        {
+          filename: "big.zip",
+          contentType: "application/zip",
+          data: Buffer.alloc(0),
+          size: 5 * 1024 * 1024,
+        },
+      ],
+    });
+    const res = await client.callTool({
+      name: "get_attachment_data",
+      arguments: { message_id: "msg_big", attachment_index: 0 },
+    });
+    expect(res.isError).toBe(true);
+    const content = res.content as Array<{ type: string; text: string }>;
+    expect(content[0]!.text).toMatch(/too large for inline retrieval/);
   });
 
   it("whoami returns the env-scoped agent record", async () => {

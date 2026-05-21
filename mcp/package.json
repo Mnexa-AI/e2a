@@ -1,6 +1,6 @@
 {
   "name": "@e2a/mcp-server",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "MCP server for e2a — email for AI agents",
   "bin": {
     "e2a-mcp": "dist/index.js"
