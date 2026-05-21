@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { E2AClient } from "@e2a/sdk/v1";
 import { z } from "zod";
 import { runTool } from "./util.js";
+import { attachmentsArraySchema } from "./attachments.js";
 
 export function registerMessageTools(server: McpServer, client: E2AClient): void {
   server.registerTool(
@@ -9,7 +10,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
     {
       title: "Send email",
       description:
-        "Send a new email from the agent's inbox. Use this for outbound mail to a fresh recipient. To reply to a thread you received, use `reply_to_message` instead so threading headers (In-Reply-To, References) are preserved. If the agent has HITL approval enabled, the message is held for human review and the response indicates `status: pending_approval` rather than `sent`.",
+        "Send a new email from the agent's inbox. Use this for outbound mail to a fresh recipient. To reply to a thread you received, use `reply_to_message` instead so threading headers (In-Reply-To, References) are preserved. Attach files via the `attachments` array — pass base64 strings from another tool's output verbatim. If the agent has HITL approval enabled, the message is held for human review and the response indicates `status: pending_approval` rather than `sent`.",
       inputSchema: {
         to: z.array(z.string()).describe("Recipient email addresses (one or more)."),
         subject: z.string(),
@@ -17,6 +18,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
         html_body: z.string().optional(),
         cc: z.array(z.string()).optional(),
         bcc: z.array(z.string()).optional(),
+        attachments: attachmentsArraySchema,
         conversation_id: z
           .string()
           .optional()
@@ -35,6 +37,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
           ...(args.html_body !== undefined ? { htmlBody: args.html_body } : {}),
           ...(args.cc !== undefined ? { cc: args.cc } : {}),
           ...(args.bcc !== undefined ? { bcc: args.bcc } : {}),
+          ...(args.attachments !== undefined ? { attachments: args.attachments } : {}),
           ...(args.conversation_id !== undefined
             ? { conversationId: args.conversation_id }
             : {}),
@@ -48,7 +51,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
     {
       title: "Reply to a received message",
       description:
-        "Reply to an inbound message identified by `message_id`. Preserves the References and In-Reply-To headers so the reply lands in the same email thread as the original. Pass `reply_all: true` to copy the original Cc list. Subject is auto-derived (Re: …) by the server.",
+        "Reply to an inbound message identified by `message_id`. Preserves the References and In-Reply-To headers so the reply lands in the same email thread as the original. Pass `reply_all: true` to copy the original Cc list. Attach files via `attachments`. Subject is auto-derived (Re: …) by the server.",
       inputSchema: {
         message_id: z.string().describe("ID of the inbound message to reply to (e.g. msg_…)."),
         body: z.string().describe("Plain-text reply body."),
@@ -59,6 +62,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
           .describe("If true, copy the original message's Cc list."),
         cc: z.array(z.string()).optional(),
         bcc: z.array(z.string()).optional(),
+        attachments: attachmentsArraySchema,
         conversation_id: z.string().optional(),
         agent_email: z.string().optional(),
       },
@@ -70,6 +74,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
           ...(args.reply_all !== undefined ? { replyAll: args.reply_all } : {}),
           ...(args.cc !== undefined ? { cc: args.cc } : {}),
           ...(args.bcc !== undefined ? { bcc: args.bcc } : {}),
+          ...(args.attachments !== undefined ? { attachments: args.attachments } : {}),
           ...(args.conversation_id !== undefined
             ? { conversationId: args.conversation_id }
             : {}),

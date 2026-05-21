@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { E2AClient } from "@e2a/sdk/v1";
 import { z } from "zod";
 import { runTool } from "./util.js";
+import { attachmentsArraySchema } from "./attachments.js";
 
 export function registerHitlTools(server: McpServer, client: E2AClient): void {
   server.registerTool(
@@ -33,7 +34,7 @@ export function registerHitlTools(server: McpServer, client: E2AClient): void {
     {
       title: "Approve a pending outbound message",
       description:
-        "Send a held outbound message via the upstream relay. Approve-as-is by passing only `message_id`, or apply reviewer edits by supplying any subset of subject / body_text / body_html / to / cc / bcc — those fields override the stored draft before send. Returns 409 if the message is no longer pending.",
+        "Send a held outbound message via the upstream relay. Approve-as-is by passing only `message_id`, or apply reviewer edits by supplying any subset of subject / body_text / body_html / to / cc / bcc / attachments — those fields override the stored draft before send. Pass an empty `attachments: []` to strip attachments the agent originally proposed. Returns 409 if the message is no longer pending.",
       inputSchema: {
         message_id: z.string(),
         subject: z.string().optional(),
@@ -42,6 +43,7 @@ export function registerHitlTools(server: McpServer, client: E2AClient): void {
         to: z.array(z.string()).optional(),
         cc: z.array(z.string()).optional(),
         bcc: z.array(z.string()).optional(),
+        attachments: attachmentsArraySchema,
       },
     },
     async (args) => {

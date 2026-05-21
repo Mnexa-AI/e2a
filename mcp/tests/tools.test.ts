@@ -353,6 +353,139 @@ describe("e2a MCP server", () => {
     expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", {});
   });
 
+  // ── Attachment forwarding (slice A) ─────────────────────────────
+  //
+  // Wire-shape regression coverage. The Zod schema in
+  // src/tools/attachments.ts is the single point of truth; these
+  // tests assert it's plumbed into the three outbound tools without
+  // dropping or mangling fields.
+
+  // 9-byte payload — round-trip safe and well under any size cap.
+  const helloBase64 = Buffer.from("hi-there!").toString("base64");
+  const sampleAttachment = {
+    filename: "note.txt",
+    content_type: "text/plain",
+    data: helloBase64,
+  };
+
+  it("send_email forwards attachments verbatim to client.send", async () => {
+    await client.callTool({
+      name: "send_email",
+      arguments: {
+        to: ["alice@example.com"],
+        subject: "with file",
+        body: "see attached",
+        attachments: [sampleAttachment],
+      },
+    });
+    expect(stub.send).toHaveBeenCalledWith(
+      ["alice@example.com"],
+      "with file",
+      "see attached",
+      { attachments: [sampleAttachment] },
+    );
+  });
+
+  it("reply_to_message forwards attachments verbatim to client.reply", async () => {
+    await client.callTool({
+      name: "reply_to_message",
+      arguments: {
+        message_id: "msg_in",
+        body: "reply with file",
+        attachments: [sampleAttachment],
+      },
+    });
+    expect(stub.reply).toHaveBeenCalledWith("msg_in", "reply with file", {
+      attachments: [sampleAttachment],
+    });
+  });
+
+  it("approve_pending_message accepts an attachments override (HITL reviewer adds a file)", async () => {
+    await client.callTool({
+      name: "approve_pending_message",
+      arguments: {
+        message_id: "msg_p",
+        attachments: [sampleAttachment],
+      },
+    });
+    expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", {
+      attachments: [sampleAttachment],
+    });
+  });
+
+  it("approve_pending_message empty attachments:[] is forwarded as a strip override", async () => {
+    // Reviewer wants to remove all attachments the agent proposed.
+    // Empty array must reach the SDK; if we accidentally filtered it
+    // out, the backend would treat the override as absent (keep
+    // existing attachments) — wrong behavior.
+    await client.callTool({
+      name: "approve_pending_message",
+      arguments: { message_id: "msg_p", attachments: [] },
+    });
+    expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", { attachments: [] });
+  });
+
+  it("send_email rejects base64 with whitespace (URL-safe or LLM-truncated patterns)", async () => {
+    const res = await client.callTool({
+      name: "send_email",
+      arguments: {
+        to: ["alice@example.com"],
+        subject: "bad",
+        body: "x",
+        attachments: [
+          {
+            filename: "a.txt",
+            content_type: "text/plain",
+            // newline-padded base64 — the schema rejects whitespace.
+            data: "aGVsbG8=\n",
+          },
+        ],
+      },
+    });
+    expect(res.isError).toBe(true);
+    expect(stub.send).not.toHaveBeenCalled();
+  });
+
+  it("send_email rejects base64 with length not divisible by 4 (truncation signal)", async () => {
+    const res = await client.callTool({
+      name: "send_email",
+      arguments: {
+        to: ["alice@example.com"],
+        subject: "bad",
+        body: "x",
+        attachments: [
+          {
+            filename: "a.txt",
+            content_type: "text/plain",
+            data: "aGVsbG", // 6 chars — not %4
+          },
+        ],
+      },
+    });
+    expect(res.isError).toBe(true);
+    expect(stub.send).not.toHaveBeenCalled();
+  });
+
+  it("send_email rejects malformed content_type", async () => {
+    const res = await client.callTool({
+      name: "send_email",
+      arguments: {
+        to: ["alice@example.com"],
+        subject: "bad",
+        body: "x",
+        attachments: [
+          {
+            filename: "a.txt",
+            content_type: "pdf", // no slash
+            data: helloBase64,
+          },
+        ],
+      },
+    });
+    expect(res.isError).toBe(true);
+    expect(stub.send).not.toHaveBeenCalled();
+  });
+
   it("reject_pending_message forwards the reason", async () => {
     await client.callTool({
       name: "reject_pending_message",
