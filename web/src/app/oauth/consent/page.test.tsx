@@ -221,13 +221,26 @@ describe("ConsentPage", () => {
     await userEvent.clear(slugInput);
     expect(allow.disabled).toBe(true);
     expect(slugInput.getAttribute("aria-invalid")).toBe("true");
-    expect(screen.getByText(/1–40 lowercase letters/i)).toBeInTheDocument();
+    expect(screen.getByText(/2–40 lowercase letters/i)).toBeInTheDocument();
 
     // Leading hyphen → invalid (regex requires alphanumeric start).
     await userEvent.type(slugInput, "-foo");
     expect(allow.disabled).toBe(true);
 
-    // Valid slug → allow re-enabled.
+    // Single-char slug → invalid (backend requires 2-40).
+    // Previously the client regex's tail was optional and accepted
+    // 1-char slugs, causing the form to submit and the backend to
+    // 400 with no inline UI feedback. Regression guard.
+    await userEvent.clear(slugInput);
+    await userEvent.type(slugInput, "a");
+    expect(allow.disabled).toBe(true);
+
+    // Valid 2-char slug → allow re-enabled.
+    await userEvent.clear(slugInput);
+    await userEvent.type(slugInput, "ab");
+    expect(allow.disabled).toBe(false);
+
+    // Valid longer slug → allow stays enabled.
     await userEvent.clear(slugInput);
     await userEvent.type(slugInput, "good-slug-1");
     expect(allow.disabled).toBe(false);

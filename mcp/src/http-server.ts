@@ -5,7 +5,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { E2AClient } from "@e2a/sdk/v1";
 import { buildServer } from "./server.js";
-import { Sessions } from "./session.js";
+import { Sessions, fingerprintBearer } from "./session.js";
 
 export interface HttpServerOptions {
   /** Base URL of the e2a backend (Bearer is forwarded as-is). */
@@ -177,15 +177,38 @@ async function handleClientRequest(
   const sessionId = req.headers["mcp-session-id"] as string | undefined;
   let entry = sessionId ? sessions.get(sessionId) : undefined;
 
+  // Session-bearer binding. The per-session E2AClient has the original
+  // bearer baked in and forwards it verbatim to the e2a backend on
+  // every tool call — so dispatching to a session by id alone, with
+  // no bearer check, would let anyone who learned `Mcp-Session-Id`
+  // act as the session owner (Access-Control-Expose-Headers exposes
+  // the id, and the spec doesn't treat it as a secret). We refuse to
+  // dispatch when the bearer's fingerprint doesn't match the one
+  // captured at session-create.
+  if (entry && entry.bearerFingerprint !== fingerprintBearer(bearer)) {
+    res.setHeader(
+      "WWW-Authenticate",
+      `Bearer realm="e2a", error="invalid_token", error_description="bearer does not match session"`,
+    );
+    res.status(401).json(jsonRpcError(req.body, -32001, "session bearer mismatch"));
+    return;
+  }
+
   if (!entry && isInitializeRequest(req.body)) {
     const client = opts.clientFactory
       ? opts.clientFactory(bearer)
       : new E2AClient({ apiKey: bearer, baseUrl: opts.baseUrl });
     const server = buildServer({ client });
+    const bearerFp = fingerprintBearer(bearer);
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => crypto.randomUUID(),
       onsessioninitialized: (id) => {
-        sessions.put(id, { transport, server, lastSeen: Date.now() });
+        sessions.put(id, {
+          transport,
+          server,
+          lastSeen: Date.now(),
+          bearerFingerprint: bearerFp,
+        });
       },
     });
     // SDK chains any pre-existing onclose with its own internal cleanup
@@ -249,6 +272,20 @@ async function handleStreamingOrDelete(
   const entry = sessions.get(sessionId);
   if (!entry) {
     res.status(404).end();
+    return;
+  }
+  // Session-bearer binding (same rationale as handleClientRequest):
+  // SSE notifications and session DELETE both carry the privilege of
+  // the original initialize; the inline comment that used to be here
+  // ("knowing a session id should not be sufficient...") is correct
+  // and now enforced. A bearer-fingerprint mismatch rejects with
+  // 401 + the standard WWW-Authenticate challenge.
+  if (entry.bearerFingerprint !== fingerprintBearer(bearer)) {
+    res.setHeader(
+      "WWW-Authenticate",
+      `Bearer realm="e2a", error="invalid_token", error_description="bearer does not match session"`,
+    );
+    res.status(401).end();
     return;
   }
   await entry.transport.handleRequest(req, res);

@@ -326,6 +326,98 @@ func TestSelfReply_LoopbackShortCircuit(t *testing.T) {
 	}
 }
 
+// TestSelfReply_ReplyAllOnSelfThread_LoopbackShortCircuit: the
+// reply-to-self fix in 51ef9c8 only covered the empty-CC case. When
+// reply_all=true on a self-thread, ParseReplyRecipients carries the
+// original message's CC list forward verbatim — and on a self-loop
+// that list includes the agent's own address. Without pre-stripping
+// the agent's aliases from CC before checking isSelfSend, the
+// predicate sees `len(CC) != 0`, returns false, and the call falls
+// through to the SMTP path, where outbound.Sender's own alias-
+// strip leaves the recipient list empty and the request errors out
+// with HTTP 400 "no valid recipients."
+//
+// This test sets up that exact shape (original self-send had self
+// in CC; reply with reply_all=true) and asserts the loopback path
+// fires. Pre-fix this returned 400; post-fix it returns 200 with
+// method=loopback.
+func TestSelfReply_ReplyAllOnSelfThread_LoopbackShortCircuit(t *testing.T) {
+	server, store, pool := setupAPI(t)
+	ctx := context.Background()
+
+	user, err := store.CreateOrGetUser(ctx, "self-replyall@example.com", "Owner", "google-self-replyall")
+	if err != nil {
+		t.Fatalf("CreateOrGetUser: %v", err)
+	}
+	apiKeyObj, err := store.CreateAPIKey(ctx, user.ID, "self-replyall-key")
+	if err != nil {
+		t.Fatalf("CreateAPIKey: %v", err)
+	}
+	if _, err := store.ClaimOrCreateDomain(ctx, "selfreplyall.example.com", user.ID); err != nil {
+		t.Fatalf("ClaimOrCreateDomain: %v", err)
+	}
+	if err := store.VerifyDomain(ctx, "selfreplyall.example.com", user.ID); err != nil {
+		t.Fatalf("VerifyDomain: %v", err)
+	}
+	if _, err := store.CreateAgent(ctx, "bot@selfreplyall.example.com", "selfreplyall.example.com", "", "", "local", user.ID); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	agentEmail := "bot@selfreplyall.example.com"
+
+	// Step 1: self-send WITH self in CC. The handleSendEmail isSelfSend
+	// check rejects mixed CC, so this routes through the SMTP path...
+	// but we want the inbound row to be populated for the reply. The
+	// simplest way: insert the inbound row directly with the exact
+	// MIME shape `composeLoopbackMIME` would produce — including a
+	// To: header for the agent and a Cc: header that ALSO references
+	// the agent. Then the reply's ParseReplyRecipients pulls that
+	// CC entry forward.
+	rawMIME := "From: " + agentEmail + "\r\n" +
+		"To: " + agentEmail + "\r\n" +
+		"Cc: " + agentEmail + "\r\n" +
+		"Subject: original\r\n" +
+		"Message-ID: <orig-replyall-test@selfreplyall.example.com>\r\n" +
+		"\r\n" +
+		"hello me"
+	if _, err := store.CreateInboundMessage(
+		ctx, "msg_replyall_seed", agentEmail, agentEmail, agentEmail,
+		"<orig-replyall-test@selfreplyall.example.com>", "original", "", "unread",
+		[]byte(rawMIME), nil,
+		[]string{agentEmail}, []string{agentEmail}, nil,
+	); err != nil {
+		t.Fatalf("CreateInboundMessage seed: %v", err)
+	}
+
+	// Step 2: reply with reply_all=true. Pre-fix this errored with
+	// 400 "no valid recipients". Post-fix it must succeed and route
+	// through the loopback short-circuit (method=loopback).
+	replyURL := server.URL + "/api/v1/agents/" + agentEmail + "/messages/msg_replyall_seed/reply"
+	replyResp := authedPost(t, replyURL,
+		`{"body":"replying with reply_all","reply_all":true}`,
+		apiKeyObj.PlaintextKey)
+	defer replyResp.Body.Close()
+	if replyResp.StatusCode != 200 {
+		t.Fatalf("self-reply (replyAll=true) status=%d want 200; body=%s",
+			replyResp.StatusCode, readBody(t, replyResp))
+	}
+	var body map[string]string
+	json.NewDecoder(replyResp.Body).Decode(&body)
+	if body["method"] != "loopback" {
+		t.Errorf("method=%q want loopback (replyAll on self-thread must take the short-circuit, not fall through to SMTP)", body["method"])
+	}
+
+	// The reply must persist as both outbound + inbound, same as a
+	// regular self-reply. Spot-check the inbound row exists.
+	var inboundRepliesCount int
+	pool.QueryRow(ctx,
+		`SELECT count(*) FROM messages
+		   WHERE agent_id=$1 AND direction='inbound' AND subject LIKE 'Re:%'`,
+		agentEmail).Scan(&inboundRepliesCount)
+	if inboundRepliesCount != 1 {
+		t.Errorf("inbound replies = %d, want 1 (the loopback-routed reply)", inboundRepliesCount)
+	}
+}
+
 // TestSelfSend_BypassesHITL: an agent with HITL enabled still self-
 // sends immediately. Holding a note-to-self for the agent to approve
 // to itself is degenerate UX; the loopback path explicitly skips the

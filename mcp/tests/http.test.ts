@@ -82,6 +82,106 @@ describe("HTTP MCP server", () => {
     expect(body.error.message).toMatch(/missing bearer/);
   });
 
+  it("rejects requests that present a known session-id with a different bearer", async () => {
+    // Regression for the session-id-hijack class: the per-session
+    // E2AClient holds the original bearer baked in. Without session-
+    // bearer binding, anyone who learned `Mcp-Session-Id` could
+    // dispatch to the session with any non-empty bearer string and
+    // execute tools as the session's owner.
+    //
+    // Flow:
+    //  1. Open a session with bearer "victim"; capture session-id.
+    //  2. POST a tools/call to that session-id with bearer "attacker".
+    //  3. Expect 401, WWW-Authenticate, and confirm stub.send was
+    //     NOT called (so the hijacked dispatch didn't reach a tool).
+
+    // Step 1 — initialize as victim and extract the session-id.
+    const initRes = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: "Bearer victim_token",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: { name: "victim", version: "0" },
+        },
+      }),
+    });
+    expect(initRes.status).toBe(200);
+    const sessionId = initRes.headers.get("mcp-session-id");
+    expect(sessionId).toBeTruthy();
+    // Drain the stream — required so the SDK transport recognizes
+    // initialize is done before the test moves on.
+    await initRes.text();
+
+    // Step 2 — POST a notifications/initialized then tools/call as
+    // "attacker" against the captured session-id.
+    const attackRes = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: "Bearer attacker_anything",
+        "Mcp-Session-Id": sessionId!,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "send_email", arguments: { to: ["x@example.com"], subject: "hi", body: "y" } },
+      }),
+    });
+    expect(attackRes.status).toBe(401);
+    expect(attackRes.headers.get("www-authenticate")).toMatch(
+      /Bearer realm="e2a", error="invalid_token"/,
+    );
+    expect(stub.send).not.toHaveBeenCalled();
+  });
+
+  it("rejects an SSE GET on a known session-id with a different bearer", async () => {
+    // Same defense applies to the streaming/DELETE path. A leaked
+    // session-id should not give an attacker the notification
+    // stream of someone else's session.
+    const initRes = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: "Bearer victim_for_sse",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: { name: "v", version: "0" },
+        },
+      }),
+    });
+    expect(initRes.status).toBe(200);
+    const sessionId = initRes.headers.get("mcp-session-id")!;
+    await initRes.text();
+
+    const sseRes = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: "Bearer different_attacker",
+        "Mcp-Session-Id": sessionId,
+        Accept: "text/event-stream",
+      },
+    });
+    expect(sseRes.status).toBe(401);
+  });
+
   it("oauth-protected-resource discovery returns expected metadata", async () => {
     const res = await fetch(`${url.replace("/mcp", "")}/.well-known/oauth-protected-resource`);
     expect(res.status).toBe(200);

@@ -504,6 +504,38 @@ func TestHTTP_GetClient_NotConfigured(t *testing.T) {
 	}
 }
 
+// TestHTTP_GetClient_RateLimited: handleOAuthGetClient must enforce
+// the same per-IP rate limit as DCR (10/hr today). Without this,
+// anonymous high-QPS requests against a path that http.NotFound
+// doesn't tag with Cache-Control would create a DB-pressure DOS
+// primitive that CDNs can't absorb.
+func TestHTTP_GetClient_RateLimited(t *testing.T) {
+	srv := newDCRServer(t)
+	// Each DCR-server has its own rate limiter at 10/IP/hr. Burn through
+	// the budget with GET /api/oauth/clients/<random>; the 11th call
+	// from the same IP must 429.
+	for i := 0; i < 10; i++ {
+		resp, err := http.Get(srv.URL + "/api/oauth/clients/mcp_doesnotexist_" + fmt.Sprintf("%02d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		// Each of the first 10 returns 404 (unknown client) or 200
+		// (if one happens to exist). Either way NOT 429.
+		if resp.StatusCode == http.StatusTooManyRequests {
+			t.Fatalf("hit rate limit early on call %d", i+1)
+		}
+	}
+	resp, err := http.Get(srv.URL + "/api/oauth/clients/mcp_doesnotexist_11")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("11th call status = %d, want 429 (rate-limit)", resp.StatusCode)
+	}
+}
+
 // equalStringSlice — order-independent comparison would be safer for
 // some assertions, but for our defaults the order is stable. Plain
 // equality is fine.

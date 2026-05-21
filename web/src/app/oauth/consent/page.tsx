@@ -27,10 +27,14 @@ type ClientMeta = {
   client_id_issued_at: number;
 };
 
-// Slug rules mirror validateSlug in internal/agent/oauth_handlers.go.
-// Keep the regex in sync — the backend re-validates so a drift here
-// only affects UX, not security.
-const SLUG_PATTERN = /^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$/;
+// Slug rules mirror validateSlug in internal/agent/api.go (length
+// 2–40, alphanumeric or hyphen, must start AND end with an
+// alphanumeric). Keep the regex in sync — the backend re-validates
+// so a drift here only affects UX, not security. Earlier versions
+// of this regex made the second char class optional, which allowed
+// 1-char slugs that the backend rejected with "slug must be 2–40
+// characters" and no inline UI feedback. The tail is now mandatory.
+const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$/;
 
 export default function ConsentPage() {
   // useSearchParams forces dynamic rendering; the Suspense boundary
@@ -306,7 +310,7 @@ function ConsentForm({
               />
               {!slugValid && (
                 <p className="text-xs text-red-500 mt-1">
-                  Slug must be 1–40 lowercase letters, digits, or hyphens.
+                  Slug must be 2–40 lowercase letters, digits, or hyphens, and start and end with a letter or digit.
                 </p>
               )}
             </div>

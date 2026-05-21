@@ -1433,6 +1433,17 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 	// "no valid recipients" on a reply where the original sender WAS
 	// the agent itself. Route through the loopback short-circuit
 	// instead — symmetric with handleSendEmail's self-send path.
+	//
+	// Pre-clean: with replyAll=true on a self-thread the inherited
+	// CC list already includes the agent's own address (it was a
+	// recipient on the original message). isSelfSend requires CC ==
+	// [] to fire; without this strip we'd fall through to the SMTP
+	// path and outbound.Sender would error with "no valid recipients"
+	// after its own alias-strip leaves the lists empty. Stripping
+	// here just moves that work upstream so isSelfSend sees a "true"
+	// self-loop instead of a "self + self-aliases-in-CC" shape.
+	sendReq.CC = stripAgentSelfAliases(sendReq.CC, agent.EmailAddress())
+	sendReq.BCC = stripAgentSelfAliases(sendReq.BCC, agent.EmailAddress())
 	selfReply := isSelfSend(sendReq, agent.EmailAddress())
 
 	// HITL on a self-reply is bypassed for the same reason it's

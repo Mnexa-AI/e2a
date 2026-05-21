@@ -389,11 +389,21 @@ type OAuthClientPublicMetadata struct {
 // §4 says client metadata is generally not secret, and the consent
 // screen needs the friendly name to give the user a meaningful
 // "Allow X to access Y" prompt. 404 when oauth is not wired or the
-// client_id is unknown. No rate limit — this is a one-off read off
-// the consent path, indexed by primary key.
+// client_id is unknown; 500 on transient DB errors so the UI can
+// distinguish "client doesn't exist" from "backend is sick".
+// Rate-limited per source IP because the endpoint is anonymous and
+// every request runs an indexed PK lookup — without the gate, an
+// attacker could sustain high-QPS DB pressure against a path that
+// CDNs can't absorb (Go's http.NotFound emits no Cache-Control, so
+// 404 responses aren't edge-cacheable).
 func (a *API) handleOAuthGetClient(w http.ResponseWriter, r *http.Request) {
 	if a.oauthStorage == nil {
 		http.NotFound(w, r)
+		return
+	}
+	if !a.dcrLimit.Allow(dcrSourceIP(r)) {
+		writeOAuthError(w, http.StatusTooManyRequests, "rate_limited",
+			"too many client-metadata requests from this IP; try again later")
 		return
 	}
 	clientID := mux.Vars(r)["client_id"]
@@ -413,10 +423,17 @@ func (a *API) handleOAuthGetClient(w http.ResponseWriter, r *http.Request) {
 		 WHERE client_id = $1
 	`, clientID).Scan(&name, &redirects, &scopes, &createdAt)
 	if err != nil {
-		// pgx returns pgx.ErrNoRows on a missing row; conflate any read
-		// failure with 404 so we don't leak existence via timing or
-		// error-message granularity.
-		http.NotFound(w, r)
+		// Distinguish "not found" (which 404 is the right answer for)
+		// from a transient DB failure (which the UI should retry
+		// instead of telling the user "this client isn't registered").
+		// pgx.ErrNoRows is the canonical sentinel for an empty row.
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		log.Printf("[oauth] client metadata lookup failed: client=%q err=%v", clientID, err)
+		writeOAuthError(w, http.StatusInternalServerError, "server_error",
+			"client metadata lookup failed; try again")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

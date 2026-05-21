@@ -20,6 +20,13 @@ import (
 // single To recipient that matches the agent's own address (case-
 // insensitive, trimmed) AND no Cc/Bcc — any mixed/external
 // recipient routes through normal SMTP unchanged.
+//
+// Callers that have CC/BCC carrying agent aliases (e.g. the reply
+// path with replyAll=true on a self-thread, where the original
+// message's CC list already includes the agent) should strip them
+// via stripAgentSelfAliases before checking — outbound.Sender does
+// the same alias-strip downstream as a self-spam guard, so doing
+// it here is purely "see through" the aliases earlier.
 func isSelfSend(req outbound.SendRequest, agentEmail string) bool {
 	if len(req.CC) != 0 || len(req.BCC) != 0 {
 		return false
@@ -28,6 +35,24 @@ func isSelfSend(req outbound.SendRequest, agentEmail string) bool {
 		return false
 	}
 	return strings.EqualFold(strings.TrimSpace(req.To[0]), agentEmail)
+}
+
+// stripAgentSelfAliases removes case-insensitive, whitespace-trimmed
+// matches of agentEmail from addrs. Used to pre-clean reply
+// recipients so isSelfSend can recognize replyAll-on-a-self-thread
+// as still a self-send. Returns a fresh slice; the input is not
+// mutated.
+func stripAgentSelfAliases(addrs []string, agentEmail string) []string {
+	if len(addrs) == 0 {
+		return addrs
+	}
+	out := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		if !strings.EqualFold(strings.TrimSpace(a), agentEmail) {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // performSelfSend writes the message as BOTH an outbound row (sender's
