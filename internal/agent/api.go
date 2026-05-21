@@ -1167,7 +1167,14 @@ func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if agent.HITLEnabled {
+	selfSend := isSelfSend(req, agent.EmailAddress())
+
+	// HITL is intentionally bypassed for self-sends. Holding a "note
+	// to self" for approval is degenerate UX — the reviewer and the
+	// author are the same identity, and the approval magic-link would
+	// be a no-op confirmation. External recipients still flow through
+	// HITL normally.
+	if agent.HITLEnabled && !selfSend {
 		a.holdForApproval(w, r, agent, req, "send", "")
 		return
 	}
@@ -1175,6 +1182,24 @@ func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 	// Record usage (side-effect only — never block on quota)
 	if _, err := a.usage.RecordAndCheck(r.Context(), user.ID, agent.ID, agent.Domain, "outbound"); err != nil {
 		log.Printf("[api] usage recording error: %v", err)
+	}
+
+	if selfSend {
+		providerID, err := a.performSelfSend(r.Context(), agent, req)
+		if err != nil {
+			log.Printf("[api] self-send failed: agent=%s error=%v", agent.EmailAddress(), err)
+			http.Error(w, "self-send failed", http.StatusInternalServerError)
+			return
+		}
+		slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
+		log.Printf("[mail] dir=outbound type=send method=loopback from=%s to=%s slug=%s conv_id=%s subject=%q provider_id=%s", agent.EmailAddress(), agent.EmailAddress(), slug, req.ConversationID, req.Subject, providerID)
+		w.Header().Set("Content-Type", "application/json")
+		writeJSON(w, map[string]string{
+			"status":     "sent",
+			"message_id": providerID,
+			"method":     "loopback",
+		})
+		return
 	}
 
 	result, err := a.sender.Send(agent, req)
