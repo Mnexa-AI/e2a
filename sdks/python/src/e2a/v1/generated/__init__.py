@@ -88,6 +88,9 @@ class DeleteUserDataResult(BaseModel):
     api_keys_deleted: int | None = None
     domains_deleted: int | None = None
     messages_deleted: int | None = None
+    oauth_access_tokens_deleted: int | None = None
+    oauth_auth_codes_deleted: int | None = None
+    oauth_refresh_tokens_deleted: int | None = None
     sessions_deleted: int | None = None
     usage_events_deleted: int | None = None
     usage_summaries_deleted: int | None = None
@@ -173,6 +176,19 @@ class MessageSummary(BaseModel):
     status: Literal['unread', 'read'] | None = Field(None, examples=['unread'])
     subject: str | None = Field(None, examples=['Hello'])
     to: list[str] | None = Field(None, examples=[['my-bot@example.com']])
+
+
+class OAuthConnectionEntry(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    agent_email: str | None = None
+    client_id: str | None = None
+    client_name: str | None = None
+    expires_at: str | None = None
+    issued_at: str | None = None
+    revoked_at: str | None = None
+    scope: str | None = None
 
 
 class PendingMessageSummary(BaseModel):
@@ -419,6 +435,7 @@ class UserExport(BaseModel):
     domains: list[github_com_Mnexa_AI_e2a_internal_identity.Domain] | None = None
     generated_at: str | None = None
     messages: list[github_com_Mnexa_AI_e2a_internal_identity.Message] | None = None
+    oauth_connections: list[OAuthConnectionEntry] | None = None
     schema_version: str | None = None
     usage_events: list[UsageEventEntry] | None = None
     user: UserExportUser | None = None

@@ -148,7 +148,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Agent"];
+                        "application/json": unknown;
                     };
                 };
                 /** @description Missing or invalid API key */
@@ -201,7 +201,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Agent"];
+                        "application/json": unknown;
                     };
                 };
                 /** @description Validation error (e.g. bad agent_mode, TTL out of range) */
@@ -1670,6 +1670,9 @@ export interface components {
             api_keys_deleted?: number;
             domains_deleted?: number;
             messages_deleted?: number;
+            oauth_access_tokens_deleted?: number;
+            oauth_auth_codes_deleted?: number;
+            oauth_refresh_tokens_deleted?: number;
             sessions_deleted?: number;
             usage_events_deleted?: number;
             usage_summaries_deleted?: number;
@@ -1775,6 +1778,15 @@ export interface components {
              *     ]
              */
             to?: string[];
+        };
+        OAuthConnectionEntry: {
+            agent_email?: string;
+            client_id?: string;
+            client_name?: string;
+            expires_at?: string;
+            issued_at?: string;
+            revoked_at?: string;
+            scope?: string;
         };
         PendingMessageDetail: {
             /** @example my-bot@example.com */
@@ -1976,6 +1988,7 @@ export interface components {
             domains?: components["schemas"]["github_com_Mnexa-AI_e2a_internal_identity.Domain"][];
             generated_at?: string;
             messages?: components["schemas"]["github_com_Mnexa-AI_e2a_internal_identity.Message"][];
+            oauth_connections?: components["schemas"]["OAuthConnectionEntry"][];
             schema_version?: string;
             usage_events?: components["schemas"]["UsageEventEntry"][];
             user?: components["schemas"]["UserExportUser"];

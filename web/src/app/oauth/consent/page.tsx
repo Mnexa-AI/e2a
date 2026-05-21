@@ -78,7 +78,14 @@ function ConsentInner() {
   useEffect(() => {
     if (!clientID || missing.length > 0) return;
     let cancelled = false;
-    setClientError(null);
+    // Stale-state note: a previous error/success may already be in
+    // state when this effect re-fires (e.g. clientID changed). We do
+    // NOT reset clientError/client here because the eslint rule
+    // `react-hooks/set-state-in-effect` flags synchronous setState in
+    // an effect body; the .then/.catch below set the final value, and
+    // the cancelled flag prevents a stale resolution from clobbering
+    // a fresh one. Worst case (rare): user sees the previous error
+    // for the brief window before the new fetch settles — acceptable.
     fetch(`/api/oauth/clients/${encodeURIComponent(clientID)}`, {
       credentials: "include",
     })
@@ -93,7 +100,10 @@ function ConsentInner() {
           return;
         }
         const data: ClientMeta = await r.json();
-        if (!cancelled) setClient(data);
+        if (!cancelled) {
+          setClientError(null);
+          setClient(data);
+        }
       })
       .catch((e) => {
         if (!cancelled) setClientError(String(e));
