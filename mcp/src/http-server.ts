@@ -12,6 +12,26 @@ export interface HttpServerOptions {
   baseUrl: string;
   /** Hostnames the SDK will accept; rejects anything else with 421. */
   allowedHosts: string[];
+  /**
+   * Externally reachable URL of this MCP server. When set, used verbatim
+   * for the RFC 9728 protected-resource metadata `resource` field and
+   * the `WWW-Authenticate: resource_metadata=...` value on 401s. When
+   * unset (production default behind Caddy), we synthesize
+   * `https://{Host}` from the inbound request. The local-dev runbook
+   * sets this to `http://localhost:8765` so Claude Code's OAuth probe
+   * can resolve the metadata over loopback http.
+   */
+  publicUrl?: string;
+  /**
+   * Externally reachable URL of the authorization server. Defaults to
+   * baseUrl when unset — fine in prod where baseUrl is e2a.dev. In a
+   * Docker compose setup the bearer-forwarding side (baseUrl) needs
+   * the container-internal hostname (http://e2a:8080) while the OAuth
+   * client needs the host-reachable URL (http://localhost:8080). Set
+   * this to override what's advertised in protected-resource metadata
+   * without changing where the SDK forwards bearer tokens.
+   */
+  authorizationServerUrl?: string;
   /** Optional shared sessions instance (defaults to a fresh one). */
   sessions?: Sessions;
   /** Session idle timeout. */
@@ -80,16 +100,35 @@ export function buildApp(opts: HttpServerOptions): BuiltApp {
   // Served unconditionally (even pre-OAuth) so clients don't get a confusing
   // 404 between v0.2 and v0.3. Validates Host against the allowlist to
   // avoid reflecting attacker-controlled hosts back in the `resource` URL.
+  // Compute the public-facing URL of this MCP server. Three cases:
+  //   1. publicUrl set explicitly: trust it verbatim (local-dev http,
+  //      or any deployment behind a fronting proxy that knows its own
+  //      external URL better than we do).
+  //   2. unset + Host header present + Host in allowlist: synthesize
+  //      `https://{Host}`. This is the prod-default Caddy-fronted path.
+  //   3. unset + Host missing/disallowed: caller wrapped function
+  //      rejects with 421 before reaching here.
+  const resolveResourceUrl = (req: Request): string | null => {
+    if (opts.publicUrl) {
+      return opts.publicUrl.replace(/\/+$/, "");
+    }
+    const host = req.headers.host;
+    if (!host) return null;
+    const bare = host.split(":")[0]!.toLowerCase();
+    if (!allowedHosts.has(bare)) return null;
+    return `https://${host}`;
+  };
+
   app.get("/.well-known/oauth-protected-resource", (req, res) => {
-    const incoming = req.headers.host?.split(":")[0]?.toLowerCase();
-    if (!incoming || !allowedHosts.has(incoming)) {
+    const resource = resolveResourceUrl(req);
+    if (!resource) {
       res.status(421).end();
       return;
     }
     res.json({
-      resource: `https://${req.headers.host}`,
-      authorization_servers: [opts.baseUrl],
-      scopes_supported: ["e2a"],
+      resource,
+      authorization_servers: [opts.authorizationServerUrl ?? opts.baseUrl],
+      scopes_supported: ["mcp"],
       bearer_methods_supported: ["header"],
     });
   });
@@ -100,13 +139,23 @@ export function buildApp(opts: HttpServerOptions): BuiltApp {
 
   // Streamable HTTP uses GET for SSE notifications and DELETE for session termination.
   app.get("/mcp", async (req, res) => {
-    await handleStreamingOrDelete(req, res, sessions);
+    await handleStreamingOrDelete(req, res, sessions, opts);
   });
   app.delete("/mcp", async (req, res) => {
-    await handleStreamingOrDelete(req, res, sessions);
+    await handleStreamingOrDelete(req, res, sessions, opts);
   });
 
   return { app, sessions };
+}
+
+// resourceMetadataURL returns the value the `WWW-Authenticate` header
+// should advertise. Honors publicUrl when set (local-dev http), falls
+// back to https+Host otherwise (prod behind Caddy).
+function resourceMetadataURL(req: Request, opts: HttpServerOptions): string {
+  const base = opts.publicUrl
+    ? opts.publicUrl.replace(/\/+$/, "")
+    : `https://${req.headers.host}`;
+  return `${base}/.well-known/oauth-protected-resource`;
 }
 
 async function handleClientRequest(
@@ -119,7 +168,7 @@ async function handleClientRequest(
   if (!bearer) {
     res.setHeader(
       "WWW-Authenticate",
-      `Bearer realm="e2a", resource_metadata="https://${req.headers.host}/.well-known/oauth-protected-resource"`,
+      `Bearer realm="e2a", resource_metadata="${resourceMetadataURL(req, opts)}"`,
     );
     res.status(401).json(jsonRpcError(req.body, -32001, "missing bearer token"));
     return;
@@ -177,6 +226,7 @@ async function handleStreamingOrDelete(
   req: Request,
   res: Response,
   sessions: Sessions,
+  opts: HttpServerOptions,
 ): Promise<void> {
   // Require Bearer on every /mcp request, including SSE GET and session
   // DELETE — knowing a session id should not be sufficient to read its
@@ -185,7 +235,7 @@ async function handleStreamingOrDelete(
   if (!bearer) {
     res.setHeader(
       "WWW-Authenticate",
-      `Bearer realm="e2a", resource_metadata="https://${req.headers.host}/.well-known/oauth-protected-resource"`,
+      `Bearer realm="e2a", resource_metadata="${resourceMetadataURL(req, opts)}"`,
     );
     res.status(401).end();
     return;

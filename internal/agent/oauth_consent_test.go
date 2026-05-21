@@ -1,0 +1,510 @@
+package agent_test
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+
+	"github.com/Mnexa-AI/e2a/internal/agent"
+	"github.com/Mnexa-AI/e2a/internal/auth"
+	"github.com/Mnexa-AI/e2a/internal/config"
+	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/oauth"
+	"github.com/Mnexa-AI/e2a/internal/outbound"
+	"github.com/Mnexa-AI/e2a/internal/testutil"
+	"github.com/Mnexa-AI/e2a/internal/usage"
+
+	"github.com/gorilla/mux"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/ory/fosite"
+)
+
+// consentFixture wires the API with provider + storage + userAuth, and
+// seeds a logged-in user. Returns the server URL, the fosite provider
+// (for tests that need to bypass /authorize via mintAuthCode), the
+// session cookie value, the user ID, the client ID, and the underlying
+// pool (for tests that need to look at row state).
+type consentFixture struct {
+	server       *httptest.Server
+	provider     fosite.OAuth2Provider
+	pool         *pgxpool.Pool
+	sessionToken string
+	userID       string
+	clientID     string
+}
+
+func newConsentFixture(t *testing.T) *consentFixture {
+	t.Helper()
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	smtpRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{})
+	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
+
+	// UserAuth wired with a stub OAuth config — we never actually
+	// drive Google login through it; the test creates sessions
+	// directly via CreateUserSession.
+	userAuth := auth.NewUserAuth(&config.OAuthConfig{
+		GoogleClientID:     "test-id",
+		GoogleClientSecret: "test-secret",
+		RedirectURL:        "http://localhost/api/auth/callback",
+	}, store, false)
+
+	api := agent.NewAPI(store, sender, smtpRelay, userAuth, usage.NewNoopUsageTracker(),
+		"e2a.dev", "test.e2a.dev", "agents.e2a.dev", "https://test.e2a.dev", false)
+
+	secret := []byte("test-secret-test-secret-test-sec")
+	storage := oauth.NewStorage(pool)
+	provider, err := oauth.NewProvider(storage, "https://test.e2a.dev", secret)
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	api.SetOAuthProvider(provider)
+	api.SetOAuthStorage(storage)
+
+	router := mux.NewRouter()
+	api.RegisterRoutes(router)
+	server := httptest.NewServer(router)
+	t.Cleanup(server.Close)
+
+	// Seed a user + an active session.
+	ctx := context.Background()
+	user, err := store.CreateOrGetUser(ctx, "consent-user-"+randHex8(t)+"@example.com", "Test", "google-"+randHex8(t))
+	if err != nil {
+		t.Fatalf("CreateOrGetUser: %v", err)
+	}
+	sessionToken, err := store.CreateUserSession(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("CreateUserSession: %v", err)
+	}
+
+	// Seed the shared domain row that auto-create-agent needs.
+	if err := store.EnsureSharedDomain(ctx, "agents.e2a.dev"); err != nil {
+		t.Fatalf("EnsureSharedDomain: %v", err)
+	}
+
+	// Seed a public DCR client.
+	clientID := "mcp_consent_test"
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO oauth_clients
+		    (client_id, client_name, redirect_uris, grant_types,
+		     response_types, scopes, audiences, token_endpoint_auth_method,
+		     public, created_via)
+		VALUES ($1, 'consent test client',
+		        ARRAY['http://localhost:8765/callback'],
+		        ARRAY['authorization_code','refresh_token'],
+		        ARRAY['code'],
+		        ARRAY['mcp'],
+		        ARRAY[]::TEXT[],
+		        'none', TRUE, 'dcr')
+		ON CONFLICT (client_id) DO NOTHING
+	`, clientID); err != nil {
+		t.Fatalf("seed client: %v", err)
+	}
+
+	return &consentFixture{
+		server:       server,
+		provider:     provider,
+		pool:         pool,
+		sessionToken: sessionToken,
+		userID:       user.ID,
+		clientID:     clientID,
+	}
+}
+
+// authorizeRequest sends a GET /api/oauth/authorize. When session=true
+// the request carries the user session cookie; otherwise it goes in
+// anonymously to test the "no session → login" path.
+func (f *consentFixture) authorizeRequest(t *testing.T, q url.Values, session bool) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest("GET", f.server.URL+"/api/oauth/authorize?"+q.Encode(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session {
+		req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: f.sessionToken})
+	}
+	resp, err := noRedirectClient().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+// consentPOST submits the consent form. Carries the session cookie by
+// default (consent requires it).
+func (f *consentFixture) consentPOST(t *testing.T, form url.Values) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest("POST", f.server.URL+"/api/oauth/consent",
+		strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: f.sessionToken})
+	resp, err := noRedirectClient().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func noRedirectClient() *http.Client {
+	return &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+// authorizeParams returns a baseline set of /authorize query params.
+// Tests override individual fields via the second argument.
+func authorizeParams(challenge, clientID, state string) url.Values {
+	q := url.Values{}
+	q.Set("response_type", "code")
+	q.Set("client_id", clientID)
+	q.Set("redirect_uri", "http://localhost:8765/callback")
+	q.Set("scope", "mcp")
+	q.Set("state", state)
+	q.Set("code_challenge", challenge)
+	q.Set("code_challenge_method", "S256")
+	return q
+}
+
+// ──────────────────────── /authorize ────────────────────────
+
+// TestHTTP_Authorize_NoSession redirects to /api/auth/login when the
+// request lacks the session cookie, carrying the original authorize
+// request URI as return_to so the user lands back here after Google
+// callback completes. Without that bounce the user would land on
+// /dashboard and have to re-trigger the flow from their MCP client.
+func TestHTTP_Authorize_NoSession(t *testing.T) {
+	f := newConsentFixture(t)
+	_, challenge := newPKCE(t)
+	resp := f.authorizeRequest(t, authorizeParams(challenge, f.clientID, "s1s1s1s1s1s1s1s1"), false)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("status = %d, want 302", resp.StatusCode)
+	}
+	loc, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("Location parse: %v", err)
+	}
+	if !strings.HasSuffix(loc.Path, "/api/auth/login") {
+		t.Errorf("Location path = %q, want /api/auth/login", loc.Path)
+	}
+	returnTo := loc.Query().Get("return_to")
+	if !strings.HasPrefix(returnTo, "/api/oauth/authorize") {
+		t.Errorf("return_to should preserve the authorize request URI: got %q", returnTo)
+	}
+	if !strings.Contains(returnTo, "client_id=") || !strings.Contains(returnTo, "code_challenge=") {
+		t.Errorf("return_to should carry the original query string: got %q", returnTo)
+	}
+}
+
+// TestHTTP_Authorize_WithSession redirects to {publicURL}/oauth/consent
+// preserving every authorize parameter so the consent page can hidden-
+// field them back into its POST.
+func TestHTTP_Authorize_WithSession(t *testing.T) {
+	f := newConsentFixture(t)
+	_, challenge := newPKCE(t)
+	q := authorizeParams(challenge, f.clientID, "s1s1s1s1s1s1s1s1")
+	resp := f.authorizeRequest(t, q, true)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("status = %d, want 302", resp.StatusCode)
+	}
+	loc, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("Location parse: %v", err)
+	}
+	if !strings.HasSuffix(loc.Path, "/oauth/consent") {
+		t.Errorf("Location path = %q, want /oauth/consent", loc.Path)
+	}
+	for _, key := range []string{"response_type", "client_id", "redirect_uri", "scope", "state", "code_challenge", "code_challenge_method"} {
+		if got, want := loc.Query().Get(key), q.Get(key); got != want {
+			t.Errorf("consent redirect missing/wrong %q: got %q, want %q", key, got, want)
+		}
+	}
+}
+
+// TestHTTP_Authorize_InvalidClient — fosite rejects before we get a
+// chance to check the session. The response is a fosite-emitted
+// direct error (not a redirect to redirect_uri, since redirect_uri
+// isn't trusted yet).
+func TestHTTP_Authorize_InvalidClient(t *testing.T) {
+	f := newConsentFixture(t)
+	_, challenge := newPKCE(t)
+	q := authorizeParams(challenge, "mcp_unknown_client", "s1s1s1s1s1s1s1s1")
+	resp := f.authorizeRequest(t, q, true)
+	defer resp.Body.Close()
+	// fosite emits a non-2xx, non-302 response for invalid_client at
+	// /authorize (since the redirect_uri isn't trusted). Status code
+	// can be 400 or 401 depending on fosite version; we just want it
+	// to NOT be a successful redirect to our consent UI.
+	if resp.StatusCode == http.StatusFound {
+		loc := resp.Header.Get("Location")
+		if strings.Contains(loc, "/oauth/consent") {
+			t.Errorf("unknown client should NOT redirect to consent; Location=%q", loc)
+		}
+	}
+}
+
+// ──────────────────────── /consent ────────────────────────
+
+// TestHTTP_Consent_Allow_CreateNew is the happy path: user picks
+// "create_new" + a slug, gets a code redirected to the client's
+// redirect_uri. Verifies (a) status 303, (b) code has our prefix,
+// (c) iss is present per RFC 9207, (d) state round-trips, and
+// (e) the agent row was actually created.
+func TestHTTP_Consent_Allow_CreateNew(t *testing.T) {
+	f := newConsentFixture(t)
+	_, challenge := newPKCE(t)
+
+	form := authorizeParams(challenge, f.clientID, "s1s1s1s1s1s1s1s1")
+	form.Set("action", "allow")
+	form.Set("agent_choice", "create_new")
+	form.Set("new_agent_slug", "myconsentbot")
+
+	resp := f.consentPOST(t, form)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303 See Other", resp.StatusCode)
+	}
+	loc, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("Location parse: %v", err)
+	}
+	if !strings.HasPrefix(loc.String(), "http://localhost:8765/callback") {
+		t.Errorf("must redirect back to client redirect_uri: got %q", loc.String())
+	}
+	code := loc.Query().Get("code")
+	if !strings.HasPrefix(code, oauth.AuthCodePrefix) {
+		t.Errorf("code missing %q prefix: %q", oauth.AuthCodePrefix, code)
+	}
+	if got := loc.Query().Get("state"); got != "s1s1s1s1s1s1s1s1" {
+		t.Errorf("state round-trip: got %q, want s1s1s1s1s1s1s1s1", got)
+	}
+	if got := loc.Query().Get("iss"); got != "https://test.e2a.dev" {
+		t.Errorf("RFC 9207 iss missing/wrong: got %q, want https://test.e2a.dev", got)
+	}
+
+	// Verify the agent was actually created on the shared domain.
+	var count int
+	if err := f.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM agent_identities WHERE id = $1 AND user_id = $2`,
+		"myconsentbot@agents.e2a.dev", f.userID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("expected exactly 1 agent row for new slug, got %d", count)
+	}
+}
+
+// TestHTTP_Consent_Allow_Existing — user picks an agent they already
+// own. No new agent created; code issued bound to the chosen email.
+func TestHTTP_Consent_Allow_Existing(t *testing.T) {
+	f := newConsentFixture(t)
+	// Pre-create an agent for this user on the shared domain.
+	ctx := context.Background()
+	store := identity.NewStore(f.pool)
+	if _, err := store.CreateAgent(ctx, "mineconsent@agents.e2a.dev", "agents.e2a.dev", "", "", "local", f.userID); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+
+	_, challenge := newPKCE(t)
+	form := authorizeParams(challenge, f.clientID, "s1s1s1s1s1s1s1s1")
+	form.Set("action", "allow")
+	form.Set("agent_choice", "existing:mineconsent@agents.e2a.dev")
+
+	resp := f.consentPOST(t, form)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", resp.StatusCode)
+	}
+	loc, _ := url.Parse(resp.Header.Get("Location"))
+	if loc.Query().Get("code") == "" {
+		t.Fatal("expected code in redirect")
+	}
+}
+
+// TestHTTP_Consent_Allow_Existing_NotOwned — picking an agent owned
+// by a different user is forbidden.
+func TestHTTP_Consent_Allow_Existing_NotOwned(t *testing.T) {
+	f := newConsentFixture(t)
+	ctx := context.Background()
+	store := identity.NewStore(f.pool)
+	// Create another user + an agent owned by them.
+	other, err := store.CreateOrGetUser(ctx, "other-"+randHex8(t)+"@example.com", "Other", "google-other-"+randHex8(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateAgent(ctx, "victim@agents.e2a.dev", "agents.e2a.dev", "", "", "local", other.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	_, challenge := newPKCE(t)
+	form := authorizeParams(challenge, f.clientID, "s1s1s1s1s1s1s1s1")
+	form.Set("action", "allow")
+	form.Set("agent_choice", "existing:victim@agents.e2a.dev")
+
+	resp := f.consentPOST(t, form)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", resp.StatusCode)
+	}
+}
+
+// TestHTTP_Consent_Deny — user clicks Deny. We redirect back to
+// redirect_uri with error=access_denied, state, and iss.
+func TestHTTP_Consent_Deny(t *testing.T) {
+	f := newConsentFixture(t)
+	_, challenge := newPKCE(t)
+	form := authorizeParams(challenge, f.clientID, "s1s1s1s1s1s1s1s1")
+	form.Set("action", "deny")
+
+	resp := f.consentPOST(t, form)
+	defer resp.Body.Close()
+	// fosite's WriteAuthorizeError emits 302 for redirect-uri-bound
+	// errors.
+	if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 302/303 redirect-with-error", resp.StatusCode)
+	}
+	loc, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(loc.String(), "http://localhost:8765/callback") {
+		t.Errorf("must redirect back to client redirect_uri on deny: got %q", loc.String())
+	}
+	if got := loc.Query().Get("error"); got != "access_denied" {
+		t.Errorf("error = %q, want access_denied", got)
+	}
+}
+
+// TestHTTP_Consent_NoSession — consent without the session cookie 401s.
+func TestHTTP_Consent_NoSession(t *testing.T) {
+	f := newConsentFixture(t)
+	_, challenge := newPKCE(t)
+	form := authorizeParams(challenge, f.clientID, "s1s1s1s1s1s1s1s1")
+	form.Set("action", "allow")
+	form.Set("agent_choice", "create_new")
+	form.Set("new_agent_slug", "x")
+
+	// Direct POST without the helper (no cookie).
+	resp, err := http.Post(f.server.URL+"/api/oauth/consent",
+		"application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", resp.StatusCode)
+	}
+}
+
+// TestHTTP_Consent_DuplicateSlug — submitting an already-taken slug
+// returns 409 and rolls back the tx (no orphan rows).
+func TestHTTP_Consent_DuplicateSlug(t *testing.T) {
+	f := newConsentFixture(t)
+	ctx := context.Background()
+	store := identity.NewStore(f.pool)
+	if _, err := store.CreateAgent(ctx, "takendup@agents.e2a.dev", "agents.e2a.dev", "", "", "local", f.userID); err != nil {
+		t.Fatal(err)
+	}
+
+	_, challenge := newPKCE(t)
+	form := authorizeParams(challenge, f.clientID, "s1s1s1s1s1s1s1s1")
+	form.Set("action", "allow")
+	form.Set("agent_choice", "create_new")
+	form.Set("new_agent_slug", "takendup")
+
+	resp := f.consentPOST(t, form)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", resp.StatusCode)
+	}
+	// And no auth-code row should have been inserted (tx rolled back).
+	var count int
+	if err := f.pool.QueryRow(ctx,
+		`SELECT count(*) FROM oauth_auth_codes WHERE user_id = $1`, f.userID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("rolled-back tx should leave 0 auth_codes for user, got %d", count)
+	}
+}
+
+// TestHTTP_FullE2E_AuthorizeConsentToken: the headline integration
+// test. Drive /authorize → /consent → /token end-to-end via real HTTP
+// calls. Verifies the protocol surface plus the cross-package
+// transaction plus the iss/code/state plumbing all line up.
+func TestHTTP_FullE2E_AuthorizeConsentToken(t *testing.T) {
+	f := newConsentFixture(t)
+	verifier, challenge := newPKCE(t)
+
+	// Step 1: /authorize → 302 to consent UI.
+	q := authorizeParams(challenge, f.clientID, "s1s1s1s1s1s1s1s1")
+	resp1 := f.authorizeRequest(t, q, true)
+	resp1.Body.Close()
+	if resp1.StatusCode != http.StatusFound {
+		t.Fatalf("step 1 status = %d, want 302", resp1.StatusCode)
+	}
+
+	// Step 2: simulate the consent UI submitting the form with allow.
+	// In production the web/ consent page would render hidden inputs
+	// from the redirect URL's query string and POST them back. We
+	// shortcut by submitting authorizeParams directly with the
+	// action/agent_choice fields added.
+	form := authorizeParams(challenge, f.clientID, "s1s1s1s1s1s1s1s1")
+	form.Set("action", "allow")
+	form.Set("agent_choice", "create_new")
+	form.Set("new_agent_slug", "e2e-bot-"+randHex8(t))
+
+	resp2 := f.consentPOST(t, form)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusSeeOther {
+		t.Fatalf("step 2 status = %d, want 303", resp2.StatusCode)
+	}
+	loc, _ := url.Parse(resp2.Header.Get("Location"))
+	code := loc.Query().Get("code")
+	if code == "" {
+		t.Fatal("step 2: missing code")
+	}
+	if got := loc.Query().Get("iss"); got != "https://test.e2a.dev" {
+		t.Errorf("step 2: iss = %q, want https://test.e2a.dev", got)
+	}
+
+	// Step 3: exchange the code at /token.
+	tokForm := url.Values{}
+	tokForm.Set("grant_type", "authorization_code")
+	tokForm.Set("code", code)
+	tokForm.Set("client_id", f.clientID)
+	tokForm.Set("redirect_uri", "http://localhost:8765/callback")
+	tokForm.Set("code_verifier", verifier)
+	resp3, err := http.Post(f.server.URL+"/api/oauth/token",
+		"application/x-www-form-urlencoded", strings.NewReader(tokForm.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp3.Body.Close()
+	if resp3.StatusCode != http.StatusOK {
+		t.Fatalf("step 3 status = %d, want 200", resp3.StatusCode)
+	}
+	var body struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.NewDecoder(resp3.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(body.AccessToken, oauth.AccessTokenPrefix) {
+		t.Errorf("access_token missing prefix: %q", body.AccessToken)
+	}
+	if !strings.HasPrefix(body.RefreshToken, oauth.RefreshTokenPrefix) {
+		t.Errorf("refresh_token missing prefix: %q", body.RefreshToken)
+	}
+}

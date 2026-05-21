@@ -19,6 +19,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/hitlnotify"
 	"github.com/Mnexa-AI/e2a/internal/hitlworker"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/relay"
 	"github.com/Mnexa-AI/e2a/internal/usage"
@@ -166,6 +167,29 @@ func main() {
 	} else {
 		api.SetNotifier(hitlnotify.New(store, smtpRelay, approvalSigner, cfg.OutboundSMTP.FromDomain, cfg.HTTP.PublicURL))
 	}
+
+	// OAuth 2.1 / fosite-backed authorization server. Needs the same
+	// HMAC secret (signing.hmac_secret) for token HMAC signing and the
+	// public URL as the canonical issuer. Without PublicURL, RFC 9207
+	// `iss` emission + discovery would emit empty/inconsistent values
+	// — skip wiring so /api/oauth/* return 404 and operators get a
+	// loud signal that the deployment needs http.public_url set.
+	var oauthStorage *oauth.Storage
+	if cfg.HTTP.PublicURL == "" {
+		log.Printf("[oauth] provider disabled: http.public_url is not set (required for issuer identity)")
+	} else {
+		oauthStorage = oauth.NewStorage(pool)
+		oauthProvider, err := oauth.NewProvider(oauthStorage, cfg.HTTP.PublicURL, []byte(cfg.Signing.HMACSecret))
+		if err != nil {
+			log.Fatalf("[oauth] provider wiring failed: %v", err)
+		}
+		api.SetOAuthProvider(oauthProvider)
+		// Consent handler also needs the storage pool for the cross-
+		// package transaction (agent insert + auth-code insert atomic).
+		api.SetOAuthStorage(oauthStorage)
+		log.Printf("[oauth] provider enabled: issuer=%s", cfg.HTTP.PublicURL)
+	}
+
 	api.RegisterRoutes(router)
 
 	// WebSocket route for local-mode agents
@@ -236,6 +260,17 @@ func main() {
 				log.Printf("Failed to clean up expired webhook deliveries: %v", err)
 			} else if deleted > 0 {
 				log.Printf("Cleaned up %d expired webhook delivery record(s)", deleted)
+			}
+
+			if oauthStorage != nil {
+				if res, err := oauthStorage.CleanupExpired(context.Background(), time.Now()); err != nil {
+					log.Printf("Failed to clean up expired OAuth rows: %v", err)
+				} else if res.Total() > 0 {
+					log.Printf("Cleaned up OAuth rows: codes=%d pkce=%d access=%d refresh=%d clients=%d",
+						res.AuthCodesDeleted, res.PKCERequestsDeleted,
+						res.AccessTokensDeleted, res.RefreshTokensDeleted,
+						res.ClientsDeleted)
+				}
 			}
 		}
 	}()

@@ -7,6 +7,8 @@ interface BinConfig {
   allowedHosts: string[];
   sessionIdleMs: number;
   maxSessions: number;
+  publicUrl?: string;
+  authorizationServerUrl?: string;
 }
 
 class ConfigError extends Error {}
@@ -46,6 +48,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BinConfig {
     allowedHosts: parseHostList(env.MCP_ALLOWED_HOSTS ?? "", "mcp.e2a.dev"),
     sessionIdleMs: parsePositiveInt("MCP_SESSION_IDLE_MS", env.MCP_SESSION_IDLE_MS ?? "", 5 * 60_000),
     maxSessions: parsePositiveInt("MCP_MAX_SESSIONS", env.MCP_MAX_SESSIONS ?? "", 500),
+    publicUrl: env.MCP_PUBLIC_URL || undefined,
+    authorizationServerUrl: env.MCP_AUTHORIZATION_SERVER_URL || undefined,
   };
 }
 
@@ -68,6 +72,8 @@ async function main(): Promise<void> {
     allowedHosts: cfg.allowedHosts,
     sessionIdleMs: cfg.sessionIdleMs,
     maxSessions: cfg.maxSessions,
+    publicUrl: cfg.publicUrl,
+    authorizationServerUrl: cfg.authorizationServerUrl,
   });
   process.stderr.write(
     `e2a-mcp-http listening on :${bound} (base ${cfg.baseUrl}, hosts ${cfg.allowedHosts.join(",")})\n`,
