@@ -1426,7 +1426,19 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 		Attachments:      req.Attachments,
 	}
 
-	if agent.HITLEnabled {
+	// Self-reply detection. If the resolved reply destination is the
+	// agent's own address (e.g. replying to a previous self-note),
+	// the SMTP path would error: outbound.Sender.Send strips agent
+	// aliases from the recipient list to prevent self-spam, leaving
+	// "no valid recipients" on a reply where the original sender WAS
+	// the agent itself. Route through the loopback short-circuit
+	// instead — symmetric with handleSendEmail's self-send path.
+	selfReply := isSelfSend(sendReq, agent.EmailAddress())
+
+	// HITL on a self-reply is bypassed for the same reason it's
+	// bypassed on a self-send (see selfsend.go docstring): holding
+	// a self-note for the agent to approve to itself is degenerate.
+	if agent.HITLEnabled && !selfReply {
 		a.holdForApproval(w, r, agent, sendReq, "reply", inbound.EmailMessageID)
 		return
 	}
@@ -1434,6 +1446,25 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 	// Record usage (side-effect only — never block on quota)
 	if _, err := a.usage.RecordAndCheck(r.Context(), user.ID, agent.ID, agent.Domain, "outbound"); err != nil {
 		log.Printf("[api] usage recording error: %v", err)
+	}
+
+	if selfReply {
+		providerID, err := a.performSelfSend(r.Context(), agent, sendReq)
+		if err != nil {
+			log.Printf("[api] self-reply failed: agent=%s error=%v", agent.EmailAddress(), err)
+			http.Error(w, "self-reply failed", http.StatusInternalServerError)
+			return
+		}
+		slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
+		log.Printf("[mail] dir=outbound type=reply method=loopback from=%s to=%s slug=%s conv_id=%s subject=%q provider_id=%s in_reply_to=%s",
+			agent.EmailAddress(), agent.EmailAddress(), slug, req.ConversationID, subject, providerID, inbound.EmailMessageID)
+		w.Header().Set("Content-Type", "application/json")
+		writeJSON(w, map[string]string{
+			"status":     "sent",
+			"message_id": providerID,
+			"method":     "loopback",
+		})
+		return
 	}
 
 	result, err := a.sender.Send(agent, sendReq)

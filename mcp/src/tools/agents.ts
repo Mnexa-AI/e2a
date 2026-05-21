@@ -20,18 +20,37 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
     {
       title: "Get the default agent's identity",
       description:
-        "Return the agent inbox this server is scoped to (the value of E2A_AGENT_EMAIL). Use this to discover your own address before sending. If no default agent is configured, errors — call `list_agents` and pass `agent_email` explicitly to other tools.",
+        "Return the agent inbox this server is scoped to. Resolution order: (1) E2A_AGENT_EMAIL from the server env when set, (2) the sole agent on the account when there's exactly one. Errors only when neither path resolves — typically because the account owns multiple agents and you should pick one via `list_agents` + pass `agent_email` explicitly to other tools.",
       inputSchema: {},
     },
     async () =>
-      runTool(() => {
-        const email = client.agentEmail;
-        if (!email) {
+      runTool(async () => {
+        // Preferred: env-pinned default. Cheap, no roundtrip.
+        if (client.agentEmail) {
+          return client.getAgent(client.agentEmail);
+        }
+        // Fallback: list the account's agents. If there's exactly one
+        // we can unambiguously surface it — mirrors send_email's
+        // "from field required only when user has multiple agents"
+        // behavior on the backend. For 0 or 2+ agents the LLM needs
+        // explicit input, so we error with a directive next-step.
+        const { agents } = await client.listAgents();
+        if (!agents || agents.length === 0) {
           throw new Error(
-            "no default agent configured. Set E2A_AGENT_EMAIL in the server environment, or call list_agents.",
+            "no agents on this account. Use `create_agent` to register one before sending mail.",
           );
         }
-        return client.getAgent(email);
+        if (agents.length === 1) {
+          return client.getAgent(agents[0].email);
+        }
+        // Inline the agent emails in the error so the LLM can act
+        // on this without a follow-up list_agents call. The list is
+        // already in hand here — surfacing it costs nothing and
+        // turns a two-tool-call recovery into a one-tool-call one.
+        const emails = agents.map((a) => a.email).join(", ");
+        throw new Error(
+          `account owns ${agents.length} agents (${emails}); whoami can't auto-resolve. Pass one as \`agent_email\` to other tools, or set E2A_AGENT_EMAIL in the server environment to pin a default.`,
+        );
       }),
   );
 

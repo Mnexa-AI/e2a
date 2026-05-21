@@ -236,6 +236,96 @@ func TestSelfSend_NoAttachmentsUsesSinglePart(t *testing.T) {
 	}
 }
 
+// TestSelfReply_LoopbackShortCircuit: replying to a self-sent message
+// must work — the SMTP path would error because outbound.Sender
+// strips the agent's own address from the recipient list (self-spam
+// guard), leaving "no valid recipients" when the original sender
+// IS the agent itself.
+//
+// The reply path should detect that the resolved reply destination
+// is self and route through the same loopback short-circuit as
+// send_email-to-self. Symmetric round-trip: send_email(self) →
+// inbound row → reply_to_message → second inbound row.
+func TestSelfReply_LoopbackShortCircuit(t *testing.T) {
+	server, store, pool := setupAPI(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "self-reply@example.com", "Owner", "google-self-reply")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "self-reply-key")
+	store.ClaimOrCreateDomain(ctx, "selfreply.example.com", user.ID)
+	store.VerifyDomain(ctx, "selfreply.example.com", user.ID)
+	store.CreateAgent(ctx, "bot@selfreply.example.com", "selfreply.example.com", "", "", "local", user.ID)
+	agentEmail := "bot@selfreply.example.com"
+
+	// Step 1: send a self-note. Establishes the inbound row we'll
+	// reply to. We use the API rather than store.CreateInboundMessage
+	// directly so the row carries the same MIME shape a real
+	// self-send produces (i.e. has the Received: header + From:/To:
+	// matching the agent, which ParseReplyRecipients consumes).
+	payload := `{"to":["bot@selfreply.example.com"],"subject":"original","body":"the first message"}`
+	resp := authedPost(t, server.URL+"/api/v1/send", payload, apiKeyObj.PlaintextKey)
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("initial self-send failed: status=%d", resp.StatusCode)
+	}
+
+	// Look up the inbound msg_id for the self-note.
+	var msgID string
+	if err := pool.QueryRow(ctx,
+		`SELECT id FROM messages
+		   WHERE agent_id=$1 AND direction='inbound' AND subject='original'
+		   ORDER BY created_at DESC LIMIT 1`,
+		agentEmail).Scan(&msgID); err != nil {
+		t.Fatalf("lookup inbound id: %v", err)
+	}
+
+	// Step 2: reply. This is the call that errored before the fix
+	// (no valid recipients after the self-strip in outbound.Sender).
+	replyURL := server.URL + "/api/v1/agents/" + agentEmail + "/messages/" + msgID + "/reply"
+	replyResp := authedPost(t, replyURL,
+		`{"body":"replying to my own note"}`,
+		apiKeyObj.PlaintextKey)
+	defer replyResp.Body.Close()
+	if replyResp.StatusCode != 200 {
+		t.Fatalf("self-reply status=%d want 200; body=%s",
+			replyResp.StatusCode, readBody(t, replyResp))
+	}
+	var body map[string]string
+	json.NewDecoder(replyResp.Body).Decode(&body)
+	if body["method"] != "loopback" {
+		t.Errorf("self-reply method=%q want loopback", body["method"])
+	}
+	if body["status"] != "sent" {
+		t.Errorf("self-reply status=%q want sent", body["status"])
+	}
+
+	// Step 3: the inbox now holds both messages — the original AND
+	// the reply. Both as direction=inbound rows.
+	var inboundCount int
+	pool.QueryRow(ctx,
+		`SELECT count(*) FROM messages WHERE agent_id=$1 AND direction='inbound'`,
+		agentEmail).Scan(&inboundCount)
+	if inboundCount != 2 {
+		t.Errorf("inbound rows after self-reply = %d, want 2 (original + reply)", inboundCount)
+	}
+
+	// The reply must carry an Re:-prefixed subject and the agent as
+	// both sender + recipient.
+	var replyMsgSubject, replyMsgSender, replyMsgRecipient string
+	pool.QueryRow(ctx,
+		`SELECT subject, sender, recipient FROM messages
+		   WHERE agent_id=$1 AND direction='inbound' AND subject LIKE 'Re:%'
+		   ORDER BY created_at DESC LIMIT 1`,
+		agentEmail).Scan(&replyMsgSubject, &replyMsgSender, &replyMsgRecipient)
+	if replyMsgSubject != "Re: original" {
+		t.Errorf("reply subject=%q want 'Re: original'", replyMsgSubject)
+	}
+	if replyMsgSender != agentEmail || replyMsgRecipient != agentEmail {
+		t.Errorf("reply self-loop sender=%q recipient=%q, both should be %q",
+			replyMsgSender, replyMsgRecipient, agentEmail)
+	}
+}
+
 // TestSelfSend_BypassesHITL: an agent with HITL enabled still self-
 // sends immediately. Holding a note-to-self for the agent to approve
 // to itself is degenerate UX; the loopback path explicitly skips the

@@ -281,13 +281,51 @@ describe("e2a MCP server", () => {
     expect(content[0]?.text).toContain("bot@example.com");
   });
 
-  it("whoami errors clearly when no default agent is configured", async () => {
+  it("whoami auto-falls-back to the sole agent when env is unset and account owns exactly one", async () => {
+    // Single-agent account, no env pin → should auto-resolve to the
+    // one agent rather than error. Mirrors send_email's "from
+    // required only when multiple agents" auto-from behavior.
     const bareStub = makeStubClient({ agentEmail: "" });
+    (bareStub.listAgents as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      agents: [{ id: "solo@example.com", email: "solo@example.com" }],
+    });
+    const bareClient = await connect(bareStub);
+    const res = await bareClient.callTool({ name: "whoami", arguments: {} });
+    expect(res.isError).toBeFalsy();
+    expect(bareStub.getAgent).toHaveBeenCalledWith("solo@example.com");
+  });
+
+  it("whoami errors with the inline agent list when account owns multiple agents", async () => {
+    // Multi-agent + no env pin → refuse to guess, but include the
+    // available agent emails in the error so the LLM can act
+    // without a follow-up list_agents call.
+    const bareStub = makeStubClient({ agentEmail: "" });
+    (bareStub.listAgents as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      agents: [
+        { id: "support@x.com", email: "support@x.com" },
+        { id: "sales@x.com", email: "sales@x.com" },
+      ],
+    });
     const bareClient = await connect(bareStub);
     const res = await bareClient.callTool({ name: "whoami", arguments: {} });
     expect(res.isError).toBe(true);
     const content = res.content as Array<{ type: string; text: string }>;
-    expect(content[0]?.text).toMatch(/E2A_AGENT_EMAIL/);
+    // Error should name BOTH agents so the LLM doesn't need a
+    // follow-up list_agents call to pick.
+    expect(content[0]?.text).toContain("support@x.com");
+    expect(content[0]?.text).toContain("sales@x.com");
+  });
+
+  it("whoami errors when the account has zero agents and prompts to create one", async () => {
+    const bareStub = makeStubClient({ agentEmail: "" });
+    (bareStub.listAgents as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      agents: [],
+    });
+    const bareClient = await connect(bareStub);
+    const res = await bareClient.callTool({ name: "whoami", arguments: {} });
+    expect(res.isError).toBe(true);
+    const content = res.content as Array<{ type: string; text: string }>;
+    expect(content[0]?.text).toMatch(/create_agent/);
   });
 
   it("create_agent defaults agent_mode to local", async () => {
