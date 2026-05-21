@@ -148,7 +148,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["Agent"];
                     };
                 };
                 /** @description Missing or invalid API key */
@@ -201,7 +201,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["Agent"];
                     };
                 };
                 /** @description Validation error (e.g. bad agent_mode, TTL out of range) */

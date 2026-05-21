@@ -610,7 +610,7 @@ func (a *API) handleListAgents(w http.ResponseWriter, r *http.Request) {
 // @Produce      json
 // @Security     BearerAuth
 // @Param        email path string true "Agent email address" example(my-bot@example.com)
-// @Success      200 {object} Agent
+// @Success      200 {object} AgentInfo
 // @Failure      401 {string} string "Missing or invalid API key"
 // @Failure      403 {string} string "Agent not owned by this user"
 // @Router       /api/v1/agents/{email} [get]
@@ -667,7 +667,7 @@ func agentInfoFromIdentity(ag *identity.AgentIdentity) AgentInfo {
 // @Security     BearerAuth
 // @Param        email path string true "Agent email address" example(my-bot@example.com)
 // @Param        request body UpdateAgentRequest true "Fields to update"
-// @Success      200 {object} Agent
+// @Success      200 {object} AgentInfo
 // @Failure      400 {string} string "Validation error (e.g. bad agent_mode, TTL out of range)"
 // @Failure      401 {string} string "Missing or invalid API key"
 // @Failure      403 {string} string "Agent not owned by this user"
