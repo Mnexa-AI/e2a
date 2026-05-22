@@ -1,15 +1,20 @@
 # Google ADK × e2a
 
-Google ADK [`Agent`](https://google.github.io/adk-docs/) powered by Gemini that uses [@e2a/mcp-server](https://www.npmjs.com/package/@e2a/mcp-server) for all 11 e2a tools over stdio.
+Google ADK [`Agent`](https://google.github.io/adk-docs/) powered by Gemini that uses the e2a [MCP server](https://www.npmjs.com/package/@e2a/mcp-server) for the e2a tool surface.
+
+Two transport options:
+
+- **`agent.py`** — `McpToolset` + `StdioConnectionParams` runs the MCP server locally via `npx -y @e2a/mcp-server`. Simplest for laptop dev; needs a Node toolchain.
+- **`agent_hosted.py`** — `McpToolset` + `StreamableHTTPConnectionParams` talks to the hosted endpoint at `https://mcp.e2a.dev/mcp`. Required for ADK agents deployed to [Cloud Run](https://docs.cloud.google.com/run/docs/host-mcp-servers) (Cloud Run does not support stdio MCP servers).
 
 ## Prerequisites
 
-- Node 18+ (`npx -y @e2a/mcp-server`)
 - Python 3.10+
 - An [e2a API key](https://e2a.dev)
 - A [Google AI Studio key](https://aistudio.google.com/apikey) for Gemini
+- For `agent.py` only: Node 18+ (the script shells out to `npx -y @e2a/mcp-server`)
 
-## Run
+## Run (local stdio)
 
 ```bash
 pip install -r requirements.txt
@@ -22,6 +27,20 @@ adk web              # opens the ADK Web UI on http://localhost:8000
 adk run agent.py     # interactive CLI
 ```
 
+## Run (hosted)
+
+```bash
+pip install -r requirements.txt
+export E2A_API_KEY=e2a_…
+export GOOGLE_API_KEY=…
+
+adk web              # uses agent_hosted.py if exported as root_agent
+# or:
+adk run agent_hosted.py
+```
+
+If your account has exactly one agent, the hosted endpoint auto-resolves it at session init — no `E2A_AGENT_EMAIL` needed. With multiple agents, pass `agent_email` per tool call or wait for a future grant-binding feature.
+
 Then in the chat:
 
 > What's in my inbox?
@@ -30,4 +49,4 @@ Then in the chat:
 
 ## How it works
 
-`McpToolset` spawns the e2a MCP server with `StdioConnectionParams`. ADK auto-discovers the tools and surfaces them to Gemini. Module-scope `root_agent` is the convention ADK's `run` / `web` look for.
+`McpToolset` connects to either a stdio child process or a Streamable HTTP endpoint. ADK auto-discovers the tools and surfaces them to Gemini. Module-scope `root_agent` is the convention ADK's `run` / `web` look for.
