@@ -74,6 +74,11 @@
   --r-lg: 10px;
   --r-xl: 16px;
 
+  /* ── Chrome height ──
+     Shared min-height for the sidebar logo block and the page Topbar so
+     their bottom borders form one continuous divider across the viewport. */
+  --chrome-h: 68px;
+
   /* ── Shadows ── */
   --sh-1:   0 1px 0 rgba(26,23,20,.04), 0 1px 2px rgba(26,23,20,.04);
   --sh-2:   0 2px 8px rgba(26,23,20,.06), 0 12px 32px rgba(26,23,20,.06);
