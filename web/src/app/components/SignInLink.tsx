@@ -15,9 +15,11 @@ function isInAppBrowser(): boolean {
 
 export function SignInLink({
   className,
+  style,
   children,
 }: {
   className?: string;
+  style?: React.CSSProperties;
   children: React.ReactNode;
 }) {
   const handleClick = (e: React.MouseEvent) => {
@@ -35,7 +37,12 @@ export function SignInLink({
   };
 
   return (
-    <a href="/api/auth/login" className={className} onClick={handleClick}>
+    <a
+      href="/api/auth/login"
+      className={className}
+      style={style}
+      onClick={handleClick}
+    >
       {children}
     </a>
   );

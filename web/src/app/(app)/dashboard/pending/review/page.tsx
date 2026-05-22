@@ -10,10 +10,9 @@ import {
   type ApprovePayload,
 } from "../../../../components/onboarding/api";
 import type { PendingMessageDetail } from "../../../../components/types";
+import { PageShell } from "../../../../components/loft/PageShell";
+import { Chip } from "../../../../components/loft/Chip";
 
-// parseCSV splits a comma-separated recipients input into trimmed
-// non-empty addresses. Keeps the input UI simple — one field per
-// recipient type — while matching the API's array shape.
 function parseCSV(s: string): string[] {
   return s
     .split(",")
@@ -25,10 +24,6 @@ function joinCSV(xs?: string[]): string {
   return (xs ?? []).join(", ");
 }
 
-// diffApproveEdits compares the editor state against the loaded message
-// and returns an ApprovePayload with only the fields the reviewer
-// actually changed. Prevents sending a full body as an "edit" when the
-// reviewer only tweaked the subject — keeps the edited flag accurate.
 function diffApproveEdits(
   current: PendingMessageDetail,
   draft: {
@@ -42,23 +37,26 @@ function diffApproveEdits(
 ): ApprovePayload {
   const out: ApprovePayload = {};
   if (draft.subject !== (current.subject ?? "")) out.subject = draft.subject;
-  if (draft.bodyText !== (current.body_text ?? "")) out.body_text = draft.bodyText;
-  if (draft.bodyHTML !== (current.body_html ?? "")) out.body_html = draft.bodyHTML;
+  if (draft.bodyText !== (current.body_text ?? ""))
+    out.body_text = draft.bodyText;
+  if (draft.bodyHTML !== (current.body_html ?? ""))
+    out.body_html = draft.bodyHTML;
 
   const toDraft = parseCSV(draft.to);
-  if (JSON.stringify(toDraft) !== JSON.stringify(current.to ?? [])) out.to = toDraft;
+  if (JSON.stringify(toDraft) !== JSON.stringify(current.to ?? []))
+    out.to = toDraft;
 
   const ccDraft = parseCSV(draft.cc);
-  if (JSON.stringify(ccDraft) !== JSON.stringify(current.cc ?? [])) out.cc = ccDraft;
+  if (JSON.stringify(ccDraft) !== JSON.stringify(current.cc ?? []))
+    out.cc = ccDraft;
 
   const bccDraft = parseCSV(draft.bcc);
-  if (JSON.stringify(bccDraft) !== JSON.stringify(current.bcc ?? [])) out.bcc = bccDraft;
+  if (JSON.stringify(bccDraft) !== JSON.stringify(current.bcc ?? []))
+    out.bcc = bccDraft;
 
   return out;
 }
 
-// Implementation split from the default export so useSearchParams can
-// live inside a Suspense boundary (Next.js static export requirement).
 function ReviewContent() {
   const searchParams = useSearchParams();
   const id = searchParams.get("id") ?? "";
@@ -111,7 +109,14 @@ function ReviewContent() {
     setApproving(true);
     setError("");
     try {
-      const overrides = diffApproveEdits(msg, { subject, bodyText, bodyHTML, to, cc, bcc });
+      const overrides = diffApproveEdits(msg, {
+        subject,
+        bodyText,
+        bodyHTML,
+        to,
+        cc,
+        bcc,
+      });
       await approvePendingMessage(msg.id, overrides);
       router.push("/dashboard/pending");
     } catch (err) {
@@ -122,7 +127,8 @@ function ReviewContent() {
 
   const handleReject = async () => {
     if (!msg) return;
-    if (!confirm("Reject this message? It will be discarded and not sent.")) return;
+    if (!confirm("Reject this message? It will be discarded and not sent."))
+      return;
     setRejecting(true);
     setError("");
     try {
@@ -135,16 +141,34 @@ function ReviewContent() {
   };
 
   if (loading) {
-    return <div className="text-sm text-muted py-12 text-center">Loading...</div>;
+    return (
+      <PageShell crumbs={["Pending", "Review"]}>
+        <div
+          className="text-[13px] py-12 text-center"
+          style={{ color: "var(--fg-muted)" }}
+        >
+          Loading...
+        </div>
+      </PageShell>
+    );
   }
   if (!msg) {
     return (
-      <div>
-        <p className="text-sm text-red-600 mb-4">{error || "Message not found."}</p>
-        <Link href="/dashboard/pending" className="text-sm text-accent hover:underline">
+      <PageShell crumbs={["Pending", "Review"]}>
+        <p
+          className="text-[13px] mb-4"
+          style={{ color: "var(--danger-strong)" }}
+        >
+          {error || "Message not found."}
+        </p>
+        <Link
+          href="/dashboard/pending"
+          className="text-[13px]"
+          style={{ color: "var(--accent-strong)" }}
+        >
           ← Back to pending
         </Link>
-      </div>
+      </PageShell>
     );
   }
 
@@ -152,33 +176,66 @@ function ReviewContent() {
   const busy = approving || rejecting;
 
   return (
-    <>
-      <div className="mb-6">
+    <PageShell
+      crumbs={["Pending", "Review"]}
+      eyebrow="Outbound · review"
+      title="Review message"
+      subtitle={
+        <>
+          From{" "}
+          <code
+            className="font-mono"
+            style={{ color: "var(--fg)" }}
+          >
+            {msg.agent_id}
+          </code>
+          {msg.type && <> · {msg.type}</>}
+          {msg.approval_expires_at && (
+            <>
+              {" "}
+              · expires {new Date(msg.approval_expires_at).toLocaleString()}
+            </>
+          )}
+        </>
+      }
+      actions={
         <Link
           href="/dashboard/pending"
-          className="text-xs text-accent hover:underline"
+          className="text-[12px]"
+          style={{ color: "var(--accent-strong)" }}
         >
           ← Back to pending
         </Link>
-        <h2 className="text-2xl font-bold tracking-tight mt-2 mb-1">Review message</h2>
-        <p className="text-xs text-muted">
-          From <code className="font-mono text-foreground">{msg.agent_id}</code>
-          {msg.type && <> · <span>{msg.type}</span></>}
-          {msg.approval_expires_at && (
-            <> · expires {new Date(msg.approval_expires_at).toLocaleString()}</>
-          )}
-        </p>
-      </div>
-
+      }
+    >
       {notPending && (
-        <div className="mb-6 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+        <div
+          className="mb-6 p-3 text-[13px]"
+          style={{
+            background: "var(--warn-bg)",
+            color: "var(--warn-strong)",
+            border: "1px solid var(--warn-bg)",
+            borderRadius: "var(--r-md)",
+          }}
+        >
           This message is no longer pending — current status:{" "}
-          <strong>{msg.status}</strong>. Editing is disabled.
+          <Chip tone="neutral" mono>
+            {msg.status}
+          </Chip>
+          . Editing is disabled.
         </div>
       )}
 
       {error && (
-        <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+        <div
+          className="mb-6 p-3 text-[13px]"
+          style={{
+            background: "var(--danger-bg)",
+            color: "var(--danger-strong)",
+            border: "1px solid var(--danger-bg)",
+            borderRadius: "var(--r-md)",
+          }}
+        >
           {error}
         </div>
       )}
@@ -190,7 +247,13 @@ function ReviewContent() {
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             disabled={notPending || busy}
-            className="w-full text-sm px-3 py-2 border border-border rounded-md"
+            className="w-full text-[13px] px-3 py-2"
+            style={{
+              background: "var(--bg-panel)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-md)",
+              color: "var(--fg)",
+            }}
           />
         </Field>
 
@@ -200,7 +263,13 @@ function ReviewContent() {
             value={to}
             onChange={(e) => setTo(e.target.value)}
             disabled={notPending || busy}
-            className="w-full text-sm px-3 py-2 border border-border rounded-md font-mono"
+            className="w-full text-[13px] font-mono px-3 py-2"
+            style={{
+              background: "var(--bg-panel)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-md)",
+              color: "var(--fg)",
+            }}
           />
         </Field>
 
@@ -210,7 +279,13 @@ function ReviewContent() {
             value={cc}
             onChange={(e) => setCC(e.target.value)}
             disabled={notPending || busy}
-            className="w-full text-sm px-3 py-2 border border-border rounded-md font-mono"
+            className="w-full text-[13px] font-mono px-3 py-2"
+            style={{
+              background: "var(--bg-panel)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-md)",
+              color: "var(--fg)",
+            }}
           />
         </Field>
 
@@ -220,7 +295,13 @@ function ReviewContent() {
             value={bcc}
             onChange={(e) => setBCC(e.target.value)}
             disabled={notPending || busy}
-            className="w-full text-sm px-3 py-2 border border-border rounded-md font-mono"
+            className="w-full text-[13px] font-mono px-3 py-2"
+            style={{
+              background: "var(--bg-panel)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-md)",
+              color: "var(--fg)",
+            }}
           />
         </Field>
 
@@ -230,7 +311,13 @@ function ReviewContent() {
             onChange={(e) => setBodyText(e.target.value)}
             disabled={notPending || busy}
             rows={8}
-            className="w-full text-sm px-3 py-2 border border-border rounded-md font-mono"
+            className="w-full text-[13px] font-mono px-3 py-2"
+            style={{
+              background: "var(--bg-panel)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-md)",
+              color: "var(--fg)",
+            }}
           />
         </Field>
 
@@ -241,48 +328,89 @@ function ReviewContent() {
               onChange={(e) => setBodyHTML(e.target.value)}
               disabled={notPending || busy}
               rows={6}
-              className="w-full text-sm px-3 py-2 border border-border rounded-md font-mono"
+              className="w-full text-[13px] font-mono px-3 py-2"
+              style={{
+                background: "var(--bg-panel)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--r-md)",
+                color: "var(--fg)",
+              }}
             />
           </Field>
         )}
 
         {msg.attachments && msg.attachments.length > 0 && (
           <Field label="Attachments">
-            <ul className="text-xs text-muted space-y-1">
+            <ul
+              className="text-[12px] space-y-1"
+              style={{ color: "var(--fg-muted)" }}
+            >
               {msg.attachments.map((a, i) => (
                 <li key={i} className="font-mono">
                   {a.filename}{" "}
-                  <span className="text-muted">({a.content_type})</span>
+                  <span style={{ color: "var(--fg-subtle)" }}>
+                    ({a.content_type})
+                  </span>
                 </li>
               ))}
             </ul>
-            <p className="text-[11px] text-muted mt-2">
+            <p
+              className="text-[11px] mt-2"
+              style={{ color: "var(--fg-subtle)" }}
+            >
               Attachments are approved as-is; remove or edit via the API.
             </p>
           </Field>
         )}
+
+        {/* Reviewed-by data omitted until BACKEND_TODO #6 ships — only reviewed_at is shown. */}
+        {msg.reviewed_at && notPending && (
+          <p
+            className="text-[12px] mt-2"
+            style={{ color: "var(--fg-muted)" }}
+          >
+            Reviewed at {new Date(msg.reviewed_at).toLocaleString()}
+          </p>
+        )}
       </div>
 
       {!notPending && (
-        <div className="mt-8 border-t border-border pt-6 space-y-4">
-          <div className="flex items-center gap-3">
+        <div
+          className="mt-8 pt-6 space-y-4"
+          style={{ borderTop: "1px solid var(--border)" }}
+        >
+          <div className="flex items-center gap-3 flex-wrap">
             <button
               onClick={handleApprove}
               disabled={busy}
-              className="text-sm px-4 py-2 bg-green-600 text-white rounded-md hover:opacity-90 transition disabled:opacity-50"
+              className="text-[13px] font-medium px-4 py-2 transition disabled:opacity-50"
+              style={{
+                background: "var(--accent-fill)",
+                color: "var(--accent-fg)",
+                borderRadius: "var(--r-md)",
+              }}
             >
               {approving ? "Sending…" : "Approve & send"}
             </button>
             <button
               onClick={handleReject}
               disabled={busy}
-              className="text-sm px-4 py-2 bg-red-600 text-white rounded-md hover:opacity-90 transition disabled:opacity-50"
+              className="text-[13px] font-medium px-4 py-2 transition disabled:opacity-50"
+              style={{
+                background: "var(--bg-panel)",
+                color: "var(--danger-strong)",
+                border: "1px solid var(--danger-bg)",
+                borderRadius: "var(--r-md)",
+              }}
             >
               {rejecting ? "Rejecting…" : "Reject"}
             </button>
           </div>
           <div>
-            <label className="block text-xs text-muted mb-1">
+            <label
+              className="block text-[12px] mb-1"
+              style={{ color: "var(--fg-muted)" }}
+            >
               Optional rejection reason
             </label>
             <input
@@ -291,27 +419,55 @@ function ReviewContent() {
               onChange={(e) => setRejectReason(e.target.value)}
               disabled={busy}
               placeholder="e.g., too aggressive, wrong recipient"
-              className="w-full text-sm px-3 py-2 border border-border rounded-md"
+              className="w-full text-[13px] px-3 py-2"
+              style={{
+                background: "var(--bg-panel)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--r-md)",
+                color: "var(--fg)",
+              }}
             />
           </div>
         </div>
       )}
-    </>
+    </PageShell>
   );
 }
 
 export default function ReviewPage() {
   return (
-    <Suspense fallback={<div className="text-sm text-muted py-12 text-center">Loading...</div>}>
+    <Suspense
+      fallback={
+        <PageShell crumbs={["Pending", "Review"]}>
+          <div
+            className="text-[13px] py-12 text-center"
+            style={{ color: "var(--fg-muted)" }}
+          >
+            Loading...
+          </div>
+        </PageShell>
+      }
+    >
       <ReviewContent />
     </Suspense>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <label className="block text-xs text-muted mb-1">{label}</label>
+      <label
+        className="block text-[12px] mb-1"
+        style={{ color: "var(--fg-muted)" }}
+      >
+        {label}
+      </label>
       {children}
     </div>
   );

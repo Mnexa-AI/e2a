@@ -4,22 +4,55 @@ import Link from "next/link";
 
 export function AgentsEmptyState() {
   return (
-    <div className="border border-border rounded-lg p-12 text-center">
-      <h3 className="text-lg font-semibold mb-2">No agents yet</h3>
-      <p className="text-sm text-muted mb-6 max-w-md mx-auto">
+    <div
+      className="p-12 text-center"
+      style={{
+        background: "var(--bg-panel)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--r-lg)",
+      }}
+    >
+      <h3
+        className="mb-2"
+        style={{
+          fontFamily: "var(--f-editorial)",
+          fontSize: 26,
+          fontWeight: 400,
+          letterSpacing: "-0.01em",
+          color: "var(--fg)",
+        }}
+      >
+        No agents yet
+      </h3>
+      <p
+        className="mb-6 max-w-md mx-auto text-[14px] leading-[1.6]"
+        style={{ color: "var(--fg-muted)" }}
+      >
         Create an agent to give it an email address — either on a shared e2a
         domain or your own custom domain.
       </p>
-      <div className="flex items-center justify-center gap-3">
+      <div className="flex items-center justify-center gap-3 flex-wrap">
         <Link
           href="/get-started"
-          className="inline-flex items-center px-4 py-2 text-sm font-medium bg-foreground text-background rounded-lg hover:opacity-90 transition"
+          className="inline-flex items-center gap-1.5 text-[13px] font-medium px-4 py-2 transition"
+          style={{
+            background: "var(--accent-fill)",
+            color: "var(--accent-fg)",
+            borderRadius: "var(--r-md)",
+          }}
         >
           Create your first agent
+          <span className="font-mono">→</span>
         </Link>
         <Link
           href="/domains"
-          className="inline-flex items-center px-4 py-2 text-sm font-medium border border-border rounded-lg hover:bg-surface transition"
+          className="inline-flex items-center px-4 py-2 text-[13px] font-medium transition"
+          style={{
+            background: "var(--bg-panel)",
+            color: "var(--fg)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r-md)",
+          }}
         >
           Set up a domain
         </Link>

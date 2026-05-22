@@ -8,7 +8,10 @@ export default function DocsPage() {
   }, []);
 
   return (
-    <div className="flex items-center justify-center h-screen text-muted text-sm">
+    <div
+      className="flex items-center justify-center h-screen text-[13px]"
+      style={{ background: "var(--bg)", color: "var(--fg-muted)" }}
+    >
       Loading API docs...
     </div>
   );

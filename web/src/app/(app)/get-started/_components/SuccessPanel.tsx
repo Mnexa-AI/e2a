@@ -43,10 +43,25 @@ export function SuccessPanel({
 
   return (
     <div>
-      <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
-        <span className="font-medium">Agent registered!</span>{" "}
+      <div
+        className="mb-6 p-4 text-[13px]"
+        style={{
+          background: "var(--success-bg)",
+          border: "1px solid var(--success-bg)",
+          color: "var(--success)",
+          borderRadius: "var(--r-md)",
+        }}
+      >
+        <span className="font-semibold">Agent registered!</span>{" "}
         Your agent&apos;s email is{" "}
-        <code className="text-xs bg-white/60 px-1.5 py-0.5 rounded font-mono">
+        <code
+          className="font-mono text-[12px] px-1.5 py-0.5"
+          style={{
+            background: "var(--bg-panel)",
+            color: "var(--fg)",
+            borderRadius: "var(--r-sm)",
+          }}
+        >
           {agent.email}
         </code>
       </div>
@@ -92,10 +107,19 @@ export function SuccessPanel({
         )}
       </div>
 
-      <h2 className="text-2xl font-bold tracking-tight mb-2">
+      <h2
+        className="mb-2"
+        style={{
+          fontFamily: "var(--f-editorial)",
+          fontWeight: 400,
+          fontSize: 28,
+          letterSpacing: "-0.01em",
+          color: "var(--fg)",
+        }}
+      >
         Connect your agent
       </h2>
-      <p className="text-muted mb-6">
+      <p className="mb-6 text-[14px]" style={{ color: "var(--fg-muted)" }}>
         Give the following commands to your agent to learn the e2a skill. Works with OpenClaw, Claude Code, Gemini CLI, or any agent that supports skills.
       </p>
 
@@ -165,15 +189,36 @@ function CodeBlock({ title, code }: { title?: string; code: string }) {
 
   return (
     <div>
-      {title && <p className="text-xs font-medium mb-1.5">{title}</p>}
+      {title && (
+        <p
+          className="text-[12px] font-medium mb-2"
+          style={{ color: "var(--fg)" }}
+        >
+          {title}
+        </p>
+      )}
       <div className="relative group">
-        <pre className="bg-[#1a1a2e] text-[#e0e0e0] text-sm font-mono p-4 rounded-lg overflow-x-auto">
+        <pre
+          className="font-mono text-[12.5px] p-4 overflow-x-auto leading-[1.6]"
+          style={{
+            background: "var(--ink)",
+            color: "var(--ink-fg)",
+            border: "1px solid var(--ink-border)",
+            borderRadius: "var(--r-lg)",
+          }}
+        >
           <code>{code}</code>
         </pre>
         <button
           type="button"
           onClick={copy}
-          className="absolute top-2 right-2 px-2 py-1 text-[10px] font-medium bg-white/10 text-white/70 rounded hover:bg-white/20 transition opacity-0 group-hover:opacity-100"
+          className="absolute top-2 right-2 px-2 py-1 text-[10px] font-medium font-mono transition opacity-0 group-hover:opacity-100"
+          style={{
+            background: "var(--ink-elev)",
+            color: "var(--ink-fg-muted)",
+            border: "1px solid var(--ink-border)",
+            borderRadius: "var(--r-sm)",
+          }}
         >
           {copied ? "Copied!" : "Copy"}
         </button>

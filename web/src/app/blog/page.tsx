@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Eyebrow } from "../components/loft/Eyebrow";
 import { getPostsSortedByDate } from "./posts";
 
 function formatDate(iso: string): string {
@@ -15,70 +16,56 @@ export default function BlogIndex() {
   const posts = getPostsSortedByDate();
   return (
     <div>
-      <header style={{ marginBottom: 40 }}>
-        <p
-          style={{
-            fontSize: 11,
-            fontWeight: 500,
-            letterSpacing: "0.07em",
-            textTransform: "uppercase",
-            color: "#A89A8A",
-            marginBottom: 8,
-          }}
-        >
-          Blog
-        </p>
+      <header className="mb-10">
+        <Eyebrow>Blog</Eyebrow>
         <h1
+          className="mt-3 mb-3"
           style={{
-            fontFamily: "'Instrument Serif', Georgia, serif",
-            fontSize: 40,
+            fontFamily: "var(--f-editorial)",
             fontWeight: 400,
-            color: "#1C1A17",
-            margin: "0 0 10px",
-            letterSpacing: "-0.01em",
+            fontSize: "clamp(32px, 5vw, 42px)",
+            letterSpacing: "-0.012em",
+            color: "var(--fg)",
+            lineHeight: 1.1,
           }}
         >
-          Notes on email, agents, and the space in between.
+          Notes on email, agents, and the space{" "}
+          <em style={{ color: "var(--accent-strong)" }}>in between.</em>
         </h1>
-        <p style={{ fontSize: 14, color: "#7A6F63", lineHeight: 1.6 }}>
+        <p
+          className="text-[14px] leading-[1.6]"
+          style={{ color: "var(--fg-muted)" }}
+        >
           Tutorials, protocol deep-dives, and product updates from the team.
         </p>
       </header>
-      <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+      <div className="flex flex-col">
         {posts.map((post) => (
           <Link
             key={post.slug}
             href={`/blog/${post.slug}`}
+            className="block py-6"
             style={{
-              display: "block",
-              textDecoration: "none",
+              borderBottom: "1px solid var(--border)",
               color: "inherit",
-              padding: "22px 0",
-              borderBottom: "0.5px solid #E8E0D4",
             }}
           >
             <div
-              style={{
-                fontSize: 11,
-                color: "#A89A8A",
-                marginBottom: 6,
-                fontFamily: "'IBM Plex Mono', monospace",
-              }}
+              className="font-mono text-[11px] mb-1.5"
+              style={{ color: "var(--fg-subtle)" }}
             >
               {formatDate(post.date)} · {post.readingMinutes} min read
             </div>
             <h2
-              style={{
-                fontSize: 20,
-                fontWeight: 500,
-                color: "#1C1A17",
-                margin: "0 0 6px",
-                lineHeight: 1.3,
-              }}
+              className="text-[20px] font-medium mb-1.5 leading-[1.3]"
+              style={{ color: "var(--fg)" }}
             >
               {post.title}
             </h2>
-            <p style={{ fontSize: 14, color: "#7A6F63", lineHeight: 1.6, margin: 0 }}>
+            <p
+              className="text-[14px] leading-[1.6]"
+              style={{ color: "var(--fg-muted)" }}
+            >
               {post.description}
             </p>
           </Link>

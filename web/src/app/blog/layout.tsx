@@ -26,83 +26,76 @@ export const metadata: Metadata = {
 export default function BlogLayout({ children }: { children: React.ReactNode }) {
   return (
     <div
+      className="min-h-screen"
       style={{
-        background: "#FDFAF6",
-        color: "#1C1A17",
-        minHeight: "100vh",
-        fontFamily: "var(--font-sans, system-ui)",
+        background: "var(--bg)",
+        color: "var(--fg)",
+        fontFamily: "var(--f-ui)",
       }}
     >
       <nav
+        className="sticky top-0 z-50"
         style={{
-          borderBottom: "0.5px solid #E8E0D4",
-          background: "#FDFAF6",
-          position: "sticky",
-          top: 0,
-          zIndex: 50,
+          background: "var(--bg)",
+          borderBottom: "1px solid var(--border)",
         }}
       >
-        <div
-          style={{
-            maxWidth: 760,
-            margin: "0 auto",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "14px 32px",
-          }}
-        >
+        <div className="max-w-[760px] mx-auto flex items-center justify-between px-6 md:px-8 py-3.5">
           <Link
             href="/"
-            style={{
-              fontFamily: "'IBM Plex Mono', monospace",
-              fontWeight: 600,
-              fontSize: 15,
-              color: "#1C1A17",
-              textDecoration: "none",
-            }}
+            className="font-mono font-bold text-[15px]"
+            style={{ color: "var(--fg)", letterSpacing: "-0.02em" }}
           >
             e2a
           </Link>
-          <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-            <Link href="/blog" style={{ fontSize: 13, color: "#7A6F63", textDecoration: "none" }}>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/blog"
+              className="text-[13px]"
+              style={{ color: "var(--fg-muted)" }}
+            >
               Blog
             </Link>
-            <Link href="/api-docs" style={{ fontSize: 13, color: "#7A6F63", textDecoration: "none" }}>
+            <Link
+              href="/api-docs"
+              className="text-[13px]"
+              style={{ color: "var(--fg-muted)" }}
+            >
               Docs
             </Link>
             <Link
               href="/get-started"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-[13px] font-medium"
               style={{
-                fontSize: 13,
-                fontWeight: 500,
-                background: "#1C1A17",
-                color: "#FDFAF6",
-                padding: "7px 14px",
-                borderRadius: 7,
-                textDecoration: "none",
+                background: "var(--fg)",
+                color: "var(--bg)",
+                borderRadius: "var(--r-md)",
               }}
             >
-              Start building →
+              Start building <span className="font-mono">→</span>
             </Link>
           </div>
         </div>
       </nav>
-      <main style={{ maxWidth: 720, margin: "0 auto", padding: "56px 32px 80px" }}>{children}</main>
+      <main className="max-w-[720px] mx-auto px-6 md:px-8 py-14 md:py-[56px] pb-20">
+        {children}
+      </main>
       <footer
-        style={{
-          padding: "20px 32px",
-          borderTop: "0.5px solid #E8E0D4",
-          display: "flex",
-          justifyContent: "space-between",
-          maxWidth: 720,
-          margin: "0 auto",
-        }}
+        className="max-w-[720px] mx-auto flex justify-between px-6 md:px-8 py-5"
+        style={{ borderTop: "1px solid var(--border)" }}
       >
-        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 13 }}>
+        <span
+          className="font-mono font-bold text-[13px]"
+          style={{ color: "var(--fg)", letterSpacing: "-0.02em" }}
+        >
           e2a
         </span>
-        <span style={{ fontSize: 12, color: "#A89A8A" }}>MIT License</span>
+        <span
+          className="font-mono text-[12px]"
+          style={{ color: "var(--fg-subtle)" }}
+        >
+          Apache 2.0
+        </span>
       </footer>
     </div>
   );

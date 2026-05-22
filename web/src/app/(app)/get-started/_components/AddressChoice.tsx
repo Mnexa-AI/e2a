@@ -1,6 +1,7 @@
 "use client";
 
 import type { AddressType } from "../../../components/onboarding/types";
+import { Chip } from "../../../components/loft/Chip";
 import { AGENTS_DOMAIN } from "../../../../lib/site";
 
 export function AddressChoice({
@@ -12,50 +13,94 @@ export function AddressChoice({
 }) {
   return (
     <div>
-      <h2 className="text-2xl font-bold tracking-tight mb-2">
-        Give your agent an email address
-      </h2>
-      <p className="text-muted mb-8">
-        Choose the kind of email identity for your agent. You can always add more agents later.
-      </p>
-
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-3.5 sm:grid-cols-2">
+        {/* Shared option */}
         <button
           type="button"
           aria-pressed={selected === "shared"}
           onClick={() => onSelect("shared")}
-          className={`text-left p-5 rounded-lg border-2 transition ${
-            selected === "shared"
-              ? "border-accent bg-accent/5"
-              : "border-border hover:border-foreground/20"
-          }`}
+          className="relative text-left transition focus:outline-none"
+          style={{
+            background: "var(--bg-panel)",
+            border:
+              selected === "shared"
+                ? "2px solid var(--accent)"
+                : "2px solid var(--accent)",
+            borderRadius: "var(--r-lg)",
+            padding: 18,
+          }}
         >
-          <p className="font-medium text-sm mb-1">Shared e2a domain</p>
-          <p className="text-xs text-muted mb-3">
-            Get a working agent email in seconds.
-          </p>
-          <code className="text-xs bg-surface px-2 py-1 rounded border border-border">
+          <div className="absolute top-3.5 right-3.5">
+            <Chip tone="accent">Recommended</Chip>
+          </div>
+          <div className="flex items-center gap-2 mb-1">
+            <span
+              className="text-[14px] font-semibold"
+              style={{ color: "var(--fg)" }}
+            >
+              Shared e2a domain
+            </span>
+            <Chip tone="success" mono>
+              1 min
+            </Chip>
+          </div>
+          <div
+            className="font-mono text-[12px] mb-3"
+            style={{ color: "var(--accent-strong)" }}
+          >
             your-slug@{AGENTS_DOMAIN || "agents.example.com"}
-          </code>
+          </div>
+          <ul
+            className="list-none m-0 p-0 text-[12px] leading-[1.7]"
+            style={{ color: "var(--fg-muted)" }}
+          >
+            <li>· Skip DNS setup entirely</li>
+            <li>· Inherits e2a&apos;s verified domain</li>
+            <li>· Best for prototypes and testing</li>
+          </ul>
         </button>
 
+        {/* Custom option */}
         <button
           type="button"
           aria-pressed={selected === "custom"}
           onClick={() => onSelect("custom")}
-          className={`text-left p-5 rounded-lg border-2 transition ${
-            selected === "custom"
-              ? "border-accent bg-accent/5"
-              : "border-border hover:border-foreground/20"
-          }`}
+          className="relative text-left transition focus:outline-none"
+          style={{
+            background: "var(--bg-panel)",
+            border:
+              selected === "custom"
+                ? "2px solid var(--accent)"
+                : "1px solid var(--border)",
+            borderRadius: "var(--r-lg)",
+            padding: 18,
+          }}
         >
-          <p className="font-medium text-sm mb-1">Custom domain</p>
-          <p className="text-xs text-muted mb-3">
-            Use your own domain for branded agent addresses.
-          </p>
-          <code className="text-xs bg-surface px-2 py-1 rounded border border-border">
-            support@mail.yourcompany.com
-          </code>
+          <div className="flex items-center gap-2 mb-1">
+            <span
+              className="text-[14px] font-semibold"
+              style={{ color: "var(--fg)" }}
+            >
+              Custom domain
+            </span>
+            <Chip tone="neutral" mono>
+              ~10 min
+            </Chip>
+          </div>
+          <div
+            className="font-mono text-[12px] mb-3"
+            style={{ color: "var(--fg-muted)" }}
+          >
+            you@<span style={{ color: "var(--fg)" }}>yourcompany.com</span>
+          </div>
+          <ul
+            className="list-none m-0 p-0 text-[12px] leading-[1.7]"
+            style={{ color: "var(--fg-muted)" }}
+          >
+            <li>· Use your own domain (e.g. acme.io)</li>
+            <li>· Add DNS records · verify in &lt;5min</li>
+            <li>· Production-ready, brand-safe</li>
+          </ul>
         </button>
       </div>
     </div>

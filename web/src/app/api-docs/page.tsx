@@ -22,26 +22,49 @@ export const metadata: Metadata = {
   },
 };
 
+// The Scalar iframe renders with its own theme (light) because the static
+// HTML in public/scalar.html doesn't yet read from Loft tokens. We wrap it
+// in a Loft-style container so the surrounding chrome matches the rest of
+// the app; the iframe contents stay light to keep Scalar's typography and
+// inline code styling readable. Future: pass Loft tokens into scalar.html.
 export default function APIDocsPage() {
   return (
     <div
       style={{
+        background: "var(--bg)",
+        minHeight: "100vh",
+        padding: "12px",
+        // Light-mode overrides for Scalar's own CSS vars — keeps the API
+        // explorer readable until we wire Loft tokens into scalar.html.
         "--background": "#fafafa",
         "--foreground": "#111111",
-        "--accent": "#2563eb",
-        "--accent-light": "#3b82f6",
+        "--accent": "#B84A20",
+        "--accent-light": "#E26534",
         "--muted": "#6b7280",
         "--border": "#e5e7eb",
         "--surface": "#ffffff",
         colorScheme: "light",
       } as React.CSSProperties}
     >
-      <iframe
-        src="/scalar.html"
-        className="w-full border-0"
-        style={{ height: "100vh" }}
-        title="API Docs"
-      />
+      <div
+        className="overflow-hidden"
+        style={{
+          border: "1px solid var(--ink-border)",
+          borderRadius: "var(--r-lg)",
+          background: "var(--ink)",
+          height: "calc(100vh - 24px)",
+        }}
+      >
+        <iframe
+          src="/scalar.html"
+          className="w-full border-0 block"
+          style={{
+            height: "100%",
+            background: "#ffffff",
+          }}
+          title="API Docs"
+        />
+      </div>
     </div>
   );
 }
