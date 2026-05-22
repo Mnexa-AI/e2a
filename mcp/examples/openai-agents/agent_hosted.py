@@ -34,6 +34,10 @@ async def main(prompt: str) -> None:
                 "Authorization": f"Bearer {os.environ['E2A_API_KEY']}",
             },
         },
+        # Default is 5s — too tight for the first request against a
+        # cold serverless backend. Match the ADK and LangChain hosted
+        # variants at 30s.
+        client_session_timeout_seconds=30,
     ) as e2a:
         agent = Agent(
             name="e2a_agent",

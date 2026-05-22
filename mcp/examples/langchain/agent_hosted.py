@@ -21,6 +21,7 @@ Run:
 import asyncio
 import os
 import sys
+from datetime import timedelta
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
@@ -42,6 +43,7 @@ async def main(prompt: str) -> None:
                 "headers": {
                     "Authorization": f"Bearer {os.environ['E2A_API_KEY']}",
                 },
+                "timeout": timedelta(seconds=30),
             },
         }
     )

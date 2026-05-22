@@ -39,7 +39,7 @@ adk web              # uses agent_hosted.py if exported as root_agent
 adk run agent_hosted.py
 ```
 
-If your account has exactly one agent, the hosted endpoint auto-resolves it at session init — no `E2A_AGENT_EMAIL` needed. With multiple agents, pass `agent_email` per tool call or wait for a future grant-binding feature.
+If your account has exactly one agent, the hosted endpoint auto-resolves it at session init — no `E2A_AGENT_EMAIL` needed. With multiple agents, pass `agent_email` per tool call.
 
 Then in the chat:
 

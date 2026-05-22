@@ -36,7 +36,7 @@ export OPENAI_API_KEY=sk-…
 python agent_hosted.py "what's in my inbox?"
 ```
 
-If your account has exactly one agent, the hosted endpoint auto-resolves it at session init — no `E2A_AGENT_EMAIL` needed. With multiple agents, pass `agent_email` per tool call or wait for a future grant-binding feature.
+If your account has exactly one agent, the hosted endpoint auto-resolves it at session init — no `E2A_AGENT_EMAIL` needed. With multiple agents, pass `agent_email` per tool call.
 
 ## How it works
 
