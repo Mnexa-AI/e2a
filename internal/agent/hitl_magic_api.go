@@ -295,6 +295,13 @@ func (a *API) magicReject(w http.ResponseWriter, r *http.Request, messageID, use
 }
 
 // --- HTML rendering ---
+//
+// These pages are served stand-alone by the Go binary and are most often
+// opened from a phone email client, so they need to be self-contained:
+// inline SVG brand mark, inline CSS, no external font loads, no JS. The
+// Loft visual tokens (cream surfaces, ember accents, ink consoles, the
+// 6px / 10px radii, etc.) are inlined to match web/src/app/globals.css —
+// keep them in sync if the design system shifts.
 
 func pageTitleForAction(action, fallback string) string {
 	switch action {
@@ -307,8 +314,341 @@ func pageTitleForAction(action, fallback string) string {
 	}
 }
 
-// writeMagicMessage renders a bare confirmation / error page.
-func writeMagicMessage(w http.ResponseWriter, status int, title, body string) {
+// loftCommonCSS is the shared style block for both the confirm page and
+// the post-action result page. Mirrors the tokens in globals.css.
+const loftCommonCSS = `
+:root {
+  --bg: #FAF7F2;
+  --bg-panel: #FFFFFF;
+  --bg-elev: #F2ECE2;
+  --ink: #1A1714;
+  --ink-elev: #23201C;
+  --ink-fg: #E8E3D8;
+  --ink-fg-muted: #8C857A;
+  --ink-border: #2E2A24;
+  --fg: #1A1714;
+  --fg-muted: #6E665B;
+  --fg-subtle: #9A9082;
+  --border: #E5DED3;
+  --border-sub: #EFE9DD;
+  --accent: #E26534;
+  --accent-soft: #FBE9DF;
+  --accent-strong: #A84218;
+  --accent-fill: #B84A20;
+  --danger-bg: #FBE3E0;
+  --danger-strong: #A82020;
+  --success: #0F7A4D;
+  --success-bg: #DFF3E8;
+  --f-ui: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+  --f-editorial: "Instrument Serif", Georgia, serif;
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--f-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+.wrap {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 32px 20px 48px;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 22px;
+  text-decoration: none;
+  color: var(--fg);
+}
+.brand-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  background: var(--fg);
+  color: var(--bg);
+  font-family: var(--f-mono);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: -0.04em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.brand-text {
+  font-family: var(--f-mono);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.brand-tag {
+  font-size: 11px;
+  color: var(--fg-muted);
+  display: block;
+}
+.eyebrow {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-strong);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.card-head {
+  padding: 22px 22px 18px;
+}
+.card-head h1 {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  margin: 8px 0 6px;
+  color: var(--fg);
+  line-height: 1.15;
+}
+.lede {
+  font-size: 14px;
+  color: var(--fg-muted);
+  margin: 0;
+  line-height: 1.55;
+}
+.details {
+  margin: 0;
+  padding: 0 22px 18px;
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  row-gap: 8px;
+  column-gap: 12px;
+  font-size: 13px;
+}
+.details dt {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-subtle);
+  padding-top: 2px;
+}
+.details dd {
+  margin: 0;
+  color: var(--fg);
+  word-break: break-word;
+}
+.details dd code {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-sub);
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+}
+.details dd strong {
+  font-weight: 600;
+}
+.preview-label {
+  padding: 0 22px 8px;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-subtle);
+}
+.preview {
+  margin: 0 22px;
+  background: var(--ink);
+  color: var(--ink-fg);
+  border: 1px solid var(--ink-border);
+  border-radius: var(--r-lg);
+  padding: 14px 16px;
+  white-space: pre-wrap;
+  font-family: var(--f-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  max-height: 260px;
+  overflow: auto;
+}
+.actions {
+  padding: 18px 22px 22px;
+  border-top: 1px solid var(--border);
+  margin-top: 18px;
+  background: var(--bg-elev);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+form { margin: 0; display: contents; }
+.field {
+  padding: 16px 22px 0;
+}
+.field label {
+  display: block;
+  font-size: 12px;
+  color: var(--fg-muted);
+  margin-bottom: 4px;
+}
+.field input {
+  width: 100%;
+  padding: 9px 11px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--fg);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.field input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--f-ui);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 10px 18px;
+  border-radius: var(--r-md);
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  line-height: 1;
+}
+.btn-primary {
+  background: var(--accent-fill);
+  color: #fff;
+}
+.btn-primary:hover { background: #9A3D1A; }
+.btn-danger {
+  background: var(--bg-panel);
+  color: var(--danger-strong);
+  border-color: var(--danger-bg);
+}
+.btn-danger:hover { background: var(--danger-bg); }
+.btn-ghost {
+  background: transparent;
+  color: var(--fg-muted);
+  padding: 10px 6px;
+  font-size: 13px;
+}
+.btn-ghost:hover { color: var(--fg); }
+.footnote {
+  margin-top: 18px;
+  font-size: 12px;
+  color: var(--fg-subtle);
+  line-height: 1.55;
+}
+.banner {
+  padding: 16px 18px;
+  border-radius: var(--r-md);
+  font-size: 14px;
+  line-height: 1.55;
+  margin-bottom: 16px;
+}
+.banner-success {
+  background: var(--success-bg);
+  color: var(--success);
+  border: 1px solid var(--success-bg);
+}
+.banner-warn {
+  background: #FFF1D1;
+  color: #8F5F00;
+  border: 1px solid #FFF1D1;
+}
+.banner-danger {
+  background: var(--danger-bg);
+  color: var(--danger-strong);
+  border: 1px solid var(--danger-bg);
+}
+.result h1 {
+  font-family: var(--f-editorial);
+  font-style: italic;
+  font-weight: 400;
+  font-size: clamp(32px, 8vw, 44px);
+  letter-spacing: -0.012em;
+  color: var(--fg);
+  margin: 14px 0 8px;
+  line-height: 1.05;
+}
+.result p {
+  font-size: 15px;
+  color: var(--fg-muted);
+  line-height: 1.55;
+  margin: 0 0 18px;
+}
+.muted { color: var(--fg-muted); }
+@media (max-width: 480px) {
+  .card-head, .actions, .field { padding-left: 16px; padding-right: 16px; }
+  .preview, .preview-label { margin-left: 16px; margin-right: 16px; }
+  .preview-label { padding-left: 0; padding-right: 0; }
+  .details {
+    grid-template-columns: 1fr;
+    padding-left: 16px;
+    padding-right: 16px;
+    row-gap: 12px;
+  }
+  .details dt { padding-top: 0; }
+  .btn { width: 100%; }
+  .actions .btn-ghost { width: auto; }
+}
+`
+
+// loftFaviconDataURI is web/public/favicon.svg inlined as a data: URI so
+// the favicon doesn't depend on the static-asset layer being reachable
+// from wherever these pages are served. Bytes match the source SVG
+// exactly — regenerate via `base64 < web/public/favicon.svg` if you
+// re-render the brand mark.
+const loftFaviconDataURI = "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIj8+PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDMyIDMyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9ImUyYSI+ICA8cmVjdCB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHJ4PSI3IiBmaWxsPSIjMUExNzE0Ij48L3JlY3Q+ICA8dGV4dCB4PSIxNiIgeT0iMjMuNSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9InVpLXNhbnMtc2VyaWYsIHN5c3RlbS11aSwgLWFwcGxlLXN5c3RlbSwgJiMzOTtIZWx2ZXRpY2EgTmV1ZSYjMzk7LCBBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9IjcwMCIgZm9udC1zaXplPSIyNCIgbGV0dGVyLXNwYWNpbmc9Ii0xIiBmaWxsPSIjRThFM0Q4Ij4yPC90ZXh0Pjwvc3ZnPg=="
+
+// writeLoftHead writes the shared <!doctype>, <head>, opening <body>, and
+// brand block. The caller continues the page body and is responsible for
+// closing </body></html>.
+func writeLoftHead(w http.ResponseWriter, title string) {
+	fmt.Fprintf(w, `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#FAF7F2">
+<title>%s — e2a</title>
+<link rel="icon" type="image/svg+xml" href="%s">
+<style>%s</style>
+</head>
+<body>
+<div class="wrap">
+<a class="brand" href="/" aria-label="e2a">
+  <span class="brand-mark" aria-hidden="true">2</span>
+  <span>
+    <span class="brand-text">e2a</span>
+    <span class="brand-tag">Email for AI agents</span>
+  </span>
+</a>
+`, html.EscapeString(title), loftFaviconDataURI, loftCommonCSS)
+}
+
+// setMagicHeaders applies the shared security headers that any magic-link
+// response carries. Same set on every render path.
+func setMagicHeaders(w http.ResponseWriter, status int) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	// Block embedding so any approved/rejected success page can't be
@@ -318,26 +658,45 @@ func writeMagicMessage(w http.ResponseWriter, status int, title, body string) {
 	// Discourage indexing if a link ever leaks publicly.
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 	w.WriteHeader(status)
-	fmt.Fprintf(w, `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
-<title>%s — e2a</title>
-<style>
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  max-width: 520px; margin: 80px auto; padding: 0 20px; color: #111; line-height: 1.5; }
-h1 { font-size: 22px; margin-bottom: 12px; }
-p { color: #555; }
-</style>
-</head>
-<body>
+}
+
+// writeMagicMessage renders the post-action / error page. Cream surface,
+// inline brand mark up top, big editorial-italic title, ember CTA back
+// to the dashboard.
+func writeMagicMessage(w http.ResponseWriter, status int, title, body string) {
+	setMagicHeaders(w, status)
+	writeLoftHead(w, title)
+	fmt.Fprintf(w, `<div class="result">
+<span class="eyebrow">%s</span>
 <h1>%s</h1>
 <p>%s</p>
+<p><a class="btn btn-primary" href="/dashboard">Open the dashboard</a></p>
+</div>
+</div>
 </body>
 </html>
-`, html.EscapeString(title), html.EscapeString(title), body)
+`,
+		html.EscapeString(bannerEyebrowFor(status)),
+		html.EscapeString(title),
+		// `body` is sometimes a pre-escaped fragment (the validation-error
+		// path runs html.EscapeString itself before calling us). Don't
+		// double-escape.
+		body,
+	)
+}
+
+// bannerEyebrowFor returns a short uppercase status word that sits above
+// the result page's title — "Done" / "Pending" / "Error" depending on
+// the HTTP status. Keeps the page calm at a glance.
+func bannerEyebrowFor(status int) string {
+	switch {
+	case status >= 200 && status < 300:
+		return "Done"
+	case status == http.StatusConflict || status == http.StatusGone:
+		return "Already resolved"
+	default:
+		return "Error"
+	}
 }
 
 // writeConfirmPage renders the token-gated preview + POST form. This is
@@ -346,25 +705,22 @@ p { color: #555; }
 // The form targets the same URL path with method POST so the actual
 // state change only fires on an explicit click.
 func writeConfirmPage(w http.ResponseWriter, status int, action, token string, msg *identity.Message) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Frame-Options", "DENY")
-	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
-	w.WriteHeader(status)
+	setMagicHeaders(w, status)
 
-	var actionPath, submitLabel, submitStyle, title, lede string
+	var actionPath, submitLabel, eyebrow, title, lede, submitClass string
 	switch action {
 	case approvaltoken.ActionApprove:
 		actionPath = "/api/v1/approve"
 		submitLabel = "Approve & send"
-		submitStyle = "background:#0a7b3f;color:#fff"
+		submitClass = "btn btn-primary"
+		eyebrow = "Pending · approve"
 		title = "Approve message"
 		lede = "This message will be sent from your agent immediately."
 	case approvaltoken.ActionReject:
 		actionPath = "/api/v1/reject"
 		submitLabel = "Reject"
-		submitStyle = "background:#b53030;color:#fff"
+		submitClass = "btn btn-danger"
+		eyebrow = "Pending · reject"
 		title = "Reject message"
 		lede = "This message will be discarded and not sent."
 	}
@@ -379,86 +735,66 @@ func writeConfirmPage(w http.ResponseWriter, status int, action, token string, m
 	bccList := strings.Join(msg.BCC, ", ")
 
 	var rows strings.Builder
-	fmt.Fprintf(&rows, `<tr><td style="color:#888;padding:2px 8px 2px 0">Agent</td><td><code>%s</code></td></tr>`,
+	fmt.Fprintf(&rows, `<dt>Agent</dt><dd><code>%s</code></dd>`,
 		html.EscapeString(msg.AgentID))
 	if toList != "" {
-		fmt.Fprintf(&rows, `<tr><td style="color:#888;padding:2px 8px 2px 0">To</td><td>%s</td></tr>`,
-			html.EscapeString(toList))
+		fmt.Fprintf(&rows, `<dt>To</dt><dd>%s</dd>`, html.EscapeString(toList))
 	}
 	if ccList != "" {
-		fmt.Fprintf(&rows, `<tr><td style="color:#888;padding:2px 8px 2px 0">Cc</td><td>%s</td></tr>`,
-			html.EscapeString(ccList))
+		fmt.Fprintf(&rows, `<dt>Cc</dt><dd>%s</dd>`, html.EscapeString(ccList))
 	}
 	if bccList != "" {
-		fmt.Fprintf(&rows, `<tr><td style="color:#888;padding:2px 8px 2px 0">Bcc</td><td>%s</td></tr>`,
-			html.EscapeString(bccList))
+		fmt.Fprintf(&rows, `<dt>Bcc</dt><dd>%s</dd>`, html.EscapeString(bccList))
 	}
-	fmt.Fprintf(&rows, `<tr><td style="color:#888;padding:2px 8px 2px 0">Subject</td><td><strong>%s</strong></td></tr>`,
+	fmt.Fprintf(&rows, `<dt>Subject</dt><dd><strong>%s</strong></dd>`,
 		html.EscapeString(msg.Subject))
 	if msg.ApprovalExpiresAt != nil {
-		fmt.Fprintf(&rows, `<tr><td style="color:#888;padding:2px 8px 2px 0">Expires</td><td>%s</td></tr>`,
+		fmt.Fprintf(&rows, `<dt>Expires</dt><dd>%s</dd>`,
 			html.EscapeString(msg.ApprovalExpiresAt.UTC().Format(time.RFC1123)))
 	}
 
 	// Optional rejection-reason input only on /reject.
 	reasonField := ""
 	if action == approvaltoken.ActionReject {
-		reasonField = `<p style="margin-top:14px">
-<label for="reason" style="display:block;font-size:13px;color:#888;margin-bottom:4px">Reason (optional)</label>
-<input id="reason" name="reason" type="text" maxlength="200" placeholder="e.g. wrong tone, bad recipient"
-  style="width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-family:inherit;font-size:14px">
-</p>`
+		reasonField = `<div class="field">
+<label for="reason">Reason (optional)</label>
+<input id="reason" name="reason" type="text" maxlength="200" placeholder="e.g. wrong tone, bad recipient">
+</div>`
 	}
 
-	fmt.Fprintf(w, `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
-<title>%s — e2a</title>
-<style>
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  max-width: 560px; margin: 48px auto; padding: 0 20px; color: #111; line-height: 1.5; }
-h1 { font-size: 22px; margin: 0 0 8px; }
-.lede { color: #666; margin: 0 0 20px; }
-table { font-size: 14px; color: #222; margin-bottom: 16px; }
-.preview { background:#f6f6f6; border:1px solid #e0e0e0; padding:12px 14px;
-  border-radius:6px; white-space:pre-wrap;
-  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px;
-  max-height: 240px; overflow:auto; }
-.submit { border:0; padding:10px 18px; border-radius:6px; font-size:14px;
-  font-weight:600; cursor:pointer; }
-.cancel { margin-left:12px; color:#888; text-decoration:none; font-size:13px; }
-.footnote { margin-top:28px; font-size:12px; color:#888; }
-</style>
-</head>
-<body>
-<h1>%s</h1>
-<p class="lede">%s</p>
-<table cellspacing="0">%s</table>
-<div class="preview">%s</div>
+	writeLoftHead(w, title)
+	fmt.Fprintf(w, `<div class="card">
 <form method="POST" action="%s">
 <input type="hidden" name="t" value="%s">
+<div class="card-head">
+<span class="eyebrow">%s</span>
+<h1>%s</h1>
+<p class="lede">%s</p>
+</div>
+<dl class="details">%s</dl>
+<div class="preview-label">Body preview</div>
+<div class="preview">%s</div>
 %s
-<p style="margin-top:16px">
-<button type="submit" class="submit" style="%s">%s</button>
-<a href="about:blank" class="cancel">Close without acting</a>
-</p>
+<div class="actions">
+<button type="submit" class="%s">%s</button>
+<a href="about:blank" class="btn btn-ghost">Close without acting</a>
+</div>
 </form>
-<p class="footnote">Clicking this button sends the action to e2a. If you close the window without clicking, nothing changes and the message stays pending.</p>
+</div>
+<p class="footnote">Clicking the button submits the action to e2a. If you close the window without clicking, nothing changes and the message stays pending.</p>
+</div>
 </body>
 </html>
 `,
-		html.EscapeString(title),
+		html.EscapeString(actionPath),
+		html.EscapeString(token),
+		html.EscapeString(eyebrow),
 		html.EscapeString(title),
 		html.EscapeString(lede),
 		rows.String(),
 		html.EscapeString(bodyPreview),
-		html.EscapeString(actionPath),
-		html.EscapeString(token),
 		reasonField,
-		submitStyle,
+		submitClass,
 		html.EscapeString(submitLabel),
 	)
 }
