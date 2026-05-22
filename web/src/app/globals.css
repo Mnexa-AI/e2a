@@ -1,39 +1,205 @@
 @import "tailwindcss";
 
+/*  Loft · colors + type tokens (semantic + base)
+ *  ─────────────────────────────────────────────
+ *  Two surfaces, on purpose:
+ *    --bg / --fg               · warm cream Drive shell (humans)
+ *    --ink / --ink-fg          · agent-native console (machines)
+ *
+ *  Every text token has a `-strong` variant. Use the strong one for text.
+ *  Fonts (Geist, Geist Mono / JetBrains Mono, Instrument Serif) are loaded
+ *  via next/font in app/layout.tsx and bound to --f-ui / --f-mono / --f-editorial.
+ */
+
 :root {
-  --background: #fafafa;
-  --foreground: #111111;
-  --accent: #2563eb;
-  --accent-light: #3b82f6;
-  --muted: #6b7280;
-  --border: #e5e7eb;
-  --surface: #ffffff;
+  /* ── Surfaces — Drive shell (warm cream) ── */
+  --bg:           #FAF7F2;
+  --bg-panel:     #FFFFFF;
+  --bg-elev:      #F2ECE2;
+  --bg-sunken:    #ECE4D6;
+
+  /* ── Ink (agent-native) ── */
+  --ink:          #1A1714;
+  --ink-elev:     #23201C;
+  --ink-fg:       #E8E3D8;
+  --ink-fg-muted: #8C857A;
+  --ink-border:   #2E2A24;
+
+  /* ── Text ── */
+  --fg:           #1A1714;
+  --fg-strong:    #1A1714;
+  --fg-muted:     #6E665B;
+  --fg-subtle:    #9A9082;
+
+  /* ── Borders ── */
+  --border:        #E5DED3;
+  --border-sub:    #EFE9DD;
+  --border-strong: #D5CCBC;
+
+  /* ── Accent · Ember ── */
+  --accent:           #E26534;
+  --accent-soft:      #FBE9DF;
+  --accent-strong:    #A84218;
+  --accent-fill:      #B84A20;
+  --accent-fill-hov:  #9A3D1A;
+  --accent-fg:        #FFFFFF;
+
+  /* ── Agent-context on ink ── */
+  --spectral:  #6FDDE5;
+  --machine:   #B6F36E;
+
+  /* ── Semantic colors (decorative + -strong text pair) ── */
+  --info:    #2D6CFF;  --info-bg: #E4ECFF;   --info-strong: #0050D6;
+  --warn:    #C78400;  --warn-bg: #FFF1D1;   --warn-strong: #8F5F00;
+  --danger:  #CC2E2E;  --danger-bg: #FBE3E0; --danger-strong: #A82020;
+  --success: #0F7A4D;  --success-bg: #DFF3E8;
+
+  /* ── Kind hues (decorative; always paired with a kind icon) ── */
+  --k-md:      #2D6CFF;
+  --k-code:    #7A4FE0;
+  --k-image:   #0F7A4D;
+  --k-video:   #A0700B;
+  --k-dataset: #B43E8F;
+  --k-skill:   #A84218;
+  --k-bundle:  #4A4A4A;
+  --k-folder:  #8F5F00;
+
+  /* ── Avatar palette (deterministic by hash → 0..7) ── */
+  --av-1:#A84218; --av-2:#0F7A4D; --av-3:#0050D6; --av-4:#7A4FE0;
+  --av-5:#B43E8F; --av-6:#8F5F00; --av-7:#4A4A4A; --av-8:#1A1714;
+
+  /* ── Radii ── */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --r-xl: 16px;
+
+  /* ── Shadows ── */
+  --sh-1:   0 1px 0 rgba(26,23,20,.04), 0 1px 2px rgba(26,23,20,.04);
+  --sh-2:   0 2px 8px rgba(26,23,20,.06), 0 12px 32px rgba(26,23,20,.06);
+  --sh-pop: 0 24px 48px -16px rgba(26,23,20,.18), 0 4px 12px rgba(26,23,20,.06);
+
+  /* ── Focus ── */
+  --focus-ring: 0 0 0 3px rgba(226,101,52,0.30);
+
+  /* ── Type families — next/font binds these in layout.tsx ── */
+  --f-ui:        "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --f-mono:      "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+  --f-editorial: "Instrument Serif", Georgia, serif;
+
+  /* ── Type SCALE (semantic) ── */
+  --fs-display: 36px;  --fw-display: 700;  --tracking-display: -0.02em;
+  --fs-h1: 24px;       --fw-h1: 700;       --tracking-h1: -0.01em;
+  --fs-h2: 18px;       --fw-h2: 600;
+  --fs-h3: 15px;       --fw-h3: 600;
+  --fs-body: 14px;
+  --fs-small: 12px;
+  --fs-mono: 13px;
+  --fs-id: 11px;
+  --fs-eyebrow: 11px;
+
+  /* ── Spacing grid (4px) ── */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
 }
 
+/* ──────────────────────────────────────────────────────────────
+   Dark theme — applied via `.dark` class on <html> by ThemeProvider
+   ────────────────────────────────────────────────────────────── */
 .dark {
-  --background: #0a0a0a;
-  --foreground: #ededed;
-  --accent: #3b82f6;
-  --accent-light: #60a5fa;
-  --muted: #9ca3af;
-  --border: #27272a;
-  --surface: #18181b;
+  --bg:           #13110E;
+  --bg-panel:     #1A1714;
+  --bg-elev:      #221F1B;
+  --bg-sunken:    #0D0B09;
+
+  --ink:          #0A0907;
+  --ink-elev:     #13110E;
+  --ink-fg:       #E8E3D8;
+  --ink-fg-muted: #8C857A;
+  --ink-border:   #221F1B;
+
+  --fg:        #ECE6D9;
+  --fg-strong: #ECE6D9;
+  --fg-muted:  #A8A092;
+  --fg-subtle: #6E665B;
+
+  --border:        #2E2A24;
+  --border-sub:    #25221E;
+  --border-strong: #3A352E;
+
+  --accent:          #F08055;
+  --accent-soft:     #3A1B0E;
+  --accent-strong:   #F5A07E;
+  --accent-fill:     #E26534;
+  --accent-fill-hov: #F08055;
+  --accent-fg:       #13110E;
+
+  --info: #79B4FF; --info-bg: #0F2046; --info-strong: #A6CCFF;
+  --warn: #E4A82F; --warn-bg: #2E1F00; --warn-strong: #F2C257;
+  --danger: #FF6B6B; --danger-bg: #2E1010; --danger-strong: #FF9292;
+  --success: #5AC68A; --success-bg: #0B2418;
+
+  --k-md: #79B4FF;  --k-code: #A989F0;  --k-image: #5AC68A;
+  --k-video: #E4A82F; --k-dataset: #E07AC3; --k-skill: #F08055;
+  --k-bundle: #9A9082; --k-folder: #E4A82F;
+
+  --sh-1:   0 1px 0 rgba(0,0,0,.4), 0 1px 2px rgba(0,0,0,.3);
+  --sh-2:   0 2px 8px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.5);
+  --sh-pop: 0 24px 48px -16px rgba(0,0,0,.6), 0 4px 12px rgba(0,0,0,.4);
+
+  --focus-ring: 0 0 0 3px rgba(240,128,85,0.45);
 }
 
+/* ──────────────────────────────────────────────────────────────
+   Tailwind theme bridge — keep existing utility classes working
+   (bg-background / text-foreground / border-border / bg-surface …)
+   while exposing the new Loft tokens to Tailwind.
+   ────────────────────────────────────────────────────────────── */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-accent: var(--accent);
-  --color-accent-light: var(--accent-light);
-  --color-muted: var(--muted);
-  --color-border: var(--border);
-  --color-surface: var(--surface);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-serif: var(--font-playfair);
+  --color-background:    var(--bg);
+  --color-foreground:    var(--fg-strong);
+  --color-accent:        var(--accent-fill);
+  --color-accent-light:  var(--accent);
+  --color-muted:         var(--fg-muted);
+  --color-border:        var(--border);
+  --color-surface:       var(--bg-panel);
+
+  --color-ink:           var(--ink);
+  --color-ink-fg:        var(--ink-fg);
+  --color-accent-soft:   var(--accent-soft);
+  --color-accent-strong: var(--accent-strong);
+
+  --font-sans:   var(--f-ui);
+  --font-mono:   var(--f-mono);
+  --font-serif:  var(--f-editorial);
 }
 
+/* ──────────────────────────────────────────────────────────────
+   Base · element-level semantic styles
+   ────────────────────────────────────────────────────────────── */
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--f-ui);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Focus ring — keyboard only */
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--r-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -1,23 +1,26 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Playfair_Display } from "next/font/google";
+import { Geist, Instrument_Serif, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "./components/AuthProvider";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { SITE_URL, SITE_NAME, GOOGLE_SITE_VERIFICATION } from "../lib/site";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const geist = Geist({
+  variable: "--f-ui",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--f-mono",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
-const playfair = Playfair_Display({
-  variable: "--font-playfair",
+const instrumentSerif = Instrument_Serif({
+  variable: "--f-editorial",
   subsets: ["latin"],
+  weight: "400",
   style: ["normal", "italic"],
 });
 
@@ -57,11 +60,13 @@ export const metadata: Metadata = {
     siteName: SITE_NAME,
     type: "website",
     locale: "en_US",
+    images: [{ url: "/og-image.png", width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
     title: ROOT_TITLE,
     description: ROOT_DESC,
+    images: ["/og-image.png"],
   },
   // Google Search Console verification — only emitted when configured.
   ...(GOOGLE_SITE_VERIFICATION
@@ -79,7 +84,11 @@ export const metadata: Metadata = {
     },
   },
   icons: {
-    icon: "/favicon.ico",
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico", sizes: "any" },
+    ],
+    apple: "/apple-touch-icon.svg",
   },
 };
 
@@ -106,7 +115,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${playfair.variable} antialiased`}
+      className={`${geist.variable} ${jetbrainsMono.variable} ${instrumentSerif.variable} antialiased`}
       suppressHydrationWarning
     >
       <body className="min-h-screen flex flex-col">
