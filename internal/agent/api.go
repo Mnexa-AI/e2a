@@ -1169,12 +1169,14 @@ func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 
 	selfSend := isSelfSend(req, agent.EmailAddress())
 
-	// HITL is intentionally bypassed for self-sends. Holding a "note
-	// to self" for approval is degenerate UX — the reviewer and the
-	// author are the same identity, and the approval magic-link would
-	// be a no-op confirmation. External recipients still flow through
-	// HITL normally.
-	if agent.HITLEnabled && !selfSend {
+	// HITL applies to self-sends too — the gate is "did a human
+	// review this outbound message" regardless of recipient. The
+	// approval-finalize path (see hitl_api.go / hitl_magic_api.go)
+	// detects the self-send shape on the held message and routes
+	// the delivery through the loopback short-circuit instead of
+	// outbound.Sender, which would otherwise strip the agent's own
+	// address from the recipient list and error.
+	if agent.HITLEnabled {
 		a.holdForApproval(w, r, agent, req, "send", "")
 		return
 	}
@@ -1446,10 +1448,11 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 	sendReq.BCC = stripAgentSelfAliases(sendReq.BCC, agent.EmailAddress())
 	selfReply := isSelfSend(sendReq, agent.EmailAddress())
 
-	// HITL on a self-reply is bypassed for the same reason it's
-	// bypassed on a self-send (see selfsend.go docstring): holding
-	// a self-note for the agent to approve to itself is degenerate.
-	if agent.HITLEnabled && !selfReply {
+	// HITL applies to self-replies for the same reason as self-sends:
+	// a reviewer-in-the-loop gate doesn't care whether the recipient
+	// is external or the agent itself. The approval finalizer routes
+	// the held reply through loopback when it's a self-reply.
+	if agent.HITLEnabled {
 		a.holdForApproval(w, r, agent, sendReq, "reply", inbound.EmailMessageID)
 		return
 	}

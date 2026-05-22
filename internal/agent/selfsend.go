@@ -73,8 +73,10 @@ func stripAgentSelfAliases(addrs []string, agentEmail string) []string {
 //
 // Notable behavior choices (documented because they diverge from a
 // pure-SMTP send):
-//   - HITL is bypassed before this function is called. Holding a
-//     self-note for approval is degenerate UX.
+//   - This is the non-HITL fast path. The HITL-gated counterpart
+//     (selfSendApprovalDelivery) writes ONLY the inbound row; the
+//     outbound row already exists from holdForApproval and gets
+//     updated to status=sent by ApproveAndSend.
 //   - Webhook + WebSocket delivery are intentionally NOT fired on the
 //     inbound row. Cloud-mode agents whose webhook handler is what
 //     triggered the self-send would otherwise re-enter their own code
@@ -231,6 +233,56 @@ func composeLoopbackMIME(
 		time.Now().UTC().Format(time.RFC1123Z),
 	)
 	return append([]byte(received), msg...), nil
+}
+
+// selfSendApprovalDelivery is the HITL-gated counterpart of performSelfSend:
+// it writes ONLY the inbound row and returns an identity.SendResult shaped
+// for ApproveAndSend's send callback. The pre-existing held outbound row is
+// finalized to status=sent by ApproveAndSend itself using the result's
+// provider_message_id + method columns — calling CreateOutboundMessage here
+// would create a duplicate row and unanchor the operator-visible audit
+// trail (held → sent for a specific row id).
+//
+// Same delivery semantics as performSelfSend: loopback method, synthetic
+// Received: line, no webhook/WS replay. Domain verification is checked
+// upstream at handleSendEmail; the approval finalize trusts the gate it
+// already passed at hold time.
+func (a *API) selfSendApprovalDelivery(
+	ctx context.Context,
+	agent *identity.AgentIdentity,
+	req outbound.SendRequest,
+) (identity.SendResult, error) {
+	providerID := loopbackProviderID(a.fromDomain)
+	email := agent.EmailAddress()
+
+	rawMessage, err := composeLoopbackMIME(agent, req, providerID, a.fromDomain)
+	if err != nil {
+		return identity.SendResult{}, fmt.Errorf("self-send approval compose: %w", err)
+	}
+	if _, err := a.store.CreateInboundMessage(
+		ctx,
+		"",
+		agent.ID,
+		email, // sender
+		email, // recipient (per-delivery target)
+		providerID,
+		req.Subject,
+		req.ConversationID,
+		"unread",
+		rawMessage,
+		nil, // no DKIM/SPF auth headers on a synthetic loopback
+		[]string{email},
+		nil, // cc
+		nil, // reply_to
+	); err != nil {
+		return identity.SendResult{}, fmt.Errorf("self-send approval inbound row: %w", err)
+	}
+
+	return identity.SendResult{
+		ProviderMessageID: providerID,
+		Method:            "loopback",
+		To:                []string{email},
+	}, nil
 }
 
 // loopbackProviderID synthesizes an RFC 5322-shaped Message-ID for the

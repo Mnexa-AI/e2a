@@ -277,6 +277,14 @@ func (a *API) handleApprovePendingMessage(w http.ResponseWriter, r *http.Request
 				return identity.SendResult{}, err
 			}
 			attachReferencesChain(r.Context(), a.store, agent.ID, &sendReq)
+			// Self-sends bypass the SMTP relay — outbound.Sender would
+			// strip the agent's own address from the recipient list and
+			// error "no valid recipients". Loopback writes the inbound
+			// row directly and reports method=loopback on the now-sent
+			// outbound row, matching the non-HITL self-send shape.
+			if isSelfSend(sendReq, agent.EmailAddress()) {
+				return a.selfSendApprovalDelivery(r.Context(), agent, sendReq)
+			}
 			result, err := a.sender.Send(agent, sendReq)
 			if err != nil {
 				return identity.SendResult{}, err
