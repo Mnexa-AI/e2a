@@ -1,1 +1,2 @@
-google-adk>=1.0
+google-adk>=2.0
+mcp>=1.0
