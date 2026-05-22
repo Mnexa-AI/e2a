@@ -222,6 +222,12 @@ func (a *API) magicApprove(w http.ResponseWriter, r *http.Request, messageID, us
 				return identity.SendResult{}, err
 			}
 			attachReferencesChain(r.Context(), a.store, agent.ID, &sendReq)
+			// Self-sends (including the Test email button) deliver via
+			// loopback — see the dashboard-approve branch in hitl_api.go
+			// for the rationale; both paths must stay symmetric.
+			if isSelfSend(sendReq, agent.EmailAddress()) {
+				return a.selfSendApprovalDelivery(r.Context(), agent, sendReq)
+			}
 			result, err := a.sender.Send(agent, sendReq)
 			if err != nil {
 				return identity.SendResult{}, err

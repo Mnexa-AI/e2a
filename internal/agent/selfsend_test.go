@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -418,11 +419,12 @@ func TestSelfReply_ReplyAllOnSelfThread_LoopbackShortCircuit(t *testing.T) {
 	}
 }
 
-// TestSelfSend_BypassesHITL: an agent with HITL enabled still self-
-// sends immediately. Holding a note-to-self for the agent to approve
-// to itself is degenerate UX; the loopback path explicitly skips the
-// approval queue.
-func TestSelfSend_BypassesHITL(t *testing.T) {
+// TestSelfSend_HoldsForHITL: an agent with HITL enabled holds a
+// self-send for approval just like any other send. The "is the
+// recipient external" question is independent of "did a human
+// review this outbound message". The approval-finalize path then
+// delivers via loopback (see TestSelfSend_HITLApprovalDeliversViaLoopback).
+func TestSelfSend_HoldsForHITL(t *testing.T) {
 	server, store, pool := setupAPI(t)
 	ctx := context.Background()
 
@@ -453,25 +455,117 @@ func TestSelfSend_BypassesHITL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	payload := `{"to":["bot@hitlself.example.com"],"subject":"hitl self","body":"this should still ship immediately"}`
+	payload := `{"to":["bot@hitlself.example.com"],"subject":"hitl self","body":"this should be held for approval"}`
 	resp := authedPost(t, server.URL+"/api/v1/send", payload, apiKeyObj.PlaintextKey)
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status=%d want 200 (HITL must be bypassed for self-send); body=%s", resp.StatusCode, readBody(t, resp))
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status=%d want 202 (HITL must hold the self-send); body=%s", resp.StatusCode, readBody(t, resp))
 	}
 	var body map[string]string
 	json.NewDecoder(resp.Body).Decode(&body)
-	if body["status"] != "sent" {
-		t.Errorf("status=%q want sent (not pending_approval)", body["status"])
+	if body["status"] != "pending_approval" {
+		t.Errorf("status=%q want pending_approval", body["status"])
 	}
 
-	// And no pending-approval row should exist.
+	// And the held row should exist as pending_approval (no inbound
+	// row yet — that's written by the approval finalize step).
 	var pending int
 	pool.QueryRow(ctx,
 		`SELECT count(*) FROM messages WHERE agent_id=$1 AND status='pending_approval'`,
 		agentRow.ID).Scan(&pending)
-	if pending != 0 {
-		t.Errorf("pending rows=%d want 0 — HITL was supposed to be bypassed", pending)
+	if pending != 1 {
+		t.Errorf("pending rows=%d want 1", pending)
+	}
+	var inbound int
+	pool.QueryRow(ctx,
+		`SELECT count(*) FROM messages WHERE agent_id=$1 AND direction='inbound'`,
+		agentRow.ID).Scan(&inbound)
+	if inbound != 0 {
+		t.Errorf("inbound rows=%d want 0 (loopback delivery should wait for approval)", inbound)
+	}
+}
+
+// TestSelfSend_HITLApprovalDeliversViaLoopback: when a self-send is
+// held for HITL approval and then approved, the finalize step delivers
+// via the loopback path — outbound row flips to status=sent with
+// method=loopback, and an inbound row is created in the agent's inbox.
+// Before this fix the finalize path called outbound.Sender.Send, which
+// strips the agent's own address from the recipient list and errors
+// with "no valid recipients".
+func TestSelfSend_HITLApprovalDeliversViaLoopback(t *testing.T) {
+	server, store, pool := setupAPI(t)
+	ctx := context.Background()
+
+	user, err := store.CreateOrGetUser(ctx, "hitl-self-approve@example.com", "Owner", "google-hitl-self-approve")
+	if err != nil {
+		t.Fatalf("CreateOrGetUser: %v", err)
+	}
+	apiKeyObj, err := store.CreateAPIKey(ctx, user.ID, "hitl-self-approve-key")
+	if err != nil {
+		t.Fatalf("CreateAPIKey: %v", err)
+	}
+	if _, err := store.ClaimOrCreateDomain(ctx, "hitlselfapprove.example.com", user.ID); err != nil {
+		t.Fatalf("ClaimOrCreateDomain: %v", err)
+	}
+	if err := store.VerifyDomain(ctx, "hitlselfapprove.example.com", user.ID); err != nil {
+		t.Fatalf("VerifyDomain: %v", err)
+	}
+	agentRow, err := store.CreateAgent(ctx, "bot@hitlselfapprove.example.com", "hitlselfapprove.example.com", "", "", "local", user.ID)
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE agent_identities SET hitl_enabled=true WHERE id=$1`,
+		agentRow.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Step 1: send → held for approval
+	payload := `{"to":["bot@hitlselfapprove.example.com"],"subject":"awaiting review","body":"please approve me"}`
+	resp := authedPost(t, server.URL+"/api/v1/send", payload, apiKeyObj.PlaintextKey)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("hold status=%d want 202; body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	var holdBody map[string]string
+	json.NewDecoder(resp.Body).Decode(&holdBody)
+	heldMessageID := holdBody["message_id"]
+	if heldMessageID == "" {
+		t.Fatal("hold response missing message_id")
+	}
+
+	// Step 2: approve via the dashboard endpoint (empty body = approve as-is)
+	approveURL := server.URL + "/api/v1/messages/" + heldMessageID + "/approve"
+	approveResp := authedPost(t, approveURL, `{}`, apiKeyObj.PlaintextKey)
+	defer approveResp.Body.Close()
+	if approveResp.StatusCode != 200 {
+		t.Fatalf("approve status=%d want 200; body=%s", approveResp.StatusCode, readBody(t, approveResp))
+	}
+	var approveBody map[string]interface{}
+	json.NewDecoder(approveResp.Body).Decode(&approveBody)
+	if approveBody["method"] != "loopback" {
+		t.Errorf("approve method=%v want loopback", approveBody["method"])
+	}
+
+	// Step 3: outbound row is now sent + loopback, and the inbound
+	// row exists with the same subject.
+	var sentStatus, sentMethod string
+	pool.QueryRow(ctx,
+		`SELECT status, method FROM messages WHERE id=$1`,
+		heldMessageID).Scan(&sentStatus, &sentMethod)
+	if sentStatus != "sent" {
+		t.Errorf("outbound status=%q want sent", sentStatus)
+	}
+	if sentMethod != "loopback" {
+		t.Errorf("outbound method=%q want loopback", sentMethod)
+	}
+
+	var inboundCount int
+	pool.QueryRow(ctx,
+		`SELECT count(*) FROM messages WHERE agent_id=$1 AND direction='inbound' AND subject='awaiting review'`,
+		agentRow.ID).Scan(&inboundCount)
+	if inboundCount != 1 {
+		t.Errorf("inbound rows=%d want 1 (loopback delivery should write the recipient-side row)", inboundCount)
 	}
 }
 
