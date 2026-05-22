@@ -132,6 +132,7 @@ export default function GetStartedPage() {
       title={PAGE_HEADER.title}
       subtitle={PAGE_HEADER.subtitle}
       maxWidth={880}
+      editorial
     >
       {step === "choose" && (
         <>
