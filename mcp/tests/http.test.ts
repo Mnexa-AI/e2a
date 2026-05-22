@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { E2AClient } from "@e2a/sdk/v1";
 import { startHttpServer } from "../src/http-server.js";
+import { Sessions } from "../src/session.js";
 
 // Reuse the same stub shape from tools.test.ts. Only the methods the
 // tools actually call need to be present.
@@ -24,6 +25,12 @@ function makeStubClient(): E2AClient {
     rejectMessage: vi.fn(async () => ({ message_id: "x", status: "rejected" })),
   };
   return stub as unknown as E2AClient;
+}
+
+function makeHttpError(statusCode: number): Error & { statusCode: number } {
+  const err = new Error(`HTTP ${statusCode}`) as Error & { statusCode: number };
+  err.statusCode = statusCode;
+  return err;
 }
 
 describe("HTTP MCP server", () => {
@@ -80,6 +87,50 @@ describe("HTTP MCP server", () => {
     expect(res.headers.get("www-authenticate")).toMatch(/Bearer realm="e2a"/);
     const body = await res.json();
     expect(body.error.message).toMatch(/missing bearer/);
+  });
+
+  it("invalid bearer returns 401 during initialize before session allocation", async () => {
+    await close();
+    const sessions = new Sessions({ idleTimeoutMs: 60_000, maxSessions: 10 });
+    const invalidStub = makeStubClient();
+    invalidStub.listAgents = vi.fn(async () => {
+      throw makeHttpError(401);
+    }) as E2AClient["listAgents"];
+    const { close: c, port } = await startHttpServer(0, {
+      baseUrl: "http://e2a.local",
+      allowedHosts: ["127.0.0.1", "localhost"],
+      clientFactory: () => invalidStub,
+      sessions,
+    });
+    close = c;
+    url = `http://127.0.0.1:${port}/mcp`;
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: "Bearer bogus_token",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: { name: "x", version: "0" },
+        },
+      }),
+    });
+
+    expect(res.status).toBe(401);
+    expect(res.headers.get("www-authenticate")).toMatch(/Bearer realm="e2a"/);
+    expect(res.headers.get("mcp-session-id")).toBeNull();
+    expect(sessions.size()).toBe(0);
+    expect(invalidStub.listAgents).toHaveBeenCalledOnce();
+    const body = await res.json();
+    expect(body.error.message).toMatch(/invalid bearer/);
   });
 
   it("rejects requests that present a known session-id with a different bearer", async () => {
@@ -280,7 +331,7 @@ describe("HTTP MCP server", () => {
       await transport.close();
     });
 
-    it("skips the listAgents probe when agentEmail is already set", async () => {
+    it("validates the bearer but skips reconstruction when agentEmail is already set", async () => {
       // Stub from beforeEach already has agentEmail "bot@example.com".
       const factory = vi.fn(() => stub);
       await close();
@@ -297,8 +348,9 @@ describe("HTTP MCP server", () => {
       // since the env-var path (constructor) already populated it.
       expect(factory).toHaveBeenCalledTimes(1);
       expect(factory.mock.calls[0]).toEqual(["e2a_test"]);
-      // And listAgents was NOT invoked as a probe at session init.
-      expect(stub.listAgents).not.toHaveBeenCalled();
+      // listAgents still validates the bearer once at session init,
+      // but does not trigger a second construction for auto-resolution.
+      expect(stub.listAgents).toHaveBeenCalledOnce();
       await transport.close();
     });
 
@@ -370,6 +422,7 @@ describe("HTTP MCP server", () => {
 
   it("tool call dispatches to the per-session client", async () => {
     const { client, transport } = await connect();
+    vi.mocked(stub.listAgents).mockClear();
     await client.callTool({ name: "list_agents", arguments: {} });
     expect(stub.listAgents).toHaveBeenCalledOnce();
     await transport.close();

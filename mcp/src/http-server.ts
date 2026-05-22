@@ -163,6 +163,17 @@ function resourceMetadataURL(req: Request, opts: HttpServerOptions): string {
   return `${base}/.well-known/oauth-protected-resource`;
 }
 
+function bearerChallenge(req: Request, opts: HttpServerOptions): string {
+  return `Bearer realm="e2a", resource_metadata="${resourceMetadataURL(req, opts)}"`;
+}
+
+class InvalidBearerError extends Error {
+  constructor() {
+    super("invalid bearer token");
+    this.name = "InvalidBearerError";
+  }
+}
+
 async function handleClientRequest(
   req: Request,
   res: Response,
@@ -171,10 +182,7 @@ async function handleClientRequest(
 ): Promise<void> {
   const bearer = extractBearer(req);
   if (!bearer) {
-    res.setHeader(
-      "WWW-Authenticate",
-      `Bearer realm="e2a", resource_metadata="${resourceMetadataURL(req, opts)}"`,
-    );
+    res.setHeader("WWW-Authenticate", bearerChallenge(req, opts));
     res.status(401).json(jsonRpcError(req.body, -32001, "missing bearer token"));
     return;
   }
@@ -200,7 +208,20 @@ async function handleClientRequest(
   }
 
   if (!entry && isInitializeRequest(req.body)) {
-    const client = await buildSessionClient(opts, bearer);
+    let client: E2AClient;
+    try {
+      client = await buildSessionClient(opts, bearer);
+    } catch (err) {
+      if (err instanceof InvalidBearerError) {
+        res.setHeader(
+          "WWW-Authenticate",
+          `${bearerChallenge(req, opts)}, error="invalid_token"`,
+        );
+        res.status(401).json(jsonRpcError(req.body, -32001, "invalid bearer token"));
+        return;
+      }
+      throw err;
+    }
     const server = buildServer({ client });
     const bearerFp = fingerprintBearer(bearer);
     const transport = new StreamableHTTPServerTransport({
@@ -259,10 +280,7 @@ async function handleStreamingOrDelete(
   // notification stream or terminate it.
   const bearer = extractBearer(req);
   if (!bearer) {
-    res.setHeader(
-      "WWW-Authenticate",
-      `Bearer realm="e2a", resource_metadata="${resourceMetadataURL(req, opts)}"`,
-    );
+    res.setHeader("WWW-Authenticate", bearerChallenge(req, opts));
     res.status(401).end();
     return;
   }
@@ -337,21 +355,37 @@ export async function buildSessionClient(
   };
 
   const client = make();
-  // Env-var path already populated agentEmail — operator opted in
-  // explicitly, don't second-guess them with an API call.
-  if (client.agentEmail) return client;
-
   let resolved: string | undefined;
   try {
     const { agents } = await client.listAgents();
-    if (Array.isArray(agents) && agents.length === 1) {
+    // Env-var path already populated agentEmail — operator opted in
+    // explicitly, don't second-guess it with auto-resolution.
+    if (!client.agentEmail && Array.isArray(agents) && agents.length === 1) {
       resolved = agents[0]?.email;
     }
-  } catch {
-    // Best-effort. Multi-agent / zero-agent / network-failed all land
-    // here and leave agentEmail empty.
+  } catch (err) {
+    if (isUnauthorizedError(err)) {
+      throw new InvalidBearerError();
+    }
+    // Non-auth failures remain best-effort. A transient backend hiccup
+    // shouldn't break MCP initialize; worst case, the user sees the
+    // same "agentEmail is required" error they'd see today.
   }
   return resolved ? make(resolved) : client;
+}
+
+function isUnauthorizedError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const maybe = err as {
+    status?: unknown;
+    statusCode?: unknown;
+    response?: { status?: unknown };
+  };
+  return (
+    maybe.status === 401
+    || maybe.statusCode === 401
+    || maybe.response?.status === 401
+  );
 }
 
 function extractBearer(req: Request): string | null {
