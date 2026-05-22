@@ -53,10 +53,11 @@ export function Topbar({ crumbs = [], right, className = "" }: TopbarProps) {
   const trailing = right ?? (SEARCH_ENABLED ? <SearchAffordance /> : null);
   return (
     <div
-      className={`flex items-center justify-between px-7 py-3.5 ${className}`}
+      className={`flex items-center justify-between px-7 ${className}`}
       style={{
         background: "var(--bg-panel)",
         borderBottom: "1px solid var(--border)",
+        minHeight: "var(--chrome-h)",
       }}
     >
       <div

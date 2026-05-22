@@ -95,7 +95,7 @@ export default function AppLayout({
               if ((e.target as HTMLElement).closest("a")) closeMobileNav();
             }}
           >
-            <Sidebar />
+            <Sidebar className="flex flex-col" />
           </div>
         </>
       )}

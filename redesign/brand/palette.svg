@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img">
+  <rect width="1200" height="400" fill="#FAF7F2"></rect>
+
+  
+  <text x="60" y="68" font-family="&#39;Instrument Serif&#39;, Georgia, serif" font-style="italic" font-size="44" fill="#1A1714">Loft palette</text>
+  <text x="60" y="98" font-family="&#39;JetBrains Mono&#39;, ui-monospace, monospace" font-weight="600" font-size="11" letter-spacing="1.8" fill="#A04E2A">COLOR · SYSTEM · v1</text>
+
+  
+  <g font-family="&#39;JetBrains Mono&#39;, ui-monospace, monospace" font-size="11" letter-spacing="0.4">
+    
+    <rect x="60" y="150" width="170" height="170" rx="10" fill="#FAF7F2" stroke="#ECE4D6"></rect>
+    <text x="60" y="345" font-weight="600" fill="#1A1714">Cream</text>
+    <text x="60" y="362" fill="#8C857A">#FAF7F2 · --bg</text>
+
+    
+    <rect x="245" y="150" width="170" height="170" rx="10" fill="#F2ECE2"></rect>
+    <text x="245" y="345" font-weight="600" fill="#1A1714">Cream elev</text>
+    <text x="245" y="362" fill="#8C857A">#F2ECE2 · --bg-elev</text>
+
+    
+    <rect x="430" y="150" width="170" height="170" rx="10" fill="#1A1714"></rect>
+    <text x="430" y="345" font-weight="600" fill="#1A1714">Ink</text>
+    <text x="430" y="362" fill="#8C857A">#1A1714 · --ink</text>
+
+    
+    <rect x="615" y="150" width="170" height="170" rx="10" fill="#C56C42"></rect>
+    <text x="615" y="345" font-weight="600" fill="#1A1714">Ember</text>
+    <text x="615" y="362" fill="#8C857A">#C56C42 · --accent-fill</text>
+
+    
+    <rect x="800" y="150" width="170" height="170" rx="10" fill="#5FB6C6"></rect>
+    <text x="800" y="345" font-weight="600" fill="#1A1714">Spectral</text>
+    <text x="800" y="362" fill="#8C857A">#5FB6C6 · --spectral</text>
+
+    
+    <rect x="985" y="150" width="170" height="170" rx="10" fill="#B6F36E"></rect>
+    <text x="985" y="345" font-weight="600" fill="#1A1714">Machine</text>
+    <text x="985" y="362" fill="#8C857A">#B6F36E · --machine</text>
+  </g>
+</svg>

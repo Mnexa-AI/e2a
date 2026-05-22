@@ -1,0 +1,255 @@
+/*  Loft · colors + type tokens (semantic + base)
+ *  ─────────────────────────────────────────────
+ *  This file layers the Loft tokens on top of Google-Fonts–delivered Inter +
+ *  JetBrains Mono. It is a *companion* to loft.css — loft.css contains the
+ *  full component primitives; this file is the minimal slice agents need when
+ *  they only want colors, type, and a couple of semantic element styles.
+ *
+ *  Two surfaces, on purpose:
+ *    --bg / --fg               · warm cream Drive shell (humans)
+ *    --ink / --ink-fg          · agent-native console (machines)
+ *
+ *  Every text token has a `-strong` variant. Use the strong one for text.
+ *  See ACCESSIBILITY.md for the contrast audit.
+ */
+
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+
+/* Geist (brand body face) loaded from local variable files — wght axis 100–900,
+   so a single @font-face per slope covers every weight in the scale. */
+@font-face {
+  font-family: "Geist";
+  src: url("fonts/Geist-VariableFont_wght.ttf") format("truetype-variations"),
+       url("fonts/Geist-VariableFont_wght.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist";
+  src: url("fonts/Geist-Italic-VariableFont_wght.ttf") format("truetype-variations"),
+       url("fonts/Geist-Italic-VariableFont_wght.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+:root, [data-theme="light"] {
+  /* ── Surfaces — Drive shell (warm cream) ── */
+  --bg:           #FAF7F2;
+  --bg-panel:     #FFFFFF;
+  --bg-elev:      #F2ECE2;
+  --bg-sunken:    #ECE4D6;
+
+  /* ── Ink (agent-native) ── */
+  --ink:          #1A1714;
+  --ink-elev:     #23201C;
+  --ink-fg:       #E8E3D8;
+  --ink-fg-muted: #8C857A;
+  --ink-border:   #2E2A24;
+
+  /* ── Text ── */
+  --fg:           #1A1714;
+  --fg-muted:     #6E665B;
+  --fg-subtle:    #9A9082;
+
+  /* ── Borders ── */
+  --border:        #E5DED3;
+  --border-sub:    #EFE9DD;
+  --border-strong: #D5CCBC;
+
+  /* ── Accent · Ember ── */
+  --accent:           #E26534;   /* decorative · dots, gradients, icons */
+  --accent-soft:      #FBE9DF;   /* tinted backgrounds, public-visibility chip */
+  --accent-strong:    #A84218;   /* TEXT on cream (6.07:1 on white) */
+  --accent-fill:      #B84A20;   /* primary button surface (AA white-on-fill) */
+  --accent-fill-hov:  #9A3D1A;
+  --accent-fg:        #FFFFFF;
+
+  /* ── Agent-context on ink ── */
+  --spectral:  #6FDDE5;   /* highlights on ink (11.18:1) */
+  --machine:   #B6F36E;   /* machine signal on ink (13.63:1) */
+
+  /* ── Semantic colors (decorative + -strong text pair) ── */
+  --info:        #2D6CFF;  --info-bg: #E4ECFF;  --info-strong: #0050D6;
+  --warn:        #C78400;  --warn-bg: #FFF1D1;  --warn-strong: #8F5F00;
+  --danger:      #CC2E2E;  --danger-bg: #FBE3E0; --danger-strong: #A82020;
+  --success:     #0F7A4D;  --success-bg: #DFF3E8;
+
+  /* ── Kind hues (decorative; always paired with a kind icon) ── */
+  --k-md:      #2D6CFF;
+  --k-code:    #7A4FE0;
+  --k-image:   #0F7A4D;
+  --k-video:   #A0700B;
+  --k-dataset: #B43E8F;
+  --k-skill:   #A84218;
+  --k-bundle:  #4A4A4A;
+  --k-folder:  #8F5F00;
+
+  /* ── Avatar palette (deterministic by hash → 0..7) ── */
+  --av-1:#A84218; --av-2:#0F7A4D; --av-3:#0050D6; --av-4:#7A4FE0;
+  --av-5:#B43E8F; --av-6:#8F5F00; --av-7:#4A4A4A; --av-8:#1A1714;
+
+  /* ── Radii ── */
+  --r-sm: 4px;
+  --r-md: 6px;    /* default */
+  --r-lg: 10px;   /* cards, modals */
+  --r-xl: 16px;   /* heroes */
+
+  /* ── Shadows ── */
+  --sh-1:   0 1px 0 rgba(26,23,20,.04), 0 1px 2px rgba(26,23,20,.04);
+  --sh-2:   0 2px 8px rgba(26,23,20,.06), 0 12px 32px rgba(26,23,20,.06);
+  --sh-pop: 0 24px 48px -16px rgba(26,23,20,.18), 0 4px 12px rgba(26,23,20,.06);
+
+  /* ── Focus ── */
+  --focus-ring: 0 0 0 3px rgba(226,101,52,0.30);
+
+  /* ── Type families ── */
+  --f-ui:   "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+
+  /* ── Type SCALE (semantic) ──
+     numbers are size / weight / letter-spacing / line-height
+     `display`  · landing hero / marketing                36 / 700 / -0.02 / 1.05
+     `h1`       · page title                             24 / 700 / -0.01 / 1.15
+     `h2`       · section header                         18 / 600 /  0    / 1.3
+     `h3`       · card / drawer / list group header      15 / 600 /  0    / 1.35
+     `body`     · default                                14 / 400 /  0    / 1.5
+     `small`    · supporting copy, captions              12 / 400 /  0    / 1.5
+     `mono`     · identifier · path · hash · timestamp   13 / 400 /  0    / 1.5  · mono
+     `id`       · tertiary mono · meta footer            11 / 400 /  0.02 / 1.4  · mono / muted
+     `eyebrow`  · uppercase section labels               11 / 600 /  0.08 / 1.4  · mono / accent-strong */
+
+  --fs-display: 36px;  --fw-display: 700;  --tracking-display: -0.02em;
+  --fs-h1: 24px;       --fw-h1: 700;       --tracking-h1: -0.01em;
+  --fs-h2: 18px;       --fw-h2: 600;
+  --fs-h3: 15px;       --fw-h3: 600;
+  --fs-body: 14px;
+  --fs-small: 12px;
+  --fs-mono: 13px;
+  --fs-id: 11px;
+  --fs-eyebrow: 11px;
+
+  /* ── Spacing grid (4px) ── */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Dark theme
+   ────────────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg:           #13110E;
+  --bg-panel:     #1A1714;
+  --bg-elev:      #221F1B;
+  --bg-sunken:    #0D0B09;
+
+  --ink:          #0A0907;
+  --ink-elev:     #13110E;
+  --ink-fg:       #E8E3D8;
+  --ink-fg-muted: #8C857A;
+  --ink-border:   #221F1B;
+
+  --fg:        #ECE6D9;
+  --fg-muted:  #A8A092;
+  --fg-subtle: #6E665B;
+
+  --border:        #2E2A24;
+  --border-sub:    #25221E;
+  --border-strong: #3A352E;
+
+  --accent:          #F08055;
+  --accent-soft:     #3A1B0E;
+  --accent-strong:   #F5A07E;
+  --accent-fill:     #E26534;
+  --accent-fill-hov: #F08055;
+  --accent-fg:       #13110E;
+
+  --info: #79B4FF; --info-bg: #0F2046; --info-strong: #A6CCFF;
+  --warn: #E4A82F; --warn-bg: #2E1F00; --warn-strong: #F2C257;
+  --danger: #FF6B6B; --danger-bg: #2E1010; --danger-strong: #FF9292;
+  --success: #5AC68A; --success-bg: #0B2418;
+
+  --k-md: #79B4FF;  --k-code: #A989F0;  --k-image: #5AC68A;
+  --k-video: #E4A82F; --k-dataset: #E07AC3; --k-skill: #F08055;
+  --k-bundle: #9A9082; --k-folder: #E4A82F;
+
+  --sh-1:   0 1px 0 rgba(0,0,0,.4), 0 1px 2px rgba(0,0,0,.3);
+  --sh-2:   0 2px 8px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.5);
+  --sh-pop: 0 24px 48px -16px rgba(0,0,0,.6), 0 4px 12px rgba(0,0,0,.4);
+
+  --focus-ring: 0 0 0 3px rgba(240,128,85,0.45);
+}
+
+/* Honor system preference when user hasn't explicitly chosen */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    --bg:#13110E; --bg-panel:#1A1714; --bg-elev:#221F1B; --bg-sunken:#0D0B09;
+    --fg:#ECE6D9; --fg-muted:#A8A092; --fg-subtle:#6E665B;
+    --border:#2E2A24; --border-sub:#25221E; --border-strong:#3A352E;
+    --accent:#F08055; --accent-soft:#3A1B0E; --accent-strong:#F5A07E;
+    --accent-fill:#E26534; --accent-fill-hov:#F08055; --accent-fg:#13110E;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Base · element-level semantic styles
+   ────────────────────────────────────────────────────────────── */
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--f-ui);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1 { font-size: var(--fs-h1); font-weight: var(--fw-h1); letter-spacing: var(--tracking-h1); line-height: 1.15; margin: 0 0 .5em; }
+h2 { font-size: var(--fs-h2); font-weight: var(--fw-h2); line-height: 1.3; margin: 0 0 .5em; }
+h3 { font-size: var(--fs-h3); font-weight: var(--fw-h3); line-height: 1.35; margin: 0 0 .35em; }
+p  { margin: 0 0 1em; }
+
+a { color: var(--accent-strong); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+small { font-size: var(--fs-small); color: var(--fg-muted); }
+code, kbd, samp, .mono { font-family: var(--f-mono); font-size: .95em; }
+code { color: var(--fg); background: var(--bg-elev); padding: 1px 5px; border-radius: var(--r-sm); }
+
+hr { border: 0; border-top: 1px solid var(--border); margin: var(--sp-5) 0; }
+
+/* Focus ring — keyboard only */
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--r-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Type utility classes (when an element's semantic isn't enough)
+   ────────────────────────────────────────────────────────────── */
+.t-display { font-size: var(--fs-display); font-weight: var(--fw-display); letter-spacing: var(--tracking-display); line-height: 1.05; }
+.t-h1      { font-size: var(--fs-h1); font-weight: var(--fw-h1); letter-spacing: var(--tracking-h1); }
+.t-h2      { font-size: var(--fs-h2); font-weight: var(--fw-h2); }
+.t-h3      { font-size: var(--fs-h3); font-weight: var(--fw-h3); }
+.t-body    { font-size: var(--fs-body); }
+.t-small   { font-size: var(--fs-small); color: var(--fg-muted); }
+.t-mono    { font-family: var(--f-mono); font-size: var(--fs-mono); }
+.t-id      { font-family: var(--f-mono); font-size: var(--fs-id); color: var(--fg-muted); letter-spacing: 0.02em; }
+.t-eyebrow { font-family: var(--f-mono); font-size: var(--fs-eyebrow); color: var(--accent-strong); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+
+.muted   { color: var(--fg-muted); }
+.subtle  { color: var(--fg-subtle); }
+.strong  { color: var(--fg); font-weight: 600; }

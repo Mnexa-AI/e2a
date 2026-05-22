@@ -104,24 +104,39 @@ function userInitials(user: { name?: string; email: string }): string {
   return user.email.slice(0, 2).toUpperCase();
 }
 
-export function Sidebar() {
+// The default `className` hides the sidebar below `md` because the app
+// layout swaps in a mobile slide-in sheet at those sizes. Pass an explicit
+// className (e.g. "flex flex-col") to render the sidebar in any container,
+// like that sheet.
+export function Sidebar({
+  className = "hidden md:flex md:flex-col",
+}: {
+  className?: string;
+} = {}) {
   const pathname = usePathname() ?? "";
   const { user, signOut } = useAuth();
   const pendingCount = usePendingCount();
 
   return (
     <aside
-      className="hidden md:flex md:flex-col w-[248px] shrink-0 sticky top-0 h-screen"
+      className={`${className} w-[248px] shrink-0 sticky top-0 h-screen`}
       style={{
         background: "var(--bg-panel)",
         borderRight: "1px solid var(--border)",
       }}
     >
-      {/* Logo */}
+      {/*
+        Logo block — sits at the same `--chrome-h` as the page Topbar so the
+        two bottom borders form one continuous divider across the viewport.
+        Padding is horizontal-only; min-h + flex centering handle the rest.
+      */}
       <Link
         href="/"
-        className="flex items-center gap-2.5 px-5 pt-[18px] pb-4"
-        style={{ borderBottom: "1px solid var(--border)" }}
+        className="flex items-center gap-2.5 px-5"
+        style={{
+          minHeight: "var(--chrome-h)",
+          borderBottom: "1px solid var(--border)",
+        }}
       >
         <div
           className="flex items-center justify-center font-mono font-bold text-[12px]"
@@ -152,46 +167,15 @@ export function Sidebar() {
         </div>
       </Link>
 
-      {/* Workspace card — static, no real org switching yet (see BACKEND_TODO #9) */}
-      <div className="px-3.5 pt-3 pb-1.5">
-        <div
-          className="flex items-center gap-2.5 px-2.5 py-2"
-          style={{
-            background: "var(--bg-elev)",
-            border: "1px solid var(--border-sub)",
-            borderRadius: "var(--r-md)",
-          }}
-        >
-          <div
-            className="flex items-center justify-center text-[10px] font-bold text-white shrink-0"
-            style={{
-              width: 22,
-              height: 22,
-              borderRadius: 5,
-              background: "var(--av-1)",
-            }}
-          >
-            {user ? userInitials(user) : "—"}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div
-              className="text-[12px] font-semibold truncate"
-              style={{ color: "var(--fg)" }}
-            >
-              {user?.name || "Workspace"}
-            </div>
-            <div
-              className="font-mono text-[10px] truncate"
-              style={{ color: "var(--fg-subtle)" }}
-            >
-              {user?.id ?? "—"}
-            </div>
-          </div>
-        </div>
-      </div>
+      {/*
+        Workspace/org switcher intentionally omitted until BACKEND_TODO #9
+        (multi-tenant orgs) lands. Until then the bottom-of-sidebar user
+        card is the canonical identity affordance — a second card here
+        would just duplicate it.
+      */}
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-1.5">
+      <nav className="flex-1 px-3 pt-3 pb-1.5">
         {NAV_ITEMS.map((item) => {
           const active = isActive(pathname, item);
           const showBadge =
