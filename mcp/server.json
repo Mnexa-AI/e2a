@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.mnexa-ai/mcp-server",
+  "name": "io.github.Mnexa-AI/mcp-server",
   "title": "e2a — email for AI agents",
   "description": "Authenticated email gateway for AI agents — per-agent inboxes, HITL approval, SPF/DKIM verified.",
   "websiteUrl": "https://e2a.dev",
@@ -9,13 +9,13 @@
     "source": "github",
     "subfolder": "mcp"
   },
-  "version": "0.3.1",
+  "version": "0.3.2",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@e2a/mcp-server",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "transport": {
         "type": "stdio"
       },
