@@ -1,0 +1,62 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.mnexa-ai/mcp-server",
+  "title": "e2a — email for AI agents",
+  "description": "Authenticated email gateway for AI agents — per-agent inboxes, HITL approval, SPF/DKIM verified.",
+  "websiteUrl": "https://e2a.dev",
+  "repository": {
+    "url": "https://github.com/Mnexa-AI/e2a",
+    "source": "github",
+    "subfolder": "mcp"
+  },
+  "version": "0.3.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@e2a/mcp-server",
+      "version": "0.3.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "E2A_API_KEY",
+          "description": "e2a API key from https://e2a.dev",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "E2A_AGENT_EMAIL",
+          "description": "Default agent inbox (e.g. bot@your-domain.com). Optional — single-agent accounts auto-resolve."
+        },
+        {
+          "name": "E2A_BASE_URL",
+          "description": "Self-hosted e2a backend URL. Defaults to https://e2a.dev.",
+          "default": "https://e2a.dev"
+        }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.e2a.dev/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer token: accepts an e2a API key (e2a_…) or OAuth 2.1 access token (ate2a_…)",
+          "value": "Bearer {e2a_api_key}",
+          "isRequired": true,
+          "variables": {
+            "e2a_api_key": {
+              "description": "Your e2a API key from https://e2a.dev",
+              "isRequired": true,
+              "isSecret": true
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
