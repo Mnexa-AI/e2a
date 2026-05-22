@@ -2,6 +2,12 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { APIKeyData } from "../../components/types";
+import { PageShell } from "../../components/loft/PageShell";
+import { Chip } from "../../components/loft/Chip";
+
+// Graceful degradation per REDESIGN.md §5:
+// - "Last used" column hidden until BACKEND_TODO #3 ships api_keys.last_used_at
+// - "Scopes" column intentionally omitted (BACKEND_TODO #11 — deferred indefinitely)
 
 export default function APIKeysPage() {
   const [keys, setKeys] = useState<APIKeyData[]>([]);
@@ -19,7 +25,9 @@ export default function APIKeysPage() {
     }
   }, []);
 
-  useEffect(() => { fetchKeys(); }, [fetchKeys]);
+  useEffect(() => {
+    fetchKeys();
+  }, [fetchKeys]);
 
   const handleCreate = async () => {
     setCreating(true);
@@ -41,89 +49,167 @@ export default function APIKeysPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this API key? Any integrations using it will stop working.")) return;
+    if (
+      !confirm(
+        "Delete this API key? Any integrations using it will stop working.",
+      )
+    )
+      return;
     const res = await fetch(`/api/keys/${id}`, { method: "DELETE" });
     if (res.ok) fetchKeys();
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold mb-1">API Keys</h2>
-        <p className="text-sm text-muted">
-          API keys authenticate your agents when sending or replying to emails via the API.
-          One key works across all your agents.
-        </p>
-      </div>
-
+    <PageShell
+      crumbs={["API keys"]}
+      eyebrow="Workspace"
+      title={<>API keys</>}
+      subtitle="API keys authenticate your agents when sending or replying to emails via the API. One key works across all your agents."
+    >
       {createdKey && createdKey.key && (
-        <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-          <p className="font-medium text-green-800 text-sm mb-1">
+        <div
+          className="mb-6 p-4"
+          style={{
+            background: "var(--success-bg)",
+            border: "1px solid var(--success-bg)",
+            color: "var(--success)",
+            borderRadius: "var(--r-md)",
+          }}
+        >
+          <p className="font-semibold text-[13px] mb-1.5">
             API key created — copy it now, it won&apos;t be shown again
           </p>
-          <code className="block text-xs bg-green-100 px-3 py-2 rounded mt-1 mb-2 break-all select-all">
+          <code
+            className="block font-mono text-[12px] px-3 py-2 mb-2 break-all select-all"
+            style={{
+              background: "var(--bg-panel)",
+              color: "var(--fg)",
+              borderRadius: "var(--r-sm)",
+            }}
+          >
             {createdKey.key}
           </code>
           <button
             onClick={() => setCreatedKey(null)}
-            className="text-xs text-green-600 hover:text-green-800 transition"
+            className="text-[12px] underline"
+            style={{ color: "var(--success)" }}
           >
             Dismiss
           </button>
         </div>
       )}
 
-      <div className="flex items-end gap-3">
-        <div className="flex-1">
-          <label className="block text-xs font-medium text-muted mb-1">Key name (optional)</label>
+      <div className="flex items-end gap-3 mb-6 flex-wrap">
+        <div className="flex-1 min-w-[200px]">
+          <label
+            className="block text-[12px] font-medium mb-1"
+            style={{ color: "var(--fg-muted)" }}
+          >
+            Key name (optional)
+          </label>
           <input
             type="text"
             value={newKeyName}
             onChange={(e) => setNewKeyName(e.target.value)}
             placeholder="e.g. Production"
-            className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="w-full px-3 py-2 text-[13px]"
+            style={{
+              background: "var(--bg-panel)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-md)",
+              color: "var(--fg)",
+            }}
           />
         </div>
         <button
           onClick={handleCreate}
           disabled={creating}
-          className="px-4 py-2 bg-accent text-white text-sm rounded-md hover:bg-accent-light transition disabled:opacity-50"
+          className="px-4 py-2 text-[13px] font-medium transition disabled:opacity-50"
+          style={{
+            background: "var(--accent-fill)",
+            color: "var(--accent-fg)",
+            borderRadius: "var(--r-md)",
+          }}
         >
           {creating ? "Creating..." : "Create key"}
         </button>
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted">Loading...</p>
+        <p
+          className="text-[13px] py-12 text-center"
+          style={{ color: "var(--fg-muted)" }}
+        >
+          Loading...
+        </p>
       ) : keys.length === 0 ? (
-        <p className="text-sm text-muted">No API keys yet. Create one above.</p>
+        <div
+          className="p-8 text-center"
+          style={{
+            background: "var(--bg-panel)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r-lg)",
+          }}
+        >
+          <p className="text-[14px]" style={{ color: "var(--fg-muted)" }}>
+            No API keys yet. Create one above.
+          </p>
+        </div>
       ) : (
-        <div className="border border-border rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
+        <div
+          className="overflow-hidden"
+          style={{
+            background: "var(--bg-panel)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r-lg)",
+          }}
+        >
+          <table className="w-full text-[13px]">
             <thead>
-              <tr className="bg-surface text-left text-xs text-muted">
-                <th className="px-4 py-2 font-medium">Name</th>
-                <th className="px-4 py-2 font-medium">Key</th>
-                <th className="px-4 py-2 font-medium">Created</th>
-                <th className="px-4 py-2 font-medium"></th>
+              <tr
+                className="text-left font-mono text-[10px] uppercase"
+                style={{
+                  background: "var(--bg-elev)",
+                  color: "var(--fg-subtle)",
+                  letterSpacing: "0.08em",
+                }}
+              >
+                <th className="px-4 py-2.5 font-semibold">Name</th>
+                <th className="px-4 py-2.5 font-semibold">Prefix</th>
+                <th className="px-4 py-2.5 font-semibold">Created</th>
+                <th className="px-4 py-2.5 font-semibold"></th>
               </tr>
             </thead>
             <tbody>
-              {keys.map((k) => (
-                <tr key={k.id} className="border-t border-border">
-                  <td className="px-4 py-3">{k.name || "Unnamed"}</td>
-                  <td className="px-4 py-3">
-                    <code className="text-xs text-muted break-all">{k.key_prefix}...</code>
+              {keys.map((k, i) => (
+                <tr
+                  key={k.id}
+                  style={{
+                    borderTop:
+                      i > 0 ? "1px solid var(--border-sub)" : "none",
+                  }}
+                >
+                  <td className="px-4 py-3" style={{ color: "var(--fg)" }}>
+                    {k.name || (
+                      <span style={{ color: "var(--fg-subtle)" }}>Unnamed</span>
+                    )}
                   </td>
-                  <td className="px-4 py-3 text-muted">
+                  <td className="px-4 py-3">
+                    <Chip mono>{k.key_prefix}...</Chip>
+                  </td>
+                  <td
+                    className="px-4 py-3 font-mono text-[12px]"
+                    style={{ color: "var(--fg-muted)" }}
+                  >
                     {new Date(k.created_at).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button
                       onClick={() => handleDelete(k.id)}
-                      className="text-xs text-red-500 hover:text-red-700 transition"
+                      className="text-[12px] transition"
+                      style={{ color: "var(--danger-strong)" }}
                     >
-                      Delete
+                      Revoke
                     </button>
                   </td>
                 </tr>
@@ -132,6 +218,6 @@ export default function APIKeysPage() {
           </table>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }

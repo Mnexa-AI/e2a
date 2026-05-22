@@ -43,8 +43,19 @@ export function DomainSelector({
 
   return (
     <div>
-      <h2 className="text-2xl font-bold tracking-tight mb-2">Choose a domain</h2>
-      <p className="text-muted mb-8">
+      <h2
+        className="mb-2"
+        style={{
+          fontFamily: "var(--f-editorial)",
+          fontWeight: 400,
+          fontSize: 30,
+          letterSpacing: "-0.01em",
+          color: "var(--fg)",
+        }}
+      >
+        Choose a domain
+      </h2>
+      <p className="mb-7 text-[14px]" style={{ color: "var(--fg-muted)" }}>
         Select an existing domain or add a new one.
       </p>
 

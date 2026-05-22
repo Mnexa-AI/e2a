@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { listDomains } from "../../components/onboarding/api";
 import { track } from "../../components/onboarding/analytics";
+import { PageShell } from "../../components/loft/PageShell";
 import { AddressChoice } from "./_components/AddressChoice";
 import { SharedAgentForm } from "./_components/SharedAgentForm";
 import { CustomDomainChecklist } from "./_components/CustomDomainChecklist";
@@ -12,18 +13,28 @@ import type { AddressType, AgentMode } from "../../components/onboarding/types";
 import type { DomainInfo } from "../../components/onboarding/types";
 import type { AgentData } from "../../components/types";
 
-// ── Page steps ───────────────────────────────────────────
-
 type Step = "choose" | "shared_form" | "custom_checklist" | "success";
 
-// ── Page component ───────────────────────────────────────
+const PAGE_HEADER = {
+  eyebrow: "Onboarding · est. 3 minutes",
+  title: (
+    <>
+      Wire up your first{" "}
+      <em style={{ color: "var(--accent-strong)" }}>agent inbox.</em>
+    </>
+  ),
+  subtitle:
+    "Pick how your agent gets mail, then point e2a at the place your code is running. You can change all of this later from the dashboard.",
+};
 
 export default function GetStartedPage() {
   const searchParams = useSearchParams();
   const initialMode = searchParams.get("mode") === "shared" ? "shared" : null;
   const initialDomain = searchParams.get("domain");
 
-  const [step, setStep] = useState<Step>(initialMode === "shared" ? "shared_form" : "choose");
+  const [step, setStep] = useState<Step>(
+    initialMode === "shared" ? "shared_form" : "choose",
+  );
   const [addressType, setAddressType] = useState<AddressType | null>(
     initialMode === "shared" ? "shared" : null,
   );
@@ -34,7 +45,6 @@ export default function GetStartedPage() {
   const [error, setError] = useState("");
   const [bootstrapping, setBootstrapping] = useState(true);
 
-  // Bootstrap: check query params and existing state
   useEffect(() => {
     let cancelled = false;
 
@@ -42,7 +52,6 @@ export default function GetStartedPage() {
       setError("");
       setAgent(null);
 
-      // ?domain= deep link — go straight to that domain's checklist
       if (initialDomain) {
         setAddressType("custom");
         try {
@@ -64,14 +73,17 @@ export default function GetStartedPage() {
           setDomainData(null);
           setStep("choose");
           setAddressType(null);
-          setError(err instanceof Error ? err.message : "Failed to load onboarding state");
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Failed to load onboarding state",
+          );
         } finally {
           if (!cancelled) setBootstrapping(false);
         }
         return;
       }
 
-      // ?mode=shared — skip to shared form
       if (initialMode === "shared") {
         setStep("shared_form");
         setAddressType("shared");
@@ -79,16 +91,16 @@ export default function GetStartedPage() {
         return;
       }
 
-      // Plain /get-started — always show the address-type chooser
       setStep("choose");
       setBootstrapping(false);
     }
 
     bootstrap();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [initialDomain, initialMode]);
 
-  // Address type selection handler
   const handleAddressChoice = (type: AddressType) => {
     setAddressType(type);
     setError("");
@@ -100,30 +112,49 @@ export default function GetStartedPage() {
     }
   };
 
-
   if (bootstrapping) {
     return (
-      <div className="py-12 text-center text-sm text-muted">
-        Loading onboarding...
-      </div>
+      <PageShell crumbs={["Get started"]}>
+        <p
+          className="py-10 text-center text-[13px]"
+          style={{ color: "var(--fg-muted)" }}
+        >
+          Loading onboarding...
+        </p>
+      </PageShell>
     );
   }
 
   return (
-    <>
-      {/* Step 1: Choose address type */}
+    <PageShell
+      crumbs={["Get started"]}
+      eyebrow={PAGE_HEADER.eyebrow}
+      title={PAGE_HEADER.title}
+      subtitle={PAGE_HEADER.subtitle}
+      maxWidth={880}
+    >
       {step === "choose" && (
         <>
-          <AddressChoice selected={addressType} onSelect={handleAddressChoice} />
+          <AddressChoice
+            selected={addressType}
+            onSelect={handleAddressChoice}
+          />
           {error && (
-            <div className="mt-6 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            <div
+              className="mt-6 p-3 text-[13px]"
+              style={{
+                background: "var(--danger-bg)",
+                border: "1px solid var(--danger-bg)",
+                color: "var(--danger-strong)",
+                borderRadius: "var(--r-md)",
+              }}
+            >
               {error}
             </div>
           )}
         </>
       )}
 
-      {/* Shared-domain flow */}
       {step === "shared_form" && (
         <SharedAgentForm
           onCreated={(agentData, mode, wh) => {
@@ -135,7 +166,6 @@ export default function GetStartedPage() {
         />
       )}
 
-      {/* Custom-domain checklist flow */}
       {step === "custom_checklist" && (
         <CustomDomainChecklist
           initialDomain={domainData}
@@ -148,10 +178,13 @@ export default function GetStartedPage() {
         />
       )}
 
-      {/* Success — mode-aware */}
       {step === "success" && agent && (
-        <SuccessPanel agent={agent} mode={agentMode} webhookUrl={webhookUrl || undefined} />
+        <SuccessPanel
+          agent={agent}
+          mode={agentMode}
+          webhookUrl={webhookUrl || undefined}
+        />
       )}
-    </>
+    </PageShell>
   );
 }
