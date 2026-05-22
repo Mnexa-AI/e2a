@@ -33,10 +33,32 @@ export function VerifyDomainCard({
 
   return (
     <div>
-      <h2 className="text-2xl font-bold tracking-tight mb-2">Verify domain ownership</h2>
-      <p className="text-muted mb-8">
+      <h2
+        className="mb-2"
+        style={{
+          fontFamily: "var(--f-editorial)",
+          fontWeight: 400,
+          fontSize: 28,
+          letterSpacing: "-0.01em",
+          color: "var(--fg)",
+        }}
+      >
+        Verify domain ownership
+      </h2>
+      <p className="mb-7 text-[14px]" style={{ color: "var(--fg-muted)" }}>
         e2a will check that your TXT record is in place for{" "}
-        <code className="text-xs bg-surface px-1.5 py-0.5 rounded border border-border">{domain.domain}</code>.
+        <code
+          className="font-mono text-[12px] px-1.5 py-0.5"
+          style={{
+            background: "var(--bg-elev)",
+            border: "1px solid var(--border-sub)",
+            borderRadius: "var(--r-sm)",
+            color: "var(--fg)",
+          }}
+        >
+          {domain.domain}
+        </code>
+        .
       </p>
       {error && (
         <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">

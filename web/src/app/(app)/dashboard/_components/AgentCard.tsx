@@ -7,6 +7,8 @@ import { WebhookEditor } from "./WebhookEditor";
 import { HITLEditor } from "./HITLEditor";
 import { ConnectInstructions } from "./ConnectInstructions";
 import { ActivityPanel } from "./ActivityPanel";
+import { Chip } from "../../../components/loft/Chip";
+import { Dot } from "../../../components/loft/Dot";
 import { AGENTS_DOMAIN } from "../../../../lib/site";
 
 function isSharedDomain(email: string): boolean {
@@ -31,44 +33,61 @@ export function AgentCard({
   const shared = isSharedDomain(agent.email);
 
   return (
-    <div className="border border-border rounded-lg p-4">
+    <div
+      style={{
+        background: "var(--bg-panel)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--r-lg)",
+        padding: "20px 22px",
+      }}
+    >
       {/* Header row */}
       <div className="flex items-start justify-between">
         <div className="min-w-0 flex-1">
           {/* Email + badges */}
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
             {agent.name && (
-              <span className="text-sm font-medium">{agent.name}</span>
+              <span
+                className="text-[14px] font-semibold"
+                style={{ color: "var(--fg)" }}
+              >
+                {agent.name}
+              </span>
             )}
-            <code className="text-sm font-mono font-medium">{agent.email}</code>
-            <span
-              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                agent.domain_verified
-                  ? "bg-green-100 text-green-700"
-                  : "bg-amber-100 text-amber-700"
-              }`}
+            <code
+              className="font-mono text-[13px] px-2 py-0.5"
+              style={{
+                background: "var(--bg-elev)",
+                border: "1px solid var(--border-sub)",
+                borderRadius: "var(--r-sm)",
+                color: "var(--fg)",
+              }}
             >
+              {agent.email}
+            </code>
+            <Chip tone={agent.domain_verified ? "success" : "warn"}>
+              <Dot tone={agent.domain_verified ? "success" : "warn"} />
               {agent.domain_verified ? "Verified" : "Unverified"}
-            </span>
-            <span
-              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                shared ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"
-              }`}
-            >
+            </Chip>
+            <Chip tone={shared ? "info" : "accent"}>
               {shared ? "Shared" : "Custom"}
-            </span>
-            <span
-              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                isLocal ? "bg-gray-100 text-gray-700" : "bg-indigo-100 text-indigo-700"
-              }`}
-            >
+            </Chip>
+            <Chip tone="neutral" mono>
               {isLocal ? "Local" : "Cloud"}
-            </span>
+            </Chip>
+            {agent.hitl_enabled && <Chip tone="accent">HITL on</Chip>}
           </div>
 
           {/* Meta info */}
-          <p className="text-xs text-muted">
-            Created {new Date(agent.created_at).toLocaleDateString()}
+          <p
+            className="font-mono text-[11px]"
+            style={{
+              color: "var(--fg-subtle)",
+              letterSpacing: "0.02em",
+            }}
+          >
+            agent_{agent.id} · created{" "}
+            {new Date(agent.created_at).toLocaleDateString()}
           </p>
 
           {/* Mode switcher */}
@@ -108,19 +127,38 @@ export function AgentCard({
                   }
                 }}
                 disabled={testState === "sending"}
-                className={`text-xs px-3 py-1.5 rounded-md transition ${
-                  testState === "sent"
-                    ? "bg-green-600 text-white"
-                    : testState === "sending"
-                      ? "bg-surface text-muted border border-border cursor-not-allowed"
-                      : "border border-border hover:bg-surface"
-                }`}
+                className="text-[12px] px-3 py-1.5 transition disabled:cursor-not-allowed"
+                style={{
+                  background:
+                    testState === "sent"
+                      ? "var(--success)"
+                      : testState === "sending"
+                        ? "var(--bg-elev)"
+                        : "var(--bg-panel)",
+                  color:
+                    testState === "sent"
+                      ? "#fff"
+                      : testState === "sending"
+                        ? "var(--fg-muted)"
+                        : "var(--fg)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--r-md)",
+                }}
               >
-                {testState === "sent" ? "Sent ✓" : testState === "sending" ? "Sending…" : "Test"}
+                {testState === "sent"
+                  ? "Sent ✓"
+                  : testState === "sending"
+                    ? "Sending…"
+                    : "Test"}
               </button>
               <button
                 onClick={() => setShowConnect(!showConnect)}
-                className="text-xs px-3 py-1.5 bg-foreground text-background rounded-md hover:opacity-90 transition"
+                className="text-[12px] px-3 py-1.5 transition"
+                style={{
+                  background: "var(--fg)",
+                  color: "var(--bg)",
+                  borderRadius: "var(--r-md)",
+                }}
               >
                 {showConnect ? "Hide" : "Connect"}
               </button>
@@ -128,13 +166,24 @@ export function AgentCard({
           )}
           <button
             onClick={onDelete}
-            className="text-xs px-3 py-1.5 text-red-600 border border-red-200 rounded-md hover:bg-red-50 transition"
+            className="text-[12px] px-3 py-1.5 transition"
+            style={{
+              color: "var(--danger-strong)",
+              border: "1px solid var(--danger-bg)",
+              background: "transparent",
+              borderRadius: "var(--r-md)",
+            }}
           >
             Delete
           </button>
         </div>
         {testError && (
-          <p className="text-xs text-red-600 mt-1 text-right">{testError}</p>
+          <p
+            className="text-[12px] mt-1 text-right"
+            style={{ color: "var(--danger-strong)" }}
+          >
+            {testError}
+          </p>
         )}
       </div>
 

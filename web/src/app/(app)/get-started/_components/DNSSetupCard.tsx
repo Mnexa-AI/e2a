@@ -20,10 +20,31 @@ export function DNSSetupCard({
 
   return (
     <div>
-      <h2 className="text-2xl font-bold tracking-tight mb-2">Configure DNS records</h2>
-      <p className="text-muted mb-8">
+      <h2
+        className="mb-2"
+        style={{
+          fontFamily: "var(--f-editorial)",
+          fontWeight: 400,
+          fontSize: 28,
+          letterSpacing: "-0.01em",
+          color: "var(--fg)",
+        }}
+      >
+        Configure DNS records
+      </h2>
+      <p className="mb-7 text-[14px]" style={{ color: "var(--fg-muted)" }}>
         Add these records to{" "}
-        <code className="text-xs bg-surface px-1.5 py-0.5 rounded border border-border">{domain.domain}</code>
+        <code
+          className="font-mono text-[12px] px-1.5 py-0.5"
+          style={{
+            background: "var(--bg-elev)",
+            border: "1px solid var(--border-sub)",
+            borderRadius: "var(--r-sm)",
+            color: "var(--fg)",
+          }}
+        >
+          {domain.domain}
+        </code>
         &apos;s DNS to prove ownership and route email to e2a.
       </p>
       <div className="space-y-6">
@@ -45,7 +66,15 @@ export function DNSSetupCard({
           ]}
         />
       </div>
-      <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+      <div
+        className="mt-6 p-4 text-[13px]"
+        style={{
+          background: "var(--warn-bg)",
+          color: "var(--warn-strong)",
+          border: "1px solid var(--warn-bg)",
+          borderRadius: "var(--r-md)",
+        }}
+      >
         DNS changes can take a few minutes to propagate. Wait a bit before verifying.
       </div>
     </div>

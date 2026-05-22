@@ -64,10 +64,32 @@ export function CustomAgentForm({
 
   return (
     <div>
-      <h2 className="text-2xl font-bold tracking-tight mb-2">Create your agent</h2>
-      <p className="text-muted mb-8">
-        Your domain <code className="text-xs bg-surface px-1.5 py-0.5 rounded border border-border">{domain}</code> is
-        verified. Create an agent on it.
+      <h2
+        className="mb-2"
+        style={{
+          fontFamily: "var(--f-editorial)",
+          fontWeight: 400,
+          fontSize: 30,
+          letterSpacing: "-0.01em",
+          color: "var(--fg)",
+        }}
+      >
+        Create your agent
+      </h2>
+      <p className="mb-7 text-[14px]" style={{ color: "var(--fg-muted)" }}>
+        Your domain{" "}
+        <code
+          className="font-mono text-[12px] px-1.5 py-0.5"
+          style={{
+            background: "var(--bg-elev)",
+            border: "1px solid var(--border-sub)",
+            borderRadius: "var(--r-sm)",
+            color: "var(--fg)",
+          }}
+        >
+          {domain}
+        </code>{" "}
+        is verified. Create an agent on it.
       </p>
 
       {error && (

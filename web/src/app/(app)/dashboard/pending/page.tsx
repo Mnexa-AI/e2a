@@ -4,10 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { listPendingMessages } from "../../../components/onboarding/api";
 import type { PendingMessageSummary } from "../../../components/types";
+import { PageShell } from "../../../components/loft/PageShell";
+import { Chip } from "../../../components/loft/Chip";
 
-// formatExpiresIn produces a human-friendly "in 2h 15m" or "expired"
-// string from an ISO timestamp. Matches the UX goal from the design
-// doc: reviewers should see expiry at a glance, not do the math.
 function formatExpiresIn(iso?: string): string {
   if (!iso) return "—";
   const expiresAt = new Date(iso).getTime();
@@ -42,7 +41,9 @@ export default function PendingPage() {
       setMessages(data);
       setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load pending messages");
+      setError(
+        err instanceof Error ? err.message : "Failed to load pending messages",
+      );
     } finally {
       setLoading(false);
     }
@@ -53,27 +54,51 @@ export default function PendingPage() {
   }, [load]);
 
   return (
-    <>
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold tracking-tight mb-2">Pending approval</h2>
-        <p className="text-muted">
-          Messages your agents want to send that are waiting on your review.
-        </p>
-      </div>
-
+    <PageShell
+      crumbs={["Pending"]}
+      eyebrow="Human-in-the-loop"
+      title={<>Pending approval</>}
+      subtitle="Messages your agents want to send that are waiting on your review."
+    >
       {error && (
-        <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+        <div
+          className="mb-6 p-3 text-[13px]"
+          style={{
+            background: "var(--danger-bg)",
+            color: "var(--danger-strong)",
+            border: "1px solid var(--danger-bg)",
+            borderRadius: "var(--r-md)",
+          }}
+        >
           {error}
         </div>
       )}
 
       {loading ? (
-        <div className="text-sm text-muted py-12 text-center">Loading...</div>
+        <div
+          className="text-[13px] py-12 text-center"
+          style={{ color: "var(--fg-muted)" }}
+        >
+          Loading...
+        </div>
       ) : messages.length === 0 ? (
-        <div className="border border-border rounded-lg p-8 text-center">
-          <p className="text-sm text-muted">No messages are waiting for approval.</p>
-          <p className="text-xs text-muted mt-1">
-            Enable HITL on an agent to start reviewing its outbound messages here.
+        <div
+          className="p-8 text-center"
+          style={{
+            background: "var(--bg-panel)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r-lg)",
+          }}
+        >
+          <p className="text-[14px]" style={{ color: "var(--fg-muted)" }}>
+            No messages are waiting for approval.
+          </p>
+          <p
+            className="text-[12px] mt-1"
+            style={{ color: "var(--fg-subtle)" }}
+          >
+            Enable HITL on an agent to start reviewing its outbound messages
+            here.
           </p>
         </div>
       ) : (
@@ -82,29 +107,48 @@ export default function PendingPage() {
             <Link
               key={m.id}
               href={`/dashboard/pending/review?id=${encodeURIComponent(m.id)}`}
-              className="block border border-border rounded-lg p-4 hover:bg-surface transition"
+              className="block p-4 transition"
+              style={{
+                background: "var(--bg-panel)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--r-lg)",
+              }}
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-medium truncate">
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                    <span
+                      className="text-[14px] font-semibold truncate"
+                      style={{ color: "var(--fg)" }}
+                    >
                       {m.subject || "(no subject)"}
                     </span>
                     {m.type && (
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700">
+                      <Chip tone="info" mono>
                         {m.type}
-                      </span>
+                      </Chip>
                     )}
                   </div>
-                  <p className="text-xs text-muted truncate">
-                    <span className="text-foreground">{m.agent_id}</span>
+                  <p
+                    className="text-[12px] font-mono truncate"
+                    style={{ color: "var(--fg-muted)" }}
+                  >
+                    <span style={{ color: "var(--fg)" }}>{m.agent_id}</span>
                     {" → "}
                     {joinRecipients(m.to, m.cc)}
                   </p>
                 </div>
-                <div className="text-xs text-muted shrink-0 text-right">
-                  <div>{formatExpiresIn(m.approval_expires_at)}</div>
-                  <div className="text-[11px] mt-0.5">
+                <div
+                  className="text-[12px] shrink-0 text-right"
+                  style={{ color: "var(--fg-muted)" }}
+                >
+                  <div style={{ color: "var(--warn-strong)" }}>
+                    {formatExpiresIn(m.approval_expires_at)}
+                  </div>
+                  <div
+                    className="text-[11px] mt-0.5 font-mono"
+                    style={{ color: "var(--fg-subtle)" }}
+                  >
                     {new Date(m.created_at).toLocaleString()}
                   </div>
                 </div>
@@ -113,6 +157,6 @@ export default function PendingPage() {
           ))}
         </div>
       )}
-    </>
+    </PageShell>
   );
 }

@@ -32,17 +32,40 @@ export function AddDomainForm({
       setDomain("");
       onRegistered();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to register domain");
+      setError(
+        err instanceof Error ? err.message : "Failed to register domain",
+      );
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="border border-border rounded-lg p-4 space-y-4">
-      <p className="text-sm font-medium">Add a new domain</p>
+    <form
+      onSubmit={handleSubmit}
+      className="p-5 space-y-4"
+      style={{
+        background: "var(--bg-panel)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--r-lg)",
+      }}
+    >
+      <p
+        className="text-[14px] font-semibold"
+        style={{ color: "var(--fg)" }}
+      >
+        Add a new domain
+      </p>
       {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+        <div
+          className="p-3 text-[13px]"
+          style={{
+            background: "var(--danger-bg)",
+            color: "var(--danger-strong)",
+            border: "1px solid var(--danger-bg)",
+            borderRadius: "var(--r-md)",
+          }}
+        >
           {error}
         </div>
       )}
@@ -56,7 +79,12 @@ export function AddDomainForm({
       <button
         type="submit"
         disabled={loading || !domain}
-        className="w-full bg-foreground text-background py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full py-2.5 text-[13px] font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+        style={{
+          background: "var(--accent-fill)",
+          color: "var(--accent-fg)",
+          borderRadius: "var(--r-md)",
+        }}
       >
         {loading ? "Registering..." : "Register domain"}
       </button>
