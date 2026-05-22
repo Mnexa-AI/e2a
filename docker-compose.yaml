@@ -20,10 +20,38 @@ services:
       timeout: 5s
       retries: 15
 
+  # Mailpit — a local SMTP catch-all that captures every outbound message
+  # and exposes them in a web UI. Wired into the e2a service below so the
+  # default `docker compose up` experience can exercise outbound flows
+  # (HITL approval notifications, test sends) without real SMTP creds.
+  #
+  # Drop this service in production — the e2a service should point at a
+  # real upstream relay (SES, Postmark, etc.) via E2A_OUTBOUND_SMTP_HOST.
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025"   # SMTP, also reachable from the host Go binary in `make run`
+      - "127.0.0.1:8025:8025"   # Web UI — http://localhost:8025
+    environment:
+      # Persist captured mail across restarts so a dev can come back to
+      # an approval link they sent themselves yesterday.
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGES: "5000"
+    volumes:
+      - mailpit:/data
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:8025/api/v1/info"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+
   e2a:
     build: .
     depends_on:
       postgres:
+        condition: service_healthy
+      mailpit:
         condition: service_healthy
     restart: unless-stopped
     ports:
@@ -49,6 +77,13 @@ services:
       # test. Production deployments override this to a real mail
       # domain (or unset it to disable slug registration entirely).
       E2A_SHARED_DOMAIN: "agents.localhost"
+      # Point outbound mail at the Mailpit catch-all so HITL approval
+      # notifications and test sends land in http://localhost:8025
+      # instead of failing with "outbound SMTP relay not configured".
+      # Production overrides every one of these to a real upstream.
+      E2A_OUTBOUND_SMTP_HOST: "mailpit"
+      E2A_OUTBOUND_SMTP_PORT: "1025"
+      E2A_OUTBOUND_SMTP_FROM_DOMAIN: "e2a.localhost"
     # Healthcheck is defined in the Dockerfile (HEALTHCHECK instruction)
     # so it travels with the image. Anyone using the image — including
     # this compose file — gets it for free.
@@ -104,3 +139,4 @@ services:
 
 volumes:
   pgdata:
+  mailpit:

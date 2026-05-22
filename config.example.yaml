@@ -34,6 +34,17 @@ signing:
   hmac_secret: "change-me-in-production"
 
 outbound_smtp:
+  # ── Local dev (Mailpit catch-all) ──────────────────────────────────
+  # `make docker-up` runs Mailpit at localhost:1025 — uncomment this block
+  # and comment the production block below to capture HITL notifications
+  # and test sends at http://localhost:8025 without real SMTP creds.
+  # host: "localhost"
+  # port: 1025
+  # username: ""
+  # password: ""
+  # from_domain: "e2a.localhost"
+  #
+  # ── Production (real upstream relay) ───────────────────────────────
   host: ""          # e.g. "email-smtp.us-east-1.amazonaws.com" for AWS SES
   port: 587
   username: ""      # upstream SMTP username (from IAM credentials for SES)

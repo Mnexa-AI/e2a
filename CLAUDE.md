@@ -16,11 +16,13 @@ make test               # all Go tests (needs Postgres on :5433)
 make test-unit          # Go unit tests only (no DB needed)
 make test-integration   # Go integration tests (needs Postgres on :5433)
 make test-e2e           # Go e2e tests (needs Postgres on :5433)
-make docker-up          # start local Postgres via docker compose
+make docker-up          # start local Postgres + Mailpit via docker compose
 make migrate            # apply SQL migrations to local DB
 ```
 
 Go tests that need the database use `E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable"`.
+
+**Outbound mail in dev (Mailpit catch-all).** `make docker-up` also starts [Mailpit](https://github.com/axllent/mailpit) — a single-binary SMTP server that captures every outbound message and exposes them at http://localhost:8025. The dockerized `e2a` service points at it automatically. For `make run` (host Go binary), uncomment the Mailpit block in `config.example.yaml`'s `outbound_smtp` section before copying to `config.yaml`, or set `E2A_OUTBOUND_SMTP_HOST=localhost`, `E2A_OUTBOUND_SMTP_PORT=1025`, `E2A_OUTBOUND_SMTP_FROM_DOMAIN=e2a.localhost`. Use this to exercise HITL approval notifications and the `/api/v1/agents/{email}/test` button locally without real SMTP creds.
 
 ### TypeScript SDK & CLI (npm workspaces)
 ```bash
