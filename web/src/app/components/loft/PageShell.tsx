@@ -11,6 +11,14 @@ export type PageShellProps = {
   actions?: ReactNode;
   children: ReactNode;
   maxWidth?: number | string;
+  /**
+   * When true, render the H1 in Instrument Serif italic at marketing-hero
+   * scale (44px, 400). Reserve this for editorial / onboarding moments
+   * (currently `/` and `/get-started`). Dashboard pages should leave it
+   * off so the H1 renders in Geist bold — see globals.css for the policy
+   * note.
+   */
+  editorial?: boolean;
 };
 
 export function PageShell({
@@ -22,6 +30,7 @@ export function PageShell({
   actions,
   children,
   maxWidth = 1080,
+  editorial = false,
 }: PageShellProps) {
   const hasHeader = Boolean(eyebrow || title || subtitle || actions);
   return (
@@ -37,22 +46,39 @@ export function PageShell({
           <header className="mb-7 md:mb-8 flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div className="min-w-0">
               {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
-              {title && (
-                <h1
-                  className={eyebrow ? "mt-3" : ""}
-                  style={{
-                    fontFamily: "var(--f-editorial)",
-                    fontWeight: 400,
-                    fontSize: "clamp(32px, 5vw, 44px)",
-                    letterSpacing: "-0.012em",
-                    lineHeight: 1.05,
-                    color: "var(--fg)",
-                    margin: 0,
-                  }}
-                >
-                  {title}
-                </h1>
-              )}
+              {title &&
+                (editorial ? (
+                  <h1
+                    className={eyebrow ? "mt-3" : ""}
+                    style={{
+                      fontFamily: "var(--f-editorial)",
+                      fontStyle: "italic",
+                      fontWeight: 400,
+                      fontSize: "clamp(32px, 5vw, 44px)",
+                      letterSpacing: "-0.012em",
+                      lineHeight: 1.05,
+                      color: "var(--fg)",
+                      margin: 0,
+                    }}
+                  >
+                    {title}
+                  </h1>
+                ) : (
+                  <h1
+                    className={eyebrow ? "mt-3" : ""}
+                    style={{
+                      fontFamily: "var(--f-ui)",
+                      fontWeight: 700,
+                      fontSize: 26,
+                      letterSpacing: "-0.012em",
+                      lineHeight: 1.15,
+                      color: "var(--fg)",
+                      margin: 0,
+                    }}
+                  >
+                    {title}
+                  </h1>
+                ))}
               {subtitle && (
                 <p
                   className="mt-2 leading-[1.6]"

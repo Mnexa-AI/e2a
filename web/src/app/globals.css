@@ -87,7 +87,13 @@
   /* ── Focus ── */
   --focus-ring: 0 0 0 3px rgba(226,101,52,0.30);
 
-  /* ── Type families — next/font binds these in layout.tsx ── */
+  /* ── Type families — next/font binds these in layout.tsx ──
+     Editorial italic is opt-in per page, not a global heading default.
+     The body uses --f-ui (Geist), and headings inherit unless a page
+     (or its PageShell) explicitly switches to --f-editorial. Reserve the
+     editorial face for marketing hero, onboarding, 404/500, and blog —
+     dashboard H1s should render in Geist bold so the in-app surface
+     stays utilitarian. See PageShell's `editorial` prop. */
   --f-ui:        "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --f-mono:      "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
   --f-editorial: "Instrument Serif", Georgia, serif;
