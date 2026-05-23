@@ -5,10 +5,10 @@ import {
   approvePendingMessage,
   getPendingMessage,
   rejectPendingMessage,
-  type ApprovePayload,
 } from "../../../../components/onboarding/api";
 import type { PendingMessageDetail } from "../../../../components/types";
 import { Chip } from "../../../../components/loft/Chip";
+import { diffApproveEdits, joinCSV } from "./edits";
 
 // PendingDetailPanel renders the right-hand side of the pending review
 // split-pane: header (chips + meta), two-column body (draft + context),
@@ -18,17 +18,9 @@ import { Chip } from "../../../../components/loft/Chip";
 // the selection and refresh cycle. After approve/reject, onChanged
 // fires so the queue can refetch and either advance to the next row or
 // show the empty state.
-
-function parseCSV(s: string): string[] {
-  return s
-    .split(",")
-    .map((x) => x.trim())
-    .filter((x) => x.length > 0);
-}
-
-function joinCSV(xs?: string[]): string {
-  return (xs ?? []).join(", ");
-}
+//
+// Pure helpers (parseCSV, joinCSV, diffApproveEdits) live in edits.ts
+// so they can be unit-tested without rendering.
 
 function countWords(s: string): { words: number; minutes: number } {
   const trimmed = s.trim();
@@ -54,35 +46,6 @@ function verdictTone(
   if (v === "pass") return "success";
   if (v === "fail" || v === "softfail" || v === "permerror") return "warn";
   return "neutral";
-}
-
-function diffApproveEdits(
-  current: PendingMessageDetail,
-  draft: {
-    subject: string;
-    bodyText: string;
-    bodyHTML: string;
-    to: string;
-    cc: string;
-    bcc: string;
-  },
-): ApprovePayload {
-  const out: ApprovePayload = {};
-  if (draft.subject !== (current.subject ?? "")) out.subject = draft.subject;
-  if (draft.bodyText !== (current.body_text ?? ""))
-    out.body_text = draft.bodyText;
-  if (draft.bodyHTML !== (current.body_html ?? ""))
-    out.body_html = draft.bodyHTML;
-  const toDraft = parseCSV(draft.to);
-  if (JSON.stringify(toDraft) !== JSON.stringify(current.to ?? []))
-    out.to = toDraft;
-  const ccDraft = parseCSV(draft.cc);
-  if (JSON.stringify(ccDraft) !== JSON.stringify(current.cc ?? []))
-    out.cc = ccDraft;
-  const bccDraft = parseCSV(draft.bcc);
-  if (JSON.stringify(bccDraft) !== JSON.stringify(current.bcc ?? []))
-    out.bcc = bccDraft;
-  return out;
 }
 
 // formatExpiresIn returns the "47m" / "1h 23m" / "expired" form for the
