@@ -147,3 +147,69 @@ describe("API keys page — Expires-in select", () => {
     });
   });
 });
+
+describe("API keys table — Expires column", () => {
+  const baseKey = {
+    id: "apk_1",
+    user_id: "usr_x",
+    name: "ci-token",
+    key_prefix: "e2a_abcd",
+    created_at: "2026-04-01T10:00:00Z",
+  };
+
+  it("renders 'Never' for keys with no expires_at", async () => {
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/keys" && (!init || !init.method)) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [{ ...baseKey, expires_at: null }],
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        text: async () => "not found",
+      });
+    });
+    render(<APIKeysPage />);
+    await screen.findByText("ci-token");
+    // Two cells render "Never": Last used (never used) + Expires (no expiry)
+    expect(screen.getAllByText("Never").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("renders 'in Nd' for keys expiring within a month", async () => {
+    // 12 days + 1 hour buffer so the floor()-based formatter doesn't
+    // round down to "in 11d" because of microseconds of test latency
+    // between the timestamp seeding and the cell rendering.
+    const future = new Date(
+      Date.now() + 12 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000,
+    ).toISOString();
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/keys" && (!init || !init.method)) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [{ ...baseKey, expires_at: future }],
+        });
+      }
+      return Promise.resolve({ ok: false, text: async () => "" });
+    });
+    render(<APIKeysPage />);
+    await screen.findByText("ci-token");
+    expect(screen.getByText("in 12d")).toBeInTheDocument();
+  });
+
+  it("renders 'expired' for past expires_at", async () => {
+    const past = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/keys" && (!init || !init.method)) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [{ ...baseKey, expires_at: past }],
+        });
+      }
+      return Promise.resolve({ ok: false, text: async () => "" });
+    });
+    render(<APIKeysPage />);
+    await screen.findByText("ci-token");
+    expect(screen.getByText("expired")).toBeInTheDocument();
+  });
+});
