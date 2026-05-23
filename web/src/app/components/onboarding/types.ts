@@ -39,6 +39,18 @@ export type DomainInfo = {
   agent_count?: number;
 };
 
+/** Response from POST /api/v1/domains/{domain}/verify — per-record
+ * diagnostic shipped by BACKEND_TODO #4. dkim stays "deferred" until
+ * BACKEND_TODO #5 ships per-domain DKIM keys. */
+export type VerifyDomainResponse = {
+  domain: string;
+  verified: boolean;
+  verified_at?: string | null;
+  mx?: "found" | "missing";
+  spf?: "found" | "missing";
+  dkim?: "found" | "missing" | "deferred";
+};
+
 /** The progress state for a domain through onboarding. */
 export type DomainProgress = {
   domain: DomainInfo;
