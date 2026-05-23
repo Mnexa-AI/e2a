@@ -43,9 +43,9 @@ function SectionHeading({
       <h2
         className="mb-1"
         style={{
-          fontFamily: "var(--f-editorial)",
-          fontWeight: 400,
-          fontSize: 26,
+          fontFamily: "var(--f-ui)",
+          fontWeight: 600,
+          fontSize: 18,
           letterSpacing: "-0.01em",
           color: tone === "danger" ? "var(--danger-strong)" : "var(--fg)",
         }}

@@ -42,7 +42,8 @@ function DomainsStatsStrip({ domains }: { domains: DomainInfo[] }) {
           <div
             className="text-[24px]"
             style={{
-              fontFamily: "var(--f-editorial)",
+              fontFamily: "var(--f-ui)",
+              fontWeight: 600,
               color: "var(--fg)",
               letterSpacing: "-0.01em",
               lineHeight: 1.1,

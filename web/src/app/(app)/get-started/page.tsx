@@ -26,12 +26,9 @@ function isStep(value: string | null): value is Step {
 
 const PAGE_HEADER = {
   eyebrow: "Onboarding · est. 3 minutes",
-  title: (
-    <>
-      Wire up your first{" "}
-      <em style={{ color: "var(--accent-strong)" }}>agent inbox.</em>
-    </>
-  ),
+  // Plain Geist heading to match the rest of the (app) pages —
+  // editorial italic stays on marketing/landing surfaces only.
+  title: "Wire up your first agent inbox.",
   subtitle:
     "Pick how your agent gets mail, then point e2a at the place your code is running. You can change all of this later from the dashboard.",
 };
@@ -164,7 +161,6 @@ export default function GetStartedPage() {
       title={PAGE_HEADER.title}
       subtitle={PAGE_HEADER.subtitle}
       maxWidth={880}
-      editorial
     >
       {step === "choose" && (
         <>
