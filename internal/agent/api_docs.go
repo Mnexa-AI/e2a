@@ -166,10 +166,23 @@ type UpdateDomainRequest struct {
 type RegisterDomainResponse = DomainInfo // @name RegisterDomainResponse
 
 // VerifyDomainResponse is the response for POST /api/v1/domains/{domain}/verify.
+// Per-record diagnostic fields (MX, SPF, DKIM) report what the probe
+// found in DNS independent of the verified bool — verified=true iff the
+// TXT ownership token is present, while MX/SPF/DKIM are advisory.
 type VerifyDomainResponse struct {
 	Domain     string     `json:"domain" example:"yourdomain.com"`
 	Verified   bool       `json:"verified"`
 	VerifiedAt *time.Time `json:"verified_at,omitempty"`
+	// MX status: "found" iff at least one MX record points at the
+	// deployment's smtp domain. "missing" otherwise.
+	MX string `json:"mx,omitempty" example:"found" enums:"found,missing"`
+	// SPF status: "found" iff a v=spf1 TXT record includes the
+	// deployment's send domain. "missing" otherwise.
+	SPF string `json:"spf,omitempty" example:"found" enums:"found,missing"`
+	// DKIM status: "deferred" until BACKEND_TODO #5 ships per-domain
+	// DKIM key generation. Until then there's no per-domain DKIM TXT
+	// record to verify against.
+	DKIM string `json:"dkim,omitempty" example:"deferred" enums:"found,missing,deferred"`
 } // @name VerifyDomainResponse
 
 // --- Deployment info ---
