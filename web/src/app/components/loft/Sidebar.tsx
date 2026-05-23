@@ -78,6 +78,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   { href: "/domains", label: "Domains", icon: "globe" },
   { href: "/api-keys", label: "API keys", icon: "key" },
+  { href: "/webhook-secrets", label: "Webhook secrets", icon: "shield" },
 ];
 
 function NavIcon({ kind }: { kind: IconKey }) {
