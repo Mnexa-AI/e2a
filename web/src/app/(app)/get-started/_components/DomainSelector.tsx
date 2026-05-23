@@ -67,10 +67,10 @@ export function DomainSelector({
               key={d.domain}
               type="button"
               onClick={() => onSelected(d)}
-              className="w-full text-left p-4 rounded-lg border border-border hover:border-foreground/20 transition flex items-center justify-between"
+              className="w-full text-left p-4 rounded-lg border border-border hover:border-foreground/20 transition flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
             >
-              <div>
-                <code className="text-sm font-mono font-medium">{d.domain}</code>
+              <div className="min-w-0">
+                <code className="text-sm font-mono font-medium break-all">{d.domain}</code>
                 <span
                   className={`ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
                     d.verified
@@ -81,7 +81,7 @@ export function DomainSelector({
                   {d.verified ? "Verified" : "Unverified"}
                 </span>
               </div>
-              <span className="text-xs text-muted">Select</span>
+              <span className="text-xs text-muted shrink-0">Select</span>
             </button>
           ))}
         </div>

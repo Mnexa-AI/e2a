@@ -56,7 +56,7 @@ export function AgentCard({
               </span>
             )}
             <code
-              className="font-mono text-[13px] px-2 py-0.5"
+              className="font-mono text-[13px] px-2 py-0.5 break-all"
               style={{
                 background: "var(--bg-elev)",
                 border: "1px solid var(--border-sub)",

@@ -111,7 +111,7 @@ function ProfileSection({
           borderRadius: "var(--r-lg)",
         }}
       >
-        <dl className="grid grid-cols-[140px_1fr] gap-y-3 gap-x-6 text-[13px]">
+        <dl className="grid grid-cols-1 sm:grid-cols-[140px_1fr] gap-y-3 sm:gap-x-6 text-[13px]">
           <dt style={{ color: "var(--fg-muted)" }}>Name</dt>
           <dd className="flex items-center gap-2 flex-wrap" style={{ color: "var(--fg)" }}>
             {editing ? (
@@ -122,13 +122,12 @@ function ProfileSection({
                   onChange={(e) => setDraft(e.target.value)}
                   disabled={saving}
                   maxLength={80}
-                  className="text-[13px] px-2 py-1"
+                  className="text-[13px] px-2 py-1 flex-1 sm:flex-none sm:min-w-[200px]"
                   style={{
                     background: "var(--bg-elev)",
                     border: "1px solid var(--border)",
                     borderRadius: "var(--r-sm)",
                     color: "var(--fg)",
-                    minWidth: 200,
                   }}
                 />
                 <button
@@ -321,10 +320,10 @@ function NotificationsSection() {
         ].map((label) => (
           <label
             key={label}
-            className="flex items-center justify-between text-[13px]"
+            className="flex items-center justify-between text-[13px] gap-3"
             style={{ color: "var(--fg-muted)" }}
           >
-            <span>{label}</span>
+            <span className="min-w-0 flex-1">{label}</span>
             <span
               className="font-mono text-[10px] uppercase"
               style={{

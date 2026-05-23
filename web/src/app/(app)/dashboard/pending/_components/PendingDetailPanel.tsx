@@ -279,17 +279,20 @@ export function PendingDetailPanel({
       {/* Body — two-column: draft (left) + context (right). On narrow
           screens collapses to one column. */}
       <div className="flex-1 overflow-y-auto">
+        {/* Draft + Context. Side-by-side at md+, stacked on phones. The
+            queue/detail outer shell also stacks on mobile (page.tsx),
+            so the detail pane gets the full width when it's selected
+            and the inner split has room to remain side-by-side at md+. */}
         <div
-          className="grid"
+          className="grid grid-cols-1 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]"
           style={{
-            gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr)",
             borderBottom: "1px solid var(--border)",
           }}
         >
           {/* Draft pane */}
           <div
-            className="px-6 py-5 space-y-4"
-            style={{ borderRight: "1px solid var(--border-sub)" }}
+            className="px-6 py-5 space-y-4 border-b md:border-b-0 md:border-r"
+            style={{ borderColor: "var(--border-sub)" }}
           >
             <SectionEyebrow>Draft from agent</SectionEyebrow>
             <DraftField label="Subject">
