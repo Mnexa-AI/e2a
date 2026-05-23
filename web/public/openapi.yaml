@@ -120,6 +120,8 @@ definitions:
     type: object
   DNSRecords:
     properties:
+      dkim:
+        $ref: '#/definitions/DNSRecord'
       mx:
         $ref: '#/definitions/DNSRecord'
       txt:
@@ -847,6 +849,17 @@ definitions:
           signature to thread an agent-counter through).
         type: integer
       created_at:
+        type: string
+      dkim_public_key:
+        type: string
+      dkim_selector:
+        description: |-
+          DKIM keypair fields (BACKEND_TODO #5). The selector + public key
+          are user-facing — the dashboard shows them so users can copy the
+          DNS TXT record. The private key is intentionally NOT in the JSON
+          shape; it's only read by the outbound signer via
+          GetDKIMKey(domain). Domains created before migration 014 ran
+          keep all three NULL until the next ClaimOrCreate or backfill.
         type: string
       domain:
         type: string

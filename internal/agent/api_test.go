@@ -1511,8 +1511,12 @@ func TestVerifyDomain_PerRecordDiagnostic(t *testing.T) {
 	if body.SPF != "found" {
 		t.Errorf("spf = %q, want found", body.SPF)
 	}
-	if body.DKIM != "deferred" {
-		t.Errorf("dkim = %q, want deferred (until BACKEND_TODO #5 ships)", body.DKIM)
+	// Per-domain DKIM (BACKEND_TODO #5) now ships: ClaimOrCreateDomain
+	// generates a keypair on insert, so the dev-mode probe short-circuit
+	// reports "found". Pre-migration rows without a stored keypair are
+	// the only path that still returns "deferred".
+	if body.DKIM != "found" {
+		t.Errorf("dkim = %q, want found (per-domain DKIM provisions a keypair at register time)", body.DKIM)
 	}
 }
 
@@ -1538,7 +1542,7 @@ func TestVerifyDomain_AlreadyVerified_StillReturnsDiagnostic(t *testing.T) {
 		DKIM     string `json:"dkim"`
 	}
 	json.NewDecoder(resp.Body).Decode(&body)
-	if !body.Verified || body.MX != "found" || body.DKIM != "deferred" {
+	if !body.Verified || body.MX != "found" || body.DKIM != "found" {
 		t.Errorf("already-verified response missing diagnostic: %+v", body)
 	}
 }

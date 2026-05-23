@@ -17,6 +17,7 @@ import (
 
 	"github.com/Mnexa-AI/e2a/internal/approvaltoken"
 	"github.com/Mnexa-AI/e2a/internal/auth"
+	"github.com/Mnexa-AI/e2a/internal/dkim"
 	"github.com/Mnexa-AI/e2a/internal/hitlnotify"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
@@ -855,7 +856,8 @@ func (a *API) handleRegisterDomain(w http.ResponseWriter, r *http.Request) {
 
 // dnsRecordCheck holds the per-record probe results for the verify
 // endpoint. Values are "found" / "missing" — DKIM additionally supports
-// "deferred" until BACKEND_TODO #5 ships per-domain DKIM keys.
+// "deferred" when per-domain DKIM hasn't been provisioned for the
+// domain yet (legacy rows pre-migration 014).
 type dnsRecordCheck struct {
 	TXTFound bool
 	MX       string
@@ -873,14 +875,24 @@ type dnsRecordCheck struct {
 //   - SPF: any TXT record begins with v=spf1 and contains the relay's
 //     send domain. We accept either smtpDomain or just the bare domain
 //     as a substring — operators commonly use either form.
-//   - DKIM: returns "deferred" pending per-domain DKIM keypair (TODO #5)
-func checkDomainRecords(domain, smtpDomain, verificationToken string, production bool) dnsRecordCheck {
+//   - DKIM: when dkimSelector + dkimPublicKey are present (BACKEND_TODO
+//     #5 path), looks up "{selector}._domainkey.{domain}" and matches
+//     the stored public key. Domains without a stored keypair report
+//     "deferred" — these are pre-migration rows that the next claim
+//     would key.
+func checkDomainRecords(domain, smtpDomain, verificationToken, dkimSelector, dkimPublicKey string, production bool) dnsRecordCheck {
 	if !production {
+		dkimState := "deferred"
+		if dkimSelector != "" && dkimPublicKey != "" {
+			// Dev short-circuit treats a stored keypair as "found" so
+			// the Get-started flow can show the DKIM row populated.
+			dkimState = "found"
+		}
 		return dnsRecordCheck{
 			TXTFound: true,
 			MX:       "found",
 			SPF:      "found",
-			DKIM:     "deferred",
+			DKIM:     dkimState,
 		}
 	}
 	check := dnsRecordCheck{DKIM: "deferred", MX: "missing", SPF: "missing"}
@@ -903,6 +915,25 @@ func checkDomainRecords(domain, smtpDomain, verificationToken string, production
 			if strings.EqualFold(strings.TrimSuffix(mx.Host, "."), smtpDomain) {
 				check.MX = "found"
 				break
+			}
+		}
+	}
+
+	// DKIM: only probe if we have a stored keypair for the domain. The
+	// expected DNS name is "{selector}._domainkey.{domain}" with a
+	// "v=DKIM1; k=rsa; p=<base64>" value. We treat the record as
+	// "found" if any TXT at that name contains a "p=" payload matching
+	// the stored public key — operators sometimes paste extra tags
+	// (s=, t=, etc.) which we tolerate.
+	if dkimSelector != "" && dkimPublicKey != "" {
+		check.DKIM = "missing"
+		dkimName := fmt.Sprintf("%s._domainkey.%s", dkimSelector, domain)
+		if txts, err := net.LookupTXT(dkimName); err == nil {
+			for _, txt := range txts {
+				if got := dkim.ExtractPublicKeyFromTXT(txt); got != "" && got == dkimPublicKey {
+					check.DKIM = "found"
+					break
+				}
 			}
 		}
 	}
@@ -947,7 +978,7 @@ func (a *API) handleVerifyDomain(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[api] touch last_checked_at for %s: %v", domain, err)
 	}
 
-	check := checkDomainRecords(domain, a.smtpDomain, domainRecord.VerificationToken, a.production)
+	check := checkDomainRecords(domain, a.smtpDomain, domainRecord.VerificationToken, domainRecord.DKIMSelector, domainRecord.DKIMPublicKey, a.production)
 
 	// Already-verified case: short-circuit the verify call but still
 	// surface the per-record diagnostic so the dashboard can show the
@@ -1173,19 +1204,28 @@ func (a *API) handleDeleteDomain(w http.ResponseWriter, r *http.Request) {
 // domainInfoFromRecord converts an internal Domain to the public DomainInfo response type.
 func (a *API) domainInfoFromRecord(d *identity.Domain) DomainInfo {
 	mxPriority := 10
+	records := DNSRecords{
+		MX:  DNSRecord{Host: "@", Value: a.smtpDomain, Priority: &mxPriority},
+		TXT: DNSRecord{Host: "@", Value: d.VerificationToken},
+	}
+	// Per-domain DKIM: surface the literal TXT record the user must
+	// publish. The selector + public key are zero-valued for legacy
+	// rows that pre-date migration 014; in that case we leave the
+	// DNSRecord at its zero value and the JSON omits it via omitempty.
+	if d.DKIMSelector != "" && d.DKIMPublicKey != "" {
+		name, value := dkim.DNSRecord(d.DKIMSelector, d.Domain, d.DKIMPublicKey)
+		records.DKIM = DNSRecord{Host: name, Value: value}
+	}
 	return DomainInfo{
 		Domain:            d.Domain,
 		Verified:          d.Verified,
 		VerificationToken: d.VerificationToken,
-		DNSRecords: DNSRecords{
-			MX:  DNSRecord{Host: "@", Value: a.smtpDomain, Priority: &mxPriority},
-			TXT: DNSRecord{Host: "@", Value: d.VerificationToken},
-		},
-		CreatedAt:     d.CreatedAt,
-		VerifiedAt:    d.VerifiedAt,
-		IsPrimary:     d.IsPrimary,
-		LastCheckedAt: d.LastCheckedAt,
-		AgentCount:    d.AgentCount,
+		DNSRecords:        records,
+		CreatedAt:         d.CreatedAt,
+		VerifiedAt:        d.VerifiedAt,
+		IsPrimary:         d.IsPrimary,
+		LastCheckedAt:     d.LastCheckedAt,
+		AgentCount:        d.AgentCount,
 	}
 }
 

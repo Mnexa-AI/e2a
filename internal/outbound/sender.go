@@ -1,13 +1,25 @@
 package outbound
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/mail"
 	"strings"
 
+	"github.com/Mnexa-AI/e2a/internal/dkim"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 )
+
+// DKIMKeyLookup returns the DKIM selector and PKCS#1 DER private key
+// bytes for a domain. Empty selector OR empty key means "no key
+// available — skip signing". Implementations should NOT return an
+// error for the not-found case; that's a normal flow during the
+// migration window when older domains haven't been keyed yet.
+type DKIMKeyLookup interface {
+	GetDKIMKey(ctx context.Context, domain string) (selector string, privateKey []byte, err error)
+}
 
 // Attachment is a base64-encoded file attachment.
 type Attachment struct {
@@ -66,12 +78,30 @@ func IsValidationError(err error) bool {
 type Sender struct {
 	smtpRelay  *SMTPRelay
 	fromDomain string
+	// dkimLookup is optional. When non-nil, Send asks it for a private
+	// key for the From-header domain and prepends a DKIM-Signature
+	// header before handing the message to the relay. A nil lookup
+	// (older callers, unit tests, dev mode without a store) bypasses
+	// signing entirely — the relay falls back to whatever
+	// deployment-level signing it has always done.
+	dkimLookup DKIMKeyLookup
 }
 
 func NewSender(smtpRelay *SMTPRelay, fromDomain string) *Sender {
 	return &Sender{
 		smtpRelay:  smtpRelay,
 		fromDomain: fromDomain,
+	}
+}
+
+// NewSenderWithDKIM is NewSender with per-domain DKIM signing enabled
+// (BACKEND_TODO #5). The lookup is queried once per send; key misses
+// silently skip signing rather than fail the send.
+func NewSenderWithDKIM(smtpRelay *SMTPRelay, fromDomain string, dkimLookup DKIMKeyLookup) *Sender {
+	return &Sender{
+		smtpRelay:  smtpRelay,
+		fromDomain: fromDomain,
+		dkimLookup: dkimLookup,
 	}
 }
 
@@ -146,6 +176,22 @@ func (s *Sender) Send(agent *identity.AgentIdentity, req SendRequest) (*SendResu
 		return nil, fmt.Errorf("compose message: %w", err)
 	}
 
+	// Per-domain DKIM signing (BACKEND_TODO #5). Choose the signing
+	// domain from the agent's verified custom domain when available —
+	// for shared agents that falls back to s.fromDomain. Failures here
+	// are logged and skipped: an unsigned message gets through the
+	// deployment-level DKIM that the SMTP relay (SES) attaches at the
+	// edge, which is what we did before this change anyway.
+	if s.dkimLookup != nil {
+		signingDomain := s.fromDomain
+		if agent != nil && agent.DomainVerified && agent.Domain != "" {
+			signingDomain = agent.Domain
+		}
+		if signed, ok := s.signMessage(message, signingDomain); ok {
+			message = signed
+		}
+	}
+
 	sesMessageID, err := s.smtpRelay.Send(envelopeFrom, envelope, message)
 	if err != nil {
 		return nil, fmt.Errorf("smtp relay: %w", err)
@@ -158,6 +204,30 @@ func (s *Sender) Send(agent *identity.AgentIdentity, req SendRequest) (*SendResu
 		CC:        cc,
 		BCC:       bcc,
 	}, nil
+}
+
+// signMessage looks up a DKIM keypair for the given domain and returns
+// a signed copy of the message. Returns (nil, false) when no key is
+// stored for the domain or when signing fails — callers proceed with
+// the unsigned message rather than failing the send.
+func (s *Sender) signMessage(message []byte, domain string) ([]byte, bool) {
+	if s.dkimLookup == nil || domain == "" {
+		return nil, false
+	}
+	selector, privKey, err := s.dkimLookup.GetDKIMKey(context.Background(), domain)
+	if err != nil {
+		log.Printf("[sender] dkim key lookup for %s: %v", domain, err)
+		return nil, false
+	}
+	if selector == "" || len(privKey) == 0 {
+		return nil, false
+	}
+	signed, err := dkim.Sign(message, domain, selector, privKey)
+	if err != nil {
+		log.Printf("[sender] dkim sign for %s failed (sending unsigned): %v", domain, err)
+		return nil, false
+	}
+	return signed, true
 }
 
 // normalizeAddrs parses and lowercases a list of email addresses.

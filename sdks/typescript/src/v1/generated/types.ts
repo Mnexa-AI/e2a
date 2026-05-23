@@ -1720,6 +1720,7 @@ export interface components {
             value?: string;
         };
         DNSRecords: {
+            dkim?: components["schemas"]["DNSRecord"];
             mx?: components["schemas"]["DNSRecord"];
             txt?: components["schemas"]["DNSRecord"];
         };
@@ -2188,6 +2189,16 @@ export interface components {
              */
             agent_count?: number;
             created_at?: string;
+            dkim_public_key?: string;
+            /**
+             * @description DKIM keypair fields (BACKEND_TODO #5). The selector + public key
+             *     are user-facing — the dashboard shows them so users can copy the
+             *     DNS TXT record. The private key is intentionally NOT in the JSON
+             *     shape; it's only read by the outbound signer via
+             *     GetDKIMKey(domain). Domains created before migration 014 ran
+             *     keep all three NULL until the next ClaimOrCreate or backfill.
+             */
+            dkim_selector?: string;
             domain?: string;
             /**
              * @description IsPrimary marks the user's default domain. At most one TRUE per

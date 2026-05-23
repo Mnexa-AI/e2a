@@ -139,9 +139,13 @@ type DomainInfo struct {
 } // @name Domain
 
 // DNSRecords contains the DNS records needed for domain verification.
+// DKIM is populated for domains created after migration 014 (per-domain
+// keypairs). Pre-migration rows leave DKIM at the zero value — clients
+// can detect by checking Host == "".
 type DNSRecords struct {
-	MX  DNSRecord `json:"mx"`
-	TXT DNSRecord `json:"txt"`
+	MX   DNSRecord `json:"mx"`
+	TXT  DNSRecord `json:"txt"`
+	DKIM DNSRecord `json:"dkim,omitempty"`
 } // @name DNSRecords
 
 // DNSRecord is a single DNS record entry.
