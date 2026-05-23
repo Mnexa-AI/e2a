@@ -421,7 +421,10 @@ describe("delete agent", () => {
       expect(screen.getByText("bot@agents.e2a.dev")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText("Delete"));
+    // Delete moved behind an overflow ⋯ menu — open it first, then click
+    // the menuitem.
+    fireEvent.click(screen.getByRole("button", { name: /more actions/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /delete agent/i }));
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(

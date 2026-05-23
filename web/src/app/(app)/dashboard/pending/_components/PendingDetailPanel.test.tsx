@@ -66,6 +66,9 @@ describe("PendingDetailPanel", () => {
     // Wait for load — subject input should have the original value
     const subject = await screen.findByDisplayValue("original subject");
 
+    // Inputs are read-only until reviewer clicks "Edit draft"
+    await user.click(screen.getByRole("button", { name: /edit draft/i }));
+
     // Edit the subject
     await user.clear(subject);
     await user.type(subject, "edited subject");
