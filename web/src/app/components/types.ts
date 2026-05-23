@@ -24,6 +24,15 @@ export type DashboardAgent = {
   hitl_enabled: boolean;
   hitl_ttl_seconds: number;
   hitl_expiration_action: "approve" | "reject";
+  // Enriched stats from BACKEND_TODO #2 — only populated by
+  // GET /api/dashboard/agents; other agent endpoints leave them at
+  // zero values. Fields are optional in the type so older deployments
+  // (no enrichment) still parse correctly.
+  inbound_7d?: number;
+  outbound_7d?: number;
+  pending_count?: number;
+  last_delivery_at?: string | null;
+  webhook_healthy?: boolean;
 };
 
 export type PendingMessageSummary = {

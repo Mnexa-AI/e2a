@@ -184,7 +184,10 @@ describe("Domains page — with domains", () => {
     await userEvent.click(screen.getByText("View DNS records"));
 
     expect(screen.getByText("Route email to e2a")).toBeInTheDocument();
-    expect(screen.getByText("Prove domain ownership")).toBeInTheDocument();
+    // Per-record DNS row label expanded for SPF context (BACKEND_TODO #4)
+    expect(
+      screen.getByText(/Prove domain ownership/),
+    ).toBeInTheDocument();
   });
 });
 

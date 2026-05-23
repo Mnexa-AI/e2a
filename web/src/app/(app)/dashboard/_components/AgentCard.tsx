@@ -218,9 +218,92 @@ export function AgentCard({
         </div>
       )}
 
+      {/* Per-agent stats footer (BACKEND_TODO #2). Cloud-mode agents also
+          get a webhook-reachable indicator on the right; local-mode hides
+          it because no webhook is involved. */}
+      <div
+        className="mt-4 pt-4 grid grid-cols-2 md:grid-cols-4 gap-4"
+        style={{ borderTop: "1px solid var(--border-sub)" }}
+      >
+        <AgentStat label="Inbound · 7d" value={agent.inbound_7d} />
+        <AgentStat label="Outbound · 7d" value={agent.outbound_7d} />
+        <AgentStat label="Pending" value={agent.pending_count} />
+        <AgentStat
+          label={isCloud ? "Webhook" : "Last delivery"}
+          value={
+            isCloud
+              ? agent.webhook_healthy === undefined
+                ? "—"
+                : agent.webhook_healthy
+                  ? "reachable"
+                  : "unreachable"
+              : agent.last_delivery_at
+                ? formatRelativeAge(agent.last_delivery_at)
+                : "—"
+          }
+          tone={
+            isCloud
+              ? agent.webhook_healthy === false
+                ? "danger"
+                : "muted"
+              : "muted"
+          }
+        />
+      </div>
+
       {/* Activity (subordinate) */}
       <div className="mt-3">
         <ActivityPanel email={agent.email} />
+      </div>
+    </div>
+  );
+}
+
+// formatRelativeAge converts an ISO timestamp into a compact relative
+// label for the per-agent stats row. Newer than 60s → "just now",
+// otherwise the smallest unit that fits.
+function formatRelativeAge(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 0 || isNaN(diff)) return "—";
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return "just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
+}
+
+function AgentStat({
+  label,
+  value,
+  tone = "muted",
+}: {
+  label: string;
+  value: number | string | undefined | null;
+  tone?: "muted" | "danger";
+}) {
+  const display =
+    value === undefined || value === null
+      ? "—"
+      : typeof value === "number"
+        ? String(value)
+        : value;
+  return (
+    <div>
+      <div
+        className="font-mono text-[10px] font-semibold uppercase mb-1"
+        style={{ color: "var(--fg-subtle)", letterSpacing: "0.08em" }}
+      >
+        {label}
+      </div>
+      <div
+        className="text-[16px] font-medium"
+        style={{
+          color: tone === "danger" ? "var(--danger-strong)" : "var(--fg)",
+        }}
+      >
+        {display}
       </div>
     </div>
   );

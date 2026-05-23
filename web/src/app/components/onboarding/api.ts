@@ -52,7 +52,9 @@ export async function registerDomain(domain: string): Promise<DomainInfo> {
   });
 }
 
-export async function verifyDomain(domain: string): Promise<{ domain: string; verified: boolean; verified_at: string | null }> {
+export async function verifyDomain(
+  domain: string,
+): Promise<import("./types").VerifyDomainResponse> {
   return request("/api/v1/domains/" + encodeURIComponent(domain) + "/verify", {
     method: "POST",
   });

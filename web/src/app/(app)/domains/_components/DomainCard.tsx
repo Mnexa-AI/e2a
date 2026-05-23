@@ -5,8 +5,37 @@ import { DNSRecord } from "../../../components/Field";
 import { Chip } from "../../../components/loft/Chip";
 import { Dot } from "../../../components/loft/Dot";
 import { verifyDomain, deleteDomain } from "../../../components/onboarding/api";
-import type { DomainInfo } from "../../../components/onboarding/types";
+import type {
+  DomainInfo,
+  VerifyDomainResponse,
+} from "../../../components/onboarding/types";
 import { track } from "../../../components/onboarding/analytics";
+
+// Renders a found/missing/deferred chip next to each per-record row in
+// the DNS expansion. "deferred" is for DKIM until BACKEND_TODO #5 ships;
+// it surfaces as a muted "pending" state instead of a hard miss.
+function RecordStatusChip({
+  status,
+}: {
+  status: "found" | "missing" | "deferred" | undefined;
+}) {
+  if (!status) return null;
+  if (status === "found")
+    return (
+      <Chip tone="success">
+        <Dot tone="success" />
+        Found
+      </Chip>
+    );
+  if (status === "deferred")
+    return <Chip tone="neutral">Pending DKIM support</Chip>;
+  return (
+    <Chip tone="warn">
+      <Dot tone="warn" />
+      Missing
+    </Chip>
+  );
+}
 
 export function DomainCard({
   domain,
@@ -23,13 +52,18 @@ export function DomainCard({
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState("");
   const [deleting, setDeleting] = useState(false);
+  // Cached per-record diagnostic from the most recent verify probe. Until
+  // the user clicks "View DNS records" + retries, this is null and the
+  // chips render as "—" placeholders.
+  const [probe, setProbe] = useState<VerifyDomainResponse | null>(null);
 
   const handleVerify = async () => {
     setVerifyError("");
     setVerifying(true);
     track("domain_verify_attempted", { domain: domain.domain });
     try {
-      await verifyDomain(domain.domain);
+      const result = await verifyDomain(domain.domain);
+      setProbe(result);
       track("domain_verify_succeeded", { domain: domain.domain });
       onVerified();
     } catch (err) {
@@ -196,32 +230,113 @@ export function DomainCard({
         </button>
       </div>
 
-      {/* DNS records — MX + TXT only per BACKEND_TODO #4/#5 (DKIM row hidden until per-domain DKIM ships) */}
+      {/* DNS records — per-record status chips populated from the
+          most recent verify probe (BACKEND_TODO #4). DKIM row stays
+          hidden until #5 ships per-domain DKIM keys. */}
       {showDNS && (
         <div
           className="mt-3 pt-4 space-y-4"
           style={{ borderTop: "1px solid var(--border)" }}
         >
-          <DNSRecord
-            type="MX"
-            label="Route email to e2a"
-            fields={[
-              { label: "Name", value: domain.domain },
-              { label: "Mail server", value: domain.dns_records.mx.value },
-              {
-                label: "Priority",
-                value: String(domain.dns_records.mx.priority),
-              },
-            ]}
-          />
-          <DNSRecord
-            type="TXT"
-            label="Prove domain ownership"
-            fields={[
-              { label: "Name", value: domain.domain },
-              { label: "Content", value: domain.verification_token },
-            ]}
-          />
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <p
+              className="font-mono text-[10px] uppercase font-semibold"
+              style={{ color: "var(--fg-subtle)", letterSpacing: "0.08em" }}
+            >
+              DNS records
+              {(probe || domain.last_checked_at) && (
+                <span
+                  className="ml-2 font-normal normal-case"
+                  style={{ color: "var(--fg-subtle)", letterSpacing: "0.02em" }}
+                >
+                  · last checked{" "}
+                  {new Date(
+                    domain.last_checked_at || Date.now(),
+                  ).toLocaleString()}
+                </span>
+              )}
+            </p>
+            <button
+              onClick={handleVerify}
+              disabled={verifying}
+              className="text-[11px] px-2 py-0.5 transition disabled:opacity-50"
+              style={{
+                color: "var(--fg-muted)",
+                border: "1px solid var(--border-sub)",
+                background: "var(--bg-elev)",
+                borderRadius: "var(--r-sm)",
+              }}
+            >
+              {verifying ? "Probing…" : "Re-check"}
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span
+                className="font-mono text-[11px] px-2 py-0.5"
+                style={{
+                  background: "var(--bg-elev)",
+                  border: "1px solid var(--border-sub)",
+                  borderRadius: "var(--r-sm)",
+                  color: "var(--fg)",
+                  minWidth: 36,
+                  textAlign: "center",
+                }}
+              >
+                MX
+              </span>
+              <span className="text-[12px]" style={{ color: "var(--fg-muted)" }}>
+                Route email to e2a
+              </span>
+              <span className="flex-1" />
+              <RecordStatusChip status={probe?.mx} />
+            </div>
+            <DNSRecord
+              type=""
+              label=""
+              fields={[
+                { label: "Name", value: domain.domain },
+                { label: "Mail server", value: domain.dns_records.mx.value },
+                {
+                  label: "Priority",
+                  value: String(domain.dns_records.mx.priority),
+                },
+              ]}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span
+                className="font-mono text-[11px] px-2 py-0.5"
+                style={{
+                  background: "var(--bg-elev)",
+                  border: "1px solid var(--border-sub)",
+                  borderRadius: "var(--r-sm)",
+                  color: "var(--fg)",
+                  minWidth: 36,
+                  textAlign: "center",
+                }}
+              >
+                TXT
+              </span>
+              <span className="text-[12px]" style={{ color: "var(--fg-muted)" }}>
+                Prove domain ownership (also drives SPF check)
+              </span>
+              <span className="flex-1" />
+              <RecordStatusChip status={probe?.spf} />
+            </div>
+            <DNSRecord
+              type=""
+              label=""
+              fields={[
+                { label: "Name", value: domain.domain },
+                { label: "Content", value: domain.verification_token },
+              ]}
+            />
+          </div>
+
           {!domain.verified && (
             <div
               className="p-3 text-[12px]"
