@@ -203,6 +203,19 @@ class OAuthConnectionEntry(BaseModel):
     scope: str | None = None
 
 
+class PendingMessageInboundContext(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    auth_headers: dict[str, str] | None = Field(
+        None,
+        description='AuthHeaders carries the SPF/DKIM/DMARC validation results captured\nat inbound time. Keys are conventionally "spf", "dkim", "dmarc"\neach with values "pass" | "fail" | "neutral" | etc. The dashboard\nrenders these as found/missing chips on the provenance pane.',
+    )
+    created_at: str | None = Field(None, examples=['2025-01-15T10:25:00Z'])
+    sender: str | None = Field(None, examples=['alice@gmail.com'])
+    subject: str | None = Field(None, examples=['contract details'])
+
+
 class PendingMessageSummary(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -411,6 +424,10 @@ class PendingMessageDetail(BaseModel):
     edited: bool | None = None
     email_message_id: str | None = Field(None, examples=['<orig@gmail.com>'])
     id: str | None = Field(None, examples=['msg_abc123'])
+    inbound: PendingMessageInboundContext | None = Field(
+        None,
+        description='InboundContext is attached when this is a reply — provides the\nSPF/DKIM/DMARC provenance + sender/subject of the inbound message\nbeing replied to so the review panel can render the context pane.',
+    )
     method: str | None = Field(None, examples=['smtp'])
     provider_message_id: str | None = None
     rejection_reason: str | None = None

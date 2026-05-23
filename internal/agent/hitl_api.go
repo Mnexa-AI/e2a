@@ -47,6 +47,24 @@ type pendingMessageDetail struct {
 	RejectionReason   string                `json:"rejection_reason,omitempty"`
 	ProviderMessageID string                `json:"provider_message_id,omitempty"`
 	Method            string                `json:"method,omitempty"`
+	// InboundContext is attached only when this is a reply (i.e. when
+	// email_message_id is non-empty and the inbound row is still in
+	// retention). Used by the review panel to render the "In reply to"
+	// pane with SPF/DKIM/DMARC provenance — without it, reviewers can't
+	// see what the original message looked like or whether it was
+	// auth-validated.
+	InboundContext *pendingMessageInboundContext `json:"inbound,omitempty"`
+}
+
+// pendingMessageInboundContext is the inlined inbound-row preview
+// attached to a reply's pending detail. Body is intentionally elided
+// here (raw_message is RFC 5322 bytes; we'd need to parse to extract
+// the text part) — the panel currently renders the headers only.
+type pendingMessageInboundContext struct {
+	Sender      string            `json:"sender"`
+	Subject     string            `json:"subject"`
+	CreatedAt   string            `json:"created_at"`
+	AuthHeaders map[string]string `json:"auth_headers,omitempty"`
 }
 
 func messageToSummary(m identity.Message) pendingMessageSummary {

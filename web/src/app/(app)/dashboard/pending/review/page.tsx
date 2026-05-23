@@ -20,6 +20,38 @@ function parseCSV(s: string): string[] {
     .filter((x) => x.length > 0);
 }
 
+// countWords splits on whitespace and returns the count — used by the
+// draft footer to mimic the mock's "127 words · ~1 min read" hint.
+// "~1 min read" assumes a 200-words-per-minute baseline.
+function countWords(s: string): { words: number; minutes: number } {
+  const trimmed = s.trim();
+  if (!trimmed) return { words: 0, minutes: 0 };
+  const words = trimmed.split(/\s+/).length;
+  return { words, minutes: Math.max(1, Math.round(words / 200)) };
+}
+
+// detectPII: rough best-effort regex scan for email addresses, phone
+// numbers, and SSN-shaped strings in the draft body. Intentionally
+// permissive — surfaces hints, doesn't block sends. Server-side scrubbing
+// is a separate concern.
+function detectPII(s: string): string[] {
+  const hits: string[] = [];
+  if (/\b[\w.+-]+@[\w-]+\.[\w.-]+\b/.test(s)) hits.push("email");
+  if (/\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/.test(s))
+    hits.push("phone");
+  if (/\b\d{3}-\d{2}-\d{4}\b/.test(s)) hits.push("SSN");
+  return hits;
+}
+
+// Pretty-print an SPF/DKIM/DMARC verdict for the provenance chip.
+function verdictTone(verdict: string | undefined): "success" | "warn" | "neutral" {
+  if (!verdict) return "neutral";
+  const v = verdict.toLowerCase();
+  if (v === "pass") return "success";
+  if (v === "fail" || v === "softfail" || v === "permerror") return "warn";
+  return "neutral";
+}
+
 function joinCSV(xs?: string[]): string {
   return (xs ?? []).join(", ");
 }
@@ -319,6 +351,29 @@ function ReviewContent() {
               color: "var(--fg)",
             }}
           />
+          {/* Draft footer: word count + PII hints. Client-side; the mock
+              also shows language detection but that's deferred until we
+              wire a real detector — for now we just note the hint slot. */}
+          {bodyText.length > 0 && (
+            <div
+              className="mt-1.5 flex items-center gap-3 text-[11px] flex-wrap"
+              style={{ color: "var(--fg-subtle)" }}
+            >
+              <span>
+                {countWords(bodyText).words} words · ~
+                {countWords(bodyText).minutes} min read
+              </span>
+              {detectPII(bodyText).length > 0 ? (
+                <span style={{ color: "var(--warn-strong)" }}>
+                  ⚠ PII hint: {detectPII(bodyText).join(", ")}
+                </span>
+              ) : (
+                <span style={{ color: "var(--success)" }}>
+                  ✓ no PII detected
+                </span>
+              )}
+            </div>
+          )}
         </Field>
 
         {msg.body_html !== undefined && (
@@ -337,6 +392,88 @@ function ReviewContent() {
               }}
             />
           </Field>
+        )}
+
+        {/* In reply to — inbound context pane (BACKEND_TODO #6 review polish).
+            Shows the original sender, subject, and SPF/DKIM/DMARC chips
+            from auth_headers. Only renders for replies; null inbound
+            means the original aged out of retention or this is a
+            non-reply (send/test). */}
+        {msg.inbound && (
+          <div
+            className="p-3 space-y-2"
+            style={{
+              background: "var(--bg-elev)",
+              border: "1px solid var(--border-sub)",
+              borderRadius: "var(--r-md)",
+            }}
+          >
+            <div
+              className="font-mono text-[10px] uppercase font-semibold"
+              style={{ color: "var(--fg-subtle)", letterSpacing: "0.08em" }}
+            >
+              In reply to ·{" "}
+              <span style={{ color: "var(--fg-muted)" }}>
+                {new Date(msg.inbound.created_at).toLocaleString()}
+              </span>
+            </div>
+            <div className="text-[13px]" style={{ color: "var(--fg)" }}>
+              <span style={{ color: "var(--fg-muted)" }}>From </span>
+              <code className="font-mono">{msg.inbound.sender}</code>
+              <span style={{ color: "var(--fg-muted)" }}> · </span>
+              {msg.inbound.subject || "(no subject)"}
+            </div>
+            {msg.inbound.auth_headers && (
+              <div className="flex flex-wrap gap-1.5 text-[11px]">
+                {(["spf", "dkim", "dmarc"] as const).map((k) => {
+                  const v = msg.inbound!.auth_headers?.[k];
+                  if (!v) return null;
+                  const tone = verdictTone(v);
+                  return (
+                    <Chip key={k} tone={tone}>
+                      {k.toUpperCase()}{" "}
+                      <span style={{ fontFamily: "var(--f-mono)" }}>{v}</span>
+                    </Chip>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Outbound headers preview — "what e2a will actually send".
+            Pure client-side construction from the data we have; the
+            HMAC body-hash + signature are computed at send time, so we
+            label them as such instead of rendering placeholder hex. */}
+        {!notPending && (
+          <div
+            className="p-3 font-mono text-[11px] leading-[1.6]"
+            style={{
+              background: "var(--ink, #1A1714)",
+              color: "var(--ink-fg, #EFE6D8)",
+              borderRadius: "var(--r-md)",
+            }}
+          >
+            <div
+              className="text-[10px] uppercase font-semibold mb-1.5"
+              style={{ opacity: 0.6, letterSpacing: "0.08em" }}
+            >
+              Headers that will be sent
+            </div>
+            <div>From: {msg.agent_id}</div>
+            <div>To: {parseCSV(to).join(", ") || "—"}</div>
+            {parseCSV(cc).length > 0 && <div>Cc: {parseCSV(cc).join(", ")}</div>}
+            <div>Subject: {subject}</div>
+            {msg.email_message_id && (
+              <div>In-Reply-To: {msg.email_message_id}</div>
+            )}
+            {msg.conversation_id && (
+              <div>X-E2A-Conversation-Id: {msg.conversation_id}</div>
+            )}
+            <div style={{ opacity: 0.6 }}>
+              X-E2A-Auth-Signature: [computed at send]
+            </div>
+          </div>
         )}
 
         {msg.attachments && msg.attachments.length > 0 && (
@@ -443,6 +580,26 @@ function ReviewContent() {
               }}
             />
           </div>
+          {/* CLI fallback — operators can also approve from the e2a CLI.
+              Useful when the dashboard is being iterated on or for
+              terminal-first workflows. */}
+          <p
+            className="font-mono text-[11px] mt-2"
+            style={{ color: "var(--fg-subtle)" }}
+          >
+            CLI:{" "}
+            <code
+              className="px-2 py-0.5"
+              style={{
+                background: "var(--bg-elev)",
+                border: "1px solid var(--border-sub)",
+                borderRadius: "var(--r-sm)",
+                color: "var(--fg-muted)",
+              }}
+            >
+              e2a pending approve {msg.id}
+            </code>
+          </p>
         </div>
       )}
     </PageShell>

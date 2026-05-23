@@ -71,6 +71,17 @@ export type PendingMessageDetail = PendingMessageSummary & {
   rejection_reason?: string;
   provider_message_id?: string;
   method?: string;
+  // Attached when this is a reply — the inbound message being replied
+  // to. Drives the review panel's "In reply to" provenance pane
+  // (SPF/DKIM/DMARC from auth_headers). Null on send/test messages.
+  inbound?: PendingMessageInboundContext | null;
+};
+
+export type PendingMessageInboundContext = {
+  sender: string;
+  subject: string;
+  created_at: string;
+  auth_headers?: Record<string, string>;
 };
 
 export type ActivityEntry = {
