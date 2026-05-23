@@ -341,7 +341,8 @@ function OverflowMenu({ onDelete }: { onDelete: () => void }) {
           color: "var(--fg-muted)",
           border: "1px solid var(--border)",
           borderRadius: "var(--r-md)",
-          minHeight: 32,
+          // No inline minHeight — the global tap-target rule
+          // (globals.css) gives this button 44px on phone widths.
         }}
       >
         ⋯

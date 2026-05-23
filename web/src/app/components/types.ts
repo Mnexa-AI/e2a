@@ -149,6 +149,9 @@ export type DomainInfo = {
   dns_records: {
     mx: { host: string; value: string; priority?: number };
     txt: { host: string; value: string };
+    // DKIM is populated for domains with a stored keypair (migration 014).
+    // Legacy rows leave it absent; UI detects via `dkim?.host` being empty.
+    dkim?: { host: string; value: string };
   };
   created_at: string;
   verified_at?: string | null;

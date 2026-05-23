@@ -65,6 +65,16 @@ export function DNSSetupCard({
             { label: "Content", value: domain.verification_token },
           ]}
         />
+        {domain.dns_records.dkim?.host && (
+          <DNSRecord
+            type="TXT"
+            label="Authenticate outbound mail (DKIM)"
+            fields={[
+              { label: "Name", value: domain.dns_records.dkim.host },
+              { label: "Content", value: domain.dns_records.dkim.value },
+            ]}
+          />
+        )}
       </div>
       <div
         className="mt-6 p-4 text-[13px]"

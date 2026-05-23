@@ -214,3 +214,25 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Touch targets — REDESIGN.md §7. Every interactive control inside
+ * the authenticated app surface gets ≥ 44px tap area on phone widths.
+ * The rule is scoped to `[data-app-surface]` (set on the (app) layout
+ * root) so marketing/blog/docs pages with their own typographic density
+ * are untouched. Specific dense controls can opt out with
+ * `data-compact` (currently unused — kept as an escape hatch).
+ *
+ * Note: this affects HEIGHT only; padding handles the horizontal axis
+ * naturally for most controls. The visible button stays the same size
+ * — extra padding extends the *tap* area, which is what WCAG 2.5.5
+ * actually cares about.
+ */
+@media (max-width: 767px) {
+  [data-app-surface] button:not([data-compact]),
+  [data-app-surface] a[role="button"]:not([data-compact]),
+  [data-app-surface] [role="button"]:not([data-compact]),
+  [data-app-surface] input[type="checkbox"]:not([data-compact]),
+  [data-app-surface] input[type="radio"]:not([data-compact]) {
+    min-height: 44px;
+  }
+}
