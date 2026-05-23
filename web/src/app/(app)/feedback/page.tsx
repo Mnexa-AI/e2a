@@ -2,6 +2,15 @@
 
 import { useState } from "react";
 import { FEEDBACK_EMAIL } from "../../../lib/site";
+import { PageShell } from "../../components/loft/PageShell";
+
+// /feedback was carried over from the pre-Loft world and missed the
+// PR #106 redesign pass. Now restyled to match the rest of the app —
+// PageShell wrapping, ember selected category, ember submit CTA, the
+// Loft input + button rhythm shared with /api-keys and /settings.
+//
+// Test selectors (text/placeholders) preserved verbatim so
+// page.test.tsx keeps passing.
 
 export default function FeedbackPage() {
   const [email, setEmail] = useState("");
@@ -37,38 +46,101 @@ export default function FeedbackPage() {
 
   if (status === "sent") {
     return (
-      <section className="max-w-xl py-12 text-center mx-auto">
-        <div className="w-14 h-14 rounded-full bg-green-50 text-green-600 flex items-center justify-center text-2xl mx-auto mb-6">
-          &#10003;
+      <PageShell
+        crumbs={["Feedback"]}
+        eyebrow="Workspace"
+        title={<>Send us feedback</>}
+        maxWidth={640}
+      >
+        <div
+          className="p-8 text-center"
+          style={{
+            background: "var(--bg-panel)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r-lg)",
+          }}
+        >
+          <div
+            className="mx-auto mb-5 flex items-center justify-center text-[20px]"
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: "50%",
+              background: "var(--success-bg)",
+              color: "var(--success)",
+            }}
+            aria-hidden
+          >
+            ✓
+          </div>
+          <h2
+            className="mb-2"
+            style={{
+              fontFamily: "var(--f-ui)",
+              fontSize: 20,
+              fontWeight: 600,
+              color: "var(--fg)",
+            }}
+          >
+            Thanks for your feedback
+          </h2>
+          <p
+            className="text-[13px] mb-5"
+            style={{ color: "var(--fg-muted)" }}
+          >
+            We read every submission and it directly shapes what we build next.
+          </p>
+          <button
+            onClick={() => setStatus("idle")}
+            className="text-[13px] underline"
+            style={{ color: "var(--accent-strong)" }}
+          >
+            Submit more feedback
+          </button>
         </div>
-        <h2 className="text-2xl font-bold tracking-tight mb-3">Thanks for your feedback</h2>
-        <p className="text-muted mb-8">
-          We read every submission and it directly shapes what we build next.
-        </p>
-        <button onClick={() => setStatus("idle")} className="text-sm text-accent hover:underline">
-          Submit more feedback
-        </button>
-      </section>
+      </PageShell>
     );
   }
 
   return (
-    <section className="max-w-xl">
-      <h2 className="text-2xl font-bold tracking-tight mb-2">Send us feedback</h2>
-      <p className="text-muted mb-8">
-        Bug reports, feature requests, or anything else.
-        {FEEDBACK_EMAIL && (
-          <>
-            {" "}You can also reach us at{" "}
-            <a href={`mailto:${FEEDBACK_EMAIL}`} className="text-accent hover:underline">{FEEDBACK_EMAIL}</a>.
-          </>
-        )}
-      </p>
-
+    <PageShell
+      crumbs={["Feedback"]}
+      eyebrow="Workspace"
+      title={<>Send us feedback</>}
+      subtitle={
+        <>
+          Bug reports, feature requests, or anything else.
+          {FEEDBACK_EMAIL && (
+            <>
+              {" "}You can also reach us at{" "}
+              <a
+                href={`mailto:${FEEDBACK_EMAIL}`}
+                style={{ color: "var(--accent-strong)" }}
+                className="underline"
+              >
+                {FEEDBACK_EMAIL}
+              </a>
+              .
+            </>
+          )}
+        </>
+      }
+      maxWidth={640}
+    >
       <form onSubmit={handleSubmit} className="space-y-5">
         <div>
-          <label htmlFor="feedback-email" className="block text-sm font-medium mb-1.5">
-            Email <span className="text-muted font-normal">(optional, if you want a reply)</span>
+          <label
+            htmlFor="feedback-email"
+            className="block text-[13px] font-medium mb-1.5"
+            style={{ color: "var(--fg)" }}
+          >
+            Email{" "}
+            <span
+              className="font-normal"
+              style={{ color: "var(--fg-muted)" }}
+            >
+              (optional, if you want a reply)
+            </span>
           </label>
           <input
             id="feedback-email"
@@ -76,66 +148,108 @@ export default function FeedbackPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
-            className="w-full border border-border rounded-lg px-4 py-2.5 text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition"
+            className="w-full text-[13px] px-3 py-2"
+            style={{
+              background: "var(--bg-panel)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-md)",
+              color: "var(--fg)",
+            }}
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1.5">Category</label>
-          <div className="flex gap-2">
+          <label
+            className="block text-[13px] font-medium mb-1.5"
+            style={{ color: "var(--fg)" }}
+          >
+            Category
+          </label>
+          <div className="flex gap-2 flex-wrap">
             {([
               { value: "bug", label: "Bug report" },
               { value: "feature", label: "Feature request" },
               { value: "general", label: "General" },
-            ] as const).map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setCategory(opt.value)}
-                className={`px-3 py-1.5 rounded-lg text-sm border transition ${
-                  category === opt.value
-                    ? "border-accent bg-accent/5 text-accent font-medium"
-                    : "border-border text-muted hover:text-foreground hover:border-foreground/20"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
+            ] as const).map((opt) => {
+              const active = category === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setCategory(opt.value)}
+                  aria-pressed={active}
+                  className="text-[12px] font-medium px-3 py-1.5 transition"
+                  style={{
+                    background: active ? "var(--accent-soft)" : "var(--bg-panel)",
+                    color: active ? "var(--accent-strong)" : "var(--fg-muted)",
+                    border: active
+                      ? "1px solid var(--accent-strong)"
+                      : "1px solid var(--border)",
+                    borderRadius: "var(--r-md)",
+                  }}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
         <div>
-          <label htmlFor="feedback-message" className="block text-sm font-medium mb-1.5">Message</label>
+          <label
+            htmlFor="feedback-message"
+            className="block text-[13px] font-medium mb-1.5"
+            style={{ color: "var(--fg)" }}
+          >
+            Message
+          </label>
           <textarea
             id="feedback-message"
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             placeholder="What's on your mind?"
-            rows={5}
+            rows={6}
             required
-            className="w-full border border-border rounded-lg px-4 py-2.5 text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition resize-none"
+            className="w-full text-[13px] px-3 py-2 resize-none"
+            style={{
+              background: "var(--bg-panel)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-md)",
+              color: "var(--fg)",
+            }}
           />
         </div>
 
         <button
           type="submit"
           disabled={status === "sending" || !message.trim()}
-          className="w-full px-6 py-3 bg-foreground text-background rounded-lg text-sm font-medium hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full text-[13px] font-medium px-4 py-2.5 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{
+            background: "var(--accent-fill)",
+            color: "var(--accent-fg)",
+            borderRadius: "var(--r-md)",
+          }}
         >
           {status === "sending" ? "Sending..." : "Submit feedback"}
         </button>
 
         {status === "error" && (
-          <p className="text-sm text-red-600 text-center">
+          <p
+            className="text-[12px] text-center"
+            style={{ color: "var(--danger-strong)" }}
+          >
             Something went wrong. Please try again or email us directly.
           </p>
         )}
         {status === "rate-limited" && (
-          <p className="text-sm text-amber-600 text-center">
+          <p
+            className="text-[12px] text-center"
+            style={{ color: "var(--warn-strong)" }}
+          >
             Too many submissions. Please wait a minute before trying again.
           </p>
         )}
       </form>
-    </section>
+    </PageShell>
   );
 }
