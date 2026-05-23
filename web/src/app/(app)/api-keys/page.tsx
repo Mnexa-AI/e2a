@@ -33,6 +33,27 @@ function formatRelative(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+// formatExpiresIn renders the "in 28d" / "tomorrow" / "today" forms
+// for the Expires column. Past timestamps return "expired" so the
+// caller can tint the cell red.
+function formatExpiresIn(iso: string): { label: string; expired: boolean; imminent: boolean } {
+  const diff = new Date(iso).getTime() - Date.now();
+  if (isNaN(diff)) return { label: "—", expired: false, imminent: false };
+  if (diff <= 0) return { label: "expired", expired: true, imminent: false };
+  const days = Math.floor(diff / (24 * 60 * 60 * 1000));
+  if (days === 0) {
+    const hr = Math.floor(diff / (60 * 60 * 1000));
+    return { label: hr <= 1 ? "<1h" : `in ${hr}h`, expired: false, imminent: true };
+  }
+  if (days === 1) return { label: "tomorrow", expired: false, imminent: true };
+  if (days < 30) return { label: `in ${days}d`, expired: false, imminent: days <= 7 };
+  return {
+    label: new Date(iso).toLocaleDateString(),
+    expired: false,
+    imminent: false,
+  };
+}
+
 export default function APIKeysPage() {
   const [keys, setKeys] = useState<APIKeyData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -310,6 +331,7 @@ export default function APIKeysPage() {
                   <th className="px-4 py-2.5 font-semibold">Prefix</th>
                   <th className="px-4 py-2.5 font-semibold">Created</th>
                   <th className="px-4 py-2.5 font-semibold">Last used</th>
+                  <th className="px-4 py-2.5 font-semibold">Expires</th>
                   <th className="px-4 py-2.5 font-semibold"></th>
                 </tr>
               </thead>
@@ -342,6 +364,30 @@ export default function APIKeysPage() {
                   >
                     {k.last_used_at ? (
                       formatRelative(k.last_used_at)
+                    ) : (
+                      <span style={{ color: "var(--fg-subtle)" }}>Never</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-[12px]">
+                    {k.expires_at ? (
+                      (() => {
+                        const exp = formatExpiresIn(k.expires_at);
+                        return (
+                          <span
+                            style={{
+                              color: exp.expired
+                                ? "var(--danger-strong)"
+                                : exp.imminent
+                                  ? "var(--warn-strong)"
+                                  : "var(--fg-muted)",
+                              fontWeight: exp.expired || exp.imminent ? 500 : 400,
+                            }}
+                            title={new Date(k.expires_at).toLocaleString()}
+                          >
+                            {exp.label}
+                          </span>
+                        );
+                      })()
                     ) : (
                       <span style={{ color: "var(--fg-subtle)" }}>Never</span>
                     )}
