@@ -270,8 +270,10 @@ export function DomainCard({
       </div>
 
       {/* DNS records — per-record status chips populated from the
-          most recent verify probe (BACKEND_TODO #4). DKIM row stays
-          hidden until #5 ships per-domain DKIM keys. */}
+          most recent verify probe (BACKEND_TODO #4). The DKIM row
+          renders for domains with a stored keypair (BACKEND_TODO #5);
+          pre-migration domains have no `dkim` block in dns_records and
+          the row is omitted. */}
       {showDNS && (
         <div
           className="mt-3 pt-4 space-y-4"
@@ -375,6 +377,46 @@ export function DomainCard({
               ]}
             />
           </div>
+
+          {/* DKIM row — only present once the backend has a stored
+              keypair for this domain. The TXT name is the per-domain
+              selector at "{selector}._domainkey.{domain}" and the
+              value contains the base64 public key. */}
+          {domain.dns_records.dkim?.host && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span
+                  className="font-mono text-[11px] px-2 py-0.5"
+                  style={{
+                    background: "var(--bg-elev)",
+                    border: "1px solid var(--border-sub)",
+                    borderRadius: "var(--r-sm)",
+                    color: "var(--fg)",
+                    minWidth: 36,
+                    textAlign: "center",
+                  }}
+                >
+                  TXT
+                </span>
+                <span
+                  className="text-[12px]"
+                  style={{ color: "var(--fg-muted)" }}
+                >
+                  Authenticate outbound mail (DKIM)
+                </span>
+                <span className="flex-1" />
+                <RecordStatusChip status={probe?.dkim} />
+              </div>
+              <DNSRecord
+                type=""
+                label=""
+                fields={[
+                  { label: "Name", value: domain.dns_records.dkim.host },
+                  { label: "Content", value: domain.dns_records.dkim.value },
+                ]}
+              />
+            </div>
+          )}
 
           {!domain.verified && (
             <div

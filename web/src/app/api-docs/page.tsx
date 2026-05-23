@@ -22,11 +22,11 @@ export const metadata: Metadata = {
   },
 };
 
-// The Scalar iframe renders with its own theme (light) because the static
-// HTML in public/scalar.html doesn't yet read from Loft tokens. We wrap it
-// in a Loft-style container so the surrounding chrome matches the rest of
-// the app; the iframe contents stay light to keep Scalar's typography and
-// inline code styling readable. Future: pass Loft tokens into scalar.html.
+// The API reference is rendered by Redoc inside an iframe at
+// /scalar.html — that page configures Redoc with the Loft palette
+// directly, so the iframe contents already match the surrounding app
+// chrome. This wrapper just provides the page background + ink-bordered
+// frame.
 export default function APIDocsPage() {
   return (
     <div
@@ -34,24 +34,14 @@ export default function APIDocsPage() {
         background: "var(--bg)",
         minHeight: "100vh",
         padding: "12px",
-        // Light-mode overrides for Scalar's own CSS vars — keeps the API
-        // explorer readable until we wire Loft tokens into scalar.html.
-        "--background": "#fafafa",
-        "--foreground": "#111111",
-        "--accent": "#B84A20",
-        "--accent-light": "#E26534",
-        "--muted": "#6b7280",
-        "--border": "#e5e7eb",
-        "--surface": "#ffffff",
-        colorScheme: "light",
-      } as React.CSSProperties}
+      }}
     >
       <div
         className="overflow-hidden"
         style={{
-          border: "1px solid var(--ink-border)",
+          border: "1px solid var(--border)",
           borderRadius: "var(--r-lg)",
-          background: "var(--ink)",
+          background: "var(--bg-panel)",
           height: "calc(100vh - 24px)",
         }}
       >
@@ -60,7 +50,7 @@ export default function APIDocsPage() {
           className="w-full border-0 block"
           style={{
             height: "100%",
-            background: "#ffffff",
+            background: "var(--bg)",
           }}
           title="API Docs"
         />

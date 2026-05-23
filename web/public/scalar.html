@@ -4,19 +4,91 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>e2a API Docs</title>
+    <!--
+      Fonts: this iframe loads from /scalar.html, so it doesn't share
+      the Next.js next/font setup with the parent app. We pull Geist +
+      Instrument Serif + JetBrains Mono from Google Fonts so the API
+      reference uses the same letterforms as the rest of the site.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    />
     <style>
-      body { margin: 0; padding: 0; }
+      body { margin: 0; padding: 0; background: #FAF7F2; }
     </style>
   </head>
   <body>
     <div id="redoc-container"></div>
     <script src="https://cdn.redoc.ly/redoc/v2.5.0/bundles/redoc.standalone.js" integrity="sha384-4vOjrBu7SuDWXcAw1qFznVLA/sKL+0l4nn+J1HY8w7cpa6twQEYuh4b0Cwuo7CyX" crossorigin="anonymous"></script>
     <script>
+      /*
+       * Loft-themed Redoc. The palette mirrors
+       * web/src/app/globals.css — cream surface + ink right panel +
+       * ember accents. Hex values are inlined rather than referenced via
+       * CSS variables because Redoc reads its config at boot from this
+       * JS literal, before any CSS has applied.
+       */
       Redoc.init('/openapi.yaml', {
         scrollYOffset: 0,
         theme: {
-          colors: { primary: { main: '#4f46e5' } },
-          typography: { fontFamily: 'system-ui, -apple-system, sans-serif' },
+          colors: {
+            primary:   { main: '#B84A20' },               /* --accent-fill */
+            success:   { main: '#3B8A4A' },               /* --success */
+            warning:   { main: '#B97A1C' },               /* --warn-strong */
+            error:     { main: '#A8341B' },               /* --danger-strong */
+            text:      { primary: '#1A1714', secondary: '#6B645A' }, /* --fg / --fg-muted */
+            border:    { dark: '#E3DCCD', light: '#EDE7DA' },        /* --border / --border-sub */
+            http: {
+              get:    '#3B8A4A',
+              post:   '#B84A20',
+              put:    '#B97A1C',
+              delete: '#A8341B',
+              patch:  '#7D5BAA',
+            },
+          },
+          typography: {
+            fontSize:   '14px',
+            lineHeight: '1.55',
+            fontFamily: '"Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+            headings: {
+              fontFamily: '"Instrument Serif", Georgia, serif',
+              fontWeight: '400',
+              lineHeight: '1.2',
+            },
+            code: {
+              fontSize: '13px',
+              fontFamily: '"JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace',
+              color: '#1A1714',
+              backgroundColor: '#F2ECE2',                 /* --bg-elev */
+            },
+            links: {
+              color: '#A84218',                           /* --accent-strong */
+              hover: '#8C3614',
+              textDecoration: 'underline',
+            },
+          },
+          sidebar: {
+            backgroundColor: '#F2ECE2',                   /* --bg-elev */
+            textColor:       '#1A1714',
+            width:           '260px',
+          },
+          rightPanel: {
+            backgroundColor: '#1A1714',                   /* --ink */
+            textColor:       '#E8E3D8',                   /* --ink-fg */
+            width:           '40%',
+          },
+          codeBlock: {
+            backgroundColor: '#23201C',                   /* --ink-elev */
+          },
+          /* Schema example background — pulled toward the cream
+           * surface so the in-page samples don't look like floating
+           * white cards against the cream body. */
+          schema: {
+            nestedBackground: '#FFFFFF',
+          },
         },
       }, document.getElementById('redoc-container'));
     </script>
