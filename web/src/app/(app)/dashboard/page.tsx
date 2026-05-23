@@ -4,24 +4,72 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useAuth } from "../../components/AuthProvider";
 import { listAgents, deleteAgent } from "../../components/onboarding/api";
-import type { DashboardAgent } from "../../components/types";
+import type { DashboardAgent, DashboardStats } from "../../components/types";
 import { PageShell } from "../../components/loft/PageShell";
 import { AgentsEmptyState } from "./_components/AgentsEmptyState";
 import { AgentCard } from "./_components/AgentCard";
 
-// Stats strip — all four cards render `—` until GET /api/dashboard/stats ships
-// (see BACKEND_TODO #1). Don't fabricate values.
+// Formats a percent-change number as a short delta string. 0 → null so
+// the caller can hide the row entirely (no baseline → no arrow).
+function formatDelta(pct: number): string | null {
+  if (pct === 0) return null;
+  const sign = pct > 0 ? "+" : "";
+  return `${sign}${pct}% vs yesterday`;
+}
+
+// Stats strip — populated from GET /api/dashboard/stats. Zero counts and
+// missing baselines are rendered as bare numbers (no delta arrow) so the
+// cards stay sensible on deployments without usage tracking enabled.
 function StatsStrip() {
-  const stats = [
-    { label: "Inbound today", value: "—", delta: null as string | null },
-    { label: "Outbound today", value: "—", delta: null as string | null },
-    { label: "Pending review", value: "—", delta: null as string | null },
-    { label: "Delivery success", value: "—", delta: null as string | null },
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/dashboard/stats")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled) setStats(data);
+      })
+      .catch(() => {
+        // Swallow — leaves stats=null, which renders "—" below. The
+        // dashboard load shouldn't fail because the stats endpoint is
+        // down or the user has tracking disabled.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const cards = [
+    {
+      label: "Inbound today",
+      value: stats ? String(stats.today.inbound) : "—",
+      delta: stats ? formatDelta(stats.today.inbound_delta_pct) : null,
+    },
+    {
+      label: "Outbound today",
+      value: stats ? String(stats.today.outbound) : "—",
+      delta: stats ? formatDelta(stats.today.outbound_delta_pct) : null,
+    },
+    {
+      label: "Pending review",
+      value: stats ? String(stats.pending.count) : "—",
+      delta: null as string | null,
+    },
+    {
+      label: "Delivery success",
+      value: stats
+        ? stats.delivery_success_pct > 0
+          ? `${stats.delivery_success_pct}%`
+          : "—"
+        : "—",
+      delta: stats ? `last ${stats.sample_window_days}d` : null,
+    },
   ];
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-      {stats.map((s) => (
+      {cards.map((s) => (
         <div
           key={s.label}
           className="px-4 py-3.5"

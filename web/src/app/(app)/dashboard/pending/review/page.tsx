@@ -363,13 +363,28 @@ function ReviewContent() {
           </Field>
         )}
 
-        {/* Reviewed-by data omitted until BACKEND_TODO #6 ships — only reviewed_at is shown. */}
+        {/* Reviewer attribution from BACKEND_TODO #6. reviewed_by_name is
+            null on worker-triggered transitions (TTL auto-approve / auto-
+            reject) — surface that as "auto-resolved" so reviewers know no
+            human looked at the message. */}
         {msg.reviewed_at && notPending && (
           <p
             className="text-[12px] mt-2"
             style={{ color: "var(--fg-muted)" }}
           >
-            Reviewed at {new Date(msg.reviewed_at).toLocaleString()}
+            {msg.reviewed_by_name ? (
+              <>
+                Reviewed by{" "}
+                <span style={{ color: "var(--fg)", fontWeight: 500 }}>
+                  {msg.reviewed_by_name}
+                </span>{" "}
+                at {new Date(msg.reviewed_at).toLocaleString()}
+              </>
+            ) : (
+              <>
+                Auto-resolved at {new Date(msg.reviewed_at).toLocaleString()}
+              </>
+            )}
           </p>
         )}
       </div>

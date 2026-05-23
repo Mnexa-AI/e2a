@@ -19,7 +19,13 @@ export function DomainList({
         <DomainCard
           key={d.domain}
           domain={d}
-          agentCount={agents.filter((a) => a.domain === d.domain).length}
+          // Prefer the server-computed count; fall back to the
+          // client-side filter for deployments still on a backend
+          // without BACKEND_TODO #7 (defensive, not strictly needed
+          // post-rebase).
+          agentCount={
+            d.agent_count ?? agents.filter((a) => a.domain === d.domain).length
+          }
           onVerified={onRefresh}
           onDeleted={onRefresh}
         />

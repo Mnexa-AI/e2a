@@ -6,8 +6,26 @@ import { PageShell } from "../../components/loft/PageShell";
 import { Chip } from "../../components/loft/Chip";
 
 // Graceful degradation per REDESIGN.md §5:
-// - "Last used" column hidden until BACKEND_TODO #3 ships api_keys.last_used_at
+// - "Last used" surfaced now that BACKEND_TODO #3 shipped api_keys.last_used_at
 // - "Scopes" column intentionally omitted (BACKEND_TODO #11 — deferred indefinitely)
+
+// formatRelative renders a "X ago" string for the Last used cell. Tight
+// here because the column needs to read at-a-glance on a wide table —
+// full timestamps eat horizontal space. Falls back to a date for old
+// usage.
+function formatRelative(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 0 || isNaN(diff)) return "—";
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return "just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 export default function APIKeysPage() {
   const [keys, setKeys] = useState<APIKeyData[]>([]);
@@ -177,6 +195,7 @@ export default function APIKeysPage() {
                 <th className="px-4 py-2.5 font-semibold">Name</th>
                 <th className="px-4 py-2.5 font-semibold">Prefix</th>
                 <th className="px-4 py-2.5 font-semibold">Created</th>
+                <th className="px-4 py-2.5 font-semibold">Last used</th>
                 <th className="px-4 py-2.5 font-semibold"></th>
               </tr>
             </thead>
@@ -202,6 +221,16 @@ export default function APIKeysPage() {
                     style={{ color: "var(--fg-muted)" }}
                   >
                     {new Date(k.created_at).toLocaleDateString()}
+                  </td>
+                  <td
+                    className="px-4 py-3 font-mono text-[12px]"
+                    style={{ color: "var(--fg-muted)" }}
+                  >
+                    {k.last_used_at ? (
+                      formatRelative(k.last_used_at)
+                    ) : (
+                      <span style={{ color: "var(--fg-subtle)" }}>Never</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button

@@ -84,6 +84,9 @@ export function DomainCard({
               <Dot tone={domain.verified ? "success" : "warn"} />
               {domain.verified ? "Verified" : "Unverified"}
             </Chip>
+            {domain.is_primary && (
+              <Chip tone="neutral">Primary</Chip>
+            )}
           </div>
           <p
             className="text-[12px]"
@@ -107,6 +110,12 @@ export function DomainCard({
               <>
                 {" · verified "}
                 {new Date(domain.verified_at).toLocaleDateString()}
+              </>
+            )}
+            {domain.last_checked_at && (
+              <>
+                {" · last checked "}
+                {new Date(domain.last_checked_at).toLocaleDateString()}
               </>
             )}
           </p>
