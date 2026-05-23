@@ -28,6 +28,9 @@ export type DomainInfo = {
   dns_records: {
     mx: { host: string; value: string; priority: number };
     txt: { host: string; value: string };
+    // DKIM is populated for domains with a stored keypair (migration
+    // 014 + BACKEND_TODO #5). Pre-migration rows omit it.
+    dkim?: { host: string; value: string };
   };
   created_at: string;
   verified_at: string | null;

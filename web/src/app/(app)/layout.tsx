@@ -69,7 +69,14 @@ export default function AppLayout({
   }
 
   return (
-    <div className="flex min-h-screen" style={{ background: "var(--bg)" }}>
+    <div
+      className="flex min-h-screen"
+      style={{ background: "var(--bg)" }}
+      // Scope the 44px tap-target rule in globals.css to the
+      // authenticated app surface only. Marketing/blog/docs/api-docs
+      // pages keep their own visual density.
+      data-app-surface=""
+    >
       {/* Desktop sidebar */}
       <Sidebar />
 
