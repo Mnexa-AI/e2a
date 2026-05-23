@@ -45,6 +45,11 @@ class Domain(BaseModel):
         description='AgentCount is computed at read time by ListDomainsByUser and is\nnot a persisted column. Single-domain LookupDomain leaves it at\nthe zero value — callers that need the count call the list path\n(this column-versus-aggregate split avoids changing every store\nsignature to thread an agent-counter through).',
     )
     created_at: str | None = None
+    dkim_public_key: str | None = None
+    dkim_selector: str | None = Field(
+        None,
+        description="DKIM keypair fields (BACKEND_TODO #5). The selector + public key\nare user-facing — the dashboard shows them so users can copy the\nDNS TXT record. The private key is intentionally NOT in the JSON\nshape; it's only read by the outbound signer via\nGetDKIMKey(domain). Domains created before migration 014 ran\nkeep all three NULL until the next ClaimOrCreate or backfill.",
+    )
     domain: str | None = None
     is_primary: bool | None = Field(
         None,

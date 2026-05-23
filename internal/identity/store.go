@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/dkim"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -49,6 +51,14 @@ type Domain struct {
 	// (this column-versus-aggregate split avoids changing every store
 	// signature to thread an agent-counter through).
 	AgentCount int `json:"agent_count"`
+	// DKIM keypair fields (BACKEND_TODO #5). The selector + public key
+	// are user-facing — the dashboard shows them so users can copy the
+	// DNS TXT record. The private key is intentionally NOT in the JSON
+	// shape; it's only read by the outbound signer via
+	// GetDKIMKey(domain). Domains created before migration 014 ran
+	// keep all three NULL until the next ClaimOrCreate or backfill.
+	DKIMSelector  string `json:"dkim_selector,omitempty"`
+	DKIMPublicKey string `json:"dkim_public_key,omitempty"`
 }
 
 type AgentIdentity struct {
@@ -251,18 +261,38 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 
 	verificationToken := "e2a-verify=" + generateID()
 
-	// Atomic upsert: insert new or overwrite unverified
+	// Generate a DKIM keypair for this domain. Failures here are
+	// non-fatal — the columns are nullable and the outbound signer
+	// treats a missing key as "skip DKIM". We still log because key gen
+	// failing is a hard signal (entropy exhaustion or an OS-level
+	// CSPRNG bug) that ops should see.
+	var dkimSelector string
+	var dkimPubKey string
+	var dkimPrivKey []byte
+	if kp, kerr := dkim.GenerateKeypair(); kerr == nil {
+		dkimSelector = kp.Selector
+		dkimPubKey = kp.PublicKeyDNS
+		dkimPrivKey = kp.PrivateKeyDER
+	} else {
+		log.Printf("[identity] dkim keygen failed for %s: %v", domain, kerr)
+	}
+
+	// Atomic upsert: insert new or overwrite unverified. The DKIM
+	// columns are only written on a true INSERT — the ON CONFLICT
+	// branch leaves any existing key in place so re-claiming an
+	// unverified domain doesn't invalidate signatures on mail already
+	// in flight.
 	d := &Domain{}
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO domains (domain, user_id, verified, verification_token)
-		 VALUES ($1, $2, false, $3)
+		`INSERT INTO domains (domain, user_id, verified, verification_token, dkim_selector, dkim_public_key, dkim_private_key)
+		 VALUES ($1, $2, false, $3, $4, $5, $6)
 		 ON CONFLICT (domain) DO UPDATE
 		 SET user_id = EXCLUDED.user_id,
 		     verification_token = EXCLUDED.verification_token
 		 WHERE domains.verified = false
-		 RETURNING domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at`,
-		domain, userID, verificationToken,
-	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt)
+		 RETURNING domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, '')`,
+		domain, userID, verificationToken, nullIfEmpty(dkimSelector), nullIfEmpty(dkimPubKey), nullIfEmptyBytes(dkimPrivKey),
+	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey)
 
 	if err == nil {
 		return d, nil
@@ -271,9 +301,9 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 	// No row returned — domain exists and is verified. Check ownership.
 	existing := &Domain{}
 	err = s.pool.QueryRow(ctx,
-		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at
+		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, '')
 		 FROM domains WHERE domain = $1`, domain,
-	).Scan(&existing.Domain, &existing.UserID, &existing.Verified, &existing.VerificationToken, &existing.CreatedAt, &existing.VerifiedAt, &existing.IsPrimary, &existing.LastCheckedAt)
+	).Scan(&existing.Domain, &existing.UserID, &existing.Verified, &existing.VerificationToken, &existing.CreatedAt, &existing.VerifiedAt, &existing.IsPrimary, &existing.LastCheckedAt, &existing.DKIMSelector, &existing.DKIMPublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("domain lookup failed: %w", err)
 	}
@@ -285,14 +315,52 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 	return nil, fmt.Errorf("domain not available")
 }
 
+// nullIfEmpty returns nil for empty strings so we can write SQL NULL
+// (rather than empty-string) for nullable text columns. Pgx treats an
+// untyped nil interface{} as NULL.
+func nullIfEmpty(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// nullIfEmptyBytes is the BYTEA counterpart of nullIfEmpty.
+func nullIfEmptyBytes(b []byte) interface{} {
+	if len(b) == 0 {
+		return nil
+	}
+	return b
+}
+
+// GetDKIMKey returns the stored selector + private key bytes for a
+// domain, used by the outbound signer. Returns ("", nil, nil) when the
+// domain has no key — callers MUST treat this as "skip signing" and
+// fall back to whatever the relay-level fallback does.
+func (s *Store) GetDKIMKey(ctx context.Context, domain string) (string, []byte, error) {
+	var selector string
+	var privKey []byte
+	err := s.pool.QueryRow(ctx,
+		`SELECT COALESCE(dkim_selector, ''), dkim_private_key FROM domains WHERE domain = $1`,
+		normalizeDomain(domain),
+	).Scan(&selector, &privKey)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil, nil
+	}
+	if err != nil {
+		return "", nil, fmt.Errorf("dkim key lookup: %w", err)
+	}
+	return selector, privKey, nil
+}
+
 // LookupDomain returns a domain if it exists and is owned by the given user.
 func (s *Store) LookupDomain(ctx context.Context, domain, userID string) (*Domain, error) {
 	d := &Domain{}
 	err := s.pool.QueryRow(ctx,
-		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at
+		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, '')
 		 FROM domains WHERE domain = $1 AND user_id = $2`,
 		normalizeDomain(domain), userID,
-	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt)
+	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("domain not found")
 	}
@@ -324,6 +392,7 @@ func (s *Store) ListDomainsByUser(ctx context.Context, userID string) ([]Domain,
 	rows, err := s.pool.Query(ctx,
 		`SELECT d.domain, d.user_id, d.verified, d.verification_token, d.created_at, d.verified_at,
 		        d.is_primary, d.last_checked_at,
+		        COALESCE(d.dkim_selector, ''), COALESCE(d.dkim_public_key, ''),
 		        (SELECT count(*) FROM agent_identities a WHERE a.domain = d.domain AND a.user_id = d.user_id) AS agent_count
 		 FROM domains d
 		 WHERE d.user_id = $1
@@ -337,7 +406,7 @@ func (s *Store) ListDomainsByUser(ctx context.Context, userID string) ([]Domain,
 	var domains []Domain
 	for rows.Next() {
 		var d Domain
-		if err := rows.Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.AgentCount); err != nil {
+		if err := rows.Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.AgentCount); err != nil {
 			return nil, err
 		}
 		domains = append(domains, d)

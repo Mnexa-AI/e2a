@@ -131,7 +131,7 @@ func main() {
 	deliveryStore := webhook.NewDeliveryStore(pool)
 	persistentDeliverer := webhook.NewPersistentDeliverer(deliverer, deliveryStore)
 	smtpRelay := outbound.NewSMTPRelay(&cfg.OutboundSMTP)
-	sender := outbound.NewSender(smtpRelay, cfg.OutboundSMTP.FromDomain)
+	sender := outbound.NewSenderWithDKIM(smtpRelay, cfg.OutboundSMTP.FromDomain, store)
 
 	// User auth (Google OAuth for agent developers)
 	userAuth := auth.NewUserAuth(&cfg.OAuth, store, cfg.IsProduction())
