@@ -286,10 +286,8 @@ function PendingContent() {
         </div>
       ) : (
         <div
-          className="grid"
+          className="grid grid-cols-1 md:grid-cols-[320px_minmax(0,1fr)] md:[height:calc(100vh-var(--chrome-h)-200px)]"
           style={{
-            gridTemplateColumns: "320px minmax(0, 1fr)",
-            height: "calc(100vh - var(--chrome-h) - 200px)",
             minHeight: 520,
             background: "var(--bg-panel)",
             border: "1px solid var(--border)",
@@ -297,10 +295,11 @@ function PendingContent() {
             overflow: "hidden",
           }}
         >
-          {/* Queue */}
+          {/* Queue. Border becomes a bottom divider on narrow viewports
+              where the queue stacks above the detail pane. */}
           <div
-            className="flex flex-col min-h-0"
-            style={{ borderRight: "1px solid var(--border)" }}
+            className="flex flex-col min-h-0 border-b md:border-b-0 md:border-r"
+            style={{ borderColor: "var(--border)" }}
           >
             <div
               className="px-3 py-2.5 flex items-center justify-between"
