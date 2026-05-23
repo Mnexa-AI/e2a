@@ -749,12 +749,33 @@ definitions:
         type: integer
       id:
         type: string
+      inbound_7d:
+        description: |-
+          Dashboard enrichment fields (BACKEND_TODO #2). Computed at read
+          time by ListAgentsByUser via correlated subqueries — other load
+          paths (GetAgentByID / GetAgentByEmail) leave them at zero values,
+          same pattern as Domain.AgentCount. Switch to denormalized columns
+          if the read cost ever bites.
+        type: integer
+      last_delivery_at:
+        type: string
       name:
         type: string
+      outbound_7d:
+        type: integer
+      pending_count:
+        type: integer
       public:
         type: boolean
       user_id:
         type: string
+      webhook_healthy:
+        description: |-
+          WebhookHealthy is false iff there's been a failed webhook delivery
+          in the last 24h. Defaults to true for agents with no deliveries
+          yet — avoids painting fresh agents red. Meaningless for
+          agent_mode='local'; the frontend hides the badge in that case.
+        type: boolean
       webhook_url:
         type: string
     type: object

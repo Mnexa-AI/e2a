@@ -1339,3 +1339,124 @@ func TestGetDashboardStats_DeliverySuccess(t *testing.T) {
 		t.Errorf("DeliverySuccessPct = %v, want ~66.7 (2 delivered / 3 finalized; pending excluded)", stats.DeliverySuccessPct)
 	}
 }
+
+// --- Dashboard enriched DashboardAgent (BACKEND_TODO #2) ---
+
+// TestListAgentsByUser_EnrichedFields: the dashboard's GET /api/dashboard/agents
+// must surface per-agent stats (Inbound7d, Outbound7d, PendingCount,
+// LastDeliveryAt, WebhookHealthy) so the cards can render without
+// extra round-trips. Asserts the five subqueries produce the right
+// counts for a representative mix of activity.
+func TestListAgentsByUser_EnrichedFields(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "enriched-agent@example.com", "Owner", "google-enriched")
+	store.ClaimOrCreateDomain(ctx, "enriched.example.com", user.ID)
+	store.VerifyDomain(ctx, "enriched.example.com", user.ID)
+	agent, _ := store.CreateAgent(ctx, "bot@enriched.example.com", "enriched.example.com", "", "https://example.com/wh", "cloud", user.ID)
+
+	// Seed:
+	//   2 inbound in last 7d, 1 inbound > 7d old
+	//   3 outbound (sent) in last 7d, 1 pending_approval
+	//   1 webhook delivery: delivered (healthy)
+	for i := 0; i < 2; i++ {
+		store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", agent.EmailAddress(), "", "in fresh", "", "", nil, nil, nil, nil, nil)
+	}
+	old, _ := store.CreateInboundMessage(ctx, "", agent.ID, "old@gmail.com", agent.EmailAddress(), "", "in old", "", "", nil, nil, nil, nil, nil)
+	pool.Exec(ctx, `UPDATE messages SET created_at = now() - interval '14 days' WHERE id = $1`, old.ID)
+
+	for i := 0; i < 3; i++ {
+		store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "out", "send", "smtp", "", "")
+	}
+	pending, _ := store.CreatePendingOutboundMessage(ctx, agent.ID,
+		[]string{"bob@example.com"}, nil, nil, "held", "body", "", nil,
+		"send", "", "", 3600)
+	_ = pending
+
+	// One delivered webhook (healthy state)
+	m, _ := store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "delivered-msg", "send", "webhook", "", "")
+	pool.Exec(ctx,
+		`INSERT INTO webhook_deliveries (message_id, status, attempts, last_error, created_at, last_attempt_at)
+		 VALUES ($1, 'delivered', 1, '', now(), now())`,
+		m.ID)
+
+	agents, err := store.ListAgentsByUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("ListAgentsByUser: %v", err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(agents))
+	}
+	a := agents[0]
+	if a.Inbound7d != 2 {
+		t.Errorf("Inbound7d = %d, want 2 (excludes the 14-day-old row)", a.Inbound7d)
+	}
+	if a.Outbound7d != 5 {
+		// 3 plain "out" + 1 pending + 1 "delivered-msg" = 5 in last 7d.
+		// Outbound count includes pending (status=pending_approval) — the
+		// pending separately surfaces under PendingCount, but it's still a
+		// 7-day outbound event for the activity sparkline.
+		t.Errorf("Outbound7d = %d, want 5", a.Outbound7d)
+	}
+	if a.PendingCount != 1 {
+		t.Errorf("PendingCount = %d, want 1", a.PendingCount)
+	}
+	if a.LastDeliveryAt == nil {
+		t.Errorf("LastDeliveryAt should be set (we created 4 sent outbound messages)")
+	}
+	if !a.WebhookHealthy {
+		t.Errorf("WebhookHealthy = false, want true (only delivery is status=delivered)")
+	}
+}
+
+// TestListAgentsByUser_WebhookUnhealthyOnRecentFailure: a failed delivery
+// in the last 24h flips WebhookHealthy to false. Operator-visible signal
+// so the dashboard can paint the badge red.
+func TestListAgentsByUser_WebhookUnhealthyOnRecentFailure(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "wh-fail@example.com", "Owner", "google-wh-fail")
+	store.ClaimOrCreateDomain(ctx, "whfail.example.com", user.ID)
+	store.VerifyDomain(ctx, "whfail.example.com", user.ID)
+	agent, _ := store.CreateAgent(ctx, "bot@whfail.example.com", "whfail.example.com", "", "https://example.com/wh", "cloud", user.ID)
+
+	m, _ := store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "failed-msg", "send", "webhook", "", "")
+	pool.Exec(ctx,
+		`INSERT INTO webhook_deliveries (message_id, status, attempts, last_error, created_at, last_attempt_at)
+		 VALUES ($1, 'failed', 3, '500 internal', now(), now() - interval '5 minutes')`,
+		m.ID)
+
+	agents, _ := store.ListAgentsByUser(ctx, user.ID)
+	if agents[0].WebhookHealthy {
+		t.Error("WebhookHealthy = true, want false on recent failed delivery")
+	}
+}
+
+// TestListAgentsByUser_OldFailureDoesNotPoisonHealth: failures older
+// than 24h don't flip WebhookHealthy. Otherwise a one-off blip from
+// last week would forever paint the agent red.
+func TestListAgentsByUser_OldFailureDoesNotPoisonHealth(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "wh-old-fail@example.com", "Owner", "google-wh-of")
+	store.ClaimOrCreateDomain(ctx, "wholdfail.example.com", user.ID)
+	store.VerifyDomain(ctx, "wholdfail.example.com", user.ID)
+	agent, _ := store.CreateAgent(ctx, "bot@wholdfail.example.com", "wholdfail.example.com", "", "https://example.com/wh", "cloud", user.ID)
+
+	m, _ := store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "stale-fail", "send", "webhook", "", "")
+	pool.Exec(ctx,
+		`INSERT INTO webhook_deliveries (message_id, status, attempts, last_error, created_at, last_attempt_at)
+		 VALUES ($1, 'failed', 5, 'stale', now() - interval '3 days', now() - interval '3 days')`,
+		m.ID)
+
+	agents, _ := store.ListAgentsByUser(ctx, user.ID)
+	if !agents[0].WebhookHealthy {
+		t.Error("WebhookHealthy = false, want true (3-day-old failure shouldn't poison health)")
+	}
+}

@@ -65,6 +65,20 @@ type AgentIdentity struct {
 	HITLEnabled          bool      `json:"hitl_enabled"`
 	HITLTTLSeconds       int       `json:"hitl_ttl_seconds"`
 	HITLExpirationAction string    `json:"hitl_expiration_action"`
+	// Dashboard enrichment fields (BACKEND_TODO #2). Computed at read
+	// time by ListAgentsByUser via correlated subqueries — other load
+	// paths (GetAgentByID / GetAgentByEmail) leave them at zero values,
+	// same pattern as Domain.AgentCount. Switch to denormalized columns
+	// if the read cost ever bites.
+	Inbound7d      int        `json:"inbound_7d"`
+	Outbound7d     int        `json:"outbound_7d"`
+	PendingCount   int        `json:"pending_count"`
+	LastDeliveryAt *time.Time `json:"last_delivery_at,omitempty"`
+	// WebhookHealthy is false iff there's been a failed webhook delivery
+	// in the last 24h. Defaults to true for agents with no deliveries
+	// yet — avoids painting fresh agents red. Meaningless for
+	// agent_mode='local'; the frontend hides the badge in that case.
+	WebhookHealthy bool `json:"webhook_healthy"`
 }
 
 // HITL constants mirror the CHECK constraints in migration 003_hitl.sql.
@@ -560,12 +574,36 @@ func (s *Store) UpdateAgentHITL(ctx context.Context, agentID, userID string, ena
 	return nil
 }
 
-// ListAgentsByUser returns all agents owned by the user, joined with domain verification.
+// ListAgentsByUser returns all agents owned by the user, joined with
+// domain verification AND enriched with per-agent stats for the
+// dashboard (BACKEND_TODO #2). Five correlated subqueries compute
+// inbound/outbound 7-day counts, pending approvals, last delivery, and
+// webhook health in a single round-trip. Other load paths
+// (GetAgentByID, GetAgentByEmail) intentionally don't compute these —
+// only the dashboard needs them.
 func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIdentity, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT a.id, a.domain, a.user_id, a.name, a.webhook_url, a.agent_mode, a.public, a.created_at,
 		        a.hitl_enabled, a.hitl_ttl_seconds, a.hitl_expiration_action,
-		        d.verified as domain_verified
+		        d.verified as domain_verified,
+		        (SELECT count(*) FROM messages m
+		           WHERE m.agent_id = a.id AND m.direction = 'inbound'
+		             AND m.created_at > now() - interval '7 days') AS inbound_7d,
+		        (SELECT count(*) FROM messages m
+		           WHERE m.agent_id = a.id AND m.direction = 'outbound'
+		             AND m.created_at > now() - interval '7 days') AS outbound_7d,
+		        (SELECT count(*) FROM messages m
+		           WHERE m.agent_id = a.id AND m.status = 'pending_approval') AS pending_count,
+		        (SELECT max(m.created_at) FROM messages m
+		           WHERE m.agent_id = a.id AND m.direction = 'outbound'
+		             AND m.status = 'sent') AS last_delivery_at,
+		        NOT EXISTS (
+		           SELECT 1 FROM webhook_deliveries wd
+		           JOIN messages m ON m.id = wd.message_id
+		           WHERE m.agent_id = a.id
+		             AND wd.status = 'failed'
+		             AND wd.last_attempt_at > now() - interval '24 hours'
+		        ) AS webhook_healthy
 		 FROM agent_identities a
 		 JOIN domains d ON a.domain = d.domain
 		 WHERE a.user_id = $1
@@ -579,11 +617,15 @@ func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIde
 	var agents []AgentIdentity
 	for rows.Next() {
 		var a AgentIdentity
+		var lastDeliveryAt *time.Time
 		if err := rows.Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.WebhookURL, &a.AgentMode, &a.Public, &a.CreatedAt,
 			&a.HITLEnabled, &a.HITLTTLSeconds, &a.HITLExpirationAction,
-			&a.DomainVerified); err != nil {
+			&a.DomainVerified,
+			&a.Inbound7d, &a.Outbound7d, &a.PendingCount,
+			&lastDeliveryAt, &a.WebhookHealthy); err != nil {
 			return nil, err
 		}
+		a.LastDeliveryAt = lastDeliveryAt
 		a.populateEmail()
 		agents = append(agents, a)
 	}

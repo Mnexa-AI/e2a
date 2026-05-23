@@ -19,9 +19,20 @@ class AgentIdentity(BaseModel):
     hitl_expiration_action: str | None = None
     hitl_ttl_seconds: int | None = None
     id: str | None = None
+    inbound_7d: int | None = Field(
+        None,
+        description='Dashboard enrichment fields (BACKEND_TODO #2). Computed at read\ntime by ListAgentsByUser via correlated subqueries — other load\npaths (GetAgentByID / GetAgentByEmail) leave them at zero values,\nsame pattern as Domain.AgentCount. Switch to denormalized columns\nif the read cost ever bites.',
+    )
+    last_delivery_at: str | None = None
     name: str | None = None
+    outbound_7d: int | None = None
+    pending_count: int | None = None
     public: bool | None = None
     user_id: str | None = None
+    webhook_healthy: bool | None = Field(
+        None,
+        description="WebhookHealthy is false iff there's been a failed webhook delivery\nin the last 24h. Defaults to true for agents with no deliveries\nyet — avoids painting fresh agents red. Meaningless for\nagent_mode='local'; the frontend hides the badge in that case.",
+    )
     webhook_url: str | None = None
 
 
