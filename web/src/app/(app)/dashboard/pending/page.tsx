@@ -1,36 +1,152 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { listPendingMessages } from "../../../components/onboarding/api";
 import type { PendingMessageSummary } from "../../../components/types";
 import { PageShell } from "../../../components/loft/PageShell";
 import { Chip } from "../../../components/loft/Chip";
+import { PendingDetailPanel } from "./_components/PendingDetailPanel";
+
+// Pending review — split-pane layout matching redesign/pending.jsx.
+// Left column (320px): queue of pending messages. Right column: detail
+// of the selected message, driven by the ?id= URL param. Clicking a
+// queue row updates the URL; the detail panel re-loads on id change.
+//
+// The detail panel is a separate component so it can update its own
+// state (drafts, save in flight) without forcing a queue reflow on
+// every keystroke. After approve/reject, the panel calls onChanged()
+// which refreshes the queue and auto-advances to the next pending row.
 
 function formatExpiresIn(iso?: string): string {
-  if (!iso) return "—";
-  const expiresAt = new Date(iso).getTime();
-  const now = Date.now();
-  const diff = expiresAt - now;
-  if (diff <= 0) return "expired";
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 60) return `in ${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  if (hours < 24) return mins === 0 ? `in ${hours}h` : `in ${hours}h ${mins}m`;
-  const days = Math.floor(hours / 24);
-  const h = hours % 24;
-  return h === 0 ? `in ${days}d` : `in ${days}d ${h}h`;
+  if (!iso) return "";
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return "expired";
+  const min = Math.floor(ms / 60_000);
+  if (min < 60) return `in ${min}m`;
+  const h = Math.floor(min / 60);
+  return h < 24 ? `in ${h}h` : `in ${Math.floor(h / 24)}d`;
 }
 
-function joinRecipients(to: string[], cc?: string[]): string {
-  const all = [...to, ...(cc ?? [])];
-  if (all.length === 0) return "(no recipients)";
-  if (all.length === 1) return all[0];
-  return `${all[0]} + ${all.length - 1} more`;
+function formatQueuedAgo(iso: string): string {
+  const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
 
-export default function PendingPage() {
+function initialsFor(email: string): string {
+  const local = email.split("@")[0] || email;
+  return (
+    local
+      .split(/[.\-_]/)
+      .slice(0, 2)
+      .map((s) => s.charAt(0).toUpperCase())
+      .join("") || "?"
+  );
+}
+
+function hueFor(email: string): number {
+  const local = email.split("@")[0] || email;
+  let hash = 0;
+  for (let i = 0; i < local.length; i++)
+    hash = (hash * 31 + local.charCodeAt(i)) | 0;
+  return Math.abs(hash) % 360;
+}
+
+function QueueRow({
+  msg,
+  active,
+  onClick,
+}: {
+  msg: PendingMessageSummary;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const expires = formatExpiresIn(msg.approval_expires_at);
+  const queued = formatQueuedAgo(msg.created_at);
+  const hue = hueFor(msg.agent_id);
+  const accent = active;
+
+  return (
+    <button
+      onClick={onClick}
+      className="w-full text-left px-3 py-2.5 transition flex gap-2.5"
+      style={{
+        background: active ? "var(--bg-elev)" : "transparent",
+        borderLeft: active
+          ? "2px solid var(--accent-fill)"
+          : "2px solid transparent",
+        borderBottom: "1px solid var(--border-sub)",
+      }}
+    >
+      <div
+        className="flex items-center justify-center font-mono text-[10px] font-semibold shrink-0"
+        style={{
+          width: 26,
+          height: 26,
+          borderRadius: "50%",
+          background: `hsl(${hue}, 45%, 35%)`,
+          color: "#fff",
+        }}
+      >
+        {initialsFor(msg.agent_id)}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div
+          className="text-[13px] font-semibold truncate"
+          style={{
+            color: accent ? "var(--fg)" : "var(--fg)",
+          }}
+        >
+          {msg.subject || "(no subject)"}
+        </div>
+        <div
+          className="font-mono text-[10.5px] truncate"
+          style={{ color: "var(--fg-subtle)" }}
+        >
+          {msg.agent_id} → {(msg.to ?? [])[0] || "—"}
+          {msg.to && msg.to.length > 1 && ` +${msg.to.length - 1}`}
+        </div>
+        <div
+          className="font-mono text-[10.5px] flex items-center gap-1.5 mt-1 flex-wrap"
+          style={{ color: "var(--fg-subtle)" }}
+        >
+          {expires && (
+            <span
+              style={{
+                color:
+                  expires === "expired"
+                    ? "var(--danger-strong)"
+                    : expires.startsWith("in 0") || expires.match(/in \d+m$/)
+                      ? "var(--warn-strong)"
+                      : "var(--fg-subtle)",
+              }}
+            >
+              expires {expires}
+            </span>
+          )}
+          {expires && <span>·</span>}
+          <span>{queued}</span>
+          {msg.type && (
+            <Chip tone="info" mono>
+              {msg.type === "reply" ? "reply" : msg.type === "test" ? "test" : "send"}
+            </Chip>
+          )}
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function PendingContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const selectedId = searchParams.get("id") ?? "";
+
   const [messages, setMessages] = useState<PendingMessageSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -53,12 +169,51 @@ export default function PendingPage() {
     load();
   }, [load]);
 
-  // Topbar pulse — surfaces the count + how many expire within 1h.
+  // Auto-select the first row when the URL has no id and there are
+  // messages. Mirrors the mock — the right pane always has content
+  // when the queue is non-empty.
+  useEffect(() => {
+    if (!selectedId && messages.length > 0) {
+      router.replace(
+        `/dashboard/pending?id=${encodeURIComponent(messages[0].id)}`,
+        { scroll: false },
+      );
+    }
+  }, [selectedId, messages, router]);
+
+  const handleSelect = (id: string) => {
+    router.push(`/dashboard/pending?id=${encodeURIComponent(id)}`, {
+      scroll: false,
+    });
+  };
+
+  // After approve/reject, refresh the queue. If the selected message
+  // is no longer in the list, advance to the next pending row.
+  const handleChanged = useCallback(async () => {
+    try {
+      const fresh = await listPendingMessages();
+      setMessages(fresh);
+      const stillThere = fresh.some((m) => m.id === selectedId);
+      if (!stillThere && fresh.length > 0) {
+        router.replace(
+          `/dashboard/pending?id=${encodeURIComponent(fresh[0].id)}`,
+          { scroll: false },
+        );
+      } else if (fresh.length === 0) {
+        router.replace("/dashboard/pending", { scroll: false });
+      }
+    } catch {
+      // best-effort — leave selectedId stale, the panel will surface
+      // a "not pending" state on next click
+    }
+  }, [router, selectedId]);
+
   const expiringSoon = messages.filter((m) => {
     if (!m.approval_expires_at) return false;
     const ms = new Date(m.approval_expires_at).getTime() - Date.now();
     return ms > 0 && ms < 60 * 60 * 1000;
   }).length;
+
   const subtitleLine =
     messages.length > 0 ? (
       <>
@@ -73,19 +228,24 @@ export default function PendingPage() {
         )}
       </>
     ) : (
-      "Messages your agents want to send that are waiting on your review."
+      "Outbound messages your agents want to send. Approve as-is, edit, or reject."
     );
 
   return (
     <PageShell
-      crumbs={["Pending"]}
-      eyebrow="Human-in-the-loop"
+      crumbs={
+        selectedId
+          ? ["Pending", selectedId.slice(0, 12) + "…"]
+          : ["Pending"]
+      }
+      eyebrow="Human-in-the-loop · Inbound review"
       title={<>Pending approval</>}
       subtitle={subtitleLine}
+      maxWidth={1400}
     >
       {error && (
         <div
-          className="mb-6 p-3 text-[13px]"
+          className="mb-4 p-3 text-[13px]"
           style={{
             background: "var(--danger-bg)",
             color: "var(--danger-strong)",
@@ -102,11 +262,11 @@ export default function PendingPage() {
           className="text-[13px] py-12 text-center"
           style={{ color: "var(--fg-muted)" }}
         >
-          Loading...
+          Loading…
         </div>
       ) : messages.length === 0 ? (
         <div
-          className="p-8 text-center"
+          className="p-12 text-center"
           style={{
             background: "var(--bg-panel)",
             border: "1px solid var(--border)",
@@ -125,61 +285,93 @@ export default function PendingPage() {
           </p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {messages.map((m) => (
-            <Link
-              key={m.id}
-              href={`/dashboard/pending/review?id=${encodeURIComponent(m.id)}`}
-              className="block p-4 transition"
+        <div
+          className="grid"
+          style={{
+            gridTemplateColumns: "320px minmax(0, 1fr)",
+            height: "calc(100vh - var(--chrome-h) - 200px)",
+            minHeight: 520,
+            background: "var(--bg-panel)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r-lg)",
+            overflow: "hidden",
+          }}
+        >
+          {/* Queue */}
+          <div
+            className="flex flex-col min-h-0"
+            style={{ borderRight: "1px solid var(--border)" }}
+          >
+            <div
+              className="px-3 py-2.5 flex items-center justify-between"
               style={{
-                background: "var(--bg-panel)",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--r-lg)",
+                background: "var(--bg-elev)",
+                borderBottom: "1px solid var(--border)",
               }}
             >
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                    <span
-                      className="text-[14px] font-semibold truncate"
-                      style={{ color: "var(--fg)" }}
-                    >
-                      {m.subject || "(no subject)"}
-                    </span>
-                    {m.type && (
-                      <Chip tone="info" mono>
-                        {m.type}
-                      </Chip>
-                    )}
-                  </div>
-                  <p
-                    className="text-[12px] font-mono truncate"
-                    style={{ color: "var(--fg-muted)" }}
-                  >
-                    <span style={{ color: "var(--fg)" }}>{m.agent_id}</span>
-                    {" → "}
-                    {joinRecipients(m.to, m.cc)}
-                  </p>
-                </div>
-                <div
-                  className="text-[12px] shrink-0 text-right"
-                  style={{ color: "var(--fg-muted)" }}
-                >
-                  <div style={{ color: "var(--warn-strong)" }}>
-                    {formatExpiresIn(m.approval_expires_at)}
-                  </div>
-                  <div
-                    className="text-[11px] mt-0.5 font-mono"
-                    style={{ color: "var(--fg-subtle)" }}
-                  >
-                    {new Date(m.created_at).toLocaleString()}
-                  </div>
-                </div>
+              <span
+                className="text-[12px] font-semibold"
+                style={{ color: "var(--fg)" }}
+              >
+                Queue
+              </span>
+              <span
+                className="font-mono text-[11px]"
+                style={{ color: "var(--fg-subtle)" }}
+              >
+                {messages.length}
+              </span>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              {messages.map((m) => (
+                <QueueRow
+                  key={m.id}
+                  msg={m}
+                  active={m.id === selectedId}
+                  onClick={() => handleSelect(m.id)}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Detail */}
+          <div className="min-h-0 overflow-hidden">
+            {selectedId ? (
+              <PendingDetailPanel
+                key={selectedId}
+                messageId={selectedId}
+                onChanged={handleChanged}
+              />
+            ) : (
+              <div
+                className="text-[13px] py-12 text-center"
+                style={{ color: "var(--fg-muted)" }}
+              >
+                Select a message from the queue.
               </div>
-            </Link>
-          ))}
+            )}
+          </div>
         </div>
       )}
     </PageShell>
+  );
+}
+
+export default function PendingPage() {
+  return (
+    <Suspense
+      fallback={
+        <PageShell crumbs={["Pending"]}>
+          <div
+            className="text-[13px] py-12 text-center"
+            style={{ color: "var(--fg-muted)" }}
+          >
+            Loading…
+          </div>
+        </PageShell>
+      }
+    >
+      <PendingContent />
+    </Suspense>
   );
 }
