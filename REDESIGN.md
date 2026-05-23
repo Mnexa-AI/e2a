@@ -190,7 +190,7 @@ Translate inline styles to Tailwind utility classes using the new tokens. Where 
 |---|---|---|
 | `redesign/landing.jsx` | `/` | `web/src/app/page.tsx` (+ extract sections into `_components/` if it grows past ~200 lines) |
 | `redesign/dashboard.jsx` | `/dashboard` | `web/src/app/(app)/dashboard/page.tsx` + `_components/AgentCard.tsx`, `ActivityPanel.tsx`, etc. |
-| `redesign/pending.jsx` | `/dashboard/pending` and `/dashboard/pending/review` | `web/src/app/(app)/dashboard/pending/page.tsx` (list) + a new `review/page.tsx` (detail with diff/approve/reject) |
+| `redesign/pending.jsx` | `/dashboard/pending` (split-pane) | `web/src/app/(app)/dashboard/pending/page.tsx` (queue + detail, URL state via `?id=`) + `_components/PendingDetailPanel.tsx`. `/dashboard/pending/review` exists as a redirect for old links. |
 | `redesign/get-started.jsx` | `/get-started` | `web/src/app/(app)/get-started/page.tsx` + the existing `_components/` |
 | `redesign/api-keys.jsx` | `/api-keys` | `web/src/app/(app)/api-keys/page.tsx` |
 | `redesign/domains.jsx` | `/domains` | `web/src/app/(app)/domains/page.tsx` + `_components/DomainCard.tsx`, `AddDomainForm.tsx` |
