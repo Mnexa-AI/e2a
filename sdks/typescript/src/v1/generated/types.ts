@@ -2110,9 +2110,27 @@ export interface components {
             hitl_expiration_action?: string;
             hitl_ttl_seconds?: number;
             id?: string;
+            /**
+             * @description Dashboard enrichment fields (BACKEND_TODO #2). Computed at read
+             *     time by ListAgentsByUser via correlated subqueries — other load
+             *     paths (GetAgentByID / GetAgentByEmail) leave them at zero values,
+             *     same pattern as Domain.AgentCount. Switch to denormalized columns
+             *     if the read cost ever bites.
+             */
+            inbound_7d?: number;
+            last_delivery_at?: string;
             name?: string;
+            outbound_7d?: number;
+            pending_count?: number;
             public?: boolean;
             user_id?: string;
+            /**
+             * @description WebhookHealthy is false iff there's been a failed webhook delivery
+             *     in the last 24h. Defaults to true for agents with no deliveries
+             *     yet — avoids painting fresh agents red. Meaningless for
+             *     agent_mode='local'; the frontend hides the badge in that case.
+             */
+            webhook_healthy?: boolean;
             webhook_url?: string;
         };
         "github_com_Mnexa-AI_e2a_internal_identity.Domain": {
