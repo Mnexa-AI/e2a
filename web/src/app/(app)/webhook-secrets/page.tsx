@@ -95,8 +95,10 @@ export default function WebhookSecretsPage() {
       title={<>Webhook secrets</>}
       subtitle={
         <>
-          HMAC secrets used to sign your agents&apos; inbound webhook
-          payloads. Pass any of these to{" "}
+          For cloud agents only. When your agent runs behind a webhook
+          (agent_mode=cloud), e2a HMAC-signs every inbound payload it
+          POSTs to you so your handler can confirm the request really
+          came from e2a. Pass any active secret to{" "}
           <code
             className="font-mono text-[12px] px-1.5 py-0.5"
             style={{
@@ -108,11 +110,12 @@ export default function WebhookSecretsPage() {
           >
             verify_signature()
           </code>{" "}
-          in the SDK to confirm a payload came from e2a. The relay always
-          signs with your most recently created secret; older ones stay
-          valid for verification until you delete them, so rotation is:
-          create new → swap in your code → delete old. Up to 5 active
-          secrets at a time.
+          in the SDK to validate. The relay always signs with your most
+          recently created secret; older ones remain valid for
+          verification until you delete them, so rotation is: create new
+          → swap in your code → delete old. Up to 5 active at a time.
+          (Local-mode agents pull messages via WebSocket and don&apos;t
+          need this — the WS auth handshake covers it.)
         </>
       }
     >

@@ -196,6 +196,7 @@ export function Sidebar({
             <Link
               key={item.href}
               href={item.href}
+              aria-current={active ? "page" : undefined}
               className="flex items-center gap-2.5 px-3 py-2 mb-px text-[13px] font-sans"
               style={{
                 borderRadius: "var(--r-md)",
