@@ -50,9 +50,13 @@ function getActiveKey(phase: ChecklistPhase): string {
 export function CustomDomainChecklist({
   initialDomain,
   onComplete,
+  onBack,
 }: {
   initialDomain?: DomainInfo | null;
   onComplete: (agent: AgentData, mode: AgentMode, webhookUrl: string) => void;
+  /** Returns the user to the address-type chooser. Parent wires this
+   * to router.back() so the browser history stays linear. */
+  onBack?: () => void;
 }) {
   const [domain, setDomain] = useState<DomainInfo | null>(initialDomain ?? null);
   const [existingDomains, setExistingDomains] = useState<DomainInfo[]>([]);
@@ -95,6 +99,17 @@ export function CustomDomainChecklist({
 
   return (
     <div>
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 mb-4 text-[12px] transition hover:opacity-80"
+          style={{ color: "var(--fg-muted)" }}
+        >
+          <span aria-hidden>←</span>
+          Back
+        </button>
+      )}
       {/* Checklist progress */}
       <div className="mb-8 flex items-center gap-3 text-xs">
         {checklistItems.map((item, i) => (
