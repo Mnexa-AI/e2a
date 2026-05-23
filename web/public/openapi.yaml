@@ -384,6 +384,13 @@ definitions:
       id:
         example: msg_abc123
         type: string
+      inbound:
+        allOf:
+        - $ref: '#/definitions/PendingMessageInboundContext'
+        description: |-
+          InboundContext is attached when this is a reply — provides the
+          SPF/DKIM/DMARC provenance + sender/subject of the inbound message
+          being replied to so the review panel can render the context pane.
       method:
         example: smtp
         type: string
@@ -434,6 +441,27 @@ definitions:
         - reply
         - test
         example: send
+        type: string
+    type: object
+  PendingMessageInboundContext:
+    properties:
+      auth_headers:
+        additionalProperties:
+          type: string
+        description: |-
+          AuthHeaders carries the SPF/DKIM/DMARC validation results captured
+          at inbound time. Keys are conventionally "spf", "dkim", "dmarc"
+          each with values "pass" | "fail" | "neutral" | etc. The dashboard
+          renders these as found/missing chips on the provenance pane.
+        type: object
+      created_at:
+        example: "2025-01-15T10:25:00Z"
+        type: string
+      sender:
+        example: alice@gmail.com
+        type: string
+      subject:
+        example: contract details
         type: string
     type: object
   PendingMessageSummary:

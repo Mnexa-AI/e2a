@@ -734,13 +734,17 @@ func (s *Store) GetInboundMessage(ctx context.Context, id string) (*Message, err
 // shared infra. Returns sql.ErrNoRows when the inbound has expired or
 // was never persisted; callers must tolerate that and fall back to
 // legacy single-id threading.
+//
+// auth_headers is included in the SELECT so HITL review handlers can
+// surface SPF/DKIM/DMARC provenance on the reply-context pane.
 func (s *Store) GetInboundByEmailMessageID(ctx context.Context, agentID, emailMessageID string) (*Message, error) {
 	if emailMessageID == "" {
 		return nil, fmt.Errorf("empty email_message_id")
 	}
 	m := &Message{}
+	var authHeaders map[string]string
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, created_at, expires_at
+		`SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, auth_headers, created_at, expires_at
 		 FROM messages
 		 WHERE agent_id = $1
 		   AND direction = 'inbound'
@@ -748,10 +752,11 @@ func (s *Store) GetInboundByEmailMessageID(ctx context.Context, agentID, emailMe
 		   AND expires_at > now()
 		 ORDER BY created_at DESC LIMIT 1`,
 		agentID, emailMessageID,
-	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.RawMessage, &m.CreatedAt, &m.ExpiresAt)
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.RawMessage, &authHeaders, &m.CreatedAt, &m.ExpiresAt)
 	if err != nil {
 		return nil, err
 	}
+	m.AuthHeaders = authHeaders
 	return m, nil
 }
 

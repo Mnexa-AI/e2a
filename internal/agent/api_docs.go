@@ -310,6 +310,10 @@ type PendingMessageDetail struct {
 	BodyHTML       string       `json:"body_html,omitempty"`
 	Attachments    []Attachment `json:"attachments,omitempty"`
 	Edited         bool         `json:"edited,omitempty"`
+	// InboundContext is attached when this is a reply — provides the
+	// SPF/DKIM/DMARC provenance + sender/subject of the inbound message
+	// being replied to so the review panel can render the context pane.
+	InboundContext *PendingMessageInboundContext `json:"inbound,omitempty"`
 	ReviewedAt     string       `json:"reviewed_at,omitempty" example:"2025-01-15T10:35:00Z"`
 	// ReviewedByUserID identifies the human reviewer for approved or
 	// rejected messages. NULL on TTL-expired transitions (worker
@@ -325,6 +329,21 @@ type PendingMessageDetail struct {
 	ProviderMessageID string       `json:"provider_message_id,omitempty"`
 	Method            string       `json:"method,omitempty" example:"smtp"`
 } // @name PendingMessageDetail
+
+// PendingMessageInboundContext is the inlined inbound-row preview
+// attached to a reply's pending detail. Body is intentionally elided
+// (the inbound's raw_message is RFC 5322 bytes; the review panel
+// surfaces only the headers + auth_headers).
+type PendingMessageInboundContext struct {
+	Sender      string            `json:"sender" example:"alice@gmail.com"`
+	Subject     string            `json:"subject" example:"contract details"`
+	CreatedAt   string            `json:"created_at" example:"2025-01-15T10:25:00Z"`
+	// AuthHeaders carries the SPF/DKIM/DMARC validation results captured
+	// at inbound time. Keys are conventionally "spf", "dkim", "dmarc"
+	// each with values "pass" | "fail" | "neutral" | etc. The dashboard
+	// renders these as found/missing chips on the provenance pane.
+	AuthHeaders map[string]string `json:"auth_headers,omitempty"`
+} // @name PendingMessageInboundContext
 
 // ListPendingMessagesResponse wraps the array returned by GET /api/v1/messages.
 type ListPendingMessagesResponse struct {

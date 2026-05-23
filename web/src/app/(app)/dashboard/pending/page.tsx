@@ -53,12 +53,35 @@ export default function PendingPage() {
     load();
   }, [load]);
 
+  // Topbar pulse — surfaces the count + how many expire within 1h.
+  const expiringSoon = messages.filter((m) => {
+    if (!m.approval_expires_at) return false;
+    const ms = new Date(m.approval_expires_at).getTime() - Date.now();
+    return ms > 0 && ms < 60 * 60 * 1000;
+  }).length;
+  const subtitleLine =
+    messages.length > 0 ? (
+      <>
+        {messages.length} pending
+        {expiringSoon > 0 && (
+          <>
+            {" · "}
+            <span style={{ color: "var(--accent-strong)", fontWeight: 500 }}>
+              {expiringSoon} expire within 1h
+            </span>
+          </>
+        )}
+      </>
+    ) : (
+      "Messages your agents want to send that are waiting on your review."
+    );
+
   return (
     <PageShell
       crumbs={["Pending"]}
       eyebrow="Human-in-the-loop"
       title={<>Pending approval</>}
-      subtitle="Messages your agents want to send that are waiting on your review."
+      subtitle={subtitleLine}
     >
       {error && (
         <div

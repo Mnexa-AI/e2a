@@ -1883,6 +1883,12 @@ export interface components {
             email_message_id?: string;
             /** @example msg_abc123 */
             id?: string;
+            /**
+             * @description InboundContext is attached when this is a reply — provides the
+             *     SPF/DKIM/DMARC provenance + sender/subject of the inbound message
+             *     being replied to so the review panel can render the context pane.
+             */
+            inbound?: components["schemas"]["PendingMessageInboundContext"];
             /** @example smtp */
             method?: string;
             provider_message_id?: string;
@@ -1923,6 +1929,23 @@ export interface components {
              * @enum {string}
              */
             type?: "send" | "reply" | "test";
+        };
+        PendingMessageInboundContext: {
+            /**
+             * @description AuthHeaders carries the SPF/DKIM/DMARC validation results captured
+             *     at inbound time. Keys are conventionally "spf", "dkim", "dmarc"
+             *     each with values "pass" | "fail" | "neutral" | etc. The dashboard
+             *     renders these as found/missing chips on the provenance pane.
+             */
+            auth_headers?: {
+                [key: string]: string;
+            };
+            /** @example 2025-01-15T10:25:00Z */
+            created_at?: string;
+            /** @example alice@gmail.com */
+            sender?: string;
+            /** @example contract details */
+            subject?: string;
         };
         PendingMessageSummary: {
             /** @example my-bot@example.com */
