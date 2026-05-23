@@ -11,8 +11,12 @@ import { AGENTS_DOMAIN } from "../../../../lib/site";
 
 export function SharedAgentForm({
   onCreated,
+  onBack,
 }: {
   onCreated: (agent: AgentData, mode: AgentMode, webhookUrl: string) => void;
+  /** Returns the user to the address-type chooser. Wired by the parent
+   * to router.back() so the browser history stays consistent. */
+  onBack?: () => void;
 }) {
   const [slug, setSlug] = useState("");
   const [name, setName] = useState("");
@@ -62,6 +66,17 @@ export function SharedAgentForm({
 
   return (
     <div>
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 mb-4 text-[12px] transition hover:opacity-80"
+          style={{ color: "var(--fg-muted)" }}
+        >
+          <span aria-hidden>←</span>
+          Back
+        </button>
+      )}
       <h2
         className="mb-2"
         style={{
