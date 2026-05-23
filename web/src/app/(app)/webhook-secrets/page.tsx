@@ -9,6 +9,18 @@ import { PageShell } from "../../components/loft/PageShell";
 // (both are credential surfaces; surfacing them at the same depth
 // makes them easier to find).
 
+// Inline-code chip used inline in the subtitle copy. Pulled out so
+// the two usages in the page header stay byte-identical.
+const inlineCodeStyle: React.CSSProperties = {
+  fontFamily: "var(--f-mono)",
+  fontSize: 12,
+  padding: "1px 6px",
+  background: "var(--bg-elev)",
+  border: "1px solid var(--border-sub)",
+  borderRadius: "var(--r-sm)",
+  color: "var(--fg)",
+};
+
 type SigningSecretSummary = {
   id: string;
   name: string;
@@ -95,27 +107,33 @@ export default function WebhookSecretsPage() {
       title={<>Webhook secrets</>}
       subtitle={
         <>
-          For cloud agents only. When your agent runs behind a webhook
-          (agent_mode=cloud), e2a HMAC-signs every inbound payload it
-          POSTs to you so your handler can confirm the request really
-          came from e2a. Pass any active secret to{" "}
-          <code
-            className="font-mono text-[12px] px-1.5 py-0.5"
+          <span style={{ display: "block" }}>
+            <strong style={{ color: "var(--fg)" }}>For cloud agents only.</strong>{" "}
+            When your agent runs behind a webhook
+            (<code style={inlineCodeStyle}>agent_mode=cloud</code>), e2a
+            HMAC-signs every inbound payload it POSTs to you so your
+            handler can confirm the request really came from e2a.
+          </span>
+          <span style={{ display: "block", marginTop: 10 }}>
+            Pass any active secret to{" "}
+            <code style={inlineCodeStyle}>verify_signature()</code> in the
+            SDK to validate. The relay always signs with your most
+            recently created secret; older ones remain valid for
+            verification until you delete them — so rotation is: create
+            new → swap in your code → delete old. Up to 5 active at a
+            time.
+          </span>
+          <span
             style={{
-              background: "var(--bg-elev)",
-              border: "1px solid var(--border-sub)",
-              borderRadius: "var(--r-sm)",
-              color: "var(--fg)",
+              display: "block",
+              marginTop: 10,
+              color: "var(--fg-subtle)",
+              fontSize: 12,
             }}
           >
-            verify_signature()
-          </code>{" "}
-          in the SDK to validate. The relay always signs with your most
-          recently created secret; older ones remain valid for
-          verification until you delete them, so rotation is: create new
-          → swap in your code → delete old. Up to 5 active at a time.
-          (Local-mode agents pull messages via WebSocket and don&apos;t
-          need this — the WS auth handshake covers it.)
+            Local-mode agents pull messages via WebSocket and don&apos;t
+            need this — the WS auth handshake covers it.
+          </span>
         </>
       }
     >
