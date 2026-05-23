@@ -235,6 +235,68 @@ func TestMagicApprovePOSTSends(t *testing.T) {
 	}
 }
 
+// TestMagicApprovePOSTSelfSendDeliversViaLoopback: approving a held
+// self-send via the magic-link path must route through loopback —
+// outbound.Sender.Send would strip the agent's own address (self-spam
+// guard) and fail with "no valid recipients". Asserts no SMTP traffic,
+// outbound row → sent+loopback, inbound row landed.
+func TestMagicApprovePOSTSelfSendDeliversViaLoopback(t *testing.T) {
+	server, store, signer, smtpDone := setupMagicLinkAPI(t)
+	a, userID := prepareHITLAgent(t, store, "post-approve-self")
+
+	// Hold a self-send (To = agent's own address).
+	ctx := context.Background()
+	held, err := store.CreatePendingOutboundMessage(ctx, a.ID,
+		[]string{a.EmailAddress()}, nil, nil,
+		"self-magic", "note to self via magic link", "", nil,
+		"send", "", "", 3600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tok, _ := signer.Sign(held.ID, approvaltoken.ActionApprove, time.Now().Add(1*time.Hour))
+	resp := postForm(t, server.URL+"/api/v1/approve", map[string]string{"t": tok})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST approve (self-send): status = %d, body: %s", resp.StatusCode, readBody(t, resp))
+	}
+	if body := readBody(t, resp); !strings.Contains(body, "Approved") {
+		t.Errorf("expected 'Approved' on the result page, got: %s", body)
+	}
+
+	if msgs := smtpDone(); len(msgs) != 0 {
+		t.Fatalf("self-send approve must not hit SMTP, got %d messages", len(msgs))
+	}
+
+	got, _ := store.GetOutboundMessageForUser(ctx, held.ID, userID)
+	if got.Status != identity.MessageStatusSent {
+		t.Errorf("outbound status = %q, want sent", got.Status)
+	}
+	if got.Method != "loopback" {
+		t.Errorf("method = %q, want loopback", got.Method)
+	}
+
+	// Inbound row reaches the agent's mailbox. GetMessagesByAgent's
+	// "all" status returns inbound rows regardless of read state.
+	inboxes, err := store.GetMessagesByAgent(ctx, a.ID, "all", 10, time.Time{}, "")
+	if err != nil {
+		t.Fatalf("GetMessagesByAgent: %v", err)
+	}
+	if len(inboxes) != 1 || inboxes[0].Subject != "self-magic" {
+		t.Errorf("inbound rows = %d, subjects = %v; want one row 'self-magic'", len(inboxes), subjectsOf(inboxes))
+	}
+}
+
+// subjectsOf is a small helper to keep error messages readable when an
+// inbox-shape assertion fails.
+func subjectsOf(msgs []identity.Message) []string {
+	out := make([]string, len(msgs))
+	for i, m := range msgs {
+		out[i] = m.Subject
+	}
+	return out
+}
+
 func TestMagicRejectPOSTWithReason(t *testing.T) {
 	server, store, signer, smtpDone := setupMagicLinkAPI(t)
 	a, userID := prepareHITLAgent(t, store, "post-reject")
