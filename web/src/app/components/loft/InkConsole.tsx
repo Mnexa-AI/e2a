@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "./Button";
 
 export type InkLineKind = "comment" | "prompt" | "string" | "accent" | "plain";
@@ -43,12 +43,27 @@ export function InkConsole({
 }: InkConsoleProps) {
   const showHeader = Boolean(title || lang || copy);
   const [copied, setCopied] = useState(false);
+  // Track the "copied" pulse timer so it can be cleared on unmount —
+  // otherwise a fast unmount within the 1.2s window would setState on
+  // an unmounted component. React 18+ silences the warning but the
+  // cleanup keeps the intent explicit.
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimer.current !== null) clearTimeout(copyTimer.current);
+    };
+  }, []);
 
   const onCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(plainText(lines));
       setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
+      if (copyTimer.current !== null) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => {
+        setCopied(false);
+        copyTimer.current = null;
+      }, 1200);
     } catch {
       // clipboard unavailable — silently ignore
     }
