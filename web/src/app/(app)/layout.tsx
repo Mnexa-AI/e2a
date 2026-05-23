@@ -1,10 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../components/AuthProvider";
 import { SignInLink } from "../components/SignInLink";
 import { Sidebar } from "../components/loft/Sidebar";
+
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export default function AppLayout({
   children,
@@ -13,20 +16,63 @@ export default function AppLayout({
 }) {
   const { user, loading } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // The hamburger button is the open trigger; we stash a ref so the
+  // drawer can restore focus to it on close (otherwise focus would
+  // land on document.body — keyboard users would lose their place).
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const drawerRef = useRef<HTMLDivElement | null>(null);
 
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
 
   useEffect(() => {
     if (!mobileNavOpen) return;
+
+    // Focus the first focusable element inside the drawer when it opens
+    // so keyboard users start inside the modal context, not on a stale
+    // background element. requestAnimationFrame defers until the drawer
+    // has actually painted.
+    const raf = requestAnimationFrame(() => {
+      const first = drawerRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+      first?.focus();
+    });
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeMobileNav();
+      if (e.key === "Escape") {
+        closeMobileNav();
+        return;
+      }
+      // Focus trap — wrap Tab/Shift+Tab inside the drawer so keyboard
+      // users can't move focus to elements behind the backdrop.
+      if (e.key !== "Tab" || !drawerRef.current) return;
+      const focusables = drawerRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+
     return () => {
+      cancelAnimationFrame(raf);
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
+      // Restore focus to the trigger so the user picks up where they
+      // left off. Reading .current at cleanup time is intentional: if
+      // the user resized to desktop while the drawer was open, the
+      // trigger has unmounted and we should focus nothing rather than
+      // a stale captured node. The lint rule's "capture at setup time"
+      // advice is the wrong pattern here.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      triggerRef.current?.focus();
     };
   }, [mobileNavOpen, closeMobileNav]);
 
@@ -73,7 +119,11 @@ export default function AppLayout({
       {/* Desktop sidebar */}
       <Sidebar />
 
-      {/* Mobile slide-in sidebar */}
+      {/* Mobile slide-in sidebar.
+          role=dialog + aria-modal=true announce the drawer as a modal
+          context to assistive tech. Focus is trapped by the keydown
+          handler in the effect above and restored to the trigger on
+          close. */}
       {mobileNavOpen && (
         <>
           <button
@@ -90,6 +140,10 @@ export default function AppLayout({
             tree on the way up.
           */}
           <div
+            ref={drawerRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Navigation"
             className="md:hidden fixed inset-y-0 left-0 z-50 w-[280px]"
             onClick={(e) => {
               if ((e.target as HTMLElement).closest("a")) closeMobileNav();
@@ -129,9 +183,12 @@ export default function AppLayout({
             </span>
           </Link>
           <button
+            ref={triggerRef}
             type="button"
             onClick={() => setMobileNavOpen(true)}
             aria-label="Open menu"
+            aria-expanded={mobileNavOpen}
+            aria-haspopup="dialog"
             className="inline-flex items-center justify-center"
             style={{
               width: 36,
