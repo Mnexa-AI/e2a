@@ -76,6 +76,7 @@ class DNSRecords(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
+    dkim: DNSRecord | None = None
     mx: DNSRecord | None = None
     txt: DNSRecord | None = None
 
