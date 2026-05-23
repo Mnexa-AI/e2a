@@ -108,7 +108,7 @@ func setupEnv(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	key, err := ts.Store.CreateAPIKey(ctx, user.ID, "contract-key")
+	key, err := ts.Store.CreateAPIKey(ctx, user.ID, "contract-key", nil)
 	if err != nil {
 		t.Fatalf("create api key: %v", err)
 	}

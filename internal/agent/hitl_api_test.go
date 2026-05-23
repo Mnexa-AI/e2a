@@ -29,7 +29,7 @@ func TestSendEmailHITLGateHolds(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-hitl-send@example.com", "Owner", "google-hitl-send")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "hitl-send-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "hitl-send-key", nil)
 	store.ClaimOrCreateDomain(ctx, "hitl-send.example.com", user.ID)
 	store.VerifyDomain(ctx, "hitl-send.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@hitl-send.example.com", "hitl-send.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -124,7 +124,7 @@ func TestSendEmailHITLGatePersistsAttachments(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-hitl-att@example.com", "Owner", "google-hitl-att")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "hitl-att-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "hitl-att-key", nil)
 	store.ClaimOrCreateDomain(ctx, "hitl-att.example.com", user.ID)
 	store.VerifyDomain(ctx, "hitl-att.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@hitl-att.example.com", "hitl-att.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -176,7 +176,7 @@ func TestSendEmailHITLOffStillSends(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-hitl-off@example.com", "Owner", "google-hitl-off")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "hitl-off-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "hitl-off-key", nil)
 	store.ClaimOrCreateDomain(ctx, "hitl-off.example.com", user.ID)
 	store.VerifyDomain(ctx, "hitl-off.example.com", user.ID)
 	store.CreateAgent(ctx, "bot@hitl-off.example.com", "hitl-off.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -215,7 +215,7 @@ func TestReplyHITLGateHoldsWithReplyTo(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-hitl-reply@example.com", "Owner", "google-hitl-reply")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "hitl-reply-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "hitl-reply-key", nil)
 	store.ClaimOrCreateDomain(ctx, "hitl-reply.example.com", user.ID)
 	store.VerifyDomain(ctx, "hitl-reply.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@hitl-reply.example.com", "hitl-reply.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -290,7 +290,7 @@ func TestSendTestEmailHITLGate(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-hitl-test@example.com", "Owner", "google-hitl-test")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "hitl-test-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "hitl-test-key", nil)
 	store.ClaimOrCreateDomain(ctx, "hitl-test.example.com", user.ID)
 	store.VerifyDomain(ctx, "hitl-test.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@hitl-test.example.com", "hitl-test.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -358,7 +358,7 @@ func TestSendTestEmailHITLApproveDeliversViaLoopback(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-hitl-test-approve@example.com", "Owner", "google-hitl-test-approve")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "hitl-test-approve-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "hitl-test-approve-key", nil)
 	store.ClaimOrCreateDomain(ctx, "hitl-test-approve.example.com", user.ID)
 	store.VerifyDomain(ctx, "hitl-test-approve.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@hitl-test-approve.example.com", "hitl-test-approve.example.com", "", "https://example.com/webhook", "", user.ID)

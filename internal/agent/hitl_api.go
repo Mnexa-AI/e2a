@@ -42,6 +42,8 @@ type pendingMessageDetail struct {
 	Attachments       []outbound.Attachment `json:"attachments,omitempty"`
 	Edited            bool                  `json:"edited,omitempty"`
 	ReviewedAt        string                `json:"reviewed_at,omitempty"`
+	ReviewedByUserID  *string               `json:"reviewed_by_user_id,omitempty"`
+	ReviewedByName    *string               `json:"reviewed_by_name,omitempty"`
 	RejectionReason   string                `json:"rejection_reason,omitempty"`
 	ProviderMessageID string                `json:"provider_message_id,omitempty"`
 	Method            string                `json:"method,omitempty"`
@@ -74,6 +76,8 @@ func messageToDetail(m identity.Message) pendingMessageDetail {
 		BodyText:              m.BodyText,
 		BodyHTML:              m.BodyHTML,
 		Edited:                m.Edited,
+		ReviewedByUserID:      m.ReviewedByUserID,
+		ReviewedByName:        m.ReviewedByName,
 		RejectionReason:       m.RejectionReason,
 		ProviderMessageID:     m.ProviderMessageID,
 		Method:                m.Method,

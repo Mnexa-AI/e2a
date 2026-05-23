@@ -29,8 +29,20 @@ class Domain(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
+    agent_count: int | None = Field(
+        None,
+        description='AgentCount is computed at read time by ListDomainsByUser and is\nnot a persisted column. Single-domain LookupDomain leaves it at\nthe zero value — callers that need the count call the list path\n(this column-versus-aggregate split avoids changing every store\nsignature to thread an agent-counter through).',
+    )
     created_at: str | None = None
     domain: str | None = None
+    is_primary: bool | None = Field(
+        None,
+        description="IsPrimary marks the user's default domain. At most one TRUE per\nuser (enforced by a partial unique index in migration 013).",
+    )
+    last_checked_at: str | None = Field(
+        None,
+        description='LastCheckedAt is updated whenever the verification probe runs,\nsuccessful or not. NULL until the first probe — distinct from\n"probed and failed" which is captured by `verified=false` + a\nnon-null LastCheckedAt.',
+    )
     user_id: str | None = None
     verification_token: str | None = None
     verified: bool | None = None
@@ -67,6 +79,14 @@ class Message(BaseModel):
         description='ReplyTo is the parsed Reply-To: header on inbound messages — empty\nwhen the header was absent. Distinct from Sender so consumers can\nrecover the original From: of forwarded / notification mail whose\nReply-To points at a different mailbox. Outbound-irrelevant.',
     )
     reviewed_at: str | None = None
+    reviewed_by_name: str | None = Field(
+        None,
+        description="ReviewedByName is the JOIN'd display name from the reviewer's\nusers row, populated only by GetOutboundMessageForUser. List\nendpoints leave this empty to avoid a join-per-row cost — the\npending-detail page is where reviewer attribution matters.",
+    )
+    reviewed_by_user_id: str | None = Field(
+        None,
+        description='ReviewedByUserID identifies the human reviewer who approved or\nrejected this message. NULL on worker-triggered transitions\n(TTL auto-approve / auto-reject) — operator-visible signal "no\nhuman looked at this." Set by ApproveAndSend and RejectPending,\nleft null by ExpireApproveAndSend / ExpireReject.',
+    )
     sender: str | None = None
     status: str | None = Field(
         None,

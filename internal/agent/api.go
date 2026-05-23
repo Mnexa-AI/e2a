@@ -207,6 +207,7 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/v1/domains", a.handleListDomains).Methods("GET")
 	r.HandleFunc("/api/v1/domains", a.handleRegisterDomain).Methods("POST")
 	r.HandleFunc("/api/v1/domains/{domain}/verify", a.handleVerifyDomain).Methods("POST")
+	r.HandleFunc("/api/v1/domains/{domain}", a.handleUpdateDomain).Methods("PATCH")
 	r.HandleFunc("/api/v1/domains/{domain}", a.handleDeleteDomain).Methods("DELETE")
 
 	r.HandleFunc("/api/v1/agents/{email}/test", a.handleSendTestEmail).Methods("POST")
@@ -266,8 +267,10 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 		r.HandleFunc("/api/auth/callback", a.userAuth.HandleCallback).Methods("GET")
 		r.HandleFunc("/api/auth/logout", a.userAuth.HandleLogout).Methods("POST")
 		r.HandleFunc("/api/auth/me", a.userAuth.HandleMe).Methods("GET")
+		r.HandleFunc("/api/auth/me", a.userAuth.HandleUpdateMe).Methods("PATCH")
 
 		// Dashboard
+		r.HandleFunc("/api/dashboard/stats", a.userAuth.HandleDashboardStats).Methods("GET")
 		r.HandleFunc("/api/dashboard/agents", a.userAuth.HandleDashboardAgents).Methods("GET")
 		r.HandleFunc("/api/dashboard/agents/{email}", a.userAuth.HandleUpdateAgent).Methods("PUT")
 		r.HandleFunc("/api/dashboard/agents/{email}", a.userAuth.HandleDeleteAgent).Methods("DELETE")
@@ -887,6 +890,15 @@ func (a *API) handleVerifyDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Touch last_checked_at regardless of whether the probe succeeds —
+	// the column is "when did we last try", separate from verified_at
+	// which only moves on success. Best-effort: a failed touch shouldn't
+	// block the verify response (the row is locked-down to the user, so
+	// the only realistic failure is a transient DB issue).
+	if err := a.store.TouchDomainLastChecked(r.Context(), domain, user.ID); err != nil {
+		log.Printf("[api] touch last_checked_at for %s: %v", domain, err)
+	}
+
 	// In dev mode, skip DNS verification
 	if !a.production {
 		log.Printf("[api] dev mode: skipping DNS check for %s", domain)
@@ -937,6 +949,78 @@ func (a *API) handleVerifyDomain(w http.ResponseWriter, r *http.Request) {
 		Verified:   true,
 		VerifiedAt: domainRecord.VerifiedAt,
 	})
+}
+
+// handleUpdateDomain serves PATCH /api/v1/domains/{domain}. Currently
+// supports a single mutable field — is_primary — surfaced for the
+// dashboard's "Set as primary" button. The partial unique index on
+// (user_id) WHERE is_primary=true makes the multi-statement swap-
+// then-set transaction necessary; SetDomainPrimary handles that
+// atomically. Other domain fields (verification token, verified
+// timestamp) are managed by the dedicated verify path and aren't
+// settable here.
+// @Summary      Update a domain
+// @Description  Update mutable fields on a domain. The only supported field today is `is_primary` — passing `true` promotes this domain and clears the flag from any previously-primary domain in a single transaction. Passing `false` is a no-op (use SetDomainPrimary on a different domain to demote this one).
+// @Tags         Domains
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        domain path string true "Domain name"
+// @Param        request body UpdateDomainRequest true "Fields to update"
+// @Success      200 {object} DomainInfo
+// @Failure      400 {string} string "Invalid request"
+// @Failure      401 {string} string "Missing or invalid API key"
+// @Failure      404 {string} string "Domain not found"
+// @Router       /api/v1/domains/{domain} [patch]
+func (a *API) handleUpdateDomain(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticateUser(r)
+	if err != nil {
+		a.writeAuthError(w, r, err)
+		return
+	}
+
+	domain := mux.Vars(r)["domain"]
+
+	var req struct {
+		IsPrimary *bool `json:"is_primary,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if req.IsPrimary == nil {
+		http.Error(w, "no updatable fields provided", http.StatusBadRequest)
+		return
+	}
+	if !*req.IsPrimary {
+		// Demote is a no-op — to switch primary, promote a different
+		// domain. This keeps the partial unique index meaningful:
+		// exactly one primary or zero, never a "no domain is primary
+		// because I demoted the only one" footgun.
+		http.Error(w, "to switch primary, PATCH the new primary domain instead", http.StatusBadRequest)
+		return
+	}
+
+	if err := a.store.SetDomainPrimary(r.Context(), domain, user.ID); err != nil {
+		if errors.Is(err, identity.ErrDomainNotFound) {
+			http.Error(w, "domain not found", http.StatusNotFound)
+			return
+		}
+		log.Printf("[api] SetDomainPrimary %s: %v", domain, err)
+		http.Error(w, "failed to update domain", http.StatusInternalServerError)
+		return
+	}
+
+	d, err := a.store.LookupDomain(r.Context(), domain, user.ID)
+	if err != nil {
+		// Should be unreachable — SetDomainPrimary just succeeded against
+		// this row. Still, return a useful error rather than nil-dereffing
+		// in domainInfoFromRecord.
+		http.Error(w, "failed to read back domain", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	writeJSON(w, a.domainInfoFromRecord(d))
 }
 
 // handleListDomains lists all domains owned by the authenticated user.
@@ -1036,8 +1120,11 @@ func (a *API) domainInfoFromRecord(d *identity.Domain) DomainInfo {
 			MX:  DNSRecord{Host: "@", Value: a.smtpDomain, Priority: &mxPriority},
 			TXT: DNSRecord{Host: "@", Value: d.VerificationToken},
 		},
-		CreatedAt:  d.CreatedAt,
-		VerifiedAt: d.VerifiedAt,
+		CreatedAt:     d.CreatedAt,
+		VerifiedAt:    d.VerifiedAt,
+		IsPrimary:     d.IsPrimary,
+		LastCheckedAt: d.LastCheckedAt,
+		AgentCount:    d.AgentCount,
 	}
 }
 

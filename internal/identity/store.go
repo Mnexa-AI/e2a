@@ -35,6 +35,20 @@ type Domain struct {
 	VerificationToken string     `json:"verification_token"`
 	CreatedAt         time.Time  `json:"created_at"`
 	VerifiedAt        *time.Time `json:"verified_at,omitempty"`
+	// IsPrimary marks the user's default domain. At most one TRUE per
+	// user (enforced by a partial unique index in migration 013).
+	IsPrimary bool `json:"is_primary"`
+	// LastCheckedAt is updated whenever the verification probe runs,
+	// successful or not. NULL until the first probe — distinct from
+	// "probed and failed" which is captured by `verified=false` + a
+	// non-null LastCheckedAt.
+	LastCheckedAt *time.Time `json:"last_checked_at,omitempty"`
+	// AgentCount is computed at read time by ListDomainsByUser and is
+	// not a persisted column. Single-domain LookupDomain leaves it at
+	// the zero value — callers that need the count call the list path
+	// (this column-versus-aggregate split avoids changing every store
+	// signature to thread an agent-counter through).
+	AgentCount int `json:"agent_count"`
 }
 
 type AgentIdentity struct {
@@ -148,7 +162,18 @@ type Message struct {
 	Status             string          `json:"status,omitempty"`
 	ApprovalExpiresAt  *time.Time      `json:"approval_expires_at,omitempty"`
 	ReviewedAt         *time.Time      `json:"reviewed_at,omitempty"`
-	RejectionReason    string          `json:"rejection_reason,omitempty"`
+	// ReviewedByUserID identifies the human reviewer who approved or
+	// rejected this message. NULL on worker-triggered transitions
+	// (TTL auto-approve / auto-reject) — operator-visible signal "no
+	// human looked at this." Set by ApproveAndSend and RejectPending,
+	// left null by ExpireApproveAndSend / ExpireReject.
+	ReviewedByUserID *string `json:"reviewed_by_user_id,omitempty"`
+	// ReviewedByName is the JOIN'd display name from the reviewer's
+	// users row, populated only by GetOutboundMessageForUser. List
+	// endpoints leave this empty to avoid a join-per-row cost — the
+	// pending-detail page is where reviewer attribution matters.
+	ReviewedByName  *string `json:"reviewed_by_name,omitempty"`
+	RejectionReason string          `json:"rejection_reason,omitempty"`
 	Edited             bool            `json:"edited,omitempty"`
 	BodyText           string          `json:"body_text,omitempty"`
 	BodyHTML           string          `json:"body_html,omitempty"`
@@ -221,9 +246,9 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 		 SET user_id = EXCLUDED.user_id,
 		     verification_token = EXCLUDED.verification_token
 		 WHERE domains.verified = false
-		 RETURNING domain, user_id, verified, verification_token, created_at, verified_at`,
+		 RETURNING domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at`,
 		domain, userID, verificationToken,
-	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt)
+	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt)
 
 	if err == nil {
 		return d, nil
@@ -232,9 +257,9 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 	// No row returned — domain exists and is verified. Check ownership.
 	existing := &Domain{}
 	err = s.pool.QueryRow(ctx,
-		`SELECT domain, user_id, verified, verification_token, created_at, verified_at
+		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at
 		 FROM domains WHERE domain = $1`, domain,
-	).Scan(&existing.Domain, &existing.UserID, &existing.Verified, &existing.VerificationToken, &existing.CreatedAt, &existing.VerifiedAt)
+	).Scan(&existing.Domain, &existing.UserID, &existing.Verified, &existing.VerificationToken, &existing.CreatedAt, &existing.VerifiedAt, &existing.IsPrimary, &existing.LastCheckedAt)
 	if err != nil {
 		return nil, fmt.Errorf("domain lookup failed: %w", err)
 	}
@@ -250,10 +275,10 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 func (s *Store) LookupDomain(ctx context.Context, domain, userID string) (*Domain, error) {
 	d := &Domain{}
 	err := s.pool.QueryRow(ctx,
-		`SELECT domain, user_id, verified, verification_token, created_at, verified_at
+		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at
 		 FROM domains WHERE domain = $1 AND user_id = $2`,
 		normalizeDomain(domain), userID,
-	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt)
+	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt)
 	if err != nil {
 		return nil, fmt.Errorf("domain not found")
 	}
@@ -277,11 +302,18 @@ func (s *Store) VerifyDomain(ctx context.Context, domain, userID string) error {
 }
 
 // ListDomainsByUser returns all domains owned by the user (excludes system rows).
+// AgentCount is computed inline via a correlated subquery — one round-trip
+// regardless of how many domains the user has, and the per-row count is
+// cheap because (agent_identities.user_id, agent_identities.domain) is
+// indexed via the existing idx_agent_identities_user.
 func (s *Store) ListDomainsByUser(ctx context.Context, userID string) ([]Domain, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT domain, user_id, verified, verification_token, created_at, verified_at
-		 FROM domains WHERE user_id = $1
-		 ORDER BY created_at DESC`, userID,
+		`SELECT d.domain, d.user_id, d.verified, d.verification_token, d.created_at, d.verified_at,
+		        d.is_primary, d.last_checked_at,
+		        (SELECT count(*) FROM agent_identities a WHERE a.domain = d.domain AND a.user_id = d.user_id) AS agent_count
+		 FROM domains d
+		 WHERE d.user_id = $1
+		 ORDER BY d.created_at DESC`, userID,
 	)
 	if err != nil {
 		return nil, err
@@ -291,12 +323,72 @@ func (s *Store) ListDomainsByUser(ctx context.Context, userID string) ([]Domain,
 	var domains []Domain
 	for rows.Next() {
 		var d Domain
-		if err := rows.Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt); err != nil {
+		if err := rows.Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.AgentCount); err != nil {
 			return nil, err
 		}
 		domains = append(domains, d)
 	}
 	return domains, rows.Err()
+}
+
+// SetDomainPrimary marks a domain as the user's primary in a single
+// transaction: first clear any other primary belonging to the user, then
+// set the requested domain. The partial unique index in migration 013
+// makes the clear-first step necessary — otherwise the two writes would
+// race and one would fail with a unique violation.
+//
+// Returns ErrDomainNotFound when the domain doesn't exist or isn't owned
+// by the user.
+func (s *Store) SetDomainPrimary(ctx context.Context, domain, userID string) error {
+	domain = normalizeDomain(domain)
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE domains SET is_primary = false WHERE user_id = $1 AND is_primary = true`,
+		userID); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx,
+		`UPDATE domains SET is_primary = true WHERE domain = $1 AND user_id = $2`,
+		domain, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrDomainNotFound
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+// TouchDomainLastChecked records that the verification probe ran. Call
+// this from POST /api/v1/domains/{domain}/verify whether the probe
+// succeeded or not — the LastCheckedAt column is "when did we last try",
+// not "when did we last succeed" (the latter is verified_at).
+func (s *Store) TouchDomainLastChecked(ctx context.Context, domain, userID string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE domains SET last_checked_at = now() WHERE domain = $1 AND user_id = $2`,
+		normalizeDomain(domain), userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrDomainNotFound
+	}
+	return nil
 }
 
 // HasAgentsOnDomain checks whether the owned domain still has agents.
@@ -849,6 +941,8 @@ func (s *Store) GetOutboundMessageForUser(ctx context.Context, messageID, userID
 		approvalExpires    *time.Time
 		reviewedAt         *time.Time
 		rejectionReason    *string
+		reviewedByID       *string
+		reviewedByName     *string
 	)
 	err := s.pool.QueryRow(ctx,
 		`SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.subject,
@@ -858,9 +952,11 @@ func (s *Store) GetOutboundMessageForUser(ctx context.Context, messageID, userID
 		        m.to_recipients, m.cc, m.bcc,
 		        m.status, m.approval_expires_at, m.reviewed_at,
 		        m.rejection_reason, m.edited,
-		        m.body_text, m.body_html, m.attachments_json
+		        m.body_text, m.body_html, m.attachments_json,
+		        m.reviewed_by_user_id, r.name
 		 FROM messages m
 		 JOIN agent_identities a ON a.id = m.agent_id
+		 LEFT JOIN users r ON r.id = m.reviewed_by_user_id
 		 WHERE m.id = $1 AND a.user_id = $2 AND m.direction = 'outbound'`,
 		messageID, userID,
 	).Scan(
@@ -872,6 +968,7 @@ func (s *Store) GetOutboundMessageForUser(ctx context.Context, messageID, userID
 		&m.Status, &approvalExpires, &reviewedAt,
 		&rejectionReason, &m.Edited,
 		&bodyText, &bodyHTML, &attachments,
+		&reviewedByID, &reviewedByName,
 	)
 	if err != nil {
 		return nil, ErrMessageNotFound
@@ -900,6 +997,8 @@ func (s *Store) GetOutboundMessageForUser(ctx context.Context, messageID, userID
 	if len(attachments) > 0 {
 		m.AttachmentsJSON = json.RawMessage(attachments)
 	}
+	m.ReviewedByUserID = reviewedByID
+	m.ReviewedByName = reviewedByName
 	return m, nil
 }
 
@@ -1096,6 +1195,7 @@ func (s *Store) ApproveAndSend(
 		        subject           = $9,
 		        edited            = $10,
 		        reviewed_at       = now(),
+		        reviewed_by_user_id = $11,
 		        body_text         = NULL,
 		        body_html         = NULL,
 		        attachments_json  = NULL
@@ -1110,6 +1210,7 @@ func (s *Store) ApproveAndSend(
 		firstOr(result.To, ""),
 		m.Subject,
 		editedByReviewer || m.Edited,
+		userID,
 	)
 	if err != nil {
 		return nil, err
@@ -1132,6 +1233,8 @@ func (s *Store) ApproveAndSend(
 	m.Edited = editedByReviewer || m.Edited
 	now := time.Now()
 	m.ReviewedAt = &now
+	reviewerID := userID
+	m.ReviewedByUserID = &reviewerID
 	m.BodyText = ""
 	m.BodyHTML = ""
 	m.AttachmentsJSON = nil
@@ -1426,6 +1529,7 @@ func (s *Store) RejectPending(ctx context.Context, messageID, userID, reason str
 		    SET status = $3,
 		        rejection_reason = $4,
 		        reviewed_at = now(),
+		        reviewed_by_user_id = $2,
 		        body_text = NULL,
 		        body_html = NULL,
 		        attachments_json = NULL
@@ -1663,6 +1767,23 @@ func (s *Store) GetUserByID(ctx context.Context, id string) (*User, error) {
 	return u, nil
 }
 
+// UpdateUserName persists a new display name on the user row and
+// returns the updated User. Input validation (length, whitespace) is
+// the caller's responsibility — this layer only enforces that the row
+// exists.
+func (s *Store) UpdateUserName(ctx context.Context, userID, name string) (*User, error) {
+	u := &User{}
+	err := s.pool.QueryRow(ctx,
+		`UPDATE users SET name = $1 WHERE id = $2
+		 RETURNING id, email, name, google_subject, created_at`,
+		name, userID,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.GoogleSubject, &u.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
 // --- Session management ---
 
 const SessionTTL = 7 * 24 * time.Hour
@@ -1706,15 +1827,159 @@ func (s *Store) DeleteExpiredUserSessions(ctx context.Context) (int64, error) {
 	return tag.RowsAffected(), nil
 }
 
+// --- Dashboard aggregates ---
+
+// DashboardStats is the workspace-level summary returned by
+// GetDashboardStats. Each section corresponds to one of the cards on the
+// redesigned dashboard's stats strip; null/zero values render as "—"
+// in the UI, so deployments without E2A_USAGE_TRACKING enabled
+// degrade gracefully.
+type DashboardStats struct {
+	Today              DashboardTodayStats   `json:"today"`
+	Pending            DashboardPendingStats `json:"pending"`
+	DeliverySuccessPct float64               `json:"delivery_success_pct"`
+	SampleWindowDays   int                   `json:"sample_window_days"`
+}
+
+type DashboardTodayStats struct {
+	Inbound          int `json:"inbound"`
+	Outbound         int `json:"outbound"`
+	InboundDeltaPct  int `json:"inbound_delta_pct"`
+	OutboundDeltaPct int `json:"outbound_delta_pct"`
+}
+
+type DashboardPendingStats struct {
+	Count         int `json:"count"`
+	OldestSeconds int `json:"oldest_seconds"`
+}
+
+// dashboardSampleWindowDays is the lookback window for the delivery
+// success percentage card. 7 matches the spec in BACKEND_TODO #1.
+const dashboardSampleWindowDays = 7
+
+// GetDashboardStats returns workspace-level aggregates for the
+// authenticated user. Three independent reads — kept separate rather
+// than smashed into one query because the source tables have different
+// indexes and one slow read shouldn't slow the others. All reads are
+// O(rows-for-this-user-only) thanks to the existing per-user indexes.
+//
+// Robust to missing data: deployments without usage tracking enabled
+// (E2A_USAGE_TRACKING=false — the default for self-hosters) return zero
+// counts rather than erroring. Same for users who have no messages
+// yet. The UI renders zero values as "—" so the cards stay sensible.
+//
+// Delta percentages: today vs yesterday on usage_summaries. Avoids
+// divide-by-zero when yesterday was zero by returning 0 (UI renders no
+// arrow). 100% increase / decrease maps to +100 / -100; values are
+// clipped at +999 to keep the integer width manageable in the UI.
+func (s *Store) GetDashboardStats(ctx context.Context, userID string) (*DashboardStats, error) {
+	stats := &DashboardStats{
+		SampleWindowDays: dashboardSampleWindowDays,
+	}
+
+	// 1) Today's usage and yesterday's baseline. LEFT JOIN trick keeps
+	// the query a single row even when one or both buckets are absent.
+	var todayInbound, todayOutbound, yesterdayInbound, yesterdayOutbound int
+	err := s.pool.QueryRow(ctx,
+		`SELECT
+		   COALESCE((SELECT inbound_count  FROM usage_summaries WHERE user_id = $1 AND bucket_date = current_date), 0),
+		   COALESCE((SELECT outbound_count FROM usage_summaries WHERE user_id = $1 AND bucket_date = current_date), 0),
+		   COALESCE((SELECT inbound_count  FROM usage_summaries WHERE user_id = $1 AND bucket_date = current_date - 1), 0),
+		   COALESCE((SELECT outbound_count FROM usage_summaries WHERE user_id = $1 AND bucket_date = current_date - 1), 0)`,
+		userID).Scan(&todayInbound, &todayOutbound, &yesterdayInbound, &yesterdayOutbound)
+	if err != nil {
+		return nil, fmt.Errorf("today/yesterday usage: %w", err)
+	}
+	stats.Today = DashboardTodayStats{
+		Inbound:          todayInbound,
+		Outbound:         todayOutbound,
+		InboundDeltaPct:  deltaPct(todayInbound, yesterdayInbound),
+		OutboundDeltaPct: deltaPct(todayOutbound, yesterdayOutbound),
+	}
+
+	// 2) Pending HITL approvals across the user's agents. Joining via
+	// the agent_id keeps the per-user partial index on messages
+	// (idx_messages_pending_approval) usable.
+	var pendingCount int
+	var oldestSec *int
+	err = s.pool.QueryRow(ctx,
+		`SELECT count(*),
+		        CASE WHEN count(*) = 0 THEN NULL
+		             ELSE EXTRACT(EPOCH FROM (now() - MIN(m.created_at)))::int
+		        END
+		 FROM messages m
+		 JOIN agent_identities a ON a.id = m.agent_id
+		 WHERE a.user_id = $1 AND m.status = 'pending_approval'`,
+		userID).Scan(&pendingCount, &oldestSec)
+	if err != nil {
+		return nil, fmt.Errorf("pending count: %w", err)
+	}
+	stats.Pending.Count = pendingCount
+	if oldestSec != nil {
+		stats.Pending.OldestSeconds = *oldestSec
+	}
+
+	// 3) Delivery success % over the sample window. Excludes pending
+	// (status='pending') from the denominator so a healthy queue doesn't
+	// drag the ratio down. NULL when there's no delivery activity at all
+	// — UI renders "—" instead of a misleading 0%.
+	var successRatio *float64
+	// Window is a compile-time constant; interpolating it directly into
+	// the SQL avoids a pgx encode plan for the interval expression and
+	// keeps the query plan-cacheable (one query shape regardless of N).
+	err = s.pool.QueryRow(ctx,
+		fmt.Sprintf(`SELECT (count(*) FILTER (WHERE wd.status = 'delivered'))::float
+		        / NULLIF(count(*) FILTER (WHERE wd.status IN ('delivered','failed')), 0)
+		 FROM webhook_deliveries wd
+		 JOIN messages m ON m.id = wd.message_id
+		 JOIN agent_identities a ON a.id = m.agent_id
+		 WHERE a.user_id = $1
+		   AND wd.created_at > now() - interval '%d days'`, dashboardSampleWindowDays),
+		userID).Scan(&successRatio)
+	if err != nil {
+		return nil, fmt.Errorf("delivery success: %w", err)
+	}
+	if successRatio != nil {
+		// Round to one decimal place — 99.6 is more useful than 99.555555.
+		stats.DeliverySuccessPct = float64(int(*successRatio*1000+0.5)) / 10.0
+	}
+
+	return stats, nil
+}
+
+// deltaPct computes the integer percentage change of current vs
+// previous. Zero previous → 0 (no arrow in UI). Clipped to ±999 to
+// keep the value width manageable.
+func deltaPct(current, previous int) int {
+	if previous == 0 {
+		return 0
+	}
+	delta := float64(current-previous) / float64(previous) * 100
+	if delta > 999 {
+		return 999
+	}
+	if delta < -999 {
+		return -999
+	}
+	return int(delta)
+}
+
 // --- Per-user API keys ---
 
 type APIKey struct {
-	ID           string    `json:"id"`
-	UserID       string    `json:"user_id"`
-	Name         string    `json:"name"`
-	KeyPrefix    string    `json:"key_prefix"`
-	PlaintextKey string    `json:"key,omitempty"` // only set once at creation, never stored
-	CreatedAt    time.Time `json:"created_at"`
+	ID           string     `json:"id"`
+	UserID       string     `json:"user_id"`
+	Name         string     `json:"name"`
+	KeyPrefix    string     `json:"key_prefix"`
+	PlaintextKey string     `json:"key,omitempty"` // only set once at creation, never stored
+	CreatedAt    time.Time  `json:"created_at"`
+	// LastUsedAt is updated by GetUserByAPIKey on every successful
+	// AuthenticateRequest. NULL on keys that have never been used.
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	// ExpiresAt is the optional hard expiry. AuthenticateRequest rejects
+	// keys whose expires_at has passed. NULL means "never expires"
+	// (the backward-compatible default).
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
 func hashAPIKey(plaintext string) string {
@@ -1722,7 +1987,10 @@ func hashAPIKey(plaintext string) string {
 	return hex.EncodeToString(h[:])
 }
 
-func (s *Store) CreateAPIKey(ctx context.Context, userID, name string) (*APIKey, error) {
+// CreateAPIKey issues a fresh API key for the user. expiresAt is the
+// optional hard expiration; pass nil to issue a never-expiring key (the
+// backward-compatible default).
+func (s *Store) CreateAPIKey(ctx context.Context, userID, name string, expiresAt *time.Time) (*APIKey, error) {
 	id := "apk_" + generateID()
 	plaintext := generateAPIKey()
 	keyHash := hashAPIKey(plaintext)
@@ -1736,10 +2004,11 @@ func (s *Store) CreateAPIKey(ctx context.Context, userID, name string) (*APIKey,
 		KeyPrefix:    prefix,
 		PlaintextKey: plaintext,
 		CreatedAt:    now,
+		ExpiresAt:    expiresAt,
 	}
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
-		ak.ID, ak.UserID, ak.Name, ak.KeyPrefix, keyHash, ak.CreatedAt,
+		`INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		ak.ID, ak.UserID, ak.Name, ak.KeyPrefix, keyHash, ak.CreatedAt, ak.ExpiresAt,
 	)
 	if err != nil {
 		return nil, err
@@ -1749,7 +2018,7 @@ func (s *Store) CreateAPIKey(ctx context.Context, userID, name string) (*APIKey,
 
 func (s *Store) ListAPIKeys(ctx context.Context, userID string) ([]APIKey, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, user_id, name, key_prefix, created_at FROM api_keys WHERE user_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC`,
+		`SELECT id, user_id, name, key_prefix, created_at, last_used_at, expires_at FROM api_keys WHERE user_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC`,
 		userID,
 	)
 	if err != nil {
@@ -1759,7 +2028,7 @@ func (s *Store) ListAPIKeys(ctx context.Context, userID string) ([]APIKey, error
 	var keys []APIKey
 	for rows.Next() {
 		var k APIKey
-		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.KeyPrefix, &k.CreatedAt); err != nil {
+		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.KeyPrefix, &k.CreatedAt, &k.LastUsedAt, &k.ExpiresAt); err != nil {
 			return nil, err
 		}
 		keys = append(keys, k)
@@ -1780,13 +2049,24 @@ func (s *Store) DeleteAPIKey(ctx context.Context, keyID, userID string) error {
 	return nil
 }
 
+// GetUserByAPIKey authenticates a bearer token and returns the owning
+// user. Rejects revoked keys and time-expired keys; touches last_used_at
+// only on the success path so the column stays a real "last successful
+// authentication" signal (rather than "last attempt").
+//
+// Expiration semantics: expires_at IS NULL means the key never expires
+// (preserves the pre-migration default). A non-null expires_at must be in
+// the future, evaluated against now() in the same query so there's no
+// clock skew between row read and check.
 func (s *Store) GetUserByAPIKey(ctx context.Context, apiKey string) (*User, error) {
 	keyHash := hashAPIKey(apiKey)
 	u := &User{}
 	err := s.pool.QueryRow(ctx,
 		`WITH touched AS (
 		   UPDATE api_keys SET last_used_at = now()
-		   WHERE key_hash = $1 AND revoked_at IS NULL
+		   WHERE key_hash = $1
+		     AND revoked_at IS NULL
+		     AND (expires_at IS NULL OR expires_at > now())
 		   RETURNING user_id
 		 )
 		 SELECT u.id, u.email, u.name, u.google_subject, u.created_at

@@ -31,7 +31,7 @@ func TestUpdateAgentHITLViaV1Endpoint(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-v1-up@example.com", "Owner", "google-v1-up")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "v1-up-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "v1-up-key", nil)
 	store.ClaimOrCreateDomain(ctx, "v1up.example.com", user.ID)
 	store.VerifyDomain(ctx, "v1up.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@v1up.example.com", "v1up.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -67,7 +67,7 @@ func TestUpdateAgentPartialHITLPreservesOthers(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-v1-part@example.com", "Owner", "google-v1-part")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "v1-part-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "v1-part-key", nil)
 	store.ClaimOrCreateDomain(ctx, "v1part.example.com", user.ID)
 	store.VerifyDomain(ctx, "v1part.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@v1part.example.com", "v1part.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -100,7 +100,7 @@ func TestUpdateAgentRejectsEmptyBody(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-v1-empty@example.com", "Owner", "google-v1-empty")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "v1-empty-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "v1-empty-key", nil)
 	store.ClaimOrCreateDomain(ctx, "v1empty.example.com", user.ID)
 	store.VerifyDomain(ctx, "v1empty.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@v1empty.example.com", "v1empty.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -117,7 +117,7 @@ func TestUpdateAgentRejectsInvalidExpirationAction(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-v1-bad@example.com", "Owner", "google-v1-bad")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "v1-bad-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "v1-bad-key", nil)
 	store.ClaimOrCreateDomain(ctx, "v1bad.example.com", user.ID)
 	store.VerifyDomain(ctx, "v1bad.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@v1bad.example.com", "v1bad.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -140,7 +140,7 @@ func TestUpdateAgentCrossUserForbidden(t *testing.T) {
 	agentA, _ := store.CreateAgent(ctx, "bot@acrossup.example.com", "acrossup.example.com", "", "https://example.com/webhook", "", userA.ID)
 
 	userB, _ := store.CreateOrGetUser(ctx, "b-cross-up@example.com", "B", "google-b-cross-up")
-	keyB, _ := store.CreateAPIKey(ctx, userB.ID, "b-cross-up-key")
+	keyB, _ := store.CreateAPIKey(ctx, userB.ID, "b-cross-up-key", nil)
 
 	resp := authedPut(t, server.URL+"/api/v1/agents/"+agentA.ID,
 		`{"hitl_enabled":true}`, keyB.PlaintextKey)

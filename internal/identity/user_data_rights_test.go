@@ -58,10 +58,10 @@ func seedUserData(t *testing.T, store *identity.Store, ctx context.Context, labe
 		t.Fatalf("seed: CreateOutboundMessage: %v", err)
 	}
 
-	if _, err := store.CreateAPIKey(ctx, user.ID, "primary"); err != nil {
+	if _, err := store.CreateAPIKey(ctx, user.ID, "primary", nil); err != nil {
 		t.Fatalf("seed: CreateAPIKey 1: %v", err)
 	}
-	if _, err := store.CreateAPIKey(ctx, user.ID, "ci"); err != nil {
+	if _, err := store.CreateAPIKey(ctx, user.ID, "ci", nil); err != nil {
 		t.Fatalf("seed: CreateAPIKey 2: %v", err)
 	}
 

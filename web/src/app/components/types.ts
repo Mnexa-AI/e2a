@@ -54,6 +54,11 @@ export type PendingMessageDetail = PendingMessageSummary & {
   attachments?: PendingAttachment[];
   edited?: boolean;
   reviewed_at?: string;
+  // Set on approved/rejected rows. Null on worker-triggered transitions
+  // (TTL auto-approve / auto-reject) — UI renders "expired" instead of
+  // a reviewer name in that case. The two fields move together.
+  reviewed_by_user_id?: string | null;
+  reviewed_by_name?: string | null;
   rejection_reason?: string;
   provider_message_id?: string;
   method?: string;
@@ -83,4 +88,67 @@ export type APIKeyData = {
   key_prefix?: string; // non-secret prefix, shown in list view
   name: string;
   created_at: string;
+  // Updated on every successful authenticated request. Null until the
+  // key is first used. Surfaces in the "Last used" column.
+  last_used_at?: string | null;
+  // Optional hard expiry — keys with null expires_at never expire.
+  // AuthenticateRequest rejects expired keys at the auth gate.
+  expires_at?: string | null;
+};
+
+// GET /api/dashboard/stats — workspace-level aggregates for the
+// dashboard stats strip. Null/zero values are rendered as "—" by the
+// stat card components.
+export type DashboardStats = {
+  today: {
+    inbound: number;
+    outbound: number;
+    inbound_delta_pct: number;
+    outbound_delta_pct: number;
+  };
+  pending: {
+    count: number;
+    oldest_seconds: number;
+  };
+  delivery_success_pct: number;
+  sample_window_days: number;
+};
+
+// Domain enrichment fields — chips on the Domains page. is_primary is
+// at most true on one row per user; last_checked_at moves on every
+// verification probe (success or failure).
+export type DomainInfo = {
+  domain: string;
+  verified: boolean;
+  verification_token: string;
+  dns_records: {
+    mx: { host: string; value: string; priority?: number };
+    txt: { host: string; value: string };
+  };
+  created_at: string;
+  verified_at?: string | null;
+  is_primary: boolean;
+  last_checked_at?: string | null;
+  agent_count: number;
+};
+
+// Request body for PATCH /api/v1/domains/{domain}. is_primary=true
+// promotes the domain (atomically demoting any prior primary).
+// is_primary=false is rejected — switch primary by promoting a
+// different domain.
+export type UpdateDomainRequest = {
+  is_primary?: boolean;
+};
+
+// Request body for POST /api/keys. expires_at is an RFC 3339
+// timestamp; omit or null to issue a never-expiring key.
+export type CreateAPIKeyRequest = {
+  name: string;
+  expires_at?: string;
+};
+
+// Request body for PATCH /api/auth/me. Only `name` is updatable today;
+// other identity fields come from the OAuth provider.
+export type UpdateMeRequest = {
+  name: string;
 };

@@ -113,7 +113,7 @@ func StartContractServer(ctx context.Context, dbURL string) (*ContractServer, er
 		pool.Close()
 		return nil, err
 	}
-	key, err := store.CreateAPIKey(ctx, user.ID, "contract-key")
+	key, err := store.CreateAPIKey(ctx, user.ID, "contract-key", nil)
 	if err != nil {
 		_ = smtpServer.Close()
 		_ = httpServer.Shutdown(context.Background())

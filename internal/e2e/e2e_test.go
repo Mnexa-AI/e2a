@@ -29,7 +29,7 @@ func setupDomainAndAgent(t *testing.T, ts *testutil.E2ATestServer, email, domain
 	if err != nil {
 		t.Fatalf("CreateOrGetUser: %v", err)
 	}
-	apiKey, err := ts.Store.CreateAPIKey(ctx, user.ID, domain+"-key")
+	apiKey, err := ts.Store.CreateAPIKey(ctx, user.ID, domain+"-key", nil)
 	if err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
 	}

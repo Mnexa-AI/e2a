@@ -122,9 +122,21 @@ class Domain(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
+    agent_count: int | None = Field(
+        None,
+        description='AgentCount is populated by list endpoints. Single-domain endpoints\n(register, verify) leave it zero — the count would require an\nextra query that callers can derive from the agents list anyway.',
+    )
     created_at: str | None = None
     dns_records: DNSRecords | None = None
     domain: str | None = Field(None, examples=['yourdomain.com'])
+    is_primary: bool | None = Field(
+        None,
+        description='IsPrimary marks the user\'s default domain — at most one per\nuser, enforced server-side via SetDomainPrimary. The redesign\'s\nDomains list renders this as a "Primary" chip.',
+    )
+    last_checked_at: str | None = Field(
+        None,
+        description='LastCheckedAt is the timestamp of the most recent\n/api/v1/domains/{domain}/verify probe (success or failure).\nDistinct from VerifiedAt, which only updates on success.',
+    )
     verification_token: str | None = Field(None, examples=['e2a-verify=abc123'])
     verified: bool | None = None
     verified_at: str | None = None
@@ -294,6 +306,13 @@ class UpdateAgentRequest(BaseModel):
     webhook_url: str | None = None
 
 
+class UpdateDomainRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    is_primary: bool | None = None
+
+
 class UsageEventEntry(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -381,6 +400,16 @@ class PendingMessageDetail(BaseModel):
     provider_message_id: str | None = None
     rejection_reason: str | None = None
     reviewed_at: str | None = Field(None, examples=['2025-01-15T10:35:00Z'])
+    reviewed_by_name: str | None = Field(
+        None,
+        description="ReviewedByName is the JOIN'd display name from the reviewer's\nusers row. NULL when reviewed_by_user_id is null (worker) or when\nthe reviewer's user account has since been deleted (the FK has\nON DELETE SET NULL specifically so this doesn't poison the audit\ntrail).",
+        examples=['Jamie'],
+    )
+    reviewed_by_user_id: str | None = Field(
+        None,
+        description='ReviewedByUserID identifies the human reviewer for approved or\nrejected messages. NULL on TTL-expired transitions (worker\nauto-approve / auto-reject) where no human reviewed the message.',
+        examples=['usr_abc123'],
+    )
     status: (
         Literal[
             'sent',

@@ -45,7 +45,7 @@ func createTestUser(t *testing.T, store *identity.Store, email string) string {
 	if err != nil {
 		t.Fatalf("CreateOrGetUser: %v", err)
 	}
-	key, err := store.CreateAPIKey(ctx, user.ID, "test-key-"+email)
+	key, err := store.CreateAPIKey(ctx, user.ID, "test-key-"+email, nil)
 	if err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestGetAgentAuth(t *testing.T) {
 
 	// Create user and API key
 	user, _ := store.CreateOrGetUser(ctx, "owner-auth@example.com", "Owner", "google-auth")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "auth-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "auth-key", nil)
 
 	// Register agent owned by this user
 	store.ClaimOrCreateDomain(ctx, "auth.example.com", user.ID)
@@ -230,7 +230,7 @@ func TestSendEmailUnverified(t *testing.T) {
 
 	// Create user and API key, register agent (not domain-verified)
 	user, _ := store.CreateOrGetUser(ctx, "owner-unverified@example.com", "Owner", "google-unverified-send")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "unverified-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "unverified-key", nil)
 	store.ClaimOrCreateDomain(ctx, "unverified-send.example.com", user.ID)
 	store.CreateAgent(ctx, "agent@unverified-send.example.com", "unverified-send.example.com", "", "https://example.com/webhook", "", user.ID)
 
@@ -251,7 +251,7 @@ func TestSendEmailMissingFields(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-send-missing@example.com", "Owner", "google-send-missing")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "send-missing-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "send-missing-key", nil)
 	store.ClaimOrCreateDomain(ctx, "send-missing.example.com", user.ID)
 	store.VerifyDomain(ctx, "send-missing.example.com", user.ID)
 	store.CreateAgent(ctx, "agent@send-missing.example.com", "send-missing.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -289,7 +289,7 @@ func TestSendEmailViaSMTP(t *testing.T) {
 
 	// Create user and API key
 	user, _ := store.CreateOrGetUser(ctx, "owner-send@example.com", "Owner", "google-send")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "send-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "send-key", nil)
 
 	// Agent (sender)
 	store.ClaimOrCreateDomain(ctx, "sender.example.com", user.ID)
@@ -344,7 +344,7 @@ func TestReplyToMessageUnverifiedDomain(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-unverified-reply@example.com", "Owner", "google-unverified-reply")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "unverified-reply-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "unverified-reply-key", nil)
 	store.ClaimOrCreateDomain(ctx, "unverified-reply.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "agent@unverified-reply.example.com", "unverified-reply.example.com", "", "https://example.com/webhook", "", user.ID)
 
@@ -367,7 +367,7 @@ func TestReplyToMessageNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-reply-notfound@example.com", "Owner", "google-reply-notfound")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "reply-notfound-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "reply-notfound-key", nil)
 	store.ClaimOrCreateDomain(ctx, "reply-notfound.example.com", user.ID)
 	store.VerifyDomain(ctx, "reply-notfound.example.com", user.ID)
 	store.CreateAgent(ctx, "agent@reply-notfound.example.com", "reply-notfound.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -393,7 +393,7 @@ func TestReplyToMessageWrongAgent(t *testing.T) {
 	agentA, _ := store.CreateAgent(ctx, "agent@reply-a.example.com", "reply-a.example.com", "", "https://example.com/webhook", "", userA.ID)
 
 	userB, _ := store.CreateOrGetUser(ctx, "owner-reply-b@example.com", "OwnerB", "google-reply-b")
-	apiKeyB, _ := store.CreateAPIKey(ctx, userB.ID, "reply-b-key")
+	apiKeyB, _ := store.CreateAPIKey(ctx, userB.ID, "reply-b-key", nil)
 	store.ClaimOrCreateDomain(ctx, "reply-b.example.com", userB.ID)
 	store.VerifyDomain(ctx, "reply-b.example.com", userB.ID)
 	store.CreateAgent(ctx, "agent@reply-b.example.com", "reply-b.example.com", "", "https://example.com/webhook", "", userB.ID)
@@ -418,7 +418,7 @@ func TestReplyToMessageMissingBody(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-reply-nobody@example.com", "Owner", "google-reply-nobody")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "reply-nobody-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "reply-nobody-key", nil)
 	store.ClaimOrCreateDomain(ctx, "reply-nobody.example.com", user.ID)
 	store.VerifyDomain(ctx, "reply-nobody.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@reply-nobody.example.com", "reply-nobody.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -442,7 +442,7 @@ func TestReplyToMessageViaSMTP(t *testing.T) {
 
 	// Create user and API key for the replying agent
 	user, _ := store.CreateOrGetUser(ctx, "owner-replier@example.com", "Owner", "google-replier")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "replier-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "replier-key", nil)
 
 	// Sender agent (the one replying)
 	store.ClaimOrCreateDomain(ctx, "replier.example.com", user.ID)
@@ -491,7 +491,7 @@ func TestReplyToMessageSharedDomainDisplayName(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-shared-reply@example.com", "Owner", "google-shared-reply")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "shared-reply-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "shared-reply-key", nil)
 
 	// Create a shared-domain agent directly (domain contains "@" → IsSharedDomain() = true)
 	agentEmail := "reply-bot@agents.e2a.dev"
@@ -726,7 +726,7 @@ func TestListAgents_Success(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-list@example.com", "Owner", "google-list")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "list-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "list-key", nil)
 	store.ClaimOrCreateDomain(ctx, "list.example.com", user.ID)
 	store.CreateAgent(ctx, "agent1@list.example.com", "list.example.com", "", "https://example.com/webhook", "", user.ID)
 	store.ClaimOrCreateDomain(ctx, "list2.example.com", user.ID)
@@ -776,7 +776,7 @@ func TestListAgents_Empty(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-empty-list@example.com", "Owner", "google-empty-list")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "empty-list-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "empty-list-key", nil)
 
 	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents", nil)
 	req.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
@@ -813,7 +813,7 @@ func TestGetMessages_CloudModeAllowed(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-cloud-poll@example.com", "Owner", "google-cloud-poll")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "cloud-poll-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "cloud-poll-key", nil)
 	store.ClaimOrCreateDomain(ctx, "cloud-poll.example.com", user.ID)
 	store.VerifyDomain(ctx, "cloud-poll.example.com", user.ID)
 	store.CreateAgent(ctx, "agent@cloud-poll.example.com", "cloud-poll.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -833,7 +833,7 @@ func TestGetMessage_CloudModeAllowed(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-cloud-msg@example.com", "Owner", "google-cloud-msg")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "cloud-msg-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "cloud-msg-key", nil)
 	store.ClaimOrCreateDomain(ctx, "cloud-msg.example.com", user.ID)
 	store.VerifyDomain(ctx, "cloud-msg.example.com", user.ID)
 	ag, _ := store.CreateAgent(ctx, "agent@cloud-msg.example.com", "cloud-msg.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -857,7 +857,7 @@ func TestGetMessages_InvalidStatus(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-inv-status@example.com", "Owner", "google-inv-status")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "inv-status-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "inv-status-key", nil)
 	store.ClaimOrCreateDomain(ctx, "inv-status.example.com", user.ID)
 	store.CreateAgent(ctx, "agent@inv-status.example.com", "inv-status.example.com", "", "", "local", user.ID)
 
@@ -876,7 +876,7 @@ func TestGetMessages_EmptyList(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-empty-poll@example.com", "Owner", "google-empty-poll")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "empty-poll-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "empty-poll-key", nil)
 	store.ClaimOrCreateDomain(ctx, "empty-poll.example.com", user.ID)
 	store.CreateAgent(ctx, "agent@empty-poll.example.com", "empty-poll.example.com", "", "", "local", user.ID)
 
@@ -919,7 +919,7 @@ func TestGetMessage_NotFound(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-msg-nf@example.com", "Owner", "google-msg-nf")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "msg-nf-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "msg-nf-key", nil)
 	store.ClaimOrCreateDomain(ctx, "msg-nf.example.com", user.ID)
 	store.CreateAgent(ctx, "agent@msg-nf.example.com", "msg-nf.example.com", "", "", "local", user.ID)
 
@@ -938,7 +938,7 @@ func TestGetMessages_Pagination(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-pagination@example.com", "Owner", "google-pagination")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "pagination-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "pagination-key", nil)
 	store.ClaimOrCreateDomain(ctx, "pagination.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@pagination.example.com", "pagination.example.com", "", "", "local", user.ID)
 
@@ -999,7 +999,7 @@ func TestGetMessages_PaginationFilterMismatch(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-filtermm@example.com", "Owner", "google-filtermm")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "filtermm-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "filtermm-key", nil)
 	store.ClaimOrCreateDomain(ctx, "filtermm.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@filtermm.example.com", "filtermm.example.com", "", "", "local", user.ID)
 
@@ -1038,7 +1038,7 @@ func TestGetMessages_InvalidToken(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-badtoken@example.com", "Owner", "google-badtoken")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "badtoken-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "badtoken-key", nil)
 	store.ClaimOrCreateDomain(ctx, "badtoken.example.com", user.ID)
 	store.CreateAgent(ctx, "agent@badtoken.example.com", "badtoken.example.com", "", "", "local", user.ID)
 
@@ -1057,7 +1057,7 @@ func TestGetMessages_PageSizeDefault(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-pagedefault@example.com", "Owner", "google-pagedefault")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "pagedefault-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "pagedefault-key", nil)
 	store.ClaimOrCreateDomain(ctx, "pagedefault.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@pagedefault.example.com", "pagedefault.example.com", "", "", "local", user.ID)
 
@@ -1271,7 +1271,7 @@ func TestVerifyDomainDevModeSkipsDNS(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-devdns@example.com", "Owner", "google-devdns")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "devdns-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "devdns-key", nil)
 	// Create agent with a domain that has no real DNS TXT records
 	store.ClaimOrCreateDomain(ctx, "fake.norealdns.local", user.ID)
 	store.CreateAgent(ctx, "agent@fake.norealdns.local", "fake.norealdns.local", "", "https://example.com/webhook", "", user.ID)
@@ -1319,7 +1319,7 @@ func TestMailLog_SendEmail(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-log-send@example.com", "Owner", "google-log-send")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "log-send-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "log-send-key", nil)
 	store.ClaimOrCreateDomain(ctx, "log-send.example.com", user.ID)
 	store.VerifyDomain(ctx, "log-send.example.com", user.ID)
 	store.CreateAgent(ctx, "bot@log-send.example.com", "log-send.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -1350,7 +1350,7 @@ func TestMailLog_ReplyEmail(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-log-reply@example.com", "Owner", "google-log-reply")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "log-reply-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "log-reply-key", nil)
 	store.ClaimOrCreateDomain(ctx, "log-reply.example.com", user.ID)
 	store.VerifyDomain(ctx, "log-reply.example.com", user.ID)
 	ag, _ := store.CreateAgent(ctx, "bot@log-reply.example.com", "log-reply.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -1384,7 +1384,7 @@ func TestSendTestEmailSuccess(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-test@example.com", "Owner", "google-test-email")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "test-email-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "test-email-key", nil)
 	store.ClaimOrCreateDomain(ctx, "test-email.example.com", user.ID)
 	store.VerifyDomain(ctx, "test-email.example.com", user.ID)
 	store.CreateAgent(ctx, "bot@test-email.example.com", "test-email.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -1433,7 +1433,7 @@ func TestSendTestEmailUnverifiedDomain(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-unverified-test@example.com", "Owner", "google-unverified-test")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "unverified-test-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "unverified-test-key", nil)
 	store.ClaimOrCreateDomain(ctx, "unverified-test.example.com", user.ID)
 	store.CreateAgent(ctx, "bot@unverified-test.example.com", "unverified-test.example.com", "", "https://example.com/webhook", "", user.ID)
 
