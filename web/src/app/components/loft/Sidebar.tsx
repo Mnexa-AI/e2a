@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import { useAuth } from "../AuthProvider";
 import { usePendingCount } from "../hooks/usePendingCount";
 
-type IconKey = "plus" | "grid" | "clock" | "globe" | "key" | "settings" | "msg";
+type IconKey = "plus" | "grid" | "clock" | "globe" | "key" | "settings" | "msg" | "shield";
 
 const ICONS: Record<IconKey, ReactNode> = {
   plus: (
@@ -49,6 +49,15 @@ const ICONS: Record<IconKey, ReactNode> = {
     </>
   ),
   msg: <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />,
+  // Shield-with-checkmark — denotes the signing-secret integrity guard.
+  // Matches the "API keys" icon's silhouette weight so the credential
+  // pair reads as visually related in the sidebar.
+  shield: (
+    <>
+      <path d="M12 3l8 3v6c0 4.5-3.5 8-8 9-4.5-1-8-4.5-8-9V6l8-3z" />
+      <path d="M9 12l2 2 4-4" />
+    </>
+  ),
 };
 
 type NavItem = {
