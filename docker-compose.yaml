@@ -1,3 +1,11 @@
+# TODO(#127): split into compose.yaml (production shape) +
+# compose.dev.yaml (local-dev override containing mailpit + demo
+# secrets + loopback port bindings). Today this single file mixes
+# production-shape services with local-dev-only services and env vars,
+# so a production deploy that forgets to drop the `mailpit` service
+# silently funnels outbound mail to the dev catch-all. See #127 for
+# the full plan + the alternative compose-profiles approach.
+
 services:
   postgres:
     image: postgres:16-alpine
