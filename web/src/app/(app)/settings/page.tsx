@@ -69,6 +69,37 @@ function ProfileSection({
 }: {
   user: { id: string; email: string; name: string; created_at: string };
 }) {
+  const { setUser } = useAuth();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(user.name);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSave = async () => {
+    setError("");
+    setSaving(true);
+    try {
+      const res = await fetch("/api/auth/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ name: draft }),
+      });
+      if (!res.ok) {
+        setError((await res.text()) || `Failed (${res.status})`);
+        setSaving(false);
+        return;
+      }
+      const updated = await res.json();
+      setUser(updated);
+      setEditing(false);
+    } catch {
+      setError("Network error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <section>
       <SectionHeading title="Profile" />
@@ -82,24 +113,83 @@ function ProfileSection({
       >
         <dl className="grid grid-cols-[140px_1fr] gap-y-3 gap-x-6 text-[13px]">
           <dt style={{ color: "var(--fg-muted)" }}>Name</dt>
-          <dd className="flex items-center gap-2" style={{ color: "var(--fg)" }}>
-            <span>{user.name || "—"}</span>
-            {/* Edit-name disabled until BACKEND_TODO #8 (PATCH /api/auth/me) ships */}
-            <button
-              type="button"
-              disabled
-              title="Editing name will be enabled once PATCH /api/auth/me ships"
-              className="text-[11px] px-2 py-0.5"
-              style={{
-                color: "var(--fg-subtle)",
-                border: "1px solid var(--border-sub)",
-                background: "var(--bg-elev)",
-                borderRadius: "var(--r-sm)",
-                cursor: "not-allowed",
-              }}
-            >
-              Edit
-            </button>
+          <dd className="flex items-center gap-2 flex-wrap" style={{ color: "var(--fg)" }}>
+            {editing ? (
+              <>
+                <input
+                  type="text"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  disabled={saving}
+                  maxLength={80}
+                  className="text-[13px] px-2 py-1"
+                  style={{
+                    background: "var(--bg-elev)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--r-sm)",
+                    color: "var(--fg)",
+                    minWidth: 200,
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={saving || draft.trim().length === 0 || draft !== draft.trim()}
+                  className="text-[11px] px-2 py-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{
+                    color: "var(--accent-fg)",
+                    background: "var(--accent-fill)",
+                    border: "1px solid var(--accent-fill)",
+                    borderRadius: "var(--r-sm)",
+                  }}
+                >
+                  {saving ? "Saving…" : "Save"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditing(false);
+                    setDraft(user.name);
+                    setError("");
+                  }}
+                  disabled={saving}
+                  className="text-[11px] px-2 py-0.5"
+                  style={{
+                    color: "var(--fg-muted)",
+                    border: "1px solid var(--border-sub)",
+                    background: "var(--bg-elev)",
+                    borderRadius: "var(--r-sm)",
+                  }}
+                >
+                  Cancel
+                </button>
+                {error && (
+                  <span className="text-[11px]" style={{ color: "var(--danger-strong)" }}>
+                    {error}
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                <span>{user.name || "—"}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraft(user.name);
+                    setEditing(true);
+                  }}
+                  className="text-[11px] px-2 py-0.5"
+                  style={{
+                    color: "var(--fg-muted)",
+                    border: "1px solid var(--border-sub)",
+                    background: "var(--bg-elev)",
+                    borderRadius: "var(--r-sm)",
+                  }}
+                >
+                  Edit
+                </button>
+              </>
+            )}
           </dd>
           <dt style={{ color: "var(--fg-muted)" }}>Email</dt>
           <dd style={{ color: "var(--fg)" }}>{user.email}</dd>

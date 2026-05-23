@@ -7,12 +7,17 @@ type AuthContextType = {
   user: UserInfo | null;
   loading: boolean;
   signOut: () => Promise<void>;
+  // setUser lets other components push fresh profile data into the
+  // shared cache after a PATCH /api/auth/me edit, so the sidebar's
+  // identity card updates without an extra round-trip.
+  setUser: (u: UserInfo | null) => void;
 };
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
   signOut: async () => {},
+  setUser: () => {},
 });
 
 export function useAuth() {
@@ -41,7 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signOut, setUser }}>
       {children}
     </AuthContext.Provider>
   );
