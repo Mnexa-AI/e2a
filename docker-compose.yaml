@@ -95,6 +95,13 @@ services:
       E2A_OUTBOUND_SMTP_HOST: "mailpit"
       E2A_OUTBOUND_SMTP_PORT: "1025"
       E2A_OUTBOUND_SMTP_FROM_DOMAIN: "e2a.localhost"
+      # Enable per-message usage tracking so the dashboard stats strip
+      # (GET /api/dashboard/stats — BACKEND_TODO #1) shows real numbers
+      # in the dev experience. The default is the NoopUsageTracker,
+      # which leaves usage_summaries empty and renders the cards as 0/—.
+      # Production sets this on the e2a-ops compose; mirroring it here
+      # keeps "first docker compose up" feel parity with prod.
+      E2A_USAGE_TRACKING: "true"
     # Healthcheck is defined in the Dockerfile (HEALTHCHECK instruction)
     # so it travels with the image. Anyone using the image — including
     # this compose file — gets it for free.
