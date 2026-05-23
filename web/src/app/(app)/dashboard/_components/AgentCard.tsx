@@ -41,8 +41,9 @@ export function AgentCard({
         padding: "20px 22px",
       }}
     >
-      {/* Header row */}
-      <div className="flex items-start justify-between">
+      {/* Header row. Stacks on narrow viewports so the email + chip column
+          doesn't get squeezed by the action buttons. */}
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
         <div className="min-w-0 flex-1">
           {/* Email + badges */}
           <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -101,7 +102,7 @@ export function AgentCard({
         </div>
 
         {/* Actions */}
-        <div className="flex gap-2 shrink-0 ml-4">
+        <div className="flex gap-2 shrink-0 md:ml-4 flex-wrap">
           {agent.domain_verified && (
             <>
               <button

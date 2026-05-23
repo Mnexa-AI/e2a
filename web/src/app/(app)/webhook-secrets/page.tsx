@@ -365,14 +365,14 @@ function SigningSecretsTable({
   }
   return (
     <div
-      className="overflow-hidden"
+      className="overflow-x-auto"
       style={{
         background: "var(--bg-panel)",
         border: "1px solid var(--border)",
         borderRadius: "var(--r-lg)",
       }}
     >
-      <table className="w-full text-[13px]">
+      <table className="w-full text-[13px] min-w-[640px]">
         <thead>
           <tr
             className="text-left font-mono text-[10px] uppercase"
