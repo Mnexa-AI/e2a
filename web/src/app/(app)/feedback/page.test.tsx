@@ -80,7 +80,13 @@ describe("Feedback page", () => {
     const user = userEvent.setup();
     render(<FeedbackPage />);
     const bugBtn = screen.getByRole("button", { name: "Bug report" });
+    const generalBtn = screen.getByRole("button", { name: "General" });
+    // Default category is "general"
+    expect(generalBtn).toHaveAttribute("aria-pressed", "true");
+    expect(bugBtn).toHaveAttribute("aria-pressed", "false");
+    // After clicking bug, it becomes the pressed/selected one
     await user.click(bugBtn);
-    expect(bugBtn.className).toContain("border-accent");
+    expect(bugBtn).toHaveAttribute("aria-pressed", "true");
+    expect(generalBtn).toHaveAttribute("aria-pressed", "false");
   });
 });
