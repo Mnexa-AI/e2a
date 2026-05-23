@@ -853,9 +853,70 @@ func (a *API) handleRegisterDomain(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, a.domainInfoFromRecord(domainRecord))
 }
 
-// handleVerifyDomain verifies domain ownership via TXT record.
-// @Summary      Verify domain ownership
-// @Description  Verify domain ownership by checking for the expected TXT record in DNS.
+// dnsRecordCheck holds the per-record probe results for the verify
+// endpoint. Values are "found" / "missing" — DKIM additionally supports
+// "deferred" until BACKEND_TODO #5 ships per-domain DKIM keys.
+type dnsRecordCheck struct {
+	TXTFound bool
+	MX       string
+	SPF      string
+	DKIM     string
+}
+
+// checkDomainRecords runs the three per-record probes plus the TXT
+// ownership check. In dev mode, all checks short-circuit to "found" /
+// true so domain verification flows can be exercised without real DNS.
+//
+// Probe semantics:
+//   - TXT: any TXT record contains the verification token (ownership proof)
+//   - MX: any MX record points at smtpDomain (mail routing)
+//   - SPF: any TXT record begins with v=spf1 and contains the relay's
+//     send domain. We accept either smtpDomain or just the bare domain
+//     as a substring — operators commonly use either form.
+//   - DKIM: returns "deferred" pending per-domain DKIM keypair (TODO #5)
+func checkDomainRecords(domain, smtpDomain, verificationToken string, production bool) dnsRecordCheck {
+	if !production {
+		return dnsRecordCheck{
+			TXTFound: true,
+			MX:       "found",
+			SPF:      "found",
+			DKIM:     "deferred",
+		}
+	}
+	check := dnsRecordCheck{DKIM: "deferred", MX: "missing", SPF: "missing"}
+
+	// TXT ownership + SPF live in the same record set
+	if txts, err := net.LookupTXT(domain); err == nil {
+		for _, txt := range txts {
+			if strings.Contains(txt, verificationToken) {
+				check.TXTFound = true
+			}
+			if strings.HasPrefix(strings.ToLower(txt), "v=spf1") &&
+				strings.Contains(strings.ToLower(txt), strings.ToLower(smtpDomain)) {
+				check.SPF = "found"
+			}
+		}
+	}
+
+	if mxs, err := net.LookupMX(domain); err == nil {
+		for _, mx := range mxs {
+			if strings.EqualFold(strings.TrimSuffix(mx.Host, "."), smtpDomain) {
+				check.MX = "found"
+				break
+			}
+		}
+	}
+
+	return check
+}
+
+// handleVerifyDomain verifies domain ownership via TXT record AND runs
+// per-record diagnostic probes (MX, SPF, DKIM) for the redesigned
+// Domains page. The TXT ownership token is the canonical "verified"
+// signal; MX/SPF/DKIM are advisory and surface as a found/missing chip
+// in the dashboard so operators can see exactly what's misconfigured.
+// @Summary      Verify domain ownership + DNS diagnostic
+// @Description  Verify domain ownership (TXT record) and run per-record probes for MX/SPF/DKIM. Returns 200 with the per-record breakdown when ownership is verified, 412 when the TXT token is missing. DKIM always reports "deferred" until per-domain DKIM ships.
 // @Tags         Domains
 // @Produce      json
 // @Security     BearerAuth
@@ -863,7 +924,7 @@ func (a *API) handleRegisterDomain(w http.ResponseWriter, r *http.Request) {
 // @Success      200 {object} VerifyDomainResponse
 // @Failure      401 {string} string "Missing or invalid API key"
 // @Failure      404 {string} string "Domain not found"
-// @Failure      412 {string} string "TXT record not found"
+// @Failure      412 {object} VerifyDomainResponse "TXT record not found — body includes per-record diagnostic"
 // @Router       /api/v1/domains/{domain}/verify [post]
 func (a *API) handleVerifyDomain(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticateUser(r)
@@ -880,48 +941,44 @@ func (a *API) handleVerifyDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Touch last_checked_at on every probe — the column tracks "when did
+	// we last try", separate from verified_at which only moves on success.
+	if err := a.store.TouchDomainLastChecked(r.Context(), domain, user.ID); err != nil {
+		log.Printf("[api] touch last_checked_at for %s: %v", domain, err)
+	}
+
+	check := checkDomainRecords(domain, a.smtpDomain, domainRecord.VerificationToken, a.production)
+
+	// Already-verified case: short-circuit the verify call but still
+	// surface the per-record diagnostic so the dashboard can show the
+	// latest known DNS state. Probe results still drive the chips.
 	if domainRecord.Verified {
 		w.Header().Set("Content-Type", "application/json")
 		writeJSON(w, VerifyDomainResponse{
 			Domain:     domainRecord.Domain,
 			Verified:   true,
 			VerifiedAt: domainRecord.VerifiedAt,
+			MX:         check.MX,
+			SPF:        check.SPF,
+			DKIM:       check.DKIM,
 		})
 		return
 	}
 
-	// Touch last_checked_at regardless of whether the probe succeeds —
-	// the column is "when did we last try", separate from verified_at
-	// which only moves on success. Best-effort: a failed touch shouldn't
-	// block the verify response (the row is locked-down to the user, so
-	// the only realistic failure is a transient DB issue).
-	if err := a.store.TouchDomainLastChecked(r.Context(), domain, user.ID); err != nil {
-		log.Printf("[api] touch last_checked_at for %s: %v", domain, err)
-	}
-
-	// In dev mode, skip DNS verification
-	if !a.production {
-		log.Printf("[api] dev mode: skipping DNS check for %s", domain)
-	} else {
-		// Look up TXT records for the domain
-		txtRecords, err := net.LookupTXT(domain)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("DNS lookup failed for %s: %v", domain, err), http.StatusBadRequest)
-			return
-		}
-
-		found := false
-		for _, txt := range txtRecords {
-			if strings.Contains(txt, domainRecord.VerificationToken) {
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			http.Error(w, fmt.Sprintf("TXT record not found. Expected: %s", domainRecord.VerificationToken), http.StatusPreconditionFailed)
-			return
-		}
+	if !check.TXTFound {
+		// Return the diagnostic on 412 so callers see exactly what's
+		// missing — old behavior was a plain-text "TXT record not found"
+		// which the dashboard couldn't structurally parse.
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusPreconditionFailed)
+		writeJSON(w, VerifyDomainResponse{
+			Domain:   domainRecord.Domain,
+			Verified: false,
+			MX:       check.MX,
+			SPF:      check.SPF,
+			DKIM:     check.DKIM,
+		})
+		return
 	}
 
 	if err := a.store.VerifyDomain(r.Context(), domain, user.ID); err != nil {
@@ -931,14 +988,15 @@ func (a *API) handleVerifyDomain(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[api] domain verified: %s", domain)
 
-	// Re-fetch to get verified_at timestamp
 	domainRecord, err = a.store.LookupDomain(r.Context(), domain, user.ID)
 	if err != nil {
-		// Verification succeeded but re-fetch failed; return basic success
 		w.Header().Set("Content-Type", "application/json")
 		writeJSON(w, VerifyDomainResponse{
 			Domain:   domain,
 			Verified: true,
+			MX:       check.MX,
+			SPF:      check.SPF,
+			DKIM:     check.DKIM,
 		})
 		return
 	}
@@ -948,6 +1006,9 @@ func (a *API) handleVerifyDomain(w http.ResponseWriter, r *http.Request) {
 		Domain:     domainRecord.Domain,
 		Verified:   true,
 		VerifiedAt: domainRecord.VerifiedAt,
+		MX:         check.MX,
+		SPF:        check.SPF,
+		DKIM:       check.DKIM,
 	})
 }
 

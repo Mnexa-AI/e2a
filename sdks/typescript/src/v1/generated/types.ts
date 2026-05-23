@@ -886,8 +886,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Verify domain ownership
-         * @description Verify domain ownership by checking for the expected TXT record in DNS.
+         * Verify domain ownership + DNS diagnostic
+         * @description Verify domain ownership (TXT record) and run per-record probes for MX/SPF/DKIM. Returns 200 with the per-record breakdown when ownership is verified, 412 when the TXT token is missing. DKIM always reports "deferred" until per-domain DKIM ships.
          */
         post: {
             parameters: {
@@ -928,13 +928,13 @@ export interface paths {
                         "application/json": string;
                     };
                 };
-                /** @description TXT record not found */
+                /** @description TXT record not found — body includes per-record diagnostic */
                 412: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": string;
+                        "application/json": components["schemas"]["VerifyDomainResponse"];
                     };
                 };
             };
@@ -2095,8 +2095,30 @@ export interface components {
             name?: string;
         };
         VerifyDomainResponse: {
+            /**
+             * @description DKIM status: "deferred" until BACKEND_TODO #5 ships per-domain
+             *     DKIM key generation. Until then there's no per-domain DKIM TXT
+             *     record to verify against.
+             * @example deferred
+             * @enum {string}
+             */
+            dkim?: "found" | "missing" | "deferred";
             /** @example yourdomain.com */
             domain?: string;
+            /**
+             * @description MX status: "found" iff at least one MX record points at the
+             *     deployment's smtp domain. "missing" otherwise.
+             * @example found
+             * @enum {string}
+             */
+            mx?: "found" | "missing";
+            /**
+             * @description SPF status: "found" iff a v=spf1 TXT record includes the
+             *     deployment's send domain. "missing" otherwise.
+             * @example found
+             * @enum {string}
+             */
+            spf?: "found" | "missing";
             verified?: boolean;
             verified_at?: string;
         };

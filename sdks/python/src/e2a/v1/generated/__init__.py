@@ -339,7 +339,22 @@ class VerifyDomainResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
+    dkim: Literal['found', 'missing', 'deferred'] | None = Field(
+        None,
+        description='DKIM status: "deferred" until BACKEND_TODO #5 ships per-domain\nDKIM key generation. Until then there\'s no per-domain DKIM TXT\nrecord to verify against.',
+        examples=['deferred'],
+    )
     domain: str | None = Field(None, examples=['yourdomain.com'])
+    mx: Literal['found', 'missing'] | None = Field(
+        None,
+        description='MX status: "found" iff at least one MX record points at the\ndeployment\'s smtp domain. "missing" otherwise.',
+        examples=['found'],
+    )
+    spf: Literal['found', 'missing'] | None = Field(
+        None,
+        description='SPF status: "found" iff a v=spf1 TXT record includes the\ndeployment\'s send domain. "missing" otherwise.',
+        examples=['found'],
+    )
     verified: bool | None = None
     verified_at: str | None = None
 

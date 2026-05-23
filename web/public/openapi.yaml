@@ -721,8 +721,37 @@ definitions:
     type: object
   VerifyDomainResponse:
     properties:
+      dkim:
+        description: |-
+          DKIM status: "deferred" until BACKEND_TODO #5 ships per-domain
+          DKIM key generation. Until then there's no per-domain DKIM TXT
+          record to verify against.
+        enum:
+        - found
+        - missing
+        - deferred
+        example: deferred
+        type: string
       domain:
         example: yourdomain.com
+        type: string
+      mx:
+        description: |-
+          MX status: "found" iff at least one MX record points at the
+          deployment's smtp domain. "missing" otherwise.
+        enum:
+        - found
+        - missing
+        example: found
+        type: string
+      spf:
+        description: |-
+          SPF status: "found" iff a v=spf1 TXT record includes the
+          deployment's send domain. "missing" otherwise.
+        enum:
+        - found
+        - missing
+        example: found
         type: string
       verified:
         type: boolean
@@ -1486,8 +1515,10 @@ paths:
       - Domains
   /api/v1/domains/{domain}/verify:
     post:
-      description: Verify domain ownership by checking for the expected TXT record
-        in DNS.
+      description: Verify domain ownership (TXT record) and run per-record probes
+        for MX/SPF/DKIM. Returns 200 with the per-record breakdown when ownership
+        is verified, 412 when the TXT token is missing. DKIM always reports "deferred"
+        until per-domain DKIM ships.
       parameters:
       - description: Domain name
         in: path
@@ -1510,12 +1541,12 @@ paths:
           schema:
             type: string
         "412":
-          description: TXT record not found
+          description: TXT record not found — body includes per-record diagnostic
           schema:
-            type: string
+            $ref: '#/definitions/VerifyDomainResponse'
       security:
       - BearerAuth: []
-      summary: Verify domain ownership
+      summary: Verify domain ownership + DNS diagnostic
       tags:
       - Domains
   /api/v1/info:

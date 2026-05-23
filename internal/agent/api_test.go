@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -1470,3 +1471,74 @@ func TestSendTestEmailWrongUser(t *testing.T) {
 	}
 }
 
+
+// --- Per-record DNS verification (BACKEND_TODO #4) ---
+
+// TestVerifyDomain_PerRecordDiagnostic: the response now includes
+// per-record probe results (mx/spf/dkim) so the redesigned Domains
+// page can render found/missing chips per record. In dev mode the
+// probes short-circuit to "found" so this test asserts the contract
+// shape only — the actual DNS probe paths are exercised by manual
+// testing against real domains.
+func TestVerifyDomain_PerRecordDiagnostic(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	apiKey := createTestUser(t, store, "verify-diag@example.com")
+	ctx := context.Background()
+	user, _ := store.GetUserByAPIKey(ctx, apiKey)
+	store.ClaimOrCreateDomain(ctx, "diag.example.com", user.ID)
+
+	resp := authedPost(t, server.URL+"/api/v1/domains/diag.example.com/verify", "", apiKey)
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 200; body=%s", resp.StatusCode, body)
+	}
+	var body struct {
+		Domain   string `json:"domain"`
+		Verified bool   `json:"verified"`
+		MX       string `json:"mx"`
+		SPF      string `json:"spf"`
+		DKIM     string `json:"dkim"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+
+	if !body.Verified {
+		t.Errorf("verified = false, want true (dev-mode probe accepts TXT)")
+	}
+	if body.MX != "found" {
+		t.Errorf("mx = %q, want found (dev mode short-circuits)", body.MX)
+	}
+	if body.SPF != "found" {
+		t.Errorf("spf = %q, want found", body.SPF)
+	}
+	if body.DKIM != "deferred" {
+		t.Errorf("dkim = %q, want deferred (until BACKEND_TODO #5 ships)", body.DKIM)
+	}
+}
+
+// TestVerifyDomain_AlreadyVerified_StillReturnsDiagnostic: re-probing
+// an already-verified domain returns the same per-record shape so the
+// dashboard can refresh chips without losing the verified state.
+func TestVerifyDomain_AlreadyVerified_StillReturnsDiagnostic(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	apiKey := createTestUser(t, store, "verify-reprobe@example.com")
+	ctx := context.Background()
+	user, _ := store.GetUserByAPIKey(ctx, apiKey)
+	store.ClaimOrCreateDomain(ctx, "reprobe.example.com", user.ID)
+	store.VerifyDomain(ctx, "reprobe.example.com", user.ID)
+
+	resp := authedPost(t, server.URL+"/api/v1/domains/reprobe.example.com/verify", "", apiKey)
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var body struct {
+		Verified bool   `json:"verified"`
+		MX       string `json:"mx"`
+		DKIM     string `json:"dkim"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	if !body.Verified || body.MX != "found" || body.DKIM != "deferred" {
+		t.Errorf("already-verified response missing diagnostic: %+v", body)
+	}
+}
