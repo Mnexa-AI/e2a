@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DashboardAgent } from "../../../components/types";
 import { AgentModeSwitcher } from "./AgentModeSwitcher";
 import { WebhookEditor } from "./WebhookEditor";
@@ -164,18 +164,7 @@ export function AgentCard({
               </button>
             </>
           )}
-          <button
-            onClick={onDelete}
-            className="text-[12px] px-3 py-1.5 transition"
-            style={{
-              color: "var(--danger-strong)",
-              border: "1px solid var(--danger-bg)",
-              background: "transparent",
-              borderRadius: "var(--r-md)",
-            }}
-          >
-            Delete
-          </button>
+          <OverflowMenu onDelete={onDelete} />
         </div>
         {testError && (
           <p
@@ -305,6 +294,81 @@ function AgentStat({
       >
         {display}
       </div>
+    </div>
+  );
+}
+
+// OverflowMenu collapses destructive actions (currently just Delete)
+// behind a kebab button to match the mock's Test / Connect / ⋯
+// action triad. Closes on Escape, click-outside, or option click.
+//
+// Today the menu only has Delete. Future additions (e.g. Rotate
+// webhook URL, Export activity CSV) slot in here without expanding
+// the visible button row.
+function OverflowMenu({ onDelete }: { onDelete: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        aria-label="More actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="text-[16px] leading-none px-2.5 py-1.5 transition"
+        style={{
+          background: open ? "var(--bg-elev)" : "transparent",
+          color: "var(--fg-muted)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--r-md)",
+          minHeight: 32,
+        }}
+      >
+        ⋯
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 mt-1 z-10 min-w-[140px] py-1"
+          style={{
+            background: "var(--bg-panel)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r-md)",
+            boxShadow: "0 4px 18px rgba(0,0,0,0.08)",
+          }}
+        >
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onDelete();
+            }}
+            className="block w-full text-left px-3 py-2 text-[12px] transition"
+            style={{ color: "var(--danger-strong)" }}
+          >
+            Delete agent
+          </button>
+        </div>
+      )}
     </div>
   );
 }

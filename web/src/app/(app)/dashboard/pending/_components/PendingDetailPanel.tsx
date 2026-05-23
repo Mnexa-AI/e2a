@@ -81,6 +81,10 @@ export function PendingDetailPanel({
   const [msg, setMsg] = useState<PendingMessageDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Reviewers see the draft read-only by default; clicking "Edit draft"
+  // unlocks the inputs. Matches the mock's explicit edit-mode toggle
+  // and prevents accidental keystrokes from being interpreted as edits.
+  const [editing, setEditing] = useState(false);
 
   const [subject, setSubject] = useState("");
   const [bodyText, setBodyText] = useState("");
@@ -96,6 +100,7 @@ export function PendingDetailPanel({
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
+    setEditing(false); // fresh message → re-lock the form
     try {
       const data = await getPendingMessage(messageId);
       setMsg(data);
@@ -292,7 +297,7 @@ export function PendingDetailPanel({
                 type="text"
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
-                disabled={notPending || busy}
+                disabled={!editing || notPending || busy}
                 className="w-full text-[14px] px-2 py-1"
                 style={{
                   background: notPending
@@ -309,7 +314,7 @@ export function PendingDetailPanel({
                 type="text"
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
-                disabled={notPending || busy}
+                disabled={!editing || notPending || busy}
                 className="w-full text-[12px] font-mono px-2 py-1"
                 style={{
                   background: notPending
@@ -327,7 +332,7 @@ export function PendingDetailPanel({
                   type="text"
                   value={cc}
                   onChange={(e) => setCC(e.target.value)}
-                  disabled={notPending || busy}
+                  disabled={!editing || notPending || busy}
                   className="w-full text-[12px] font-mono px-2 py-1"
                   style={{
                     background: notPending
@@ -346,7 +351,7 @@ export function PendingDetailPanel({
                   type="text"
                   value={bcc}
                   onChange={(e) => setBCC(e.target.value)}
-                  disabled={notPending || busy}
+                  disabled={!editing || notPending || busy}
                   className="w-full text-[12px] font-mono px-2 py-1"
                   style={{
                     background: notPending
@@ -363,7 +368,7 @@ export function PendingDetailPanel({
               <textarea
                 value={bodyText}
                 onChange={(e) => setBodyText(e.target.value)}
-                disabled={notPending || busy}
+                disabled={!editing || notPending || busy}
                 rows={10}
                 className="w-full text-[14px] px-2 py-2"
                 style={{
@@ -383,7 +388,7 @@ export function PendingDetailPanel({
                 <textarea
                   value={bodyHTML}
                   onChange={(e) => setBodyHTML(e.target.value)}
-                  disabled={notPending || busy}
+                  disabled={!editing || notPending || busy}
                   rows={6}
                   className="w-full text-[12px] font-mono px-2 py-2"
                   style={{
@@ -566,6 +571,33 @@ export function PendingDetailPanel({
               }}
             >
               {approving ? "Sending…" : "Approve & send"}
+            </button>
+            {/* Edit-draft toggle. Default state is read-only; clicking
+                unlocks every field on the draft pane. "Cancel edit" re-
+                locks and reverts to the originally-loaded values. */}
+            <button
+              onClick={() => {
+                if (editing && msg) {
+                  // Cancel: revert form state to the loaded message.
+                  setSubject(msg.subject ?? "");
+                  setBodyText(msg.body_text ?? "");
+                  setBodyHTML(msg.body_html ?? "");
+                  setTo(joinCSV(msg.to));
+                  setCC(joinCSV(msg.cc));
+                  setBCC(joinCSV(msg.bcc));
+                }
+                setEditing(!editing);
+              }}
+              disabled={busy}
+              className="text-[13px] font-medium px-4 py-2 transition disabled:opacity-50"
+              style={{
+                background: "var(--bg-panel)",
+                color: "var(--fg)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--r-md)",
+              }}
+            >
+              {editing ? "Cancel edit" : "Edit draft"}
             </button>
             <button
               onClick={handleReject}
