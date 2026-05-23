@@ -87,7 +87,13 @@ func messageToSummary(m identity.Message) pendingMessageSummary {
 	return s
 }
 
-func messageToDetail(m identity.Message) pendingMessageDetail {
+// messageToDetail converts a stored outbound message into the public
+// detail shape. When inbound is non-nil it is attached as
+// InboundContext so the reviewer-facing Provenance pane has the parent
+// message's sender, subject, timestamp, and SPF/DKIM/DMARC headers.
+// Callers pass nil for non-reply messages and for replies whose parent
+// inbound has aged out of retention (or was never persisted).
+func messageToDetail(m identity.Message, inbound *identity.Message) pendingMessageDetail {
 	d := pendingMessageDetail{
 		pendingMessageSummary: messageToSummary(m),
 		EmailMessageID:        m.EmailMessageID,
@@ -107,6 +113,14 @@ func messageToDetail(m identity.Message) pendingMessageDetail {
 		var attachments []outbound.Attachment
 		if err := json.Unmarshal(m.AttachmentsJSON, &attachments); err == nil {
 			d.Attachments = attachments
+		}
+	}
+	if inbound != nil {
+		d.InboundContext = &pendingMessageInboundContext{
+			Sender:      inbound.Sender,
+			Subject:     inbound.Subject,
+			CreatedAt:   inbound.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+			AuthHeaders: inbound.AuthHeaders,
 		}
 	}
 	return d
@@ -185,8 +199,22 @@ func (a *API) handleGetOutboundMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// For replies, attach the parent inbound's headers so the review
+	// panel can render the Provenance pane + quoted preview. The lookup
+	// is best-effort: messages.expires_at scopes the inbound to the
+	// retention window, and the store returns sql.ErrNoRows when the
+	// parent has aged out. We swallow the error in that case — the UI
+	// falls back to "No inbound context" cleanly. agent_id scoping in
+	// GetInboundByEmailMessageID guards against cross-agent reach.
+	var inbound *identity.Message
+	if msg.EmailMessageID != "" {
+		if got, err := a.store.GetInboundByEmailMessageID(r.Context(), msg.AgentID, msg.EmailMessageID); err == nil {
+			inbound = got
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	writeJSON(w, messageToDetail(*msg))
+	writeJSON(w, messageToDetail(*msg, inbound))
 }
 
 // approveRequest is the JSON body accepted by the approve endpoint. Every
