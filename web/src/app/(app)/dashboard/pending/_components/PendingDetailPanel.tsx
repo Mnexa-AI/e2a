@@ -580,60 +580,6 @@ export function PendingDetailPanel({
           </div>
         </div>
 
-        {/* Outbound headers preview — ink block */}
-        <div className="px-6 py-5">
-          <SectionEyebrow>Headers that will be sent</SectionEyebrow>
-          <div
-            className="mt-3 p-4 font-mono text-[12px] leading-[1.75]"
-            style={{
-              background: "var(--ink, #1A1714)",
-              color: "var(--ink-fg, #EFE6D8)",
-              borderRadius: "var(--r-md)",
-            }}
-          >
-            <div style={{ opacity: 0.55 }}># will be signed at send-time</div>
-            <div>
-              <span style={{ opacity: 0.55 }}>From: </span>
-              {msg.agent_id}
-            </div>
-            <div>
-              <span style={{ opacity: 0.55 }}>To: </span>
-              {parseCSV(to).join(", ") || "—"}
-            </div>
-            {parseCSV(cc).length > 0 && (
-              <div>
-                <span style={{ opacity: 0.55 }}>Cc: </span>
-                {parseCSV(cc).join(", ")}
-              </div>
-            )}
-            <div>
-              <span style={{ opacity: 0.55 }}>Subject: </span>
-              {subject}
-            </div>
-            {msg.email_message_id && (
-              <div>
-                <span style={{ opacity: 0.55 }}>In-Reply-To: </span>
-                {msg.email_message_id}
-              </div>
-            )}
-            {msg.conversation_id && (
-              <div>
-                <span style={{ opacity: 0.55 }}>X-E2A-Conversation-Id: </span>
-                {msg.conversation_id}
-              </div>
-            )}
-            <div>
-              <span style={{ opacity: 0.55 }}>X-E2A-Auth-Sender: </span>
-              {msg.agent_id}
-            </div>
-            <div style={{ opacity: 0.55 }}>
-              X-E2A-Auth-Body-Hash: [computed at send]
-            </div>
-            <div style={{ opacity: 0.55 }}>
-              X-E2A-Auth-Signature: [computed at send]
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Action bar */}
