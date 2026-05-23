@@ -192,8 +192,11 @@ export default function APIKeysPage() {
         </div>
       )}
 
-      <div className="flex items-end gap-3 mb-6 flex-wrap">
-        <div className="flex-1 min-w-[200px]">
+      {/* Create form. Stacks vertically on phones (single column),
+          breaks into a row at md+ where name takes the leftover space
+          and the select + button trail. */}
+      <div className="flex flex-col md:flex-row md:items-end gap-3 mb-6">
+        <div className="md:flex-1 md:min-w-[200px]">
           <label
             htmlFor="apikey-name"
             className="block text-[12px] font-medium mb-1"
@@ -216,7 +219,7 @@ export default function APIKeysPage() {
             }}
           />
         </div>
-        <div className="min-w-[140px]">
+        <div className="md:min-w-[140px]">
           <label
             htmlFor="apikey-expires"
             className="block text-[12px] font-medium mb-1"
@@ -249,7 +252,7 @@ export default function APIKeysPage() {
         <button
           onClick={handleCreate}
           disabled={creating}
-          className="px-4 py-2 text-[13px] font-medium transition disabled:opacity-50"
+          className="w-full md:w-auto px-4 py-2 text-[13px] font-medium transition disabled:opacity-50"
           style={{
             background: "var(--accent-fill)",
             color: "var(--accent-fg)",

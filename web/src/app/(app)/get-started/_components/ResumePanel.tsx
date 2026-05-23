@@ -46,8 +46,8 @@ export function ResumePanel({
         {/* Existing agents */}
         {hasAgents && hasAgents.type === "has_agents" && (
           <div className="p-4 rounded-lg border border-border bg-surface">
-            <div className="flex items-center justify-between">
-              <div>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="min-w-0">
                 <p className="text-sm font-medium">
                   You have {hasAgents.count} agent{hasAgents.count !== 1 ? "s" : ""} set up
                 </p>
@@ -57,7 +57,7 @@ export function ResumePanel({
               </div>
               <Link
                 href="/dashboard"
-                className="shrink-0 px-3 py-1.5 text-xs font-medium bg-foreground text-background rounded-md hover:opacity-90 transition"
+                className="shrink-0 px-3 py-1.5 text-xs font-medium bg-foreground text-background rounded-md hover:opacity-90 transition self-start sm:self-auto"
               >
                 Go to Agents
               </Link>
@@ -71,10 +71,10 @@ export function ResumePanel({
             key={option.domain.domain}
             type="button"
             onClick={() => handleResume(option)}
-            className="w-full text-left p-4 rounded-lg border border-border hover:border-foreground/20 transition flex items-center justify-between"
+            className="w-full text-left p-4 rounded-lg border border-border hover:border-foreground/20 transition flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
           >
-            <div>
-              <code className="text-sm font-mono font-medium">{option.domain.domain}</code>
+            <div className="min-w-0">
+              <code className="text-sm font-mono font-medium break-all">{option.domain.domain}</code>
               <span
                 className={`ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
                   option.type === "create_agent"
@@ -85,7 +85,7 @@ export function ResumePanel({
                 {option.type === "create_agent" ? "Verified" : "Unverified"}
               </span>
             </div>
-            <span className="text-xs text-accent font-medium">
+            <span className="text-xs text-accent font-medium shrink-0">
               {option.type === "create_agent" ? "Create agent on this domain" : "Resume verification"}
             </span>
           </button>

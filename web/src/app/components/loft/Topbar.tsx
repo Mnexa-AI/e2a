@@ -11,7 +11,12 @@ export type TopbarProps = {
 function SearchAffordance() {
   return (
     <div
-      className="flex items-center gap-2 px-3 py-1.5 min-w-[280px] font-mono text-[12px]"
+      // 280px makes sense on desktop; on phones it would eat the entire
+      // topbar so the breadcrumbs vanish. Drop the min-width on mobile
+      // and let the affordance shrink to its content (the label + ⌘K
+      // pill). The full search overlay will live on its own when the
+      // search feature actually ships — this is just the affordance.
+      className="hidden sm:flex items-center gap-2 px-3 py-1.5 md:min-w-[280px] font-mono text-[12px]"
       style={{
         background: "var(--bg-elev)",
         border: "1px solid var(--border-sub)",
@@ -53,7 +58,7 @@ export function Topbar({ crumbs = [], right, className = "" }: TopbarProps) {
   const trailing = right ?? (SEARCH_ENABLED ? <SearchAffordance /> : null);
   return (
     <div
-      className={`flex items-center justify-between px-7 ${className}`}
+      className={`flex items-center justify-between px-4 md:px-7 gap-3 ${className}`}
       style={{
         background: "var(--bg-panel)",
         borderBottom: "1px solid var(--border)",
@@ -61,13 +66,14 @@ export function Topbar({ crumbs = [], right, className = "" }: TopbarProps) {
       }}
     >
       <div
-        className="flex items-center gap-2.5 text-[12px]"
+        className="flex items-center gap-2.5 text-[12px] min-w-0 overflow-hidden"
         style={{ color: "var(--fg-muted)" }}
       >
         {crumbs.map((c, i) => (
           <Fragment key={`${i}:${c}`}>
-            {i > 0 && <span aria-hidden>/</span>}
+            {i > 0 && <span aria-hidden className="shrink-0">/</span>}
             <span
+              className="truncate"
               style={{
                 color:
                   i === crumbs.length - 1
@@ -80,7 +86,7 @@ export function Topbar({ crumbs = [], right, className = "" }: TopbarProps) {
           </Fragment>
         ))}
       </div>
-      <div className="flex items-center gap-2.5">{trailing}</div>
+      <div className="flex items-center gap-2.5 shrink-0">{trailing}</div>
     </div>
   );
 }

@@ -140,7 +140,12 @@ export function DomainCard({
               {domain.verified ? "Verified" : "Unverified"}
             </Chip>
             {domain.is_primary && (
-              <Chip tone="neutral">Primary</Chip>
+              <span
+                title="Your default domain. New agents are created here by default and onboarding flows surface it first."
+                style={{ cursor: "help" }}
+              >
+                <Chip tone="neutral">Primary</Chip>
+              </span>
             )}
           </div>
           <p
@@ -183,6 +188,7 @@ export function DomainCard({
             <button
               onClick={handleSetPrimary}
               disabled={promoting}
+              title="Mark this domain as your default. New agents will be created under it by default, and onboarding flows surface it first. You can have one primary domain at a time."
               className="text-[12px] px-3 py-1.5 transition disabled:opacity-50"
               style={{
                 background: "var(--bg-panel)",
