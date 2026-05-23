@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/loopback"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/usage"
 )
@@ -28,20 +29,28 @@ const DefaultBatchSize = 100
 
 // Worker runs the TTL sweep. Construct with New, start with Run.
 type Worker struct {
-	store     *identity.Store
-	sender    *outbound.Sender
-	usage     usage.UsageTracker
-	interval  time.Duration
-	batchSize int
+	store      *identity.Store
+	sender     *outbound.Sender
+	usage      usage.UsageTracker
+	fromDomain string
+	interval   time.Duration
+	batchSize  int
 }
 
-func New(store *identity.Store, sender *outbound.Sender, usage usage.UsageTracker) *Worker {
+// New constructs a Worker. fromDomain is the deployment's outbound
+// from-domain (cfg.OutboundSMTP.FromDomain) — used by the self-send
+// loopback branch to stamp the synthetic Message-ID / Received headers
+// the same way internal/agent does on the user-driven approve path.
+// Pass "" if the deployment has no outbound relay configured; the
+// loopback path falls back to "e2a.local" for the host portion.
+func New(store *identity.Store, sender *outbound.Sender, usage usage.UsageTracker, fromDomain string) *Worker {
 	return &Worker{
-		store:     store,
-		sender:    sender,
-		usage:     usage,
-		interval:  DefaultInterval,
-		batchSize: DefaultBatchSize,
+		store:      store,
+		sender:     sender,
+		usage:      usage,
+		fromDomain: fromDomain,
+		interval:   DefaultInterval,
+		batchSize:  DefaultBatchSize,
 	}
 }
 
@@ -111,6 +120,19 @@ func (w *Worker) autoApprove(ctx context.Context, c identity.ExpirationCandidate
 				return identity.SendResult{}, err
 			}
 			w.attachReferencesChain(ctx, agent.ID, &req)
+			// Self-sends bypass the SMTP relay — outbound.Sender would
+			// strip the agent's own address from the recipient list and
+			// error "no valid recipients", which the worker would then
+			// interpret as a send failure and auto-REJECT the row,
+			// silently inverting the operator-configured
+			// hitl_expiration_action="approve" policy. Loopback writes
+			// the inbound row directly and reports method=loopback on
+			// the now-sent outbound row, matching the user-driven
+			// approve paths in internal/agent/hitl_api.go and
+			// internal/agent/hitl_magic_api.go.
+			if loopback.IsSelfSend(req, agent.EmailAddress()) {
+				return loopback.DeliverInbound(ctx, w.store, agent, req, w.fromDomain)
+			}
 			result, err := w.sender.Send(agent, req)
 			if err != nil {
 				return identity.SendResult{}, err

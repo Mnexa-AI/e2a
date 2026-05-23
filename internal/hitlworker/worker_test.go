@@ -31,7 +31,7 @@ func setupWorker(t *testing.T) (
 	store := identity.NewStore(pool)
 	smtpRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{Host: smtpAddr.Host, Port: smtpAddr.Port})
 	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
-	w := hitlworker.New(store, sender, usage.NewNoopUsageTracker())
+	w := hitlworker.New(store, sender, usage.NewNoopUsageTracker(), "test.e2a.dev")
 	return w, store, pool, smtpDone
 }
 
@@ -161,6 +161,71 @@ func TestWorkerAutoApprovesExpiredPending(t *testing.T) {
 	}
 }
 
+// TestWorkerAutoApproveSelfSendDeliversViaLoopback: a held self-send
+// whose TTL expires with the agent's hitl_expiration_action="approve"
+// must be auto-approved via the loopback path — outbound.Sender.Send
+// would strip the agent's own address (self-spam guard) and error
+// "no valid recipients", which the worker would then translate into
+// auto-REJECT, silently inverting the operator-configured policy.
+//
+// Asserts: outbound row → expired_approved + method=loopback, inbound
+// row appears in the agent's mailbox, no SMTP traffic.
+func TestWorkerAutoApproveSelfSendDeliversViaLoopback(t *testing.T) {
+	w, store, pool, smtpDone := setupWorker(t)
+	ctx := context.Background()
+
+	agent := prepareAgent(t, store, "auto-approve-self", identity.HITLExpirationApprove)
+	msg, err := store.CreatePendingOutboundMessage(ctx, agent.ID,
+		[]string{agent.EmailAddress()}, nil, nil,
+		"self auto-approve", "note to self body", "", nil,
+		"send", "", "", 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backdateExpiry(t, pool, msg.ID)
+
+	w.RunOnce(ctx)
+
+	// SMTP must NOT be hit — loopback is the whole point.
+	if msgs := smtpDone(); len(msgs) != 0 {
+		t.Fatalf("SMTP should not be hit on self-send auto-approve, got %d messages: %+v", len(msgs), msgs)
+	}
+
+	// Outbound row → expired_approved, method=loopback, body scrubbed.
+	var status, method string
+	var providerID *string
+	var bodyText *string
+	err = pool.QueryRow(ctx,
+		`SELECT status, method, provider_message_id, body_text FROM messages WHERE id = $1`,
+		msg.ID,
+	).Scan(&status, &method, &providerID, &bodyText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != identity.MessageStatusExpiredApproved {
+		t.Errorf("status = %q, want %q (worker should NOT have fallen back to expired_rejected)", status, identity.MessageStatusExpiredApproved)
+	}
+	if method != "loopback" {
+		t.Errorf("method = %q, want loopback", method)
+	}
+	if providerID == nil || *providerID == "" {
+		t.Error("provider_message_id should be populated after loopback delivery")
+	}
+	if bodyText != nil {
+		t.Errorf("body_text not scrubbed: %v", bodyText)
+	}
+
+	// Inbound row landed in the agent's mailbox.
+	var inboundCount int
+	pool.QueryRow(ctx,
+		`SELECT count(*) FROM messages
+		   WHERE agent_id=$1 AND direction='inbound' AND subject='self auto-approve'`,
+		agent.ID).Scan(&inboundCount)
+	if inboundCount != 1 {
+		t.Errorf("inbound rows after self-send auto-approve = %d, want 1", inboundCount)
+	}
+}
+
 func TestWorkerAutoApproveSendFailureFallsBackToRejected(t *testing.T) {
 	// Sender pointed at a bogus port so SMTP dial fails; still share the DB
 	// and store with the fake SMTP from setupWorker to keep setup terse.
@@ -169,7 +234,7 @@ func TestWorkerAutoApproveSendFailureFallsBackToRejected(t *testing.T) {
 
 	badRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{Host: "127.0.0.1", Port: 1})
 	badSender := outbound.NewSender(badRelay, "test.e2a.dev")
-	w := hitlworker.New(store, badSender, usage.NewNoopUsageTracker())
+	w := hitlworker.New(store, badSender, usage.NewNoopUsageTracker(), "test.e2a.dev")
 
 	agent := prepareAgent(t, store, "auto-approve-fail", identity.HITLExpirationApprove)
 	msg, _ := store.CreatePendingOutboundMessage(ctx, agent.ID,

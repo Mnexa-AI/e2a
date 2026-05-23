@@ -231,7 +231,7 @@ func main() {
 	// HITL expiration worker: transitions pending_approval messages that
 	// blew past their TTL into expired_approved (auto-send) or
 	// expired_rejected based on the owning agent's hitl_expiration_action.
-	hitlWorker := hitlworker.New(store, sender, usageTracker)
+	hitlWorker := hitlworker.New(store, sender, usageTracker, cfg.OutboundSMTP.FromDomain)
 	hitlCtx, hitlCancel := context.WithCancel(context.Background())
 	go func() {
 		if err := hitlWorker.Run(hitlCtx); err != nil && err != context.Canceled {

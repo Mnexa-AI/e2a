@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -343,5 +344,89 @@ func TestSendTestEmailHITLGate(t *testing.T) {
 	}
 	if len(toR) != 1 || toR[0] != agent.EmailAddress() {
 		t.Errorf("to_recipients = %v, want [%s]", toR, agent.EmailAddress())
+	}
+}
+
+// TestSendTestEmailHITLApproveDeliversViaLoopback: the original
+// production repro for PR #109. With HITL on, the Test email button
+// holds a self-send; clicking approve via the dashboard endpoint must
+// finalize via loopback. Before the fix this errored with
+// "no valid recipients" because the approval finalizer routed through
+// outbound.Sender.Send, which strips the agent's own address.
+func TestSendTestEmailHITLApproveDeliversViaLoopback(t *testing.T) {
+	server, store, pool, smtpDone := setupAPIWithSMTP(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-hitl-test-approve@example.com", "Owner", "google-hitl-test-approve")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "hitl-test-approve-key")
+	store.ClaimOrCreateDomain(ctx, "hitl-test-approve.example.com", user.ID)
+	store.VerifyDomain(ctx, "hitl-test-approve.example.com", user.ID)
+	agent, _ := store.CreateAgent(ctx, "bot@hitl-test-approve.example.com", "hitl-test-approve.example.com", "", "https://example.com/webhook", "", user.ID)
+	enableHITL(t, store, agent.ID, user.ID)
+
+	// Step 1: click Test → held for approval.
+	testReq, _ := http.NewRequest("POST", server.URL+"/api/v1/agents/bot@hitl-test-approve.example.com/test", nil)
+	testReq.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
+	testResp, err := http.DefaultClient.Do(testReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testResp.Body.Close()
+	if testResp.StatusCode != http.StatusAccepted {
+		t.Fatalf("test hold status = %d, want 202", testResp.StatusCode)
+	}
+	var holdBody struct {
+		Status    string `json:"status"`
+		MessageID string `json:"message_id"`
+	}
+	if err := json.NewDecoder(testResp.Body).Decode(&holdBody); err != nil {
+		t.Fatal(err)
+	}
+	if holdBody.MessageID == "" {
+		t.Fatal("hold response missing message_id")
+	}
+
+	// Step 2: approve via the dashboard endpoint.
+	approveReq, _ := http.NewRequest("POST", server.URL+"/api/v1/messages/"+holdBody.MessageID+"/approve", bytes.NewBufferString(`{}`))
+	approveReq.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
+	approveReq.Header.Set("Content-Type", "application/json")
+	approveResp, err := http.DefaultClient.Do(approveReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer approveResp.Body.Close()
+	if approveResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(approveResp.Body)
+		t.Fatalf("approve status = %d, want 200; body=%s", approveResp.StatusCode, body)
+	}
+	var approveBody map[string]interface{}
+	json.NewDecoder(approveResp.Body).Decode(&approveBody)
+	if approveBody["method"] != "loopback" {
+		t.Errorf("approve method = %v, want loopback", approveBody["method"])
+	}
+
+	// Loopback path → no SMTP traffic at all.
+	if msgs := smtpDone(); len(msgs) != 0 {
+		t.Fatalf("self-send test-email approve must not hit SMTP, got %d messages", len(msgs))
+	}
+
+	// Outbound row → sent + loopback; inbound row landed in the agent's mailbox.
+	var status, method string
+	pool.QueryRow(ctx,
+		`SELECT status, method FROM messages WHERE id=$1`, holdBody.MessageID,
+	).Scan(&status, &method)
+	if status != identity.MessageStatusSent {
+		t.Errorf("outbound status = %q, want sent", status)
+	}
+	if method != "loopback" {
+		t.Errorf("outbound method = %q, want loopback", method)
+	}
+
+	var inboundCount int
+	pool.QueryRow(ctx,
+		`SELECT count(*) FROM messages WHERE agent_id=$1 AND direction='inbound' AND subject='Test email from e2a'`,
+		agent.ID).Scan(&inboundCount)
+	if inboundCount != 1 {
+		t.Errorf("inbound rows = %d, want 1", inboundCount)
 	}
 }
