@@ -40,6 +40,13 @@ export default function APIKeysPage() {
   const [creating, setCreating] = useState(false);
   const [createdKey, setCreatedKey] = useState<APIKeyData | null>(null);
   const [sort, setSort] = useState<SortKey>("last_used");
+  // expiresIn: "never" or a number of days from now. The backend
+  // accepts an RFC 3339 timestamp on POST /api/keys; we compute the
+  // absolute time from this relative choice at submit. Custom dates
+  // are deferred — the four presets cover the bulk of real workflows.
+  const [expiresIn, setExpiresIn] = useState<"never" | "30" | "90" | "365">(
+    "never",
+  );
 
   const sortedKeys = useMemo(() => {
     const arr = [...keys];
@@ -88,15 +95,24 @@ export default function APIKeysPage() {
   const handleCreate = async () => {
     setCreating(true);
     try {
+      const body: { name: string; expires_at?: string } = {
+        name: newKeyName || "Default",
+      };
+      if (expiresIn !== "never") {
+        const days = Number(expiresIn);
+        const exp = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+        body.expires_at = exp.toISOString();
+      }
       const res = await fetch("/api/keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newKeyName || "Default" }),
+        body: JSON.stringify(body),
       });
       if (res.ok) {
         const key = await res.json();
         setCreatedKey(key);
         setNewKeyName("");
+        setExpiresIn("never");
         fetchKeys();
       }
     } finally {
@@ -158,12 +174,14 @@ export default function APIKeysPage() {
       <div className="flex items-end gap-3 mb-6 flex-wrap">
         <div className="flex-1 min-w-[200px]">
           <label
+            htmlFor="apikey-name"
             className="block text-[12px] font-medium mb-1"
             style={{ color: "var(--fg-muted)" }}
           >
             Key name (optional)
           </label>
           <input
+            id="apikey-name"
             type="text"
             value={newKeyName}
             onChange={(e) => setNewKeyName(e.target.value)}
@@ -176,6 +194,36 @@ export default function APIKeysPage() {
               color: "var(--fg)",
             }}
           />
+        </div>
+        <div className="min-w-[140px]">
+          <label
+            htmlFor="apikey-expires"
+            className="block text-[12px] font-medium mb-1"
+            style={{ color: "var(--fg-muted)" }}
+          >
+            Expires
+          </label>
+          <select
+            id="apikey-expires"
+            value={expiresIn}
+            onChange={(e) =>
+              setExpiresIn(
+                e.target.value as "never" | "30" | "90" | "365",
+              )
+            }
+            className="w-full px-3 py-2 text-[13px] cursor-pointer"
+            style={{
+              background: "var(--bg-panel)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-md)",
+              color: "var(--fg)",
+            }}
+          >
+            <option value="never">Never</option>
+            <option value="30">In 30 days</option>
+            <option value="90">In 90 days</option>
+            <option value="365">In 1 year</option>
+          </select>
         </div>
         <button
           onClick={handleCreate}

@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -549,9 +550,14 @@ func fetchGoogleUserInfo(ctx context.Context, cfg *oauth2.Config, token *oauth2.
 }
 
 // HandleDashboardStats returns the workspace-level aggregates for the
-// redesigned dashboard's stats strip. See identity.GetDashboardStats
-// for the data sources and the graceful-degradation behavior when
-// usage tracking is disabled (the default for self-hosters).
+// redesigned dashboard's stats strip. Accepts ?window=N (days) to vary
+// the lookback for inbound/outbound totals + delivery success — the
+// dashboard at-a-glance strip omits it (defaults to 7), the settings
+// usage card passes ?window=30. Invalid/out-of-range values fall back
+// to the store's defaults (see DashboardDefaultWindowDays /
+// DashboardMaxWindowDays). See identity.GetDashboardStats for the
+// data sources and graceful-degradation behavior when usage tracking
+// is disabled.
 func (ua *UserAuth) HandleDashboardStats(w http.ResponseWriter, r *http.Request) {
 	user := ua.AuthenticateRequest(r)
 	if user == nil {
@@ -559,7 +565,17 @@ func (ua *UserAuth) HandleDashboardStats(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	stats, err := ua.store.GetDashboardStats(r.Context(), user.ID)
+	// Parse optional ?window=N. Bad values get treated as "use default"
+	// rather than 400 — the dashboard simply shouldn't break if a
+	// caller fat-fingers the query string.
+	windowDays := 0
+	if raw := r.URL.Query().Get("window"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			windowDays = n
+		}
+	}
+
+	stats, err := ua.store.GetDashboardStats(r.Context(), user.ID, windowDays)
 	if err != nil {
 		http.Error(w, "failed to fetch dashboard stats", http.StatusInternalServerError)
 		return

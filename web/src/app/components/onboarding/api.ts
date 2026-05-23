@@ -66,6 +66,21 @@ export async function deleteDomain(domain: string): Promise<void> {
   });
 }
 
+// updateDomain hits PATCH /api/v1/domains/{domain}. Currently the
+// only mutable field is is_primary — passing true promotes the domain
+// (and atomically demotes any prior primary on the server side). The
+// server rejects {is_primary: false} (to switch primary you promote
+// a different domain instead) so we don't expose that case here.
+export async function setDomainPrimary(domain: string): Promise<DomainInfo> {
+  return request<DomainInfo>(
+    "/api/v1/domains/" + encodeURIComponent(domain),
+    {
+      method: "PATCH",
+      body: JSON.stringify({ is_primary: true }),
+    },
+  );
+}
+
 // ── Agents ───────────────────────────────────────────────
 
 export async function listAgents(): Promise<DashboardAgent[]> {
