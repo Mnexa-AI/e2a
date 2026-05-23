@@ -6,8 +6,45 @@ import GetStartedPage from "./page";
 
 const mockUseSearchParams = jest.fn();
 
+// Track navigations so individual tests can assert on them. The push /
+// replace handlers also reflect the new URL into the search-params
+// mock so subsequent re-renders see the right ?step, matching real
+// router behavior — without this, clicking "Shared" would push to a
+// mock spy and the next render would still see the empty search
+// params (step=choose).
+const navigationHistory: Array<{ type: "push" | "replace" | "back"; url?: string }> = [];
+
+function reflectUrlIntoSearchParams(url: string) {
+  const q = url.includes("?") ? url.slice(url.indexOf("?") + 1) : "";
+  const usp = new URLSearchParams(q);
+  const params: Record<string, string> = {};
+  usp.forEach((v, k) => {
+    params[k] = v;
+  });
+  mockUseSearchParams.mockReturnValue({
+    get: (key: string) => params[key] ?? null,
+  });
+}
+
+const mockRouterPush = jest.fn((url: string) => {
+  navigationHistory.push({ type: "push", url });
+  reflectUrlIntoSearchParams(url);
+});
+const mockRouterReplace = jest.fn((url: string) => {
+  navigationHistory.push({ type: "replace", url });
+  reflectUrlIntoSearchParams(url);
+});
+const mockRouterBack = jest.fn(() => {
+  navigationHistory.push({ type: "back" });
+});
+
 jest.mock("next/navigation", () => ({
   useSearchParams: () => mockUseSearchParams(),
+  useRouter: () => ({
+    push: mockRouterPush,
+    replace: mockRouterReplace,
+    back: mockRouterBack,
+  }),
 }));
 
 jest.mock("next/link", () => {
@@ -28,6 +65,7 @@ function setSearchParams(params: Record<string, string | undefined> = {}) {
     get: (key: string) => params[key] ?? null,
   });
 }
+
 
 const verifiedDomain = {
   domain: "verified.example.com",
@@ -56,6 +94,10 @@ function mockFreshUser() {
 
 beforeEach(() => {
   mockFetch.mockReset();
+  mockRouterPush.mockClear();
+  mockRouterReplace.mockClear();
+  mockRouterBack.mockClear();
+  navigationHistory.length = 0;
   setSearchParams();
 });
 
@@ -804,5 +846,137 @@ describe("Plain /get-started always shows address choice", () => {
       expect(screen.getByText("Shared e2a domain")).toBeInTheDocument();
       expect(screen.getByText("Custom domain")).toBeInTheDocument();
     });
+  });
+});
+
+// ── URL-driven step navigation ───────────────────────────────
+//
+// The onboarding flow lives at /get-started?step=… so the browser
+// back button moves between steps. These tests pin that contract.
+
+describe("URL-driven step navigation", () => {
+  it("clicking 'Shared e2a domain' pushes ?step=shared_form", async () => {
+    mockFreshUser();
+    render(<GetStartedPage />);
+    await screen.findByText("Shared e2a domain");
+
+    fireEvent.click(screen.getByText("Shared e2a domain"));
+
+    await waitFor(() => {
+      expect(mockRouterPush).toHaveBeenCalledWith(
+        "/get-started?step=shared_form",
+      );
+    });
+  });
+
+  it("clicking 'Custom domain' pushes ?step=custom_checklist", async () => {
+    mockFreshUser();
+    render(<GetStartedPage />);
+    await screen.findByText("Custom domain");
+
+    fireEvent.click(screen.getByText("Custom domain"));
+
+    await waitFor(() => {
+      expect(mockRouterPush).toHaveBeenCalledWith(
+        "/get-started?step=custom_checklist",
+      );
+    });
+  });
+
+  it("?step=shared_form renders the form directly (no choose step in the way)", () => {
+    setSearchParams({ step: "shared_form" });
+    mockFreshUser();
+    render(<GetStartedPage />);
+    expect(screen.getByText("Create your agent")).toBeInTheDocument();
+  });
+
+  it("?step=custom_checklist renders the checklist directly", async () => {
+    setSearchParams({ step: "custom_checklist" });
+    mockFreshUser();
+    render(<GetStartedPage />);
+    // The checklist progress strip is the unambiguous signal that
+    // we landed at the custom flow rather than the chooser.
+    await waitFor(() => {
+      expect(screen.getByText("Domain selected")).toBeInTheDocument();
+    });
+  });
+
+  it("Back button on shared form navigates back via the router", async () => {
+    setSearchParams({ step: "shared_form" });
+    mockFreshUser();
+    render(<GetStartedPage />);
+    await screen.findByText("Create your agent");
+
+    fireEvent.click(screen.getByRole("button", { name: /back/i }));
+
+    // Either router.back() (when there's history) or router.push to
+    // /get-started (fresh tab). Both count as "going back to choose".
+    await waitFor(() => {
+      expect(
+        mockRouterBack.mock.calls.length +
+          mockRouterPush.mock.calls.filter((c) => c[0] === "/get-started")
+            .length,
+      ).toBeGreaterThan(0);
+    });
+  });
+
+  it("Back button on custom checklist navigates back via the router", async () => {
+    setSearchParams({ step: "custom_checklist" });
+    mockFreshUser();
+    render(<GetStartedPage />);
+
+    // The checklist mounts asynchronously while it lists domains
+    const backBtn = await screen.findByRole("button", { name: /back/i });
+    fireEvent.click(backBtn);
+
+    await waitFor(() => {
+      expect(
+        mockRouterBack.mock.calls.length +
+          mockRouterPush.mock.calls.filter((c) => c[0] === "/get-started")
+            .length,
+      ).toBeGreaterThan(0);
+    });
+  });
+
+  it("?mode=shared (legacy) gets translated to ?step=shared_form via replace", async () => {
+    setSearchParams({ mode: "shared" });
+    mockFreshUser();
+    render(<GetStartedPage />);
+
+    await waitFor(() => {
+      expect(mockRouterReplace).toHaveBeenCalledWith(
+        "/get-started?step=shared_form",
+      );
+    });
+  });
+
+  it("?domain=… (legacy) gets translated to ?step=custom_checklist via replace", async () => {
+    setSearchParams({ domain: "verified.example.com" });
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/api/v1/domains") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ domains: [verifiedDomain] }),
+        });
+      }
+      return Promise.resolve({ ok: false, text: () => Promise.resolve("not found") });
+    });
+
+    render(<GetStartedPage />);
+
+    await waitFor(() => {
+      expect(mockRouterReplace).toHaveBeenCalledWith(
+        "/get-started?step=custom_checklist",
+      );
+    });
+  });
+
+  it("?step=success without local agent state falls back to choose", () => {
+    setSearchParams({ step: "success" });
+    mockFreshUser();
+    render(<GetStartedPage />);
+    // No SuccessPanel — chooser instead, because there's no agent in
+    // local state (typical on refresh / direct URL hit).
+    expect(screen.getByText("Shared e2a domain")).toBeInTheDocument();
   });
 });

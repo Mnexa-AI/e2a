@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { listDomains } from "../../components/onboarding/api";
 import { track } from "../../components/onboarding/analytics";
 import { PageShell } from "../../components/loft/PageShell";
@@ -14,6 +14,15 @@ import type { DomainInfo } from "../../components/onboarding/types";
 import type { AgentData } from "../../components/types";
 
 type Step = "choose" | "shared_form" | "custom_checklist" | "success";
+
+function isStep(value: string | null): value is Step {
+  return (
+    value === "choose" ||
+    value === "shared_form" ||
+    value === "custom_checklist" ||
+    value === "success"
+  );
+}
 
 const PAGE_HEADER = {
   eyebrow: "Onboarding · est. 3 minutes",
@@ -28,16 +37,21 @@ const PAGE_HEADER = {
 };
 
 export default function GetStartedPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
+
+  // The active step lives in the URL as ?step=… so the browser back
+  // button moves between onboarding steps instead of leaving the page
+  // entirely. Legacy entry points (?mode=shared from the domains page,
+  // ?domain=… from the resume flow) are still honored — the bootstrap
+  // effect below translates them to the equivalent ?step value via
+  // router.replace (no extra history entry).
+  const stepParam = searchParams.get("step");
+  const step: Step = isStep(stepParam) ? stepParam : "choose";
   const initialMode = searchParams.get("mode") === "shared" ? "shared" : null;
   const initialDomain = searchParams.get("domain");
 
-  const [step, setStep] = useState<Step>(
-    initialMode === "shared" ? "shared_form" : "choose",
-  );
-  const [addressType, setAddressType] = useState<AddressType | null>(
-    initialMode === "shared" ? "shared" : null,
-  );
+  const [addressType, setAddressType] = useState<AddressType | null>(null);
   const [agent, setAgent] = useState<AgentData | null>(null);
   const [agentMode, setAgentMode] = useState<AgentMode>("local");
   const [webhookUrl, setWebhookUrl] = useState("");
@@ -61,18 +75,18 @@ export default function GetStartedPage() {
           const matchedDomain = domains.find((d) => d.domain === initialDomain);
           if (!matchedDomain) {
             setDomainData(null);
-            setStep("choose");
             setAddressType(null);
+            router.replace("/get-started");
             setError(`Domain ${initialDomain} not found in your account`);
           } else {
             setDomainData(matchedDomain);
-            setStep("custom_checklist");
+            router.replace("/get-started?step=custom_checklist");
           }
         } catch (err) {
           if (cancelled) return;
           setDomainData(null);
-          setStep("choose");
           setAddressType(null);
+          router.replace("/get-started");
           setError(
             err instanceof Error
               ? err.message
@@ -85,13 +99,15 @@ export default function GetStartedPage() {
       }
 
       if (initialMode === "shared") {
-        setStep("shared_form");
         setAddressType("shared");
+        // Replace the legacy ?mode=shared with the canonical ?step= so
+        // back from shared_form lands on the choose step rather than
+        // bouncing back to ?mode=shared again.
+        router.replace("/get-started?step=shared_form");
         setBootstrapping(false);
         return;
       }
 
-      setStep("choose");
       setBootstrapping(false);
     }
 
@@ -99,16 +115,32 @@ export default function GetStartedPage() {
     return () => {
       cancelled = true;
     };
+    // initialDomain / initialMode are URL-derived constants for this
+    // mount. router.replace is stable on Next 13+ so omitting it from
+    // deps doesn't risk stale closures.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialDomain, initialMode]);
 
   const handleAddressChoice = (type: AddressType) => {
     setAddressType(type);
     setError("");
     track("address_type_selected", { type });
-    if (type === "shared") {
-      setStep("shared_form");
+    router.push(
+      type === "shared"
+        ? "/get-started?step=shared_form"
+        : "/get-started?step=custom_checklist",
+    );
+  };
+
+  const handleBackToChoose = () => {
+    // Prefer router.back() so we navigate the browser history (matches
+    // what the user expects from the browser's own Back button); fall
+    // back to a push to the choose step if there's nothing to go back
+    // to in the same-origin history.
+    if (window.history.length > 1) {
+      router.back();
     } else {
-      setStep("custom_checklist");
+      router.push("/get-started");
     }
   };
 
@@ -158,11 +190,12 @@ export default function GetStartedPage() {
 
       {step === "shared_form" && (
         <SharedAgentForm
+          onBack={handleBackToChoose}
           onCreated={(agentData, mode, wh) => {
             setAgent(agentData);
             setAgentMode(mode);
             setWebhookUrl(wh);
-            setStep("success");
+            router.push("/get-started?step=success");
           }}
         />
       )}
@@ -170,21 +203,29 @@ export default function GetStartedPage() {
       {step === "custom_checklist" && (
         <CustomDomainChecklist
           initialDomain={domainData}
+          onBack={handleBackToChoose}
           onComplete={(agentData, mode, wh) => {
             setAgent(agentData);
             setAgentMode(mode);
             setWebhookUrl(wh);
-            setStep("success");
+            router.push("/get-started?step=success");
           }}
         />
       )}
 
+      {/* Success is the only step that needs an agent in local state.
+          If a user lands on ?step=success without state (refresh, share,
+          back-then-forward), drop them back at the choose screen rather
+          than rendering an empty success panel. */}
       {step === "success" && agent && (
         <SuccessPanel
           agent={agent}
           mode={agentMode}
           webhookUrl={webhookUrl || undefined}
         />
+      )}
+      {step === "success" && !agent && (
+        <AddressChoice selected={null} onSelect={handleAddressChoice} />
       )}
     </PageShell>
   );
