@@ -1159,7 +1159,7 @@ func TestGetDashboardStats_EmptyDeployment(t *testing.T) {
 
 	user, _ := store.CreateOrGetUser(ctx, "empty-stats@example.com", "Owner", "google-es")
 
-	stats, err := store.GetDashboardStats(ctx, user.ID)
+	stats, err := store.GetDashboardStats(ctx, user.ID, 0)
 	if err != nil {
 		t.Fatalf("GetDashboardStats: %v", err)
 	}
@@ -1202,7 +1202,7 @@ func TestGetDashboardStats_TodayAndDelta(t *testing.T) {
 		t.Fatalf("seed usage_summaries: %v", err)
 	}
 
-	stats, err := store.GetDashboardStats(ctx, user.ID)
+	stats, err := store.GetDashboardStats(ctx, user.ID, 0)
 	if err != nil {
 		t.Fatalf("GetDashboardStats: %v", err)
 	}
@@ -1237,7 +1237,7 @@ func TestGetDashboardStats_NoYesterdayBaseline(t *testing.T) {
 		t.Fatalf("seed usage_summaries: %v", err)
 	}
 
-	stats, err := store.GetDashboardStats(ctx, user.ID)
+	stats, err := store.GetDashboardStats(ctx, user.ID, 0)
 	if err != nil {
 		t.Fatalf("GetDashboardStats: %v", err)
 	}
@@ -1281,7 +1281,7 @@ func TestGetDashboardStats_Pending(t *testing.T) {
 		t.Fatalf("backdate: %v", err)
 	}
 
-	stats, err := store.GetDashboardStats(ctx, user.ID)
+	stats, err := store.GetDashboardStats(ctx, user.ID, 0)
 	if err != nil {
 		t.Fatalf("GetDashboardStats: %v", err)
 	}
@@ -1330,7 +1330,7 @@ func TestGetDashboardStats_DeliverySuccess(t *testing.T) {
 		 VALUES ($1, 'pending', 0, '', now())`,
 		pendingMsg.ID)
 
-	stats, err := store.GetDashboardStats(ctx, user.ID)
+	stats, err := store.GetDashboardStats(ctx, user.ID, 0)
 	if err != nil {
 		t.Fatalf("GetDashboardStats: %v", err)
 	}
@@ -1458,5 +1458,98 @@ func TestListAgentsByUser_OldFailureDoesNotPoisonHealth(t *testing.T) {
 	agents, _ := store.ListAgentsByUser(ctx, user.ID)
 	if !agents[0].WebhookHealthy {
 		t.Error("WebhookHealthy = false, want true (3-day-old failure shouldn't poison health)")
+	}
+}
+
+// TestGetDashboardStats_WindowedTotals: requesting ?window=N sums
+// inbound + outbound over the last N days from usage_summaries.
+// Seeds 4 days of data and asserts the 3-day total drops one row vs
+// the 7-day total. Also confirms the window param is echoed back as
+// sample_window_days.
+func TestGetDashboardStats_WindowedTotals(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "windowed@example.com", "Owner", "google-windowed")
+
+	// Seed usage_summaries for the last 4 days. Today, yesterday, 3d
+	// ago, 5d ago. A 3-day window should include the first three; a
+	// 7-day window picks up the 4th too.
+	for _, row := range []struct {
+		daysAgo int
+		in, out int
+	}{
+		{0, 10, 5},  // today
+		{1, 20, 8},  // yesterday
+		{3, 30, 12}, // 3 days ago
+		{5, 40, 16}, // 5 days ago
+	} {
+		_, err := pool.Exec(ctx,
+			`INSERT INTO usage_summaries (user_id, bucket_date, inbound_count, outbound_count, total_count)
+			 VALUES ($1, current_date - make_interval(days => $2), $3, $4, $5)`,
+			user.ID, row.daysAgo, row.in, row.out, row.in+row.out)
+		if err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+
+	// 3-day window: today + yesterday + 3d-ago. Excludes the 5d-ago row.
+	// SQL: bucket_date > current_date - 3 → bucket_date >= current_date - 2.
+	// That captures today (0) + yesterday (1) + 2d ago — but our data
+	// has nothing 2d ago. 3d-ago is at current_date - 3, which is NOT
+	// > current_date - 3. So actually we'd get only today + yesterday.
+	// This test pins that boundary explicitly.
+	stats, err := store.GetDashboardStats(ctx, user.ID, 3)
+	if err != nil {
+		t.Fatalf("GetDashboardStats(window=3): %v", err)
+	}
+	if stats.SampleWindowDays != 3 {
+		t.Errorf("SampleWindowDays = %d, want 3", stats.SampleWindowDays)
+	}
+	if stats.InboundWindow != 30 {
+		t.Errorf("3d InboundWindow = %d, want 30 (today 10 + yesterday 20)", stats.InboundWindow)
+	}
+	if stats.OutboundWindow != 13 {
+		t.Errorf("3d OutboundWindow = %d, want 13 (today 5 + yesterday 8)", stats.OutboundWindow)
+	}
+
+	// 7-day window: picks up 3d-ago + 5d-ago too.
+	stats7, err := store.GetDashboardStats(ctx, user.ID, 7)
+	if err != nil {
+		t.Fatalf("GetDashboardStats(window=7): %v", err)
+	}
+	if stats7.InboundWindow != 100 {
+		t.Errorf("7d InboundWindow = %d, want 100 (10+20+30+40)", stats7.InboundWindow)
+	}
+	if stats7.OutboundWindow != 41 {
+		t.Errorf("7d OutboundWindow = %d, want 41 (5+8+12+16)", stats7.OutboundWindow)
+	}
+}
+
+// TestGetDashboardStats_WindowClampingAndDefault: out-of-range or
+// missing window values normalize without erroring. 0 → default 7;
+// values > 90 clamp to 90.
+func TestGetDashboardStats_WindowClampingAndDefault(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "clamp@example.com", "Owner", "google-clamp")
+
+	defaultStats, err := store.GetDashboardStats(ctx, user.ID, 0)
+	if err != nil {
+		t.Fatalf("GetDashboardStats(0): %v", err)
+	}
+	if defaultStats.SampleWindowDays != identity.DashboardDefaultWindowDays {
+		t.Errorf("0 → SampleWindowDays = %d, want %d", defaultStats.SampleWindowDays, identity.DashboardDefaultWindowDays)
+	}
+
+	clampedStats, err := store.GetDashboardStats(ctx, user.ID, 9999)
+	if err != nil {
+		t.Fatalf("GetDashboardStats(9999): %v", err)
+	}
+	if clampedStats.SampleWindowDays != identity.DashboardMaxWindowDays {
+		t.Errorf("9999 → SampleWindowDays = %d, want %d", clampedStats.SampleWindowDays, identity.DashboardMaxWindowDays)
 	}
 }

@@ -366,7 +366,7 @@ func TestHandleDashboardStats_HappyPath(t *testing.T) {
 	user, _ := store.GetUserSession(ctx, token)
 
 	// Seed today + yesterday rows.
-	_, err := store.GetDashboardStats(ctx, user.ID)
+	_, err := store.GetDashboardStats(ctx, user.ID, 0)
 	if err != nil {
 		t.Fatalf("pre-seed GetDashboardStats: %v", err)
 	}
@@ -411,4 +411,70 @@ func TestHandleDashboardStats_Unauthenticated(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", w.Code)
 	}
+}
+
+// TestHandleDashboardStats_WindowQueryParam: the same endpoint powers
+// both the dashboard at-a-glance strip (default 7-day window) and the
+// Settings 30-day usage card via ?window=30. The handler must
+// faithfully forward the query value to the store + echo the
+// effective window back as sample_window_days.
+func TestHandleDashboardStats_WindowQueryParam(t *testing.T) {
+	ua, store, token := setupUserAuth(t)
+	ctx := context.Background()
+	user, _ := store.GetUserSession(ctx, token)
+
+	// Default: no query → 7-day window.
+	req := authedRequest("GET", "/api/dashboard/stats", token)
+	w := httptest.NewRecorder()
+	ua.HandleDashboardStats(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("default status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var defaultBody struct {
+		SampleWindowDays int `json:"sample_window_days"`
+	}
+	json.NewDecoder(w.Body).Decode(&defaultBody)
+	if defaultBody.SampleWindowDays != 7 {
+		t.Errorf("default sample_window_days = %d, want 7", defaultBody.SampleWindowDays)
+	}
+
+	// ?window=30 → 30-day window.
+	req = authedRequest("GET", "/api/dashboard/stats?window=30", token)
+	w = httptest.NewRecorder()
+	ua.HandleDashboardStats(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("window=30 status = %d, want 200", w.Code)
+	}
+	var thirtyBody struct {
+		SampleWindowDays int `json:"sample_window_days"`
+		InboundWindow    int `json:"inbound_window"`
+		OutboundWindow   int `json:"outbound_window"`
+	}
+	json.NewDecoder(w.Body).Decode(&thirtyBody)
+	if thirtyBody.SampleWindowDays != 30 {
+		t.Errorf("window=30 sample_window_days = %d, want 30", thirtyBody.SampleWindowDays)
+	}
+
+	// Bad value: handler falls back to default rather than erroring,
+	// per the comment on HandleDashboardStats.
+	req = authedRequest("GET", "/api/dashboard/stats?window=not-a-number", token)
+	w = httptest.NewRecorder()
+	ua.HandleDashboardStats(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("garbage window status = %d, want 200 (handler ignores junk)", w.Code)
+	}
+
+	// Out-of-range: handler clamps at the store layer (90).
+	req = authedRequest("GET", "/api/dashboard/stats?window=9999", token)
+	w = httptest.NewRecorder()
+	ua.HandleDashboardStats(w, req)
+	var clampedBody struct {
+		SampleWindowDays int `json:"sample_window_days"`
+	}
+	json.NewDecoder(w.Body).Decode(&clampedBody)
+	if clampedBody.SampleWindowDays != 90 {
+		t.Errorf("window=9999 clamped to %d, want 90", clampedBody.SampleWindowDays)
+	}
+
+	_ = user
 }

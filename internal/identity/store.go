@@ -1881,6 +1881,13 @@ type DashboardStats struct {
 	Pending            DashboardPendingStats `json:"pending"`
 	DeliverySuccessPct float64               `json:"delivery_success_pct"`
 	SampleWindowDays   int                   `json:"sample_window_days"`
+	// InboundWindow / OutboundWindow are the totals over the same
+	// SampleWindowDays as DeliverySuccessPct. The dashboard at-a-glance
+	// strip uses Today.*; the settings page uses these window totals
+	// at a 30-day window (?window=30). Sum over usage_summaries rows
+	// in the lookback period.
+	InboundWindow  int `json:"inbound_window"`
+	OutboundWindow int `json:"outbound_window"`
 }
 
 type DashboardTodayStats struct {
@@ -1895,28 +1902,45 @@ type DashboardPendingStats struct {
 	OldestSeconds int `json:"oldest_seconds"`
 }
 
-// dashboardSampleWindowDays is the lookback window for the delivery
-// success percentage card. 7 matches the spec in BACKEND_TODO #1.
-const dashboardSampleWindowDays = 7
+// DashboardDefaultWindowDays is the lookback for the dashboard strip
+// when the caller doesn't request a specific window. 7 matches the
+// original BACKEND_TODO #1 spec.
+const DashboardDefaultWindowDays = 7
+
+// DashboardMaxWindowDays caps the lookback to keep the underlying SQL
+// scan bounded. 90 days is generous for any UI surface we currently
+// have and remains efficient given the per-user index on
+// usage_summaries.
+const DashboardMaxWindowDays = 90
 
 // GetDashboardStats returns workspace-level aggregates for the
-// authenticated user. Three independent reads — kept separate rather
-// than smashed into one query because the source tables have different
-// indexes and one slow read shouldn't slow the others. All reads are
-// O(rows-for-this-user-only) thanks to the existing per-user indexes.
+// authenticated user, with a configurable lookback window. windowDays
+// controls Inbound/Outbound totals AND the delivery-success ratio's
+// sample period — passing 0 falls back to DashboardDefaultWindowDays
+// (7), values above DashboardMaxWindowDays (90) are clamped.
+//
+// Three independent reads — kept separate because the source tables
+// have different indexes and one slow read shouldn't slow the others.
+// All reads are O(rows-for-this-user-only) thanks to the existing
+// per-user indexes.
 //
 // Robust to missing data: deployments without usage tracking enabled
-// (E2A_USAGE_TRACKING=false — the default for self-hosters) return zero
-// counts rather than erroring. Same for users who have no messages
-// yet. The UI renders zero values as "—" so the cards stay sensible.
+// (E2A_USAGE_TRACKING=false — the default for self-hosters) return
+// zero counts rather than erroring. Same for users who have no
+// messages yet. The UI renders zero values as "—".
 //
 // Delta percentages: today vs yesterday on usage_summaries. Avoids
-// divide-by-zero when yesterday was zero by returning 0 (UI renders no
-// arrow). 100% increase / decrease maps to +100 / -100; values are
-// clipped at +999 to keep the integer width manageable in the UI.
-func (s *Store) GetDashboardStats(ctx context.Context, userID string) (*DashboardStats, error) {
+// divide-by-zero when yesterday was zero by returning 0. 100% in/de-
+// crease maps to ±100; values clipped at ±999 for integer width.
+func (s *Store) GetDashboardStats(ctx context.Context, userID string, windowDays int) (*DashboardStats, error) {
+	if windowDays <= 0 {
+		windowDays = DashboardDefaultWindowDays
+	}
+	if windowDays > DashboardMaxWindowDays {
+		windowDays = DashboardMaxWindowDays
+	}
 	stats := &DashboardStats{
-		SampleWindowDays: dashboardSampleWindowDays,
+		SampleWindowDays: windowDays,
 	}
 
 	// 1) Today's usage and yesterday's baseline. LEFT JOIN trick keeps
@@ -1961,26 +1985,34 @@ func (s *Store) GetDashboardStats(ctx context.Context, userID string) (*Dashboar
 		stats.Pending.OldestSeconds = *oldestSec
 	}
 
-	// 3) Delivery success % over the sample window. Excludes pending
-	// (status='pending') from the denominator so a healthy queue doesn't
-	// drag the ratio down. NULL when there's no delivery activity at all
-	// — UI renders "—" instead of a misleading 0%.
+	// 3) Window aggregates: inbound + outbound totals and the delivery
+	// success ratio, all over the same lookback. Three subqueries in
+	// one round-trip — usage_summaries is keyed (user_id, bucket_date)
+	// so the per-user index handles each scan cheaply. windowDays is
+	// validated above (1..90), so direct interpolation into the SQL
+	// is safe and keeps the query plan-cacheable.
+	var winInbound, winOutbound int
 	var successRatio *float64
-	// Window is a compile-time constant; interpolating it directly into
-	// the SQL avoids a pgx encode plan for the interval expression and
-	// keeps the query plan-cacheable (one query shape regardless of N).
 	err = s.pool.QueryRow(ctx,
-		fmt.Sprintf(`SELECT (count(*) FILTER (WHERE wd.status = 'delivered'))::float
-		        / NULLIF(count(*) FILTER (WHERE wd.status IN ('delivered','failed')), 0)
-		 FROM webhook_deliveries wd
-		 JOIN messages m ON m.id = wd.message_id
-		 JOIN agent_identities a ON a.id = m.agent_id
-		 WHERE a.user_id = $1
-		   AND wd.created_at > now() - interval '%d days'`, dashboardSampleWindowDays),
-		userID).Scan(&successRatio)
+		fmt.Sprintf(`SELECT
+		   COALESCE((SELECT sum(inbound_count)::int  FROM usage_summaries
+		             WHERE user_id = $1 AND bucket_date > current_date - %d), 0) AS inbound_window,
+		   COALESCE((SELECT sum(outbound_count)::int FROM usage_summaries
+		             WHERE user_id = $1 AND bucket_date > current_date - %d), 0) AS outbound_window,
+		   (SELECT (count(*) FILTER (WHERE wd.status = 'delivered'))::float
+		            / NULLIF(count(*) FILTER (WHERE wd.status IN ('delivered','failed')), 0)
+		      FROM webhook_deliveries wd
+		      JOIN messages m ON m.id = wd.message_id
+		      JOIN agent_identities a ON a.id = m.agent_id
+		      WHERE a.user_id = $1
+		        AND wd.created_at > now() - interval '%d days')`,
+			windowDays, windowDays, windowDays),
+		userID).Scan(&winInbound, &winOutbound, &successRatio)
 	if err != nil {
-		return nil, fmt.Errorf("delivery success: %w", err)
+		return nil, fmt.Errorf("window aggregates: %w", err)
 	}
+	stats.InboundWindow = winInbound
+	stats.OutboundWindow = winOutbound
 	if successRatio != nil {
 		// Round to one decimal place — 99.6 is more useful than 99.555555.
 		stats.DeliverySuccessPct = float64(int(*successRatio*1000+0.5)) / 10.0

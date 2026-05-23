@@ -105,9 +105,12 @@ export type APIKeyData = {
   expires_at?: string | null;
 };
 
-// GET /api/dashboard/stats — workspace-level aggregates for the
-// dashboard stats strip. Null/zero values are rendered as "—" by the
-// stat card components.
+// GET /api/dashboard/stats — workspace-level aggregates. The same
+// endpoint powers two surfaces:
+//   - Dashboard at-a-glance strip: uses `today` (default window=7)
+//   - Settings usage card: passes ?window=30 and uses the
+//     inbound_window / outbound_window / delivery_success_pct fields
+// sample_window_days echoes the window in effect for the response.
 export type DashboardStats = {
   today: {
     inbound: number;
@@ -121,6 +124,8 @@ export type DashboardStats = {
   };
   delivery_success_pct: number;
   sample_window_days: number;
+  inbound_window: number;
+  outbound_window: number;
 };
 
 // Domain enrichment fields — chips on the Domains page. is_primary is

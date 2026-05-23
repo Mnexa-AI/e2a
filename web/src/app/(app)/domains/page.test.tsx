@@ -311,3 +311,78 @@ describe("Domains page — verify domain", () => {
     });
   });
 });
+
+describe("Domains page — Make primary action", () => {
+  it("shows Make primary on verified non-primary domains and PATCHes is_primary on click", async () => {
+    const patched: Array<{ url: string; body: unknown }> = [];
+    mockFetch.mockImplementation(
+      (url: string, init?: { method?: string; body?: string }) => {
+        if (url === "/api/v1/domains" && (!init || !init.method)) {
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                domains: [
+                  { ...verifiedDomain, is_primary: false, agent_count: 0 },
+                ],
+              }),
+          });
+        }
+        if (url === "/api/dashboard/agents") {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ agents: [] }),
+          });
+        }
+        if (
+          url === `/api/v1/domains/${encodeURIComponent(verifiedDomain.domain)}` &&
+          init?.method === "PATCH"
+        ) {
+          patched.push({ url, body: JSON.parse(init.body as string) });
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({ ...verifiedDomain, is_primary: true }),
+          });
+        }
+        return Promise.resolve({
+          ok: false,
+          text: () => Promise.resolve("not found"),
+        });
+      },
+    );
+
+    render(<DomainsPage />);
+    const button = await screen.findByRole("button", { name: /make primary/i });
+    await userEvent.setup().click(button);
+
+    await waitFor(() => {
+      expect(patched).toHaveLength(1);
+      expect(patched[0].body).toEqual({ is_primary: true });
+    });
+  });
+
+  it("hides Make primary when domain is already primary", async () => {
+    mockDomainsAndAgents(
+      [{ ...verifiedDomain, is_primary: true, agent_count: 0 }],
+      [],
+    );
+    render(<DomainsPage />);
+    await screen.findByText(verifiedDomain.domain);
+    // Already-primary card has the Primary chip but no Make-primary button
+    expect(screen.queryByRole("button", { name: /make primary/i }))
+      .not.toBeInTheDocument();
+    expect(screen.getByText("Primary")).toBeInTheDocument();
+  });
+
+  it("hides Make primary on unverified domains (verify first)", async () => {
+    mockDomainsAndAgents(
+      [{ ...sampleDomain, is_primary: false, agent_count: 0 }],
+      [],
+    );
+    render(<DomainsPage />);
+    await screen.findByText(sampleDomain.domain);
+    expect(screen.queryByRole("button", { name: /make primary/i }))
+      .not.toBeInTheDocument();
+  });
+});
