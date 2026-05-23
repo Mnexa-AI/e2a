@@ -1,9 +1,15 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import type { APIKeyData } from "../../components/types";
 import { PageShell } from "../../components/loft/PageShell";
 import { Chip } from "../../components/loft/Chip";
+
+type SortKey = "last_used" | "created" | "name";
+
+function isExpired(k: APIKeyData): boolean {
+  return !!k.expires_at && new Date(k.expires_at).getTime() < Date.now();
+}
 
 // Graceful degradation per REDESIGN.md §5:
 // - "Last used" surfaced now that BACKEND_TODO #3 shipped api_keys.last_used_at
@@ -33,6 +39,38 @@ export default function APIKeysPage() {
   const [newKeyName, setNewKeyName] = useState("");
   const [creating, setCreating] = useState(false);
   const [createdKey, setCreatedKey] = useState<APIKeyData | null>(null);
+  const [sort, setSort] = useState<SortKey>("last_used");
+
+  const sortedKeys = useMemo(() => {
+    const arr = [...keys];
+    if (sort === "name") {
+      arr.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    } else if (sort === "created") {
+      arr.sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      );
+    } else {
+      // last_used — NULL last_used_at sorts to the end (treated as -Infinity)
+      arr.sort((a, b) => {
+        const ta = a.last_used_at ? new Date(a.last_used_at).getTime() : 0;
+        const tb = b.last_used_at ? new Date(b.last_used_at).getTime() : 0;
+        return tb - ta;
+      });
+    }
+    return arr;
+  }, [keys, sort]);
+
+  // Stats line: "N keys · M expired · P active". Renders nothing while the
+  // list is empty (the empty-state below covers that).
+  const totals = useMemo(() => {
+    const expired = keys.filter(isExpired).length;
+    return {
+      total: keys.length,
+      expired,
+      active: keys.length - expired,
+    };
+  }, [keys]);
 
   const fetchKeys = useCallback(async () => {
     try {
@@ -174,33 +212,61 @@ export default function APIKeysPage() {
           </p>
         </div>
       ) : (
-        <div
-          className="overflow-hidden"
-          style={{
-            background: "var(--bg-panel)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--r-lg)",
-          }}
-        >
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr
-                className="text-left font-mono text-[10px] uppercase"
-                style={{
-                  background: "var(--bg-elev)",
-                  color: "var(--fg-subtle)",
-                  letterSpacing: "0.08em",
-                }}
+        <>
+          <div className="flex items-center gap-3 mb-3 flex-wrap">
+            <p
+              className="font-mono text-[11px]"
+              style={{ color: "var(--fg-subtle)", letterSpacing: "0.02em" }}
+            >
+              {totals.total} {totals.total === 1 ? "key" : "keys"}
+              {totals.expired > 0 && ` · ${totals.expired} expired`}
+              {totals.active !== totals.total && ` · ${totals.active} active`}
+            </p>
+            <span className="flex-1" />
+            <label
+              className="font-mono text-[11px] flex items-center gap-1.5"
+              style={{ color: "var(--fg-subtle)", letterSpacing: "0.02em" }}
+            >
+              Sort:
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortKey)}
+                className="font-mono text-[11px] bg-transparent border-none cursor-pointer"
+                style={{ color: "var(--fg-muted)" }}
               >
-                <th className="px-4 py-2.5 font-semibold">Name</th>
-                <th className="px-4 py-2.5 font-semibold">Prefix</th>
-                <th className="px-4 py-2.5 font-semibold">Created</th>
-                <th className="px-4 py-2.5 font-semibold">Last used</th>
-                <th className="px-4 py-2.5 font-semibold"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {keys.map((k, i) => (
+                <option value="last_used">last used ▾</option>
+                <option value="created">created ▾</option>
+                <option value="name">name ▾</option>
+              </select>
+            </label>
+          </div>
+          <div
+            className="overflow-hidden"
+            style={{
+              background: "var(--bg-panel)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-lg)",
+            }}
+          >
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr
+                  className="text-left font-mono text-[10px] uppercase"
+                  style={{
+                    background: "var(--bg-elev)",
+                    color: "var(--fg-subtle)",
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  <th className="px-4 py-2.5 font-semibold">Name</th>
+                  <th className="px-4 py-2.5 font-semibold">Prefix</th>
+                  <th className="px-4 py-2.5 font-semibold">Created</th>
+                  <th className="px-4 py-2.5 font-semibold">Last used</th>
+                  <th className="px-4 py-2.5 font-semibold"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedKeys.map((k, i) => (
                 <tr
                   key={k.id}
                   style={{
@@ -242,10 +308,11 @@ export default function APIKeysPage() {
                     </button>
                   </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </PageShell>
   );

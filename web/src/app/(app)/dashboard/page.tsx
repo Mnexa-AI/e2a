@@ -1,10 +1,14 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useAuth } from "../../components/AuthProvider";
-import { listAgents, deleteAgent } from "../../components/onboarding/api";
-import type { DashboardAgent, DashboardStats } from "../../components/types";
+import { listAgents, listDomains, deleteAgent } from "../../components/onboarding/api";
+import type {
+  DashboardAgent,
+  DashboardStats,
+} from "../../components/types";
+import type { DomainInfo } from "../../components/onboarding/types";
 import { PageShell } from "../../components/loft/PageShell";
 import { AgentsEmptyState } from "./_components/AgentsEmptyState";
 import { AgentCard } from "./_components/AgentCard";
@@ -14,12 +18,24 @@ import { AgentCard } from "./_components/AgentCard";
 function formatDelta(pct: number): string | null {
   if (pct === 0) return null;
   const sign = pct > 0 ? "+" : "";
-  return `${sign}${pct}% vs yesterday`;
+  return `${sign}${pct}%`;
 }
 
-// Stats strip — populated from GET /api/dashboard/stats. Zero counts and
-// missing baselines are rendered as bare numbers (no delta arrow) so the
-// cards stay sensible on deployments without usage tracking enabled.
+// formatRelativeSeconds renders the "oldest pending" age. Falls back to
+// the empty string when count is 0 so the caller can hide the line.
+function formatPendingOldest(seconds: number): string {
+  if (seconds <= 0) return "";
+  if (seconds < 60) return `oldest in <1m`;
+  const min = Math.floor(seconds / 60);
+  if (min < 60) return `oldest in ${min}m`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `oldest in ${hr}h`;
+  return `oldest in ${Math.floor(hr / 24)}d`;
+}
+
+// Stats strip — populated from GET /api/dashboard/stats. Mock specifies
+// sans-serif numerals at 28px/600 (NOT editorial italic); deltas tint by
+// tone (positive=success, negative=neutral, pending uses accent).
 function StatsStrip() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
 
@@ -31,30 +47,40 @@ function StatsStrip() {
         if (!cancelled) setStats(data);
       })
       .catch(() => {
-        // Swallow — leaves stats=null, which renders "—" below. The
-        // dashboard load shouldn't fail because the stats endpoint is
-        // down or the user has tracking disabled.
+        // Swallow — null state renders "—" below. Don't crash the
+        // dashboard if the stats endpoint is down or tracking disabled.
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const cards = [
+  type Card = {
+    label: string;
+    value: string;
+    sub: string | null;
+    tone: "success" | "info" | "accent" | "neutral";
+  };
+  const cards: Card[] = [
     {
-      label: "Inbound today",
+      label: "Inbound · today",
       value: stats ? String(stats.today.inbound) : "—",
-      delta: stats ? formatDelta(stats.today.inbound_delta_pct) : null,
+      sub: stats ? formatDelta(stats.today.inbound_delta_pct) : null,
+      tone: "success",
     },
     {
-      label: "Outbound today",
+      label: "Outbound · today",
       value: stats ? String(stats.today.outbound) : "—",
-      delta: stats ? formatDelta(stats.today.outbound_delta_pct) : null,
+      sub: stats ? formatDelta(stats.today.outbound_delta_pct) : null,
+      tone: "info",
     },
     {
       label: "Pending review",
       value: stats ? String(stats.pending.count) : "—",
-      delta: null as string | null,
+      sub: stats && stats.pending.count > 0
+        ? formatPendingOldest(stats.pending.oldest_seconds)
+        : null,
+      tone: "accent",
     },
     {
       label: "Delivery success",
@@ -63,9 +89,17 @@ function StatsStrip() {
           ? `${stats.delivery_success_pct}%`
           : "—"
         : "—",
-      delta: stats ? `last ${stats.sample_window_days}d` : null,
+      sub: stats ? `last ${stats.sample_window_days}d` : null,
+      tone: "neutral",
     },
   ];
+
+  const subColor = (tone: Card["tone"]) =>
+    tone === "accent"
+      ? "var(--accent-strong)"
+      : tone === "success"
+        ? "var(--success)"
+        : "var(--fg-muted)";
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -80,7 +114,7 @@ function StatsStrip() {
           }}
         >
           <div
-            className="font-mono text-[11px] font-semibold uppercase mb-1.5"
+            className="font-mono text-[10px] font-semibold uppercase mb-2"
             style={{
               color: "var(--fg-subtle)",
               letterSpacing: "0.08em",
@@ -89,22 +123,19 @@ function StatsStrip() {
             {s.label}
           </div>
           <div
-            className="text-[24px]"
+            className="text-[28px] font-semibold"
             style={{
-              fontFamily: "var(--f-editorial)",
               color: "var(--fg)",
-              letterSpacing: "-0.01em",
-              lineHeight: 1.1,
+              letterSpacing: "-0.02em",
+              lineHeight: 1,
+              marginBottom: 6,
             }}
           >
             {s.value}
           </div>
-          {s.delta && (
-            <div
-              className="text-[11px] mt-1"
-              style={{ color: "var(--fg-muted)" }}
-            >
-              {s.delta}
+          {s.sub && (
+            <div className="text-[11px]" style={{ color: subColor(s.tone) }}>
+              {s.sub}
             </div>
           )}
         </div>
@@ -113,16 +144,101 @@ function StatsStrip() {
   );
 }
 
+// Filter chips + sort dropdown. Counts are derived client-side from the
+// agents list — the backend doesn't need to compute filter aggregates.
+// "Sort: last activity" uses created_at descending as a proxy until
+// BACKEND_TODO #2 exposes a real last-activity timestamp; until then the
+// label is honest about what's available.
+type Filter = "all" | "cloud" | "local" | "hitl" | "unverified";
+type SortKey = "recent" | "name";
+
+function FilterBar({
+  agents,
+  filter,
+  setFilter,
+  sort,
+  setSort,
+}: {
+  agents: DashboardAgent[];
+  filter: Filter;
+  setFilter: (f: Filter) => void;
+  sort: SortKey;
+  setSort: (s: SortKey) => void;
+}) {
+  const counts = {
+    all: agents.length,
+    cloud: agents.filter((a) => a.agent_mode !== "local").length,
+    local: agents.filter((a) => a.agent_mode === "local").length,
+    hitl: agents.filter((a) => a.hitl_enabled).length,
+    unverified: agents.filter((a) => !a.domain_verified).length,
+  };
+  const chips: { key: Filter; label: string; count: number }[] = [
+    { key: "all", label: "All", count: counts.all },
+    { key: "cloud", label: "Cloud", count: counts.cloud },
+    { key: "local", label: "Local", count: counts.local },
+    { key: "hitl", label: "HITL on", count: counts.hitl },
+    { key: "unverified", label: "Unverified", count: counts.unverified },
+  ];
+
+  return (
+    <div className="flex items-center gap-2 mb-3.5 flex-wrap">
+      {chips.map((c) => {
+        const active = filter === c.key;
+        return (
+          <button
+            key={c.key}
+            onClick={() => setFilter(c.key)}
+            className="text-[12px] font-medium px-3 py-1 transition"
+            style={{
+              borderRadius: 999,
+              background: active ? "var(--fg)" : "var(--bg-panel)",
+              color: active ? "var(--bg)" : "var(--fg-muted)",
+              border: active
+                ? "1px solid var(--fg)"
+                : "1px solid var(--border)",
+            }}
+          >
+            {c.label} {c.count}
+          </button>
+        );
+      })}
+      <span className="flex-1" />
+      <label
+        className="font-mono text-[11px] flex items-center gap-1.5"
+        style={{ color: "var(--fg-subtle)", letterSpacing: "0.02em" }}
+      >
+        Sort:
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as SortKey)}
+          className="font-mono text-[11px] bg-transparent border-none cursor-pointer"
+          style={{ color: "var(--fg-muted)" }}
+        >
+          <option value="recent">last activity ▾</option>
+          <option value="name">name ▾</option>
+        </select>
+      </label>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const [agents, setAgents] = useState<DashboardAgent[]>([]);
+  const [domains, setDomains] = useState<DomainInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
+  const [sort, setSort] = useState<SortKey>("recent");
 
-  const fetchAgents = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     try {
-      const data = await listAgents();
-      setAgents(data);
+      const [agentList, domainList] = await Promise.all([
+        listAgents(),
+        listDomains().catch(() => [] as DomainInfo[]),
+      ]);
+      setAgents(agentList);
+      setDomains(domainList);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load agents");
     } finally {
@@ -131,18 +247,72 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    fetchAgents();
-  }, [fetchAgents]);
+    fetchData();
+  }, [fetchData]);
 
   const handleDelete = async (email: string) => {
     if (!confirm(`Delete agent ${email}? This cannot be undone.`)) return;
     try {
       await deleteAgent(email);
-      fetchAgents();
+      fetchData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete agent");
     }
   };
+
+  // Derived: filtered + sorted agent list.
+  const visibleAgents = useMemo(() => {
+    let out = agents;
+    switch (filter) {
+      case "cloud":
+        out = out.filter((a) => a.agent_mode !== "local");
+        break;
+      case "local":
+        out = out.filter((a) => a.agent_mode === "local");
+        break;
+      case "hitl":
+        out = out.filter((a) => a.hitl_enabled);
+        break;
+      case "unverified":
+        out = out.filter((a) => !a.domain_verified);
+        break;
+    }
+    if (sort === "recent") {
+      // created_at descending as a stand-in for last activity until
+      // BACKEND_TODO #2 exposes a real signal.
+      out = [...out].sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      );
+    } else {
+      out = [...out].sort((a, b) =>
+        (a.name || a.email).localeCompare(b.name || b.email),
+      );
+    }
+    return out;
+  }, [agents, filter, sort]);
+
+  // Meta line: "N agents · M verified domains · indexed <relative> ago"
+  const [indexedAt, setIndexedAt] = useState<number>(Date.now());
+  useEffect(() => {
+    setIndexedAt(Date.now());
+  }, [agents, domains]);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 5000);
+    return () => clearInterval(id);
+  }, []);
+  const indexedAgo = useMemo(() => {
+    const sec = Math.max(1, Math.floor((Date.now() - indexedAt) / 1000));
+    if (sec < 60) return `${sec}s`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}m`;
+    return `${Math.floor(min / 60)}h`;
+  }, [indexedAt, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const verifiedDomains = domains.filter((d) => d.verified).length;
+  const agentLabel = agents.length === 1 ? "agent" : "agents";
+  const domainLabel = verifiedDomains === 1 ? "verified domain" : "verified domains";
 
   return (
     <PageShell
@@ -151,11 +321,15 @@ export default function DashboardPage() {
       title={<>Agents</>}
       subtitle={
         <>
-          Manage your registered agents. Signed in as{" "}
+          {agents.length} {agentLabel} · {verifiedDomains} {domainLabel} ·
+          indexed{" "}
+          <span style={{ fontFamily: "var(--f-mono)" }}>
+            {indexedAgo} ago
+          </span>{" "}
+          · signed in as{" "}
           <span style={{ color: "var(--fg)", fontWeight: 500 }}>
             {user?.email}
           </span>
-          .
         </>
       }
       actions={
@@ -169,8 +343,7 @@ export default function DashboardPage() {
               borderRadius: "var(--r-md)",
             }}
           >
-            Create agent
-            <span className="font-mono">→</span>
+            <span className="font-mono">+</span> Create agent
           </Link>
         ) : null
       }
@@ -201,16 +374,34 @@ export default function DashboardPage() {
       ) : agents.length === 0 ? (
         <AgentsEmptyState />
       ) : (
-        <div className="space-y-4">
-          {agents.map((agent) => (
-            <AgentCard
-              key={agent.id}
-              agent={agent}
-              onDelete={() => handleDelete(agent.email)}
-              onUpdate={() => fetchAgents()}
-            />
-          ))}
-        </div>
+        <>
+          <FilterBar
+            agents={agents}
+            filter={filter}
+            setFilter={setFilter}
+            sort={sort}
+            setSort={setSort}
+          />
+          <div className="space-y-4">
+            {visibleAgents.length === 0 ? (
+              <p
+                className="text-[13px] py-8 text-center"
+                style={{ color: "var(--fg-muted)" }}
+              >
+                No agents match this filter.
+              </p>
+            ) : (
+              visibleAgents.map((agent) => (
+                <AgentCard
+                  key={agent.id}
+                  agent={agent}
+                  onDelete={() => handleDelete(agent.email)}
+                  onUpdate={() => fetchData()}
+                />
+              ))
+            )}
+          </div>
+        </>
       )}
     </PageShell>
   );
