@@ -28,7 +28,10 @@ services:
   # Drop this service in production — the e2a service should point at a
   # real upstream relay (SES, Postmark, etc.) via E2A_OUTBOUND_SMTP_HOST.
   mailpit:
-    image: axllent/mailpit:latest
+    # Pinned: `:latest` floats and would silently shift the local-dev
+    # baseline across developers and across time. Bump explicitly when
+    # adopting new Mailpit features.
+    image: axllent/mailpit:v1.30.0
     restart: unless-stopped
     ports:
       - "127.0.0.1:1025:1025"   # SMTP, also reachable from the host Go binary in `make run`

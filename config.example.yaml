@@ -34,20 +34,21 @@ signing:
   hmac_secret: "change-me-in-production"
 
 outbound_smtp:
-  # ── Local dev (Mailpit catch-all) ──────────────────────────────────
-  # `make docker-up` runs Mailpit at localhost:1025 — uncomment this block
-  # and comment the production block below to capture HITL notifications
-  # and test sends at http://localhost:8025 without real SMTP creds.
-  # host: "localhost"
-  # port: 1025
-  # username: ""
-  # password: ""
-  # from_domain: "e2a.localhost"
+  # Upstream SMTP relay for outbound mail (HITL approval notifications,
+  # /api/v1/agents/{email}/test sends, etc.). The defaults below are
+  # empty (host: "") so the binary will refuse to send rather than
+  # silently route through a wrong host — set them to one of:
   #
-  # ── Production (real upstream relay) ───────────────────────────────
-  host: ""          # e.g. "email-smtp.us-east-1.amazonaws.com" for AWS SES
+  #   - Local dev: `make docker-up` runs Mailpit on localhost:1025.
+  #     Set host: "localhost", port: 1025, from_domain: "e2a.localhost".
+  #     Captured mail appears at http://localhost:8025. No creds needed.
+  #
+  #   - Production (e.g. AWS SES): set host: "email-smtp.us-east-1.amazonaws.com",
+  #     port: 587, username/password from your IAM relay credentials,
+  #     from_domain to a domain DKIM-signed by your upstream.
+  host: ""
   port: 587
-  username: ""      # upstream SMTP username (from IAM credentials for SES)
-  password: ""      # upstream SMTP password
-  from_domain: "relay.example.com"  # the From: domain for outbound mail (must be DKIM-signed by your upstream)
+  username: ""
+  password: ""
+  from_domain: "relay.example.com"
 
