@@ -15,10 +15,10 @@ export function AgentsEmptyState() {
       <h3
         className="mb-2"
         style={{
-          fontFamily: "var(--f-editorial)",
-          fontSize: 26,
-          fontWeight: 400,
-          letterSpacing: "-0.01em",
+          fontFamily: "var(--f-ui)",
+          fontSize: 22,
+          fontWeight: 700,
+          letterSpacing: "-0.012em",
           color: "var(--fg)",
         }}
       >

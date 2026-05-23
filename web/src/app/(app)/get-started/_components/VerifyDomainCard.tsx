@@ -36,8 +36,8 @@ export function VerifyDomainCard({
       <h2
         className="mb-2"
         style={{
-          fontFamily: "var(--f-editorial)",
-          fontWeight: 400,
+          fontFamily: "var(--f-ui)",
+          fontWeight: 600,
           fontSize: 28,
           letterSpacing: "-0.01em",
           color: "var(--fg)",
