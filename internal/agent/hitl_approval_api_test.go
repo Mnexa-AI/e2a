@@ -39,7 +39,7 @@ func TestListPendingMessagesHandler(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-list@example.com", "Owner", "google-list-handler")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "list-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "list-key", nil)
 	store.ClaimOrCreateDomain(ctx, "list-h.example.com", user.ID)
 	store.VerifyDomain(ctx, "list-h.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@list-h.example.com", "list-h.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -97,7 +97,7 @@ func TestListPendingMessagesRejectsOtherStatus(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-listreject@example.com", "Owner", "google-list-reject")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "list-reject-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "list-reject-key", nil)
 
 	resp := authed(t, "GET", server.URL+"/api/v1/messages?status=sent", "", apiKey.PlaintextKey)
 	defer resp.Body.Close()
@@ -112,7 +112,7 @@ func TestGetOutboundMessageHandler(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-getdetail@example.com", "Owner", "google-get-detail")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "get-detail-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "get-detail-key", nil)
 	store.ClaimOrCreateDomain(ctx, "get-detail.example.com", user.ID)
 	store.VerifyDomain(ctx, "get-detail.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@get-detail.example.com", "get-detail.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -158,7 +158,7 @@ func TestGetOutboundMessageCrossUserReturns404(t *testing.T) {
 
 	// User A creates pending
 	userA, _ := store.CreateOrGetUser(ctx, "owner-cross-a@example.com", "A", "google-cross-a")
-	keyA, _ := store.CreateAPIKey(ctx, userA.ID, "a-key")
+	keyA, _ := store.CreateAPIKey(ctx, userA.ID, "a-key", nil)
 	store.ClaimOrCreateDomain(ctx, "cross-a.example.com", userA.ID)
 	store.VerifyDomain(ctx, "cross-a.example.com", userA.ID)
 	agentA, _ := store.CreateAgent(ctx, "bot@cross-a.example.com", "cross-a.example.com", "", "https://example.com/webhook", "", userA.ID)
@@ -166,7 +166,7 @@ func TestGetOutboundMessageCrossUserReturns404(t *testing.T) {
 
 	// User B (no access to A's messages)
 	userB, _ := store.CreateOrGetUser(ctx, "owner-cross-b@example.com", "B", "google-cross-b")
-	keyB, _ := store.CreateAPIKey(ctx, userB.ID, "b-key")
+	keyB, _ := store.CreateAPIKey(ctx, userB.ID, "b-key", nil)
 
 	resp := authed(t, "POST", server.URL+"/api/v1/send",
 		`{"to":["x@example.com"],"subject":"h","body":"b"}`, keyA.PlaintextKey)
@@ -189,7 +189,7 @@ func TestApprovePendingMessageSendsViaSMTP(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-approve@example.com", "Owner", "google-approve-handler")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "approve-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "approve-key", nil)
 	store.ClaimOrCreateDomain(ctx, "approve-h.example.com", user.ID)
 	store.VerifyDomain(ctx, "approve-h.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@approve-h.example.com", "approve-h.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -256,7 +256,7 @@ func TestApprovePendingMessageWithEditsSendsEditedContent(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-apprv-edit@example.com", "Owner", "google-apprv-edit")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "apprv-edit-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "apprv-edit-key", nil)
 	store.ClaimOrCreateDomain(ctx, "apprv-edit.example.com", user.ID)
 	store.VerifyDomain(ctx, "apprv-edit.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@apprv-edit.example.com", "apprv-edit.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -309,7 +309,7 @@ func TestApproveAlreadySentReturns409(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-apprv-409@example.com", "Owner", "google-apprv-409")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "apprv-409-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "apprv-409-key", nil)
 	store.ClaimOrCreateDomain(ctx, "apprv-409.example.com", user.ID)
 	store.VerifyDomain(ctx, "apprv-409.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@apprv-409.example.com", "apprv-409.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -332,7 +332,7 @@ func TestApproveReplyFromHITLUsesStoredReplyTo(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-apprv-reply@example.com", "Owner", "google-apprv-reply")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "apprv-reply-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "apprv-reply-key", nil)
 	store.ClaimOrCreateDomain(ctx, "apprv-reply.example.com", user.ID)
 	store.VerifyDomain(ctx, "apprv-reply.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@apprv-reply.example.com", "apprv-reply.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -373,7 +373,7 @@ func TestRejectPendingMessageHandler(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-reject-h@example.com", "Owner", "google-reject-h")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "reject-h-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "reject-h-key", nil)
 	store.ClaimOrCreateDomain(ctx, "reject-h.example.com", user.ID)
 	store.VerifyDomain(ctx, "reject-h.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@reject-h.example.com", "reject-h.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -424,7 +424,7 @@ func TestRejectAlreadyRejectedReturns409(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "owner-reject-twice@example.com", "Owner", "google-reject-twice-h")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "reject-twice-key")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "reject-twice-key", nil)
 	store.ClaimOrCreateDomain(ctx, "reject-twice.example.com", user.ID)
 	store.VerifyDomain(ctx, "reject-twice.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@reject-twice.example.com", "reject-twice.example.com", "", "https://example.com/webhook", "", user.ID)
@@ -459,14 +459,14 @@ func TestApproveCrossUserReturns404(t *testing.T) {
 	ctx := context.Background()
 
 	userA, _ := store.CreateOrGetUser(ctx, "a-apprv-cross@example.com", "A", "google-a-cross")
-	keyA, _ := store.CreateAPIKey(ctx, userA.ID, "a-cross-key")
+	keyA, _ := store.CreateAPIKey(ctx, userA.ID, "a-cross-key", nil)
 	store.ClaimOrCreateDomain(ctx, "a-cross.example.com", userA.ID)
 	store.VerifyDomain(ctx, "a-cross.example.com", userA.ID)
 	agentA, _ := store.CreateAgent(ctx, "bot@a-cross.example.com", "a-cross.example.com", "", "https://example.com/webhook", "", userA.ID)
 	enableHITL(t, store, agentA.ID, userA.ID)
 
 	userB, _ := store.CreateOrGetUser(ctx, "b-apprv-cross@example.com", "B", "google-b-cross")
-	keyB, _ := store.CreateAPIKey(ctx, userB.ID, "b-cross-key")
+	keyB, _ := store.CreateAPIKey(ctx, userB.ID, "b-cross-key", nil)
 
 	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
 		`{"to":["x@example.com"],"subject":"h","body":"b"}`, keyA.PlaintextKey)

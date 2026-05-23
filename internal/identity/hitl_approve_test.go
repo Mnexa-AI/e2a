@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
@@ -256,6 +257,109 @@ func TestApproveAndSendHappyPath(t *testing.T) {
 	}
 	if dbEdited {
 		t.Error("db edited should be false")
+	}
+}
+
+// TestApproveAndSend_RecordsReviewedBy: migration 012 attributes the
+// approval to the human reviewer. ApproveAndSend passes its userID
+// argument straight into reviewed_by_user_id; GetOutboundMessageForUser's
+// JOIN with users surfaces the reviewer's display name as
+// ReviewedByName.
+func TestApproveAndSend_RecordsReviewedBy(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, a := setupPendingAgent(t, store, "approve-reviewer")
+	// setupPendingAgent's user has Name="Owner"; the dashboard pulls
+	// reviewed_by_name from the JOIN'd users.name column, so the test
+	// asserts whatever that helper set.
+
+	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
+		[]string{"alice@example.com"}, nil, nil,
+		"With reviewer", "body", "", nil, "send", "", "", 3600)
+
+	sent, err := store.ApproveAndSend(ctx, msg.ID, user.ID, identity.PendingApprovalEdit{},
+		func(m *identity.Message) (identity.SendResult, error) {
+			return identity.SendResult{ProviderMessageID: "<x@y>", Method: "smtp", To: m.ToRecipients}, nil
+		})
+	if err != nil {
+		t.Fatalf("ApproveAndSend: %v", err)
+	}
+	if sent.ReviewedByUserID == nil || *sent.ReviewedByUserID != user.ID {
+		t.Errorf("returned ReviewedByUserID = %v, want %q", sent.ReviewedByUserID, user.ID)
+	}
+
+	// Round-trip via GetOutboundMessageForUser — the JOIN with users
+	// must populate ReviewedByName for the detail panel.
+	got, err := store.GetOutboundMessageForUser(ctx, msg.ID, user.ID)
+	if err != nil {
+		t.Fatalf("GetOutboundMessageForUser: %v", err)
+	}
+	if got.ReviewedByUserID == nil || *got.ReviewedByUserID != user.ID {
+		t.Errorf("ReviewedByUserID via Get = %v, want %q", got.ReviewedByUserID, user.ID)
+	}
+	if got.ReviewedByName == nil || *got.ReviewedByName == "" {
+		t.Errorf("ReviewedByName via Get should be populated; got %v", got.ReviewedByName)
+	}
+}
+
+// TestRejectPending_RecordsReviewedBy: same shape for the reject side.
+func TestRejectPending_RecordsReviewedBy(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, a := setupPendingAgent(t, store, "reject-reviewer")
+	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
+		[]string{"alice@example.com"}, nil, nil,
+		"to-reject", "body", "", nil, "send", "", "", 3600)
+
+	rejected, err := store.RejectPending(ctx, msg.ID, user.ID, "wrong tone")
+	if err != nil {
+		t.Fatalf("RejectPending: %v", err)
+	}
+	if rejected.ReviewedByUserID == nil || *rejected.ReviewedByUserID != user.ID {
+		t.Errorf("rejected ReviewedByUserID = %v, want %q", rejected.ReviewedByUserID, user.ID)
+	}
+	if rejected.ReviewedByName == nil || *rejected.ReviewedByName == "" {
+		t.Errorf("rejected ReviewedByName should be populated; got %v", rejected.ReviewedByName)
+	}
+}
+
+// TestExpireApprove_ReviewedByNil: TTL auto-approve has no human
+// reviewer, so reviewed_by_user_id stays NULL. The redesign's
+// pending detail panel uses this signal to render "expired"
+// instead of "approved by X".
+func TestExpireApprove_ReviewedByNil(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, a := setupPendingAgent(t, store, "expire-no-reviewer")
+	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
+		[]string{"alice@example.com"}, nil, nil,
+		"to-expire", "body", "", nil, "send", "", "", 3600)
+	// Backdate so ExpireApproveAndSend's pending+expired predicate fires.
+	pool.Exec(ctx, `UPDATE messages SET approval_expires_at = $1 WHERE id = $2`,
+		time.Now().Add(-5*time.Minute), msg.ID)
+
+	sent, err := store.ExpireApproveAndSend(ctx, msg.ID,
+		func(m *identity.Message) (identity.SendResult, error) {
+			return identity.SendResult{ProviderMessageID: "<x@y>", Method: "smtp", To: m.ToRecipients}, nil
+		})
+	if err != nil {
+		t.Fatalf("ExpireApproveAndSend: %v", err)
+	}
+	if sent.ReviewedByUserID != nil {
+		t.Errorf("ReviewedByUserID = %v, want nil on worker-triggered approve", sent.ReviewedByUserID)
+	}
+
+	// Detail endpoint also leaves both fields nil.
+	got, _ := store.GetOutboundMessageForUser(ctx, msg.ID, user.ID)
+	if got.ReviewedByUserID != nil || got.ReviewedByName != nil {
+		t.Errorf("detail row should have null reviewer (worker action); got userID=%v name=%v",
+			got.ReviewedByUserID, got.ReviewedByName)
 	}
 }
 

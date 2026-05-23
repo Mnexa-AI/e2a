@@ -124,6 +124,18 @@ type DomainInfo struct {
 	DNSRecords        DNSRecords `json:"dns_records"`
 	CreatedAt         time.Time  `json:"created_at"`
 	VerifiedAt        *time.Time `json:"verified_at,omitempty"`
+	// IsPrimary marks the user's default domain — at most one per
+	// user, enforced server-side via SetDomainPrimary. The redesign's
+	// Domains list renders this as a "Primary" chip.
+	IsPrimary bool `json:"is_primary"`
+	// LastCheckedAt is the timestamp of the most recent
+	// /api/v1/domains/{domain}/verify probe (success or failure).
+	// Distinct from VerifiedAt, which only updates on success.
+	LastCheckedAt *time.Time `json:"last_checked_at,omitempty"`
+	// AgentCount is populated by list endpoints. Single-domain endpoints
+	// (register, verify) leave it zero — the count would require an
+	// extra query that callers can derive from the agents list anyway.
+	AgentCount int `json:"agent_count"`
 } // @name Domain
 
 // DNSRecords contains the DNS records needed for domain verification.
@@ -143,6 +155,12 @@ type DNSRecord struct {
 type ListDomainsResponse struct {
 	Domains []DomainInfo `json:"domains"`
 } // @name ListDomainsResponse
+
+// UpdateDomainRequest is the body for PATCH /api/v1/domains/{domain}.
+// Only `is_primary=true` is meaningful — see handleUpdateDomain.
+type UpdateDomainRequest struct {
+	IsPrimary *bool `json:"is_primary,omitempty"`
+} // @name UpdateDomainRequest
 
 // RegisterDomainResponse is the response for POST /api/v1/domains.
 type RegisterDomainResponse = DomainInfo // @name RegisterDomainResponse
@@ -274,12 +292,22 @@ type PendingMessageSummary struct {
 // bodies since the server scrubs them on transition.
 type PendingMessageDetail struct {
 	PendingMessageSummary
-	EmailMessageID    string       `json:"email_message_id,omitempty" example:"<orig@gmail.com>"`
-	BodyText          string       `json:"body_text,omitempty"`
-	BodyHTML          string       `json:"body_html,omitempty"`
-	Attachments       []Attachment `json:"attachments,omitempty"`
-	Edited            bool         `json:"edited,omitempty"`
-	ReviewedAt        string       `json:"reviewed_at,omitempty" example:"2025-01-15T10:35:00Z"`
+	EmailMessageID string       `json:"email_message_id,omitempty" example:"<orig@gmail.com>"`
+	BodyText       string       `json:"body_text,omitempty"`
+	BodyHTML       string       `json:"body_html,omitempty"`
+	Attachments    []Attachment `json:"attachments,omitempty"`
+	Edited         bool         `json:"edited,omitempty"`
+	ReviewedAt     string       `json:"reviewed_at,omitempty" example:"2025-01-15T10:35:00Z"`
+	// ReviewedByUserID identifies the human reviewer for approved or
+	// rejected messages. NULL on TTL-expired transitions (worker
+	// auto-approve / auto-reject) where no human reviewed the message.
+	ReviewedByUserID  *string      `json:"reviewed_by_user_id,omitempty" example:"usr_abc123"`
+	// ReviewedByName is the JOIN'd display name from the reviewer's
+	// users row. NULL when reviewed_by_user_id is null (worker) or when
+	// the reviewer's user account has since been deleted (the FK has
+	// ON DELETE SET NULL specifically so this doesn't poison the audit
+	// trail).
+	ReviewedByName    *string      `json:"reviewed_by_name,omitempty" example:"Jamie"`
 	RejectionReason   string       `json:"rejection_reason,omitempty"`
 	ProviderMessageID string       `json:"provider_message_id,omitempty"`
 	Method            string       `json:"method,omitempty" example:"smtp"`

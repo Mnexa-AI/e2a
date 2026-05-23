@@ -176,12 +176,30 @@ definitions:
     type: object
   Domain:
     properties:
+      agent_count:
+        description: |-
+          AgentCount is populated by list endpoints. Single-domain endpoints
+          (register, verify) leave it zero — the count would require an
+          extra query that callers can derive from the agents list anyway.
+        type: integer
       created_at:
         type: string
       dns_records:
         $ref: '#/definitions/DNSRecords'
       domain:
         example: yourdomain.com
+        type: string
+      is_primary:
+        description: |-
+          IsPrimary marks the user's default domain — at most one per
+          user, enforced server-side via SetDomainPrimary. The redesign's
+          Domains list renders this as a "Primary" chip.
+        type: boolean
+      last_checked_at:
+        description: |-
+          LastCheckedAt is the timestamp of the most recent
+          /api/v1/domains/{domain}/verify probe (success or failure).
+          Distinct from VerifiedAt, which only updates on success.
         type: string
       verification_token:
         example: e2a-verify=abc123
@@ -375,6 +393,22 @@ definitions:
         type: string
       reviewed_at:
         example: "2025-01-15T10:35:00Z"
+        type: string
+      reviewed_by_name:
+        description: |-
+          ReviewedByName is the JOIN'd display name from the reviewer's
+          users row. NULL when reviewed_by_user_id is null (worker) or when
+          the reviewer's user account has since been deleted (the FK has
+          ON DELETE SET NULL specifically so this doesn't poison the audit
+          trail).
+        example: Jamie
+        type: string
+      reviewed_by_user_id:
+        description: |-
+          ReviewedByUserID identifies the human reviewer for approved or
+          rejected messages. NULL on TTL-expired transitions (worker
+          auto-approve / auto-reject) where no human reviewed the message.
+        example: usr_abc123
         type: string
       status:
         enum:
@@ -621,6 +655,11 @@ definitions:
       webhook_url:
         type: string
     type: object
+  UpdateDomainRequest:
+    properties:
+      is_primary:
+        type: boolean
+    type: object
   UsageEventEntry:
     properties:
       agent_id:
@@ -721,9 +760,29 @@ definitions:
     type: object
   github_com_Mnexa-AI_e2a_internal_identity.Domain:
     properties:
+      agent_count:
+        description: |-
+          AgentCount is computed at read time by ListDomainsByUser and is
+          not a persisted column. Single-domain LookupDomain leaves it at
+          the zero value — callers that need the count call the list path
+          (this column-versus-aggregate split avoids changing every store
+          signature to thread an agent-counter through).
+        type: integer
       created_at:
         type: string
       domain:
+        type: string
+      is_primary:
+        description: |-
+          IsPrimary marks the user's default domain. At most one TRUE per
+          user (enforced by a partial unique index in migration 013).
+        type: boolean
+      last_checked_at:
+        description: |-
+          LastCheckedAt is updated whenever the verification probe runs,
+          successful or not. NULL until the first probe — distinct from
+          "probed and failed" which is captured by `verified=false` + a
+          non-null LastCheckedAt.
         type: string
       user_id:
         type: string
@@ -798,6 +857,21 @@ definitions:
           type: string
         type: array
       reviewed_at:
+        type: string
+      reviewed_by_name:
+        description: |-
+          ReviewedByName is the JOIN'd display name from the reviewer's
+          users row, populated only by GetOutboundMessageForUser. List
+          endpoints leave this empty to avoid a join-per-row cost — the
+          pending-detail page is where reviewer attribution matters.
+        type: string
+      reviewed_by_user_id:
+        description: |-
+          ReviewedByUserID identifies the human reviewer who approved or
+          rejected this message. NULL on worker-triggered transitions
+          (TTL auto-approve / auto-reject) — operator-visible signal "no
+          human looked at this." Set by ApproveAndSend and RejectPending,
+          left null by ExpireApproveAndSend / ExpireReject.
         type: string
       sender:
         type: string
@@ -1344,6 +1418,49 @@ paths:
       security:
       - BearerAuth: []
       summary: Delete a domain
+      tags:
+      - Domains
+    patch:
+      consumes:
+      - application/json
+      description: Update mutable fields on a domain. The only supported field today
+        is `is_primary` — passing `true` promotes this domain and clears the flag
+        from any previously-primary domain in a single transaction. Passing `false`
+        is a no-op (use SetDomainPrimary on a different domain to demote this one).
+      parameters:
+      - description: Domain name
+        in: path
+        name: domain
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/UpdateDomainRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Domain'
+        "400":
+          description: Invalid request
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "404":
+          description: Domain not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Update a domain
       tags:
       - Domains
   /api/v1/domains/{domain}/verify:

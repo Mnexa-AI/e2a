@@ -815,7 +815,65 @@ export interface paths {
         };
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update a domain
+         * @description Update mutable fields on a domain. The only supported field today is `is_primary` — passing `true` promotes this domain and clears the flag from any previously-primary domain in a single transaction. Passing `false` is a no-op (use SetDomainPrimary on a different domain to demote this one).
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Domain name */
+                    domain: string;
+                };
+                cookie?: never;
+            };
+            /** @description Fields to update */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateDomainRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Domain"];
+                    };
+                };
+                /** @description Invalid request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Missing or invalid API key */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Domain not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
         trace?: never;
     };
     "/api/v1/domains/{domain}/verify": {
@@ -1702,10 +1760,28 @@ export interface components {
             slug_registration_enabled?: boolean;
         };
         Domain: {
+            /**
+             * @description AgentCount is populated by list endpoints. Single-domain endpoints
+             *     (register, verify) leave it zero — the count would require an
+             *     extra query that callers can derive from the agents list anyway.
+             */
+            agent_count?: number;
             created_at?: string;
             dns_records?: components["schemas"]["DNSRecords"];
             /** @example yourdomain.com */
             domain?: string;
+            /**
+             * @description IsPrimary marks the user's default domain — at most one per
+             *     user, enforced server-side via SetDomainPrimary. The redesign's
+             *     Domains list renders this as a "Primary" chip.
+             */
+            is_primary?: boolean;
+            /**
+             * @description LastCheckedAt is the timestamp of the most recent
+             *     /api/v1/domains/{domain}/verify probe (success or failure).
+             *     Distinct from VerifiedAt, which only updates on success.
+             */
+            last_checked_at?: string;
             /** @example e2a-verify=abc123 */
             verification_token?: string;
             verified?: boolean;
@@ -1813,6 +1889,22 @@ export interface components {
             rejection_reason?: string;
             /** @example 2025-01-15T10:35:00Z */
             reviewed_at?: string;
+            /**
+             * @description ReviewedByName is the JOIN'd display name from the reviewer's
+             *     users row. NULL when reviewed_by_user_id is null (worker) or when
+             *     the reviewer's user account has since been deleted (the FK has
+             *     ON DELETE SET NULL specifically so this doesn't poison the audit
+             *     trail).
+             * @example Jamie
+             */
+            reviewed_by_name?: string;
+            /**
+             * @description ReviewedByUserID identifies the human reviewer for approved or
+             *     rejected messages. NULL on TTL-expired transitions (worker
+             *     auto-approve / auto-reject) where no human reviewed the message.
+             * @example usr_abc123
+             */
+            reviewed_by_user_id?: string;
             /**
              * @example pending_approval
              * @enum {string}
@@ -1974,6 +2066,9 @@ export interface components {
             hitl_ttl_seconds?: number;
             webhook_url?: string;
         };
+        UpdateDomainRequest: {
+            is_primary?: boolean;
+        };
         UsageEventEntry: {
             agent_id?: string;
             created_at?: string;
@@ -2021,8 +2116,28 @@ export interface components {
             webhook_url?: string;
         };
         "github_com_Mnexa-AI_e2a_internal_identity.Domain": {
+            /**
+             * @description AgentCount is computed at read time by ListDomainsByUser and is
+             *     not a persisted column. Single-domain LookupDomain leaves it at
+             *     the zero value — callers that need the count call the list path
+             *     (this column-versus-aggregate split avoids changing every store
+             *     signature to thread an agent-counter through).
+             */
+            agent_count?: number;
             created_at?: string;
             domain?: string;
+            /**
+             * @description IsPrimary marks the user's default domain. At most one TRUE per
+             *     user (enforced by a partial unique index in migration 013).
+             */
+            is_primary?: boolean;
+            /**
+             * @description LastCheckedAt is updated whenever the verification probe runs,
+             *     successful or not. NULL until the first probe — distinct from
+             *     "probed and failed" which is captured by `verified=false` + a
+             *     non-null LastCheckedAt.
+             */
+            last_checked_at?: string;
             user_id?: string;
             verification_token?: string;
             verified?: boolean;
@@ -2060,6 +2175,21 @@ export interface components {
              */
             reply_to?: string[];
             reviewed_at?: string;
+            /**
+             * @description ReviewedByName is the JOIN'd display name from the reviewer's
+             *     users row, populated only by GetOutboundMessageForUser. List
+             *     endpoints leave this empty to avoid a join-per-row cost — the
+             *     pending-detail page is where reviewer attribution matters.
+             */
+            reviewed_by_name?: string;
+            /**
+             * @description ReviewedByUserID identifies the human reviewer who approved or
+             *     rejected this message. NULL on worker-triggered transitions
+             *     (TTL auto-approve / auto-reject) — operator-visible signal "no
+             *     human looked at this." Set by ApproveAndSend and RejectPending,
+             *     left null by ExpireApproveAndSend / ExpireReject.
+             */
+            reviewed_by_user_id?: string;
             sender?: string;
             /**
              * @description HITL approval fields. Status defaults to 'sent'; body and attachments

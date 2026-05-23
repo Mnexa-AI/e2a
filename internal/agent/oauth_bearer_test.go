@@ -228,7 +228,7 @@ func TestBearer_APIKey_StillWorks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, err := store.CreateAPIKey(ctx, user.ID, "test-key")
+	key, err := store.CreateAPIKey(ctx, user.ID, "test-key", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

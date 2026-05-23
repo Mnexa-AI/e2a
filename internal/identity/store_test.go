@@ -105,7 +105,7 @@ func TestCreateAPIKey(t *testing.T) {
 		t.Fatalf("CreateOrGetUser: %v", err)
 	}
 
-	key, err := store.CreateAPIKey(ctx, user.ID, "test key")
+	key, err := store.CreateAPIKey(ctx, user.ID, "test key", nil)
 	if err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
 	}
@@ -129,8 +129,8 @@ func TestListAPIKeys(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "apikey-list@example.com", "Owner", "google-apikey-list")
-	store.CreateAPIKey(ctx, user.ID, "key-1")
-	store.CreateAPIKey(ctx, user.ID, "key-2")
+	store.CreateAPIKey(ctx, user.ID, "key-1", nil)
+	store.CreateAPIKey(ctx, user.ID, "key-2", nil)
 
 	keys, err := store.ListAPIKeys(ctx, user.ID)
 	if err != nil {
@@ -147,7 +147,7 @@ func TestDeleteAPIKey(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "apikey-del@example.com", "Owner", "google-apikey-del")
-	key, _ := store.CreateAPIKey(ctx, user.ID, "to-delete")
+	key, _ := store.CreateAPIKey(ctx, user.ID, "to-delete", nil)
 
 	err := store.DeleteAPIKey(ctx, key.ID, user.ID)
 	if err != nil {
@@ -166,7 +166,7 @@ func TestGetUserByAPIKey(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "apikey-lookup@example.com", "Owner", "google-apikey-lookup")
-	key, _ := store.CreateAPIKey(ctx, user.ID, "lookup-key")
+	key, _ := store.CreateAPIKey(ctx, user.ID, "lookup-key", nil)
 
 	got, err := store.GetUserByAPIKey(ctx, key.PlaintextKey)
 	if err != nil {
@@ -177,6 +177,91 @@ func TestGetUserByAPIKey(t *testing.T) {
 	}
 	if got.Email != "apikey-lookup@example.com" {
 		t.Errorf("Email = %q", got.Email)
+	}
+}
+
+// TestAPIKey_ListReturnsLastUsedAtAndExpiresAt asserts the columns
+// added/exposed by migration 011: last_used_at is populated by
+// GetUserByAPIKey and surfaced by ListAPIKeys; expires_at is round-
+// tripped from CreateAPIKey through the list endpoint.
+func TestAPIKey_ListReturnsLastUsedAtAndExpiresAt(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "apikey-lastused@example.com", "Owner", "google-apikey-lastused")
+
+	// One key with expiry, one without — covers both column states.
+	expiresAt := time.Now().Add(7 * 24 * time.Hour).UTC().Round(time.Microsecond)
+	withExpiry, _ := store.CreateAPIKey(ctx, user.ID, "with-expiry", &expiresAt)
+	neverExpires, _ := store.CreateAPIKey(ctx, user.ID, "never-expires", nil)
+
+	// Before any use, last_used_at is NULL on both rows.
+	keys, err := store.ListAPIKeys(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("ListAPIKeys: %v", err)
+	}
+	byID := map[string]identity.APIKey{}
+	for _, k := range keys {
+		byID[k.ID] = k
+	}
+	if k := byID[withExpiry.ID]; k.LastUsedAt != nil {
+		t.Errorf("with-expiry LastUsedAt = %v, want nil before first use", k.LastUsedAt)
+	}
+	if k := byID[withExpiry.ID]; k.ExpiresAt == nil || !k.ExpiresAt.Equal(expiresAt) {
+		t.Errorf("with-expiry ExpiresAt = %v, want %v", k.ExpiresAt, expiresAt)
+	}
+	if k := byID[neverExpires.ID]; k.ExpiresAt != nil {
+		t.Errorf("never-expires ExpiresAt = %v, want nil", k.ExpiresAt)
+	}
+
+	// Authenticate once → last_used_at should populate on that row only.
+	if _, err := store.GetUserByAPIKey(ctx, withExpiry.PlaintextKey); err != nil {
+		t.Fatalf("GetUserByAPIKey: %v", err)
+	}
+	keys, _ = store.ListAPIKeys(ctx, user.ID)
+	for _, k := range keys {
+		if k.ID == withExpiry.ID {
+			if k.LastUsedAt == nil {
+				t.Errorf("with-expiry LastUsedAt should be set after auth")
+			}
+		} else if k.ID == neverExpires.ID {
+			if k.LastUsedAt != nil {
+				t.Errorf("never-expires LastUsedAt = %v, want nil (untouched key)", k.LastUsedAt)
+			}
+		}
+	}
+}
+
+// TestAPIKey_ExpiredKeyRejectedAtAuth: a key whose expires_at has
+// passed must fail GetUserByAPIKey. This is the auth-side gate that
+// makes the expires_at column actually enforce anything.
+func TestAPIKey_ExpiredKeyRejectedAtAuth(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "apikey-expired@example.com", "Owner", "google-apikey-expired")
+
+	// Issue with a future expiry, then backdate via direct SQL — Create
+	// rejects past timestamps at the handler layer, but the store itself
+	// doesn't validate (it's the auth gate that does the enforcement).
+	future := time.Now().Add(1 * time.Hour)
+	key, _ := store.CreateAPIKey(ctx, user.ID, "soon-to-expire", &future)
+	if _, err := pool.Exec(ctx, `UPDATE api_keys SET expires_at = $1 WHERE id = $2`,
+		time.Now().Add(-1*time.Minute), key.ID); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+
+	if _, err := store.GetUserByAPIKey(ctx, key.PlaintextKey); err == nil {
+		t.Error("GetUserByAPIKey should reject expired keys; got success")
+	}
+
+	// Sanity: a key with NULL expires_at issued by the same user still
+	// authenticates fine (i.e. the gate is per-row, not per-user).
+	stillValid, _ := store.CreateAPIKey(ctx, user.ID, "still-valid", nil)
+	if _, err := store.GetUserByAPIKey(ctx, stillValid.PlaintextKey); err != nil {
+		t.Errorf("never-expiring key should still authenticate: %v", err)
 	}
 }
 
@@ -919,5 +1004,338 @@ func TestGetUserSigningSecrets_MostRecentFirst(t *testing.T) {
 	}
 	if got[1].ID != rolling.ID {
 		t.Errorf("[1] should be the middle one (%q), got %q", rolling.ID, got[1].ID)
+	}
+}
+
+// --- Domain enrichment (Item #7) ---
+
+// TestListDomainsByUser_ReturnsEnrichmentColumns: migration 013 adds
+// is_primary and last_checked_at; ListDomainsByUser also computes
+// agent_count via a correlated subquery. All three must round-trip
+// through the JSON response for the dashboard to render the chips.
+func TestListDomainsByUser_ReturnsEnrichmentColumns(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "domains-enrichment@example.com", "Owner", "google-de")
+
+	// Two domains: one verified with an agent, one bare.
+	store.ClaimOrCreateDomain(ctx, "with-agent.example.com", user.ID)
+	store.VerifyDomain(ctx, "with-agent.example.com", user.ID)
+	store.CreateAgent(ctx, "bot@with-agent.example.com", "with-agent.example.com", "", "https://example.com/wh", "", user.ID)
+
+	store.ClaimOrCreateDomain(ctx, "no-agent.example.com", user.ID)
+
+	domains, err := store.ListDomainsByUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("ListDomainsByUser: %v", err)
+	}
+	if len(domains) != 2 {
+		t.Fatalf("expected 2 domains, got %d", len(domains))
+	}
+	byName := map[string]identity.Domain{}
+	for _, d := range domains {
+		byName[d.Domain] = d
+	}
+	if got := byName["with-agent.example.com"].AgentCount; got != 1 {
+		t.Errorf("with-agent.example.com AgentCount = %d, want 1", got)
+	}
+	if got := byName["no-agent.example.com"].AgentCount; got != 0 {
+		t.Errorf("no-agent.example.com AgentCount = %d, want 0", got)
+	}
+	// Defaults: is_primary=false, last_checked_at=nil — until something
+	// actually promotes / probes them.
+	for _, d := range domains {
+		if d.IsPrimary {
+			t.Errorf("%s IsPrimary = true, want default false", d.Domain)
+		}
+		if d.LastCheckedAt != nil {
+			t.Errorf("%s LastCheckedAt = %v, want nil before any probe", d.Domain, d.LastCheckedAt)
+		}
+	}
+}
+
+// TestSetDomainPrimary_EnforcesAtMostOnePerUser: promoting a second
+// domain must demote the first in the same transaction. The partial
+// unique index in migration 013 enforces the invariant at the DB
+// level; SetDomainPrimary handles the sequencing.
+func TestSetDomainPrimary_EnforcesAtMostOnePerUser(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "primary-swap@example.com", "Owner", "google-ps")
+	store.ClaimOrCreateDomain(ctx, "first.example.com", user.ID)
+	store.VerifyDomain(ctx, "first.example.com", user.ID)
+	store.ClaimOrCreateDomain(ctx, "second.example.com", user.ID)
+	store.VerifyDomain(ctx, "second.example.com", user.ID)
+
+	if err := store.SetDomainPrimary(ctx, "first.example.com", user.ID); err != nil {
+		t.Fatalf("promote first: %v", err)
+	}
+	// Now promote the second — first should auto-demote.
+	if err := store.SetDomainPrimary(ctx, "second.example.com", user.ID); err != nil {
+		t.Fatalf("promote second: %v", err)
+	}
+
+	domains, _ := store.ListDomainsByUser(ctx, user.ID)
+	var primaryCount int
+	for _, d := range domains {
+		if d.IsPrimary {
+			primaryCount++
+			if d.Domain != "second.example.com" {
+				t.Errorf("primary = %q, want second.example.com", d.Domain)
+			}
+		}
+	}
+	if primaryCount != 1 {
+		t.Errorf("primary count = %d, want exactly 1", primaryCount)
+	}
+}
+
+// TestSetDomainPrimary_NotOwned: a user can't promote a domain that
+// belongs to someone else — return ErrDomainNotFound (NOT a permissions
+// error, so we don't leak existence of cross-user rows).
+func TestSetDomainPrimary_NotOwned(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	owner, _ := store.CreateOrGetUser(ctx, "owner-pri@example.com", "Owner", "google-op")
+	store.ClaimOrCreateDomain(ctx, "owned.example.com", owner.ID)
+	store.VerifyDomain(ctx, "owned.example.com", owner.ID)
+
+	intruder, _ := store.CreateOrGetUser(ctx, "intruder-pri@example.com", "Intruder", "google-ip")
+
+	if err := store.SetDomainPrimary(ctx, "owned.example.com", intruder.ID); err == nil {
+		t.Error("expected error promoting non-owned domain; got nil")
+	}
+	// Owner's row stayed put.
+	domains, _ := store.ListDomainsByUser(ctx, owner.ID)
+	for _, d := range domains {
+		if d.IsPrimary {
+			t.Errorf("intruder's call promoted %s; want no promotion", d.Domain)
+		}
+	}
+}
+
+// TestTouchDomainLastChecked_PersistsTimestamp: ensures the column
+// actually moves when called. This is the only path that writes
+// last_checked_at; without the touch, the column stays NULL even after
+// many verification probes.
+func TestTouchDomainLastChecked_PersistsTimestamp(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "touched@example.com", "Owner", "google-touched")
+	store.ClaimOrCreateDomain(ctx, "touched.example.com", user.ID)
+
+	before := time.Now()
+	if err := store.TouchDomainLastChecked(ctx, "touched.example.com", user.ID); err != nil {
+		t.Fatalf("TouchDomainLastChecked: %v", err)
+	}
+
+	d, _ := store.LookupDomain(ctx, "touched.example.com", user.ID)
+	if d.LastCheckedAt == nil {
+		t.Fatal("LastCheckedAt should be populated after touch")
+	}
+	if d.LastCheckedAt.Before(before.Add(-1 * time.Second)) {
+		t.Errorf("LastCheckedAt = %v, expected to be at or after %v", d.LastCheckedAt, before)
+	}
+}
+
+// --- Dashboard stats (Item #1) ---
+
+// TestGetDashboardStats_EmptyDeployment: a brand-new user with no
+// activity returns zeros everywhere, no errors. The redesign uses
+// these zeros to render "—" in the cards rather than crashing the
+// dashboard.
+func TestGetDashboardStats_EmptyDeployment(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "empty-stats@example.com", "Owner", "google-es")
+
+	stats, err := store.GetDashboardStats(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetDashboardStats: %v", err)
+	}
+	if stats.Today.Inbound != 0 || stats.Today.Outbound != 0 {
+		t.Errorf("today counts = %+v, want zero", stats.Today)
+	}
+	if stats.Today.InboundDeltaPct != 0 || stats.Today.OutboundDeltaPct != 0 {
+		t.Errorf("delta counts = %+v, want zero (no baseline)", stats.Today)
+	}
+	if stats.Pending.Count != 0 || stats.Pending.OldestSeconds != 0 {
+		t.Errorf("pending = %+v, want zero", stats.Pending)
+	}
+	if stats.DeliverySuccessPct != 0 {
+		t.Errorf("delivery success = %v, want 0 (no deliveries → no ratio)", stats.DeliverySuccessPct)
+	}
+	if stats.SampleWindowDays != 7 {
+		t.Errorf("sample_window_days = %d, want 7", stats.SampleWindowDays)
+	}
+}
+
+// TestGetDashboardStats_TodayAndDelta: today's counts come from
+// usage_summaries; deltas come from today-vs-yesterday. Seeds both
+// rows directly to keep the test focused on the read path.
+func TestGetDashboardStats_TodayAndDelta(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "today-stats@example.com", "Owner", "google-ts")
+
+	// Today: 100 in / 50 out. Yesterday: 80 in / 50 out.
+	// Expected deltas: inbound +25% (100→80 is actually +25% reverse — let
+	// me re-check: (100-80)/80 = +25 ✓), outbound 0% (50/50 unchanged).
+	_, err := pool.Exec(ctx,
+		`INSERT INTO usage_summaries (user_id, bucket_date, inbound_count, outbound_count, total_count)
+		 VALUES ($1, current_date, 100, 50, 150),
+		        ($1, current_date - 1, 80, 50, 130)`,
+		user.ID)
+	if err != nil {
+		t.Fatalf("seed usage_summaries: %v", err)
+	}
+
+	stats, err := store.GetDashboardStats(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetDashboardStats: %v", err)
+	}
+	if stats.Today.Inbound != 100 {
+		t.Errorf("Inbound = %d, want 100", stats.Today.Inbound)
+	}
+	if stats.Today.Outbound != 50 {
+		t.Errorf("Outbound = %d, want 50", stats.Today.Outbound)
+	}
+	if stats.Today.InboundDeltaPct != 25 {
+		t.Errorf("InboundDeltaPct = %d, want 25 (100 vs 80)", stats.Today.InboundDeltaPct)
+	}
+	if stats.Today.OutboundDeltaPct != 0 {
+		t.Errorf("OutboundDeltaPct = %d, want 0 (50 vs 50)", stats.Today.OutboundDeltaPct)
+	}
+}
+
+// TestGetDashboardStats_NoYesterdayBaseline: delta_pct is 0 when there's
+// no yesterday data (avoids divide-by-zero, lets UI hide the arrow).
+func TestGetDashboardStats_NoYesterdayBaseline(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "no-base@example.com", "Owner", "google-nb")
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO usage_summaries (user_id, bucket_date, inbound_count, outbound_count, total_count)
+		 VALUES ($1, current_date, 42, 7, 49)`,
+		user.ID)
+	if err != nil {
+		t.Fatalf("seed usage_summaries: %v", err)
+	}
+
+	stats, err := store.GetDashboardStats(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetDashboardStats: %v", err)
+	}
+	if stats.Today.Inbound != 42 || stats.Today.Outbound != 7 {
+		t.Errorf("today counts: %+v", stats.Today)
+	}
+	if stats.Today.InboundDeltaPct != 0 || stats.Today.OutboundDeltaPct != 0 {
+		t.Errorf("deltas with no baseline = %+v, want 0 to avoid divide-by-zero", stats.Today)
+	}
+}
+
+// TestGetDashboardStats_Pending: pending count + oldest_seconds come
+// from the messages table joined to agent_identities. Asserts both
+// the count and that oldest_seconds reflects the *oldest* row (not
+// the most recent).
+func TestGetDashboardStats_Pending(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "pending-stats@example.com", "Owner", "google-ps2")
+	store.ClaimOrCreateDomain(ctx, "ps.example.com", user.ID)
+	store.VerifyDomain(ctx, "ps.example.com", user.ID)
+	agent, _ := store.CreateAgent(ctx, "bot@ps.example.com", "ps.example.com", "", "https://example.com/wh", "", user.ID)
+
+	// Two pending — one fresh, one ~2h old.
+	for i := 0; i < 2; i++ {
+		store.CreatePendingOutboundMessage(ctx, agent.ID,
+			[]string{"alice@example.com"}, nil, nil,
+			fmt.Sprintf("subject-%d", i), "body", "", nil,
+			"send", "", "", 3600)
+	}
+	// Backdate the second one to ~2 hours old. created_at and
+	// approval_expires_at are both moved so the partial index still
+	// considers it pending.
+	if _, err := pool.Exec(ctx,
+		`UPDATE messages SET created_at = now() - interval '2 hours'
+		 WHERE agent_id = $1
+		   AND id = (SELECT id FROM messages WHERE agent_id = $1 ORDER BY created_at DESC LIMIT 1)`,
+		agent.ID); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+
+	stats, err := store.GetDashboardStats(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetDashboardStats: %v", err)
+	}
+	if stats.Pending.Count != 2 {
+		t.Errorf("Pending.Count = %d, want 2", stats.Pending.Count)
+	}
+	// Allow some slack for query latency — oldest should be ≥ ~2h.
+	if stats.Pending.OldestSeconds < 7000 {
+		t.Errorf("Pending.OldestSeconds = %d, want >= 7000 (~2h)", stats.Pending.OldestSeconds)
+	}
+}
+
+// TestGetDashboardStats_DeliverySuccess: webhook_deliveries success
+// ratio over the 7-day window. Pending rows are excluded so a healthy
+// queue doesn't pull the percentage down.
+func TestGetDashboardStats_DeliverySuccess(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "delivery-stats@example.com", "Owner", "google-ds")
+	store.ClaimOrCreateDomain(ctx, "ds.example.com", user.ID)
+	store.VerifyDomain(ctx, "ds.example.com", user.ID)
+	agent, _ := store.CreateAgent(ctx, "bot@ds.example.com", "ds.example.com", "", "https://example.com/wh", "", user.ID)
+
+	// Seed three outbound messages with three different delivery states.
+	// CreateOutboundMessage doesn't auto-create webhook_deliveries; we
+	// insert those rows directly to exercise the GetDashboardStats query.
+	for i, status := range []string{"delivered", "delivered", "failed"} {
+		m, _ := store.CreateOutboundMessage(ctx, agent.ID,
+			[]string{"alice@example.com"}, nil, nil,
+			fmt.Sprintf("subj-%d", i), "send", "smtp", "", "")
+		_, err := pool.Exec(ctx,
+			`INSERT INTO webhook_deliveries (message_id, status, attempts, last_error, created_at)
+			 VALUES ($1, $2, 1, '', now())`,
+			m.ID, status)
+		if err != nil {
+			t.Fatalf("seed webhook_deliveries: %v", err)
+		}
+	}
+	// One pending — must NOT affect the ratio.
+	pendingMsg, _ := store.CreateOutboundMessage(ctx, agent.ID,
+		[]string{"alice@example.com"}, nil, nil, "pending", "send", "smtp", "", "")
+	pool.Exec(ctx,
+		`INSERT INTO webhook_deliveries (message_id, status, attempts, last_error, created_at)
+		 VALUES ($1, 'pending', 0, '', now())`,
+		pendingMsg.ID)
+
+	stats, err := store.GetDashboardStats(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetDashboardStats: %v", err)
+	}
+	// 2 delivered / 3 finalized = 66.7%
+	if stats.DeliverySuccessPct < 66 || stats.DeliverySuccessPct > 67 {
+		t.Errorf("DeliverySuccessPct = %v, want ~66.7 (2 delivered / 3 finalized; pending excluded)", stats.DeliverySuccessPct)
 	}
 }

@@ -243,7 +243,7 @@ func (ua *UserAuth) defaultAgentEmail(ctx context.Context, userID string) string
 }
 
 func (ua *UserAuth) writeCLIHandoffPage(w http.ResponseWriter, r *http.Request, user *identity.User, handoff *cliLoginHandoff) error {
-	key, err := ua.store.CreateAPIKey(r.Context(), user.ID, "CLI login")
+	key, err := ua.store.CreateAPIKey(r.Context(), user.ID, "CLI login", nil)
 	if err != nil {
 		return fmt.Errorf("failed to create api key: %w", err)
 	}
@@ -459,6 +459,60 @@ func (ua *UserAuth) HandleMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, user)
 }
 
+// HandleUpdateMe accepts a PATCH that updates the authenticated user's
+// display name. Other identity fields (email, google_subject) come from
+// the OAuth provider and are not user-editable.
+//
+// Validation:
+//   - name: required, 1–80 chars after TrimSpace
+//   - rejects leading/trailing whitespace by comparing to TrimSpace
+//     (we don't silently normalize — that would surprise a caller who
+//     expected their exact bytes back from /me)
+const (
+	minDisplayNameLen = 1
+	maxDisplayNameLen = 80
+)
+
+func (ua *UserAuth) HandleUpdateMe(w http.ResponseWriter, r *http.Request) {
+	user := ua.AuthenticateRequest(r)
+	if user == nil {
+		http.Error(w, "not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		Name *string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == nil {
+		http.Error(w, "no fields to update", http.StatusBadRequest)
+		return
+	}
+
+	name := *req.Name
+	if name != strings.TrimSpace(name) {
+		http.Error(w, "name must not have leading or trailing whitespace", http.StatusBadRequest)
+		return
+	}
+	if len(name) < minDisplayNameLen || len(name) > maxDisplayNameLen {
+		http.Error(w, "name must be 1–80 characters", http.StatusBadRequest)
+		return
+	}
+
+	updated, err := ua.store.UpdateUserName(r.Context(), user.ID, name)
+	if err != nil {
+		http.Error(w, "failed to update profile", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	writeJSON(w, updated)
+}
+
 // AuthenticateRequest extracts the user from the session cookie. Returns nil if not authenticated.
 func (ua *UserAuth) AuthenticateRequest(r *http.Request) *identity.User {
 	cookie, err := r.Cookie(SessionCookieName)
@@ -492,6 +546,27 @@ func fetchGoogleUserInfo(ctx context.Context, cfg *oauth2.Config, token *oauth2.
 		return nil, err
 	}
 	return &info, nil
+}
+
+// HandleDashboardStats returns the workspace-level aggregates for the
+// redesigned dashboard's stats strip. See identity.GetDashboardStats
+// for the data sources and the graceful-degradation behavior when
+// usage tracking is disabled (the default for self-hosters).
+func (ua *UserAuth) HandleDashboardStats(w http.ResponseWriter, r *http.Request) {
+	user := ua.AuthenticateRequest(r)
+	if user == nil {
+		http.Error(w, "not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	stats, err := ua.store.GetDashboardStats(r.Context(), user.ID)
+	if err != nil {
+		http.Error(w, "failed to fetch dashboard stats", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	writeJSON(w, stats)
 }
 
 // HandleDashboardAgents lists agents owned by the authenticated user.
@@ -695,11 +770,29 @@ func (ua *UserAuth) HandleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name string `json:"name"`
+		Name      string  `json:"name"`
+		ExpiresAt *string `json:"expires_at,omitempty"` // optional ISO 8601 timestamp
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 
-	key, err := ua.store.CreateAPIKey(r.Context(), user.ID, req.Name)
+	// Parse optional expires_at. Empty string and missing field both mean
+	// "never expires" — symmetric with the NULL column default. Malformed
+	// or already-past timestamps are client errors, not "use NULL silently."
+	var expiresAt *time.Time
+	if req.ExpiresAt != nil && *req.ExpiresAt != "" {
+		t, err := time.Parse(time.RFC3339, *req.ExpiresAt)
+		if err != nil {
+			http.Error(w, "expires_at must be an RFC 3339 timestamp", http.StatusBadRequest)
+			return
+		}
+		if !t.After(time.Now()) {
+			http.Error(w, "expires_at must be in the future", http.StatusBadRequest)
+			return
+		}
+		expiresAt = &t
+	}
+
+	key, err := ua.store.CreateAPIKey(r.Context(), user.ID, req.Name, expiresAt)
 	if err != nil {
 		http.Error(w, "failed to create API key", http.StatusInternalServerError)
 		return

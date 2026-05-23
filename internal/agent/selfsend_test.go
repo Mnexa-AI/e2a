@@ -22,7 +22,7 @@ func TestSelfSend_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOrGetUser: %v", err)
 	}
-	apiKeyObj, err := store.CreateAPIKey(ctx, user.ID, "self-send-key")
+	apiKeyObj, err := store.CreateAPIKey(ctx, user.ID, "self-send-key", nil)
 	if err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestSelfSend_PreservesAttachmentsInMIME(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOrGetUser: %v", err)
 	}
-	apiKeyObj, err := store.CreateAPIKey(ctx, user.ID, "self-attach-key")
+	apiKeyObj, err := store.CreateAPIKey(ctx, user.ID, "self-attach-key", nil)
 	if err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestSelfSend_NoAttachmentsUsesSinglePart(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "self-plain@example.com", "Owner", "google-self-plain")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "self-plain-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "self-plain-key", nil)
 	store.ClaimOrCreateDomain(ctx, "selfplain.example.com", user.ID)
 	store.VerifyDomain(ctx, "selfplain.example.com", user.ID)
 	store.CreateAgent(ctx, "bot@selfplain.example.com", "selfplain.example.com", "", "", "local", user.ID)
@@ -252,7 +252,7 @@ func TestSelfReply_LoopbackShortCircuit(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "self-reply@example.com", "Owner", "google-self-reply")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "self-reply-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "self-reply-key", nil)
 	store.ClaimOrCreateDomain(ctx, "selfreply.example.com", user.ID)
 	store.VerifyDomain(ctx, "selfreply.example.com", user.ID)
 	store.CreateAgent(ctx, "bot@selfreply.example.com", "selfreply.example.com", "", "", "local", user.ID)
@@ -350,7 +350,7 @@ func TestSelfReply_ReplyAllOnSelfThread_LoopbackShortCircuit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOrGetUser: %v", err)
 	}
-	apiKeyObj, err := store.CreateAPIKey(ctx, user.ID, "self-replyall-key")
+	apiKeyObj, err := store.CreateAPIKey(ctx, user.ID, "self-replyall-key", nil)
 	if err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
 	}
@@ -432,7 +432,7 @@ func TestSelfSend_HoldsForHITL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOrGetUser: %v", err)
 	}
-	apiKeyObj, err := store.CreateAPIKey(ctx, user.ID, "hitl-self-key")
+	apiKeyObj, err := store.CreateAPIKey(ctx, user.ID, "hitl-self-key", nil)
 	if err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
 	}
@@ -500,7 +500,7 @@ func TestSelfSend_HITLApprovalDeliversViaLoopback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOrGetUser: %v", err)
 	}
-	apiKeyObj, err := store.CreateAPIKey(ctx, user.ID, "hitl-self-approve-key")
+	apiKeyObj, err := store.CreateAPIKey(ctx, user.ID, "hitl-self-approve-key", nil)
 	if err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
 	}
@@ -577,7 +577,7 @@ func TestSelfSend_RequiresVerifiedDomain(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateOrGetUser(ctx, "self-unverified@example.com", "Owner", "google-self-unv")
-	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "self-unv-key")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "self-unv-key", nil)
 	store.ClaimOrCreateDomain(ctx, "selfunv.example.com", user.ID)
 	// no VerifyDomain
 	store.CreateAgent(ctx, "bot@selfunv.example.com", "selfunv.example.com", "", "", "local", user.ID)

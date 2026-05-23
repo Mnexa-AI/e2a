@@ -109,7 +109,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to bootstrap user: %v", err)
 		}
-		key, err := store.CreateAPIKey(ctx, user.ID, "bootstrap")
+		key, err := store.CreateAPIKey(ctx, user.ID, "bootstrap", nil)
 		if err != nil {
 			log.Fatalf("Failed to create API key: %v", err)
 		}
