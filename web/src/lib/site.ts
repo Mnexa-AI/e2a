@@ -12,7 +12,18 @@ export const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "e2a";
 // Empty when the deployment doesn't offer a shared domain — in that mode the
 // landing page copy reads as "your custom domain" rather than naming the
 // shared host.
+//
+// Use AGENTS_DOMAIN for *logic* (equality checks, filtering) — empty means
+// "no shared domain configured" and that distinction matters. Use
+// AGENTS_DOMAIN_DISPLAY for any *human-visible* template that includes the
+// domain after an `@` — it falls back to "your-domain.com" so a forgotten
+// build arg doesn't ship something like `slug@` to real users.
 export const AGENTS_DOMAIN = process.env.NEXT_PUBLIC_AGENTS_DOMAIN || "";
+// "agents.example.com" rather than "your-domain.com" so the placeholder
+// still hints at the shared-subdomain pattern (the agents.* prefix is
+// part of the product's mental model — your domain doesn't host its own
+// MX, ours does on a subdomain you don't have to own).
+export const AGENTS_DOMAIN_DISPLAY = AGENTS_DOMAIN || "agents.example.com";
 
 // Address shown in the in-app feedback form. Empty hides the link.
 export const FEEDBACK_EMAIL = process.env.NEXT_PUBLIC_FEEDBACK_EMAIL || "";

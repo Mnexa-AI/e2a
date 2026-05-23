@@ -110,6 +110,15 @@ services:
     build:
       context: web
       dockerfile: Dockerfile
+      # Mirror the e2a service's E2A_SHARED_DOMAIN below so the
+      # /get-started onboarding flow shows `your-slug@agents.localhost`
+      # in the same context as the running backend. Next.js inlines
+      # NEXT_PUBLIC_* at build time — these can't be moved to
+      # `environment:` because they wouldn't reach the static export.
+      # Production deployments override this at image build with a
+      # real domain (see web/Dockerfile and docs/deployment.md).
+      args:
+        NEXT_PUBLIC_AGENTS_DOMAIN: agents.localhost
     depends_on:
       e2a:
         condition: service_started

@@ -7,7 +7,7 @@ import { isValidSlug, isValidWebhookUrl } from "../../../components/onboarding/s
 import { track } from "../../../components/onboarding/analytics";
 import type { AgentMode } from "../../../components/onboarding/types";
 import type { AgentData } from "../../../components/types";
-import { AGENTS_DOMAIN } from "../../../../lib/site";
+import { AGENTS_DOMAIN_DISPLAY } from "../../../../lib/site";
 
 export function SharedAgentForm({
   onCreated,
@@ -99,7 +99,7 @@ export function SharedAgentForm({
         <p>
           Your agent gets{" "}
           <code className="text-xs bg-white/60 px-1 py-0.5 rounded">
-            {slug || "your-slug"}@{AGENTS_DOMAIN}
+            {slug || "your-slug"}@{AGENTS_DOMAIN_DISPLAY}
           </code>
           . {isCloud
             ? "Inbound emails are delivered to your HTTPS webhook."
@@ -120,7 +120,7 @@ export function SharedAgentForm({
           placeholder="my-agent"
           value={slug}
           onChange={(v) => setSlug(v.toLowerCase())}
-          hint={`Your agent\u2019s email will be ${slug || "slug"}@${AGENTS_DOMAIN}`}
+          hint={`Your agent\u2019s email will be ${slug || "slug"}@${AGENTS_DOMAIN_DISPLAY}`}
         />
 
         {/* Display name */}

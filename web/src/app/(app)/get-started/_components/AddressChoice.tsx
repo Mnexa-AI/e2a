@@ -2,7 +2,7 @@
 
 import type { AddressType } from "../../../components/onboarding/types";
 import { Chip } from "../../../components/loft/Chip";
-import { AGENTS_DOMAIN } from "../../../../lib/site";
+import { AGENTS_DOMAIN_DISPLAY } from "../../../../lib/site";
 
 export function AddressChoice({
   selected,
@@ -48,7 +48,7 @@ export function AddressChoice({
             className="font-mono text-[12px] mb-3"
             style={{ color: "var(--accent-strong)" }}
           >
-            your-slug@{AGENTS_DOMAIN || "agents.example.com"}
+            your-slug@{AGENTS_DOMAIN_DISPLAY}
           </div>
           <ul
             className="list-none m-0 p-0 text-[12px] leading-[1.7]"
