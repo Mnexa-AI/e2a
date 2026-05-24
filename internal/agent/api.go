@@ -1702,12 +1702,13 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 
 // handleGetMessages lists messages for an agent.
 // @Summary      List messages for an agent
-// @Description  Fetch messages for an agent. Returns lightweight summaries (no raw message content). Supports opaque token-based pagination via `page_size` and `token`.
+// @Description  Fetch messages for an agent. Returns lightweight summaries (no raw message content). Supports opaque token-based pagination via `page_size` and `token`. `direction` defaults to `inbound` for SDK back-compat; the dashboard inbox passes `direction=all` to fetch mixed inbound+outbound rows newest-first.
 // @Tags         Email
 // @Produce      json
 // @Security     BearerAuth
 // @Param        email     path  string true  "Agent email address" example(my-bot@example.com)
-// @Param        status    query string false "Filter by message status" Enums(unread, read, all) default(unread)
+// @Param        direction query string false "Filter by message direction" Enums(inbound, outbound, all) default(inbound)
+// @Param        status    query string false "Filter by inbox status (only meaningful when direction includes inbound)" Enums(unread, read, all) default(unread)
 // @Param        page_size query int    false "Number of messages per page (1-100)" minimum(1) maximum(100) default(50)
 // @Param        token     query string false "Opaque pagination token from a previous response's next_token"
 // @Success      200 {object} ListMessagesResponse
@@ -1736,12 +1737,36 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	direction := r.URL.Query().Get("direction")
+	if direction == "" {
+		direction = "inbound" // SDK back-compat default
+	}
+	if direction != "inbound" && direction != "outbound" && direction != "all" {
+		http.Error(w, "direction must be 'inbound', 'outbound', or 'all'", http.StatusBadRequest)
+		return
+	}
+
 	status := r.URL.Query().Get("status")
 	if status == "" {
-		status = "unread"
+		// Default depends on direction: SDK polling wants 'unread' (only
+		// fetch what needs processing); dashboard direction=all wants
+		// 'all' (the inbox lists everything).
+		if direction == "inbound" {
+			status = "unread"
+		} else {
+			status = "all"
+		}
 	}
 	if status != "unread" && status != "read" && status != "all" {
 		http.Error(w, "status must be 'unread', 'read', or 'all'", http.StatusBadRequest)
+		return
+	}
+	// Status filter only makes sense for inbound; reject the combo
+	// rather than silently dropping every outbound row (which would
+	// happen if we honored status='unread' against outbound where
+	// inbox_status is null).
+	if direction == "outbound" && status != "all" {
+		http.Error(w, "status filter only applies to inbound messages — pass status=all when direction=outbound", http.StatusBadRequest)
 		return
 	}
 
@@ -1751,6 +1776,12 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 			pageSize = n
 		}
 	}
+
+	// Sort order: SDK polling reads oldest-first (so agents process the
+	// oldest unread message first). Dashboard inbox reads newest-first.
+	// Tied to direction for now — if a consumer needs the other axis
+	// later, add a ?sort=asc|desc param.
+	descending := direction != "inbound"
 
 	// Decode opaque pagination token (encodes cursor position + filters)
 	var afterTime time.Time
@@ -1765,13 +1796,14 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 			CreatedAt time.Time `json:"c"`
 			ID        string    `json:"i"`
 			Status    string    `json:"s"`
+			Direction string    `json:"d"`
 			AgentID   string    `json:"a"`
 		}
 		if err := json.Unmarshal(decoded, &cursor); err != nil {
 			http.Error(w, "invalid pagination token", http.StatusBadRequest)
 			return
 		}
-		if cursor.Status != status {
+		if cursor.Status != status || cursor.Direction != direction {
 			http.Error(w, "token was created with different filters — start a new query without a token", http.StatusBadRequest)
 			return
 		}
@@ -1784,7 +1816,7 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch pageSize+1 to determine if there are more pages
-	messages, err := a.store.GetMessagesByAgent(r.Context(), agent.ID, status, pageSize+1, afterTime, afterID)
+	messages, err := a.store.GetMessagesByAgent(r.Context(), agent.ID, status, direction, descending, pageSize+1, afterTime, afterID)
 	if err != nil {
 		http.Error(w, "failed to fetch messages", http.StatusInternalServerError)
 		return
@@ -1795,8 +1827,14 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		messages = messages[:pageSize]
 	}
 
+	// Response shape: existing SDK consumers see the same wire fields they
+	// always have (`status` continues to carry the inbox_status value for
+	// inbound rows). New consumers (dashboard inbox) read the additional
+	// fields: `direction`, `hitl_status` (outbound HITL lifecycle),
+	// `webhook_status`/`webhook_error` (outbound delivery), `size_bytes`.
 	type messageSummary struct {
 		ID             string   `json:"message_id"`
+		Direction      string   `json:"direction"`
 		From           string   `json:"from"`
 		To             []string `json:"to"`
 		CC             []string `json:"cc,omitempty"`
@@ -1804,14 +1842,31 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		Recipient      string   `json:"recipient"`
 		Subject        string   `json:"subject"`
 		ConversationID string   `json:"conversation_id,omitempty"`
-		Status         string   `json:"status"`
+		Status         string   `json:"status"` // back-compat: inbox_status value (read/unread); empty for outbound
+		HITLStatus     string   `json:"hitl_status,omitempty"`
+		WebhookStatus  string   `json:"webhook_status,omitempty"`
+		WebhookError   string   `json:"webhook_error,omitempty"`
+		SizeBytes      int      `json:"size_bytes,omitempty"`
 		CreatedAt      string   `json:"created_at"`
 	}
 
 	summaries := make([]messageSummary, len(messages))
 	for i, m := range messages {
+		// HITLStatus + WebhookStatus only make sense for outbound rows;
+		// leave them empty on inbound to keep the response compact.
+		var hitl, wh, whErr string
+		var size int
+		if m.Direction == "outbound" {
+			hitl = m.Status
+			wh = m.WebhookStatus
+			whErr = m.WebhookError
+			size = m.SizeBytes
+		} else {
+			size = m.SizeBytes
+		}
 		summaries[i] = messageSummary{
 			ID:             m.ID,
+			Direction:      m.Direction,
 			From:           m.Sender,
 			To:             orEmptySlice(m.ToRecipients),
 			CC:             m.CC,
@@ -1819,7 +1874,11 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 			Recipient:      m.Recipient,
 			Subject:        m.Subject,
 			ConversationID: m.ConversationID,
-			Status:         m.DeliveryStatus,
+			Status:         m.InboxStatus,
+			HITLStatus:     hitl,
+			WebhookStatus:  wh,
+			WebhookError:   whErr,
+			SizeBytes:      size,
 			CreatedAt:      m.CreatedAt.UTC().Format(time.RFC3339),
 		}
 	}
@@ -1832,8 +1891,9 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 			CreatedAt time.Time `json:"c"`
 			ID        string    `json:"i"`
 			Status    string    `json:"s"`
+			Direction string    `json:"d"`
 			AgentID   string    `json:"a"`
-		}{CreatedAt: last.CreatedAt, ID: last.ID, Status: status, AgentID: agent.ID})
+		}{CreatedAt: last.CreatedAt, ID: last.ID, Status: status, Direction: direction, AgentID: agent.ID})
 		if err != nil {
 			http.Error(w, "failed to build pagination token", http.StatusInternalServerError)
 			return

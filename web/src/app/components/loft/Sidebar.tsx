@@ -64,12 +64,26 @@ type NavItem = {
   href: string;
   label: string;
   icon: IconKey;
+  /** When true, also count `pathname === href + "/…"` as active. */
   matchPrefix?: boolean;
+  /** Additional prefixes that should highlight this item — used when the
+   *  feature lives under a different URL root (e.g. Agents is at
+   *  `/dashboard` but the per-agent screens are at `/dashboard/agents/*`). */
+  matchPrefixes?: string[];
 };
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/get-started", label: "Get started", icon: "plus" },
-  { href: "/dashboard", label: "Agents", icon: "grid" },
+  {
+    href: "/dashboard",
+    label: "Agents",
+    icon: "grid",
+    // Keep Agents lit when the user drills into a specific agent's
+    // screens (Inbox, focus page, etc.). Note: we don't use `matchPrefix:
+    // true` here because that would also light up Agents on
+    // /dashboard/pending — Pending is a sibling top-level feature.
+    matchPrefixes: ["/dashboard/agents"],
+  },
   {
     href: "/dashboard/pending",
     label: "Pending",
@@ -99,9 +113,18 @@ function NavIcon({ kind }: { kind: IconKey }) {
   );
 }
 
-function isActive(pathname: string, item: NavItem | { href: string; matchPrefix?: boolean }) {
-  if (item.matchPrefix) return pathname === item.href || pathname.startsWith(item.href + "/");
-  return pathname === item.href;
+function isActive(
+  pathname: string,
+  item: NavItem | { href: string; matchPrefix?: boolean; matchPrefixes?: string[] },
+) {
+  if (pathname === item.href) return true;
+  if (item.matchPrefix && pathname.startsWith(item.href + "/")) return true;
+  if (item.matchPrefixes) {
+    for (const p of item.matchPrefixes) {
+      if (pathname === p || pathname.startsWith(p + "/")) return true;
+    }
+  }
+  return false;
 }
 
 // BottomNavLink renders a single bottom-of-sidebar entry (Settings,

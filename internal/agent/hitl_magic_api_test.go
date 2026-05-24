@@ -278,7 +278,7 @@ func TestMagicApprovePOSTSelfSendDeliversViaLoopback(t *testing.T) {
 
 	// Inbound row reaches the agent's mailbox. GetMessagesByAgent's
 	// "all" status returns inbound rows regardless of read state.
-	inboxes, err := store.GetMessagesByAgent(ctx, a.ID, "all", 10, time.Time{}, "")
+	inboxes, err := store.GetMessagesByAgent(ctx, a.ID, "all", "inbound", false, 10, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("GetMessagesByAgent: %v", err)
 	}

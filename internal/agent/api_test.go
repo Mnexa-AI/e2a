@@ -1034,6 +1034,133 @@ func TestGetMessages_PaginationFilterMismatch(t *testing.T) {
 	}
 }
 
+// --- direction= filter (mixed inbound+outbound for the dashboard inbox) ---
+
+func TestGetMessages_DirectionAll_ReturnsMixed(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-dir-all@example.com", "Owner", "google-dir-all")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "dir-all-key", nil)
+	store.ClaimOrCreateDomain(ctx, "dirall.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@dirall.example.com", "dirall.example.com", "", "", "local", user.ID)
+
+	// 2 inbound + 2 outbound. Mixed direction.
+	for i := 0; i < 2; i++ {
+		store.CreateInboundMessage(ctx, "", a.ID, fmt.Sprintf("sender%d@example.com", i), "agent@dirall.example.com", "", fmt.Sprintf("Inbound %d", i), "", "unread", nil, nil, nil, nil, nil)
+		store.CreateOutboundMessage(ctx, a.ID, []string{fmt.Sprintf("recv%d@example.com", i)}, nil, nil, fmt.Sprintf("Outbound %d", i), "send", "smtp", "", "")
+	}
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@dirall.example.com/messages?direction=all&page_size=10", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 200; body=%s", resp.StatusCode, body)
+	}
+
+	var body struct {
+		Messages []struct {
+			ID            string `json:"message_id"`
+			Direction     string `json:"direction"`
+			Status        string `json:"status"`         // inbox_status (back-compat) — populated for inbound
+			HITLStatus    string `json:"hitl_status"`    // outbound HITL lifecycle
+			WebhookStatus string `json:"webhook_status"` // outbound delivery
+			SizeBytes     int    `json:"size_bytes"`
+		} `json:"messages"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+
+	if len(body.Messages) != 4 {
+		t.Fatalf("got %d messages, want 4", len(body.Messages))
+	}
+	var inbound, outbound int
+	for _, m := range body.Messages {
+		switch m.Direction {
+		case "inbound":
+			inbound++
+			if m.Status != "unread" {
+				t.Errorf("inbound row status = %q, want 'unread' (back-compat inbox_status field)", m.Status)
+			}
+			if m.HITLStatus != "" {
+				t.Errorf("inbound row hitl_status = %q, want empty", m.HITLStatus)
+			}
+		case "outbound":
+			outbound++
+			if m.HITLStatus == "" {
+				t.Errorf("outbound row missing hitl_status (defaults to 'sent')")
+			}
+		default:
+			t.Errorf("unexpected direction %q", m.Direction)
+		}
+	}
+	if inbound != 2 || outbound != 2 {
+		t.Errorf("direction split inbound=%d outbound=%d, want 2/2", inbound, outbound)
+	}
+}
+
+func TestGetMessages_DirectionOutbound_RejectsStatusFilter(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-dir-out@example.com", "Owner", "google-dir-out")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "dir-out-key", nil)
+	store.ClaimOrCreateDomain(ctx, "dirout.example.com", user.ID)
+	store.CreateAgent(ctx, "agent@dirout.example.com", "dirout.example.com", "", "", "local", user.ID)
+
+	// status=unread + direction=outbound is nonsensical — inbox_status is null
+	// on outbound. The handler should reject the combination with 400 rather
+	// than silently returning no rows.
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@dirout.example.com/messages?direction=outbound&status=unread", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestGetMessages_DirectionTokenReplayRejected(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-dir-tok@example.com", "Owner", "google-dir-tok")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "dir-tok-key", nil)
+	store.ClaimOrCreateDomain(ctx, "dirtok.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@dirtok.example.com", "dirtok.example.com", "", "", "local", user.ID)
+
+	for i := 0; i < 3; i++ {
+		store.CreateInboundMessage(ctx, "", a.ID, fmt.Sprintf("s%d@example.com", i), "agent@dirtok.example.com", "", fmt.Sprintf("S %d", i), "", "unread", nil, nil, nil, nil, nil)
+		store.CreateOutboundMessage(ctx, a.ID, []string{fmt.Sprintf("r%d@example.com", i)}, nil, nil, fmt.Sprintf("O %d", i), "send", "smtp", "", "")
+	}
+
+	// Get a next_token for direction=all.
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@dirtok.example.com/messages?direction=all&page_size=2", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	var page1 struct {
+		NextToken *string `json:"next_token"`
+	}
+	json.NewDecoder(resp.Body).Decode(&page1)
+	if page1.NextToken == nil {
+		t.Fatal("expected next_token for direction=all paginated query")
+	}
+
+	// Replay the token with direction=outbound — handler must reject.
+	req2, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@dirtok.example.com/messages?direction=outbound&status=all&token="+*page1.NextToken, nil)
+	req2.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp2, _ := http.DefaultClient.Do(req2)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != 400 {
+		t.Errorf("token replay across direction: status = %d, want 400", resp2.StatusCode)
+	}
+}
+
 func TestGetMessages_InvalidToken(t *testing.T) {
 	server, store, _ := setupAPI(t)
 	ctx := context.Background()

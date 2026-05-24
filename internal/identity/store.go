@@ -164,6 +164,16 @@ type Message struct {
 	WebhookStatus     string            `json:"webhook_status,omitempty"`
 	WebhookError      string            `json:"webhook_error,omitempty"`
 	WebhookAttempts   int               `json:"webhook_attempts,omitempty"`
+	// SizeBytes is the byte length of raw_message. Populated by load paths
+	// that compute it (e.g. GetMessagesByAgent for the dashboard inbox).
+	// Zero on load paths that don't — the inbox renders "—" in that case.
+	SizeBytes         int               `json:"size_bytes,omitempty"`
+	// InboxStatus mirrors messages.inbox_status ('unread' | 'read') for
+	// inbound rows. Kept separate from DeliveryStatus (which currently
+	// carries the same value under a confusing JSON key — see line 161)
+	// so the dashboard's inbox can read it under a non-overloaded key.
+	// Empty on outbound rows. Populated by GetMessagesByAgent.
+	InboxStatus       string            `json:"inbox_status,omitempty"`
 
 	// Multi-recipient fields. For outbound, these are the addressed
 	// To/Cc/Bcc recipients of the send. For inbound, ToRecipients and CC
@@ -1679,7 +1689,8 @@ func (s *Store) ListActivityByAgent(ctx context.Context, agentID string, limit i
 	rows, err := s.pool.Query(ctx,
 		`SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.subject, m.email_message_id, COALESCE(m.method, ''), COALESCE(m.message_type, ''), COALESCE(m.inbox_status, ''), m.created_at, m.expires_at,
 		        COALESCE(wd.status, ''), COALESCE(wd.last_error, ''), COALESCE(wd.attempts, 0),
-		        m.to_recipients, m.cc, m.bcc
+		        m.to_recipients, m.cc, m.bcc,
+		        COALESCE(m.conversation_id, ''), COALESCE(octet_length(m.raw_message), 0)
 		 FROM messages m
 		 LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
 		 WHERE m.agent_id = $1 AND m.expires_at > now()
@@ -1694,7 +1705,7 @@ func (s *Store) ListActivityByAgent(ctx context.Context, agentID string, limit i
 	var messages []Message
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject, &m.EmailMessageID, &m.Method, &m.Type, &m.DeliveryStatus, &m.CreatedAt, &m.ExpiresAt, &m.WebhookStatus, &m.WebhookError, &m.WebhookAttempts, &m.ToRecipients, &m.CC, &m.BCC); err != nil {
+		if err := rows.Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject, &m.EmailMessageID, &m.Method, &m.Type, &m.DeliveryStatus, &m.CreatedAt, &m.ExpiresAt, &m.WebhookStatus, &m.WebhookError, &m.WebhookAttempts, &m.ToRecipients, &m.CC, &m.BCC, &m.ConversationID, &m.SizeBytes); err != nil {
 			return nil, err
 		}
 		messages = append(messages, m)
@@ -1702,32 +1713,82 @@ func (s *Store) ListActivityByAgent(ctx context.Context, agentID string, limit i
 	return messages, rows.Err()
 }
 
-// GetMessagesByAgent returns messages for a poll-mode agent, filtered by status.
-func (s *Store) GetMessagesByAgent(ctx context.Context, agentID, status string, limit int, afterTime time.Time, afterID string) ([]Message, error) {
+// GetMessagesByAgent returns messages for an agent, filtered by status and
+// direction.
+//
+//   - direction: "inbound" (default for SDK polling), "outbound", or "all"
+//     (used by the dashboard inbox).
+//   - status: "unread" | "read" | "all" — only applies when direction
+//     selects inbound rows; ignored on pure outbound queries.
+//   - descending: cursor walks newest→oldest when true (dashboard inbox);
+//     oldest→newest when false (SDK polling — agents process the oldest
+//     unread message first).
+//
+// The SELECT includes columns both consumers need: the inbox needs
+// `status` (outbound HITL lifecycle), `webhook_status`/`last_error`
+// (outbound delivery), and `octet_length(raw_message)` (size column);
+// the polling SDK ignores these fields and reads only the existing
+// inbound-relevant ones from the Message struct.
+func (s *Store) GetMessagesByAgent(
+	ctx context.Context,
+	agentID, status, direction string,
+	descending bool,
+	limit int,
+	afterTime time.Time,
+	afterID string,
+) ([]Message, error) {
 	var query string
 	var args []interface{}
 
-	baseSelect := `SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, conversation_id, COALESCE(inbox_status, ''), created_at
-		 FROM messages
-		 WHERE agent_id = $1 AND direction = 'inbound' AND expires_at > now()`
+	baseSelect := `SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.to_recipients, m.cc, m.reply_to, m.subject, m.email_message_id, m.conversation_id, COALESCE(m.inbox_status, ''), COALESCE(m.status, ''), COALESCE(wd.status, ''), COALESCE(wd.last_error, ''), COALESCE(octet_length(m.raw_message), 0), m.created_at
+		 FROM messages m
+		 LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
+		 WHERE m.agent_id = $1 AND m.expires_at > now()`
 
-	switch status {
+	switch direction {
+	case "outbound":
+		query = baseSelect + ` AND m.direction = 'outbound'`
 	case "all":
 		query = baseSelect
-	case "read":
-		query = baseSelect + ` AND inbox_status = 'read'`
-	default: // "unread"
-		query = baseSelect + ` AND inbox_status = 'unread'`
+	default: // "inbound" — default keeps SDK polling contract
+		query = baseSelect + ` AND m.direction = 'inbound'`
+	}
+
+	// Inbox status filter only applies when inbound rows are in the
+	// result set. Silently ignored for pure outbound queries — the
+	// handler validates 400 on bad combinations before reaching here.
+	if direction != "outbound" {
+		switch status {
+		case "all":
+			// no extra clause
+		case "read":
+			query += ` AND m.inbox_status = 'read'`
+		default: // "unread"
+			if direction == "inbound" {
+				query += ` AND m.inbox_status = 'unread'`
+			}
+			// For direction='all', "unread" would silently drop every
+			// outbound row (they have no inbox_status). That's a footgun
+			// the dashboard never invokes — it always passes status="all"
+			// when direction="all" — so we don't filter here.
+		}
 	}
 
 	args = append(args, agentID)
 
+	cursorCmp := ">"
+	sortDir := "ASC"
+	if descending {
+		cursorCmp = "<"
+		sortDir = "DESC"
+	}
+
 	if afterID != "" {
-		query += fmt.Sprintf(` AND (created_at, id) > ($%d, $%d)`, len(args)+1, len(args)+2)
+		query += fmt.Sprintf(` AND (m.created_at, m.id) %s ($%d, $%d)`, cursorCmp, len(args)+1, len(args)+2)
 		args = append(args, afterTime, afterID)
 	}
 
-	query += fmt.Sprintf(` ORDER BY created_at ASC, id ASC LIMIT $%d`, len(args)+1)
+	query += fmt.Sprintf(` ORDER BY m.created_at %s, m.id %s LIMIT $%d`, sortDir, sortDir, len(args)+1)
 	args = append(args, limit)
 
 	rows, err := s.pool.Query(ctx, query, args...)
@@ -1739,9 +1800,17 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, agentID, status string, 
 	var messages []Message
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.DeliveryStatus, &m.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo,
+			&m.Subject, &m.EmailMessageID, &m.ConversationID,
+			&m.InboxStatus, &m.Status, &m.WebhookStatus, &m.WebhookError, &m.SizeBytes,
+			&m.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
+		// Keep DeliveryStatus populated for back-compat — the polling SDK
+		// path scans it under the old JSON key.
+		m.DeliveryStatus = m.InboxStatus
 		messages = append(messages, m)
 	}
 	return messages, rows.Err()

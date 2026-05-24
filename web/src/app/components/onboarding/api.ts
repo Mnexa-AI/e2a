@@ -10,6 +10,8 @@ import type {
 import type {
   DashboardAgent,
   ActivityEntry,
+  InboundMessageDetail,
+  ListMessagesResponse,
   PendingMessageSummary,
   PendingMessageDetail,
   PendingAttachment,
@@ -109,9 +111,52 @@ export async function deleteAgent(email: string): Promise<void> {
 
 // ── Agent activity ──────────────────────────────────────
 
+// Legacy activity feed used by the AgentCard's "Hide Activity" panel on
+// /dashboard. The dashboard inbox uses `listAgentMessages` instead;
+// `/api/dashboard/agents/{email}/activity` is flagged for deprecation
+// once no consumer reads it.
 export async function getAgentActivity(email: string): Promise<ActivityEntry[]> {
   return request<ActivityEntry[]>(
     "/api/dashboard/agents/" + encodeURIComponent(email) + "/activity",
+  );
+}
+
+// Dashboard inbox + SDK polling share this endpoint. SDK callers pass
+// `direction=inbound` (the default); the dashboard inbox passes
+// `direction=all` to fetch mixed inbound+outbound newest-first.
+export async function listAgentMessages(
+  email: string,
+  opts: {
+    direction?: "all" | "inbound" | "outbound";
+    status?: "all" | "unread" | "read";
+    pageSize?: number;
+    token?: string;
+  } = {},
+): Promise<ListMessagesResponse> {
+  const params = new URLSearchParams();
+  if (opts.direction) params.set("direction", opts.direction);
+  if (opts.status) params.set("status", opts.status);
+  if (opts.pageSize) params.set("page_size", String(opts.pageSize));
+  if (opts.token) params.set("token", opts.token);
+  const qs = params.toString();
+  return request<ListMessagesResponse>(
+    "/api/v1/agents/" + encodeURIComponent(email) + "/messages" + (qs ? "?" + qs : ""),
+  );
+}
+
+// Inbound focus-page payload. Note: the server flips inbox_status from
+// "unread" to "read" as a side effect of this GET. The focus page
+// always wants this; if a future consumer needs to preview without
+// marking, add `?mark_read=false` to the backend.
+export async function getInboundMessage(
+  email: string,
+  id: string,
+): Promise<InboundMessageDetail> {
+  return request<InboundMessageDetail>(
+    "/api/v1/agents/" +
+      encodeURIComponent(email) +
+      "/messages/" +
+      encodeURIComponent(id),
   );
 }
 

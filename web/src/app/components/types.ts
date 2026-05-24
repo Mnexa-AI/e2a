@@ -100,6 +100,66 @@ export type ActivityEntry = {
   to_recipients?: string[];
   cc?: string[];
   bcc?: string[];
+  // Set by ListActivityByAgent for the per-agent activity feed. Older
+  // load paths leave these unset — UI renders "—" in that case.
+  conversation_id?: string;
+  size_bytes?: number;
+};
+
+// Response shape from `GET /api/v1/agents/{email}/messages`. The wire
+// `status` field carries the inbox_status value for back-compat with
+// the SDK polling contract; `hitl_status` is the outbound HITL
+// lifecycle (sent | pending_approval | rejected | expired_*) and is
+// empty on inbound rows. The dashboard inbox uses this projection
+// directly; SDK consumers continue to read the inbound-only fields.
+export type MessageSummary = {
+  message_id: string;
+  direction: "inbound" | "outbound";
+  from: string;
+  to: string[];
+  cc?: string[];
+  reply_to?: string[];
+  recipient: string;
+  subject: string;
+  conversation_id?: string;
+  // Inbox status for inbound rows: "unread" | "read". Empty for outbound.
+  status: string;
+  // Outbound HITL lifecycle. Empty for inbound.
+  hitl_status?: string;
+  // Outbound webhook delivery state.
+  webhook_status?: string;
+  webhook_error?: string;
+  // Byte length of the raw RFC-5322 message. 0 if not stored (older
+  // outbound rows pre-dating the size projection).
+  size_bytes?: number;
+  created_at: string;
+};
+
+export type ListMessagesResponse = {
+  messages: MessageSummary[];
+  next_token?: string;
+};
+
+// Response shape from `GET /api/v1/agents/{email}/messages/{id}` for an
+// inbound row. Hand-rolled on the backend (see api.go's handleGetMessage)
+// — kept here as the wire type for the focus page's inbound branch.
+export type InboundMessageDetail = {
+  message_id: string;
+  from: string;
+  to: string[];
+  cc: string[];
+  reply_to: string[];
+  recipient: string;
+  subject: string;
+  conversation_id: string;
+  status: string; // inbox_status
+  created_at: string;
+  auth_headers: Record<string, string>;
+  // Raw RFC-5322 bytes, base64-encoded by the JSON layer. The focus page
+  // renders a parsed text/plain part when present; otherwise falls back
+  // to a "View raw" link. Backend body_text projection for inbound is a
+  // tracked follow-up.
+  raw_message: string;
 };
 
 export type APIKeyData = {

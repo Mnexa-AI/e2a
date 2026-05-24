@@ -16,7 +16,7 @@ import (
 type HandlerStore interface {
 	GetUserByAPIKey(ctx context.Context, apiKey string) (*identity.User, error)
 	GetAgentByEmail(ctx context.Context, email string) (*identity.AgentIdentity, error)
-	GetMessagesByAgent(ctx context.Context, agentID, status string, limit int, afterTime time.Time, afterID string) ([]identity.Message, error)
+	GetMessagesByAgent(ctx context.Context, agentID, status, direction string, descending bool, limit int, afterTime time.Time, afterID string) ([]identity.Message, error)
 }
 
 // Handler upgrades HTTP connections to WebSocket for local-mode agents.
@@ -105,7 +105,7 @@ func (h *Handler) drainUnread(agent *identity.AgentIdentity) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	messages, err := h.store.GetMessagesByAgent(ctx, agent.ID, "unread", 100, time.Time{}, "")
+	messages, err := h.store.GetMessagesByAgent(ctx, agent.ID, "unread", "inbound", false, 100, time.Time{}, "")
 	if err != nil {
 		log.Printf("[ws] drain error for %s: %v", agent.ID, err)
 		return

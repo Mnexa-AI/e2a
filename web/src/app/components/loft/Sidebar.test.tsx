@@ -118,6 +118,26 @@ describe("Sidebar — nav entries", () => {
     expect(pending).toHaveAttribute("aria-current", "page");
   });
 
+  it("marks Agents active when the user is on a per-agent screen under /dashboard/agents/*", () => {
+    // The per-agent inbox lives at /dashboard/agents/messages. The
+    // Agents nav item (href=/dashboard) declares matchPrefixes:
+    // ["/dashboard/agents"] so it stays lit on those routes.
+    mockPathname = "/dashboard/agents/messages";
+    render(<Sidebar />);
+    const agents = document.querySelector(`a[href="/dashboard"]`);
+    expect(agents).toHaveAttribute("aria-current", "page");
+    // Pending must NOT also light up — it's a sibling top-level feature.
+    const pending = document.querySelector(`a[href="/dashboard/pending"]`);
+    expect(pending).not.toHaveAttribute("aria-current", "page");
+  });
+
+  it("does NOT mark Agents active on /dashboard/pending (matchPrefixes scoped to /dashboard/agents)", () => {
+    mockPathname = "/dashboard/pending";
+    render(<Sidebar />);
+    const agents = document.querySelector(`a[href="/dashboard"]`);
+    expect(agents).not.toHaveAttribute("aria-current", "page");
+  });
+
   it("shows the pending count badge only when > 0", () => {
     mockPendingCount = 0;
     const { rerender } = render(<Sidebar />);
