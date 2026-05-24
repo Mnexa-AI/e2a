@@ -43,7 +43,7 @@ app.post("/webhook", async (req, res) => {
 });
 ```
 
-Get a signing secret from the dashboard's Settings → Webhook signing secrets (or `POST /api/v1/users/me/signing-secrets`). Set it as `E2A_WEBHOOK_SECRET` so `parseWebhook` picks it up automatically, or pass it explicitly: `client.parseWebhook(body, "whsec_...")`.
+Get a signing secret from the dashboard's **Webhook secrets** page (or `POST /api/v1/users/me/signing-secrets`). Set it as `E2A_WEBHOOK_SECRET` so `parseWebhook` picks it up automatically, or pass it explicitly: `client.parseWebhook(body, "whsec_...")`.
 
 ### Polling
 

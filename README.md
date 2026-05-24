@@ -148,7 +148,7 @@ The MAC binds to **both** `message_id` and a SHA-256 of the raw message body. Su
 
 #### Verifying the signature
 
-The `X-E2A-Auth-Verified` field is the *server's claim* — anyone who can reach your webhook URL can set it. To make a security decision, **verify the signature** with one of your account's signing secrets (manage them in the dashboard's Settings → Webhook signing secrets, or via `/api/v1/users/me/signing-secrets`).
+The `X-E2A-Auth-Verified` field is the *server's claim* — anyone who can reach your webhook URL can set it. To make a security decision, **verify the signature** with one of your account's signing secrets (manage them in the dashboard's **Webhook secrets** page, or via `/api/v1/users/me/signing-secrets`).
 
 The SDKs gate field access behind verification by default — accessing `email.sender`, `email.subject`, etc. on an unverified webhook payload raises `UnverifiedEmailError`, so you can't accidentally trust attacker-controllable fields. The one-call shortcut:
 

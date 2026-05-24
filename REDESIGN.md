@@ -194,7 +194,8 @@ Translate inline styles to Tailwind utility classes using the new tokens. Where 
 | `redesign/get-started.jsx` | `/get-started` | `web/src/app/(app)/get-started/page.tsx` + the existing `_components/` |
 | `redesign/api-keys.jsx` | `/api-keys` | `web/src/app/(app)/api-keys/page.tsx` |
 | `redesign/domains.jsx` | `/domains` | `web/src/app/(app)/domains/page.tsx` + `_components/DomainCard.tsx`, `AddDomainForm.tsx` |
-| `redesign/settings.jsx` | `/settings` (new) | New `web/src/app/(app)/settings/page.tsx`. Use the existing endpoints: `/api/auth/me`, `/api/v1/users/me/signing-secrets`, `/api/v1/users/me/export`, `DELETE /api/v1/users/me`. |
+| `redesign/settings.jsx` | `/settings` (new) | New `web/src/app/(app)/settings/page.tsx`. Use the existing endpoints: `/api/auth/me`, `/api/v1/users/me/export`, `DELETE /api/v1/users/me`. |
+| (no mock — promoted from Settings) | `/webhook-secrets` (new) | New `web/src/app/(app)/webhook-secrets/page.tsx`. Owns the `/api/v1/users/me/signing-secrets` endpoint set. Originally mocked inside `redesign/settings.jsx` as a "Webhook signing" card; promoted to its own top-level nav entry for parity with `/api-keys` (both are credential surfaces). |
 
 ### Per-page degradation hints
 

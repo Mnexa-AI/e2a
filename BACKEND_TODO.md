@@ -145,7 +145,7 @@ UI ships first via graceful degradation. These changes can land independently af
 Consider exposing in a future PR:
 
 - **OAuth 2.1 authorization server** — `/api/oauth/*` endpoints exist. Add a "Connected apps" section to Settings.
-- **Signing secrets** — `/api/v1/users/me/signing-secrets` is fully wired. The redesign's Settings → Webhook signing card maps directly to this endpoint set. Verify wiring during PR 2.
+- **Signing secrets** — `/api/v1/users/me/signing-secrets` is fully wired. Surfaced as the standalone **Webhook secrets** page (top-level nav next to API keys); the original redesign mock placed it inside Settings but it was promoted to its own route for parity with /api-keys.
 - **User data export** — `GET /api/v1/users/me/export` exists. The redesign's Settings → Danger zone Export button maps to it.
 - **Account deletion** — `DELETE /api/v1/users/me` exists. The Delete account button maps to it.
 

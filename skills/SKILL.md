@@ -124,7 +124,7 @@ Go to https://e2a.dev and register a new agent in "Cloud" mode. Enter your webho
 
 ### 2. Create a signing secret
 
-In the dashboard's Settings → Webhook signing secrets, create one and copy it (shown once). Set it as `E2A_WEBHOOK_SECRET` in your webhook environment so the SDK can verify inbound payloads automatically.
+On the dashboard's **Webhook secrets** page, create one and copy it (shown once). Set it as `E2A_WEBHOOK_SECRET` in your webhook environment so the SDK can verify inbound payloads automatically.
 
 ### 3. Implement the webhook endpoint
 

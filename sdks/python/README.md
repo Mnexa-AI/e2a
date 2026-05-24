@@ -86,7 +86,7 @@ def webhook():
     return {"ok": True}
 ```
 
-Get a signing secret from the dashboard's Settings → Webhook signing secrets (or `POST /api/v1/users/me/signing-secrets`). Set it as `E2A_WEBHOOK_SECRET` so `parse_webhook` picks it up automatically, or pass it explicitly: `client.parse_webhook(body, secret="whsec_...")`.
+Get a signing secret from the dashboard's **Webhook secrets** page (or `POST /api/v1/users/me/signing-secrets`). Set it as `E2A_WEBHOOK_SECRET` so `parse_webhook` picks it up automatically, or pass it explicitly: `client.parse_webhook(body, secret="whsec_...")`.
 
 ## Raw vs high-level API
 
