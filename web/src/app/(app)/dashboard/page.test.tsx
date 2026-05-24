@@ -1,5 +1,4 @@
-import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import DashboardPage from "./page";
 
 // ── Mocks ────────────────────────────────────────────────
@@ -127,10 +126,14 @@ describe("local agent card", () => {
     expect(screen.getByText("Shared")).toBeInTheDocument();
     expect(screen.getByText("Verified")).toBeInTheDocument();
     expect(screen.getByText("Connect")).toBeInTheDocument();
-    expect(screen.getByText("Switch to cloud")).toBeInTheDocument();
+    // Mode switching used to live inline on the card via the
+    // "Switch to cloud" toggle; it now lives on /dashboard/agents/settings.
+    expect(screen.queryByText("Switch to cloud")).not.toBeInTheDocument();
   });
 
-  it("does not show webhook summary for local agent", async () => {
+  it("does not render the webhook editor or HITL editor inline", async () => {
+    // Editors moved to /dashboard/agents/settings. The card stays
+    // focused on identity + stats + the two CTAs (Open inbox + Settings).
     mockAgentList([localAgent]);
     render(<DashboardPage />);
 
@@ -139,6 +142,9 @@ describe("local agent card", () => {
     });
 
     expect(screen.queryByText("Webhook:")).not.toBeInTheDocument();
+    // HITLEditor's wording — match strings unique to the editor, not
+    // the dashboard's "HITL on" filter chip (which is unrelated).
+    expect(screen.queryByText(/Require human approval/i)).not.toBeInTheDocument();
   });
 
   it("shows connect instructions when Connect is clicked", async () => {
@@ -197,7 +203,7 @@ describe("local agent card", () => {
 // ── Cloud agent card ─────────────────────────────────────
 
 describe("cloud agent card", () => {
-  it("renders mode badge as cloud and shows webhook summary", async () => {
+  it("renders mode + custom-domain chips and Connect action", async () => {
     mockAgentList([cloudAgent]);
     render(<DashboardPage />);
 
@@ -207,9 +213,10 @@ describe("cloud agent card", () => {
 
     expect(screen.getByText("Cloud")).toBeInTheDocument();
     expect(screen.getByText("Custom")).toBeInTheDocument();
-    expect(screen.getByText("https://acme.com/webhook")).toBeInTheDocument();
     expect(screen.getByText("Connect")).toBeInTheDocument();
-    expect(screen.getByText("Switch to local")).toBeInTheDocument();
+    // Inline editors moved to /dashboard/agents/settings.
+    expect(screen.queryByText("Switch to local")).not.toBeInTheDocument();
+    expect(screen.queryByText("Webhook:")).not.toBeInTheDocument();
   });
 
   it("shows connect instructions with webhook guidance when Connect is clicked", async () => {
@@ -228,254 +235,29 @@ describe("cloud agent card", () => {
   });
 });
 
-// ── Switch local -> cloud ────────────────────────────────
+// Mode switching, webhook editing, HITL editing, and delete moved
+// off the dashboard agent card to /dashboard/agents/settings. Those
+// behaviors are exercised in
+// web/src/app/(app)/dashboard/agents/settings/page.test.tsx — this
+// suite focuses on what the *dashboard* surface still owns:
+// identity + chips + Test + Connect + the two CTAs.
 
-describe("switch local to cloud", () => {
-  it("opens webhook form and submits correct payload", async () => {
-    const user = userEvent.setup();
+// ── Settings CTA ─────────────────────────────────────────
 
-    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/dashboard/agents" && !init?.method) {
-        return Promise.resolve({
-          ok: true,
-          status: 200,
-          json: () => Promise.resolve({ agents: [localAgent] }),
-        });
-      }
-      if (url === `/api/dashboard/agents/${encodeURIComponent(localAgent.email)}` && init?.method === "PUT") {
-        return Promise.resolve({ ok: true, status: 204 });
-      }
-      return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve("not found") });
-    });
-
-    render(<DashboardPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Switch to cloud")).toBeInTheDocument();
-    });
-
-    // First click opens the form
-    fireEvent.click(screen.getByText("Switch to cloud"));
-
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText("https://example.com/webhook")).toBeInTheDocument();
-    });
-
-    // Type webhook URL
-    await user.type(screen.getByPlaceholderText("https://example.com/webhook"), "https://myapp.com/hook");
-
-    // Click submit button (there are now two "Switch to cloud" — the one inside the form)
-    const switchButtons = screen.getAllByText("Switch to cloud");
-    fireEvent.click(switchButtons[switchButtons.length - 1]);
-
-    await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith(
-        `/api/dashboard/agents/${encodeURIComponent(localAgent.email)}`,
-        expect.objectContaining({
-          method: "PUT",
-          body: JSON.stringify({ agent_mode: "cloud", webhook_url: "https://myapp.com/hook" }),
-        }),
-      );
-    });
-  });
-
-  it("shows error when webhook URL is missing", async () => {
+describe("settings CTA", () => {
+  it("agent card renders a Settings link to /dashboard/agents/settings?email=...", async () => {
     mockAgentList([localAgent]);
-    render(<DashboardPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Switch to cloud")).toBeInTheDocument();
-    });
-
-    // Open form
-    fireEvent.click(screen.getByText("Switch to cloud"));
-
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText("https://example.com/webhook")).toBeInTheDocument();
-    });
-
-    // Click submit without entering URL
-    const switchButtons = screen.getAllByText("Switch to cloud");
-    fireEvent.click(switchButtons[switchButtons.length - 1]);
-
-    await waitFor(() => {
-      expect(screen.getByText("Enter a valid HTTPS URL")).toBeInTheDocument();
-    });
-  });
-});
-
-// ── Switch cloud -> local ────────────────────────────────
-
-describe("switch cloud to local", () => {
-  it("submits correct payload", async () => {
-    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/dashboard/agents" && !init?.method) {
-        return Promise.resolve({
-          ok: true,
-          status: 200,
-          json: () => Promise.resolve({ agents: [cloudAgent] }),
-        });
-      }
-      if (url === `/api/dashboard/agents/${encodeURIComponent(cloudAgent.email)}` && init?.method === "PUT") {
-        return Promise.resolve({ ok: true, status: 204 });
-      }
-      return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve("not found") });
-    });
-
-    render(<DashboardPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Switch to local")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByText("Switch to local"));
-
-    await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith(
-        `/api/dashboard/agents/${encodeURIComponent(cloudAgent.email)}`,
-        expect.objectContaining({
-          method: "PUT",
-          body: JSON.stringify({ agent_mode: "local", webhook_url: "" }),
-        }),
-      );
-    });
-  });
-});
-
-// ── Edit webhook ─────────────────────────────────────────
-
-describe("edit webhook", () => {
-  it("cloud agent webhook can be edited", async () => {
-    const user = userEvent.setup();
-
-    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/dashboard/agents" && !init?.method) {
-        return Promise.resolve({
-          ok: true,
-          status: 200,
-          json: () => Promise.resolve({ agents: [cloudAgent] }),
-        });
-      }
-      if (url === `/api/dashboard/agents/${encodeURIComponent(cloudAgent.email)}` && init?.method === "PUT") {
-        return Promise.resolve({ ok: true, status: 204 });
-      }
-      return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve("not found") });
-    });
-
-    render(<DashboardPage />);
-
-    // Two "Edit" buttons on the page now: WebhookEditor + HITLEditor.
-    // Scope the click to the one inside the Webhook line.
-    await waitFor(() => {
-      expect(screen.getByText("Webhook:")).toBeInTheDocument();
-    });
-
-    const webhookEditBtn = within(screen.getByText("Webhook:").closest("p")!)
-      .getByText("Edit");
-    fireEvent.click(webhookEditBtn);
-
-    // Input should be pre-filled with current URL
-    const input = screen.getByDisplayValue("https://acme.com/webhook");
-    expect(input).toBeInTheDocument();
-
-    // Clear and type new URL
-    await user.clear(input);
-    await user.type(input, "https://acme.com/v2/webhook");
-
-    fireEvent.click(screen.getByText("Save"));
-
-    await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith(
-        `/api/dashboard/agents/${encodeURIComponent(cloudAgent.email)}`,
-        expect.objectContaining({
-          method: "PUT",
-          body: JSON.stringify({ webhook_url: "https://acme.com/v2/webhook" }),
-        }),
-      );
-    });
-  });
-
-  it("shows inline error on webhook update failure", async () => {
-    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/dashboard/agents" && !init?.method) {
-        return Promise.resolve({
-          ok: true,
-          status: 200,
-          json: () => Promise.resolve({ agents: [cloudAgent] }),
-        });
-      }
-      if (init?.method === "PUT") {
-        return Promise.resolve({ ok: false, status: 400, text: () => Promise.resolve("Invalid webhook URL") });
-      }
-      return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve("not found") });
-    });
-
-    render(<DashboardPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Webhook:")).toBeInTheDocument();
-    });
-
-    const webhookEditBtn = within(screen.getByText("Webhook:").closest("p")!)
-      .getByText("Edit");
-    fireEvent.click(webhookEditBtn);
-    fireEvent.click(screen.getByText("Save"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Invalid webhook URL")).toBeInTheDocument();
-    });
-  });
-});
-
-// ── Delete ───────────────────────────────────────────────
-
-describe("delete agent", () => {
-  it("handles a successful empty-body delete response and refreshes", async () => {
-    let callCount = 0;
-    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/dashboard/agents" && !init?.method) {
-        callCount++;
-        // Return agent on first call, empty on second (after delete)
-        return Promise.resolve({
-          ok: true,
-          status: 200,
-          json: () => Promise.resolve({ agents: callCount <= 1 ? [localAgent] : [] }),
-        });
-      }
-      if (url === `/api/dashboard/agents/${encodeURIComponent(localAgent.email)}` && init?.method === "DELETE") {
-        return Promise.resolve({
-          ok: true,
-          status: 200,
-          text: () => Promise.resolve(""),
-        });
-      }
-      return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve("not found") });
-    });
-
     render(<DashboardPage />);
 
     await waitFor(() => {
       expect(screen.getByText("bot@agents.e2a.dev")).toBeInTheDocument();
     });
 
-    // Delete moved behind an overflow ⋯ menu — open it first, then click
-    // the menuitem.
-    fireEvent.click(screen.getByRole("button", { name: /more actions/i }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /delete agent/i }));
-
-    await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith(
-        `/api/dashboard/agents/${encodeURIComponent(localAgent.email)}`,
-        expect.objectContaining({ method: "DELETE" }),
-      );
-    });
-
-    // After delete, page refreshes and shows empty state
-    await waitFor(() => {
-      expect(screen.getByText("No agents yet")).toBeInTheDocument();
-    });
-
-    expect(screen.queryByText("Unexpected end of JSON input")).not.toBeInTheDocument();
+    const settingsLink = screen.getByText("Settings").closest("a");
+    expect(settingsLink).toHaveAttribute(
+      "href",
+      `/dashboard/agents/settings?email=${encodeURIComponent(localAgent.email)}`,
+    );
   });
 });
 

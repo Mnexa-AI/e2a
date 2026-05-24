@@ -30,7 +30,7 @@ export type AgentTab = "messages" | "settings";
 // the dashboard agent card; Webhooks is folding into Settings.
 const TABS: { key: AgentTab; label: string; slug: string; ready: boolean }[] = [
   { key: "messages", label: "Messages", slug: "messages", ready: true },
-  { key: "settings", label: "Settings", slug: "settings", ready: false },
+  { key: "settings", label: "Settings", slug: "settings", ready: true },
 ];
 
 export function AgentHeader({

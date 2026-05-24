@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useAuth } from "../../components/AuthProvider";
-import { listAgents, listDomains, deleteAgent } from "../../components/onboarding/api";
+import { listAgents, listDomains } from "../../components/onboarding/api";
 import type {
   DashboardAgent,
   DashboardStats,
@@ -249,15 +249,9 @@ export default function DashboardPage() {
     fetchData();
   }, [fetchData]);
 
-  const handleDelete = async (email: string) => {
-    if (!confirm(`Delete agent ${email}? This cannot be undone.`)) return;
-    try {
-      await deleteAgent(email);
-      fetchData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete agent");
-    }
-  };
+  // Delete moved to /dashboard/agents/settings → Danger zone. The
+  // dashboard no longer needs a per-card delete handler; the settings
+  // page calls deleteAgent and routes back to /dashboard on success.
 
   // Derived: filtered + sorted agent list.
   const visibleAgents = useMemo(() => {
@@ -390,12 +384,7 @@ export default function DashboardPage() {
               </p>
             ) : (
               visibleAgents.map((agent) => (
-                <AgentCard
-                  key={agent.id}
-                  agent={agent}
-                  onDelete={() => handleDelete(agent.email)}
-                  onUpdate={() => fetchData()}
-                />
+                <AgentCard key={agent.id} agent={agent} />
               ))
             )}
           </div>
