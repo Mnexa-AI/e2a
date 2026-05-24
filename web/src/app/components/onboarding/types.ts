@@ -43,8 +43,10 @@ export type DomainInfo = {
 };
 
 /** Response from POST /api/v1/domains/{domain}/verify — per-record
- * diagnostic shipped by BACKEND_TODO #4. dkim stays "deferred" until
- * BACKEND_TODO #5 ships per-domain DKIM keys. */
+ * diagnostic shipped by BACKEND_TODO #4. `dkim` reports "found" or
+ * "missing" against the per-domain public key registered at claim
+ * time (BACKEND_TODO #5). "deferred" is returned only for
+ * pre-migration domains that have no stored keypair. */
 export type VerifyDomainResponse = {
   domain: string;
   verified: boolean;

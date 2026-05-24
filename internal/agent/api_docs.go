@@ -183,10 +183,14 @@ type VerifyDomainResponse struct {
 	// SPF status: "found" iff a v=spf1 TXT record includes the
 	// deployment's send domain. "missing" otherwise.
 	SPF string `json:"spf,omitempty" example:"found" enums:"found,missing"`
-	// DKIM status: "deferred" until BACKEND_TODO #5 ships per-domain
-	// DKIM key generation. Until then there's no per-domain DKIM TXT
-	// record to verify against.
-	DKIM string `json:"dkim,omitempty" example:"deferred" enums:"found,missing,deferred"`
+	// DKIM status: "found" iff the published TXT record at
+	// "{selector}._domainkey.{domain}" matches the per-domain public
+	// key stored at registration time. "missing" iff a keypair is
+	// stored but the TXT record isn't published yet. "deferred" iff
+	// no keypair is stored — pre-migration rows that haven't been
+	// re-claimed since #5 shipped. A fresh-claimed domain always has
+	// a keypair, so "deferred" only appears on legacy data.
+	DKIM string `json:"dkim,omitempty" example:"found" enums:"found,missing,deferred"`
 } // @name VerifyDomainResponse
 
 // --- Deployment info ---

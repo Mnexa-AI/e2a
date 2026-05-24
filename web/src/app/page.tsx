@@ -8,6 +8,12 @@ import { SITE_URL, AGENTS_DOMAIN } from "../lib/site";
 
 type Tab = "cli" | "claude" | "python" | "webhook";
 
+// Intentionally NOT using AGENTS_DOMAIN_DISPLAY from lib/site — the
+// in-app onboarding fallback "agents.example.com" hints at the
+// shared-subdomain pattern, which makes sense once a user is signed
+// in and choosing between shared / custom. The landing page shows
+// this in a CLI sample where a neutral placeholder ("your-domain.com")
+// reads better as a fill-in. Keep these two fallbacks distinct.
 const exampleAgentDomain = AGENTS_DOMAIN || "your-domain.com";
 
 const NAV_LINKS: { label: string; href: string; external?: boolean }[] = [

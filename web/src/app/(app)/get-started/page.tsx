@@ -118,6 +118,17 @@ export default function GetStartedPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialDomain, initialMode]);
 
+  // If the URL is ?step=success but local agent state is missing
+  // (refresh, direct URL, back-then-forward), the rendered view falls
+  // back to the chooser. Strip the stale ?step= so the URL matches —
+  // otherwise a subsequent back-button press jumps to ?step=success
+  // again and the same fallback fires in a loop.
+  useEffect(() => {
+    if (step === "success" && !agent && !bootstrapping) {
+      router.replace("/get-started");
+    }
+  }, [step, agent, bootstrapping, router]);
+
   const handleAddressChoice = (type: AddressType) => {
     setAddressType(type);
     setError("");

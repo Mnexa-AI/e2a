@@ -947,7 +947,7 @@ func checkDomainRecords(domain, smtpDomain, verificationToken, dkimSelector, dki
 // signal; MX/SPF/DKIM are advisory and surface as a found/missing chip
 // in the dashboard so operators can see exactly what's misconfigured.
 // @Summary      Verify domain ownership + DNS diagnostic
-// @Description  Verify domain ownership (TXT record) and run per-record probes for MX/SPF/DKIM. Returns 200 with the per-record breakdown when ownership is verified, 412 when the TXT token is missing. DKIM always reports "deferred" until per-domain DKIM ships.
+// @Description  Verify domain ownership (TXT record) and run per-record probes for MX/SPF/DKIM. Returns 200 with the per-record breakdown when ownership is verified, 412 when the TXT token is missing. DKIM reports "found" or "missing" against the per-domain public key registered at claim time; "deferred" is returned only for pre-migration domains that have no stored keypair yet.
 // @Tags         Domains
 // @Produce      json
 // @Security     BearerAuth

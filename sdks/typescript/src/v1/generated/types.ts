@@ -887,7 +887,7 @@ export interface paths {
         put?: never;
         /**
          * Verify domain ownership + DNS diagnostic
-         * @description Verify domain ownership (TXT record) and run per-record probes for MX/SPF/DKIM. Returns 200 with the per-record breakdown when ownership is verified, 412 when the TXT token is missing. DKIM always reports "deferred" until per-domain DKIM ships.
+         * @description Verify domain ownership (TXT record) and run per-record probes for MX/SPF/DKIM. Returns 200 with the per-record breakdown when ownership is verified, 412 when the TXT token is missing. DKIM reports "found" or "missing" against the per-domain public key registered at claim time; "deferred" is returned only for pre-migration domains that have no stored keypair yet.
          */
         post: {
             parameters: {
@@ -2120,10 +2120,14 @@ export interface components {
         };
         VerifyDomainResponse: {
             /**
-             * @description DKIM status: "deferred" until BACKEND_TODO #5 ships per-domain
-             *     DKIM key generation. Until then there's no per-domain DKIM TXT
-             *     record to verify against.
-             * @example deferred
+             * @description DKIM status: "found" iff the published TXT record at
+             *     "{selector}._domainkey.{domain}" matches the per-domain public
+             *     key stored at registration time. "missing" iff a keypair is
+             *     stored but the TXT record isn't published yet. "deferred" iff
+             *     no keypair is stored — pre-migration rows that haven't been
+             *     re-claimed since #5 shipped. A fresh-claimed domain always has
+             *     a keypair, so "deferred" only appears on legacy data.
+             * @example found
              * @enum {string}
              */
             dkim?: "found" | "missing" | "deferred";

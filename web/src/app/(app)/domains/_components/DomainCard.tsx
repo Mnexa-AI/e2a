@@ -16,8 +16,10 @@ import type {
 import { track } from "../../../components/onboarding/analytics";
 
 // Renders a found/missing/deferred chip next to each per-record row in
-// the DNS expansion. "deferred" is for DKIM until BACKEND_TODO #5 ships;
-// it surfaces as a muted "pending" state instead of a hard miss.
+// the DNS expansion. "deferred" only appears on legacy pre-migration
+// domains that don't have a stored DKIM keypair yet — re-claiming the
+// domain provisions a key and flips the chip to found/missing on the
+// next probe.
 function RecordStatusChip({
   status,
 }: {
@@ -32,7 +34,7 @@ function RecordStatusChip({
       </Chip>
     );
   if (status === "deferred")
-    return <Chip tone="neutral">Pending DKIM support</Chip>;
+    return <Chip tone="neutral">No key registered</Chip>;
   return (
     <Chip tone="warn">
       <Dot tone="warn" />

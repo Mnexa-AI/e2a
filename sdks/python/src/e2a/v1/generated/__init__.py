@@ -355,8 +355,8 @@ class VerifyDomainResponse(BaseModel):
     )
     dkim: Literal['found', 'missing', 'deferred'] | None = Field(
         None,
-        description='DKIM status: "deferred" until BACKEND_TODO #5 ships per-domain\nDKIM key generation. Until then there\'s no per-domain DKIM TXT\nrecord to verify against.',
-        examples=['deferred'],
+        description='DKIM status: "found" iff the published TXT record at\n"{selector}._domainkey.{domain}" matches the per-domain public\nkey stored at registration time. "missing" iff a keypair is\nstored but the TXT record isn\'t published yet. "deferred" iff\nno keypair is stored — pre-migration rows that haven\'t been\nre-claimed since #5 shipped. A fresh-claimed domain always has\na keypair, so "deferred" only appears on legacy data.',
+        examples=['found'],
     )
     domain: str | None = Field(None, examples=['yourdomain.com'])
     mx: Literal['found', 'missing'] | None = Field(
