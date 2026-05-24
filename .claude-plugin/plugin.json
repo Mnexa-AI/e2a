@@ -1,0 +1,29 @@
+{
+  "name": "e2a",
+  "version": "0.3.2",
+  "description": "Authenticated email gateway for AI agents — per-agent inboxes, HITL approval, SPF/DKIM verification, and audit-grade send/receive. 18 MCP tools over hosted streamable HTTP with OAuth.",
+  "author": {
+    "name": "Mnexa AI",
+    "url": "https://e2a.dev"
+  },
+  "homepage": "https://e2a.dev",
+  "repository": "https://github.com/Mnexa-AI/e2a",
+  "license": "Apache-2.0",
+  "keywords": [
+    "email",
+    "smtp",
+    "agents",
+    "hitl",
+    "spf",
+    "dkim",
+    "inbox",
+    "mcp",
+    "oauth"
+  ],
+  "mcpServers": {
+    "e2a": {
+      "type": "http",
+      "url": "https://mcp.e2a.dev/mcp"
+    }
+  }
+}
