@@ -51,7 +51,7 @@ type Domain struct {
 	// (this column-versus-aggregate split avoids changing every store
 	// signature to thread an agent-counter through).
 	AgentCount int `json:"agent_count"`
-	// DKIM keypair fields (BACKEND_TODO #5). The selector + public key
+	// DKIM keypair fields. The selector + public key
 	// are user-facing — the dashboard shows them so users can copy the
 	// DNS TXT record. The private key is intentionally NOT in the JSON
 	// shape; it's only read by the outbound signer via
@@ -75,7 +75,7 @@ type AgentIdentity struct {
 	HITLEnabled          bool      `json:"hitl_enabled"`
 	HITLTTLSeconds       int       `json:"hitl_ttl_seconds"`
 	HITLExpirationAction string    `json:"hitl_expiration_action"`
-	// Dashboard enrichment fields (BACKEND_TODO #2). Computed at read
+	// Dashboard enrichment fields. Computed at read
 	// time by ListAgentsByUser via correlated subqueries — other load
 	// paths (GetAgentByID / GetAgentByEmail) leave them at zero values,
 	// same pattern as Domain.AgentCount. Switch to denormalized columns
@@ -645,7 +645,7 @@ func (s *Store) UpdateAgentHITL(ctx context.Context, agentID, userID string, ena
 
 // ListAgentsByUser returns all agents owned by the user, joined with
 // domain verification AND enriched with per-agent stats for the
-// dashboard (BACKEND_TODO #2). Five correlated subqueries compute
+// dashboard. Five correlated subqueries compute
 // inbound/outbound 7-day counts, pending approvals, last delivery, and
 // webhook health in a single round-trip. Other load paths
 // (GetAgentByID, GetAgentByEmail) intentionally don't compute these —
@@ -1977,8 +1977,7 @@ type DashboardPendingStats struct {
 }
 
 // DashboardDefaultWindowDays is the lookback for the dashboard strip
-// when the caller doesn't request a specific window. 7 matches the
-// original BACKEND_TODO #1 spec.
+// when the caller doesn't request a specific window.
 const DashboardDefaultWindowDays = 7
 
 // DashboardMaxWindowDays caps the lookback to keep the underlying SQL

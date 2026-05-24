@@ -4,13 +4,12 @@ import { useState } from "react";
 import { FEEDBACK_EMAIL } from "../../../lib/site";
 import { PageShell } from "../../components/loft/PageShell";
 
-// /feedback was carried over from the pre-Loft world and missed the
-// PR #106 redesign pass. Now restyled to match the rest of the app —
-// PageShell wrapping, ember selected category, ember submit CTA, the
-// Loft input + button rhythm shared with /api-keys and /settings.
+// Restyled to match the rest of the app — PageShell wrapping, ember
+// selected category, ember submit CTA, the Loft input + button rhythm
+// shared with /api-keys and /settings.
 //
-// Test selectors (text/placeholders) preserved verbatim so
-// page.test.tsx keeps passing.
+// Test selectors (text/placeholders) are stable so page.test.tsx keeps
+// passing across visual tweaks.
 
 export default function FeedbackPage() {
   const [email, setEmail] = useState("");

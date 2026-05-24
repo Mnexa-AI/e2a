@@ -278,10 +278,9 @@ export function DomainCard({
       </div>
 
       {/* DNS records — per-record status chips populated from the
-          most recent verify probe (BACKEND_TODO #4). The DKIM row
-          renders for domains with a stored keypair (BACKEND_TODO #5);
-          pre-migration domains have no `dkim` block in dns_records and
-          the row is omitted. */}
+          most recent verify probe. The DKIM row renders for domains
+          with a stored keypair; pre-migration domains have no `dkim`
+          block in dns_records and the row is omitted. */}
       {showDNS && (
         <div
           className="mt-3 pt-4 space-y-4"

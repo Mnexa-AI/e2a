@@ -1340,7 +1340,7 @@ func TestGetDashboardStats_DeliverySuccess(t *testing.T) {
 	}
 }
 
-// --- Dashboard enriched DashboardAgent (BACKEND_TODO #2) ---
+// --- Dashboard enriched DashboardAgent ---
 
 // TestListAgentsByUser_EnrichedFields: the dashboard's GET /api/dashboard/agents
 // must surface per-agent stats (Inbound7d, Outbound7d, PendingCount,

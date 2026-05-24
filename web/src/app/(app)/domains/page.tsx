@@ -8,8 +8,9 @@ import type { DomainInfo } from "../../components/onboarding/types";
 import type { DashboardAgent } from "../../components/types";
 import { PageShell } from "../../components/loft/PageShell";
 
-// Domains stats strip — same degradation as dashboard: renders `—` until
-// the workspace-level aggregate endpoint ships (BACKEND_TODO #1 / #7).
+// Domains stats strip — Total / Verified / Pending are computed
+// client-side from the domain list; Agents · 7d renders `—` until a
+// workspace-level aggregate exists.
 function DomainsStatsStrip({ domains }: { domains: DomainInfo[] }) {
   const verified = domains.filter((d) => d.verified).length;
   const unverified = domains.length - verified;

@@ -208,9 +208,9 @@ export function AgentCard({
         </div>
       )}
 
-      {/* Per-agent stats footer (BACKEND_TODO #2). Cloud-mode agents also
-          get a webhook-reachable indicator on the right; local-mode hides
-          it because no webhook is involved. */}
+      {/* Per-agent stats footer. Cloud-mode agents also get a
+          webhook-reachable indicator on the right; local-mode hides it
+          because no webhook is involved. */}
       <div
         className="mt-4 pt-4 grid grid-cols-2 md:grid-cols-4 gap-4"
         style={{ borderTop: "1px solid var(--border-sub)" }}

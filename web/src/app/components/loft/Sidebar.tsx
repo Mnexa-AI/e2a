@@ -217,10 +217,10 @@ export function Sidebar({
       </Link>
 
       {/*
-        Workspace/org switcher intentionally omitted until BACKEND_TODO #9
-        (multi-tenant orgs) lands. Until then the bottom-of-sidebar user
-        card is the canonical identity affordance — a second card here
-        would just duplicate it.
+        Workspace/org switcher intentionally omitted until multi-tenant
+        orgs land (tracked in GitHub issue #130). Until then the
+        bottom-of-sidebar user card is the canonical identity
+        affordance — a second card here would just duplicate it.
       */}
 
       {/* Nav */}

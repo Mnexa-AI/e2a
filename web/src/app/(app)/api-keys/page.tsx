@@ -11,9 +11,8 @@ function isExpired(k: APIKeyData): boolean {
   return !!k.expires_at && new Date(k.expires_at).getTime() < Date.now();
 }
 
-// Graceful degradation per REDESIGN.md §5:
-// - "Last used" surfaced now that BACKEND_TODO #3 shipped api_keys.last_used_at
-// - "Scopes" column intentionally omitted (BACKEND_TODO #11 — deferred indefinitely)
+// "Scopes" column intentionally omitted — keys are full-power workspace
+// keys today. Tracked as a deferred follow-up in the issue tracker.
 
 // formatRelative renders a "X ago" string for the Last used cell. Tight
 // here because the column needs to read at-a-glance on a wide table —

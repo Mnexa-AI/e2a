@@ -1472,7 +1472,7 @@ func TestSendTestEmailWrongUser(t *testing.T) {
 }
 
 
-// --- Per-record DNS verification (BACKEND_TODO #4) ---
+// --- Per-record DNS verification ---
 
 // TestVerifyDomain_PerRecordDiagnostic: the response now includes
 // per-record probe results (mx/spf/dkim) so the redesigned Domains
@@ -1511,7 +1511,7 @@ func TestVerifyDomain_PerRecordDiagnostic(t *testing.T) {
 	if body.SPF != "found" {
 		t.Errorf("spf = %q, want found", body.SPF)
 	}
-	// Per-domain DKIM (BACKEND_TODO #5) now ships: ClaimOrCreateDomain
+	// Per-domain DKIM now ships: ClaimOrCreateDomain
 	// generates a keypair on insert, so the dev-mode probe short-circuit
 	// reports "found". Pre-migration rows without a stored keypair are
 	// the only path that still returns "deferred".

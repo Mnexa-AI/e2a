@@ -29,24 +29,24 @@ export type DomainInfo = {
     mx: { host: string; value: string; priority: number };
     txt: { host: string; value: string };
     // DKIM is populated for domains with a stored keypair (migration
-    // 014 + BACKEND_TODO #5). Pre-migration rows omit it.
+    // 014). Pre-migration rows omit it.
     dkim?: { host: string; value: string };
   };
   created_at: string;
   verified_at: string | null;
-  // Backend PR A enrichment. is_primary is true on at most one domain
-  // per user; last_checked_at moves on every verification probe
-  // (success or failure); agent_count is computed at read time.
+  // Enrichment fields. is_primary is true on at most one domain per
+  // user; last_checked_at moves on every verification probe (success
+  // or failure); agent_count is computed at read time.
   is_primary?: boolean;
   last_checked_at?: string | null;
   agent_count?: number;
 };
 
 /** Response from POST /api/v1/domains/{domain}/verify — per-record
- * diagnostic shipped by BACKEND_TODO #4. `dkim` reports "found" or
- * "missing" against the per-domain public key registered at claim
- * time (BACKEND_TODO #5). "deferred" is returned only for
- * pre-migration domains that have no stored keypair. */
+ * diagnostic. `dkim` reports "found" or "missing" against the
+ * per-domain public key registered at claim time. "deferred" is
+ * returned only for pre-migration domains that have no stored
+ * keypair. */
 export type VerifyDomainResponse = {
   domain: string;
   verified: boolean;

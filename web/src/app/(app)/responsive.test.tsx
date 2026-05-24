@@ -1,20 +1,19 @@
 /*
- * Responsive layout contract tests (REDESIGN.md §7).
+ * Responsive layout contract tests.
  *
  * Honest caveat: jsdom doesn't run a layout engine and doesn't
  * evaluate CSS media queries, so we can't verify *behavior* at
  * different viewports the way a Playwright run could. What we can do
  * is pin the responsive Tailwind/CSS attributes that were placed on
- * the layout-critical containers in Slice B — if someone removes the
- * `md:` prefix or strips the `overflow-x-auto` from a table wrapper,
- * the test breaks and someone gets a chance to reconsider before the
- * regression ships.
+ * the layout-critical containers — if someone removes the `md:` prefix
+ * or strips the `overflow-x-auto` from a table wrapper, the test
+ * breaks and someone gets a chance to reconsider before the regression
+ * ships.
  *
  * For end-to-end viewport verification (touch targets actually being
  * 44px, the pending split-pane actually stacking, etc.) we still rely
- * on manual visual review and the production browser. Adding
- * Playwright would close that gap — see issue tracker for the future
- * decision; the cost-benefit didn't justify it at this point.
+ * on manual visual review and the production browser. See the open
+ * Playwright tracking issue for the future decision.
  */
 
 import { render } from "@testing-library/react";
@@ -32,7 +31,7 @@ describe("Responsive layout contracts", () => {
   it("pending split-pane stacks below md and goes 320px+1fr at md+", () => {
     // Mirror the JSX in dashboard/pending/page.tsx without importing
     // the whole route (which pulls in fetch + AuthProvider). The
-    // assertion is on the *class string* we authored in Slice B.
+    // assertion is on the responsive class string.
     const { container } = render(
       <div
         className="grid grid-cols-1 md:grid-cols-[320px_minmax(0,1fr)] md:[height:calc(100vh-var(--chrome-h)-200px)]"
