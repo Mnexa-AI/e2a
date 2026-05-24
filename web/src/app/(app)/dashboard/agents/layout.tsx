@@ -14,10 +14,12 @@ import { listAgents } from "../../../components/onboarding/api";
 import type { DashboardAgent } from "../../../components/types";
 
 function detectTab(pathname: string): AgentTab {
-  if (pathname.startsWith("/dashboard/agents/messages")) return "messages";
-  if (pathname.startsWith("/dashboard/agents/webhooks")) return "webhooks";
   if (pathname.startsWith("/dashboard/agents/settings")) return "settings";
-  return "overview";
+  // Default to messages — the only other live tab today, and the
+  // canonical landing destination from the dashboard's "Open inbox →"
+  // CTA. Any unknown sub-path under /dashboard/agents/ (404s aside)
+  // also lands here so the AgentHeader has a sensible active state.
+  return "messages";
 }
 
 export default function AgentLayout({

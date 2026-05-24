@@ -17,14 +17,19 @@ import { CounterpartyAvatar } from "./CounterpartyAvatar";
 import { formatRelativeAge } from "../../../lib/relativeTime";
 import type { DashboardAgent } from "../types";
 
-export type AgentTab = "overview" | "messages" | "webhooks" | "settings";
+export type AgentTab = "messages" | "settings";
 
 // Each tab's `ready` flag controls whether it's a live link or a
-// disabled placeholder. As we ship more screens, flip these.
+// disabled placeholder. The agent-detail surface is intentionally
+// scoped to two tabs:
+//   • Messages — the threaded inbox + focus view (live).
+//   • Settings — per-agent editors (mode, webhook URL, HITL config,
+//     rename, delete). Not yet built; flipped to ready=true when the
+//     editors migrate off the dashboard agent card.
+// Overview + Webhooks were considered and dropped: Overview duplicated
+// the dashboard agent card; Webhooks is folding into Settings.
 const TABS: { key: AgentTab; label: string; slug: string; ready: boolean }[] = [
-  { key: "overview", label: "Overview", slug: "overview", ready: false },
   { key: "messages", label: "Messages", slug: "messages", ready: true },
-  { key: "webhooks", label: "Webhooks", slug: "webhooks", ready: false },
   { key: "settings", label: "Settings", slug: "settings", ready: false },
 ];
 
