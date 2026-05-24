@@ -122,6 +122,20 @@ export async function deleteAgent(email: string): Promise<void> {
   });
 }
 
+// Fires a synthetic "Test email from e2a" send to the agent's own
+// address — exercises outbound SMTP + inbound delivery + webhook (or
+// WebSocket for local agents). Used by the dashboard card's Test
+// button. Routes through `request<T>` so 4xx/5xx surface as `ApiError`
+// with the server's body text, consistent with every other mutation.
+export async function sendAgentTestEmail(
+  email: string,
+): Promise<{ status: string; message_id: string }> {
+  return request(
+    "/api/v1/agents/" + encodeURIComponent(email) + "/test",
+    { method: "POST" },
+  );
+}
+
 // ── Agent activity (deprecated) ─────────────────────────
 
 /**

@@ -6,6 +6,7 @@ import type { DashboardAgent } from "../../../components/types";
 import { ConnectInstructions } from "./ConnectInstructions";
 import { Chip } from "../../../components/loft/Chip";
 import { Dot } from "../../../components/loft/Dot";
+import { sendAgentTestEmail } from "../../../components/onboarding/api";
 import { AGENTS_DOMAIN } from "../../../../lib/site";
 
 function isSharedDomain(email: string): boolean {
@@ -111,20 +112,13 @@ export function AgentCard({
                   setTestError("");
                   setTestState("sending");
                   try {
-                    const res = await fetch(`/api/v1/agents/${encodeURIComponent(agent.email)}/test`, {
-                      method: "POST",
-                      credentials: "include",
-                    });
-                    if (res.ok) {
-                      setTestState("sent");
-                      setTimeout(() => setTestState("idle"), 3000);
-                    } else {
-                      const msg = await res.text();
-                      setTestError(msg || `Failed (${res.status})`);
-                      setTestState("idle");
-                    }
-                  } catch {
-                    setTestError("Network error");
+                    await sendAgentTestEmail(agent.email);
+                    setTestState("sent");
+                    setTimeout(() => setTestState("idle"), 3000);
+                  } catch (err) {
+                    setTestError(
+                      err instanceof Error ? err.message : "Network error",
+                    );
                     setTestState("idle");
                   }
                 }}

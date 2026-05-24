@@ -18,9 +18,20 @@ import { WebhookEditor } from "../../_components/WebhookEditor";
 import { HITLEditor } from "../../_components/HITLEditor";
 
 export default function AgentSettingsPage() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const email = searchParams.get("email") ?? "";
+
+  // Inner content is keyed by email so navigating between agents
+  // (?email=A → ?email=B) re-mounts the editors with fresh state.
+  // Without the key, useState would persist the previous agent's
+  // settings while a new fetch was in flight.
+  return (
+    <AgentSettingsContent key={email} email={email} />
+  );
+}
+
+function AgentSettingsContent({ email }: { email: string }) {
+  const router = useRouter();
 
   // refreshKey is incremented after each successful editor save so the
   // agent re-fetches and the children remount with fresh props.

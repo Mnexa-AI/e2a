@@ -32,13 +32,37 @@ export default function AgentLayout({
   const email = searchParams.get("email") ?? "";
   const tab = detectTab(pathname ?? "");
 
+  // Topbar lives in the outer shell so the breadcrumb updates
+  // instantly on email change without waiting for the agent fetch.
+  // The inner content remounts via `key={email}` whenever the URL's
+  // email param changes — that's the canonical React way to reset
+  // useState across a dependency boundary without setState-in-effect.
+  return (
+    <div className="flex flex-col" data-app-surface>
+      <Topbar crumbs={["Dashboard", "Agents", email || "—"]} />
+      <AgentLayoutContent key={email} email={email} tab={tab}>
+        {children}
+      </AgentLayoutContent>
+    </div>
+  );
+}
+
+function AgentLayoutContent({
+  email,
+  tab,
+  children,
+}: {
+  email: string;
+  tab: AgentTab;
+  children: React.ReactNode;
+}) {
   const [agent, setAgent] = useState<DashboardAgent | null>(null);
   const [fetchError, setFetchError] = useState("");
   const [loading, setLoading] = useState(true);
 
   // Missing-email is a URL-shape problem, not a fetch error — surface
   // it as a derived value so we don't have to call setState in the
-  // effect to flip the loading flag (React 19 lint rule).
+  // effect to flip the loading flag.
   const error = email ? fetchError : "Missing ?email= query parameter";
 
   useEffect(() => {
@@ -68,36 +92,36 @@ export default function AgentLayout({
     };
   }, [email]);
 
+  if (error) {
+    return (
+      <div
+        className="m-6 p-4 text-[13px]"
+        style={{
+          background: "var(--danger-bg)",
+          border: "1px solid var(--danger-bg)",
+          color: "var(--danger-strong)",
+          borderRadius: "var(--r-md)",
+        }}
+      >
+        {error}
+      </div>
+    );
+  }
+  if (loading) {
+    return (
+      <div
+        className="px-7 py-8 text-[13px]"
+        style={{ color: "var(--fg-muted)" }}
+      >
+        Loading agent…
+      </div>
+    );
+  }
+  if (!agent) return null;
   return (
-    <div className="flex flex-col" data-app-surface>
-      <Topbar crumbs={["Dashboard", "Agents", email || "—"]} />
-      {error && (
-        <div
-          className="m-6 p-4 text-[13px]"
-          style={{
-            background: "var(--danger-bg)",
-            border: "1px solid var(--danger-bg)",
-            color: "var(--danger-strong)",
-            borderRadius: "var(--r-md)",
-          }}
-        >
-          {error}
-        </div>
-      )}
-      {!error && loading && (
-        <div
-          className="px-7 py-8 text-[13px]"
-          style={{ color: "var(--fg-muted)" }}
-        >
-          Loading agent…
-        </div>
-      )}
-      {!error && !loading && agent && (
-        <>
-          <AgentHeader agent={agent} tab={tab} />
-          {children}
-        </>
-      )}
-    </div>
+    <>
+      <AgentHeader agent={agent} tab={tab} />
+      {children}
+    </>
   );
 }

@@ -19,18 +19,17 @@ import type { DashboardAgent } from "../types";
 
 export type AgentTab = "messages" | "settings";
 
-// Each tab's `ready` flag controls whether it's a live link or a
-// disabled placeholder. The agent-detail surface is intentionally
-// scoped to two tabs:
-//   • Messages — the threaded inbox + focus view (live).
+// The agent-detail surface is intentionally scoped to two tabs:
+//   • Messages — the threaded inbox + focus view.
 //   • Settings — per-agent editors (mode, webhook URL, HITL config,
-//     rename, delete). Not yet built; flipped to ready=true when the
-//     editors migrate off the dashboard agent card.
+//     delete).
 // Overview + Webhooks were considered and dropped: Overview duplicated
-// the dashboard agent card; Webhooks is folding into Settings.
-const TABS: { key: AgentTab; label: string; slug: string; ready: boolean }[] = [
-  { key: "messages", label: "Messages", slug: "messages", ready: true },
-  { key: "settings", label: "Settings", slug: "settings", ready: true },
+// the dashboard agent card; Webhooks folded into Settings. When a
+// third tab is added, restore the `ready` flag + disabled-tab branch
+// (see git history at 63876fc).
+const TABS: { key: AgentTab; label: string; slug: string }[] = [
+  { key: "messages", label: "Messages", slug: "messages" },
+  { key: "settings", label: "Settings", slug: "settings" },
 ];
 
 export function AgentHeader({
@@ -134,29 +133,13 @@ export function AgentHeader({
             padding: "10px 14px 12px",
             fontSize: 13,
             fontWeight: active ? 600 : 400,
-            color: active
-              ? "var(--fg)"
-              : t.ready
-                ? "var(--fg-muted)"
-                : "var(--fg-subtle)",
+            color: active ? "var(--fg)" : "var(--fg-muted)",
             borderBottom: active
               ? "2px solid var(--accent)"
               : "2px solid transparent",
             marginBottom: -1,
             textDecoration: "none",
           } as const;
-          if (!t.ready) {
-            return (
-              <span
-                key={t.key}
-                aria-disabled="true"
-                title="Shipping next"
-                style={{ ...baseStyle, cursor: "not-allowed", opacity: 0.6 }}
-              >
-                {t.label}
-              </span>
-            );
-          }
           const href = `/dashboard/agents/${t.slug}?email=${emailQs}`;
           return (
             <Link
