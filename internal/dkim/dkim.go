@@ -1,5 +1,5 @@
 // Package dkim wraps github.com/emersion/go-msgauth/dkim for the
-// per-domain signing path described in BACKEND_TODO #5.
+// per-domain signing path.
 //
 // Responsibilities split:
 //

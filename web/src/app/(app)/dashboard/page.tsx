@@ -146,8 +146,7 @@ function StatsStrip() {
 
 // Filter chips + sort dropdown. Counts are derived client-side from the
 // agents list — the backend doesn't need to compute filter aggregates.
-// "Sort: last activity" uses created_at descending as a proxy until
-// BACKEND_TODO #2 exposes a real last-activity timestamp; until then the
+// "Sort: last activity" uses created_at descending as a proxy; the
 // label is honest about what's available.
 type Filter = "all" | "cloud" | "local" | "hitl" | "unverified";
 type SortKey = "recent" | "name";
@@ -278,8 +277,7 @@ export default function DashboardPage() {
         break;
     }
     if (sort === "recent") {
-      // created_at descending as a stand-in for last activity until
-      // BACKEND_TODO #2 exposes a real signal.
+      // created_at descending as a stand-in for last activity.
       out = [...out].sort(
         (a, b) =>
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),

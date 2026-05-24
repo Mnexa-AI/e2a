@@ -298,7 +298,8 @@ function UsageSection() {
 }
 
 function NotificationsSection() {
-  // Coming soon — BACKEND_TODO #12 (notification_prefs table + dispatch worker).
+  // Coming soon — tracked in GitHub issue #133 (notification_prefs
+  // table + dispatch worker).
   return (
     <section>
       <SectionHeading

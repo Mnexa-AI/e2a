@@ -1,6 +1,6 @@
 -- 014_per_domain_dkim.sql
 --
--- Per-domain DKIM keypair storage (BACKEND_TODO #5).
+-- Per-domain DKIM keypair storage.
 --
 -- Today the outbound relay signs every message with a single
 -- deployment-level DKIM key. Strict receivers (Gmail, Microsoft 365)

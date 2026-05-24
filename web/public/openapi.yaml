@@ -814,7 +814,7 @@ definitions:
         type: string
       inbound_7d:
         description: |-
-          Dashboard enrichment fields (BACKEND_TODO #2). Computed at read
+          Dashboard enrichment fields. Computed at read
           time by ListAgentsByUser via correlated subqueries — other load
           paths (GetAgentByID / GetAgentByEmail) leave them at zero values,
           same pattern as Domain.AgentCount. Switch to denormalized columns
@@ -858,7 +858,7 @@ definitions:
         type: string
       dkim_selector:
         description: |-
-          DKIM keypair fields (BACKEND_TODO #5). The selector + public key
+          DKIM keypair fields. The selector + public key
           are user-facing — the dashboard shows them so users can copy the
           DNS TXT record. The private key is intentionally NOT in the JSON
           shape; it's only read by the outbound signer via

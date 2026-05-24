@@ -2161,7 +2161,7 @@ export interface components {
             hitl_ttl_seconds?: number;
             id?: string;
             /**
-             * @description Dashboard enrichment fields (BACKEND_TODO #2). Computed at read
+             * @description Dashboard enrichment fields. Computed at read
              *     time by ListAgentsByUser via correlated subqueries — other load
              *     paths (GetAgentByID / GetAgentByEmail) leave them at zero values,
              *     same pattern as Domain.AgentCount. Switch to denormalized columns
@@ -2195,7 +2195,7 @@ export interface components {
             created_at?: string;
             dkim_public_key?: string;
             /**
-             * @description DKIM keypair fields (BACKEND_TODO #5). The selector + public key
+             * @description DKIM keypair fields. The selector + public key
              *     are user-facing — the dashboard shows them so users can copy the
              *     DNS TXT record. The private key is intentionally NOT in the JSON
              *     shape; it's only read by the outbound signer via

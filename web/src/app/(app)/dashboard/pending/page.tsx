@@ -8,7 +8,7 @@ import { PageShell } from "../../../components/loft/PageShell";
 import { Chip } from "../../../components/loft/Chip";
 import { PendingDetailPanel } from "./_components/PendingDetailPanel";
 
-// Pending review — split-pane layout matching redesign/pending.jsx.
+// Pending review — split-pane layout.
 // Left column (320px): queue of pending messages. Right column: detail
 // of the selected message, driven by the ?id= URL param. Clicking a
 // queue row updates the URL; the detail panel re-loads on id change.

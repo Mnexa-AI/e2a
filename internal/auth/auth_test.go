@@ -351,12 +351,11 @@ func TestHandleUpdateMe_MaxBoundary(t *testing.T) {
 	}
 }
 
-// --- Dashboard stats endpoint (Item #1) ---
+// --- Dashboard stats endpoint ---
 
 // TestHandleDashboardStats_HappyPath: GET /api/dashboard/stats wraps
-// store.GetDashboardStats. Asserts the JSON shape matches the spec
-// in BACKEND_TODO #1 (sections for today / pending / delivery /
-// window).
+// store.GetDashboardStats. Asserts the JSON shape (sections for today
+// / pending / delivery / window).
 func TestHandleDashboardStats_HappyPath(t *testing.T) {
 	ua, store, token := setupUserAuth(t)
 	ctx := context.Background()

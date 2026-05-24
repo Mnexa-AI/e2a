@@ -21,7 +21,7 @@ class AgentIdentity(BaseModel):
     id: str | None = None
     inbound_7d: int | None = Field(
         None,
-        description='Dashboard enrichment fields (BACKEND_TODO #2). Computed at read\ntime by ListAgentsByUser via correlated subqueries — other load\npaths (GetAgentByID / GetAgentByEmail) leave them at zero values,\nsame pattern as Domain.AgentCount. Switch to denormalized columns\nif the read cost ever bites.',
+        description='Dashboard enrichment fields. Computed at read\ntime by ListAgentsByUser via correlated subqueries — other load\npaths (GetAgentByID / GetAgentByEmail) leave them at zero values,\nsame pattern as Domain.AgentCount. Switch to denormalized columns\nif the read cost ever bites.',
     )
     last_delivery_at: str | None = None
     name: str | None = None
@@ -48,7 +48,7 @@ class Domain(BaseModel):
     dkim_public_key: str | None = None
     dkim_selector: str | None = Field(
         None,
-        description="DKIM keypair fields (BACKEND_TODO #5). The selector + public key\nare user-facing — the dashboard shows them so users can copy the\nDNS TXT record. The private key is intentionally NOT in the JSON\nshape; it's only read by the outbound signer via\nGetDKIMKey(domain). Domains created before migration 014 ran\nkeep all three NULL until the next ClaimOrCreate or backfill.",
+        description="DKIM keypair fields. The selector + public key\nare user-facing — the dashboard shows them so users can copy the\nDNS TXT record. The private key is intentionally NOT in the JSON\nshape; it's only read by the outbound signer via\nGetDKIMKey(domain). Domains created before migration 014 ran\nkeep all three NULL until the next ClaimOrCreate or backfill.",
     )
     domain: str | None = None
     is_primary: bool | None = Field(

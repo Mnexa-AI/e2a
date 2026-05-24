@@ -875,11 +875,10 @@ type dnsRecordCheck struct {
 //   - SPF: any TXT record begins with v=spf1 and contains the relay's
 //     send domain. We accept either smtpDomain or just the bare domain
 //     as a substring — operators commonly use either form.
-//   - DKIM: when dkimSelector + dkimPublicKey are present (BACKEND_TODO
-//     #5 path), looks up "{selector}._domainkey.{domain}" and matches
-//     the stored public key. Domains without a stored keypair report
-//     "deferred" — these are pre-migration rows that the next claim
-//     would key.
+//   - DKIM: when dkimSelector + dkimPublicKey are present, looks up
+//     "{selector}._domainkey.{domain}" and matches the stored public
+//     key. Domains without a stored keypair report "deferred" — these
+//     are pre-migration rows that the next claim would key.
 func checkDomainRecords(domain, smtpDomain, verificationToken, dkimSelector, dkimPublicKey string, production bool) dnsRecordCheck {
 	if !production {
 		dkimState := "deferred"
