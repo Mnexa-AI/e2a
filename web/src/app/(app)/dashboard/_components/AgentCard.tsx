@@ -7,7 +7,6 @@ import { AgentModeSwitcher } from "./AgentModeSwitcher";
 import { WebhookEditor } from "./WebhookEditor";
 import { HITLEditor } from "./HITLEditor";
 import { ConnectInstructions } from "./ConnectInstructions";
-import { ActivityPanel } from "./ActivityPanel";
 import { Chip } from "../../../components/loft/Chip";
 import { Dot } from "../../../components/loft/Dot";
 import { AGENTS_DOMAIN } from "../../../../lib/site";
@@ -256,9 +255,18 @@ export function AgentCard({
         />
       </div>
 
-      {/* Activity (subordinate) */}
-      <div className="mt-3">
-        <ActivityPanel email={agent.email} />
+      {/* Single entry point to the agent's messages — sits in the same
+          subordinate slot the in-card ActivityPanel used to occupy.
+          Name + email chip + this link all navigate to the same place
+          (the new threaded inbox) so there's one canonical destination. */}
+      <div className="mt-3 pt-3" style={{ borderTop: "1px solid var(--border-sub)" }}>
+        <Link
+          href={`/dashboard/agents/messages?email=${encodeURIComponent(agent.email)}`}
+          className="inline-flex items-center gap-1 text-[13px] font-medium hover:underline"
+          style={{ color: "var(--accent-strong)" }}
+        >
+          Open inbox <span aria-hidden>→</span>
+        </Link>
       </div>
     </div>
   );

@@ -122,12 +122,18 @@ export async function deleteAgent(email: string): Promise<void> {
   });
 }
 
-// ── Agent activity ──────────────────────────────────────
+// ── Agent activity (deprecated) ─────────────────────────
 
-// Legacy activity feed used by the AgentCard's "Hide Activity" panel on
-// /dashboard. The dashboard inbox uses `listAgentMessages` instead;
-// `/api/dashboard/agents/{email}/activity` is flagged for deprecation
-// once no consumer reads it.
+/**
+ * @deprecated No web client reads this anymore. The dashboard agent
+ * card used to expand an inline ActivityPanel that called this helper;
+ * that panel was removed in favor of the threaded inbox at
+ * `/dashboard/agents/messages`. The backend endpoint
+ * `/api/dashboard/agents/{email}/activity` is also ready for deletion
+ * — keep this helper around for one release in case external tooling
+ * imported it via tree-shaken builds, then remove the helper + the
+ * endpoint together in a follow-up.
+ */
 export async function getAgentActivity(email: string): Promise<ActivityEntry[]> {
   return request<ActivityEntry[]>(
     "/api/dashboard/agents/" + encodeURIComponent(email) + "/activity",

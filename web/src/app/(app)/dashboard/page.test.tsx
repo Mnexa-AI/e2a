@@ -155,6 +155,43 @@ describe("local agent card", () => {
       expect(screen.getByText(/OpenClaw, Claude Code, Gemini CLI/)).toBeInTheDocument();
     });
   });
+
+  // The card's name, email chip, and "Open inbox →" link are the three
+  // surfaces that route into the per-agent threaded inbox. They all
+  // target the same URL — pinning that here so a future drive-by
+  // doesn't re-introduce divergent destinations (the prior
+  // ActivityPanel toggle was the case we just collapsed).
+  it("name, email chip, and Open inbox CTA all link to the same inbox URL", async () => {
+    mockAgentList([localAgent]);
+    render(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("bot@agents.e2a.dev")).toBeInTheDocument();
+    });
+
+    const expectedHref = `/dashboard/agents/messages?email=${encodeURIComponent(localAgent.email)}`;
+    const openInbox = screen.getByText(/Open inbox/);
+    expect(openInbox.closest("a")).toHaveAttribute("href", expectedHref);
+
+    // Email chip
+    const emailLink = screen.getByText(localAgent.email).closest("a");
+    expect(emailLink).toHaveAttribute("href", expectedHref);
+
+    // Name link (the agent has a `name` field, so it renders as a link too)
+    const nameLink = screen.getByText(localAgent.name).closest("a");
+    expect(nameLink).toHaveAttribute("href", expectedHref);
+  });
+
+  it("does not render the legacy 'Show Activity' toggle", async () => {
+    mockAgentList([localAgent]);
+    render(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("bot@agents.e2a.dev")).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/Show Activity/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Hide Activity/i)).not.toBeInTheDocument();
+  });
 });
 
 // ── Cloud agent card ─────────────────────────────────────
