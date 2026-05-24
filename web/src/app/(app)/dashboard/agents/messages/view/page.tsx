@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  ApiError,
   approvePendingMessage,
   getInboundMessage,
   getPendingMessage,
@@ -34,23 +35,11 @@ import {
   MessageLifecycleTimeline,
   deriveLifecycleSteps,
 } from "../../../../../components/messages/MessageLifecycleTimeline";
+import { formatRelativeAge } from "../../../../../../lib/relativeTime";
 
 type LoadedMessage =
   | { direction: "outbound"; data: PendingMessageDetail }
   | { direction: "inbound"; data: InboundMessageDetail };
-
-function formatRelativeAge(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const diff = Date.now() - new Date(iso).getTime();
-  if (diff < 0 || isNaN(diff)) return "—";
-  const sec = Math.floor(diff / 1000);
-  if (sec < 60) return "just now";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
-}
 
 function formatExpiresIn(iso: string | undefined): string | null {
   if (!iso) return null;
@@ -67,12 +56,29 @@ function formatExpiresIn(iso: string | undefined): string | null {
 // fallback only: multipart / MIME-encoded messages will render with
 // boundary markers visible. Backend-side body_text parsing for inbound
 // is tracked as a follow-up.
+//
+// UTF-8 detail: atob returns a "binary string" (one JS code unit per
+// byte). Naively slicing + rendering would treat each byte as a Latin-1
+// codepoint and corrupt any multi-byte UTF-8 sequence (emoji, accents,
+// CJK). We re-encode through TextDecoder so plain text/plain bodies
+// with non-ASCII characters render correctly. The split on the
+// CRLF/LF blank-line boundary is byte-safe because both \r and \n are
+// single-byte in UTF-8.
 function decodeInboundBody(rawBase64: string | undefined): string {
   if (!rawBase64) return "";
   try {
-    const decoded = typeof atob === "function"
-      ? atob(rawBase64)
-      : Buffer.from(rawBase64, "base64").toString("utf8");
+    let bytes: Uint8Array;
+    if (typeof atob === "function") {
+      const binary = atob(rawBase64);
+      bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    } else {
+      // Node / SSR — the static export shouldn't hit this branch, but
+      // tests run in jsdom where atob exists; this is a defensive
+      // fallback for any future runtime that doesn't ship atob.
+      bytes = new Uint8Array(Buffer.from(rawBase64, "base64"));
+    }
+    const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
     const splitIdx = decoded.indexOf("\r\n\r\n");
     if (splitIdx === -1) {
       const lfIdx = decoded.indexOf("\n\n");
@@ -101,7 +107,9 @@ export default function AgentMessageFocusPage() {
   const [rejectReason, setRejectReason] = useState("");
 
   // Try outbound first (focus is most often a Pending draft from the
-  // inbox callout); fall back to inbound on 404.
+  // inbox callout); fall back to inbound only on 404. A 500/401/etc.
+  // from outbound is surfaced as-is — falling through would mask the
+  // real server error behind "not found".
   useEffect(() => {
     if (!email || !id) return;
     let cancelled = false;
@@ -112,9 +120,15 @@ export default function AgentMessageFocusPage() {
         setMsg({ direction: "outbound", data: out });
         setDraftBody(out.body_text ?? "");
       } catch (outErr) {
-        // Outbound 404 → try inbound. Any other error from outbound is
-        // still surfaced as a fallback attempt — getInboundMessage will
-        // return its own error if the id isn't an inbound either.
+        if (cancelled) return;
+        const out404 = outErr instanceof ApiError && outErr.status === 404;
+        if (!out404) {
+          setError(
+            outErr instanceof Error ? outErr.message : "Failed to load message",
+          );
+          return;
+        }
+        // Outbound returned a real 404 → try inbound.
         try {
           const inb = await getInboundMessage(email, id);
           if (cancelled) return;
@@ -122,11 +136,7 @@ export default function AgentMessageFocusPage() {
         } catch (inbErr) {
           if (cancelled) return;
           setError(
-            inbErr instanceof Error
-              ? inbErr.message
-              : outErr instanceof Error
-                ? outErr.message
-                : "Message not found",
+            inbErr instanceof Error ? inbErr.message : "Message not found",
           );
         }
       }
@@ -140,9 +150,9 @@ export default function AgentMessageFocusPage() {
 
   const inboxLink = `/dashboard/agents/messages?email=${encodeURIComponent(email)}`;
   const convLink = msg?.direction === "outbound"
-    ? `${inboxLink}#${msg.data.conversation_id || `msg:${msg.data.id}`}`
+    ? `${inboxLink}#${msg.data.conversation_id ? `conv:${msg.data.conversation_id}` : `orphan:${msg.data.id}`}`
     : msg?.direction === "inbound"
-      ? `${inboxLink}#${msg.data.conversation_id || `msg:${msg.data.message_id}`}`
+      ? `${inboxLink}#${msg.data.conversation_id ? `conv:${msg.data.conversation_id}` : `orphan:${msg.data.message_id}`}`
       : inboxLink;
 
   const onApprove = useCallback(async () => {
@@ -216,28 +226,40 @@ export default function AgentMessageFocusPage() {
   }
 
   // Direction-specific shaping for the title row + identity line.
+  // PendingMessageDetail uses `id`, InboundMessageDetail uses
+  // `message_id`; everything else lives at the same key under both
+  // shapes, so we only narrow at the points where the shapes differ.
   const direction = msg.direction;
-  const directionLabel = direction === "outbound"
-    ? (msg.data.type === "reply" ? "outbound · reply" : "outbound")
-    : "inbound";
-  const subject = direction === "outbound" ? msg.data.subject : msg.data.subject;
+  const directionLabel =
+    direction === "outbound"
+      ? msg.data.type === "reply"
+        ? "outbound · reply"
+        : "outbound"
+      : "inbound";
+  const subject = msg.data.subject;
   const from = direction === "outbound" ? email : msg.data.from;
-  const to = direction === "outbound"
-    ? (msg.data.to?.[0] ?? "")
-    : email;
-  const convId = direction === "outbound" ? msg.data.conversation_id : msg.data.conversation_id;
-  const createdAt = direction === "outbound" ? msg.data.created_at : msg.data.created_at;
+  const to = direction === "outbound" ? msg.data.to?.[0] ?? "" : email;
+  const convId = msg.data.conversation_id;
+  const createdAt = msg.data.created_at;
   const messageId = direction === "outbound" ? msg.data.id : msg.data.message_id;
-  const inReplyTo = direction === "outbound" && msg.data.inbound
-    ? { sender: msg.data.inbound.sender, createdAt: msg.data.inbound.created_at, parentId: msg.data.email_message_id }
-    : null;
-  const expiresIn = direction === "outbound" ? formatExpiresIn(msg.data.approval_expires_at) : null;
+  const inReplyTo =
+    direction === "outbound" && msg.data.inbound
+      ? {
+          sender: msg.data.inbound.sender,
+          createdAt: msg.data.inbound.created_at,
+          parentId: msg.data.email_message_id,
+        }
+      : null;
+  const expiresIn =
+    direction === "outbound"
+      ? formatExpiresIn(msg.data.approval_expires_at)
+      : null;
 
   return (
     <div
       data-testid="message-focus"
       data-direction={direction}
-      data-status={direction === "outbound" ? msg.data.status : msg.data.status}
+      data-status={msg.data.status}
       className="flex-1 min-h-0 overflow-y-auto"
       style={{ padding: "24px 28px 32px" }}
     >
@@ -572,6 +594,17 @@ function HeadersCollapsible({ msg, defaultOpen }: { msg: LoadedMessage; defaultO
   );
 }
 
+// Strip control chars (and stray CR/LF) from upstream-supplied header
+// values so they paste cleanly out of the InkConsole's copy button.
+// Upstream SMTP servers can legally include 8-bit bytes in continuation
+// lines; React escapes for the DOM but the copy buffer would still
+// carry the raw value. Truncate to a sane length too.
+function scrubHeaderValue(raw: string): string {
+  if (!raw) return raw;
+  const stripped = raw.replace(/[\x00-\x1f\x7f]+/g, " ");
+  return stripped.length > 200 ? stripped.slice(0, 197) + "…" : stripped;
+}
+
 function buildInboundHeaderLines(d: InboundMessageDetail): InkLine[] {
   const lines: InkLine[] = [
     { c: "comment", text: "# captured at receive-time" },
@@ -600,8 +633,11 @@ function buildInboundHeaderLines(d: InboundMessageDetail): InkLine[] {
     },
   ];
   // Surface every X-E2A-Auth-* + Received-SPF + Authentication-Results
-  // header we got. The auth_headers map preserves the wire order.
-  for (const [k, v] of Object.entries(d.auth_headers ?? {})) {
+  // header we got. Values are scrubbed for clipboard safety — upstream
+  // SMTP could embed control chars that would otherwise pollute the
+  // copy buffer when a reviewer pastes from the InkConsole.
+  for (const [k, rawV] of Object.entries(d.auth_headers ?? {})) {
+    const v = scrubHeaderValue(rawV);
     lines.push({
       node: (
         <span>
@@ -663,7 +699,8 @@ function buildOutboundHeaderLines(d: PendingMessageDetail): InkLine[] {
   }
   if (d.inbound?.auth_headers) {
     lines.push({ c: "comment", text: "# parent inbound auth" });
-    for (const [k, v] of Object.entries(d.inbound.auth_headers)) {
+    for (const [k, rawV] of Object.entries(d.inbound.auth_headers)) {
+      const v = scrubHeaderValue(rawV);
       lines.push({
         node: (
           <span>

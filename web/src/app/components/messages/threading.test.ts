@@ -31,22 +31,54 @@ describe("groupIntoThreads", () => {
     ];
     const threads = groupIntoThreads(rows, NOW);
     expect(threads).toHaveLength(1);
-    expect(threads[0].key).toBe("conv_A");
+    expect(threads[0].key).toBe("conv:conv_A");
     expect(threads[0].conversationId).toBe("conv_A");
     expect(threads[0].msgCount).toBe(2);
     // Ordered oldest → newest inside the thread.
     expect(threads[0].messages.map((m) => m.message_id)).toEqual(["m1", "m2"]);
   });
 
-  it("orphan messages (no conversation_id) become single-message threads keyed msg:<id>", () => {
+  it("orphan messages (no conversation_id) become single-message threads keyed orphan:<id>", () => {
     const rows: MessageSummary[] = [
       msg({ message_id: "m_solo", subject: "GitHub PR merged", created_at: isoMinutesAgo(NOW, 30) }),
     ];
     const threads = groupIntoThreads(rows, NOW);
     expect(threads).toHaveLength(1);
-    expect(threads[0].key).toBe("msg:m_solo");
+    expect(threads[0].key).toBe("orphan:m_solo");
     expect(threads[0].conversationId).toBeUndefined();
     expect(threads[0].msgCount).toBe(1);
+  });
+
+  // Real and synthetic thread keys live in separate prefixed namespaces
+  // (`conv:` and `orphan:`) so an operator-controlled `conversation_id`
+  // can't collide with the synthetic key namespace. Pin the invariant
+  // so a future change can't silently regress it.
+  it("real conversation_id starting with 'orphan:' does NOT collide with the synthetic namespace", () => {
+    const rows: MessageSummary[] = [
+      msg({
+        message_id: "m_collide",
+        conversation_id: "orphan:nefarious",
+        subject: "Operator-controlled conv_id",
+        created_at: isoMinutesAgo(NOW, 30),
+      }),
+      msg({
+        message_id: "nefarious",
+        subject: "Real orphan",
+        created_at: isoMinutesAgo(NOW, 25),
+      }),
+    ];
+    const threads = groupIntoThreads(rows, NOW);
+    // Two distinct threads — the dual-prefix scheme means the keys
+    // can't collide even when the operator tries.
+    expect(threads).toHaveLength(2);
+    const keys = threads.map((t) => t.key).sort();
+    expect(keys).toEqual(["conv:orphan:nefarious", "orphan:nefarious"]);
+    const real = threads.find((t) => t.key === "conv:orphan:nefarious");
+    const synthetic = threads.find((t) => t.key === "orphan:nefarious");
+    expect(real?.messages[0].message_id).toBe("m_collide");
+    expect(real?.conversationId).toBe("orphan:nefarious");
+    expect(synthetic?.messages[0].message_id).toBe("nefarious");
+    expect(synthetic?.conversationId).toBeUndefined();
   });
 
   it("derives state='pending' when any message in the thread is pending_approval", () => {
@@ -108,7 +140,7 @@ describe("groupIntoThreads", () => {
       }),
     ];
     const threads = groupIntoThreads(rows, NOW);
-    expect(threads.map((t) => t.key)).toEqual(["conv_PEND", "conv_NEW", "conv_OLD"]);
+    expect(threads.map((t) => t.key)).toEqual(["conv:conv_PEND", "conv:conv_NEW", "conv:conv_OLD"]);
   });
 
   it("counterparty for inbound uses the sender; for outbound uses to[0]", () => {
@@ -153,13 +185,13 @@ describe("findThread", () => {
   );
 
   it("returns the thread matching the key", () => {
-    const t = findThread(threads, "conv_A");
-    expect(t?.key).toBe("conv_A");
+    const t = findThread(threads, "conv:conv_A");
+    expect(t?.key).toBe("conv:conv_A");
   });
 
-  it("matches synthetic msg:<id> keys", () => {
-    const t = findThread(threads, "msg:m_solo");
-    expect(t?.key).toBe("msg:m_solo");
+  it("matches synthetic orphan:<id> keys", () => {
+    const t = findThread(threads, "orphan:m_solo");
+    expect(t?.key).toBe("orphan:m_solo");
   });
 
   it("falls back to the first thread when the key is unknown or null", () => {

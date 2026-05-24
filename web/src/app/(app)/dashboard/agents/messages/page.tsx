@@ -11,7 +11,7 @@
 // Selection state lives in `window.location.hash` (#conv_X or #msg:X)
 // so deep-links work and the back button moves between threads.
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { listAgentMessages } from "../../../../components/onboarding/api";
 import type { MessageSummary } from "../../../../components/types";
@@ -42,6 +42,13 @@ export default function AgentInboxPage() {
   const [error, setError] = useState("");
   const [nextToken, setNextToken] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+
+  // Tracks the most recently-rendered email so async work (loadOlder
+  // in particular) can detect whether the user has navigated to a
+  // different agent mid-flight. Without this, a `loadOlder` response
+  // from agent A could append into agent B's `rows`.
+  const emailRef = useRef(email);
+  emailRef.current = email;
 
   useEffect(() => {
     if (!email) return;
@@ -96,20 +103,26 @@ export default function AgentInboxPage() {
 
   const loadOlder = async () => {
     if (!nextToken) return;
+    // Capture the email at call time so we can detect a navigation
+    // (?email=… changed) before the response lands. Without this, a
+    // late response would merge into the wrong agent's rows.
+    const startEmail = email;
     setLoadingMore(true);
     try {
-      const res = await listAgentMessages(email, {
+      const res = await listAgentMessages(startEmail, {
         direction: "all",
         status: "all",
         pageSize: 100,
         token: nextToken,
       });
+      if (emailRef.current !== startEmail) return;
       setRows((prev) => (prev ? [...prev, ...res.messages] : res.messages));
       setNextToken(res.next_token ?? null);
     } catch (err) {
+      if (emailRef.current !== startEmail) return;
       setError(err instanceof Error ? err.message : "Failed to load older messages");
     } finally {
-      setLoadingMore(false);
+      if (emailRef.current === startEmail) setLoadingMore(false);
     }
   };
 

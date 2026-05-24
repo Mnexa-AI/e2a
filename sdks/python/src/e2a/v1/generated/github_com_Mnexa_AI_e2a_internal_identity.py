@@ -85,6 +85,10 @@ class Message(BaseModel):
     email_message_id: str | None = None
     expires_at: str | None = None
     id: str | None = None
+    inbox_status: str | None = Field(
+        None,
+        description="InboxStatus mirrors messages.inbox_status ('unread' | 'read') for\ninbound rows. Kept separate from DeliveryStatus (which currently\ncarries the same value under a confusing JSON key — see line 161)\nso the dashboard's inbox can read it under a non-overloaded key.\nEmpty on outbound rows. Populated by GetMessagesByAgent.",
+    )
     method: str | None = None
     provider_message_id: str | None = None
     raw_message: list[int] | None = None
@@ -104,6 +108,10 @@ class Message(BaseModel):
         description='ReviewedByUserID identifies the human reviewer who approved or\nrejected this message. NULL on worker-triggered transitions\n(TTL auto-approve / auto-reject) — operator-visible signal "no\nhuman looked at this." Set by ApproveAndSend and RejectPending,\nleft null by ExpireApproveAndSend / ExpireReject.',
     )
     sender: str | None = None
+    size_bytes: int | None = Field(
+        None,
+        description='SizeBytes is the byte length of raw_message. Populated by load paths\nthat compute it (e.g. GetMessagesByAgent for the dashboard inbox).\nZero on load paths that don\'t — the inbox renders "—" in that case.',
+    )
     status: str | None = Field(
         None,
         description="HITL approval fields. Status defaults to 'sent'; body and attachments\nare populated only while a message is in 'pending_approval', and are\nscrubbed on any terminal transition.",

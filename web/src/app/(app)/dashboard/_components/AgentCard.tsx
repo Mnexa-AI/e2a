@@ -61,16 +61,25 @@ export function AgentCard({
             )}
             <Link
               href={`/dashboard/agents/messages?email=${encodeURIComponent(agent.email)}`}
-              className="font-mono text-[13px] px-2 py-0.5 break-all hover:underline"
+              className="hover:underline"
               style={{
-                background: "var(--bg-elev)",
-                border: "1px solid var(--border-sub)",
-                borderRadius: "var(--r-sm)",
-                color: "var(--fg)",
                 textDecoration: "none",
+                display: "inline-block",
               }}
             >
-              {agent.email}
+              {/* Keep the email wrapped in a real <code> so screen
+                  readers announce it as code, not generic link text. */}
+              <code
+                className="font-mono text-[13px] px-2 py-0.5 break-all"
+                style={{
+                  background: "var(--bg-elev)",
+                  border: "1px solid var(--border-sub)",
+                  borderRadius: "var(--r-sm)",
+                  color: "var(--fg)",
+                }}
+              >
+                {agent.email}
+              </code>
             </Link>
             <Chip tone={agent.domain_verified ? "success" : "warn"}>
               <Dot tone={agent.domain_verified ? "success" : "warn"} />

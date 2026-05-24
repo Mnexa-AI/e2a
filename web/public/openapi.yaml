@@ -930,6 +930,14 @@ definitions:
         type: string
       id:
         type: string
+      inbox_status:
+        description: |-
+          InboxStatus mirrors messages.inbox_status ('unread' | 'read') for
+          inbound rows. Kept separate from DeliveryStatus (which currently
+          carries the same value under a confusing JSON key — see line 161)
+          so the dashboard's inbox can read it under a non-overloaded key.
+          Empty on outbound rows. Populated by GetMessagesByAgent.
+        type: string
       method:
         type: string
       provider_message_id:
@@ -970,6 +978,12 @@ definitions:
         type: string
       sender:
         type: string
+      size_bytes:
+        description: |-
+          SizeBytes is the byte length of raw_message. Populated by load paths
+          that compute it (e.g. GetMessagesByAgent for the dashboard inbox).
+          Zero on load paths that don't — the inbox renders "—" in that case.
+        type: integer
       status:
         description: |-
           HITL approval fields. Status defaults to 'sent'; body and attachments
@@ -1229,7 +1243,8 @@ paths:
     get:
       description: Fetch messages for an agent. Returns lightweight summaries (no
         raw message content). Supports opaque token-based pagination via `page_size`
-        and `token`.
+        and `token`. `direction` defaults to `inbound` for SDK back-compat; the dashboard
+        inbox passes `direction=all` to fetch mixed inbound+outbound rows newest-first.
       parameters:
       - description: Agent email address
         example: my-bot@example.com
@@ -1237,8 +1252,18 @@ paths:
         name: email
         required: true
         type: string
+      - default: inbound
+        description: Filter by message direction
+        enum:
+        - inbound
+        - outbound
+        - all
+        in: query
+        name: direction
+        type: string
       - default: unread
-        description: Filter by message status
+        description: Filter by inbox status (only meaningful when direction includes
+          inbound)
         enum:
         - unread
         - read

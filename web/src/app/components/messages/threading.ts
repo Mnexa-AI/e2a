@@ -1,10 +1,16 @@
 // Pure threading logic for the dashboard inbox.
 //
 // We group MessageSummary rows by conversation_id. Rows without a
-// conversation_id become single-message synthetic threads keyed
-// `msg:<message_id>` — they show up in the inbox as one-message threads
-// with the conv chip line omitted. Matches an email-client UX where
-// standalone notifications appear as 1-message threads.
+// conversation_id become single-message synthetic threads. To prevent
+// a malicious or accidental conversation_id from colliding with the
+// synthetic namespace, we prefix BOTH kinds:
+//   - real conv_id → key `conv:<conv_id>`
+//   - synthetic    → key `orphan:<message_id>`
+// Prefixes are added by this code, never extracted from operator input
+// — even if the SDK caller sends `conversation_id="orphan:foo"`, the
+// resulting thread key is `conv:orphan:foo`, which does not collide
+// with the synthetic key `orphan:foo`. The URL fragment uses these
+// prefixed keys directly.
 //
 // All inputs are pure: no Date.now() side effects (caller passes `now`),
 // no I/O. That keeps the unit tests deterministic.
@@ -19,7 +25,7 @@ export type Counterparty = {
 };
 
 export type Thread = {
-  /** Stable key — real conv_id for grouped threads, `msg:<id>` for orphans. */
+  /** Stable key — `conv:<conv_id>` for grouped threads, `orphan:<id>` for synthetic ones. */
   key: string;
   /** Real conversation_id when present; undefined for synthetic threads. */
   conversationId?: string;
@@ -97,8 +103,8 @@ export function groupIntoThreads(
 
   for (const m of rows) {
     const key = m.conversation_id
-      ? m.conversation_id
-      : `msg:${m.message_id}`;
+      ? `conv:${m.conversation_id}`
+      : `orphan:${m.message_id}`;
     const bucket = buckets.get(key);
     if (bucket) bucket.push(m);
     else buckets.set(key, [m]);

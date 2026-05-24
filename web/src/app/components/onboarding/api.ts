@@ -17,6 +17,19 @@ import type {
   PendingAttachment,
 } from "../types";
 
+/** Thrown by `request` on any non-2xx HTTP response. Carries the raw
+ *  status code so callers can branch on 404 vs 500 vs 401 (the
+ *  messages focus page uses this to distinguish "fall back to inbound
+ *  endpoint" from "surface the real server error"). */
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     credentials: "include",
@@ -25,7 +38,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || `Request failed (${res.status})`);
+    throw new ApiError(text || `Request failed (${res.status})`, res.status);
   }
   // Successful mutation endpoints may return no body.
   if (res.status === 204) return undefined as T;

@@ -236,4 +236,122 @@ describe("AgentMessageFocusPage", () => {
 
     expect(screen.getByText(/Missing \?email= or \?id=/)).toBeInTheDocument();
   });
+
+  // M1 regression test: a 500 from the outbound endpoint must NOT fall
+  // through to the inbound endpoint — that masked the real server
+  // error as "Message not found" in the earlier implementation.
+  it("surfaces the outbound error message when the outbound endpoint returns 500", async () => {
+    setSearchParams({ email: "support@acme.io", id: "msg_unknown" });
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/v1/messages/") && !url.includes("/agents/")) {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          text: () => Promise.resolve("internal server error"),
+        });
+      }
+      // Inbound mock — should NOT be reached on a non-404.
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve("not found"),
+      });
+    });
+
+    render(<AgentMessageFocusPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/internal server error/)).toBeInTheDocument();
+    });
+    // Verify inbound endpoint was never called.
+    const calls = mockFetch.mock.calls.map(([url]: [string]) => url);
+    expect(calls.some((u) => u.includes("/api/v1/agents/"))).toBe(false);
+  });
+
+  it("submits the edited body_text in the approve overrides when Edit + Approve is used", async () => {
+    setSearchParams({ email: "support@acme.io", id: "msg_pending" });
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+    let approveBody: string | null = null;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/api/v1/messages/msg_pending") && !url.endsWith("/approve") && !url.endsWith("/reject")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(OUTBOUND_PENDING),
+        });
+      }
+      if (url.endsWith("/approve") && init?.method === "POST") {
+        approveBody = (init.body as string) || "";
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ status: "sent", message_id: "msg_pending" }),
+        });
+      }
+      return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve("not found") });
+    });
+
+    render(<AgentMessageFocusPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("action-card")).toBeInTheDocument();
+    });
+
+    // Click "edit draft" link in the body card footer to enter edit mode.
+    await user.click(screen.getByText(/^edit draft$/i));
+    // Textarea now exists; type a different body.
+    const textarea = screen.getByRole("textbox");
+    await user.clear(textarea);
+    await user.type(textarea, "Edited body");
+
+    await user.click(screen.getByRole("button", { name: /Approve & send/i }));
+
+    await waitFor(() => {
+      expect(approveBody).not.toBeNull();
+    });
+    expect(approveBody).toContain('"body_text":"Edited body"');
+  });
+
+  it("Reject confirm flow posts the reason and redirects to the thread", async () => {
+    setSearchParams({ email: "support@acme.io", id: "msg_pending" });
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+    let rejectBody: string | null = null;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/api/v1/messages/msg_pending") && !url.endsWith("/approve") && !url.endsWith("/reject")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(OUTBOUND_PENDING),
+        });
+      }
+      if (url.endsWith("/reject") && init?.method === "POST") {
+        rejectBody = (init.body as string) || "";
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ status: "rejected", message_id: "msg_pending" }),
+        });
+      }
+      return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve("not found") });
+    });
+
+    render(<AgentMessageFocusPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("action-card")).toBeInTheDocument();
+    });
+
+    // First click → opens the inline confirm prompt with a reason field.
+    await user.click(screen.getByRole("button", { name: /^Reject$/ }));
+    const reasonInput = screen.getByPlaceholderText(/Reason for rejection/i);
+    await user.type(reasonInput, "off-topic");
+    // Second click on Confirm reject fires the API.
+    await user.click(screen.getByRole("button", { name: /Confirm reject/i }));
+
+    await waitFor(() => {
+      expect(rejectBody).not.toBeNull();
+    });
+    expect(rejectBody).toContain('"reason":"off-topic"');
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      expect.stringContaining("/dashboard/agents/messages?email=support%40acme.io"),
+    );
+  });
 });

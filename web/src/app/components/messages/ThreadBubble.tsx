@@ -12,20 +12,10 @@
 import { Chip } from "../loft/Chip";
 import { Dot } from "../loft/Dot";
 import { CounterpartyAvatar } from "./CounterpartyAvatar";
+import { deriveStatusChip } from "./MessageStatusChip";
+import { formatRelativeAge } from "../../../lib/relativeTime";
 import type { MessageSummary } from "../types";
 import type { Counterparty } from "./threading";
-
-function formatRelativeAge(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  if (diff < 0 || isNaN(diff)) return "—";
-  const sec = Math.floor(diff / 1000);
-  if (sec < 60) return "just now";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
-}
 
 function formatSize(bytes?: number): string {
   if (!bytes || bytes <= 0) return "";
@@ -216,19 +206,46 @@ export function ThreadBubble({
   );
 }
 
+// Webhook error strings are uncontrolled by us — they come from
+// whatever the customer's webhook target returned (often URLs with
+// query strings or sometimes echoed credentials). Truncate to a sane
+// length and strip query parameters from anything that looks like a
+// URL so screen-shares / screenshots don't accidentally leak request
+// internals.
+function scrubWebhookError(raw: string): string {
+  if (!raw) return "";
+  const stripped = raw.replace(/(https?:\/\/[^\s?]+)\?[^\s]*/gi, "$1?…");
+  return stripped.length > 80 ? stripped.slice(0, 77) + "…" : stripped;
+}
+
+// Inline status snippet for the bubble footer. Shares precedence with
+// the focus-page chip (`deriveStatusChip`) — single source of truth.
+// Re-uses the chip's `Failed` / `Pending` / `Rejected` / `Sent` /
+// `Sent (auto)` / `Auto-rejected` labels, lowercased for the mono
+// footer aesthetic, with the (scrubbed) webhook error appended when
+// delivery failed.
 function OutboundStatusInline({ message }: { message: MessageSummary }) {
-  if (message.webhook_status === "failed") {
-    return (
-      <span style={{ color: "var(--danger-strong)" }}>
-        failed{message.webhook_error ? ` · ${message.webhook_error}` : ""}
-      </span>
-    );
-  }
-  if (message.hitl_status === "pending_approval") {
-    return <span style={{ color: "var(--warn-strong)" }}>awaiting approval</span>;
-  }
-  if (message.hitl_status === "rejected" || message.hitl_status === "expired_rejected") {
-    return <span style={{ color: "var(--danger-strong)" }}>rejected</span>;
-  }
-  return <span style={{ color: "var(--success)" }}>sent</span>;
+  const spec = deriveStatusChip({
+    direction: "outbound",
+    hitl_status: message.hitl_status,
+    webhook_status: message.webhook_status,
+  });
+  const color =
+    spec.tone === "danger"
+      ? "var(--danger-strong)"
+      : spec.tone === "warn"
+        ? "var(--warn-strong)"
+        : spec.tone === "success"
+          ? "var(--success)"
+          : "var(--fg-muted)";
+  const errSuffix =
+    message.webhook_status === "failed" && message.webhook_error
+      ? ` · ${scrubWebhookError(message.webhook_error)}`
+      : "";
+  return (
+    <span style={{ color }}>
+      {spec.label.toLowerCase()}
+      {errSuffix}
+    </span>
+  );
 }

@@ -114,8 +114,8 @@ describe("AgentInboxPage", () => {
     });
     // Pending thread sorts to the top.
     const rows = screen.getAllByTestId("thread-row");
-    expect(rows[0].dataset.threadKey).toBe("conv_K3p9aQ");
-    expect(rows[1].dataset.threadKey).toBe("msg:msg_solo");
+    expect(rows[0].dataset.threadKey).toBe("conv:conv_K3p9aQ");
+    expect(rows[1].dataset.threadKey).toBe("orphan:msg_solo");
   });
 
   it("orphan inbound (no conversation_id) renders as a single-message thread", async () => {
@@ -131,7 +131,7 @@ describe("AgentInboxPage", () => {
     // care that *some* element renders it.
     expect(screen.getAllByText("PR #2841 merged").length).toBeGreaterThan(0);
     // Synthetic thread key — used by the URL fragment when selected.
-    expect(screen.getByTestId("thread-row").dataset.threadKey).toBe("msg:msg_solo");
+    expect(screen.getByTestId("thread-row").dataset.threadKey).toBe("orphan:msg_solo");
   });
 
   it("pending callout appears in the thread detail when a thread is pending", async () => {
@@ -180,7 +180,7 @@ describe("AgentInboxPage", () => {
     mockMessages([PENDING_REPLY, PARENT_INBOUND, ORPHAN_INBOUND]);
 
     // Pre-set the hash before render — useSyncExternalStore picks it up.
-    window.history.replaceState(null, "", "#msg:msg_solo");
+    window.history.replaceState(null, "", "#orphan:msg_solo");
 
     render(<AgentInboxPage />);
 

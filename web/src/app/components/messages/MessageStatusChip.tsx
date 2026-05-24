@@ -1,13 +1,19 @@
-// Maps a message's (direction, status, webhook_status) to a Loft Chip.
+// Maps a message's (direction, hitl_status, webhook_status, inbox_status)
+// to a Loft Chip. The chip is the single source of truth for tone +
+// label across the inbox bubble footer and the focus-page title row.
 //
-// Status taxonomy comes from two sources in the backend:
-//   - Outbound messages carry status: pending_approval | sent | rejected |
-//     expired_approved | expired_rejected. Webhook delivery failure is
-//     surfaced separately via webhook_status='failed'.
-//   - Inbound messages carry inbox_status: unread | read.
+// Status taxonomy in the backend:
+//   - Outbound `hitl_status`: 'sent' | 'pending_approval' | 'rejected'
+//     | 'expired_approved' | 'expired_rejected'.
+//   - Outbound `webhook_status`: webhook delivery state. 'failed' is
+//     terminal post-retry-exhaustion.
+//   - Inbound `inbox_status`: 'unread' | 'read'.
 //
-// The chip collapses both into the visual vocabulary documented in
-// agent_messages/README.md → "Status chip mapping".
+// Precedence: webhook_status='failed' dominates HITL state on outbound.
+// The data model can't currently produce "pending_approval + failed"
+// concurrently (delivery only fires post-approval), but if it ever
+// does the chip surfaces Failed — delivery is a louder alarm than a
+// stale-but-recoverable approval.
 
 import { Chip } from "../loft/Chip";
 import { Dot } from "../loft/Dot";
@@ -15,11 +21,11 @@ import type { ChipTone } from "../loft/Chip";
 
 export type MessageStatusInput = {
   direction: "inbound" | "outbound";
-  // Outbound-only — the HITL/send lifecycle.
-  status?: string;
-  // Outbound-only — failed when retries are exhausted.
+  /** Outbound HITL/send lifecycle. Empty on inbound. */
+  hitl_status?: string;
+  /** Outbound webhook delivery state. */
   webhook_status?: string;
-  // Inbound-only — unread until the agent has read it (poll-mode).
+  /** Inbound unread→read marker. Empty on outbound. */
   inbox_status?: string;
 };
 
@@ -30,7 +36,7 @@ export function deriveStatusChip(m: MessageStatusInput): ChipSpec {
     if (m.webhook_status === "failed") {
       return { tone: "danger", label: "Failed", dot: true };
     }
-    switch (m.status) {
+    switch (m.hitl_status) {
       case "pending_approval":
         return { tone: "warn", label: "Pending", dot: true };
       case "rejected":
@@ -44,7 +50,7 @@ export function deriveStatusChip(m: MessageStatusInput): ChipSpec {
       case "":
         return { tone: "success", label: "Sent" };
       default:
-        return { tone: "neutral", label: m.status };
+        return { tone: "neutral", label: m.hitl_status };
     }
   }
   // Inbound

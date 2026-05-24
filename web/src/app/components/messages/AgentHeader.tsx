@@ -14,6 +14,7 @@ import { Chip } from "../loft/Chip";
 import { Dot } from "../loft/Dot";
 import { Eyebrow } from "../loft/Eyebrow";
 import { CounterpartyAvatar } from "./CounterpartyAvatar";
+import { formatRelativeAge } from "../../../lib/relativeTime";
 import type { DashboardAgent } from "../types";
 
 export type AgentTab = "overview" | "messages" | "webhooks" | "settings";
@@ -27,19 +28,6 @@ const TABS: { key: AgentTab; label: string; slug: string; ready: boolean }[] = [
   { key: "settings", label: "Settings", slug: "settings", ready: false },
 ];
 
-function formatRelativeAge(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  const diff = Date.now() - new Date(iso).getTime();
-  if (diff < 0 || isNaN(diff)) return null;
-  const sec = Math.floor(diff / 1000);
-  if (sec < 60) return "just now";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
-}
-
 export function AgentHeader({
   agent,
   tab,
@@ -48,7 +36,12 @@ export function AgentHeader({
   tab: AgentTab;
 }) {
   const isCloud = agent.agent_mode !== "local";
-  const lastDelivery = formatRelativeAge(agent.last_delivery_at);
+  // Suppress the meta sub-line "last delivery" segment when we have no
+  // timestamp — the shared helper returns "—" which would render as
+  // "· last delivery —", but the design omits the segment entirely.
+  const lastDelivery = agent.last_delivery_at
+    ? formatRelativeAge(agent.last_delivery_at)
+    : null;
   const emailQs = encodeURIComponent(agent.email);
 
   return (

@@ -316,12 +316,14 @@ export interface paths {
         };
         /**
          * List messages for an agent
-         * @description Fetch messages for an agent. Returns lightweight summaries (no raw message content). Supports opaque token-based pagination via `page_size` and `token`.
+         * @description Fetch messages for an agent. Returns lightweight summaries (no raw message content). Supports opaque token-based pagination via `page_size` and `token`. `direction` defaults to `inbound` for SDK back-compat; the dashboard inbox passes `direction=all` to fetch mixed inbound+outbound rows newest-first.
          */
         get: {
             parameters: {
                 query?: {
-                    /** @description Filter by message status */
+                    /** @description Filter by message direction */
+                    direction?: "inbound" | "outbound" | "all";
+                    /** @description Filter by inbox status (only meaningful when direction includes inbound) */
                     status?: "unread" | "read" | "all";
                     /** @description Number of messages per page (1-100) */
                     page_size?: number;
@@ -2240,6 +2242,14 @@ export interface components {
             email_message_id?: string;
             expires_at?: string;
             id?: string;
+            /**
+             * @description InboxStatus mirrors messages.inbox_status ('unread' | 'read') for
+             *     inbound rows. Kept separate from DeliveryStatus (which currently
+             *     carries the same value under a confusing JSON key — see line 161)
+             *     so the dashboard's inbox can read it under a non-overloaded key.
+             *     Empty on outbound rows. Populated by GetMessagesByAgent.
+             */
+            inbox_status?: string;
             method?: string;
             provider_message_id?: string;
             raw_message?: number[];
@@ -2269,6 +2279,12 @@ export interface components {
              */
             reviewed_by_user_id?: string;
             sender?: string;
+            /**
+             * @description SizeBytes is the byte length of raw_message. Populated by load paths
+             *     that compute it (e.g. GetMessagesByAgent for the dashboard inbox).
+             *     Zero on load paths that don't — the inbox renders "—" in that case.
+             */
+            size_bytes?: number;
             /**
              * @description HITL approval fields. Status defaults to 'sent'; body and attachments
              *     are populated only while a message is in 'pending_approval', and are
