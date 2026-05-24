@@ -104,6 +104,45 @@ function isActive(pathname: string, item: NavItem | { href: string; matchPrefix?
   return pathname === item.href;
 }
 
+// BottomNavLink renders a single bottom-of-sidebar entry (Settings,
+// Send feedback) with the same active-state treatment the main
+// NAV_ITEMS loop applies — ember inset shadow + elevated background +
+// non-muted text + aria-current=page. The two visually-similar links
+// previously diverged: Settings had the full active treatment inlined
+// (4× redundant `isActive(...)` calls), Feedback had no active
+// treatment at all. Factoring them through one component closes that
+// asymmetry and keeps the keyboard/screen-reader contract consistent.
+function BottomNavLink({
+  href,
+  icon,
+  label,
+  pathname,
+}: {
+  href: string;
+  icon: IconKey;
+  label: string;
+  pathname: string;
+}) {
+  const active = isActive(pathname, { href });
+  return (
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className="flex items-center gap-2.5 px-3 py-2 text-[13px] font-sans"
+      style={{
+        borderRadius: "var(--r-md)",
+        fontWeight: active ? 500 : 400,
+        color: active ? "var(--fg)" : "var(--fg-muted)",
+        background: active ? "var(--bg-elev)" : "transparent",
+        boxShadow: active ? "inset 2px 0 0 var(--accent)" : "none",
+      }}
+    >
+      <NavIcon kind={icon} />
+      {label}
+    </Link>
+  );
+}
+
 function userInitials(user: { name?: string; email: string }): string {
   if (user.name) {
     const parts = user.name.trim().split(/\s+/);
@@ -232,37 +271,18 @@ export function Sidebar({
         className="px-3 pt-2.5 pb-3.5"
         style={{ borderTop: "1px solid var(--border)" }}
       >
-        <Link
+        <BottomNavLink
           href="/settings"
-          className="flex items-center gap-2.5 px-3 py-2 text-[13px] font-sans"
-          style={{
-            borderRadius: "var(--r-md)",
-            fontWeight: isActive(pathname, { href: "/settings" }) ? 500 : 400,
-            color: isActive(pathname, { href: "/settings" })
-              ? "var(--fg)"
-              : "var(--fg-muted)",
-            background: isActive(pathname, { href: "/settings" })
-              ? "var(--bg-elev)"
-              : "transparent",
-            boxShadow: isActive(pathname, { href: "/settings" })
-              ? "inset 2px 0 0 var(--accent)"
-              : "none",
-          }}
-        >
-          <NavIcon kind="settings" />
-          Settings
-        </Link>
-        <Link
+          icon="settings"
+          label="Settings"
+          pathname={pathname}
+        />
+        <BottomNavLink
           href="/feedback"
-          className="flex items-center gap-2.5 px-3 py-2 text-[13px] font-sans"
-          style={{
-            borderRadius: "var(--r-md)",
-            color: "var(--fg-muted)",
-          }}
-        >
-          <NavIcon kind="msg" />
-          Send feedback
-        </Link>
+          icon="msg"
+          label="Send feedback"
+          pathname={pathname}
+        />
 
         {/* User card */}
         {user && (

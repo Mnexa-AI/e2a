@@ -129,3 +129,39 @@ describe("Sidebar — nav entries", () => {
     expect(pending?.textContent).toContain("3");
   });
 });
+
+// Pin the active-state contract for the bottom-of-sidebar links
+// (Settings, Send feedback). These used to diverge — Settings had full
+// active styling, Feedback had none — so a user on /feedback would see
+// no nav-highlight cue at all. Pinning both via aria-current=page so
+// the asymmetry can't reappear.
+describe("Sidebar — bottom-section active state", () => {
+  it("highlights Settings when pathname is /settings", () => {
+    mockPathname = "/settings";
+    render(<Sidebar />);
+    const settings = document.querySelector(`a[href="/settings"]`);
+    expect(settings).toHaveAttribute("aria-current", "page");
+    // Sibling Feedback link must NOT be active.
+    const feedback = document.querySelector(`a[href="/feedback"]`);
+    expect(feedback).not.toHaveAttribute("aria-current", "page");
+  });
+
+  it("highlights Send feedback when pathname is /feedback", () => {
+    mockPathname = "/feedback";
+    render(<Sidebar />);
+    const feedback = document.querySelector(`a[href="/feedback"]`);
+    expect(feedback).toHaveAttribute("aria-current", "page");
+    // Sibling Settings link must NOT be active.
+    const settings = document.querySelector(`a[href="/settings"]`);
+    expect(settings).not.toHaveAttribute("aria-current", "page");
+  });
+
+  it("leaves both bottom links unmarked when pathname is elsewhere", () => {
+    mockPathname = "/dashboard";
+    render(<Sidebar />);
+    expect(document.querySelector(`a[href="/settings"]`))
+      .not.toHaveAttribute("aria-current", "page");
+    expect(document.querySelector(`a[href="/feedback"]`))
+      .not.toHaveAttribute("aria-current", "page");
+  });
+});
