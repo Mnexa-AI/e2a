@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -285,12 +286,15 @@ func (a *API) handleApprovePendingMessage(w http.ResponseWriter, r *http.Request
 	messageID := mux.Vars(r)["id"]
 
 	var req approveRequest
-	// Empty body is allowed (approve-as-is). Only error if body is present but malformed.
-	if r.ContentLength > 0 {
-		if err := readJSON(w, r, &req, maxRequestBytesSmall); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
+	// Empty body is allowed (approve-as-is). Only error if body is present
+	// but malformed. We deliberately do NOT gate on r.ContentLength > 0
+	// because Transfer-Encoding: chunked yields ContentLength == -1; that
+	// would silently drop the reviewer's overrides (subject/body/to/cc/bcc/
+	// attachment edits) and send the stored draft as-is. readJSON returns
+	// io.EOF on a truly-empty body, which we treat as "approve-as-is".
+	if err := readJSON(w, r, &req, maxRequestBytesSmall); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
 	}
 	edits, err := req.toEdit()
 	if err != nil {
@@ -467,11 +471,13 @@ func (a *API) handleRejectPendingMessage(w http.ResponseWriter, r *http.Request)
 	messageID := mux.Vars(r)["id"]
 
 	var req rejectRequest
-	if r.ContentLength > 0 {
-		if err := readJSON(w, r, &req, maxRequestBytesSmall); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
+	// Empty body is allowed (reject with no reason). Same chunked-encoding
+	// caveat as handleApprovePendingMessage above — gating on
+	// ContentLength > 0 silently drops the rejection reason on chunked
+	// requests.
+	if err := readJSON(w, r, &req, maxRequestBytesSmall); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
 	}
 
 	rejected, err := a.store.RejectPending(r.Context(), messageID, user.ID, req.Reason)
