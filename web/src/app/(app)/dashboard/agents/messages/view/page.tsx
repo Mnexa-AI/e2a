@@ -11,7 +11,7 @@
 // union is a tracked follow-up; until then we do two requests in the
 // worst case.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
@@ -112,21 +112,32 @@ export default function AgentMessageFocusPage() {
   // from outbound is surfaced as-is — falling through would mask the
   // real server error behind "not found".
   //
-  // Two useSWR calls: the inbound query stays gated (`null` key) until
-  // we know the outbound endpoint returned a real 404. This keeps the
-  // cache shapes clean and the worst-case latency to one round trip
-  // for outbound hits.
+  // `hasUserEditedRef` flips true the first time the user types into
+  // the draft-body textarea. The onSuccess callback (below) uses it
+  // to decide whether to overwrite the textarea with the server's
+  // body when SWR revalidates. Without the guard, a revalidation
+  // mid-edit (focus event, manual mutate) would silently revert the
+  // user's edits — or, more subtly, re-populate a body the user
+  // deliberately cleared.
+  const hasUserEditedRef = useRef(false);
+
+  // Both per-id SWR calls opt out of `keepPreviousData` so navigating
+  // between focus pages (different `?id=`) doesn't briefly render
+  // the previous message under the new URL. The global default
+  // stays on for smoother revalidation in views with a stable key.
   const outboundSWR = useSWR(
     id ? pendingMessageKey(id) : null,
     () => getPendingMessage(id),
     {
       shouldRetryOnError: false,
+      keepPreviousData: false,
       // Seed the draft-body textarea the first time data arrives.
       // Doing this in SWR's onSuccess callback (which fires from
       // SWR's internal fetch effect, not our render) keeps the
       // setState off the render path that React 19's lint guards.
       onSuccess: (data) => {
-        setDraftBody((prev) => (prev === "" ? (data.body_text ?? "") : prev));
+        if (hasUserEditedRef.current) return;
+        setDraftBody(data.body_text ?? "");
       },
     },
   );
@@ -135,7 +146,7 @@ export default function AgentMessageFocusPage() {
   const inboundSWR = useSWR(
     email && id && outboundIs404 ? inboundMessageKey(email, id) : null,
     () => getInboundMessage(email, id),
-    { shouldRetryOnError: false },
+    { shouldRetryOnError: false, keepPreviousData: false },
   );
 
   const msg: LoadedMessage | null = outboundSWR.data
@@ -437,11 +448,17 @@ export default function AgentMessageFocusPage() {
             msg={msg}
             editingDraft={editingDraft}
             draftBody={draftBody}
-            onChangeDraft={setDraftBody}
+            onChangeDraft={(v) => {
+              hasUserEditedRef.current = true;
+              setDraftBody(v);
+            }}
             onStartEdit={() => setEditingDraft(true)}
             onCancelEdit={() => {
               setEditingDraft(false);
               setDraftBody(msg.direction === "outbound" ? (msg.data.body_text ?? "") : "");
+              // Cancel reverts to the server's body — clear the
+              // "user edited" flag so future revalidations apply.
+              hasUserEditedRef.current = false;
             }}
           />
           <HeadersCollapsible msg={msg} defaultOpen={initialHeadersOpen} />

@@ -7,6 +7,7 @@ import { isValidLocalPart, isValidWebhookUrl } from "../../../components/onboard
 import { track } from "../../../components/onboarding/analytics";
 import type { AgentMode } from "../../../components/onboarding/types";
 import type { AgentData } from "../../../components/types";
+import { invalidateAgents } from "../../../../lib/swrKeys";
 
 export function CustomAgentForm({
   domain,
@@ -54,6 +55,10 @@ export function CustomAgentForm({
         ...(isCloud ? { webhook_url: webhookUrl } : {}),
       });
       track("agent_creation_succeeded", { shared_or_custom: "custom", agent_mode: agentMode, domain });
+      // Refresh the SWR `agents` cache so /dashboard shows the new
+      // row immediately (otherwise keepPreviousData renders the
+      // pre-create list until the next focus revalidation).
+      await invalidateAgents();
       onCreated(result as AgentData, agentMode, isCloud ? webhookUrl : "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Agent creation failed");

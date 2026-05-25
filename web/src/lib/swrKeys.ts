@@ -41,9 +41,13 @@ export function invalidatePendingList() {
 
 // After approve / reject of a specific message, the focus-page
 // detail needs to refetch (status changes from pending_approval to
-// sent/rejected, body may be scrubbed) AND the inbox view for that
-// agent needs to drop the pending callout. Match every cached key
-// that starts with "agent-messages" via the predicate form.
+// sent/rejected, body may be scrubbed).
+//
+// Caveat: this only mutates the outbound (`pending-message`) key
+// because every mutation we ship today goes against a pending-
+// approval outbound row. If we ever start mutating inbound rows
+// (e.g. mark-as-unread), this helper needs a second mutate for
+// `inbound-message`.
 export function invalidateMessageDetail(id: string) {
   return mutate(pendingMessageKey(id));
 }
@@ -54,6 +58,18 @@ export function invalidateAgentMessages(email: string) {
       Array.isArray(key) &&
       key[0] === "agent-messages" &&
       key[1] === email,
+  );
+}
+
+// Variant for invalidating EVERY cached inbox query at once. Used by
+// the user-wide pending page, which doesn't know which specific
+// agent's inbox is open elsewhere in the dashboard. A small
+// over-invalidation: every per-agent inbox view refetches on next
+// render. Cheap relative to the alternative ("Sidebar / inbox stale
+// until the user navigates").
+export function invalidateAllAgentMessages() {
+  return mutate(
+    (key) => Array.isArray(key) && key[0] === "agent-messages",
   );
 }
 

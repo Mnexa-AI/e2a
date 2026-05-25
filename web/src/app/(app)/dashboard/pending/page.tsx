@@ -3,6 +3,12 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { listPendingMessages } from "../../../components/onboarding/api";
+import {
+  invalidateAgents,
+  invalidateAllAgentMessages,
+  invalidateMessageDetail,
+  invalidatePendingList,
+} from "../../../../lib/swrKeys";
 import type { PendingMessageSummary } from "../../../components/types";
 import { PageShell } from "../../../components/loft/PageShell";
 import { Chip } from "../../../components/loft/Chip";
@@ -189,10 +195,31 @@ function PendingContent() {
 
   // After approve/reject, refresh the queue. If the selected message
   // is no longer in the list, advance to the next pending row.
+  // Also invalidate the SWR caches that hold derived state from this
+  // pending row — without this, the Sidebar pending badge, the
+  // dashboard agent cards (pending_count), and the inbox at
+  // /dashboard/agents/messages would all stay stale until SWR's
+  // focus/dedup catches them up. The focus page (`messages/view`)
+  // does the same invalidation chain; the pending page now mirrors
+  // it so approving from either surface looks identical to the rest
+  // of the app.
   const handleChanged = useCallback(async () => {
     try {
       const fresh = await listPendingMessages();
       setMessages(fresh);
+      // Fire SWR invalidations in parallel so the Sidebar badge, the
+      // dashboard agent cards (pending_count enrichment), and any
+      // open per-agent inbox stay in sync after an approve/reject
+      // from this page. PendingMessageSummary doesn't carry the
+      // owning agent's email — to[0] is the outbound recipient, not
+      // the agent — so `invalidateAllAgentMessages()` blanket-matches
+      // every cached inbox key rather than trying to be precise.
+      void Promise.all([
+        invalidatePendingList(),
+        selectedId ? invalidateMessageDetail(selectedId) : Promise.resolve(),
+        invalidateAgents(),
+        invalidateAllAgentMessages(),
+      ]);
       const stillThere = fresh.some((m) => m.id === selectedId);
       if (!stillThere && fresh.length > 0) {
         router.replace(

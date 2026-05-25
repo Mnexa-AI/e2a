@@ -43,14 +43,16 @@ function WithSWR({ children }: { children: ReactNode }) {
 }
 
 export function render(ui: ReactElement, options?: RenderOptions): RenderResult {
-  const userWrapper = options?.wrapper;
+  const UserWrapper = options?.wrapper;
   // Compose user-provided wrapper inside the SWR wrap so tests can
   // still pass their own context providers via the wrapper option.
+  // The capitalization (UserWrapper, not userWrapper) matters —
+  // JSX treats lowercase tags as DOM elements rather than variable
+  // references.
   const Wrapper: React.FC<{ children?: ReactNode }> = ({ children }) =>
-    userWrapper ? (
+    UserWrapper ? (
       <WithSWR>
-        {/* @ts-expect-error — userWrapper has the same loose typing as RTL itself */}
-        <userWrapper>{children}</userWrapper>
+        <UserWrapper>{children}</UserWrapper>
       </WithSWR>
     ) : (
       <WithSWR>{children}</WithSWR>

@@ -8,6 +8,7 @@ import { track } from "../../../components/onboarding/analytics";
 import type { AgentMode } from "../../../components/onboarding/types";
 import type { AgentData } from "../../../components/types";
 import { AGENTS_DOMAIN_DISPLAY } from "../../../../lib/site";
+import { invalidateAgents } from "../../../../lib/swrKeys";
 
 export function SharedAgentForm({
   onCreated,
@@ -56,6 +57,10 @@ export function SharedAgentForm({
         ...(isCloud ? { webhook_url: webhookUrl } : {}),
       });
       track("agent_creation_succeeded", { shared_or_custom: "shared", agent_mode: agentMode });
+      // Refresh the SWR `agents` cache so /dashboard shows the new
+      // row immediately (otherwise keepPreviousData renders the
+      // pre-create list until the next focus revalidation).
+      await invalidateAgents();
       onCreated(result as AgentData, agentMode, isCloud ? webhookUrl : "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");

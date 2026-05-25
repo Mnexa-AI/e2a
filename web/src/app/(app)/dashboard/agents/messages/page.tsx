@@ -49,6 +49,12 @@ export default function AgentInboxPage() {
   } = useSWR(
     email ? agentMessagesKey(email, "all") : null,
     () => listAgentMessages(email, { direction: "all", status: "all", pageSize: 100 }),
+    // `keepPreviousData` is on globally for the smooth-revalidation
+    // UX, but for per-agent keys it shows the WRONG agent's data
+    // during a ?email=A → ?email=B switch. Disable here so the page
+    // flashes a brief loading state instead of mis-attributing
+    // messages to the new agent.
+    { keepPreviousData: false },
   );
 
   // "Load older" appends additional pages keyed by the prior page's
@@ -61,10 +67,24 @@ export default function AgentInboxPage() {
   const [loadError, setLoadError] = useState("");
 
   const initialMessages = initialPage?.messages ?? [];
-  const rows: MessageSummary[] = useMemo(
-    () => [...initialMessages, ...olderPages.flat()],
-    [initialMessages, olderPages],
-  );
+  // Concatenate the initial page with any imperatively-loaded older
+  // pages, then de-dupe by `message_id`. The de-dupe matters because
+  // SWR can revalidate the initial page mid-session (focus event,
+  // explicit invalidation from the focus page's approve flow). New
+  // messages arriving at the top push the initial-page boundary
+  // down, which can re-include rows that already live in
+  // `olderPages`. Without this de-dupe, the same message renders
+  // twice in the thread bucket and `msgCount` lies.
+  const rows: MessageSummary[] = useMemo(() => {
+    const seen = new Set<string>();
+    const out: MessageSummary[] = [];
+    for (const m of [...initialMessages, ...olderPages.flat()]) {
+      if (seen.has(m.message_id)) continue;
+      seen.add(m.message_id);
+      out.push(m);
+    }
+    return out;
+  }, [initialMessages, olderPages]);
   // The token to use for the next "Load older" click is the most
   // recent next_token we've seen (either from the initial fetch or
   // the latest appended page).
