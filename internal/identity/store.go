@@ -1198,7 +1198,10 @@ type SendResult struct {
 //
 // Ownership is enforced by the agent -> user join. Messages owned by
 // another user return ErrMessageNotFound. Messages whose status is not
-// 'pending_approval' return ErrNotPendingApproval.
+// 'pending_approval' return ErrNotPendingApproval. If another worker is
+// already mid-send for this message (rare; only possible after the
+// approval row lock was released without status changing — e.g. a
+// pool drop mid-send), this returns ErrSendInProgress.
 //
 // Concurrency / failure mode notes:
 //
@@ -1209,14 +1212,15 @@ type SendResult struct {
 //     unaffected; deadlock is not possible because only one row is ever
 //     locked per call.
 //
-//   - There is a narrow crash window where send() may succeed at SES but
-//     the subsequent UPDATE or Commit fails (DB connection drop, pool
-//     exhaustion). The transaction rolls back, the row stays pending, and
-//     a retry — by the same reviewer or the expiration worker — would
-//     re-send to SES. Eliminating this requires SES-side idempotency keys
-//     or a separate "send attempts" table; deferred for v1. Callers that
-//     see both a successful send callback and a subsequent error from
-//     this function should log both rather than silently retry.
+//   - The old crash window where send() succeeded at SES but the
+//     subsequent UPDATE/Commit failed (DB blip, pool exhaustion) is now
+//     closed by the send_attempts table. Around send() we run two small
+//     auxiliary transactions that outlive the surrounding approval
+//     transaction: ClaimSendAttempt before send(), MarkSendSucceeded
+//     (or MarkSendFailed) after. If the approval tx rolls back AFTER
+//     send() succeeded, the next retry of ApproveAndSend reads
+//     send_attempts.status='sent', reuses the recorded SendResult, and
+//     skips the upstream send entirely.
 func (s *Store) ApproveAndSend(
 	ctx context.Context,
 	messageID, userID string,
@@ -1262,7 +1266,7 @@ func (s *Store) ApproveAndSend(
 		 FROM messages m
 		 JOIN agent_identities a ON a.id = m.agent_id
 		 WHERE m.id = $1 AND m.direction = 'outbound'
-		 FOR UPDATE OF m`,
+		 FOR NO KEY UPDATE OF m`,
 		messageID,
 	).Scan(
 		&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject,
@@ -1304,9 +1308,42 @@ func (s *Store) ApproveAndSend(
 
 	editedByReviewer := edits.Apply(&m)
 
-	result, err := send(&m)
+	// Exactly-once gate around the upstream send. Runs OUTSIDE the
+	// approval transaction so its outcome survives an approval-tx
+	// rollback — that's the whole point of send_attempts.
+	claim, err := s.ClaimSendAttempt(ctx, messageID)
 	if err != nil {
 		return nil, err
+	}
+
+	var result SendResult
+	switch claim.Outcome {
+	case SendAttemptAcquired:
+		result, err = send(&m)
+		if err != nil {
+			// Mark failed in a separate tx so the next retry can
+			// take over. Best-effort: log if the mark itself fails,
+			// don't shadow the original send error.
+			if markErr := s.MarkSendFailed(ctx, messageID, err.Error()); markErr != nil {
+				log.Printf("[approve] MarkSendFailed for %s: %v", messageID, markErr)
+			}
+			return nil, err
+		}
+		if markErr := s.MarkSendSucceeded(ctx, messageID, result); markErr != nil {
+			// The upstream send DID succeed; failing to record it
+			// only weakens the exactly-once guarantee for the next
+			// retry (it would re-send). Log loudly and proceed —
+			// the approval tx below still finalizes the message
+			// row from this attempt.
+			log.Printf("[approve] MarkSendSucceeded for %s: %v (next retry may re-send)", messageID, markErr)
+		}
+	case SendAttemptAlreadySent:
+		// A prior approval-tx attempt succeeded at SES but its
+		// surrounding tx rolled back. Reuse the recorded result and
+		// skip the upstream send.
+		result = claim.Sent
+	case SendAttemptInFlight:
+		return nil, ErrSendInProgress
 	}
 
 	_, err = tx.Exec(txCtx,
