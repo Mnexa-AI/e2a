@@ -274,8 +274,7 @@ func (req approveRequest) toEdit() (identity.PendingApprovalEdit, error) {
 // @Failure      401 {string} string "Missing or invalid API key"
 // @Failure      403 {string} string "Agent domain not verified"
 // @Failure      404 {string} string "Message not found or not owned by this user"
-// @Failure      409 {string} string "Message is no longer pending approval"
-// @Failure      409 {string} string "Another request with this Idempotency-Key is in progress"
+// @Failure      409 {string} string "Message is no longer pending approval, or another request with this Idempotency-Key is in progress"
 // @Failure      422 {string} string "Idempotency-Key reused with a different request body"
 // @Param        Idempotency-Key header string false "Caller-generated unique key (recommend UUIDv4). Approve fires a real outbound send (SES); on retry with the same key + same body the server replays the original response instead of double-sending. A different body returns 422."
 // @Router       /api/v1/messages/{id}/approve [post]

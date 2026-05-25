@@ -1146,7 +1146,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Caller-generated unique key (recommend UUIDv4). Approve fires a real outbound send (SES); on retry with the same key + same body the server replays the original response instead of double-sending. A different body returns 422. */
+                    "Idempotency-Key"?: string;
+                };
                 path: {
                     /**
                      * @description Message ID
@@ -1208,8 +1211,17 @@ export interface paths {
                         "application/json": string;
                     };
                 };
-                /** @description Message is no longer pending approval */
+                /** @description Message is no longer pending approval, or another request with this Idempotency-Key is in progress */
                 409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Idempotency-Key reused with a different request body */
+                422: {
                     headers: {
                         [name: string]: unknown;
                     };

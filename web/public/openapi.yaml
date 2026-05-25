@@ -1766,6 +1766,13 @@ paths:
         name: request
         schema:
           $ref: '#/definitions/ApprovePendingMessageRequest'
+      - description: Caller-generated unique key (recommend UUIDv4). Approve fires
+          a real outbound send (SES); on retry with the same key + same body the server
+          replays the original response instead of double-sending. A different body
+          returns 422.
+        in: header
+        name: Idempotency-Key
+        type: string
       produces:
       - application/json
       responses:
@@ -1790,7 +1797,12 @@ paths:
           schema:
             type: string
         "409":
-          description: Message is no longer pending approval
+          description: Message is no longer pending approval, or another request with
+            this Idempotency-Key is in progress
+          schema:
+            type: string
+        "422":
+          description: Idempotency-Key reused with a different request body
           schema:
             type: string
       security:
