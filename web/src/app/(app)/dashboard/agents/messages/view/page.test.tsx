@@ -20,6 +20,21 @@ jest.mock("next/link", () => {
   };
 });
 
+// Spy on the SWR cache invalidation helpers so we can assert which
+// caches the page touches without standing up a full SWR cache. We
+// still want the real key shapes (used elsewhere in the module via
+// `as const` tuples), so we keep `requireActual` and override only
+// the side-effect functions we want to observe.
+const mockInvalidateAgentMessages = jest.fn();
+jest.mock("../../../../../../lib/swrKeys", () => {
+  const actual = jest.requireActual("../../../../../../lib/swrKeys");
+  return {
+    ...actual,
+    invalidateAgentMessages: (email: string) =>
+      mockInvalidateAgentMessages(email),
+  };
+});
+
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
@@ -137,6 +152,7 @@ beforeEach(() => {
   jest.useFakeTimers().setSystemTime(NOW);
   mockFetch.mockReset();
   mockRouterPush.mockReset();
+  mockInvalidateAgentMessages.mockReset();
 });
 
 afterEach(() => {
@@ -188,6 +204,29 @@ describe("AgentMessageFocusPage", () => {
     expect(screen.queryByTestId("action-card")).not.toBeInTheDocument();
     // The inbound body was extracted from the raw_message base64.
     expect(screen.getByText(/Attached is the renewal contract/)).toBeInTheDocument();
+  });
+
+  // Regression: GET /agents/{email}/messages/{id} flips inbox_status
+  // unread → read as a server-side side effect. The focus page must
+  // invalidate the per-agent inbox SWR cache when that happens, or
+  // the inbox view will keep showing the row as unread until
+  // window-focus revalidation eventually catches up. Pre-SWR this
+  // was free (every navigation refetched the inbox); post-SWR it
+  // needs an explicit cache invalidation.
+  it("invalidates the per-agent inbox cache after a successful inbound load", async () => {
+    setSearchParams({ email: "support@acme.io", id: "msg_in1" });
+    mockInboundFallback(INBOUND_DETAIL);
+
+    render(<AgentMessageFocusPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("message-focus")).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(mockInvalidateAgentMessages).toHaveBeenCalledWith(
+        "support@acme.io",
+      );
+    });
   });
 
   it("clicking Approve POSTs to /api/v1/messages/{id}/approve and redirects to the thread", async () => {

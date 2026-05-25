@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { mutate } from "swr";
+import useSWR, { mutate } from "swr";
 import { listPendingMessages } from "../../../components/onboarding/api";
 import {
   invalidateAgents,
@@ -154,27 +154,24 @@ function PendingContent() {
   const router = useRouter();
   const selectedId = searchParams.get("id") ?? "";
 
-  const [messages, setMessages] = useState<PendingMessageSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  const load = useCallback(async () => {
-    try {
-      const data = await listPendingMessages();
-      setMessages(data);
-      setError("");
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load pending messages",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  // Use the same SWR key as the Sidebar's `usePendingCount` so the
+  // queue and the badge share a single network fetch + cache entry.
+  // Before this migration the queue used local useState/useEffect and
+  // the Sidebar independently fetched the same endpoint — two GETs
+  // on every visit to /dashboard/pending.
+  const {
+    data: messages = [],
+    error: swrError,
+    isLoading,
+  } = useSWR<PendingMessageSummary[]>(pendingMessagesKey, () =>
+    listPendingMessages(),
+  );
+  const loading = isLoading && messages.length === 0;
+  const error = swrError
+    ? swrError instanceof Error
+      ? swrError.message
+      : "Failed to load pending messages"
+    : "";
 
   // Auto-select the first row when the URL has no id and there are
   // messages. Mirrors the mock — the right pane always has content
@@ -206,22 +203,20 @@ function PendingContent() {
   // of the app.
   const handleChanged = useCallback(async () => {
     try {
-      const fresh = await listPendingMessages();
-      setMessages(fresh);
-      // Fire SWR invalidations in parallel so the Sidebar badge, the
-      // dashboard agent cards (pending_count enrichment), and any
-      // open per-agent inbox stay in sync after an approve/reject
-      // from this page. PendingMessageSummary doesn't carry the
-      // owning agent's email — to[0] is the outbound recipient, not
-      // the agent — so `invalidateAllAgentMessages()` blanket-matches
-      // every cached inbox key rather than trying to be precise.
-      //
-      // Seed the pending-messages cache with `fresh` instead of
-      // triggering a third fetch (this fn already called the
-      // endpoint once at line 208). The Sidebar badge reads from the
-      // same cache key and updates in the same tick.
+      // Single revalidate via the shared SWR key — the queue + the
+      // Sidebar badge re-render against the same fetched payload.
+      // Without this migration we had two GETs per approve/reject:
+      // the local fetch in this fn + the Sidebar's independent SWR
+      // refresh on cache invalidation.
+      const fresh =
+        ((await mutate(pendingMessagesKey)) as
+          | PendingMessageSummary[]
+          | undefined) ?? [];
+      // PendingMessageSummary doesn't carry the owning agent's email
+      // — to[0] is the outbound recipient, not the agent — so
+      // `invalidateAllAgentMessages()` blanket-matches every cached
+      // inbox key rather than trying to be precise.
       void Promise.all([
-        mutate(pendingMessagesKey, fresh, { revalidate: false }),
         selectedId ? invalidateMessageDetail(selectedId) : Promise.resolve(),
         invalidateAgents(),
         invalidateAllAgentMessages(),

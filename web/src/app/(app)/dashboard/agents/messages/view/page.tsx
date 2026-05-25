@@ -173,7 +173,20 @@ function FocusContent({
   const inboundSWR = useSWR(
     email && id && outboundIs404 ? inboundMessageKey(email, id) : null,
     () => getInboundMessage(email, id),
-    { shouldRetryOnError: false, keepPreviousData: false },
+    {
+      shouldRetryOnError: false,
+      keepPreviousData: false,
+      // GET /agents/{email}/messages/{id} flips inbox_status from
+      // unread → read on the server as a side effect (see
+      // getInboundMessage). Without this invalidation, the inbox
+      // SWR cache still shows the row as unread until window-focus
+      // revalidation eventually catches up — visible regression vs
+      // the pre-SWR codepath, which refetched the inbox on every
+      // navigation.
+      onSuccess: () => {
+        void invalidateAgentMessages(email);
+      },
+    },
   );
 
   const msg: LoadedMessage | null = outboundSWR.data
