@@ -10,7 +10,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
     {
       title: "Send email",
       description:
-        "Send a new email from the agent's inbox. Use this for outbound mail to a fresh recipient. To reply to a thread you received, use `reply_to_message` instead so threading headers (In-Reply-To, References) are preserved. Attach files via the `attachments` array — pass base64 strings from another tool's output verbatim. If the agent has HITL approval enabled, the message is held for human review and the response indicates `status: pending_approval` rather than `sent`.",
+        "Use when starting a NEW email thread to a fresh recipient. To respond to a message you can see in `list_messages`, use `reply_to_message` instead — it preserves the In-Reply-To / References headers so the reply lands in the same thread, which this tool deliberately does not do. Attach files via `attachments`; pass base64 strings produced by other tools (e.g. `get_attachment_data`) verbatim — don't hand-encode raw text. **`pending_approval` is not failure.** If the agent has HITL enabled, the response is `{ status: \"pending_approval\", message_id: ... }`; the message is held for human review — do not retry. Check on it with `list_pending_messages` / `get_pending_message`.",
       inputSchema: {
         to: z.array(z.string()).describe("Recipient email addresses (one or more)."),
         subject: z.string(),
@@ -51,7 +51,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
     {
       title: "Reply to a received message",
       description:
-        "Reply to an inbound message identified by `message_id`. Preserves the References and In-Reply-To headers so the reply lands in the same email thread as the original. Pass `reply_all: true` to copy the original Cc list. Attach files via `attachments`. Subject is auto-derived (Re: …) by the server.",
+        "Use whenever you're responding to a message you can see in the inbox — preserves the In-Reply-To and References headers so the reply joins the original email thread instead of starting a new one. Prefer this over `send_email` for any response to an inbound; thread fragmentation (broken conversation view in the recipient's mail client) is the most visible symptom of using `send_email` by mistake. Pass `reply_all: true` to copy the original Cc list; subject is auto-derived as `Re: …` by the server. Same HITL caveat as `send_email`: a `pending_approval` status is success, not failure.",
       inputSchema: {
         message_id: z.string().describe("ID of the inbound message to reply to (e.g. msg_…)."),
         body: z.string().describe("Plain-text reply body."),
@@ -112,7 +112,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
     {
       title: "Get a message",
       description:
-        "Fetch full detail for one inbound message — body, headers, conversation id, and attachment metadata. Pass the `message_id` from `list_messages`. Attachment bytes are NOT included (would blow context for any non-trivial PDF); the response lists each attachment's filename, content_type, and size_bytes only. Use `get_attachment_data` to fetch the actual bytes of one attachment when you need to inspect or forward it. The raw MIME blob is also omitted from this response for the same reason.",
+        "Use after `list_messages` to read one inbound message in full — body (text + html), headers, conversation id, and attachment metadata. Pass the `message_id` from the list response. Attachment bytes are NOT included (would blow context for any non-trivial PDF); the response lists each attachment's filename, content_type, and 0-based `index` plus size_bytes. To get the actual bytes of one attachment (inspect, forward, hand off), call `get_attachment_data` with that index. The raw MIME blob is also omitted for the same reason.",
       inputSchema: {
         message_id: z.string(),
         agent_email: z.string().optional(),

@@ -20,7 +20,7 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
     {
       title: "Get the default agent's identity",
       description:
-        "Return the agent inbox this server is scoped to. Resolution order: (1) E2A_AGENT_EMAIL from the server env when set, (2) the sole agent on the account when there's exactly one. Errors only when neither path resolves — typically because the account owns multiple agents and you should pick one via `list_agents` + pass `agent_email` explicitly to other tools.",
+        "Use first when starting work on e2a to learn which agent you're acting AS — remember an agent IS an email address, and other tools default to this one. Resolution order: (1) `E2A_AGENT_EMAIL` from the server env when set, (2) the sole agent on the account when there's exactly one. Errors only when neither path resolves — typically because the account owns multiple agents. In that case the error inlines the available emails so you can pass one as `agent_email` to other tools (or have the user pin a default via `E2A_AGENT_EMAIL`); no follow-up `list_agents` call needed. If the error says zero agents, run `create_agent` first.",
       inputSchema: {},
     },
     async () =>
@@ -100,7 +100,7 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
     {
       title: "Update an agent's configuration",
       description:
-        "Mutate a subset of an agent's settings. Most useful for toggling HITL on/off, changing the approval window, or rebinding the webhook URL when an agent's downstream service moves. Omitted fields keep their current value server-side. Passing all-zero values intentionally is allowed — e.g. `hitl_ttl_seconds: 0` would set the approval window to immediate (not a no-op).",
+        "Mutate a subset of an agent's settings. **This is the path to enable HITL approval gates** on an existing agent (HITL is NOT in the create_agent flow): set `hitl_enabled: true`, optionally with `hitl_ttl_seconds` and `hitl_expiration_action`. Same path to disable HITL, change the approval window, switch between local and cloud delivery, or rebind the webhook URL when an agent's downstream service moves. Omitted fields keep their current value server-side; an explicitly-passed zero is honored (e.g. `hitl_ttl_seconds: 0` sets the window to immediate, not a no-op).",
       inputSchema: {
         agent_email: z
           .string()

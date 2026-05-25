@@ -32,7 +32,7 @@ export function registerDomainTools(server: McpServer, client: E2AClient): void 
     {
       title: "Register a custom mail domain (returns DNS records to publish)",
       description:
-        "Register a new domain (e.g. 'mail.acme.com') for outbound + inbound mail. Returns the DNS records (MX, TXT verification token) the user must publish on their DNS provider before the domain becomes usable. **Composition tip**: if a DNS-provider MCP server (Cloudflare, Route 53, NS1, …) is loaded in the same host, hand the returned records to its `create_dns_record`-style tool, wait briefly for propagation, then call `verify_domain` to finalize. If no DNS MCP is available, surface the records to the user verbatim and ask them to add them manually. The domain is created in an unverified state — it can be deleted with `delete_domain` if the user changes their mind. Idempotent against an existing-but-unverified row.",
+        "Use to start the custom-domain flow. **This is step 1 of an asynchronous two-step process**: this tool returns the MX + TXT records the user must publish on their DNS provider; it does NOT make the domain live. Step 2 is `verify_domain` — but only AFTER the records are published AND DNS propagation has completed (typically minutes, occasionally hours). Do not call `verify_domain` immediately, and do not promise the user the domain works yet. **Composition tip**: if a DNS-provider MCP (Cloudflare, Route 53, NS1, …) is loaded in the same host, hand the returned records to its `create_dns_record`-style tool, then surface the wait expectation to the user. If no DNS MCP is available, show the records verbatim and ask the user to add them manually. The domain is created in an unverified state — `delete_domain` is the reverse op. Idempotent against an existing-but-unverified row.",
       inputSchema: {
         domain: z
           .string()
@@ -50,7 +50,7 @@ export function registerDomainTools(server: McpServer, client: E2AClient): void 
     {
       title: "Verify a custom mail domain's DNS records",
       description:
-        "Probe DNS for the MX + TXT records issued by `register_domain` and flip the domain's `verified` bit when the lookup succeeds. Idempotent — safe to retry as many times as DNS propagation needs. Call this once the user (or a DNS MCP) has published the records. Returns the latest domain row, including the resolved-record state for diagnostics if verification is still failing.",
+        "Use as step 2 of the custom-domain flow, AFTER `register_domain` returned records AND the user (or a DNS MCP) published them AND DNS has had time to propagate (minutes to hours). Probes DNS for the issued MX + TXT records and flips the domain's `verified` bit on success. Idempotent — safe to retry as propagation completes. If `verified: false` comes back, the response includes the resolved-record state for diagnostics; surface that to the user rather than retrying in a tight loop. Don't poll; let the user drive the recheck.",
       inputSchema: {
         domain: z
           .string()

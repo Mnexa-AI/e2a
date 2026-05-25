@@ -10,7 +10,7 @@ export function registerHitlTools(server: McpServer, client: E2AClient): void {
     {
       title: "List outbound messages awaiting approval",
       description:
-        "List outbound emails composed by HITL-enabled agents that are held pending human review, sorted by soonest-expiring first. Use this when the user asks what's waiting for them to approve. Body content is not included in summaries — call `get_pending_message` for the full draft.",
+        "Use when the user asks what's awaiting approval, or after a `send_email`/`reply_to_message` returned `pending_approval` and they want to see the queue. Lists held outbound messages from HITL-enabled agents sorted by soonest-expiring first. Body content is summary-only — call `get_pending_message` for the full draft of one. Read-only; cheap, but don't poll it on a loop.",
       inputSchema: {},
     },
     async () => runTool(() => client.listPendingMessages()),
@@ -34,7 +34,7 @@ export function registerHitlTools(server: McpServer, client: E2AClient): void {
     {
       title: "Approve a pending outbound message",
       description:
-        "Send a held outbound message via the upstream relay. Approve-as-is by passing only `message_id`, or apply reviewer edits by supplying any subset of subject / body_text / body_html / to / cc / bcc / attachments — those fields override the stored draft before send. Pass an empty `attachments: []` to strip attachments the agent originally proposed. Returns 409 if the message is no longer pending.",
+        "Use to release a held outbound message — typically after the user reviewed it via `get_pending_message`. Approve-as-is by passing only `message_id`; apply reviewer edits by supplying any subset of subject / body_text / body_html / to / cc / bcc / attachments (those override the stored draft before send). Field semantics: omit a field to keep the draft's value; pass it (including empty `attachments: []` to strip all attachments) to override. Returns 409 if the message is no longer pending.",
       inputSchema: {
         message_id: z.string(),
         subject: z.string().optional(),
