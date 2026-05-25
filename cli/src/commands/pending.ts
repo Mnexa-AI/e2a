@@ -188,10 +188,10 @@ function openEditor(initial: string): string {
 
 export async function pendingApprove(
   id: string | undefined,
-  opts: { edit?: boolean },
+  opts: { edit?: boolean; idempotencyKey?: string },
 ): Promise<void> {
   if (!id) {
-    process.stderr.write("Usage: e2a pending approve <message-id> [--edit]\n");
+    process.stderr.write("Usage: e2a pending approve <message-id> [--edit] [--idempotency-key <key>]\n");
     process.exit(1);
   }
 
@@ -210,7 +210,9 @@ export async function pendingApprove(
     overrides = diffOverrides(parseEditableDoc(edited), original);
   }
 
-  const res = await client.approveMessage(id, overrides);
+  const res = opts.idempotencyKey !== undefined
+    ? await client.approveMessage(id, overrides, { idempotencyKey: opts.idempotencyKey })
+    : await client.approveMessage(id, overrides);
   const editedNote = res.edited ? " (with edits)" : "";
   process.stdout.write(
     `Approved: ${res.message_id} → ${res.provider_message_id ?? ""}${editedNote}\n`,

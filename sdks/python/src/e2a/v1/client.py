@@ -374,11 +374,17 @@ class E2AClient:
         to: Optional[list[str]] = None,
         cc: Optional[list[str]] = None,
         bcc: Optional[list[str]] = None,
+        idempotency_key: Optional[str] = None,
     ):
         """Approve a held outbound message.
 
         Pass any subset of overrides to approve with edits; pass none
         to approve as-is.
+
+        ``idempotency_key`` makes retries safe across the SES double-
+        send window. Supply a stable key derived from the review event
+        (e.g. the dashboard click id); omit to let the SDK generate a
+        fresh per-call key.
         """
         any_override = any(
             v is not None for v in (subject, body_text, body_html, to, cc, bcc)
@@ -395,7 +401,7 @@ class E2AClient:
             if any_override
             else None
         )
-        return self.api.approve_message(message_id, overrides)
+        return self.api.approve_message(message_id, overrides, idempotency_key=idempotency_key)
 
     def reject_message(self, message_id: str, reason: str = ""):
         """Reject a held outbound message. The optional reason is

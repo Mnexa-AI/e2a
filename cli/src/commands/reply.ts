@@ -9,6 +9,7 @@ export async function reply(
     cc?: string[];
     bcc?: string[];
     from?: string;
+    idempotencyKey?: string;
   },
 ): Promise<void> {
   if (!messageId) {
@@ -36,6 +37,7 @@ export async function reply(
     replyAll: opts.replyAll,
     cc: opts.cc?.length ? opts.cc : undefined,
     bcc: opts.bcc?.length ? opts.bcc : undefined,
+    idempotencyKey: opts.idempotencyKey,
   });
 
   process.stdout.write(`Sent: ${res.message_id}\n`);

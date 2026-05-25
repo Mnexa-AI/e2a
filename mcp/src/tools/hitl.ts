@@ -44,11 +44,21 @@ export function registerHitlTools(server: McpServer, client: E2AClient): void {
         cc: z.array(z.string()).optional(),
         bcc: z.array(z.string()).optional(),
         attachments: attachmentsArraySchema,
+        idempotency_key: z
+          .string()
+          .optional()
+          .describe(
+            "Stable key for retry-safe approves. Approve fires a real SES send, so a retried call without this header could double-send. A natural choice is the pending `message_id` itself — the same review event yields the same key, so a retry replays the original response.",
+          ),
       },
     },
     async (args) => {
-      const { message_id, ...overrides } = args;
-      return runTool(() => client.approveMessage(message_id, overrides));
+      const { message_id, idempotency_key, ...overrides } = args;
+      return runTool(() =>
+        idempotency_key !== undefined
+          ? client.approveMessage(message_id, overrides, { idempotencyKey: idempotency_key })
+          : client.approveMessage(message_id, overrides),
+      );
     },
   );
 

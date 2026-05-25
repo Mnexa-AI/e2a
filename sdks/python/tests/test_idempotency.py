@@ -128,3 +128,56 @@ def test_high_level_client_reply_threads_idempotency_key(httpx_mock):
 
     req = httpx_mock.get_request()
     assert req.headers["Idempotency-Key"] == "client-reply-key"
+
+
+# approve_message is also side-effectful — fires a real SES send when
+# the reviewer approves a held draft. Without an Idempotency-Key a
+# transient retry after a successful approve could double-send. Cover
+# the same contract: auto-generated key by default, caller-supplied
+# key passes through verbatim, high-level client threads it through.
+
+
+def test_approve_message_auto_generates_idempotency_key(httpx_mock):
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/messages/msg_p/approve",
+        method="POST",
+        json={"status": "sent", "message_id": "msg_p", "method": "smtp", "edited": False},
+    )
+
+    with E2AApi(api_key="e2a_test") as api:
+        api.approve_message("msg_p")
+
+    req = httpx_mock.get_request()
+    key = req.headers["Idempotency-Key"]
+    assert key, "Idempotency-Key header not set"
+    assert UUIDV4_RE.match(key), f"key {key!r} is not a UUIDv4 hex/canonical shape"
+
+
+def test_approve_message_honors_caller_supplied_key(httpx_mock):
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/messages/msg_p/approve",
+        method="POST",
+        json={"status": "sent", "message_id": "msg_p", "method": "smtp", "edited": False},
+    )
+
+    with E2AApi(api_key="e2a_test") as api:
+        api.approve_message("msg_p", idempotency_key="approve-key-1")
+
+    req = httpx_mock.get_request()
+    assert req.headers["Idempotency-Key"] == "approve-key-1"
+
+
+def test_high_level_client_approve_threads_idempotency_key(httpx_mock):
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/messages/msg_p/approve",
+        method="POST",
+        json={"status": "sent", "message_id": "msg_p", "method": "smtp", "edited": False},
+    )
+
+    with E2AClient(
+        api_key="e2a_test", agent_email="bot@test.dev"
+    ) as client:
+        client.approve_message("msg_p", idempotency_key="high-level-approve-key")
+
+    req = httpx_mock.get_request()
+    assert req.headers["Idempotency-Key"] == "high-level-approve-key"
