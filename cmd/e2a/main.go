@@ -324,19 +324,30 @@ func main() {
 	// connection lifecycle.
 	smtpServer.Close()
 
-	// Bound httpServer.Shutdown so a misbehaving request can't block
-	// shutdown forever. 30s matches typical platform SIGKILL windows
-	// (Kubernetes terminationGracePeriodSeconds defaults to 30).
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Single shared deadline for both HTTP shutdown and worker drain.
+	// 30s matches Kubernetes' default terminationGracePeriodSeconds.
+	// A naive `httpServer.Shutdown(30s)` followed by a second 30s
+	// `workerWG.Wait()` would budget 60s total — past the platform's
+	// SIGKILL window, the kernel reaps us before the drain phase even
+	// runs. Sharing one deadline guarantees we don't outlast the
+	// platform grace period, with whichever phase finishes first
+	// donating the remainder to the other.
+	//
+	// Operators wanting longer drain (e.g. SMTP send to slow recipient
+	// mid-flight) should bump terminationGracePeriodSeconds AND the
+	// constant below in lockstep.
+	const shutdownBudget = 30 * time.Second
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownBudget)
 	defer shutdownCancel()
+
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("HTTP server shutdown error: %v", err)
 	}
 
-	// Wait for the workers' current iteration to settle. Bound the
-	// wait so a stuck worker (e.g. SMTP send to a hanging recipient)
-	// can't block process exit indefinitely — past the deadline we
-	// fall through and let the goroutines die with the process.
+	// Wait for workers' current iteration to settle, bounded by the
+	// REMAINING share of the same deadline (whatever Shutdown didn't
+	// consume). Past it, fall through and let the goroutines die
+	// with the process.
 	drainDone := make(chan struct{})
 	go func() {
 		workerWG.Wait()
@@ -345,7 +356,7 @@ func main() {
 	select {
 	case <-drainDone:
 		log.Println("Background workers drained cleanly.")
-	case <-time.After(30 * time.Second):
-		log.Println("Background workers did not drain within 30s; exiting anyway.")
+	case <-shutdownCtx.Done():
+		log.Println("Background workers did not drain within shutdown budget; exiting anyway.")
 	}
 }

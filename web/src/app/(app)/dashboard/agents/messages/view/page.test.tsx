@@ -3,8 +3,11 @@
 // redirects, ⌘↵ triggers Approve, missing params surface an error.
 
 import { render, screen, waitFor } from "../../../../../../test-utils/swr";
+import { render as rawRender } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { mutate } from "swr";
 import AgentMessageFocusPage from "./page";
+import { pendingMessageKey } from "../../../../../../lib/swrKeys";
 
 const mockUseSearchParams = jest.fn();
 const mockRouterPush = jest.fn();
@@ -358,18 +361,51 @@ describe("AgentMessageFocusPage", () => {
   // focus page would render data from cache, skip the fetcher, never
   // call onSuccess, and leave draftBody as "" — the reviewer would
   // click Edit and see a blank textarea instead of the agent's body.
-  // The effect-based seed runs on every data change, so cache hits
-  // also seed correctly.
-  it("seeds the draft-body textarea from outboundSWR.data so cache hits populate the editor", async () => {
+  // The effect-based seed runs on every data change (including the
+  // synchronous cache-hit case), so warm-cache navigation seeds too.
+  //
+  // To genuinely reproduce the bug condition (vs asserting the
+  // post-fix shape on a fetch path that pre-fix code would also have
+  // passed), we render WITHOUT the test-utils/swr fresh-Map wrapper,
+  // use the module-level SWR cache, pre-seed pendingMessageKey(id)
+  // before mounting, and assert mockFetch was never called for the
+  // outbound endpoint. A pre-fix implementation (onSuccess-only seed)
+  // would observe data via the cache but never fire onSuccess, so
+  // the textarea would be empty and the assertion would fail.
+  it("seeds the textarea from pre-populated SWR cache without firing a fetch (true cache-hit regression)", async () => {
     setSearchParams({ email: "support@acme.io", id: "msg_pending" });
-    mockOutboundOnly(OUTBOUND_PENDING);
+    // Pre-seed the cache the page is about to subscribe to. The
+    // jest.setup.ts afterEach nukes the module-level cache between
+    // tests, so this seed is isolated to this test.
+    await mutate(
+      pendingMessageKey("msg_pending"),
+      OUTBOUND_PENDING,
+      { revalidate: false },
+    );
+    // Fetch must NOT be called: any call indicates the page hit the
+    // network rather than the cache, defeating the bug reproduction.
+    mockFetch.mockImplementation(() => {
+      throw new Error(
+        "fetch was called — cache hit did not happen, test reproduces nothing",
+      );
+    });
     const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
 
-    render(<AgentMessageFocusPage />);
+    // Bypass test-utils/swr — it provides a fresh-Map SWRConfig
+    // per render, which would isolate this test's mounted hooks
+    // from the seed we just placed on the module-level cache.
+    rawRender(<AgentMessageFocusPage />);
+
+    // Page renders against the seeded cache synchronously; action
+    // card appears without a fetch.
     await waitFor(() => {
       expect(screen.getByTestId("action-card")).toBeInTheDocument();
     });
+    // Assert no outbound fetch happened.
+    expect(mockFetch).not.toHaveBeenCalled();
 
+    // The H3 fix's invariant: textarea is seeded from cache-resolved
+    // data, even though onSuccess never fired.
     await user.click(screen.getByText(/^edit draft$/i));
     const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
     expect(textarea.value).toContain("Thanks for sending over the renewal draft");
