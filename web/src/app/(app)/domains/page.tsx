@@ -1,12 +1,19 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import useSWR from "swr";
 import { DomainList } from "./_components/DomainList";
 import { AddDomainForm } from "./_components/AddDomainForm";
 import { listDomains, listAgents } from "../../components/onboarding/api";
 import type { DomainInfo } from "../../components/onboarding/types";
 import type { DashboardAgent } from "../../components/types";
 import { PageShell } from "../../components/loft/PageShell";
+import {
+  agentsKey,
+  domainsKey,
+  invalidateAgents,
+  invalidateDomains,
+} from "../../../lib/swrKeys";
 
 // Domains stats strip — Total / Verified / Pending are computed
 // client-side from the domain list; Agents · 7d renders `—` until a
@@ -59,34 +66,54 @@ function DomainsStatsStrip({ domains }: { domains: DomainInfo[] }) {
 }
 
 export default function DomainsPage() {
-  const [domains, setDomains] = useState<DomainInfo[]>([]);
-  const [agents, setAgents] = useState<DashboardAgent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
+  // Share the cache with the dashboard's verified-domains stat
+  // (useSWR(domainsKey) on /dashboard) so any mutation here flows
+  // through to that surface in the same tick. Before this migration
+  // the page kept its own useState copy and the dashboard's count
+  // stayed stale until tab-focus revalidation eventually caught up.
+  const {
+    data: domains = [],
+    error: domainsError,
+    isLoading: domainsLoading,
+    mutate: refetchDomains,
+  } = useSWR<DomainInfo[]>(domainsKey, () => listDomains());
+  const {
+    data: agents = [],
+    isLoading: agentsLoading,
+    mutate: refetchAgents,
+  } = useSWR<DashboardAgent[]>(agentsKey, () => listAgents());
 
-  const fetchData = useCallback(async () => {
-    try {
-      const [domainsData, agentsData] = await Promise.all([
-        listDomains(),
-        listAgents(),
-      ]);
-      setDomains(domainsData);
-      setAgents(agentsData);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load data");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loading = (domainsLoading || agentsLoading) && domains.length === 0;
+  const error = domainsError
+    ? domainsError instanceof Error
+      ? domainsError.message
+      : "Failed to load data"
+    : "";
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
+  // After a child component finishes a domain mutation (register /
+  // verify / delete / set-primary) it calls onRefresh; we trigger
+  // SWR revalidation via the hook-supplied mutate function so this
+  // component re-renders against fresh data immediately. We also
+  // fire the global invalidateDomains/invalidateAgents helpers so
+  // OTHER surfaces subscribed to the same keys (dashboard's
+  // verified-domains stat, agent cards) refresh in the same tick.
+  // The hook-scoped mutate is what guarantees the local re-render —
+  // global mutate alone wouldn't update an SWRConfig-scoped cache
+  // (e.g. in tests with a fresh-Map provider).
   const handleDomainRegistered = () => {
     setShowAddForm(false);
-    fetchData();
+    void refetchDomains();
+    void refetchAgents();
+    void invalidateDomains();
+    void invalidateAgents();
+  };
+
+  const handleListChanged = () => {
+    void refetchDomains();
+    void refetchAgents();
+    void invalidateDomains();
+    void invalidateAgents();
   };
 
   // Empty state
@@ -191,7 +218,7 @@ export default function DomainsPage() {
           Loading...
         </div>
       ) : (
-        <DomainList domains={domains} agents={agents} onRefresh={fetchData} />
+        <DomainList domains={domains} agents={agents} onRefresh={handleListChanged} />
       )}
     </PageShell>
   );
