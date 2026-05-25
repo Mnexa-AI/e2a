@@ -65,3 +65,22 @@ The webhook payload schema now includes an optional `reply_to: string[]`
 field. Existing consumers that ignore unknown fields are unaffected; older
 SDK versions parsing the same payload continue to work and simply do not
 see the new key.
+
+### Other generated-type additions
+The high-level surface above is what most consumers will touch. For users
+of `client.api.*` or `e2a.v1.generated.*` directly, the following backend
+endpoints / fields also landed since 2.2.0 and are reflected in the
+regenerated types:
+
+- Per-record DNS verification — separate MX / SPF / DKIM diagnostic
+  responses on the domain-verification endpoints.
+- Enriched `DashboardAgent` — `Inbound7d`, `Outbound7d`, `Pending`,
+  `LastDelivery`, `WebhookHealthy` fields on the dashboard list.
+- OAuth 2.1 authorization-server endpoints (fosite-backed) used by the
+  MCP server flow.
+- Per-domain DKIM key generation endpoint.
+- One-time signing-secret reveal on creation.
+- Pending-review polish — provenance, quoted-inbound, headers-preview,
+  draft-footer fields on the review payload.
+
+These are additive and don't break existing 2.2.0 callers.
