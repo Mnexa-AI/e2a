@@ -100,12 +100,39 @@ function decodeInboundBody(rawBase64: string | undefined): string {
   }
 }
 
+// AgentMessageFocusPage is split into an outer shell that reads the
+// URL params and an inner FocusContent component keyed by `id`. The
+// agent layout keys its children by `email`, so a same-agent
+// navigation between message IDs (?id=A → ?id=B with same email)
+// doesn't remount the page — without the inner `key={id}`, all the
+// per-message state (draftBody, editingDraft, hasUserEditedRef,
+// rejectReason, showRejectPrompt, submitError) would persist across
+// the navigation and corrupt B with A's UI state.
 export default function AgentMessageFocusPage() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const email = searchParams.get("email") ?? "";
   const id = searchParams.get("id") ?? "";
   const initialHeadersOpen = searchParams.get("headers") === "1";
+  return (
+    <FocusContent
+      key={`${email}|${id}`}
+      email={email}
+      id={id}
+      initialHeadersOpen={initialHeadersOpen}
+    />
+  );
+}
+
+function FocusContent({
+  email,
+  id,
+  initialHeadersOpen,
+}: {
+  email: string;
+  id: string;
+  initialHeadersOpen: boolean;
+}) {
+  const router = useRouter();
 
   // Try outbound first (focus is most often a Pending draft from the
   // inbox callout); fall back to inbound only on 404. A 500/401/etc.
@@ -113,12 +140,12 @@ export default function AgentMessageFocusPage() {
   // real server error behind "not found".
   //
   // `hasUserEditedRef` flips true the first time the user types into
-  // the draft-body textarea. The onSuccess callback (below) uses it
-  // to decide whether to overwrite the textarea with the server's
-  // body when SWR revalidates. Without the guard, a revalidation
-  // mid-edit (focus event, manual mutate) would silently revert the
-  // user's edits — or, more subtly, re-populate a body the user
-  // deliberately cleared.
+  // the draft-body textarea OR clicks Edit. The onSuccess callback
+  // (below) uses it to decide whether to overwrite the textarea
+  // with the server's body when SWR revalidates. Without the guard,
+  // a revalidation mid-edit (focus event, manual mutate) would
+  // silently revert the user's edits — or, more subtly, re-populate
+  // a body the user deliberately cleared.
   const hasUserEditedRef = useRef(false);
 
   // Both per-id SWR calls opt out of `keepPreviousData` so navigating
@@ -452,7 +479,14 @@ export default function AgentMessageFocusPage() {
               hasUserEditedRef.current = true;
               setDraftBody(v);
             }}
-            onStartEdit={() => setEditingDraft(true)}
+            onStartEdit={() => {
+              setEditingDraft(true);
+              // Even if the user hasn't typed yet, opening the
+              // editor signals intent to control the body — a
+              // revalidation mid-edit (focus event, scrubbed TTL)
+              // must not overwrite the textarea out from under them.
+              hasUserEditedRef.current = true;
+            }}
             onCancelEdit={() => {
               setEditingDraft(false);
               setDraftBody(msg.direction === "outbound" ? (msg.data.body_text ?? "") : "");

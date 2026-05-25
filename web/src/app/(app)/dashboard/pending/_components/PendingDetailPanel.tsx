@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import useSWR from "swr";
+import { pendingMessageKey } from "../../../../../lib/swrKeys";
 import {
   approvePendingMessage,
   getPendingMessage,
@@ -78,9 +80,39 @@ export function PendingDetailPanel({
   messageId: string;
   onChanged: () => void;
 }) {
-  const [msg, setMsg] = useState<PendingMessageDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  // Shared SWR cache with the focus page: when the focus page (or
+  // the pending page's handleChanged) calls
+  // `invalidateMessageDetail(id)`, this panel's data refetches
+  // automatically. Before the migration, the panel held its own
+  // useState/useEffect copy and stayed stale across mutations
+  // from elsewhere in the app.
+  const {
+    data: msg,
+    error: fetchError,
+    isLoading,
+  } = useSWR<PendingMessageDetail>(
+    messageId ? pendingMessageKey(messageId) : null,
+    () => getPendingMessage(messageId),
+    {
+      // Different message ID = different conceptual content; don't
+      // briefly render the previous message's data under the new id.
+      keepPreviousData: false,
+      // Seed the form fields whenever fresh data arrives. The
+      // `editing === false` guard prevents revalidations from
+      // stomping the reviewer's in-progress edits.
+      onSuccess: (data) => {
+        if (editing) return;
+        setSubject(data.subject ?? "");
+        setBodyText(data.body_text ?? "");
+        setBodyHTML(data.body_html ?? "");
+        setTo(joinCSV(data.to));
+        setCC(joinCSV(data.cc));
+        setBCC(joinCSV(data.bcc));
+      },
+    },
+  );
+  const loading = isLoading && !msg;
+
   // Reviewers see the draft read-only by default; clicking "Edit draft"
   // unlocks the inputs. Matches the mock's explicit edit-mode toggle
   // and prevents accidental keystrokes from being interpreted as edits.
@@ -97,34 +129,26 @@ export function PendingDetailPanel({
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    setEditing(false); // fresh message → re-lock the form
-    try {
-      const data = await getPendingMessage(messageId);
-      setMsg(data);
-      setSubject(data.subject ?? "");
-      setBodyText(data.body_text ?? "");
-      setBodyHTML(data.body_html ?? "");
-      setTo(joinCSV(data.to));
-      setCC(joinCSV(data.cc));
-      setBCC(joinCSV(data.bcc));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load message");
-    } finally {
-      setLoading(false);
-    }
-  }, [messageId]);
+  // Errors from approve/reject mutations live here; load errors come
+  // from SWR's fetchError. Both surface through the same banner below.
+  const [actionError, setActionError] = useState("");
+  const error =
+    actionError ||
+    (fetchError ? fetchError.message || "Failed to load message" : "");
 
+  // Re-lock the form when the user navigates between messages —
+  // otherwise an edit-mode session on message A persists into the
+  // view of message B (which shares the panel instance via parent
+  // remount strategy). Also clear stale action errors.
   useEffect(() => {
-    load();
-  }, [load]);
+    setEditing(false);
+    setActionError("");
+  }, [messageId]);
 
   const handleApprove = async () => {
     if (!msg) return;
     setApproving(true);
-    setError("");
+    setActionError("");
     try {
       const overrides = diffApproveEdits(msg, {
         subject,
@@ -137,7 +161,7 @@ export function PendingDetailPanel({
       await approvePendingMessage(msg.id, overrides);
       onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Approve failed");
+      setActionError(err instanceof Error ? err.message : "Approve failed");
       setApproving(false);
     }
   };
@@ -147,12 +171,12 @@ export function PendingDetailPanel({
     if (!confirm("Reject this message? It will be discarded and not sent."))
       return;
     setRejecting(true);
-    setError("");
+    setActionError("");
     try {
       await rejectPendingMessage(msg.id, rejectReason);
       onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Reject failed");
+      setActionError(err instanceof Error ? err.message : "Reject failed");
       setRejecting(false);
     }
   };

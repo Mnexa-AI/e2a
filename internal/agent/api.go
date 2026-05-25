@@ -1803,7 +1803,16 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid pagination token", http.StatusBadRequest)
 			return
 		}
-		if cursor.Status != status || cursor.Direction != direction {
+		// SDK back-compat: tokens issued before the `direction` field
+		// was added encode `Direction: ""`. The default for missing
+		// `?direction=` is "inbound", so treat empty-cursor-direction
+		// as inbound — otherwise an SDK client that paginated across
+		// a server upgrade would hit 400 on every continuation page.
+		cursorDirection := cursor.Direction
+		if cursorDirection == "" {
+			cursorDirection = "inbound"
+		}
+		if cursor.Status != status || cursorDirection != direction {
 			http.Error(w, "token was created with different filters — start a new query without a token", http.StatusBadRequest)
 			return
 		}

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "../../../../../test-utils/swr";
 import userEvent from "@testing-library/user-event";
 import { PendingDetailPanel } from "./PendingDetailPanel";
 

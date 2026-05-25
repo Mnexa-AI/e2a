@@ -2,12 +2,13 @@
 
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { mutate } from "swr";
 import { listPendingMessages } from "../../../components/onboarding/api";
 import {
   invalidateAgents,
   invalidateAllAgentMessages,
   invalidateMessageDetail,
-  invalidatePendingList,
+  pendingMessagesKey,
 } from "../../../../lib/swrKeys";
 import type { PendingMessageSummary } from "../../../components/types";
 import { PageShell } from "../../../components/loft/PageShell";
@@ -214,8 +215,13 @@ function PendingContent() {
       // owning agent's email — to[0] is the outbound recipient, not
       // the agent — so `invalidateAllAgentMessages()` blanket-matches
       // every cached inbox key rather than trying to be precise.
+      //
+      // Seed the pending-messages cache with `fresh` instead of
+      // triggering a third fetch (this fn already called the
+      // endpoint once at line 208). The Sidebar badge reads from the
+      // same cache key and updates in the same tick.
       void Promise.all([
-        invalidatePendingList(),
+        mutate(pendingMessagesKey, fresh, { revalidate: false }),
         selectedId ? invalidateMessageDetail(selectedId) : Promise.resolve(),
         invalidateAgents(),
         invalidateAllAgentMessages(),

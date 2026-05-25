@@ -3,6 +3,7 @@ package agent_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -1031,6 +1033,56 @@ func TestGetMessages_PaginationFilterMismatch(t *testing.T) {
 
 	if resp2.StatusCode != 400 {
 		t.Errorf("filter mismatch: status = %d, want 400", resp2.StatusCode)
+	}
+}
+
+// Back-compat: a pagination token issued by an older server build that
+// didn't encode the `direction` field must keep working against the
+// upgraded handler. The default direction is "inbound", so an empty
+// cursor.Direction is treated as inbound and the continuation page
+// returns 200 — not the 400 "filter mismatch" the strict check would
+// have raised before the back-compat shim was added.
+func TestGetMessages_PaginationLegacyTokenNoDirection(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-legacytok@example.com", "Owner", "google-legacytok")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "legacytok-key", nil)
+	store.ClaimOrCreateDomain(ctx, "legacytok.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@legacytok.example.com", "legacytok.example.com", "", "", "local", user.ID)
+
+	// Create 3 inbound messages so a continuation page has something
+	// to return. We capture the first message's CreatedAt+ID to build
+	// the legacy token below.
+	var first identity.Message
+	for i := 0; i < 3; i++ {
+		m, _ := store.CreateInboundMessage(ctx, "", a.ID, fmt.Sprintf("sender%d@example.com", i), "agent@legacytok.example.com", "", fmt.Sprintf("Subject %d", i), "", "unread", nil, nil, nil, nil, nil)
+		if i == 0 {
+			first = *m
+		}
+	}
+
+	// Hand-craft a legacy token (no `d` field) pointing past the first
+	// message — same shape the older server emitted before the
+	// direction column was added to the cursor.
+	legacyCursor, _ := json.Marshal(struct {
+		CreatedAt time.Time `json:"c"`
+		ID        string    `json:"i"`
+		Status    string    `json:"s"`
+		AgentID   string    `json:"a"`
+	}{CreatedAt: first.CreatedAt, ID: first.ID, Status: "unread", AgentID: a.ID})
+	tok := base64.RawURLEncoding.EncodeToString(legacyCursor)
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@legacytok.example.com/messages?status=unread&token="+tok, nil)
+	req.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("legacy token: status = %d, want 200 (body: %s)", resp.StatusCode, body)
 	}
 }
 

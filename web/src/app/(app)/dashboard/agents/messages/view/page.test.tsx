@@ -311,6 +311,66 @@ describe("AgentMessageFocusPage", () => {
     expect(approveBody).toContain('"body_text":"Edited body"');
   });
 
+  // Regression: navigating from message A to message B via ?id= must
+  // reset the inner per-message state (draftBody, editingDraft,
+  // hasUserEditedRef, rejectReason). Before keying FocusContent by
+  // `${email}|${id}`, an edit-in-progress on A would bleed into B's
+  // view and the user would see A's stale draft superimposed on B.
+  it("resets per-message state when ?id changes (no draft bleed across navigation)", async () => {
+    setSearchParams({ email: "support@acme.io", id: "msg_pending" });
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+
+    const OTHER = {
+      ...OUTBOUND_PENDING,
+      id: "msg_other",
+      subject: "Different subject",
+      body_text: "Different body content",
+    };
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/v1/messages/msg_pending") && !url.includes("/agents/")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(OUTBOUND_PENDING),
+        });
+      }
+      if (url.includes("/api/v1/messages/msg_other") && !url.includes("/agents/")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(OTHER),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve("not found"),
+      });
+    });
+
+    const { rerender } = render(<AgentMessageFocusPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("action-card")).toBeInTheDocument();
+    });
+
+    // Enter edit mode and type a stale draft body on message A.
+    await user.click(screen.getByText(/^edit draft$/i));
+    const textareaA = screen.getByRole("textbox");
+    await user.clear(textareaA);
+    await user.type(textareaA, "stale draft body");
+    expect(screen.getByDisplayValue(/stale draft body/)).toBeInTheDocument();
+
+    // Navigate to message B by updating the URL params and rerendering.
+    setSearchParams({ email: "support@acme.io", id: "msg_other" });
+    rerender(<AgentMessageFocusPage />);
+
+    // Message B's body must show, and the stale draft from A must not.
+    await waitFor(() => {
+      expect(screen.getByText(/Different body content/)).toBeInTheDocument();
+    });
+    expect(screen.queryByDisplayValue(/stale draft body/)).not.toBeInTheDocument();
+  });
+
   it("Reject confirm flow posts the reason and redirects to the thread", async () => {
     setSearchParams({ email: "support@acme.io", id: "msg_pending" });
     const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
