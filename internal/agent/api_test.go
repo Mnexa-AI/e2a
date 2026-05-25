@@ -1540,6 +1540,87 @@ func TestGetMessages_ConversationIDFilter(t *testing.T) {
 	}
 }
 
+// TestGetMessages_FilterEscapesLikeWildcards covers the "users expect
+// substring search, not glob" property. Postgres ILIKE treats `%` and
+// `_` as wildcards; without escaping, `?from=foo_bar` would also match
+// `fooXbar` and `?subject_contains=10%discount` would match
+// "10[anything]discount". Verify the escape: a row that contains the
+// literal `_` matches; a row with a different char in the same
+// position does NOT.
+func TestGetMessages_FilterEscapesLikeWildcards(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-like-esc@example.com", "Owner", "google-like-esc")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "like-esc-key", nil)
+	store.ClaimOrCreateDomain(ctx, "like-esc.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@like-esc.example.com", "like-esc.example.com", "", "", "local", user.ID)
+
+	// Two rows that would collide under unescaped ILIKE %foo_bar%:
+	// the literal-underscore one we want to match, and the wildcard
+	// would-also-match one we don't.
+	store.CreateInboundMessage(ctx, "", a.ID, "foo_bar@acme.com", "agent@like-esc.example.com", "", "literal underscore", "", "unread", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", a.ID, "fooXbar@acme.com", "agent@like-esc.example.com", "", "wildcard collision", "", "unread", nil, nil, nil, nil, nil)
+	// Subject column: `%discount` would match every subject under
+	// unescaped ILIKE; the escape keeps it literal.
+	store.CreateInboundMessage(ctx, "", a.ID, "s@acme.com", "agent@like-esc.example.com", "", "10%discount today", "", "unread", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", a.ID, "s@acme.com", "agent@like-esc.example.com", "", "Unrelated subject", "", "unread", nil, nil, nil, nil, nil)
+
+	// from=foo_bar should match only the literal-underscore row.
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@like-esc.example.com/messages?status=all&from=foo_bar", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
+	}
+	var body struct {
+		Messages []struct {
+			From string `json:"from"`
+		} `json:"messages"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	if len(body.Messages) != 1 {
+		got := make([]string, 0, len(body.Messages))
+		for _, m := range body.Messages {
+			got = append(got, m.From)
+		}
+		t.Fatalf("from=foo_bar matched %d rows: %v — wildcard `_` should be escaped", len(body.Messages), got)
+	}
+	if body.Messages[0].From != "foo_bar@acme.com" {
+		t.Errorf("from=foo_bar matched %q, want foo_bar@acme.com", body.Messages[0].From)
+	}
+
+	// subject_contains=10%discount should match only the literal-%
+	// row. Without ESCAPE '\', `%` collapses the pattern to match
+	// every subject in the inbox.
+	req2, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@like-esc.example.com/messages?status=all&subject_contains=10%25discount", nil)
+	req2.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp2, _ := http.DefaultClient.Do(req2)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != 200 {
+		body, _ := io.ReadAll(resp2.Body)
+		t.Fatalf("status = %d, body = %s", resp2.StatusCode, body)
+	}
+	var body2 struct {
+		Messages []struct {
+			Subject string `json:"subject"`
+		} `json:"messages"`
+	}
+	json.NewDecoder(resp2.Body).Decode(&body2)
+	if len(body2.Messages) != 1 {
+		got := make([]string, 0, len(body2.Messages))
+		for _, m := range body2.Messages {
+			got = append(got, m.Subject)
+		}
+		t.Fatalf("subject_contains=10%%%%discount matched %d rows: %v — `%%` should be escaped", len(body2.Messages), got)
+	}
+	if body2.Messages[0].Subject != "10%discount today" {
+		t.Errorf("unexpected subject match: %q", body2.Messages[0].Subject)
+	}
+}
+
 // TestGetMessages_InvalidFiltersRejected covers the validation paths.
 func TestGetMessages_InvalidFiltersRejected(t *testing.T) {
 	server, store, _ := setupAPI(t)

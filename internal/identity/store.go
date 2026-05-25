@@ -1812,6 +1812,21 @@ func (s *Store) ListActivityByAgent(ctx context.Context, agentID string, limit i
 	return messages, rows.Err()
 }
 
+// escapeLikePattern escapes the three SQL LIKE/ILIKE metacharacters
+// (%, _, \) by prefixing them with backslash. Callers pair the
+// returned pattern with `ESCAPE '\'` in the SQL fragment so the
+// driver treats backslash as the escape char.
+//
+// This is NOT for SQL injection protection — pgx parameter binding
+// already handles that — it's for "user-typed substring search,
+// not glob". Without this, `?from=foo_bar` would match `fooXbar`,
+// and `?from=%@acme.com` would match every row in the table.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+func escapeLikePattern(s string) string {
+	return likeEscaper.Replace(s)
+}
+
 // MessageListFilter bundles the params for GetMessagesByAgent. Zero
 // values on the optional substring / time / ID filters mean "no
 // constraint" — callers omit what they don't want to filter on.
@@ -1895,13 +1910,20 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]
 	// Optional search filters — each appends one arg and one WHERE
 	// clause. Ordering matches the docstring so a code reader can
 	// see at a glance which knobs map to which SQL fragment.
+	//
+	// ILIKE filters use ESCAPE '\' so the caller's literal `%`, `_`,
+	// and `\` characters match themselves instead of acting as SQL
+	// pattern wildcards. Without this, `?from=foo_bar` would also
+	// match `fooXbar`, and `?from=%@acme.com` would match every row.
+	// pgx parameter binding still protects against injection — this
+	// is purely a "users expect substring search, not glob" fix.
 	if f.From != "" {
-		query += fmt.Sprintf(` AND m.sender ILIKE $%d`, len(args)+1)
-		args = append(args, "%"+f.From+"%")
+		query += fmt.Sprintf(` AND m.sender ILIKE $%d ESCAPE '\'`, len(args)+1)
+		args = append(args, "%"+escapeLikePattern(f.From)+"%")
 	}
 	if f.SubjectContains != "" {
-		query += fmt.Sprintf(` AND m.subject ILIKE $%d`, len(args)+1)
-		args = append(args, "%"+f.SubjectContains+"%")
+		query += fmt.Sprintf(` AND m.subject ILIKE $%d ESCAPE '\'`, len(args)+1)
+		args = append(args, "%"+escapeLikePattern(f.SubjectContains)+"%")
 	}
 	if f.ConversationID != "" {
 		query += fmt.Sprintf(` AND m.conversation_id = $%d`, len(args)+1)
