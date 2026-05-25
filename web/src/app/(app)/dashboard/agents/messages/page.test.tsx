@@ -2,7 +2,7 @@
 // callout fires when a thread has a pending draft, empty state, "load
 // older" button.
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "../../../../../test-utils/swr";
 import userEvent from "@testing-library/user-event";
 import AgentInboxPage from "./page";
 import type { MessageSummary } from "../../../../components/types";

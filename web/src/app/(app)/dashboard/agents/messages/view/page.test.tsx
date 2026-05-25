@@ -2,7 +2,7 @@
 // Headers collapsible respects ?headers=1, Approve calls the API +
 // redirects, ⌘↵ triggers Approve, missing params surface an error.
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "../../../../../../test-utils/swr";
 import userEvent from "@testing-library/user-event";
 import AgentMessageFocusPage from "./page";
 

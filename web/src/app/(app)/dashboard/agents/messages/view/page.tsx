@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import useSWR from "swr";
 import {
   ApiError,
   approvePendingMessage,
@@ -36,6 +37,14 @@ import {
   deriveLifecycleSteps,
 } from "../../../../../components/messages/MessageLifecycleTimeline";
 import { formatRelativeAge } from "../../../../../../lib/relativeTime";
+import {
+  inboundMessageKey,
+  invalidateAgentMessages,
+  invalidateAgents,
+  invalidateMessageDetail,
+  invalidatePendingList,
+  pendingMessageKey,
+} from "../../../../../../lib/swrKeys";
 
 type LoadedMessage =
   | { direction: "outbound"; data: PendingMessageDetail }
@@ -98,53 +107,62 @@ export default function AgentMessageFocusPage() {
   const id = searchParams.get("id") ?? "";
   const initialHeadersOpen = searchParams.get("headers") === "1";
 
-  const [msg, setMsg] = useState<LoadedMessage | null>(null);
-  const [error, setError] = useState("");
-  const [editingDraft, setEditingDraft] = useState(false);
-  const [draftBody, setDraftBody] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [showRejectPrompt, setShowRejectPrompt] = useState(false);
-  const [rejectReason, setRejectReason] = useState("");
-
   // Try outbound first (focus is most often a Pending draft from the
   // inbox callout); fall back to inbound only on 404. A 500/401/etc.
   // from outbound is surfaced as-is — falling through would mask the
   // real server error behind "not found".
-  useEffect(() => {
-    if (!email || !id) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const out = await getPendingMessage(id);
-        if (cancelled) return;
-        setMsg({ direction: "outbound", data: out });
-        setDraftBody(out.body_text ?? "");
-      } catch (outErr) {
-        if (cancelled) return;
-        const out404 = outErr instanceof ApiError && outErr.status === 404;
-        if (!out404) {
-          setError(
-            outErr instanceof Error ? outErr.message : "Failed to load message",
-          );
-          return;
-        }
-        // Outbound returned a real 404 → try inbound.
-        try {
-          const inb = await getInboundMessage(email, id);
-          if (cancelled) return;
-          setMsg({ direction: "inbound", data: inb });
-        } catch (inbErr) {
-          if (cancelled) return;
-          setError(
-            inbErr instanceof Error ? inbErr.message : "Message not found",
-          );
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [email, id]);
+  //
+  // Two useSWR calls: the inbound query stays gated (`null` key) until
+  // we know the outbound endpoint returned a real 404. This keeps the
+  // cache shapes clean and the worst-case latency to one round trip
+  // for outbound hits.
+  const outboundSWR = useSWR(
+    id ? pendingMessageKey(id) : null,
+    () => getPendingMessage(id),
+    {
+      shouldRetryOnError: false,
+      // Seed the draft-body textarea the first time data arrives.
+      // Doing this in SWR's onSuccess callback (which fires from
+      // SWR's internal fetch effect, not our render) keeps the
+      // setState off the render path that React 19's lint guards.
+      onSuccess: (data) => {
+        setDraftBody((prev) => (prev === "" ? (data.body_text ?? "") : prev));
+      },
+    },
+  );
+  const outboundIs404 =
+    outboundSWR.error instanceof ApiError && outboundSWR.error.status === 404;
+  const inboundSWR = useSWR(
+    email && id && outboundIs404 ? inboundMessageKey(email, id) : null,
+    () => getInboundMessage(email, id),
+    { shouldRetryOnError: false },
+  );
+
+  const msg: LoadedMessage | null = outboundSWR.data
+    ? { direction: "outbound", data: outboundSWR.data }
+    : inboundSWR.data
+      ? { direction: "inbound", data: inboundSWR.data }
+      : null;
+
+  // Surface the outbound error directly unless it's the 404 we're
+  // expecting (in which case wait for the inbound result to settle).
+  const error: string = (() => {
+    if (outboundSWR.error && !outboundIs404) {
+      return outboundSWR.error.message || "Failed to load message";
+    }
+    if (outboundIs404 && inboundSWR.error) {
+      return inboundSWR.error.message || "Message not found";
+    }
+    return "";
+  })();
+
+  const [editingDraft, setEditingDraft] = useState(false);
+  const [draftBody, setDraftBody] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const [showRejectPrompt, setShowRejectPrompt] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+
 
   const isPending = msg?.direction === "outbound" && msg.data.status === "pending_approval";
 
@@ -155,32 +173,59 @@ export default function AgentMessageFocusPage() {
       ? `${inboxLink}#${msg.data.conversation_id ? `conv:${msg.data.conversation_id}` : `orphan:${msg.data.message_id}`}`
       : inboxLink;
 
+  // Both approve and reject invalidate four SWR caches so the rest
+  // of the dashboard reflects the new state immediately:
+  //   • pendingMessagesKey  → Sidebar badge drops
+  //   • pendingMessageKey   → this focus page itself (the row's
+  //                            status moves from pending_approval
+  //                            to sent/rejected)
+  //   • agentMessagesKey*   → the inbox view drops the pending callout
+  //   • agentsKey           → /dashboard agent cards show updated
+  //                            `pending_count` per agent
+  // We `await Promise.all(...)` before navigating so the inbox
+  // re-render happens against fresh data, not the previous payload.
+  const refreshAfterMutation = useCallback(
+    async (msgId: string) => {
+      await Promise.all([
+        invalidatePendingList(),
+        invalidateMessageDetail(msgId),
+        invalidateAgentMessages(email),
+        invalidateAgents(),
+      ]);
+    },
+    [email],
+  );
+
   const onApprove = useCallback(async () => {
     if (!msg || msg.direction !== "outbound") return;
     setSubmitting(true);
+    setSubmitError("");
     try {
       const overrides = editingDraft && draftBody !== (msg.data.body_text ?? "")
         ? { body_text: draftBody }
         : {};
       await approvePendingMessage(msg.data.id, overrides);
+      await refreshAfterMutation(msg.data.id);
       router.push(convLink);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to approve");
+      setSubmitError(err instanceof Error ? err.message : "Failed to approve");
       setSubmitting(false);
     }
-  }, [msg, editingDraft, draftBody, router, convLink]);
+  }, [msg, editingDraft, draftBody, router, convLink, refreshAfterMutation]);
 
   const onReject = useCallback(async () => {
     if (!msg || msg.direction !== "outbound") return;
     setSubmitting(true);
+    setSubmitError("");
     try {
       await rejectPendingMessage(msg.data.id, rejectReason || "rejected by reviewer");
+      await refreshAfterMutation(msg.data.id);
       router.push(convLink);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to reject");
+      setSubmitError(err instanceof Error ? err.message : "Failed to reject");
       setSubmitting(false);
     }
-  }, [msg, rejectReason, router, convLink]);
+  }, [msg, rejectReason, router, convLink, refreshAfterMutation]);
 
   // ⌘↵ on the focus page approves a pending message.
   useEffect(() => {
@@ -202,6 +247,8 @@ export default function AgentMessageFocusPage() {
       </div>
     );
   }
+  // submitError surfaces from a failed approve/reject — it's
+  // localized to the action card, not the fetch path.
   if (error) {
     return (
       <div
@@ -401,20 +448,30 @@ export default function AgentMessageFocusPage() {
         </div>
         <aside className="flex flex-col gap-4">
           {isPending && msg.direction === "outbound" && (
-            <ActionCard
-              expiresIn={expiresIn}
-              submitting={submitting}
-              showRejectPrompt={showRejectPrompt}
-              rejectReason={rejectReason}
-              onChangeReason={setRejectReason}
-              onApprove={onApprove}
-              onStartReject={() => setShowRejectPrompt(true)}
-              onCancelReject={() => {
-                setShowRejectPrompt(false);
-                setRejectReason("");
-              }}
-              onConfirmReject={onReject}
-            />
+            <>
+              <ActionCard
+                expiresIn={expiresIn}
+                submitting={submitting}
+                showRejectPrompt={showRejectPrompt}
+                rejectReason={rejectReason}
+                onChangeReason={setRejectReason}
+                onApprove={onApprove}
+                onStartReject={() => setShowRejectPrompt(true)}
+                onCancelReject={() => {
+                  setShowRejectPrompt(false);
+                  setRejectReason("");
+                }}
+                onConfirmReject={onReject}
+              />
+              {submitError && (
+                <p
+                  className="text-[12px]"
+                  style={{ color: "var(--danger-strong)" }}
+                >
+                  {submitError}
+                </p>
+              )}
+            </>
           )}
           <LifecycleSection msg={msg} />
           {isPending && msg.direction === "outbound" && (

@@ -8,16 +8,18 @@
 // lands, the window may starve old threads for accounts with >100
 // recent messages.
 //
-// Selection state lives in `window.location.hash` (#conv_X or #msg:X)
+// Selection state lives in `window.location.hash` (#conv:X or #orphan:X)
 // so deep-links work and the back button moves between threads.
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import useSWR from "swr";
 import { listAgentMessages } from "../../../../components/onboarding/api";
 import type { MessageSummary } from "../../../../components/types";
 import { ThreadList } from "../../../../components/messages/ThreadList";
 import { ThreadDetail } from "../../../../components/messages/ThreadDetail";
 import { findThread, groupIntoThreads } from "../../../../components/messages/threading";
+import { agentMessagesKey } from "../../../../../lib/swrKeys";
 
 // Sync the URL fragment into React state. useSyncExternalStore is the
 // idiomatic way to read browser-owned state without effect ping-pong.
@@ -38,45 +40,45 @@ export default function AgentInboxPage() {
   const searchParams = useSearchParams();
   const email = searchParams.get("email") ?? "";
 
-  const [rows, setRows] = useState<MessageSummary[] | null>(null);
-  const [error, setError] = useState("");
-  const [nextToken, setNextToken] = useState<string | null>(null);
+  // Initial 100-row window. SWR keys by email so navigating between
+  // agents fetches independently; mutations on the focus page call
+  // `invalidateAgentMessages(email)` to refresh this query.
+  const {
+    data: initialPage,
+    error: fetchError,
+  } = useSWR(
+    email ? agentMessagesKey(email, "all") : null,
+    () => listAgentMessages(email, { direction: "all", status: "all", pageSize: 100 }),
+  );
+
+  // "Load older" appends additional pages keyed by the prior page's
+  // next_token. We keep these in local state because SWR's cache key
+  // would need the token in it (defeating the dedup) — appended
+  // pages are append-only so a separate state ref works fine.
+  const [olderPages, setOlderPages] = useState<MessageSummary[][]>([]);
+  const [latestToken, setLatestToken] = useState<string | null | undefined>(undefined);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
-  // Tracks the most recently-rendered email so async work (loadOlder
-  // in particular) can detect whether the user has navigated to a
-  // different agent mid-flight. Without this, a `loadOlder` response
-  // from agent A could append into agent B's `rows`.
-  const emailRef = useRef(email);
-  emailRef.current = email;
-
-  useEffect(() => {
-    if (!email) return;
-    let cancelled = false;
-    listAgentMessages(email, { direction: "all", status: "all", pageSize: 100 })
-      .then((res) => {
-        if (cancelled) return;
-        setRows(res.messages);
-        setNextToken(res.next_token ?? null);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(
-          err instanceof Error ? err.message : "Failed to load messages",
-        );
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [email]);
+  const initialMessages = initialPage?.messages ?? [];
+  const rows: MessageSummary[] = useMemo(
+    () => [...initialMessages, ...olderPages.flat()],
+    [initialMessages, olderPages],
+  );
+  // The token to use for the next "Load older" click is the most
+  // recent next_token we've seen (either from the initial fetch or
+  // the latest appended page).
+  const nextToken: string | null =
+    latestToken !== undefined ? latestToken : (initialPage?.next_token ?? null);
 
   const threads = useMemo(
-    () => (rows ? groupIntoThreads(rows) : []),
+    () => (rows.length > 0 ? groupIntoThreads(rows) : []),
     [rows],
   );
   const hash = useUrlHash();
   const selected = findThread(threads, hash);
   const pendingCount = threads.filter((t) => t.state === "pending").length;
+  const error = loadError || (fetchError ? fetchError.message || "Failed to load messages" : "");
 
   const selectThread = (key: string) => {
     if (typeof window !== "undefined") {
@@ -108,6 +110,7 @@ export default function AgentInboxPage() {
     // late response would merge into the wrong agent's rows.
     const startEmail = email;
     setLoadingMore(true);
+    setLoadError("");
     try {
       const res = await listAgentMessages(startEmail, {
         direction: "all",
@@ -115,14 +118,14 @@ export default function AgentInboxPage() {
         pageSize: 100,
         token: nextToken,
       });
-      if (emailRef.current !== startEmail) return;
-      setRows((prev) => (prev ? [...prev, ...res.messages] : res.messages));
-      setNextToken(res.next_token ?? null);
+      if (startEmail !== email) return;
+      setOlderPages((prev) => [...prev, res.messages]);
+      setLatestToken(res.next_token ?? null);
     } catch (err) {
-      if (emailRef.current !== startEmail) return;
-      setError(err instanceof Error ? err.message : "Failed to load older messages");
+      if (startEmail !== email) return;
+      setLoadError(err instanceof Error ? err.message : "Failed to load older messages");
     } finally {
-      if (emailRef.current === startEmail) setLoadingMore(false);
+      if (startEmail === email) setLoadingMore(false);
     }
   };
 
@@ -160,7 +163,7 @@ export default function AgentInboxPage() {
             {error}
           </div>
         )}
-        {!error && rows === null && (
+        {!error && !initialPage && (
           <div
             className="px-7 py-8 text-[13px]"
             style={{ color: "var(--fg-muted)" }}
@@ -168,7 +171,7 @@ export default function AgentInboxPage() {
             Loading inbox…
           </div>
         )}
-        {!error && rows !== null && (
+        {!error && initialPage && (
           <ThreadDetail
             thread={selected}
             agentEmail={email}

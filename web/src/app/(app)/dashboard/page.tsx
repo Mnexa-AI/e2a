@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
+import useSWR from "swr";
 import Link from "next/link";
 import { useAuth } from "../../components/AuthProvider";
-import { listAgents, listDomains } from "../../components/onboarding/api";
+import { listDomains } from "../../components/onboarding/api";
+import { useAgents } from "../../components/hooks/useAgents";
+import { domainsKey } from "../../../lib/swrKeys";
 import type {
   DashboardAgent,
   DashboardStats,
@@ -223,35 +226,22 @@ function FilterBar({
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const [agents, setAgents] = useState<DashboardAgent[]>([]);
-  const [domains, setDomains] = useState<DomainInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  // Both feeds are read through SWR so an agent edit on the Settings
+  // page (which invalidates `agentsKey`) flows back into this view
+  // without a manual refetch.
+  const { agents, error: agentsError, isLoading: agentsLoading } = useAgents();
+  const { data: domains = [] } = useSWR(domainsKey, () =>
+    listDomains().catch(() => [] as DomainInfo[]),
+  );
+  const error = agentsError ? agentsError.message || "Failed to load agents" : "";
+  const loading = agentsLoading;
   const [filter, setFilter] = useState<Filter>("all");
   const [sort, setSort] = useState<SortKey>("recent");
 
-  const fetchData = useCallback(async () => {
-    try {
-      const [agentList, domainList] = await Promise.all([
-        listAgents(),
-        listDomains().catch(() => [] as DomainInfo[]),
-      ]);
-      setAgents(agentList);
-      setDomains(domainList);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load agents");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
   // Delete moved to /dashboard/agents/settings → Danger zone. The
   // dashboard no longer needs a per-card delete handler; the settings
-  // page calls deleteAgent and routes back to /dashboard on success.
+  // page calls deleteAgent + invalidateAgents() and routes back here,
+  // which causes useAgents() to refetch and the new list to render.
 
   // Derived: filtered + sorted agent list.
   const visibleAgents = useMemo(() => {

@@ -5,7 +5,7 @@
 // /api/dashboard/agents/{email}, and the danger-zone delete confirm
 // flow routes back to /dashboard on success.
 
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "../../../../../test-utils/swr";
 import userEvent from "@testing-library/user-event";
 import AgentSettingsPage from "./page";
 

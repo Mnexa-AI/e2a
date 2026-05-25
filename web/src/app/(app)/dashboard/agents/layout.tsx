@@ -6,12 +6,10 @@
 // and dynamic segments would require generateStaticParams() with the
 // full set of emails enumerated at build time.
 
-import { useEffect, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Topbar } from "../../../components/loft/Topbar";
 import { AgentHeader, type AgentTab } from "../../../components/messages/AgentHeader";
-import { listAgents } from "../../../components/onboarding/api";
-import type { DashboardAgent } from "../../../components/types";
+import { useAgents } from "../../../components/hooks/useAgents";
 
 function detectTab(pathname: string): AgentTab {
   if (pathname.startsWith("/dashboard/agents/settings")) return "settings";
@@ -56,41 +54,21 @@ function AgentLayoutContent({
   tab: AgentTab;
   children: React.ReactNode;
 }) {
-  const [agent, setAgent] = useState<DashboardAgent | null>(null);
-  const [fetchError, setFetchError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const { agents, error: fetchError, isLoading } = useAgents();
+  const agent = email ? agents.find((a) => a.email === email) ?? null : null;
 
-  // Missing-email is a URL-shape problem, not a fetch error — surface
-  // it as a derived value so we don't have to call setState in the
-  // effect to flip the loading flag.
-  const error = email ? fetchError : "Missing ?email= query parameter";
-
-  useEffect(() => {
-    if (!email) return;
-    let cancelled = false;
-    listAgents()
-      .then((agents) => {
-        if (cancelled) return;
-        const match = agents.find((a) => a.email === email);
-        if (!match) {
-          setFetchError(`Agent ${email} not found`);
-        } else {
-          setAgent(match);
-        }
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setFetchError(
-          err instanceof Error ? err.message : "Failed to load agent",
-        );
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [email]);
+  // Three distinct error states surfaced as one string:
+  //   1. Missing ?email= → URL-shape problem
+  //   2. The fetch itself errored
+  //   3. The fetch returned successfully but the agent isn't in the list
+  const error = !email
+    ? "Missing ?email= query parameter"
+    : fetchError
+      ? fetchError.message || "Failed to load agent"
+      : !isLoading && !agent
+        ? `Agent ${email} not found`
+        : "";
+  const loading = email && !error && isLoading && !agent;
 
   if (error) {
     return (

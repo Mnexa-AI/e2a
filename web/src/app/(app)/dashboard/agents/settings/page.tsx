@@ -5,14 +5,12 @@
 // zone for deletion. The dashboard card is now lean: identity +
 // stats + Open-inbox / Settings CTAs only; the editors live here.
 
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eyebrow } from "../../../../components/loft/Eyebrow";
-import {
-  deleteAgent,
-  listAgents,
-} from "../../../../components/onboarding/api";
-import type { DashboardAgent } from "../../../../components/types";
+import { deleteAgent } from "../../../../components/onboarding/api";
+import { useAgents } from "../../../../components/hooks/useAgents";
+import { invalidateAgents } from "../../../../../lib/swrKeys";
 import { AgentModeSwitcher } from "../../_components/AgentModeSwitcher";
 import { WebhookEditor } from "../../_components/WebhookEditor";
 import { HITLEditor } from "../../_components/HITLEditor";
@@ -32,44 +30,31 @@ export default function AgentSettingsPage() {
 
 function AgentSettingsContent({ email }: { email: string }) {
   const router = useRouter();
-
-  // refreshKey is incremented after each successful editor save so the
-  // agent re-fetches and the children remount with fresh props.
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [agent, setAgent] = useState<DashboardAgent | null>(null);
-  const [fetchError, setFetchError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const { agents, error: fetchError, isLoading } = useAgents();
+  const agent = email ? agents.find((a) => a.email === email) ?? null : null;
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
-  const error = email ? fetchError : "Missing ?email= query parameter";
+  // Three error states surfaced as one string:
+  //   1. Missing ?email= → URL-shape problem
+  //   2. The fetch errored
+  //   3. The fetch succeeded but the agent isn't in the list
+  const error = !email
+    ? "Missing ?email= query parameter"
+    : fetchError
+      ? fetchError.message || "Failed to load agent"
+      : !isLoading && !agent
+        ? `Agent ${email} not found`
+        : "";
 
-  useEffect(() => {
-    if (!email) return;
-    let cancelled = false;
-    listAgents()
-      .then((agents) => {
-        if (cancelled) return;
-        const match = agents.find((a) => a.email === email);
-        if (!match) setFetchError(`Agent ${email} not found`);
-        else setAgent(match);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setFetchError(err instanceof Error ? err.message : "Failed to load agent");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [email, refreshKey]);
-
-  const onEditorSaved = useMemo(
-    () => () => setRefreshKey((k) => k + 1),
-    [],
-  );
+  // Editor saves now invalidate the shared `agentsKey` cache (see
+  // AgentModeSwitcher / WebhookEditor / HITLEditor). We re-derive
+  // the local `agent` value from useAgents(), so no refreshKey-bump
+  // pattern is needed any more — SWR fans the new data out to every
+  // consumer.
+  const onEditorSaved = () => {
+    void invalidateAgents();
+  };
 
   const onDelete = async () => {
     if (!agent) return;
@@ -78,6 +63,7 @@ function AgentSettingsContent({ email }: { email: string }) {
     setDeleteError("");
     try {
       await deleteAgent(agent.email);
+      await invalidateAgents();
       router.push("/dashboard");
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : "Failed to delete agent");
@@ -100,7 +86,7 @@ function AgentSettingsContent({ email }: { email: string }) {
       </div>
     );
   }
-  if (loading || !agent) {
+  if (isLoading || !agent) {
     return (
       <div className="px-7 py-8 text-[13px]" style={{ color: "var(--fg-muted)" }}>
         Loading settings…
