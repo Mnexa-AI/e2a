@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -223,53 +224,85 @@ func main() {
 		}
 	}()
 
+	// workerWG tracks every background goroutine that needs to drain
+	// before the process exits on SIGTERM. Without it the main
+	// goroutine would return as soon as httpServer.Shutdown returns,
+	// dropping in-flight webhook deliveries and HITL TTL transitions
+	// mid-iteration. retryCancel/hitlCancel signal the workers to
+	// stop; wg.Wait() at the end of shutdown blocks for the current
+	// iteration to settle.
+	//
+	// Known gap: NotifyPendingApprovalAsync goroutines are detached
+	// (context.Background, no handle) and remain at risk. Operators
+	// running rolling deploys should ensure SMTP is reachable from
+	// the new replica before reaping the old one so notifications
+	// have somewhere to land. Threading the wg through the notifier
+	// is a follow-up.
+	var workerWG sync.WaitGroup
+
 	// Webhook delivery retry worker
 	retryWorker := webhook.NewRetryWorker(deliveryStore, deliverer, store)
 	retryCtx, retryCancel := context.WithCancel(context.Background())
-	go retryWorker.Start(retryCtx)
+	workerWG.Add(1)
+	go func() {
+		defer workerWG.Done()
+		retryWorker.Start(retryCtx)
+	}()
 
 	// HITL expiration worker: transitions pending_approval messages that
 	// blew past their TTL into expired_approved (auto-send) or
 	// expired_rejected based on the owning agent's hitl_expiration_action.
 	hitlWorker := hitlworker.New(store, sender, usageTracker, cfg.OutboundSMTP.FromDomain)
 	hitlCtx, hitlCancel := context.WithCancel(context.Background())
+	workerWG.Add(1)
 	go func() {
+		defer workerWG.Done()
 		if err := hitlWorker.Run(hitlCtx); err != nil && err != context.Canceled {
 			log.Printf("[hitl-worker] stopped: %v", err)
 		}
 	}()
 
-	// Periodic cleanup of expired messages and sessions
+	// Periodic cleanup of expired messages and sessions. Bound to its
+	// own cancel-context so shutdown stops the loop instead of
+	// orphaning the goroutine.
+	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
+	workerWG.Add(1)
 	go func() {
+		defer workerWG.Done()
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
-		for range ticker.C {
-			if deleted, err := store.DeleteExpiredMessages(context.Background()); err != nil {
-				log.Printf("Failed to clean up expired messages: %v", err)
-			} else if deleted > 0 {
-				log.Printf("Cleaned up %d expired message(s)", deleted)
-			}
+		for {
+			select {
+			case <-cleanupCtx.Done():
+				return
+			case <-ticker.C:
+				if deleted, err := store.DeleteExpiredMessages(cleanupCtx); err != nil {
+					log.Printf("Failed to clean up expired messages: %v", err)
+				} else if deleted > 0 {
+					log.Printf("Cleaned up %d expired message(s)", deleted)
+				}
 
-			if deleted, err := store.DeleteExpiredUserSessions(context.Background()); err != nil {
-				log.Printf("Failed to clean up expired user sessions: %v", err)
-			} else if deleted > 0 {
-				log.Printf("Cleaned up %d expired user session(s)", deleted)
-			}
+				if deleted, err := store.DeleteExpiredUserSessions(cleanupCtx); err != nil {
+					log.Printf("Failed to clean up expired user sessions: %v", err)
+				} else if deleted > 0 {
+					log.Printf("Cleaned up %d expired user session(s)", deleted)
+				}
 
-			if deleted, err := deliveryStore.DeleteExpiredDeliveries(context.Background()); err != nil {
-				log.Printf("Failed to clean up expired webhook deliveries: %v", err)
-			} else if deleted > 0 {
-				log.Printf("Cleaned up %d expired webhook delivery record(s)", deleted)
-			}
+				if deleted, err := deliveryStore.DeleteExpiredDeliveries(cleanupCtx); err != nil {
+					log.Printf("Failed to clean up expired webhook deliveries: %v", err)
+				} else if deleted > 0 {
+					log.Printf("Cleaned up %d expired webhook delivery record(s)", deleted)
+				}
 
-			if oauthStorage != nil {
-				if res, err := oauthStorage.CleanupExpired(context.Background(), time.Now()); err != nil {
-					log.Printf("Failed to clean up expired OAuth rows: %v", err)
-				} else if res.Total() > 0 {
-					log.Printf("Cleaned up OAuth rows: codes=%d pkce=%d access=%d refresh=%d clients=%d",
-						res.AuthCodesDeleted, res.PKCERequestsDeleted,
-						res.AccessTokensDeleted, res.RefreshTokensDeleted,
-						res.ClientsDeleted)
+				if oauthStorage != nil {
+					if res, err := oauthStorage.CleanupExpired(cleanupCtx, time.Now()); err != nil {
+						log.Printf("Failed to clean up expired OAuth rows: %v", err)
+					} else if res.Total() > 0 {
+						log.Printf("Cleaned up OAuth rows: codes=%d pkce=%d access=%d refresh=%d clients=%d",
+							res.AuthCodesDeleted, res.PKCERequestsDeleted,
+							res.AccessTokensDeleted, res.RefreshTokensDeleted,
+							res.ClientsDeleted)
+					}
 				}
 			}
 		}
@@ -278,8 +311,41 @@ func main() {
 	<-sigCh
 	log.Println("Shutting down...")
 
+	// Signal every background worker to stop. Their inner ctx-select
+	// branches return on the next iteration; processBatch / RunOnce
+	// calls already in flight finish their current row before the
+	// goroutine exits.
 	retryCancel()
 	hitlCancel()
+	cleanupCancel()
+
+	// SMTP server: close the listener so no new connections, but
+	// existing connections finish their DATA per the relay's own
+	// connection lifecycle.
 	smtpServer.Close()
-	httpServer.Shutdown(ctx)
+
+	// Bound httpServer.Shutdown so a misbehaving request can't block
+	// shutdown forever. 30s matches typical platform SIGKILL windows
+	// (Kubernetes terminationGracePeriodSeconds defaults to 30).
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP server shutdown error: %v", err)
+	}
+
+	// Wait for the workers' current iteration to settle. Bound the
+	// wait so a stuck worker (e.g. SMTP send to a hanging recipient)
+	// can't block process exit indefinitely — past the deadline we
+	// fall through and let the goroutines die with the process.
+	drainDone := make(chan struct{})
+	go func() {
+		workerWG.Wait()
+		close(drainDone)
+	}()
+	select {
+	case <-drainDone:
+		log.Println("Background workers drained cleanly.")
+	case <-time.After(30 * time.Second):
+		log.Println("Background workers did not drain within 30s; exiting anyway.")
+	}
 }
