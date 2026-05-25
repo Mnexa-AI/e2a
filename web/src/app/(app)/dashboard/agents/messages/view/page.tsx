@@ -155,18 +155,7 @@ function FocusContent({
   const outboundSWR = useSWR(
     id ? pendingMessageKey(id) : null,
     () => getPendingMessage(id),
-    {
-      shouldRetryOnError: false,
-      keepPreviousData: false,
-      // Seed the draft-body textarea the first time data arrives.
-      // Doing this in SWR's onSuccess callback (which fires from
-      // SWR's internal fetch effect, not our render) keeps the
-      // setState off the render path that React 19's lint guards.
-      onSuccess: (data) => {
-        if (hasUserEditedRef.current) return;
-        setDraftBody(data.body_text ?? "");
-      },
-    },
+    { shouldRetryOnError: false, keepPreviousData: false },
   );
   const outboundIs404 =
     outboundSWR.error instanceof ApiError && outboundSWR.error.status === 404;
@@ -214,6 +203,24 @@ function FocusContent({
   const [showRejectPrompt, setShowRejectPrompt] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
 
+  // Seed the draft-body textarea from the loaded outbound message.
+  // Previously this lived in SWR's onSuccess callback, but onSuccess
+  // only fires on a real fetch — not on a cache-hit served within
+  // SWR's dedupingInterval. If the pending panel populated
+  // pendingMessageKey(id) shortly before the user landed on this
+  // page (e.g. via a future "Open in focus" link), the focus page
+  // would hit cache, skip the fetcher, never call onSuccess, and
+  // the reviewer would see an empty textarea.
+  //
+  // Effect-based seeding fires on every render where outboundSWR.data
+  // changes — including the cache-hit case where data resolves
+  // synchronously on mount. The hasUserEditedRef guard prevents
+  // window-focus revalidation from stomping in-progress edits.
+  useEffect(() => {
+    if (hasUserEditedRef.current) return;
+    if (!outboundSWR.data) return;
+    setDraftBody(outboundSWR.data.body_text ?? "");
+  }, [outboundSWR.data]);
 
   const isPending = msg?.direction === "outbound" && msg.data.status === "pending_approval";
 

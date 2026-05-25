@@ -350,6 +350,31 @@ describe("AgentMessageFocusPage", () => {
     expect(approveBody).toContain('"body_text":"Edited body"');
   });
 
+  // Regression for H3: previously the draft-body textarea was seeded
+  // only from SWR's onSuccess callback. onSuccess fires after a real
+  // fetch — not on a cache hit served within dedupingInterval. If
+  // another surface (e.g. PendingDetailPanel) populated
+  // pendingMessageKey(id) just before the user navigated here, the
+  // focus page would render data from cache, skip the fetcher, never
+  // call onSuccess, and leave draftBody as "" — the reviewer would
+  // click Edit and see a blank textarea instead of the agent's body.
+  // The effect-based seed runs on every data change, so cache hits
+  // also seed correctly.
+  it("seeds the draft-body textarea from outboundSWR.data so cache hits populate the editor", async () => {
+    setSearchParams({ email: "support@acme.io", id: "msg_pending" });
+    mockOutboundOnly(OUTBOUND_PENDING);
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+
+    render(<AgentMessageFocusPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("action-card")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText(/^edit draft$/i));
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    expect(textarea.value).toContain("Thanks for sending over the renewal draft");
+  });
+
   // Regression: navigating from message A to message B via ?id= must
   // reset the inner per-message state (draftBody, editingDraft,
   // hasUserEditedRef, rejectReason). Before keying FocusContent by
