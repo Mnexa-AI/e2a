@@ -1406,6 +1406,11 @@ func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "self-send failed", http.StatusInternalServerError)
 			return
 		}
+		// Loopback row writes are irreversible from the caller's
+		// perspective (the inbox row is now visible). Lock the
+		// idempotency key in so a late 5xx from logging / response
+		// flushing doesn't release it and let a retry double-write.
+		markSideEffectCommitted(w)
 		slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
 		log.Printf("[mail] dir=outbound type=send method=loopback from=%s to=%s slug=%s conv_id=%s subject=%q provider_id=%s", agent.EmailAddress(), agent.EmailAddress(), slug, req.ConversationID, req.Subject, providerID)
 		w.Header().Set("Content-Type", "application/json")
@@ -1427,6 +1432,12 @@ func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("send failed: %v", err), http.StatusInternalServerError)
 		return
 	}
+	// Upstream send accepted — past this point, any handler-side
+	// failure must NOT release the idempotency key (retrying would
+	// double-send to SES). markSideEffectCommitted flips finalize's
+	// policy to "cache the response no matter what status code we
+	// end up writing".
+	markSideEffectCommitted(w)
 
 	// Record outbound message with canonicalized recipients from result
 	outMsg, err := a.store.CreateOutboundMessage(r.Context(), agent.ID, result.To, result.CC, result.BCC, req.Subject, "send", result.Method, result.MessageID, req.ConversationID)
@@ -1698,6 +1709,8 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "self-reply failed", http.StatusInternalServerError)
 			return
 		}
+		// See handleSendEmail's self-send branch for rationale.
+		markSideEffectCommitted(w)
 		slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
 		log.Printf("[mail] dir=outbound type=reply method=loopback from=%s to=%s slug=%s conv_id=%s subject=%q provider_id=%s in_reply_to=%s",
 			agent.EmailAddress(), agent.EmailAddress(), slug, req.ConversationID, subject, providerID, inbound.EmailMessageID)
@@ -1720,6 +1733,8 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("delivery failed: %v", err), http.StatusInternalServerError)
 		return
 	}
+	// Upstream send accepted — see handleSendEmail for the rationale.
+	markSideEffectCommitted(w)
 
 	// Record outbound message with canonicalized recipients from result
 	outMsg, err := a.store.CreateOutboundMessage(r.Context(), agent.ID, result.To, result.CC, result.BCC, subject, "reply", result.Method, result.MessageID, req.ConversationID)
