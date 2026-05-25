@@ -23,6 +23,12 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
           .string()
           .optional()
           .describe("Optional conversation grouping ID. Server generates one if omitted."),
+        idempotency_key: z
+          .string()
+          .optional()
+          .describe(
+            "Stable key for retry-safe sends. Set to deduplicate when the caller has its own retry loop (e.g. a stable triggering event id). When omitted the SDK mints a fresh UUIDv4 per call — protects against network-layer retries only, not user-driven retries.",
+          ),
         agent_email: z
           .string()
           .optional()
@@ -40,6 +46,9 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
           ...(args.attachments !== undefined ? { attachments: args.attachments } : {}),
           ...(args.conversation_id !== undefined
             ? { conversationId: args.conversation_id }
+            : {}),
+          ...(args.idempotency_key !== undefined
+            ? { idempotencyKey: args.idempotency_key }
             : {}),
           ...(args.agent_email !== undefined ? { agentEmail: args.agent_email } : {}),
         }),
@@ -64,6 +73,12 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
         bcc: z.array(z.string()).optional(),
         attachments: attachmentsArraySchema,
         conversation_id: z.string().optional(),
+        idempotency_key: z
+          .string()
+          .optional()
+          .describe(
+            "Stable key for retry-safe replies. A natural choice is the inbound `message_id` you're replying to — the same triggering event yields the same key, so a retry replays the original response instead of double-sending. Omit to let the SDK mint a fresh UUIDv4 per call.",
+          ),
         agent_email: z.string().optional(),
       },
     },
@@ -77,6 +92,9 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
           ...(args.attachments !== undefined ? { attachments: args.attachments } : {}),
           ...(args.conversation_id !== undefined
             ? { conversationId: args.conversation_id }
+            : {}),
+          ...(args.idempotency_key !== undefined
+            ? { idempotencyKey: args.idempotency_key }
             : {}),
           ...(args.agent_email !== undefined ? { agentEmail: args.agent_email } : {}),
         }),

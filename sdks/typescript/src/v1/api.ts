@@ -242,15 +242,25 @@ export class E2AApi {
    * recipients, body, attachments) to send with edits; omit for
    * approve-as-is. On success the server hands the message to the
    * upstream relay and scrubs body columns.
+   *
+   * Approve fires a real SES send, so it accepts an
+   * `idempotencyKey` like sendEmail / replyToMessage. Without one,
+   * a transient retry after the first success could double-send the
+   * same email. Supply a stable key derived from the review event
+   * (e.g. the dashboard click id) to make retries safe; omit to let
+   * the SDK generate a fresh UUIDv4 per call (network-layer safety
+   * only — does not survive an explicit retry loop).
    */
   async approveMessage(
     messageID: string,
     overrides: Schemas["ApprovePendingMessageRequest"] = {},
+    opts: SendOptions = {},
   ): Promise<Schemas["ApprovePendingMessageResponse"]> {
     return this.request(
       "POST",
       `/api/v1/messages/${encodeURIComponent(messageID)}/approve`,
       overrides,
+      { extraHeaders: idempotencyHeaders(opts) },
     );
   }
 

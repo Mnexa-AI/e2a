@@ -163,7 +163,10 @@ async function main() {
       } else if (sub === "show") {
         await pendingShow(args[1]);
       } else if (sub === "approve") {
-        await pendingApprove(args[1], { edit: hasFlag(args, "--edit") });
+        await pendingApprove(args[1], {
+          edit: hasFlag(args, "--edit"),
+          idempotencyKey: getFlag(args, "--idempotency-key"),
+        });
       } else if (sub === "reject") {
         await pendingReject(args[1], getFlag(args, "--reason"));
       } else {
@@ -201,6 +204,7 @@ async function main() {
         cc: getFlags(args, "--cc"),
         bcc: getFlags(args, "--bcc"),
         from: getFlag(args, "--agent"),
+        idempotencyKey: getFlag(args, "--idempotency-key"),
       });
       break;
     case "send":
@@ -213,6 +217,7 @@ async function main() {
           cc: getFlags(args, "--cc"),
           bcc: getFlags(args, "--bcc"),
           from: getFlag(args, "--agent"),
+          idempotencyKey: getFlag(args, "--idempotency-key"),
         },
       );
       break;

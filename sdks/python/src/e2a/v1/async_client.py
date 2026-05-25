@@ -231,11 +231,15 @@ class AsyncE2AApi:
         self,
         message_id: str,
         overrides: Optional[ApprovePendingMessageRequest] = None,
+        idempotency_key: Optional[str] = None,
     ) -> ApprovePendingMessageResponse:
+        """Async variant of :meth:`E2AApi.approve_message`. ``idempotency_key``
+        closes the SES double-send window — see that method for details."""
         payload = overrides.model_dump(by_alias=True, exclude_none=True) if overrides else {}
         resp = await self._client.post(
             f"/api/v1/messages/{quote(message_id, safe='')}/approve",
             json=payload,
+            headers=_idempotency_header(idempotency_key),
         )
         _check_response(resp)
         return ApprovePendingMessageResponse.model_validate(resp.json())
@@ -564,6 +568,7 @@ class AsyncE2AClient:
         to: Optional[list[str]] = None,
         cc: Optional[list[str]] = None,
         bcc: Optional[list[str]] = None,
+        idempotency_key: Optional[str] = None,
     ):
         any_override = any(
             v is not None for v in (subject, body_text, body_html, to, cc, bcc)
@@ -580,7 +585,7 @@ class AsyncE2AClient:
             if any_override
             else None
         )
-        return await self.api.approve_message(message_id, overrides)
+        return await self.api.approve_message(message_id, overrides, idempotency_key=idempotency_key)
 
     async def reject_message(self, message_id: str, reason: str = ""):
         return await self.api.reject_message(message_id, reason)

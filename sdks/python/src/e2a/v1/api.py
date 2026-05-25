@@ -264,17 +264,25 @@ class E2AApi:
         self,
         message_id: str,
         overrides: Optional[ApprovePendingMessageRequest] = None,
+        idempotency_key: Optional[str] = None,
     ) -> ApprovePendingMessageResponse:
         """Approve a held outbound message.
 
         Pass ``overrides`` to approve with edits (any subset of
         subject / body_text / body_html / to / cc / bcc / attachments).
         Pass ``None`` (the default) to approve the draft as-is.
+
+        ``idempotency_key`` is sent as the ``Idempotency-Key`` header.
+        Approve fires a real SES send, so supplying a stable key
+        derived from the review event makes retries safe (the server
+        replays the original response instead of double-sending).
+        When omitted the SDK mints a fresh UUIDv4 per call.
         """
         payload = overrides.model_dump(by_alias=True, exclude_none=True) if overrides else {}
         resp = self._client.post(
             f"/api/v1/messages/{quote(message_id, safe='')}/approve",
             json=payload,
+            headers=_idempotency_header(idempotency_key),
         )
         _check_response(resp)
         return ApprovePendingMessageResponse.model_validate(resp.json())

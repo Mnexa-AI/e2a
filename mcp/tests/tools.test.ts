@@ -502,6 +502,62 @@ describe("e2a MCP server", () => {
     expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", {});
   });
 
+  // Approve fires SES so an idempotency_key argument has to reach the
+  // SDK or retries can double-send. Strip the key out of overrides
+  // (the API doesn't take it in the JSON body) and forward it as the
+  // third-arg options object.
+  it("approve_pending_message forwards idempotency_key to the SDK", async () => {
+    await client.callTool({
+      name: "approve_pending_message",
+      arguments: {
+        message_id: "msg_p",
+        subject: "edited",
+        idempotency_key: "approve-key-123",
+      },
+    });
+    expect(stub.approveMessage).toHaveBeenCalledWith(
+      "msg_p",
+      { subject: "edited" },
+      { idempotencyKey: "approve-key-123" },
+    );
+  });
+
+  // send_email and reply_to_message also expose idempotency_key. Verify
+  // the MCP tool plumbs it through as `idempotencyKey` in SDK opts.
+  it("send_email forwards idempotency_key to the SDK", async () => {
+    await client.callTool({
+      name: "send_email",
+      arguments: {
+        to: ["alice@example.com"],
+        subject: "x",
+        body: "y",
+        idempotency_key: "send-key-9",
+      },
+    });
+    expect(stub.send).toHaveBeenCalledWith(
+      ["alice@example.com"],
+      "x",
+      "y",
+      expect.objectContaining({ idempotencyKey: "send-key-9" }),
+    );
+  });
+
+  it("reply_to_message forwards idempotency_key to the SDK", async () => {
+    await client.callTool({
+      name: "reply_to_message",
+      arguments: {
+        message_id: "msg_in_xyz",
+        body: "reply",
+        idempotency_key: "reply-key-9",
+      },
+    });
+    expect(stub.reply).toHaveBeenCalledWith(
+      "msg_in_xyz",
+      "reply",
+      expect.objectContaining({ idempotencyKey: "reply-key-9" }),
+    );
+  });
+
   // ── Attachment forwarding (slice A) ─────────────────────────────
   //
   // Wire-shape regression coverage. The Zod schema in
