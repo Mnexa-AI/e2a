@@ -11,7 +11,7 @@ Two transport options, both first-class in Codex:
 
 ## Prerequisites
 
-- [Codex CLI](https://github.com/openai/codex) 0.130+ (`npm i -g @openai/codex` or `brew install --cask codex`)
+- [Codex CLI](https://github.com/openai/codex) 0.133+ (`npm i -g @openai/codex` or `brew install --cask codex`)
 - An [e2a API key](https://e2a.dev), exported as `E2A_API_KEY`
 - For the **local stdio** variant only: Node 18+ (Codex shells out to `npx -y @e2a/mcp-server`)
 
