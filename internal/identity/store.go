@@ -1205,12 +1205,21 @@ type SendResult struct {
 //
 // Concurrency / failure mode notes:
 //
-//   - The row-level FOR UPDATE lock is held for the duration of the send
-//     callback. In practice that is bounded by outbound.SMTPRelay's per-
-//     attempt deadline (2min) plus its internal retry backoff (1s/5s/15s)
-//     — worst case ~6.5min of lock on this single row. Other rows are
-//     unaffected; deadlock is not possible because only one row is ever
-//     locked per call.
+//   - The row-level FOR NO KEY UPDATE lock is held on the messages row
+//     for the duration of the send callback. In practice that is
+//     bounded by outbound.SMTPRelay's per-attempt deadline (2min) plus
+//     its internal retry backoff (1s/5s/15s) — worst case ~6.5min of
+//     lock on this single row. Other rows are unaffected; deadlock is
+//     not possible because only one row is ever locked per call.
+//
+//     Why NO KEY UPDATE rather than the stricter FOR UPDATE: the
+//     send_attempts INSERT below runs on a SEPARATE pool connection
+//     and needs a KEY SHARE lock on this messages row for FK
+//     enforcement. FOR UPDATE blocks KEY SHARE; FOR NO KEY UPDATE
+//     allows it. The downgrade is safe because nothing in this
+//     codebase mutates messages.id (the only key column) after
+//     creation — all UPDATEs touch non-key columns, which NO KEY
+//     UPDATE serializes against itself exactly like FOR UPDATE.
 //
 //   - The old crash window where send() succeeded at SES but the
 //     subsequent UPDATE/Commit failed (DB blip, pool exhaustion) is now
