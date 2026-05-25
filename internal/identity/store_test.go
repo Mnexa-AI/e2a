@@ -393,7 +393,12 @@ func TestInboundMessageRoundTripsToCcLists(t *testing.T) {
 	}
 
 	// And the list path (GET /messages) — yet another SELECT.
-	msgs, err := store.GetMessagesByAgent(ctx, a.ID, "all", "inbound", false, 10, time.Time{}, "")
+	msgs, err := store.GetMessagesByAgent(ctx, identity.MessageListFilter{
+		AgentID:   a.ID,
+		Status:    "all",
+		Direction: "inbound",
+		Limit:     10,
+	})
 	if err != nil {
 		t.Fatalf("GetMessagesByAgent: %v", err)
 	}

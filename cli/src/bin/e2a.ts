@@ -37,7 +37,7 @@ Usage:
   e2a pending show <id>             Show a held message's full detail
   e2a pending approve <id> [--edit] Approve (and optionally edit) a held message
   e2a pending reject <id> [--reason …]  Reject a held message
-  e2a inbox [--unread|--read] [--limit N] [--oldest] [--token …]   List messages (newest first; --oldest for FIFO)
+  e2a inbox [--unread|--read] [--limit N] [--oldest] [--from substr] [--subject substr] [--conversation id] [--since ts] [--until ts] [--token …]   List messages (newest first; --oldest for FIFO)
   e2a read <message-id>             Read a message
   e2a reply <msg-id> --body … [--reply-all] [--cc …] [--bcc …]
   e2a send [--to …] [--cc …] [--bcc …] --subject … --body …
@@ -193,7 +193,13 @@ async function main() {
       // message at a time. Default is the new server-side default,
       // newest-first.
       const sort: "asc" | undefined = hasFlag(args, "--oldest") ? "asc" : undefined;
-      await inbox(status, limit, token, getFlag(args, "--agent"), sort);
+      await inbox(status, limit, token, getFlag(args, "--agent"), sort, {
+        from: getFlag(args, "--from"),
+        subjectContains: getFlag(args, "--subject"),
+        conversationId: getFlag(args, "--conversation"),
+        since: getFlag(args, "--since"),
+        until: getFlag(args, "--until"),
+      });
       break;
     }
     case "read":

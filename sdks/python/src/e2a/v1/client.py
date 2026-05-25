@@ -186,14 +186,35 @@ class E2AClient:
         token: Optional[str] = None,
         agent_email: Optional[str] = None,
         sort: Optional[str] = None,
+        from_: Optional[str] = None,
+        subject_contains: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
     ) -> MessageList:
         """Fetch message summaries with ergonomic field names.
 
         ``sort`` defaults server-side to ``"desc"`` (newest first). Pass
         ``"asc"`` to drain the inbox in arrival order — FIFO polling.
+
+        ``from_`` / ``subject_contains`` are case-insensitive substring
+        filters (capped at 200 chars server-side). ``conversation_id``
+        exact-matches a thread. ``since`` / ``until`` are RFC3339
+        timestamps bounding ``created_at``.
         """
         email = self._require_agent_email(agent_email)
-        resp = self.api.list_messages(email, status=status, page_size=page_size, token=token, sort=sort)
+        resp = self.api.list_messages(
+            email,
+            status=status,
+            page_size=page_size,
+            token=token,
+            sort=sort,
+            from_=from_,
+            subject_contains=subject_contains,
+            conversation_id=conversation_id,
+            since=since,
+            until=until,
+        )
         messages = [
             MessageSummary(
                 message_id=m.message_id or "",

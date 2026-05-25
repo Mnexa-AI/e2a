@@ -1381,6 +1381,237 @@ func TestGetMessages_SortMismatchOnTokenReplay(t *testing.T) {
 	}
 }
 
+// ── Search filters (from / subject_contains / conversation_id / since / until) ─
+
+// TestGetMessages_FromFilter narrows by sender via case-insensitive
+// substring. The dashboard/MCP/CLI all need to support "show me mail
+// from this sender" without paginating the whole inbox.
+func TestGetMessages_FromFilter(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-from@example.com", "Owner", "google-from")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "from-key", nil)
+	store.ClaimOrCreateDomain(ctx, "from.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@from.example.com", "from.example.com", "", "", "local", user.ID)
+
+	store.CreateInboundMessage(ctx, "", a.ID, "alice@acme.com", "agent@from.example.com", "", "from alice 1", "", "unread", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", a.ID, "bob@other.com", "agent@from.example.com", "", "from bob", "", "unread", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", a.ID, "alice@acme.com", "agent@from.example.com", "", "from alice 2", "", "unread", nil, nil, nil, nil, nil)
+
+	// ILIKE substring — `acme.com` matches both alice rows but not bob.
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@from.example.com/messages?status=all&from=acme.com", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
+	}
+
+	var body struct {
+		Messages []struct {
+			From    string `json:"from"`
+			Subject string `json:"subject"`
+		} `json:"messages"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	if len(body.Messages) != 2 {
+		t.Fatalf("got %d messages, want 2 (only the alice rows)", len(body.Messages))
+	}
+	for _, m := range body.Messages {
+		if !strings.Contains(strings.ToLower(m.From), "acme.com") {
+			t.Errorf("non-matching row leaked: from=%q subject=%q", m.From, m.Subject)
+		}
+	}
+}
+
+// TestGetMessages_SubjectContains uses ILIKE so callers can search
+// "invoice" and match both "Invoice #123" and "Your invoice".
+func TestGetMessages_SubjectContains(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-subj@example.com", "Owner", "google-subj")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "subj-key", nil)
+	store.ClaimOrCreateDomain(ctx, "subj.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@subj.example.com", "subj.example.com", "", "", "local", user.ID)
+
+	store.CreateInboundMessage(ctx, "", a.ID, "s@example.com", "agent@subj.example.com", "", "Invoice #123", "", "unread", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", a.ID, "s@example.com", "agent@subj.example.com", "", "Your invoice for May", "", "unread", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", a.ID, "s@example.com", "agent@subj.example.com", "", "Unrelated", "", "unread", nil, nil, nil, nil, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@subj.example.com/messages?status=all&subject_contains=invoice", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Messages []struct {
+			Subject string `json:"subject"`
+		} `json:"messages"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	if len(body.Messages) != 2 {
+		t.Fatalf("got %d messages, want 2 (both invoice variants)", len(body.Messages))
+	}
+}
+
+// TestGetMessages_SinceUntil bounds the result set by created_at.
+func TestGetMessages_SinceUntil(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-time@example.com", "Owner", "google-time")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "time-key", nil)
+	store.ClaimOrCreateDomain(ctx, "time.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@time.example.com", "time.example.com", "", "", "local", user.ID)
+
+	// Two messages with a known gap. Capture the boundary timestamp so
+	// the assertion doesn't depend on wall-clock precision.
+	store.CreateInboundMessage(ctx, "", a.ID, "s@example.com", "agent@time.example.com", "", "early", "", "unread", nil, nil, nil, nil, nil)
+	time.Sleep(20 * time.Millisecond)
+	boundary := time.Now()
+	time.Sleep(20 * time.Millisecond)
+	store.CreateInboundMessage(ctx, "", a.ID, "s@example.com", "agent@time.example.com", "", "late", "", "unread", nil, nil, nil, nil, nil)
+
+	url := server.URL + "/api/v1/agents/agent@time.example.com/messages?status=all&since=" + boundary.UTC().Format(time.RFC3339Nano)
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
+	}
+	var body struct {
+		Messages []struct {
+			Subject string `json:"subject"`
+		} `json:"messages"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	if len(body.Messages) != 1 || body.Messages[0].Subject != "late" {
+		got := make([]string, 0, len(body.Messages))
+		for _, m := range body.Messages {
+			got = append(got, m.Subject)
+		}
+		t.Errorf("since filter: subjects = %v, want [late]", got)
+	}
+}
+
+// TestGetMessages_ConversationIDFilter exact-matches a thread id.
+func TestGetMessages_ConversationIDFilter(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-conv@example.com", "Owner", "google-conv")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "conv-key", nil)
+	store.ClaimOrCreateDomain(ctx, "conv.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@conv.example.com", "conv.example.com", "", "", "local", user.ID)
+
+	store.CreateInboundMessage(ctx, "", a.ID, "s@example.com", "agent@conv.example.com", "", "in conv A", "conv_a_xxxx", "unread", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", a.ID, "s@example.com", "agent@conv.example.com", "", "in conv B", "conv_b_yyyy", "unread", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", a.ID, "s@example.com", "agent@conv.example.com", "", "also conv A", "conv_a_xxxx", "unread", nil, nil, nil, nil, nil)
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@conv.example.com/messages?status=all&conversation_id=conv_a_xxxx", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Messages []struct {
+			ConversationID string `json:"conversation_id"`
+		} `json:"messages"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	if len(body.Messages) != 2 {
+		t.Fatalf("got %d messages, want 2 (conv_a only)", len(body.Messages))
+	}
+	for _, m := range body.Messages {
+		if m.ConversationID != "conv_a_xxxx" {
+			t.Errorf("leaked non-matching conversation: %q", m.ConversationID)
+		}
+	}
+}
+
+// TestGetMessages_InvalidFiltersRejected covers the validation paths.
+func TestGetMessages_InvalidFiltersRejected(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-bad-filt@example.com", "Owner", "google-bad-filt")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "bad-filt-key", nil)
+	store.ClaimOrCreateDomain(ctx, "bad-filt.example.com", user.ID)
+	store.CreateAgent(ctx, "agent@bad-filt.example.com", "bad-filt.example.com", "", "", "local", user.ID)
+
+	cases := []struct {
+		name string
+		q    string
+	}{
+		{"bad since", "since=not-a-date"},
+		{"bad until", "until=20260525"},
+		{"inverted range", "since=2026-06-01T00:00:00Z&until=2026-05-01T00:00:00Z"},
+		{"from too long", "from=" + strings.Repeat("x", 201)},
+		{"subject too long", "subject_contains=" + strings.Repeat("y", 201)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@bad-filt.example.com/messages?"+tc.q, nil)
+			req.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+			resp, _ := http.DefaultClient.Do(req)
+			defer resp.Body.Close()
+			if resp.StatusCode != 400 {
+				body, _ := io.ReadAll(resp.Body)
+				t.Errorf("status = %d, want 400; body = %s", resp.StatusCode, body)
+			}
+		})
+	}
+}
+
+// TestGetMessages_FilterMismatchOnTokenReplay rejects continuation
+// with different filters, same way sort + status do — otherwise the
+// cursor anchors against a different result set and rows would drop.
+func TestGetMessages_FilterMismatchOnTokenReplay(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-filt-mm@example.com", "Owner", "google-filt-mm")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "filt-mm-key", nil)
+	store.ClaimOrCreateDomain(ctx, "filt-mm.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@filt-mm.example.com", "filt-mm.example.com", "", "", "local", user.ID)
+
+	for i := 0; i < 4; i++ {
+		store.CreateInboundMessage(ctx, "", a.ID, "alice@acme.com", "agent@filt-mm.example.com", "", fmt.Sprintf("msg-%d", i), "", "unread", nil, nil, nil, nil, nil)
+	}
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@filt-mm.example.com/messages?status=all&from=acme.com&page_size=2", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	var page1 struct {
+		NextToken *string `json:"next_token"`
+	}
+	json.NewDecoder(resp.Body).Decode(&page1)
+	if page1.NextToken == nil {
+		t.Fatal("expected next_token")
+	}
+
+	// Continuation with a different `from` filter — handler must reject.
+	req2, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@filt-mm.example.com/messages?status=all&from=other.com&token="+*page1.NextToken, nil)
+	req2.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp2, _ := http.DefaultClient.Do(req2)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != 400 {
+		t.Errorf("filter mismatch: status = %d, want 400", resp2.StatusCode)
+	}
+}
+
 func TestGetMessages_InvalidToken(t *testing.T) {
 	server, store, _ := setupAPI(t)
 	ctx := context.Background()

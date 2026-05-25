@@ -88,7 +88,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
     {
       title: "List inbound messages",
       description:
-        "List messages the agent has received, newest first by default. Filter by `status` (unread/read/all; default unread) and paginate with `page_size` + `token`. Pass `sort: \"asc\"` for FIFO order (oldest unread first) when the caller wants to drain the inbox in arrival order. Returns summaries only — use `get_message` for the full body.",
+        "List messages the agent has received, newest first by default. Filter by `status` (unread/read/all; default unread) and paginate with `page_size` + `token`. Pass `sort: \"asc\"` for FIFO order (oldest unread first) when the caller wants to drain the inbox in arrival order. **Search filters** (`from`, `subject_contains`, `conversation_id`, `since`, `until`) narrow the result set server-side — use them instead of paginating the full inbox client-side. Returns summaries only — use `get_message` for the full body.",
       inputSchema: {
         status: z.enum(["unread", "read", "all"]).optional(),
         page_size: z.number().int().positive().max(100).optional(),
@@ -97,6 +97,37 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
           .optional()
           .describe(
             "Sort order by created_at. Defaults to `desc` (newest first). Pass `asc` for FIFO polling — drain the inbox in arrival order. Switching sort mid-pagination rejects the existing token.",
+          ),
+        from: z
+          .string()
+          .max(200)
+          .optional()
+          .describe(
+            "Case-insensitive substring on the sender address. Example: `acme.com` matches every message from any `*@acme.com` sender.",
+          ),
+        subject_contains: z
+          .string()
+          .max(200)
+          .optional()
+          .describe(
+            "Case-insensitive substring on the subject line. Example: `invoice` matches `Invoice #123` and `Your invoice`.",
+          ),
+        conversation_id: z
+          .string()
+          .max(200)
+          .optional()
+          .describe("Exact match on the thread/conversation id."),
+        since: z
+          .string()
+          .optional()
+          .describe(
+            "RFC3339 timestamp. Only messages with `created_at >= since` are returned. Example: `2026-05-25T00:00:00Z`.",
+          ),
+        until: z
+          .string()
+          .optional()
+          .describe(
+            "RFC3339 timestamp. Only messages with `created_at < until` are returned. Combine with `since` to bracket a date range.",
           ),
         token: z.string().optional().describe("Pagination token from a previous response."),
         agent_email: z.string().optional(),
@@ -108,6 +139,15 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
           ...(args.status !== undefined ? { status: args.status } : {}),
           ...(args.page_size !== undefined ? { pageSize: args.page_size } : {}),
           ...(args.sort !== undefined ? { sort: args.sort } : {}),
+          ...(args.from !== undefined ? { from: args.from } : {}),
+          ...(args.subject_contains !== undefined
+            ? { subjectContains: args.subject_contains }
+            : {}),
+          ...(args.conversation_id !== undefined
+            ? { conversationId: args.conversation_id }
+            : {}),
+          ...(args.since !== undefined ? { since: args.since } : {}),
+          ...(args.until !== undefined ? { until: args.until } : {}),
           ...(args.token !== undefined ? { token: args.token } : {}),
           ...(args.agent_email !== undefined ? { agentEmail: args.agent_email } : {}),
         }),

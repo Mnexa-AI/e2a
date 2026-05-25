@@ -1759,16 +1759,21 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 
 // handleGetMessages lists messages for an agent.
 // @Summary      List messages for an agent
-// @Description  Fetch messages for an agent. Returns lightweight summaries (no raw message content). Supports opaque token-based pagination via `page_size` and `token`. **Default sort is newest-first** across all directions — pass `?sort=asc` to flip to oldest-first when you need FIFO polling semantics (drain the inbox in arrival order). `direction` defaults to `inbound` for SDK back-compat.
+// @Description  Fetch messages for an agent. Returns lightweight summaries (no raw message content). Supports opaque token-based pagination via `page_size` and `token`. **Default sort is newest-first** across all directions — pass `?sort=asc` to flip to oldest-first when you need FIFO polling semantics (drain the inbox in arrival order). `direction` defaults to `inbound` for SDK back-compat. **Search filters** (`from`, `subject_contains`, `conversation_id`, `since`, `until`) narrow the result set server-side; substring filters are case-insensitive (Postgres ILIKE). Filter values are encoded into `next_token`, so continuation requests must keep the same filters or restart the query.
 // @Tags         Email
 // @Produce      json
 // @Security     BearerAuth
-// @Param        email     path  string true  "Agent email address" example(my-bot@example.com)
-// @Param        direction query string false "Filter by message direction" Enums(inbound, outbound, all) default(inbound)
-// @Param        status    query string false "Filter by inbox status (only meaningful when direction includes inbound)" Enums(unread, read, all) default(unread)
-// @Param        page_size query int    false "Number of messages per page (1-100)" minimum(1) maximum(100) default(50)
-// @Param        sort      query string false "Sort order by created_at. Default `desc` (newest first); pass `asc` for FIFO polling." Enums(asc, desc) default(desc)
-// @Param        token     query string false "Opaque pagination token from a previous response's next_token"
+// @Param        email            path  string true  "Agent email address" example(my-bot@example.com)
+// @Param        direction        query string false "Filter by message direction" Enums(inbound, outbound, all) default(inbound)
+// @Param        status           query string false "Filter by inbox status (only meaningful when direction includes inbound)" Enums(unread, read, all) default(unread)
+// @Param        page_size        query int    false "Number of messages per page (1-100)" minimum(1) maximum(100) default(50)
+// @Param        sort             query string false "Sort order by created_at. Default `desc` (newest first); pass `asc` for FIFO polling." Enums(asc, desc) default(desc)
+// @Param        from             query string false "Case-insensitive substring match on the sender column. Max 200 chars."
+// @Param        subject_contains query string false "Case-insensitive substring match on the subject column. Max 200 chars."
+// @Param        conversation_id  query string false "Exact match on conversation_id — narrow to a single thread."
+// @Param        since            query string false "RFC3339 timestamp; only messages with created_at >= since are returned."
+// @Param        until            query string false "RFC3339 timestamp; only messages with created_at < until are returned."
+// @Param        token            query string false "Opaque pagination token from a previous response's next_token"
 // @Success      200 {object} ListMessagesResponse
 // @Failure      400 {string} string "Invalid status, pagination token, or filter mismatch"
 // @Failure      401 {string} string "Missing or invalid API key"
@@ -1850,6 +1855,48 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Search filters. Each is optional; empty / zero means no constraint.
+	// Substring filters are bound to 200 chars to keep ILIKE patterns
+	// from running away on a hot path. Time-range filters take RFC3339
+	// timestamps and reject anything else with 400.
+	const maxFilterStr = 200
+	fromFilter := strings.TrimSpace(r.URL.Query().Get("from"))
+	if len(fromFilter) > maxFilterStr {
+		http.Error(w, "from filter too long (max 200 chars)", http.StatusBadRequest)
+		return
+	}
+	subjectContains := strings.TrimSpace(r.URL.Query().Get("subject_contains"))
+	if len(subjectContains) > maxFilterStr {
+		http.Error(w, "subject_contains filter too long (max 200 chars)", http.StatusBadRequest)
+		return
+	}
+	conversationIDFilter := strings.TrimSpace(r.URL.Query().Get("conversation_id"))
+	if len(conversationIDFilter) > maxFilterStr {
+		http.Error(w, "conversation_id too long", http.StatusBadRequest)
+		return
+	}
+	var since, until time.Time
+	if s := strings.TrimSpace(r.URL.Query().Get("since")); s != "" {
+		t, err := time.Parse(time.RFC3339, s)
+		if err != nil {
+			http.Error(w, "since must be RFC3339 (e.g. 2026-05-25T00:00:00Z)", http.StatusBadRequest)
+			return
+		}
+		since = t
+	}
+	if u := strings.TrimSpace(r.URL.Query().Get("until")); u != "" {
+		t, err := time.Parse(time.RFC3339, u)
+		if err != nil {
+			http.Error(w, "until must be RFC3339 (e.g. 2026-05-25T00:00:00Z)", http.StatusBadRequest)
+			return
+		}
+		until = t
+	}
+	if !since.IsZero() && !until.IsZero() && !since.Before(until) {
+		http.Error(w, "since must be earlier than until", http.StatusBadRequest)
+		return
+	}
+
 	// Decode opaque pagination token (encodes cursor position + filters)
 	var afterTime time.Time
 	var afterID string
@@ -1861,12 +1908,17 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var cursor struct {
-			CreatedAt time.Time `json:"c"`
-			ID        string    `json:"i"`
-			Status    string    `json:"s"`
-			Direction string    `json:"d"`
-			AgentID   string    `json:"a"`
-			Sort      string    `json:"so,omitempty"`
+			CreatedAt       time.Time `json:"c"`
+			ID              string    `json:"i"`
+			Status          string    `json:"s"`
+			Direction       string    `json:"d"`
+			AgentID         string    `json:"a"`
+			Sort            string    `json:"so,omitempty"`
+			From            string    `json:"f,omitempty"`
+			SubjectContains string    `json:"sc,omitempty"`
+			ConversationID  string    `json:"cv,omitempty"`
+			Since           string    `json:"sn,omitempty"`
+			Until           string    `json:"un,omitempty"`
 		}
 		if err := json.Unmarshal(decoded, &cursor); err != nil {
 			http.Error(w, "invalid pagination token", http.StatusBadRequest)
@@ -1907,6 +1959,25 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "token was created for a different agent — start a new query without a token", http.StatusBadRequest)
 			return
 		}
+		// Search filters are part of the cursor identity: the result
+		// set isn't stable across them. Continuation must use the
+		// same filter values that produced the cursor.
+		sinceStr := ""
+		if !since.IsZero() {
+			sinceStr = since.UTC().Format(time.RFC3339Nano)
+		}
+		untilStr := ""
+		if !until.IsZero() {
+			untilStr = until.UTC().Format(time.RFC3339Nano)
+		}
+		if cursor.From != fromFilter ||
+			cursor.SubjectContains != subjectContains ||
+			cursor.ConversationID != conversationIDFilter ||
+			cursor.Since != sinceStr ||
+			cursor.Until != untilStr {
+			http.Error(w, "token was created with different search filters — start a new query without a token", http.StatusBadRequest)
+			return
+		}
 		afterTime = cursor.CreatedAt
 		afterID = cursor.ID
 	}
@@ -1926,7 +1997,20 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 	descending := sort == "desc"
 
 	// Fetch pageSize+1 to determine if there are more pages
-	messages, err := a.store.GetMessagesByAgent(r.Context(), agent.ID, status, direction, descending, pageSize+1, afterTime, afterID)
+	messages, err := a.store.GetMessagesByAgent(r.Context(), identity.MessageListFilter{
+		AgentID:         agent.ID,
+		Status:          status,
+		Direction:       direction,
+		Descending:      descending,
+		Limit:           pageSize + 1,
+		AfterTime:       afterTime,
+		AfterID:         afterID,
+		From:            fromFilter,
+		SubjectContains: subjectContains,
+		ConversationID:  conversationIDFilter,
+		Since:           since,
+		Until:           until,
+	})
 	if err != nil {
 		http.Error(w, "failed to fetch messages", http.StatusInternalServerError)
 		return
@@ -1997,14 +2081,39 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 	var nextToken *string
 	if hasMore {
 		last := messages[len(messages)-1]
+		sinceStr := ""
+		if !since.IsZero() {
+			sinceStr = since.UTC().Format(time.RFC3339Nano)
+		}
+		untilStr := ""
+		if !until.IsZero() {
+			untilStr = until.UTC().Format(time.RFC3339Nano)
+		}
 		cursorJSON, err := json.Marshal(struct {
-			CreatedAt time.Time `json:"c"`
-			ID        string    `json:"i"`
-			Status    string    `json:"s"`
-			Direction string    `json:"d"`
-			AgentID   string    `json:"a"`
-			Sort      string    `json:"so,omitempty"`
-		}{CreatedAt: last.CreatedAt, ID: last.ID, Status: status, Direction: direction, AgentID: agent.ID, Sort: sort})
+			CreatedAt       time.Time `json:"c"`
+			ID              string    `json:"i"`
+			Status          string    `json:"s"`
+			Direction       string    `json:"d"`
+			AgentID         string    `json:"a"`
+			Sort            string    `json:"so,omitempty"`
+			From            string    `json:"f,omitempty"`
+			SubjectContains string    `json:"sc,omitempty"`
+			ConversationID  string    `json:"cv,omitempty"`
+			Since           string    `json:"sn,omitempty"`
+			Until           string    `json:"un,omitempty"`
+		}{
+			CreatedAt:       last.CreatedAt,
+			ID:              last.ID,
+			Status:          status,
+			Direction:       direction,
+			AgentID:         agent.ID,
+			Sort:            sort,
+			From:            fromFilter,
+			SubjectContains: subjectContains,
+			ConversationID:  conversationIDFilter,
+			Since:           sinceStr,
+			Until:           untilStr,
+		})
 		if err != nil {
 			http.Error(w, "failed to build pagination token", http.StatusInternalServerError)
 			return

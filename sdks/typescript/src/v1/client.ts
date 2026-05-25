@@ -178,12 +178,27 @@ export class E2AClient {
      * pages keep the same order; switching mid-pagination returns 400.
      */
     sort?: "asc" | "desc";
+    /** Case-insensitive substring on sender. Capped at 200 chars. */
+    from?: string;
+    /** Case-insensitive substring on subject. Capped at 200 chars. */
+    subjectContains?: string;
+    /** Exact-match thread id. */
+    conversationId?: string;
+    /** RFC3339 timestamp; messages with created_at >= since. */
+    since?: string;
+    /** RFC3339 timestamp; messages with created_at < until. */
+    until?: string;
   }) {
     return this.api.listMessages(this.requireEmail(opts?.agentEmail), {
       status: opts?.status,
       pageSize: opts?.pageSize,
       token: opts?.token,
       sort: opts?.sort,
+      from: opts?.from,
+      subjectContains: opts?.subjectContains,
+      conversationId: opts?.conversationId,
+      since: opts?.since,
+      until: opts?.until,
     });
   }
 

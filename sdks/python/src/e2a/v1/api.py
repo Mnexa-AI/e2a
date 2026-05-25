@@ -192,6 +192,11 @@ class E2AApi:
         page_size: int = 50,
         token: Optional[str] = None,
         sort: Optional[str] = None,
+        from_: Optional[str] = None,
+        subject_contains: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
     ) -> ListMessagesResponse:
         """List messages for an agent.
 
@@ -200,10 +205,30 @@ class E2AApi:
         order. The choice is encoded in ``next_token`` so subsequent
         pages keep the same order; switching mid-pagination returns
         400.
+
+        ``from_``, ``subject_contains``: case-insensitive substring
+        match (Postgres ILIKE). Capped server-side at 200 chars.
+
+        ``conversation_id``: exact match — narrow to one thread.
+
+        ``since`` / ``until``: RFC3339 timestamps (``datetime.isoformat()``
+        produces a valid value as long as it ends in ``Z`` or has a
+        timezone offset). Bracket on ``created_at`` (``>= since`` and
+        ``< until``).
         """
         params: dict[str, str] = {"status": status, "page_size": str(page_size)}
         if sort:
             params["sort"] = sort
+        if from_:
+            params["from"] = from_
+        if subject_contains:
+            params["subject_contains"] = subject_contains
+        if conversation_id:
+            params["conversation_id"] = conversation_id
+        if since:
+            params["since"] = since
+        if until:
+            params["until"] = until
         if token:
             params["token"] = token
         resp = self._client.get(

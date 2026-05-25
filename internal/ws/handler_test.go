@@ -35,7 +35,7 @@ func (m *mockStore) GetAgentByEmail(_ context.Context, email string) (*identity.
 	return m.agent, m.agentErr
 }
 
-func (m *mockStore) GetMessagesByAgent(_ context.Context, agentID, status, direction string, descending bool, limit int, afterTime time.Time, afterID string) ([]identity.Message, error) {
+func (m *mockStore) GetMessagesByAgent(_ context.Context, _ identity.MessageListFilter) ([]identity.Message, error) {
 	return m.messages, m.msgErr
 }
 
