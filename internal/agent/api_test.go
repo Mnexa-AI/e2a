@@ -1216,6 +1216,171 @@ func TestGetMessages_DirectionTokenReplayRejected(t *testing.T) {
 	}
 }
 
+// TestGetMessages_DefaultSortIsNewestFirst pins down the post-change
+// default: a bare `GET /messages` (no `direction`, no `sort`) must
+// return rows in newest-first order. Prior to this PR the inbound
+// default was oldest-first, which leaked through MCP `list_messages`
+// where the tool description claimed "newest first".
+func TestGetMessages_DefaultSortIsNewestFirst(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-sort-default@example.com", "Owner", "google-sort-default")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "sort-default-key", nil)
+	store.ClaimOrCreateDomain(ctx, "sort-default.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@sort-default.example.com", "sort-default.example.com", "", "", "local", user.ID)
+
+	// Distinct created_at per message — without the sleep, time.Now()
+	// can tie within a single millisecond and tiebreaks by random ID,
+	// which makes the order assertion flaky.
+	subjects := []string{"first", "second", "third"}
+	for _, s := range subjects {
+		store.CreateInboundMessage(ctx, "", a.ID, "sender@example.com", "agent@sort-default.example.com", "", s, "", "unread", nil, nil, nil, nil, nil)
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@sort-default.example.com/messages?status=all", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
+	}
+
+	var body struct {
+		Messages []struct {
+			Subject string `json:"subject"`
+		} `json:"messages"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	if len(body.Messages) != 3 {
+		t.Fatalf("got %d messages, want 3", len(body.Messages))
+	}
+	wantOrder := []string{"third", "second", "first"}
+	for i, got := range body.Messages {
+		if got.Subject != wantOrder[i] {
+			t.Errorf("position %d: subject = %q, want %q (newest-first order)", i, got.Subject, wantOrder[i])
+		}
+	}
+}
+
+// TestGetMessages_SortAsc_OldestFirst confirms that ?sort=asc returns
+// the FIFO order — the explicit opt-in for SDK polling agents that
+// process the inbox in arrival order.
+func TestGetMessages_SortAsc_OldestFirst(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-sort-asc@example.com", "Owner", "google-sort-asc")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "sort-asc-key", nil)
+	store.ClaimOrCreateDomain(ctx, "sort-asc.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@sort-asc.example.com", "sort-asc.example.com", "", "", "local", user.ID)
+
+	subjects := []string{"first", "second", "third"}
+	for _, s := range subjects {
+		store.CreateInboundMessage(ctx, "", a.ID, "sender@example.com", "agent@sort-asc.example.com", "", s, "", "unread", nil, nil, nil, nil, nil)
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@sort-asc.example.com/messages?status=all&sort=asc", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
+	}
+
+	var body struct {
+		Messages []struct {
+			Subject string `json:"subject"`
+		} `json:"messages"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	if len(body.Messages) != 3 {
+		t.Fatalf("got %d messages, want 3", len(body.Messages))
+	}
+	for i, got := range body.Messages {
+		if got.Subject != subjects[i] {
+			t.Errorf("position %d: subject = %q, want %q (oldest-first order under sort=asc)", i, got.Subject, subjects[i])
+		}
+	}
+}
+
+// TestGetMessages_InvalidSortRejected rejects gibberish sort values
+// rather than silently defaulting — matches how invalid direction /
+// status / page_size are handled.
+func TestGetMessages_InvalidSortRejected(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-sort-bad@example.com", "Owner", "google-sort-bad")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "sort-bad-key", nil)
+	store.ClaimOrCreateDomain(ctx, "sort-bad.example.com", user.ID)
+	store.CreateAgent(ctx, "agent@sort-bad.example.com", "sort-bad.example.com", "", "", "local", user.ID)
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@sort-bad.example.com/messages?sort=sideways", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+// TestGetMessages_SortMismatchOnTokenReplay covers the safety property:
+// once a query has a pagination token (encoding the chosen sort), the
+// next request can't silently flip the sort and walk a corrupt result
+// set. Either supply the same explicit sort or restart the query.
+func TestGetMessages_SortMismatchOnTokenReplay(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-sort-mm@example.com", "Owner", "google-sort-mm")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "sort-mm-key", nil)
+	store.ClaimOrCreateDomain(ctx, "sort-mm.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@sort-mm.example.com", "sort-mm.example.com", "", "", "local", user.ID)
+
+	for i := 0; i < 3; i++ {
+		store.CreateInboundMessage(ctx, "", a.ID, "sender@example.com", "agent@sort-mm.example.com", "", fmt.Sprintf("subj-%d", i), "", "unread", nil, nil, nil, nil, nil)
+	}
+
+	// First page with explicit sort=asc.
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@sort-mm.example.com/messages?status=all&sort=asc&page_size=2", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	var page1 struct {
+		NextToken *string `json:"next_token"`
+	}
+	json.NewDecoder(resp.Body).Decode(&page1)
+	if page1.NextToken == nil {
+		t.Fatal("expected next_token for paginated asc query")
+	}
+
+	// Continuation with explicit sort=desc — handler must reject.
+	req2, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@sort-mm.example.com/messages?status=all&sort=desc&token="+*page1.NextToken, nil)
+	req2.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp2, _ := http.DefaultClient.Do(req2)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != 400 {
+		t.Errorf("sort mismatch: status = %d, want 400", resp2.StatusCode)
+	}
+
+	// Continuation without explicit sort — handler must honor the
+	// cursor's sort and succeed. This is what makes the migration
+	// across the default flip painless.
+	req3, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/agent@sort-mm.example.com/messages?status=all&token="+*page1.NextToken, nil)
+	req3.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	resp3, _ := http.DefaultClient.Do(req3)
+	defer resp3.Body.Close()
+	if resp3.StatusCode != 200 {
+		body, _ := io.ReadAll(resp3.Body)
+		t.Errorf("implicit-sort continuation: status = %d, want 200; body = %s", resp3.StatusCode, body)
+	}
+}
+
 func TestGetMessages_InvalidToken(t *testing.T) {
 	server, store, _ := setupAPI(t)
 	ctx := context.Background()

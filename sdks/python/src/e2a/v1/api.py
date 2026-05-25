@@ -191,8 +191,19 @@ class E2AApi:
         status: str = "unread",
         page_size: int = 50,
         token: Optional[str] = None,
+        sort: Optional[str] = None,
     ) -> ListMessagesResponse:
+        """List messages for an agent.
+
+        ``sort`` defaults server-side to ``"desc"`` (newest first).
+        Pass ``"asc"`` for FIFO polling — drain the inbox in arrival
+        order. The choice is encoded in ``next_token`` so subsequent
+        pages keep the same order; switching mid-pagination returns
+        400.
+        """
         params: dict[str, str] = {"status": status, "page_size": str(page_size)}
+        if sort:
+            params["sort"] = sort
         if token:
             params["token"] = token
         resp = self._client.get(

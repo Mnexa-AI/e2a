@@ -88,10 +88,16 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
     {
       title: "List inbound messages",
       description:
-        "List messages the agent has received, newest first. Filter by `status` (unread/read/all; default unread) and paginate with `page_size` + `token`. Returns summaries only — use `get_message` for the full body.",
+        "List messages the agent has received, newest first by default. Filter by `status` (unread/read/all; default unread) and paginate with `page_size` + `token`. Pass `sort: \"asc\"` for FIFO order (oldest unread first) when the caller wants to drain the inbox in arrival order. Returns summaries only — use `get_message` for the full body.",
       inputSchema: {
         status: z.enum(["unread", "read", "all"]).optional(),
         page_size: z.number().int().positive().max(100).optional(),
+        sort: z
+          .enum(["asc", "desc"])
+          .optional()
+          .describe(
+            "Sort order by created_at. Defaults to `desc` (newest first). Pass `asc` for FIFO polling — drain the inbox in arrival order. Switching sort mid-pagination rejects the existing token.",
+          ),
         token: z.string().optional().describe("Pagination token from a previous response."),
         agent_email: z.string().optional(),
       },
@@ -101,6 +107,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
         client.listMessages({
           ...(args.status !== undefined ? { status: args.status } : {}),
           ...(args.page_size !== undefined ? { pageSize: args.page_size } : {}),
+          ...(args.sort !== undefined ? { sort: args.sort } : {}),
           ...(args.token !== undefined ? { token: args.token } : {}),
           ...(args.agent_email !== undefined ? { agentEmail: args.agent_email } : {}),
         }),

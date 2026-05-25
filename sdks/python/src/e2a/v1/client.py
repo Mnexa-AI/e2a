@@ -185,10 +185,15 @@ class E2AClient:
         page_size: int = 50,
         token: Optional[str] = None,
         agent_email: Optional[str] = None,
+        sort: Optional[str] = None,
     ) -> MessageList:
-        """Fetch message summaries with ergonomic field names."""
+        """Fetch message summaries with ergonomic field names.
+
+        ``sort`` defaults server-side to ``"desc"`` (newest first). Pass
+        ``"asc"`` to drain the inbox in arrival order — FIFO polling.
+        """
         email = self._require_agent_email(agent_email)
-        resp = self.api.list_messages(email, status=status, page_size=page_size, token=token)
+        resp = self.api.list_messages(email, status=status, page_size=page_size, token=token, sort=sort)
         messages = [
             MessageSummary(
                 message_id=m.message_id or "",

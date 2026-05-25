@@ -316,7 +316,7 @@ export interface paths {
         };
         /**
          * List messages for an agent
-         * @description Fetch messages for an agent. Returns lightweight summaries (no raw message content). Supports opaque token-based pagination via `page_size` and `token`. `direction` defaults to `inbound` for SDK back-compat; the dashboard inbox passes `direction=all` to fetch mixed inbound+outbound rows newest-first.
+         * @description Fetch messages for an agent. Returns lightweight summaries (no raw message content). Supports opaque token-based pagination via `page_size` and `token`. **Default sort is newest-first** across all directions — pass `?sort=asc` to flip to oldest-first when you need FIFO polling semantics (drain the inbox in arrival order). `direction` defaults to `inbound` for SDK back-compat.
          */
         get: {
             parameters: {
@@ -327,6 +327,8 @@ export interface paths {
                     status?: "unread" | "read" | "all";
                     /** @description Number of messages per page (1-100) */
                     page_size?: number;
+                    /** @description Sort order by created_at. Default `desc` (newest first); pass `asc` for FIFO polling. */
+                    sort?: "asc" | "desc";
                     /** @description Opaque pagination token from a previous response's next_token */
                     token?: string;
                 };

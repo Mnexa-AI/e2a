@@ -1272,8 +1272,9 @@ paths:
     get:
       description: Fetch messages for an agent. Returns lightweight summaries (no
         raw message content). Supports opaque token-based pagination via `page_size`
-        and `token`. `direction` defaults to `inbound` for SDK back-compat; the dashboard
-        inbox passes `direction=all` to fetch mixed inbound+outbound rows newest-first.
+        and `token`. **Default sort is newest-first** across all directions — pass
+        `?sort=asc` to flip to oldest-first when you need FIFO polling semantics (drain
+        the inbox in arrival order). `direction` defaults to `inbound` for SDK back-compat.
       parameters:
       - description: Agent email address
         example: my-bot@example.com
@@ -1307,6 +1308,15 @@ paths:
         minimum: 1
         name: page_size
         type: integer
+      - default: desc
+        description: Sort order by created_at. Default `desc` (newest first); pass
+          `asc` for FIFO polling.
+        enum:
+        - asc
+        - desc
+        in: query
+        name: sort
+        type: string
       - description: Opaque pagination token from a previous response's next_token
         in: query
         name: token

@@ -5,6 +5,7 @@ export async function inbox(
   limit: number,
   token: string | undefined,
   from: string | undefined,
+  sort?: "asc" | "desc",
 ): Promise<void> {
   const client = createClient({ from });
 
@@ -17,6 +18,7 @@ export async function inbox(
     status,
     pageSize: limit,
     token,
+    sort,
   });
 
   if (!res.messages || res.messages.length === 0) {

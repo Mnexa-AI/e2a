@@ -171,11 +171,19 @@ export class E2AClient {
     pageSize?: number;
     token?: string;
     agentEmail?: string;
+    /**
+     * Sort by created_at. Defaults server-side to `"desc"` (newest
+     * first). Pass `"asc"` to drain the inbox in arrival order — FIFO
+     * polling. The choice is encoded in `next_token` so subsequent
+     * pages keep the same order; switching mid-pagination returns 400.
+     */
+    sort?: "asc" | "desc";
   }) {
     return this.api.listMessages(this.requireEmail(opts?.agentEmail), {
       status: opts?.status,
       pageSize: opts?.pageSize,
       token: opts?.token,
+      sort: opts?.sort,
     });
   }
 

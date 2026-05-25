@@ -164,8 +164,14 @@ class AsyncE2AApi:
         status: str = "unread",
         page_size: int = 50,
         token: Optional[str] = None,
+        sort: Optional[str] = None,
     ) -> ListMessagesResponse:
+        """Async variant of :meth:`E2AApi.list_messages`. See that
+        method for the ``sort`` semantics (defaults newest-first;
+        pass ``"asc"`` for FIFO polling)."""
         params: dict[str, str] = {"status": status, "page_size": str(page_size)}
+        if sort:
+            params["sort"] = sort
         if token:
             params["token"] = token
         resp = await self._client.get(
@@ -389,10 +395,15 @@ class AsyncE2AClient:
         page_size: int = 50,
         token: Optional[str] = None,
         agent_email: Optional[str] = None,
+        sort: Optional[str] = None,
     ) -> MessageList:
-        """Fetch message summaries with ergonomic field names."""
+        """Fetch message summaries with ergonomic field names.
+
+        ``sort`` defaults server-side to ``"desc"`` (newest first). Pass
+        ``"asc"`` to drain the inbox in arrival order — FIFO polling.
+        """
         email = self._require_agent_email(agent_email)
-        resp = await self.api.list_messages(email, status=status, page_size=page_size, token=token)
+        resp = await self.api.list_messages(email, status=status, page_size=page_size, token=token, sort=sort)
         messages = [
             MessageSummary(
                 message_id=m.message_id or "",

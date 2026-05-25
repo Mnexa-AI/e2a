@@ -1759,7 +1759,7 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 
 // handleGetMessages lists messages for an agent.
 // @Summary      List messages for an agent
-// @Description  Fetch messages for an agent. Returns lightweight summaries (no raw message content). Supports opaque token-based pagination via `page_size` and `token`. `direction` defaults to `inbound` for SDK back-compat; the dashboard inbox passes `direction=all` to fetch mixed inbound+outbound rows newest-first.
+// @Description  Fetch messages for an agent. Returns lightweight summaries (no raw message content). Supports opaque token-based pagination via `page_size` and `token`. **Default sort is newest-first** across all directions — pass `?sort=asc` to flip to oldest-first when you need FIFO polling semantics (drain the inbox in arrival order). `direction` defaults to `inbound` for SDK back-compat.
 // @Tags         Email
 // @Produce      json
 // @Security     BearerAuth
@@ -1767,6 +1767,7 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 // @Param        direction query string false "Filter by message direction" Enums(inbound, outbound, all) default(inbound)
 // @Param        status    query string false "Filter by inbox status (only meaningful when direction includes inbound)" Enums(unread, read, all) default(unread)
 // @Param        page_size query int    false "Number of messages per page (1-100)" minimum(1) maximum(100) default(50)
+// @Param        sort      query string false "Sort order by created_at. Default `desc` (newest first); pass `asc` for FIFO polling." Enums(asc, desc) default(desc)
 // @Param        token     query string false "Opaque pagination token from a previous response's next_token"
 // @Success      200 {object} ListMessagesResponse
 // @Failure      400 {string} string "Invalid status, pagination token, or filter mismatch"
@@ -1834,15 +1835,25 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Sort order: SDK polling reads oldest-first (so agents process the
-	// oldest unread message first). Dashboard inbox reads newest-first.
-	// Tied to direction for now — if a consumer needs the other axis
-	// later, add a ?sort=asc|desc param.
-	descending := direction != "inbound"
+	// Sort order: defaults to newest-first across all directions. Pass
+	// ?sort=asc to flip to oldest-first — useful for FIFO polling
+	// agents that want to drain the inbox in arrival order.
+	//
+	// History: prior to this change, inbound silently defaulted to
+	// oldest-first while direction=all defaulted to newest-first, with
+	// no way to override either. That mismatch leaked to consumers
+	// (notably MCP `list_messages` which claimed newest-first while
+	// the call returned oldest-first). Now the surface is uniform.
+	reqSort := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sort")))
+	if reqSort != "" && reqSort != "asc" && reqSort != "desc" {
+		http.Error(w, "sort must be 'asc' or 'desc'", http.StatusBadRequest)
+		return
+	}
 
 	// Decode opaque pagination token (encodes cursor position + filters)
 	var afterTime time.Time
 	var afterID string
+	var cursorSort string
 	if tok := r.URL.Query().Get("token"); tok != "" {
 		decoded, err := base64.RawURLEncoding.DecodeString(tok)
 		if err != nil {
@@ -1855,6 +1866,7 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 			Status    string    `json:"s"`
 			Direction string    `json:"d"`
 			AgentID   string    `json:"a"`
+			Sort      string    `json:"so,omitempty"`
 		}
 		if err := json.Unmarshal(decoded, &cursor); err != nil {
 			http.Error(w, "invalid pagination token", http.StatusBadRequest)
@@ -1869,8 +1881,26 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		if cursorDirection == "" {
 			cursorDirection = "inbound"
 		}
+		// Tokens issued before the default-sort flip encode `Sort: ""`.
+		// Map empty to the legacy sort that was in effect at the time
+		// of issue (inbound=asc, anything else=desc); used both to
+		// detect explicit-sort mismatches and to honor the cursor's
+		// implied sort when the continuation request supplies no
+		// explicit ?sort= param.
+		cursorSort = cursor.Sort
+		if cursorSort == "" {
+			if cursorDirection == "inbound" {
+				cursorSort = "asc"
+			} else {
+				cursorSort = "desc"
+			}
+		}
 		if cursor.Status != status || cursorDirection != direction {
 			http.Error(w, "token was created with different filters — start a new query without a token", http.StatusBadRequest)
+			return
+		}
+		if reqSort != "" && cursorSort != reqSort {
+			http.Error(w, "token was created with a different sort order — start a new query without a token", http.StatusBadRequest)
 			return
 		}
 		if cursor.AgentID != agent.ID {
@@ -1880,6 +1910,20 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		afterTime = cursor.CreatedAt
 		afterID = cursor.ID
 	}
+
+	// Resolve effective sort. If the request supplied an explicit value
+	// use it. Otherwise honor the cursor's implied sort (preserves
+	// in-flight pagination across a deploy that flipped the default);
+	// for a fresh query without a token, fall through to newest-first.
+	sort := reqSort
+	if sort == "" {
+		if cursorSort != "" {
+			sort = cursorSort
+		} else {
+			sort = "desc"
+		}
+	}
+	descending := sort == "desc"
 
 	// Fetch pageSize+1 to determine if there are more pages
 	messages, err := a.store.GetMessagesByAgent(r.Context(), agent.ID, status, direction, descending, pageSize+1, afterTime, afterID)
@@ -1959,7 +2003,8 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 			Status    string    `json:"s"`
 			Direction string    `json:"d"`
 			AgentID   string    `json:"a"`
-		}{CreatedAt: last.CreatedAt, ID: last.ID, Status: status, Direction: direction, AgentID: agent.ID})
+			Sort      string    `json:"so,omitempty"`
+		}{CreatedAt: last.CreatedAt, ID: last.ID, Status: status, Direction: direction, AgentID: agent.ID, Sort: sort})
 		if err != nil {
 			http.Error(w, "failed to build pagination token", http.StatusInternalServerError)
 			return

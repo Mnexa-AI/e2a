@@ -138,11 +138,22 @@ export class E2AApi {
 
   async listMessages(
     email: string,
-    opts?: { status?: string; pageSize?: number; token?: string },
+    opts?: {
+      status?: string;
+      pageSize?: number;
+      token?: string;
+      /**
+       * Sort by created_at. Defaults server-side to `"desc"` (newest
+       * first). Pass `"asc"` for FIFO polling semantics — process the
+       * oldest unread message first, drain in arrival order.
+       */
+      sort?: "asc" | "desc";
+    },
   ): Promise<Schemas["ListMessagesResponse"]> {
     const params = new URLSearchParams();
     if (opts?.status) params.set("status", opts.status);
     if (opts?.pageSize) params.set("page_size", String(opts.pageSize));
+    if (opts?.sort) params.set("sort", opts.sort);
     if (opts?.token) params.set("token", opts.token);
     const qs = params.toString();
     const path = `/api/v1/agents/${encodeURIComponent(email)}/messages${qs ? `?${qs}` : ""}`;
