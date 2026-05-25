@@ -5,12 +5,15 @@
     "email": "support@e2a.dev",
     "url": "https://e2a.dev"
   },
+  "metadata": {
+    "description": "e2a plugins for Claude Code — authenticated email for AI agents"
+  },
   "plugins": [
     {
       "name": "e2a",
       "description": "Authenticated email gateway for AI agents — per-agent inboxes, HITL approval, SPF/DKIM verification, and audit-grade send/receive. 18 MCP tools over hosted streamable HTTP with OAuth.",
       "category": "productivity",
-      "source": ".",
+      "source": "./",
       "homepage": "https://e2a.dev"
     }
   ]
