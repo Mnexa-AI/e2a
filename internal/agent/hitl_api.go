@@ -389,6 +389,15 @@ func (a *API) handleApprovePendingMessage(w http.ResponseWriter, r *http.Request
 		}
 		return
 	}
+	// SES has accepted the send and the outbound row has transitioned
+	// to 'sent' with body scrubbed. Past this point any handler-side
+	// failure (usage recording, log write, response flush) must NOT
+	// release the idempotency key — a retry would either re-fire SES
+	// or short-circuit via send_attempts and return a 200 with a
+	// different body than the first call's 5xx. Mirrors the
+	// markSideEffectCommitted call at internal/agent/api.go:1413,1440
+	// for send and 1713,1737 for reply.
+	markSideEffectCommitted(w)
 
 	// Record usage only after the message actually leaves the gateway.
 	if _, err := a.usage.RecordAndCheck(r.Context(), user.ID, agent.ID, agent.Domain, "outbound"); err != nil {

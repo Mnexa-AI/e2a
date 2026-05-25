@@ -3,6 +3,7 @@ package agent_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -281,3 +282,111 @@ func TestSendEmail_IdempotencyKey_SenderErrorReleasesKey(t *testing.T) {
 		t.Error("Idempotent-Replayed=true on 5xx retry — key should have been released, not cached")
 	}
 }
+
+// TestApprovePending_IdempotencyKey_SenderErrorReleasesKey mirrors the
+// /send sender-error test for the approve path: when the upstream
+// SMTP relay is unreachable, ApproveAndSend's send callback returns
+// an error BEFORE the row transitions to 'sent', so the side-effect
+// flag is never set on the response writer. The guard must release
+// the key — otherwise a retry would replay a stale 500 instead of
+// actually getting the message out once the relay comes back.
+//
+// Pair this with TestApprovePending_IdempotencyKey_DuplicateReplaysAndSkipsResend
+// (in idempotency_api_test.go, happy-path side) — together they
+// pin both branches of the side-effect-committed decision for the
+// approve handler.
+func TestApprovePending_IdempotencyKey_SenderErrorReleasesKey(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	// Unreachable relay → sender.Send returns an error inside
+	// ApproveAndSend's callback, so ApproveAndSend returns non-nil
+	// err and the approve handler 500s BEFORE reaching the
+	// markSideEffectCommitted call.
+	smtpRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{
+		Host: "127.0.0.1",
+		Port: 1, // reserved; will fail to connect
+	})
+	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
+	noopUsage := usage.NewNoopUsageTracker()
+	api := agent.NewAPI(store, sender, smtpRelay, nil, noopUsage, "e2a.dev", "test.e2a.dev", "agents.e2a.dev", "", false)
+	api.SetIdempotencyStore(idempotency.NewStore(pool))
+
+	ctx := context.Background()
+	user, _ := store.CreateOrGetUser(ctx, "approve-relay-err@example.com", "Owner", "google-approve-relay-err")
+	apiKeyObj, _ := store.CreateAPIKey(ctx, user.ID, "approve-relay-err-key", nil)
+	_, _ = store.ClaimOrCreateDomain(ctx, "approve-relay-err.example.com", user.ID)
+	_ = store.VerifyDomain(ctx, "approve-relay-err.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@approve-relay-err.example.com", "approve-relay-err.example.com", "", "https://example.com/webhook", "", user.ID)
+	// Flip HITL on so /send produces a pending row instead of sending.
+	enableHITL(t, store, a.ID, user.ID)
+
+	router := mux.NewRouter()
+	api.RegisterRoutes(router)
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	// Create a pending message — the relay isn't hit here (status 202
+	// pending_approval), so this succeeds even though the relay is
+	// unreachable.
+	sendReq, _ := http.NewRequest("POST", srv.URL+"/api/v1/send",
+		strings.NewReader(`{"to":["alice@example.com"],"subject":"draft","body":"draft body"}`))
+	sendReq.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+	sendReq.Header.Set("Content-Type", "application/json")
+	sendResp, err := http.DefaultClient.Do(sendReq)
+	if err != nil {
+		t.Fatalf("setup send: %v", err)
+	}
+	defer sendResp.Body.Close()
+	if sendResp.StatusCode != http.StatusAccepted && sendResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(sendResp.Body)
+		t.Fatalf("setup send: status=%d body=%s", sendResp.StatusCode, body)
+	}
+	var sb struct{ MessageID string `json:"message_id"` }
+	if err := json.NewDecoder(sendResp.Body).Decode(&sb); err != nil {
+		t.Fatalf("setup send: decode body: %v", err)
+	}
+	if sb.MessageID == "" {
+		t.Fatal("setup send: no message_id")
+	}
+
+	idemKey := "approve-relay-err-key-001"
+	approveURL := srv.URL + "/api/v1/messages/" + sb.MessageID + "/approve"
+
+	approve := func(label string) (status int, replayed string) {
+		t.Helper()
+		req, _ := http.NewRequest("POST", approveURL, strings.NewReader(""))
+		req.Header.Set("Authorization", "Bearer "+apiKeyObj.PlaintextKey)
+		req.Header.Set("Idempotency-Key", idemKey)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s: %v", label, err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode, resp.Header.Get("Idempotent-Replayed")
+	}
+
+	// First approve: the relay is unreachable, sender.Send errors,
+	// ApproveAndSend returns an error path that yields 500 from the
+	// handler. Critically, markSideEffectCommitted is NOT reached.
+	status1, replayed1 := approve("first")
+	if status1 != http.StatusInternalServerError {
+		t.Fatalf("first approve status = %d, want 500 (relay unreachable)", status1)
+	}
+	if replayed1 != "" {
+		t.Errorf("first call unexpectedly marked replayed: %q", replayed1)
+	}
+
+	// Second approve with the same key: handler MUST run again
+	// (the guard released the key on the 500) — otherwise a
+	// transient relay outage would lock the reviewer out of ever
+	// retrying. Status is still 500 because the relay is still
+	// down, but Idempotent-Replayed MUST NOT be "true".
+	status2, replayed2 := approve("second")
+	if status2 != http.StatusInternalServerError {
+		t.Fatalf("second approve status = %d, want 500 (relay still down)", status2)
+	}
+	if replayed2 == "true" {
+		t.Error("Idempotent-Replayed=true on retry after pre-side-effect 5xx — key must release, not cache")
+	}
+}
+
