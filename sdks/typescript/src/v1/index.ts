@@ -4,7 +4,7 @@ export type * from "./generated/types.js";
 
 // Hand-written v1 SDK surface
 export { E2AApi, E2AApiError } from "./api.js";
-export type { E2AApiOptions } from "./api.js";
+export type { E2AApiOptions, SendOptions } from "./api.js";
 export { E2AClient } from "./client.js";
 export type { E2AClientOptions } from "./client.js";
 export { InboundEmail, UnverifiedEmailError } from "./inbound-email.js";

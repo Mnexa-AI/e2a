@@ -11,6 +11,7 @@ see :class:`e2a.v1.client.E2AClient`.
 from __future__ import annotations
 
 import os
+import uuid
 from typing import Optional
 from urllib.parse import quote
 
@@ -57,6 +58,19 @@ def _check_response(resp: httpx.Response) -> None:
         except Exception:
             message = f"HTTP {resp.status_code}"
         raise E2AApiError(resp.status_code, message)
+
+
+def _idempotency_header(idempotency_key: Optional[str]) -> dict:
+    """Build the ``Idempotency-Key`` header for a side-effectful send.
+
+    A caller-supplied key is passed through verbatim. When ``None``, a
+    fresh UUIDv4 is generated so callers get retry-safe transport
+    behavior by default. To benefit across an explicit retry loop the
+    caller must supply a stable key (the per-call default does not
+    survive retries — each call would mint a new UUID).
+    """
+    key = idempotency_key if idempotency_key is not None else uuid.uuid4().hex
+    return {"Idempotency-Key": key}
 
 
 def _encode_email(email: str) -> str:
@@ -200,18 +214,25 @@ class E2AApi:
         agent_email: str,
         message_id: str,
         body: ReplyToMessageRequest,
+        idempotency_key: Optional[str] = None,
     ) -> SendEmailResponse:
         resp = self._client.post(
             f"/api/v1/agents/{_encode_email(agent_email)}/messages/{message_id}/reply",
             json=body.model_dump(by_alias=True, exclude_none=True),
+            headers=_idempotency_header(idempotency_key),
         )
         _check_response(resp)
         return SendEmailResponse.model_validate(resp.json())
 
-    def send_email(self, body: SendEmailRequest) -> SendEmailResponse:
+    def send_email(
+        self,
+        body: SendEmailRequest,
+        idempotency_key: Optional[str] = None,
+    ) -> SendEmailResponse:
         resp = self._client.post(
             "/api/v1/send",
             json=body.model_dump(by_alias=True, exclude_none=True),
+            headers=_idempotency_header(idempotency_key),
         )
         _check_response(resp)
         return SendEmailResponse.model_validate(resp.json())

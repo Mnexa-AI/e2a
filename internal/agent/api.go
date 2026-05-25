@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/auth"
 	"github.com/Mnexa-AI/e2a/internal/dkim"
 	"github.com/Mnexa-AI/e2a/internal/hitlnotify"
+	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
@@ -146,6 +148,7 @@ type API struct {
 	notifier       *hitlnotify.Notifier   // optional; if nil, holdForApproval doesn't send notification email
 	oauthProvider  fosite.OAuth2Provider  // optional; if nil, /api/oauth/* endpoints return 404
 	oauthStorage   *oauth.Storage         // optional; consent handler needs Pool() for cross-package tx
+	idempotency    *idempotency.Store     // optional; when nil, Idempotency-Key header is ignored
 }
 
 // SetApprovalSigner wires in the magic-link signer after construction so
@@ -173,6 +176,13 @@ func (a *API) SetOAuthProvider(p fosite.OAuth2Provider) { a.oauthProvider = p }
 // it, but it's required for /consent to work; setting one without the
 // other is a misconfiguration the consent handler surfaces as a 503.
 func (a *API) SetOAuthStorage(s *oauth.Storage) { a.oauthStorage = s }
+
+// SetIdempotencyStore enables Idempotency-Key processing on the
+// outbound /send and /reply endpoints. When nil (the default) the
+// header is silently ignored — keeps the agent package usable in
+// environments that don't have postgres wired or want to disable
+// the feature. The cmd/e2a runtime always sets it.
+func (a *API) SetIdempotencyStore(s *idempotency.Store) { a.idempotency = s }
 
 func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.SMTPRelay, userAuth *auth.UserAuth, usage usage.UsageTracker, smtpDomain, fromDomain, sharedDomain, publicURL string, production bool) *API {
 	return &API{
@@ -1295,7 +1305,10 @@ func (a *API) holdForApproval(w http.ResponseWriter, r *http.Request, agent *ide
 // @Failure      400 {string} string "Missing required fields"
 // @Failure      401 {string} string "Missing or invalid API key"
 // @Failure      403 {string} string "Agent domain not verified"
+// @Failure      409 {string} string "Another request with this Idempotency-Key is in progress"
+// @Failure      422 {string} string "Idempotency-Key reused with a different request body"
 // @Failure      429 {string} string "Rate limit exceeded"
+// @Param        Idempotency-Key header string false "Caller-generated unique key (recommend UUIDv4). Retries with the same key + same body replay the original response; with a different body return 422."
 // @Router       /api/v1/send [post]
 func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticateUser(r)
@@ -1304,8 +1317,21 @@ func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	bodyBytes, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBytesSend))
+	if err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	replayed, captureW, finalize := a.idempotencyGuard(w, r, user.ID, bodyBytes)
+	if replayed {
+		return
+	}
+	defer finalize()
+	w = captureW
+
 	var req outbound.SendRequest
-	if err := readJSON(w, r, &req, maxRequestBytesSend); err != nil {
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -1519,7 +1545,10 @@ type ReplyRequest struct {
 // @Failure      401 {string} string "Missing or invalid API key"
 // @Failure      403 {string} string "Agent domain not verified"
 // @Failure      404 {string} string "Message not found or does not belong to this agent"
+// @Failure      409 {string} string "Another request with this Idempotency-Key is in progress"
+// @Failure      422 {string} string "Idempotency-Key reused with a different request body"
 // @Failure      429 {string} string "Rate limit exceeded"
+// @Param        Idempotency-Key header string false "Caller-generated unique key (recommend UUIDv4). Retries with the same key + same body replay the original response; with a different body return 422."
 // @Router       /api/v1/agents/{email}/messages/{id}/reply [post]
 func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticateUser(r)
@@ -1527,6 +1556,19 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 		a.writeAuthError(w, r, err)
 		return
 	}
+
+	bodyBytes, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBytesSend))
+	if err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	replayed, captureW, finalize := a.idempotencyGuard(w, r, user.ID, bodyBytes)
+	if replayed {
+		return
+	}
+	defer finalize()
+	w = captureW
 
 	vars := mux.Vars(r)
 	email := vars["email"]
@@ -1562,7 +1604,7 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req ReplyRequest
-	if err := readJSON(w, r, &req, maxRequestBytesSend); err != nil {
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}

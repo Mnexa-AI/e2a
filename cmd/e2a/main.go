@@ -18,6 +18,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/headers"
 	"github.com/Mnexa-AI/e2a/internal/hitlnotify"
 	"github.com/Mnexa-AI/e2a/internal/hitlworker"
+	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
@@ -190,6 +191,15 @@ func main() {
 		log.Printf("[oauth] provider enabled: issuer=%s", cfg.HTTP.PublicURL)
 	}
 
+	// Idempotency-Key support on /api/v1/send and /api/v1/agents/{email}/messages/{id}/reply.
+	// Replays the cached response on retry; closes the double-send window for callers
+	// behind at-least-once delivery (job queues, agent frameworks that retry tool calls,
+	// model-driven re-invocations). Always wired in production — keeping it optional in
+	// the agent package surfaces a clearer 5xx path for environments that don't run
+	// against this codebase's postgres.
+	idempotencyStore := idempotency.NewStore(pool)
+	api.SetIdempotencyStore(idempotencyStore)
+
 	api.RegisterRoutes(router)
 
 	// WebSocket route for local-mode agents
@@ -271,6 +281,12 @@ func main() {
 						res.AccessTokensDeleted, res.RefreshTokensDeleted,
 						res.ClientsDeleted)
 				}
+			}
+
+			if deleted, err := idempotencyStore.Sweep(context.Background()); err != nil {
+				log.Printf("Failed to sweep idempotency keys: %v", err)
+			} else if deleted > 0 {
+				log.Printf("Swept %d idempotency key(s) past TTL", deleted)
 			}
 		}
 	}()

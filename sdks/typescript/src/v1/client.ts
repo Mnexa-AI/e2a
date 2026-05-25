@@ -212,6 +212,15 @@ export class E2AClient {
       conversationId?: string;
       attachments?: Schemas["internal_agent.Attachment"][];
       agentEmail?: string;
+      /**
+       * Stable key for retry-safe replies. When set, the server caches
+       * the response and replays it on retry with the same key + body.
+       * Omit to let the SDK generate a fresh per-call key (gives you
+       * network-layer retry safety but no benefit across explicit retry
+       * loops — for that, supply your own key derived from the
+       * triggering event).
+       */
+      idempotencyKey?: string;
     },
   ) {
     const req: Schemas["ReplyToMessageRequest"] = { body };
@@ -225,6 +234,7 @@ export class E2AClient {
       this.requireEmail(opts?.agentEmail),
       messageId,
       req,
+      { idempotencyKey: opts?.idempotencyKey },
     );
   }
 
@@ -259,6 +269,15 @@ export class E2AClient {
       conversationId?: string;
       attachments?: Schemas["internal_agent.Attachment"][];
       agentEmail?: string;
+      /**
+       * Stable key for retry-safe sends. When set, the server caches
+       * the response and replays it on retry with the same key + body.
+       * Omit to let the SDK generate a fresh per-call key (gives you
+       * network-layer retry safety but no benefit across explicit retry
+       * loops — for that, supply your own key derived from the
+       * triggering event).
+       */
+      idempotencyKey?: string;
     },
   ) {
     const req: Schemas["SendEmailRequest"] = {
@@ -272,7 +291,7 @@ export class E2AClient {
     if (opts?.bcc) req.bcc = opts.bcc;
     if (opts?.conversationId) req.conversation_id = opts.conversationId;
     if (opts?.attachments) req.attachments = opts.attachments;
-    return this.api.sendEmail(req);
+    return this.api.sendEmail(req, { idempotencyKey: opts?.idempotencyKey });
   }
 
   // ── HITL (human-in-the-loop approval) ───────────────────────────

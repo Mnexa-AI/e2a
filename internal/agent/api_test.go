@@ -18,11 +18,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/Mnexa-AI/e2a/internal/agent"
 	"github.com/Mnexa-AI/e2a/internal/auth"
-	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/config"
+	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
+	"github.com/Mnexa-AI/e2a/internal/usage"
 )
 
 func setupAPI(t *testing.T) (*httptest.Server, *identity.Store, *pgxpool.Pool) {
@@ -33,6 +34,7 @@ func setupAPI(t *testing.T) (*httptest.Server, *identity.Store, *pgxpool.Pool) {
 	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
 	noopUsage := usage.NewNoopUsageTracker()
 	api := agent.NewAPI(store, sender, smtpRelay, nil, noopUsage, "e2a.dev", "test.e2a.dev", "agents.e2a.dev", "", false)
+	api.SetIdempotencyStore(idempotency.NewStore(pool))
 	router := mux.NewRouter()
 	api.RegisterRoutes(router)
 	server := httptest.NewServer(router)
@@ -279,6 +281,7 @@ func setupAPIWithSMTP(t *testing.T) (*httptest.Server, *identity.Store, *pgxpool
 	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
 	noopUsage := usage.NewNoopUsageTracker()
 	api := agent.NewAPI(store, sender, smtpRelay, nil, noopUsage, "e2a.dev", "test.e2a.dev", "agents.e2a.dev", "", false)
+	api.SetIdempotencyStore(idempotency.NewStore(pool))
 	router := mux.NewRouter()
 	api.RegisterRoutes(router)
 	server := httptest.NewServer(router)

@@ -219,8 +219,16 @@ class E2AClient:
         conversation_id: Optional[str] = None,
         attachments: Optional[list[Attachment]] = None,
         agent_email: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> SendResult:
-        """Reply to an inbound email."""
+        """Reply to an inbound email.
+
+        ``idempotency_key`` is sent as the ``Idempotency-Key`` header.
+        Supply a stable key derived from the triggering event (e.g. the
+        inbound message id) to make this reply safe to retry; omit to
+        let the SDK generate a fresh UUIDv4 per call (network-layer
+        retry safety only).
+        """
         email = self._require_agent_email(agent_email)
         req = ReplyToMessageRequest(
             body=body,
@@ -231,7 +239,7 @@ class E2AClient:
             conversation_id=conversation_id,
             attachments=_serialize_attachments(attachments),
         )
-        resp = self.api.reply_to_message(email, message_id, req)
+        resp = self.api.reply_to_message(email, message_id, req, idempotency_key=idempotency_key)
         return SendResult(
             status=resp.status or "",
             message_id=resp.message_id or "",
@@ -249,8 +257,16 @@ class E2AClient:
         conversation_id: Optional[str] = None,
         attachments: Optional[list[Attachment]] = None,
         agent_email: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> SendResult:
-        """Send a new email."""
+        """Send a new email.
+
+        ``idempotency_key`` is sent as the ``Idempotency-Key`` header.
+        Supply a stable key derived from the triggering event (e.g. a
+        job id) to make this send safe to retry; omit to let the SDK
+        generate a fresh UUIDv4 per call (network-layer retry safety
+        only — does not help across an explicit retry loop).
+        """
         email = self._require_agent_email(agent_email)
         req = SendEmailRequest(
             to=to,
@@ -263,7 +279,7 @@ class E2AClient:
             conversation_id=conversation_id,
             attachments=_serialize_attachments(attachments),
         )
-        resp = self.api.send_email(req)
+        resp = self.api.send_email(req, idempotency_key=idempotency_key)
         return SendResult(
             status=resp.status or "",
             message_id=resp.message_id or "",

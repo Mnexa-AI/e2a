@@ -19,7 +19,7 @@ import httpx
 if TYPE_CHECKING:
     from e2a.v1.websocket import WSNotification
 
-from e2a.v1.api import E2AApiError, _check_response
+from e2a.v1.api import E2AApiError, _check_response, _idempotency_header
 from e2a.v1.generated import (
     Agent,
     ApprovePendingMessageRequest,
@@ -187,18 +187,25 @@ class AsyncE2AApi:
         agent_email: str,
         message_id: str,
         body: ReplyToMessageRequest,
+        idempotency_key: Optional[str] = None,
     ) -> SendEmailResponse:
         resp = await self._client.post(
             f"/api/v1/agents/{_encode_email(agent_email)}/messages/{message_id}/reply",
             json=body.model_dump(by_alias=True, exclude_none=True),
+            headers=_idempotency_header(idempotency_key),
         )
         _check_response(resp)
         return SendEmailResponse.model_validate(resp.json())
 
-    async def send_email(self, body: SendEmailRequest) -> SendEmailResponse:
+    async def send_email(
+        self,
+        body: SendEmailRequest,
+        idempotency_key: Optional[str] = None,
+    ) -> SendEmailResponse:
         resp = await self._client.post(
             "/api/v1/send",
             json=body.model_dump(by_alias=True, exclude_none=True),
+            headers=_idempotency_header(idempotency_key),
         )
         _check_response(resp)
         return SendEmailResponse.model_validate(resp.json())
@@ -416,8 +423,15 @@ class AsyncE2AClient:
         conversation_id: Optional[str] = None,
         attachments: Optional[list[Attachment]] = None,
         agent_email: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> SendResult:
-        """Reply to an inbound email."""
+        """Reply to an inbound email.
+
+        ``idempotency_key`` is sent as the ``Idempotency-Key`` header.
+        Supply a stable key derived from the triggering event (e.g. the
+        inbound message id) to make this reply safe to retry; omit to
+        let the SDK generate a fresh UUIDv4 per call.
+        """
         email = self._require_agent_email(agent_email)
         req = ReplyToMessageRequest(
             body=body,
@@ -428,7 +442,7 @@ class AsyncE2AClient:
             conversation_id=conversation_id,
             attachments=_serialize_attachments(attachments),
         )
-        resp = await self.api.reply_to_message(email, message_id, req)
+        resp = await self.api.reply_to_message(email, message_id, req, idempotency_key=idempotency_key)
         return SendResult(
             status=resp.status or "",
             message_id=resp.message_id or "",
@@ -446,8 +460,15 @@ class AsyncE2AClient:
         conversation_id: Optional[str] = None,
         attachments: Optional[list[Attachment]] = None,
         agent_email: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> SendResult:
-        """Send a new email."""
+        """Send a new email.
+
+        ``idempotency_key`` is sent as the ``Idempotency-Key`` header.
+        Supply a stable key derived from the triggering event (e.g. a
+        job id) to make this send safe to retry; omit to let the SDK
+        generate a fresh UUIDv4 per call.
+        """
         email = self._require_agent_email(agent_email)
         req = SendEmailRequest(
             to=to,
@@ -460,7 +481,7 @@ class AsyncE2AClient:
             conversation_id=conversation_id,
             attachments=_serialize_attachments(attachments),
         )
-        resp = await self.api.send_email(req)
+        resp = await self.api.send_email(req, idempotency_key=idempotency_key)
         return SendResult(
             status=resp.status or "",
             message_id=resp.message_id or "",

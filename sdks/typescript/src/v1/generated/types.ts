@@ -472,7 +472,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Caller-generated unique key (recommend UUIDv4). Retries with the same key + same body replay the original response; with a different body return 422. */
+                    "Idempotency-Key"?: string;
+                };
                 path: {
                     /**
                      * @description Agent email address
@@ -541,6 +544,24 @@ export interface paths {
                 };
                 /** @description Message not found or does not belong to this agent */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Another request with this Idempotency-Key is in progress */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Idempotency-Key reused with a different request body */
+                422: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -1306,7 +1327,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Caller-generated unique key (recommend UUIDv4). Retries with the same key + same body replay the original response; with a different body return 422. */
+                    "Idempotency-Key"?: string;
+                };
                 path?: never;
                 cookie?: never;
             };
@@ -1355,6 +1379,24 @@ export interface paths {
                 };
                 /** @description Agent domain not verified */
                 403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Another request with this Idempotency-Key is in progress */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Idempotency-Key reused with a different request body */
+                422: {
                     headers: {
                         [name: string]: unknown;
                     };

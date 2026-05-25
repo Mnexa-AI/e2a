@@ -14,6 +14,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/agent"
 	"github.com/Mnexa-AI/e2a/internal/config"
 	"github.com/Mnexa-AI/e2a/internal/headers"
+	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/relay"
@@ -49,6 +50,7 @@ func TestServer(t *testing.T, pool *pgxpool.Pool) *E2ATestServer {
 	router := mux.NewRouter()
 	noopUsage := usage.NewNoopUsageTracker()
 	api := agent.NewAPI(store, sender, smtpRelay, nil, noopUsage, "e2a.dev", "test.e2a.dev", "agents.e2a.dev", "", false)
+	api.SetIdempotencyStore(idempotency.NewStore(pool))
 	api.RegisterRoutes(router)
 
 	// WebSocket route for local-mode agents

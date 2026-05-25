@@ -15,6 +15,40 @@ export interface E2AApiOptions {
 }
 
 /**
+ * Per-call options for side-effectful sends (sendEmail, replyToMessage).
+ *
+ * `idempotencyKey` is sent on the `Idempotency-Key` header. The server
+ * caches the response keyed by (user, key) and replays it on retry,
+ * preventing double-sends when the caller (or its retry layer, or the
+ * network) repeats the request. When omitted the SDK generates a
+ * fresh UUIDv4 per call — devs get the protection by default. To get
+ * real benefit across retries, the *caller* must supply a stable key
+ * that survives their retry loop (the per-call default does not).
+ */
+export interface SendOptions {
+  idempotencyKey?: string;
+}
+
+function newIdempotencyKey(): string {
+  // crypto.randomUUID() is available in Node 19+ and all modern
+  // browsers. Falls back to a Math.random hex if absent (deprecated
+  // runtimes only) — better than throwing at request time.
+  const c: { randomUUID?: () => string } | undefined =
+    typeof globalThis !== "undefined" ? (globalThis as { crypto?: { randomUUID?: () => string } }).crypto : undefined;
+  if (c?.randomUUID) return c.randomUUID();
+  return (
+    Date.now().toString(16) +
+    "-" +
+    Math.random().toString(16).slice(2) +
+    Math.random().toString(16).slice(2)
+  );
+}
+
+function idempotencyHeaders(opts: SendOptions): Record<string, string> {
+  return { "Idempotency-Key": opts.idempotencyKey ?? newIdempotencyKey() };
+}
+
+/**
  * Read an env var if `process.env` is reachable (Node), else "".
  * Exported so the high-level client can share the same browser-safe
  * lookup for `E2A_AGENT_EMAIL`.
@@ -129,11 +163,13 @@ export class E2AApi {
     email: string,
     messageId: string,
     body: Schemas["ReplyToMessageRequest"],
+    opts: SendOptions = {},
   ): Promise<Schemas["SendEmailResponse"]> {
     return this.request(
       "POST",
       `/api/v1/agents/${encodeURIComponent(email)}/messages/${encodeURIComponent(messageId)}/reply`,
       body,
+      { extraHeaders: idempotencyHeaders(opts) },
     );
   }
 
@@ -166,8 +202,11 @@ export class E2AApi {
 
   async sendEmail(
     body: Schemas["SendEmailRequest"],
+    opts: SendOptions = {},
   ): Promise<Schemas["SendEmailResponse"]> {
-    return this.request("POST", "/api/v1/send", body);
+    return this.request("POST", "/api/v1/send", body, {
+      extraHeaders: idempotencyHeaders(opts),
+    });
   }
 
   // ── HITL (human-in-the-loop approval) ───────────────────────────
@@ -268,8 +307,9 @@ export class E2AApi {
     method: string,
     path: string,
     body?: unknown,
+    opts: { extraHeaders?: Record<string, string> } = {},
   ): Promise<T> {
-    const resp = await this.raw(method, path, body);
+    const resp = await this.raw(method, path, body, opts);
     return resp.json() as Promise<T>;
   }
 
@@ -278,9 +318,11 @@ export class E2AApi {
     method: string,
     path: string,
     body?: unknown,
+    opts: { extraHeaders?: Record<string, string> } = {},
   ): Promise<Response> {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.apiKey}`,
+      ...(opts.extraHeaders ?? {}),
     };
     if (body !== undefined) {
       headers["Content-Type"] = "application/json";
