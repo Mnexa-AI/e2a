@@ -1837,18 +1837,33 @@ export interface components {
             conversation_id?: string;
             /** @example 2025-01-15T10:30:00Z */
             created_at?: string;
+            /**
+             * @example inbound
+             * @enum {string}
+             */
+            direction?: "inbound" | "outbound";
             /** @example alice@example.com */
             from?: string;
+            /**
+             * @example sent
+             * @enum {string}
+             */
+            hitl_status?: "pending_approval" | "sent" | "rejected" | "expired_approved" | "expired_rejected";
             /** @example msg_abc123 */
             message_id?: string;
             /** @example my-bot@example.com */
             recipient?: string;
             reply_to?: string[];
+            /** @example 4231 */
+            size_bytes?: number;
             /**
-             * @example unread
-             * @enum {string}
+             * @description Status carries the inbound inbox_status value (`unread` | `read`).
+             *     Empty string for outbound rows — clients filtering on Status must
+             *     gate on `Direction == "inbound"` first. The enum was removed from
+             *     the swag annotation deliberately so SDK generators don't emit a
+             *     `Literal["unread", "read"]` that breaks at runtime.
              */
-            status?: "unread" | "read";
+            status?: string;
             /** @example Hello */
             subject?: string;
             /**
@@ -1857,6 +1872,12 @@ export interface components {
              *     ]
              */
             to?: string[];
+            webhook_error?: string;
+            /**
+             * @example delivered
+             * @enum {string}
+             */
+            webhook_status?: "pending" | "delivered" | "failed";
         };
         OAuthConnectionEntry: {
             agent_email?: string;

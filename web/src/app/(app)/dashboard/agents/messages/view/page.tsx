@@ -11,7 +11,7 @@
 // union is a tracked follow-up; until then we do two requests in the
 // worst case.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
@@ -108,7 +108,20 @@ function decodeInboundBody(rawBase64: string | undefined): string {
 // per-message state (draftBody, editingDraft, hasUserEditedRef,
 // rejectReason, showRejectPrompt, submitError) would persist across
 // the navigation and corrupt B with A's UI state.
+// Next.js 16+ requires useSearchParams to live inside a Suspense
+// boundary. The current "use client" declaration at the top of the
+// file currently keeps this working, but adding any server component
+// above the route would silently bail the static export. Wrap
+// pre-emptively so the routing tree stays static-export-safe.
 export default function AgentMessageFocusPage() {
+  return (
+    <Suspense fallback={null}>
+      <FocusPageRouter />
+    </Suspense>
+  );
+}
+
+function FocusPageRouter() {
   const searchParams = useSearchParams();
   const email = searchParams.get("email") ?? "";
   const id = searchParams.get("id") ?? "";
@@ -155,18 +168,7 @@ function FocusContent({
   const outboundSWR = useSWR(
     id ? pendingMessageKey(id) : null,
     () => getPendingMessage(id),
-    {
-      shouldRetryOnError: false,
-      keepPreviousData: false,
-      // Seed the draft-body textarea the first time data arrives.
-      // Doing this in SWR's onSuccess callback (which fires from
-      // SWR's internal fetch effect, not our render) keeps the
-      // setState off the render path that React 19's lint guards.
-      onSuccess: (data) => {
-        if (hasUserEditedRef.current) return;
-        setDraftBody(data.body_text ?? "");
-      },
-    },
+    { shouldRetryOnError: false, keepPreviousData: false },
   );
   const outboundIs404 =
     outboundSWR.error instanceof ApiError && outboundSWR.error.status === 404;
@@ -214,6 +216,24 @@ function FocusContent({
   const [showRejectPrompt, setShowRejectPrompt] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
 
+  // Seed the draft-body textarea from the loaded outbound message.
+  // Previously this lived in SWR's onSuccess callback, but onSuccess
+  // only fires on a real fetch — not on a cache-hit served within
+  // SWR's dedupingInterval. If the pending panel populated
+  // pendingMessageKey(id) shortly before the user landed on this
+  // page (e.g. via a future "Open in focus" link), the focus page
+  // would hit cache, skip the fetcher, never call onSuccess, and
+  // the reviewer would see an empty textarea.
+  //
+  // Effect-based seeding fires on every render where outboundSWR.data
+  // changes — including the cache-hit case where data resolves
+  // synchronously on mount. The hasUserEditedRef guard prevents
+  // window-focus revalidation from stomping in-progress edits.
+  useEffect(() => {
+    if (hasUserEditedRef.current) return;
+    if (!outboundSWR.data) return;
+    setDraftBody(outboundSWR.data.body_text ?? "");
+  }, [outboundSWR.data]);
 
   const isPending = msg?.direction === "outbound" && msg.data.status === "pending_approval";
 

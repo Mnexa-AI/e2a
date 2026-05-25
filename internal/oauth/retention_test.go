@@ -2,10 +2,13 @@ package oauth_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Mnexa-AI/e2a/internal/oauth"
 )
 
 // mustExec wraps a pool.Exec call and fails the test on error. Used
@@ -219,24 +222,24 @@ func TestExportConnectionsForUser(t *testing.T) {
 		    user_id, request, requested_at, expires_at, active, revoked_at, created_at)
 		VALUES
 		    ('rt-A1', 'r1', $1, $2,
-		     jsonb_build_object('session', jsonb_build_object('AgentEmail','a@e.dev')),
+		     jsonb_build_object('session', jsonb_build_object('agent_email','a@e.dev')),
 		     $3, $4, true, NULL, $3),
 		    ('rt-A2', 'r2', $1, $2,
-		     jsonb_build_object('session', jsonb_build_object('AgentEmail','a@e.dev')),
+		     jsonb_build_object('session', jsonb_build_object('agent_email','a@e.dev')),
 		     $5, $6, true, NULL, $5),
 
 		    ('rt-A3', 'r3', $1, $2,
-		     jsonb_build_object('session', jsonb_build_object('AgentEmail','b@e.dev')),
+		     jsonb_build_object('session', jsonb_build_object('agent_email','b@e.dev')),
 		     $3, $4, false, $5, $3),
 		    ('rt-A4', 'r4', $1, $2,
-		     jsonb_build_object('session', jsonb_build_object('AgentEmail','b@e.dev')),
+		     jsonb_build_object('session', jsonb_build_object('agent_email','b@e.dev')),
 		     $5, $6, false, $5, $5),
 
 		    ('rt-A5', 'r5', $1, $2,
-		     jsonb_build_object('session', jsonb_build_object('AgentEmail','c@e.dev')),
+		     jsonb_build_object('session', jsonb_build_object('agent_email','c@e.dev')),
 		     $3, $4, false, $5, $3),
 		    ('rt-A6', 'r6', $1, $2,
-		     jsonb_build_object('session', jsonb_build_object('AgentEmail','c@e.dev')),
+		     jsonb_build_object('session', jsonb_build_object('agent_email','c@e.dev')),
 		     $5, $6, true, NULL, $5),
 
 		    ('rt-B1', 'r7', $1, $7, '{}'::jsonb, $3, $4, true, NULL, $3)
@@ -294,6 +297,59 @@ func TestExportConnectionsForUser(t *testing.T) {
 	}
 	if len(gotB) != 1 {
 		t.Errorf("userB connections = %d, want 1", len(gotB))
+	}
+}
+
+// Regression: prior versions of the test seeded the session JSONB
+// directly via `jsonb_build_object('agent_email', ...)`. The query
+// at the time read `request->'session'->>'AgentEmail'` (Go field
+// name). The test passed against the hand-built JSONB but production
+// rows — written by fosite via `json.Marshal(*Session)` — landed
+// with the lowercase `agent_email` json-tag, so every real
+// connection exported `agent_email: ""`. This test serializes a real
+// Session via the production marshal path and asserts the export
+// round-trips, locking the contract against future drift.
+func TestExportConnectionsForUser_UsesProductionSessionShape(t *testing.T) {
+	st, _, pool, userID, clientID := setup(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	exp := now.Add(time.Hour)
+
+	sess := &oauth.Session{
+		UserID:     userID,
+		AgentEmail: "round-trip@e.dev",
+		Subject:    userID,
+	}
+	sessJSON, err := json.Marshal(sess)
+	if err != nil {
+		t.Fatalf("marshal session: %v", err)
+	}
+	// Build the `request` JSONB the same way fosite would: an
+	// envelope with a `session` field that holds the marshaled
+	// Session. Anything else (form, scopes, …) is irrelevant to
+	// this query.
+	envelope := map[string]any{"session": json.RawMessage(sessJSON)}
+	envelopeJSON, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+
+	mustExec(t, pool, `
+		INSERT INTO oauth_refresh_tokens (signature, request_id, client_id,
+		    user_id, request, requested_at, expires_at, active, created_at)
+		VALUES ('rt-prod', 'r-prod', $1, $2, $3::jsonb, $4, $5, true, $4)
+	`, clientID, userID, envelopeJSON, now, exp)
+
+	got, err := st.ExportConnectionsForUser(ctx, userID)
+	if err != nil {
+		t.Fatalf("ExportConnectionsForUser: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want 1 connection, got %d", len(got))
+	}
+	if got[0].AgentEmail != "round-trip@e.dev" {
+		t.Errorf("AgentEmail = %q, want %q — the JSONB key the query reads must match the json tag fosite writes",
+			got[0].AgentEmail, "round-trip@e.dev")
 	}
 }
 

@@ -157,13 +157,18 @@ type ConnectionEntry struct {
 //
 // The session JSONB carries the agent_email we pinned at consent
 // time, so we extract it via a JSONB path expression rather than
-// rejoining the agent table.
+// rejoining the agent table. The JSON key is the lowercase struct
+// tag (`agent_email`) — Session is encoded via json.Marshal at
+// storage.go::marshalRequest, so the field name on disk follows the
+// `json:"agent_email"` tag, not the Go field name. Reading the
+// uppercase form (the original mistake) returned an empty string for
+// every real row.
 func (s *Storage) ExportConnectionsForUser(ctx context.Context, userID string) ([]ConnectionEntry, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT
 		    rt.client_id,
 		    c.client_name,
-		    COALESCE(rt.request->'session'->>'AgentEmail', '')              AS agent_email,
+		    COALESCE(rt.request->'session'->>'agent_email', '')             AS agent_email,
 		    array_to_string(c.scopes, ' ')                                  AS scope,
 		    MIN(rt.created_at)                                              AS issued_at,
 		    MAX(rt.expires_at)                                              AS expires_at,

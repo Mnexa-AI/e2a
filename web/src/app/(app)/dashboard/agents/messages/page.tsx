@@ -11,7 +11,7 @@
 // Selection state lives in `window.location.hash` (#conv:X or #orphan:X)
 // so deep-links work and the back button moves between threads.
 
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { Suspense, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { listAgentMessages } from "../../../../components/onboarding/api";
@@ -35,7 +35,19 @@ function useUrlHash(): string {
   return useSyncExternalStore(subscribeHash, getHash, () => "");
 }
 
+// AgentInboxPage wraps the content in <Suspense>. Next.js 16+ requires
+// useSearchParams() to live inside a Suspense boundary; otherwise the
+// whole route opts into client-only rendering and any future server
+// component above this page silently bails the static export.
 export default function AgentInboxPage() {
+  return (
+    <Suspense fallback={null}>
+      <AgentInboxContent />
+    </Suspense>
+  );
+}
+
+function AgentInboxContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const email = searchParams.get("email") ?? "";
@@ -47,7 +59,7 @@ export default function AgentInboxPage() {
     data: initialPage,
     error: fetchError,
   } = useSWR(
-    email ? agentMessagesKey(email, "all") : null,
+    email ? agentMessagesKey(email, "all", "all") : null,
     () => listAgentMessages(email, { direction: "all", status: "all", pageSize: 100 }),
     // `keepPreviousData` is on globally for the smooth-revalidation
     // UX, but for per-agent keys it shows the WRONG agent's data

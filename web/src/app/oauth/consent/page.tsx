@@ -253,7 +253,19 @@ function ConsentForm({
 
   const creating = agentChoice === "create_new";
   const slugValid = !creating || SLUG_PATTERN.test(slug);
-  const submitDisabled = !slugValid;
+  // Verify the inbound redirect_uri matches one of the values the
+  // client registered. fosite re-validates this server-side so a
+  // mismatch isn't an exploit, but the UI was happy to render
+  // "Redirect: https://attacker.example" with no warning and let
+  // the user click Authorize. The backend would then 400 with a
+  // generic OAuth error, leaving the user confused. Bail loudly
+  // upfront instead.
+  const inboundRedirect = params["redirect_uri"] ?? "";
+  const redirectMismatch =
+    inboundRedirect !== "" &&
+    client.redirect_uris.length > 0 &&
+    !client.redirect_uris.includes(inboundRedirect);
+  const submitDisabled = !slugValid || redirectMismatch;
 
   // The hidden inputs re-emit every OAuth param we received. We use
   // params (the readback of useSearchParams) rather than re-deriving
@@ -270,6 +282,24 @@ function ConsentForm({
         <strong>{client.client_name}</strong> is asking to send and receive
         email on your behalf via e2a.
       </p>
+
+      {redirectMismatch && (
+        <div
+          role="alert"
+          className="mb-4 p-3 text-sm border rounded"
+          style={{
+            background: "var(--danger-bg)",
+            color: "var(--danger-strong)",
+            borderColor: "var(--danger-bg)",
+          }}
+        >
+          <strong>Redirect URI mismatch.</strong> The redirect URL this
+          request is using (<span className="font-mono">{inboundRedirect}</span>)
+          is not on the client&apos;s registered list. The server would
+          reject the authorization anyway — refusing in the UI to avoid
+          phishing-by-confused-redirect.
+        </div>
+      )}
 
       <form method="POST" action="/api/oauth/consent" className="space-y-4">
         {Object.entries(params).map(([k, v]) => (

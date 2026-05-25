@@ -4,10 +4,35 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
 )
+
+// authedChunked posts a body with Transfer-Encoding: chunked so the
+// server sees ContentLength == -1. Used to regression-test handlers
+// that previously gated body decode on ContentLength > 0 (which
+// silently swallowed bodies on chunked requests).
+func authedChunked(t *testing.T, method, url, body, apiKey string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(method, url, io.NopCloser(strings.NewReader(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	// Force chunked: Body is an io.Reader of unknown length; clear
+	// ContentLength so net/http's transport doesn't infer a length and
+	// adds Transfer-Encoding: chunked instead.
+	req.ContentLength = -1
+	req.TransferEncoding = []string{"chunked"}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
 
 // authed does an authenticated request of arbitrary method.
 func authed(t *testing.T, method, url, body, apiKey string) *http.Response {
@@ -579,6 +604,110 @@ func TestApproveAlreadySentReturns409(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusConflict {
 		t.Errorf("status = %d, want 409", resp.StatusCode)
+	}
+}
+
+// Regression: Transfer-Encoding: chunked yields ContentLength == -1 on
+// the server, and the approve handler used to skip body decode for
+// non-positive ContentLength. That silently dropped the reviewer's
+// overrides (subject/body/to/cc/bcc) and sent the stored draft as-is —
+// a HITL invariant breach. This test posts edits via chunked encoding
+// and asserts the SMTP send reflects them.
+func TestApprovePendingMessageWithChunkedEditsHonorsOverrides(t *testing.T) {
+	server, store, _, smtpDone := setupAPIWithSMTP(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-apprv-chunk@example.com", "Owner", "google-apprv-chunk")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "apprv-chunk-key", nil)
+	store.ClaimOrCreateDomain(ctx, "apprv-chunk.example.com", user.ID)
+	store.VerifyDomain(ctx, "apprv-chunk.example.com", user.ID)
+	agent, _ := store.CreateAgent(ctx, "bot@apprv-chunk.example.com", "apprv-chunk.example.com", "", "https://example.com/webhook", "", user.ID)
+	enableHITL(t, store, agent.ID, user.ID)
+
+	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
+		`{"to":["alice@example.com"],"subject":"Original subject","body":"original body"}`,
+		apiKey.PlaintextKey)
+	defer sendResp.Body.Close()
+	var sendBody struct{ MessageID string `json:"message_id"` }
+	json.NewDecoder(sendResp.Body).Decode(&sendBody)
+
+	editPayload := `{"subject":"Edited via chunked","body_text":"chunked body","to":["bob@example.com"]}`
+	appResp := authedChunked(t, "POST",
+		server.URL+"/api/v1/messages/"+sendBody.MessageID+"/approve",
+		editPayload, apiKey.PlaintextKey)
+	defer appResp.Body.Close()
+	if appResp.StatusCode != http.StatusOK {
+		t.Fatalf("approve via chunked: status = %d", appResp.StatusCode)
+	}
+	var appBody struct {
+		Edited bool `json:"edited"`
+	}
+	json.NewDecoder(appResp.Body).Decode(&appBody)
+	if !appBody.Edited {
+		t.Error("response.edited should be true — chunked body was decoded")
+	}
+
+	msgs := smtpDone()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 SMTP message, got %d", len(msgs))
+	}
+	if msgs[0].To != "bob@example.com" {
+		t.Errorf("SMTP To = %q, want bob@example.com (edited)", msgs[0].To)
+	}
+	if !strings.Contains(msgs[0].Data, "Edited via chunked") {
+		t.Errorf("SMTP missing edited subject (chunked body was swallowed):\n%s", msgs[0].Data)
+	}
+	if !strings.Contains(msgs[0].Data, "chunked body") {
+		t.Errorf("SMTP missing edited body:\n%s", msgs[0].Data)
+	}
+	if strings.Contains(msgs[0].Data, "Original subject") {
+		t.Errorf("SMTP contains original subject — overrides were dropped:\n%s", msgs[0].Data)
+	}
+}
+
+// Regression: same chunked-encoding bug on the reject path silently
+// dropped the rejection reason. Assert the reason round-trips through
+// a chunked POST.
+func TestRejectPendingMessageWithChunkedReasonRecordsReason(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-rej-chunk@example.com", "Owner", "google-rej-chunk")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "rej-chunk-key", nil)
+	store.ClaimOrCreateDomain(ctx, "rej-chunk.example.com", user.ID)
+	store.VerifyDomain(ctx, "rej-chunk.example.com", user.ID)
+	agent, _ := store.CreateAgent(ctx, "bot@rej-chunk.example.com", "rej-chunk.example.com", "", "https://example.com/webhook", "", user.ID)
+	enableHITL(t, store, agent.ID, user.ID)
+
+	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
+		`{"to":["alice@example.com"],"subject":"Bad draft","body":"…"}`,
+		apiKey.PlaintextKey)
+	defer sendResp.Body.Close()
+	var sendBody struct{ MessageID string `json:"message_id"` }
+	json.NewDecoder(sendResp.Body).Decode(&sendBody)
+
+	rejResp := authedChunked(t, "POST",
+		server.URL+"/api/v1/messages/"+sendBody.MessageID+"/reject",
+		`{"reason":"off-topic for this audience"}`, apiKey.PlaintextKey)
+	defer rejResp.Body.Close()
+	if rejResp.StatusCode != http.StatusOK {
+		t.Fatalf("reject via chunked: status = %d", rejResp.StatusCode)
+	}
+
+	// Verify the reason landed via the detail endpoint.
+	detailResp := authed(t, "GET",
+		server.URL+"/api/v1/messages/"+sendBody.MessageID, "", apiKey.PlaintextKey)
+	defer detailResp.Body.Close()
+	var detail struct {
+		Status          string `json:"status"`
+		RejectionReason string `json:"rejection_reason"`
+	}
+	json.NewDecoder(detailResp.Body).Decode(&detail)
+	if detail.Status != "rejected" {
+		t.Errorf("detail.status = %q, want rejected", detail.Status)
+	}
+	if detail.RejectionReason != "off-topic for this audience" {
+		t.Errorf("rejection_reason = %q — chunked body was swallowed", detail.RejectionReason)
 	}
 }
 

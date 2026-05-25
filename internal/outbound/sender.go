@@ -17,8 +17,15 @@ import (
 // available — skip signing". Implementations should NOT return an
 // error for the not-found case; that's a normal flow during the
 // migration window when older domains haven't been keyed yet.
+//
+// Method name carries the "Internal" suffix to flag the boundary:
+// this is NOT user-input-safe. The caller must have already
+// authenticated and authorized the from-domain (e.g. via the agent
+// layer's ownership check on the sender). A handler that ever calls
+// this with a user-supplied domain string becomes a "sign as
+// anyone" primitive.
 type DKIMKeyLookup interface {
-	GetDKIMKey(ctx context.Context, domain string) (selector string, privateKey []byte, err error)
+	GetDKIMKeyInternal(ctx context.Context, domain string) (selector string, privateKey []byte, err error)
 }
 
 // Attachment is a base64-encoded file attachment.
@@ -214,7 +221,7 @@ func (s *Sender) signMessage(message []byte, domain string) ([]byte, bool) {
 	if s.dkimLookup == nil || domain == "" {
 		return nil, false
 	}
-	selector, privKey, err := s.dkimLookup.GetDKIMKey(context.Background(), domain)
+	selector, privKey, err := s.dkimLookup.GetDKIMKeyInternal(context.Background(), domain)
 	if err != nil {
 		log.Printf("[sender] dkim key lookup for %s: %v", domain, err)
 		return nil, false

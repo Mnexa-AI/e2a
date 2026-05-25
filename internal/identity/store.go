@@ -343,11 +343,20 @@ func nullIfEmptyBytes(b []byte) interface{} {
 	return b
 }
 
-// GetDKIMKey returns the stored selector + private key bytes for a
-// domain, used by the outbound signer. Returns ("", nil, nil) when the
-// domain has no key — callers MUST treat this as "skip signing" and
-// fall back to whatever the relay-level fallback does.
-func (s *Store) GetDKIMKey(ctx context.Context, domain string) (string, []byte, error) {
+// GetDKIMKeyInternal returns the stored selector + private key bytes
+// for a domain. The "Internal" suffix is load-bearing: this function
+// does NOT scope by user — it takes a domain name and returns whoever
+// owns that domain's signing key. ONLY call from server-internal
+// codepaths where the domain has already been resolved from a
+// trusted source (e.g. an outbound message's sender field, after the
+// agent layer has authenticated the owner). A handler that ever
+// takes a user-supplied domain string and feeds it to this function
+// becomes a "sign as anyone" primitive: don't.
+//
+// Returns ("", nil, nil) when the domain has no key — callers MUST
+// treat this as "skip signing" and fall back to whatever the
+// relay-level fallback does.
+func (s *Store) GetDKIMKeyInternal(ctx context.Context, domain string) (string, []byte, error) {
 	var selector string
 	var privKey []byte
 	err := s.pool.QueryRow(ctx,

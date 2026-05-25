@@ -18,8 +18,18 @@ export const agentsKey = "agents";
 export const domainsKey = "domains";
 export const pendingMessagesKey = "pending-messages";
 
-export const agentMessagesKey = (email: string, direction: string = "all", token?: string) =>
-  ["agent-messages", email, direction, token ?? null] as const;
+// Key tuple includes every filter that affects the response so two
+// surfaces fetching the same email under different filters don't
+// poison each other's cache. Pre-fix the key omitted `status`, so a
+// future surface filtering by status would collide with the existing
+// all-status inbox view.
+export const agentMessagesKey = (
+  email: string,
+  direction: string = "all",
+  status: string = "all",
+  token?: string,
+) =>
+  ["agent-messages", email, direction, status, token ?? null] as const;
 
 export const pendingMessageKey = (id: string) => ["pending-message", id] as const;
 export const inboundMessageKey = (email: string, id: string) => ["inbound-message", email, id] as const;

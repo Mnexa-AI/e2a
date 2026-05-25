@@ -5,7 +5,7 @@
 // zone for deletion. The dashboard card is now lean: identity +
 // stats + Open-inbox / Settings CTAs only; the editors live here.
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eyebrow } from "../../../../components/loft/Eyebrow";
 import { deleteAgent } from "../../../../components/onboarding/api";
@@ -15,17 +15,23 @@ import { AgentModeSwitcher } from "../../_components/AgentModeSwitcher";
 import { WebhookEditor } from "../../_components/WebhookEditor";
 import { HITLEditor } from "../../_components/HITLEditor";
 
+// Suspense-wrap so useSearchParams stays inside a Suspense boundary
+// per Next.js 16+ requirements. Inner content is keyed by email so
+// navigating between agents (?email=A → ?email=B) re-mounts the
+// editors with fresh state — without the key, useState would persist
+// the previous agent's settings while a new fetch was in flight.
 export default function AgentSettingsPage() {
+  return (
+    <Suspense fallback={null}>
+      <AgentSettingsRouter />
+    </Suspense>
+  );
+}
+
+function AgentSettingsRouter() {
   const searchParams = useSearchParams();
   const email = searchParams.get("email") ?? "";
-
-  // Inner content is keyed by email so navigating between agents
-  // (?email=A → ?email=B) re-mounts the editors with fresh state.
-  // Without the key, useState would persist the previous agent's
-  // settings while a new fetch was in flight.
-  return (
-    <AgentSettingsContent key={email} email={email} />
-  );
+  return <AgentSettingsContent key={email} email={email} />;
 }
 
 function AgentSettingsContent({ email }: { email: string }) {
