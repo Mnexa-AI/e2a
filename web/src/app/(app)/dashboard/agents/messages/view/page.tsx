@@ -11,7 +11,7 @@
 // union is a tracked follow-up; until then we do two requests in the
 // worst case.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
@@ -108,7 +108,20 @@ function decodeInboundBody(rawBase64: string | undefined): string {
 // per-message state (draftBody, editingDraft, hasUserEditedRef,
 // rejectReason, showRejectPrompt, submitError) would persist across
 // the navigation and corrupt B with A's UI state.
+// Next.js 16+ requires useSearchParams to live inside a Suspense
+// boundary. The current "use client" declaration at the top of the
+// file currently keeps this working, but adding any server component
+// above the route would silently bail the static export. Wrap
+// pre-emptively so the routing tree stays static-export-safe.
 export default function AgentMessageFocusPage() {
+  return (
+    <Suspense fallback={null}>
+      <FocusPageRouter />
+    </Suspense>
+  );
+}
+
+function FocusPageRouter() {
   const searchParams = useSearchParams();
   const email = searchParams.get("email") ?? "";
   const id = searchParams.get("id") ?? "";

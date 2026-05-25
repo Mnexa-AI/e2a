@@ -150,6 +150,17 @@ func (n *Notifier) NotifyPendingApproval(ctx context.Context, msg *identity.Mess
 // after logging so callers don't need to.
 func (n *Notifier) NotifyPendingApprovalAsync(msg *identity.Message, agent *identity.AgentIdentity) {
 	if n == nil {
+		// Operator-side misconfiguration: notifier wasn't wired (most
+		// likely because OutboundSMTP.FromDomain or HTTP.PublicURL is
+		// unset; the wiring in cmd/e2a/main.go gates on both). The API
+		// still returns 202 pending_approval to the caller, but the
+		// reviewer never gets an email — silent and confusing without
+		// a log line.
+		msgID := ""
+		if msg != nil {
+			msgID = msg.ID
+		}
+		log.Printf("[hitl-notify] suppressed (notifier not configured): msg=%s", msgID)
 		return
 	}
 	go func() {

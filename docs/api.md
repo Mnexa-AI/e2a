@@ -29,7 +29,7 @@ For the machine-readable spec, see [`web/public/openapi.yaml`](../web/public/ope
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/agents/{email}/messages` | List inbound messages for the agent |
-| `GET` | `/agents/{email}/messages/{id}` | Fetch a single inbound message (transitions `unread` → `read` for local-mode agents) |
+| `GET` | `/agents/{email}/messages/{id}` | Fetch a single inbound message. Side effect: any `unread` row flips to `read` on read, regardless of agent mode. |
 | `POST` | `/agents/{email}/messages/{id}/reply` | Reply to an inbound message |
 
 ## Messages — outbound / HITL
@@ -37,7 +37,7 @@ For the machine-readable spec, see [`web/public/openapi.yaml`](../web/public/ope
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/send` | Send an email (held with `202 Accepted` if HITL enabled on the agent) |
-| `GET` | `/messages` | List outbound messages owned by the user (filterable by status) |
+| `GET` | `/messages` | List outbound messages owned by the user. Only `status=pending_approval` is accepted (the default); any other value returns `400`. |
 | `GET` | `/messages/{id}` | Get a single outbound message |
 | `POST` | `/messages/{id}/approve` | Approve a `pending_approval` message |
 | `POST` | `/messages/{id}/reject` | Reject a `pending_approval` message |
@@ -53,11 +53,11 @@ Both endpoints require a valid API key or session. The export omits internal ide
 
 ### Webhook signing secrets
 
-Per-user HMAC secrets used to sign inbound webhook payloads. Up to 5 active per user. Plaintext is returned **once** at creation; subsequent reads see only the 12-char prefix.
+Per-user HMAC secrets used to sign inbound webhook payloads. Up to 5 active per user (including the `default` row auto-created at user signup). The list endpoint returns the full plaintext `secret` on every read — this is intentional, see the `SigningSecretSummary` Go doc; SDKs depend on it.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/users/me/signing-secrets` | List the user's signing secrets (`id`, `name`, `secret_prefix`, `created_at`, `last_signed_at`). |
+| `GET` | `/users/me/signing-secrets` | List the user's signing secrets. Returns `id`, `name`, **`secret`** (full plaintext), `secret_prefix`, `created_at`, `last_signed_at`. |
 | `POST` | `/users/me/signing-secrets` | Create a new signing secret. Returns the plaintext exactly once (in the `secret` field) — store it immediately. Body: `{"name": "..."}`. Returns `400` if the user already has 5 secrets. |
 | `DELETE` | `/users/me/signing-secrets/{id}` | Delete a signing secret. Returns `400` if it's the user's last remaining secret; rotate by creating a new one first, switching consumers over, then deleting the old one. |
 
