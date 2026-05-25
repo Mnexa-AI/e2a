@@ -307,3 +307,176 @@ func TestSendEmail_IdempotencyKey_ClientErrorReleasesKey(t *testing.T) {
 		t.Errorf("SMTP messages sent = %d, want 1 (only the second call should send)", len(msgs))
 	}
 }
+
+// setupHITLSendingAgent provisions a fully-onboarded HITL-enabled sending
+// agent for the approve-idempotency tests. Mirrors setupVerifiedSendingAgent
+// but also flips hitl_enabled so that POST /api/v1/send produces a pending
+// row instead of sending immediately.
+func setupHITLSendingAgent(t *testing.T, namePrefix string) (serverURL string, smtpDone func() []testutil.SMTPMessage, apiKey string) {
+	t.Helper()
+	srv, store, _, done := setupAPIWithSMTP(t)
+	ctx := context.Background()
+	user, err := store.CreateOrGetUser(ctx, namePrefix+"-owner@example.com", "Owner", "google-"+namePrefix)
+	if err != nil {
+		t.Fatalf("CreateOrGetUser: %v", err)
+	}
+	keyObj, err := store.CreateAPIKey(ctx, user.ID, namePrefix+"-key", nil)
+	if err != nil {
+		t.Fatalf("CreateAPIKey: %v", err)
+	}
+	domain := namePrefix + ".example.com"
+	if _, err := store.ClaimOrCreateDomain(ctx, domain, user.ID); err != nil {
+		t.Fatalf("ClaimOrCreateDomain: %v", err)
+	}
+	if err := store.VerifyDomain(ctx, domain, user.ID); err != nil {
+		t.Fatalf("VerifyDomain: %v", err)
+	}
+	agent, err := store.CreateAgent(ctx, "agent@"+domain, domain, "", "https://example.com/webhook", "", user.ID)
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	enableHITL(t, store, agent.ID, user.ID)
+	return srv.URL, done, keyObj.PlaintextKey
+}
+
+// createPendingMessage runs POST /api/v1/send against an HITL-enabled agent
+// and returns the resulting pending message_id. The send response is 202
+// pending_approval; no SMTP traffic at this point.
+func createPendingMessage(t *testing.T, serverURL, apiKey string) string {
+	t.Helper()
+	resp, err := http.DefaultClient.Do(idempotencyRequest(t, "POST", serverURL+"/api/v1/send",
+		`{"to":["alice@example.com"],"subject":"Hi","body":"draft body"}`,
+		apiKey, ""))
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("send setup: status=%d body=%s", resp.StatusCode, body)
+	}
+	var sb struct{ MessageID string `json:"message_id"` }
+	if err := json.NewDecoder(resp.Body).Decode(&sb); err != nil {
+		t.Fatalf("decode send response: %v", err)
+	}
+	if sb.MessageID == "" {
+		t.Fatal("send returned no message_id")
+	}
+	return sb.MessageID
+}
+
+// TestApprovePending_IdempotencyKey_DuplicateReplaysAndSkipsResend covers
+// the SES double-fire window: a retried approve with the same key must
+// replay the original response byte-for-byte and must NOT re-hit SMTP.
+// Without the guard, a transient client retry after a successful approve
+// would double-send the same email.
+func TestApprovePending_IdempotencyKey_DuplicateReplaysAndSkipsResend(t *testing.T) {
+	serverURL, smtpDone, apiKey := setupHITLSendingAgent(t, "approve-idem-replay")
+	msgID := createPendingMessage(t, serverURL, apiKey)
+
+	idemKey := "approve-replay-001"
+	url := serverURL + "/api/v1/messages/" + msgID + "/approve"
+
+	// First approve: empty body (approve-as-is). One SMTP message expected.
+	resp1, err := http.DefaultClient.Do(idempotencyRequest(t, "POST", url, "", apiKey, idemKey))
+	if err != nil {
+		t.Fatalf("first approve: %v", err)
+	}
+	body1, _ := io.ReadAll(resp1.Body)
+	resp1.Body.Close()
+	if resp1.StatusCode != 200 {
+		t.Fatalf("first status = %d, body = %s", resp1.StatusCode, body1)
+	}
+	if resp1.Header.Get("Idempotent-Replayed") != "" {
+		t.Errorf("first call should not be marked replayed, got %q", resp1.Header.Get("Idempotent-Replayed"))
+	}
+
+	// Second approve: same key + same (empty) body must replay, NOT re-send.
+	resp2, err := http.DefaultClient.Do(idempotencyRequest(t, "POST", url, "", apiKey, idemKey))
+	if err != nil {
+		t.Fatalf("second approve: %v", err)
+	}
+	body2, _ := io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+	if resp2.StatusCode != 200 {
+		t.Fatalf("second status = %d, body = %s", resp2.StatusCode, body2)
+	}
+	if resp2.Header.Get("Idempotent-Replayed") != "true" {
+		t.Errorf("Idempotent-Replayed = %q, want \"true\"", resp2.Header.Get("Idempotent-Replayed"))
+	}
+	if !bytes.Equal(body1, body2) {
+		t.Errorf("replay body diverged:\nfirst:  %s\nsecond: %s", body1, body2)
+	}
+
+	msgs := smtpDone()
+	if len(msgs) != 1 {
+		t.Errorf("SMTP messages sent = %d, want exactly 1 (replay must not re-fire SES)", len(msgs))
+	}
+}
+
+// TestApprovePending_IdempotencyKey_DifferentBodyReturns422 covers the
+// safety property of the guard: a retry with the same key but different
+// override body is treated as a different request and rejected, not
+// silently replayed. Without this, a reviewer who fat-fingers an edit
+// and retries could end up with the wrong content sent.
+func TestApprovePending_IdempotencyKey_DifferentBodyReturns422(t *testing.T) {
+	serverURL, smtpDone, apiKey := setupHITLSendingAgent(t, "approve-idem-mismatch")
+	msgID := createPendingMessage(t, serverURL, apiKey)
+
+	idemKey := "approve-mismatch-001"
+	url := serverURL + "/api/v1/messages/" + msgID + "/approve"
+
+	// First approve with override A.
+	resp1, err := http.DefaultClient.Do(idempotencyRequest(t, "POST", url,
+		`{"subject":"Edited A"}`, apiKey, idemKey))
+	if err != nil {
+		t.Fatalf("first approve: %v", err)
+	}
+	resp1.Body.Close()
+	if resp1.StatusCode != 200 {
+		t.Fatalf("first status = %d", resp1.StatusCode)
+	}
+
+	// Second approve, same key, different override body. Must 422.
+	resp2, err := http.DefaultClient.Do(idempotencyRequest(t, "POST", url,
+		`{"subject":"Edited B"}`, apiKey, idemKey))
+	if err != nil {
+		t.Fatalf("second approve: %v", err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("second status = %d, want 422", resp2.StatusCode)
+	}
+
+	msgs := smtpDone()
+	if len(msgs) != 1 {
+		t.Errorf("SMTP messages sent = %d, want 1 (the 422 must not re-fire)", len(msgs))
+	}
+}
+
+// TestApprovePending_NoIdempotencyKey_BehavesAsBefore guarantees the
+// guard is opt-in: legacy clients that don't set the header still get
+// the pre-2.4 approve behavior (single send, no replay header).
+func TestApprovePending_NoIdempotencyKey_BehavesAsBefore(t *testing.T) {
+	serverURL, smtpDone, apiKey := setupHITLSendingAgent(t, "approve-no-idem")
+	msgID := createPendingMessage(t, serverURL, apiKey)
+
+	resp, err := http.DefaultClient.Do(idempotencyRequest(t, "POST",
+		serverURL+"/api/v1/messages/"+msgID+"/approve", "", apiKey, ""))
+	if err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Errorf("status = %d", resp.StatusCode)
+	}
+	if resp.Header.Get("Idempotent-Replayed") != "" {
+		t.Errorf("Idempotent-Replayed should be absent for unkeyed calls, got %q",
+			resp.Header.Get("Idempotent-Replayed"))
+	}
+
+	msgs := smtpDone()
+	if len(msgs) != 1 {
+		t.Errorf("SMTP messages sent = %d, want 1", len(msgs))
+	}
+}

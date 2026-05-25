@@ -275,6 +275,9 @@ func (req approveRequest) toEdit() (identity.PendingApprovalEdit, error) {
 // @Failure      403 {string} string "Agent domain not verified"
 // @Failure      404 {string} string "Message not found or not owned by this user"
 // @Failure      409 {string} string "Message is no longer pending approval"
+// @Failure      409 {string} string "Another request with this Idempotency-Key is in progress"
+// @Failure      422 {string} string "Idempotency-Key reused with a different request body"
+// @Param        Idempotency-Key header string false "Caller-generated unique key (recommend UUIDv4). Approve fires a real outbound send (SES); on retry with the same key + same body the server replays the original response instead of double-sending. A different body returns 422."
 // @Router       /api/v1/messages/{id}/approve [post]
 func (a *API) handleApprovePendingMessage(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticateUser(r)
@@ -285,16 +288,34 @@ func (a *API) handleApprovePendingMessage(w http.ResponseWriter, r *http.Request
 
 	messageID := mux.Vars(r)["id"]
 
+	// Read the body up front so the idempotency guard can hash it. Approve
+	// is side-effectful (it triggers an SES send) so a retry without the
+	// guard would double-send; symmetric with handleSendEmail /
+	// handleReplyToMessage.
+	bodyBytes, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBytesSmall))
+	if err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	replayed, captureW, finalize := a.idempotencyGuard(w, r, user.ID, bodyBytes)
+	if replayed {
+		return
+	}
+	defer finalize()
+	w = captureW
+
 	var req approveRequest
 	// Empty body is allowed (approve-as-is). Only error if body is present
 	// but malformed. We deliberately do NOT gate on r.ContentLength > 0
 	// because Transfer-Encoding: chunked yields ContentLength == -1; that
 	// would silently drop the reviewer's overrides (subject/body/to/cc/bcc/
-	// attachment edits) and send the stored draft as-is. readJSON returns
-	// io.EOF on a truly-empty body, which we treat as "approve-as-is".
-	if err := readJSON(w, r, &req, maxRequestBytesSmall); err != nil && !errors.Is(err, io.EOF) {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
+	// attachment edits) and send the stored draft as-is.
+	if len(bodyBytes) > 0 {
+		if err := json.Unmarshal(bodyBytes, &req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
 	}
 	edits, err := req.toEdit()
 	if err != nil {
