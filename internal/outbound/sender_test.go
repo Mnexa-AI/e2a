@@ -95,7 +95,7 @@ type fakeDKIMLookup struct {
 	get func(ctx context.Context, domain string) (string, []byte, error)
 }
 
-func (f *fakeDKIMLookup) GetDKIMKey(ctx context.Context, domain string) (string, []byte, error) {
+func (f *fakeDKIMLookup) GetDKIMKeyInternal(ctx context.Context, domain string) (string, []byte, error) {
 	return f.get(ctx, domain)
 }
 
