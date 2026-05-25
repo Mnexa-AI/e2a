@@ -101,7 +101,7 @@ func TestRegisterAgent(t *testing.T) {
 	store.ClaimOrCreateDomain(ctx, "reg.example.com", user.ID)
 	store.VerifyDomain(ctx, "reg.example.com", user.ID)
 
-	payload := `{"email":"agent@reg.example.com","webhook_url":"https://example.com/webhook"}`
+	payload := `{"email":"agent@reg.example.com","webhook_url":"https://example.com/webhook","agent_mode":"cloud"}`
 	resp := authedPost(t, server.URL+"/api/v1/agents", payload, apiKey)
 	defer resp.Body.Close()
 
@@ -134,10 +134,30 @@ func TestRegisterAgentMissingFields(t *testing.T) {
 	}
 }
 
+// TestRegisterAgentMissingAgentMode pins the breaking-change behavior: an
+// otherwise-valid slug payload that omits `agent_mode` now 400s with an
+// explicit message rather than silently defaulting to `cloud` and then
+// 400'ing on the missing `webhook_url`.
+func TestRegisterAgentMissingAgentMode(t *testing.T) {
+	server, store, _ := setupAPI(t)
+	apiKey := createTestUser(t, store, "nomode@example.com")
+
+	payload := `{"slug":"nomode-bot","name":"Bot"}`
+	resp := authedPost(t, server.URL+"/api/v1/agents", payload, apiKey)
+	defer resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "agent_mode") {
+		t.Errorf("body should explain the missing field, got %q", string(body))
+	}
+}
+
 func TestRegisterAgentUnauthenticated(t *testing.T) {
 	server, _, _ := setupAPI(t)
 
-	payload := `{"email":"agent@unauth.example.com","webhook_url":"https://example.com/webhook"}`
+	payload := `{"email":"agent@unauth.example.com","webhook_url":"https://example.com/webhook","agent_mode":"cloud"}`
 	resp, _ := http.Post(server.URL+"/api/v1/agents", "application/json", bytes.NewBufferString(payload))
 	defer resp.Body.Close()
 	if resp.StatusCode != 401 {
@@ -159,7 +179,7 @@ func TestRegisterAgentSSRF(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			payload := `{"email":"agent@ssrf-` + tt.name + `.example.com","webhook_url":"` + tt.webhookURL + `"}`
+			payload := `{"email":"agent@ssrf-` + tt.name + `.example.com","webhook_url":"` + tt.webhookURL + `","agent_mode":"cloud"}`
 			resp := authedPost(t, server.URL+"/api/v1/agents", payload, apiKey)
 			defer resp.Body.Close()
 			if resp.StatusCode != 400 {
@@ -178,7 +198,7 @@ func TestRegisterAgentDuplicate(t *testing.T) {
 	store.ClaimOrCreateDomain(ctx, "dup-api.example.com", user.ID)
 	store.VerifyDomain(ctx, "dup-api.example.com", user.ID)
 
-	payload := `{"email":"agent@dup-api.example.com","webhook_url":"https://example.com/webhook"}`
+	payload := `{"email":"agent@dup-api.example.com","webhook_url":"https://example.com/webhook","agent_mode":"cloud"}`
 	resp1 := authedPost(t, server.URL+"/api/v1/agents", payload, apiKey)
 	resp1.Body.Close()
 
@@ -537,7 +557,7 @@ func TestRegisterAgentWithSlug(t *testing.T) {
 	server, store, _ := setupAPI(t)
 	apiKey := createTestUser(t, store, "owner@example.com")
 
-	payload := `{"slug":"my-cool-bot","name":"Cool Bot","webhook_url":"https://example.com/webhook"}`
+	payload := `{"slug":"my-cool-bot","name":"Cool Bot","webhook_url":"https://example.com/webhook","agent_mode":"cloud"}`
 	resp := authedPost(t, server.URL+"/api/v1/agents", payload, apiKey)
 	defer resp.Body.Close()
 
@@ -589,7 +609,7 @@ func TestRegisterAgentSlugValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			payload := fmt.Sprintf(`{"slug":%q,"name":"Bot","webhook_url":"https://example.com/webhook"}`, tt.slug)
+			payload := fmt.Sprintf(`{"slug":%q,"name":"Bot","webhook_url":"https://example.com/webhook","agent_mode":"cloud"}`, tt.slug)
 			resp := authedPost(t, server.URL+"/api/v1/agents", payload, apiKey)
 			defer resp.Body.Close()
 			if resp.StatusCode != 400 {
@@ -606,7 +626,7 @@ func TestRegisterAgentSlugValidAccepted(t *testing.T) {
 	slugs := []string{"ab", "my-bot", "support-agent-1", "a1"}
 	for _, slug := range slugs {
 		t.Run(slug, func(t *testing.T) {
-			payload := fmt.Sprintf(`{"slug":%q,"name":"Bot","webhook_url":"https://example.com/webhook"}`, slug)
+			payload := fmt.Sprintf(`{"slug":%q,"name":"Bot","webhook_url":"https://example.com/webhook","agent_mode":"cloud"}`, slug)
 			resp := authedPost(t, server.URL+"/api/v1/agents", payload, apiKey)
 			defer resp.Body.Close()
 			if resp.StatusCode != 201 {
@@ -620,7 +640,7 @@ func TestRegisterAgentDuplicateSlug(t *testing.T) {
 	server, store, _ := setupAPI(t)
 	apiKey := createTestUser(t, store, "dupslug@example.com")
 
-	payload := `{"slug":"dup-slug","name":"Bot","webhook_url":"https://example.com/webhook"}`
+	payload := `{"slug":"dup-slug","name":"Bot","webhook_url":"https://example.com/webhook","agent_mode":"cloud"}`
 	resp1 := authedPost(t, server.URL+"/api/v1/agents", payload, apiKey)
 	resp1.Body.Close()
 

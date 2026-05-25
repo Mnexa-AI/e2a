@@ -267,11 +267,15 @@ class RegisterAgentRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    agent_mode: str | None = None
-    email: str | None = None
-    name: str | None = None
-    slug: str | None = None
-    webhook_url: str | None = None
+    agent_mode: Literal['local', 'cloud'] = Field(
+        ...,
+        description='AgentMode selects how inbound mail is delivered. Required; must be "local" or "cloud". See the type-level docs for the difference.',
+        examples=['local'],
+    )
+    email: str | None = Field(None, examples=['my-bot@yourdomain.com'])
+    name: str | None = Field(None, examples=['My Bot'])
+    slug: str | None = Field(None, examples=['my-bot'])
+    webhook_url: str | None = Field(None, examples=['https://example.com/e2a/webhook'])
 
 
 class RegisterAgentResponse(BaseModel):

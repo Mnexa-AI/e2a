@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { E2AClient } from "@e2a/sdk/v1";
 import { z } from "zod";
-import { runTool } from "./util.js";
+import { runTool, strictInputSchema } from "./util.js";
 
 export function registerAgentTools(server: McpServer, client: E2AClient): void {
   server.registerTool(
@@ -10,7 +10,7 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
       title: "List agents",
       description:
         "List every agent inbox owned by the authenticated user. Useful for orientation — which inbox to send `from` or query messages against. Read-only.",
-      inputSchema: {},
+      inputSchema: strictInputSchema({}),
     },
     async () => runTool(() => client.listAgents()),
   );
@@ -21,7 +21,7 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
       title: "Get the default agent's identity",
       description:
         "Use first when starting work on e2a to learn which agent you're acting AS — remember an agent IS an email address, and other tools default to this one. Resolution order: (1) `E2A_AGENT_EMAIL` from the server env when set, (2) the sole agent on the account when there's exactly one. Errors only when neither path resolves — typically because the account owns multiple agents. In that case the error inlines the available emails so you can pass one as `agent_email` to other tools (or have the user pin a default via `E2A_AGENT_EMAIL`); no follow-up `list_agents` call needed. If the error says zero agents, run `create_agent` first.",
-      inputSchema: {},
+      inputSchema: strictInputSchema({}),
     },
     async () =>
       runTool(async () => {
@@ -60,7 +60,7 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
       title: "Create a new agent inbox on the shared domain",
       description:
         "Register a new agent using a slug on the deployment's shared domain (e.g. slug 'support-bot' → support-bot@<shared-domain>). Defaults to `local` mode so the agent receives mail via `list_messages` polling — no webhook server required. Pass `agent_mode: 'cloud'` and `webhook_url` for push delivery; in that case the webhook handler MUST HMAC-verify every delivery against the account's webhook signing secret (`E2A_WEBHOOK_SECRET`, shown in the dashboard) — the e2a SDK exposes `parseWebhook(body, secret)` for this. For a custom (non-shared) domain, use `register_domain` to start the verification flow. Slug must be lowercase letters, numbers, and hyphens.",
-      inputSchema: {
+      inputSchema: strictInputSchema({
         slug: z
           .string()
           .regex(/^[a-z0-9][a-z0-9-]*$/)
@@ -82,7 +82,7 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
           .url()
           .optional()
           .describe("Required when `agent_mode` is `cloud`. Ignored in local mode."),
-      },
+      }),
     },
     async (args) =>
       runTool(() =>
@@ -101,7 +101,7 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
       title: "Update an agent's configuration",
       description:
         "Mutate a subset of an agent's settings. **This is the path to enable HITL approval gates** on an existing agent (HITL is NOT in the create_agent flow): set `hitl_enabled: true`, optionally with `hitl_ttl_seconds` and `hitl_expiration_action`. Same path to disable HITL, change the approval window, switch between local and cloud delivery, or rebind the webhook URL when an agent's downstream service moves. Omitted fields keep their current value server-side; an explicitly-passed zero is honored (e.g. `hitl_ttl_seconds: 0` sets the window to immediate, not a no-op).",
-      inputSchema: {
+      inputSchema: strictInputSchema({
         agent_email: z
           .string()
           .email()
@@ -142,7 +142,7 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
           .describe(
             "What happens to a pending message at TTL expiry: `approve` ships it; `reject` drops it.",
           ),
-      },
+      }),
     },
     async (args) =>
       runTool(() => {
@@ -159,7 +159,7 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
       title: "Delete an agent inbox (DESTRUCTIVE)",
       description:
         "Permanently delete the agent identity and CASCADE-remove every message, pending outbound, and webhook-delivery record bound to it. Irreversible. Existing OAuth tokens bound to this agent are revoked automatically. Requires `confirm: true` — set it explicitly to acknowledge the destructive action.",
-      inputSchema: {
+      inputSchema: strictInputSchema({
         agent_email: z
           .string()
           .email()
@@ -172,7 +172,7 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
           .describe(
             "Must be set to true to proceed. Guard against an LLM hallucinating a delete from ambiguous context.",
           ),
-      },
+      }),
     },
     async (args) =>
       runTool(async () => {

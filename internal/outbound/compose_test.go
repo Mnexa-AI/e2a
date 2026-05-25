@@ -82,6 +82,47 @@ func TestComposeMessageSubjectRFC2047Encoding(t *testing.T) {
 	}
 }
 
+// TestComposeMessageSubjectCRLFNeutralized confirms that even if a CRLF
+// reaches ComposeMessage (e.g. some future caller skips the API-layer
+// validation in handleSendEmail), the Q-encoding step neutralizes it so
+// no header smuggling can occur on the SMTP envelope. Belt + suspenders
+// with the API-layer reject in handleSendEmail.
+func TestComposeMessageSubjectCRLFNeutralized(t *testing.T) {
+	smuggled := "Hello\r\nBcc: attacker@evil.com\r\nX-Smuggled: yes"
+	raw, err := ComposeMessage(
+		"from@test.com", []string{"to@test.com"}, nil,
+		smuggled, "Body", "text/plain", "", nil, "test.dev", "", "",
+	)
+	if err != nil {
+		t.Fatalf("ComposeMessage failed: %v", err)
+	}
+	headerEnd := strings.Index(string(raw), "\r\n\r\n")
+	if headerEnd < 0 {
+		t.Fatal("no header/body separator")
+	}
+	headers := string(raw)[:headerEnd]
+	// No smuggled headers should appear on their own line.
+	for _, smuggled := range []string{"\r\nBcc: attacker@evil.com", "\r\nX-Smuggled:"} {
+		if strings.Contains(headers, smuggled) {
+			t.Errorf("composed headers contain smuggled line: %q\nfull headers:\n%s", smuggled, headers)
+		}
+	}
+	// The Subject header should round-trip back to the original literal
+	// via Go's WordDecoder, confirming the bytes survived encode/decode.
+	msg, err := mail.ReadMessage(strings.NewReader(string(raw)))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	dec := new(mime.WordDecoder)
+	got, err := dec.DecodeHeader(msg.Header.Get("Subject"))
+	if err != nil {
+		t.Fatalf("decode subject: %v", err)
+	}
+	if got != smuggled {
+		t.Errorf("decoded subject = %q, want %q", got, smuggled)
+	}
+}
+
 func TestComposeMessageASCIISubjectUnchanged(t *testing.T) {
 	// Pure-ASCII subjects should pass through without encoded-word wrapping.
 	raw, err := ComposeMessage(

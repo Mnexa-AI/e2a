@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { E2AClient } from "@e2a/sdk/v1";
 import { z } from "zod";
-import { runTool } from "./util.js";
+import { runTool, strictInputSchema } from "./util.js";
 import { attachmentsArraySchema } from "./attachments.js";
 
 export function registerMessageTools(server: McpServer, client: E2AClient): void {
@@ -11,7 +11,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
       title: "Send email",
       description:
         "Use when starting a NEW email thread to a fresh recipient. To respond to a message you can see in `list_messages`, use `reply_to_message` instead — it preserves the In-Reply-To / References headers so the reply lands in the same thread, which this tool deliberately does not do. Attach files via `attachments`; pass base64 strings produced by other tools (e.g. `get_attachment_data`) verbatim — don't hand-encode raw text. **`pending_approval` is not failure.** If the agent has HITL enabled, the response is `{ status: \"pending_approval\", message_id: ... }`; the message is held for human review — do not retry. Check on it with `list_pending_messages` / `get_pending_message`.",
-      inputSchema: {
+      inputSchema: strictInputSchema({
         to: z.array(z.string()).describe("Recipient email addresses (one or more)."),
         subject: z.string(),
         body: z.string().describe("Plain-text body. Use `html_body` for HTML."),
@@ -35,7 +35,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
           .describe(
             "Sending agent's inbox. Omit when E2A_AGENT_EMAIL is set in the server environment.",
           ),
-      },
+      }),
     },
     async (args) =>
       runTool(() =>
@@ -61,7 +61,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
       title: "Reply to a received message",
       description:
         "Use whenever you're responding to a message you can see in the inbox — preserves the In-Reply-To and References headers so the reply joins the original email thread instead of starting a new one. Prefer this over `send_email` for any response to an inbound; thread fragmentation (broken conversation view in the recipient's mail client) is the most visible symptom of using `send_email` by mistake. Pass `reply_all: true` to copy the original Cc list; subject is auto-derived as `Re: …` by the server. Same HITL caveat as `send_email`: a `pending_approval` status is success, not failure.",
-      inputSchema: {
+      inputSchema: strictInputSchema({
         message_id: z.string().describe("ID of the inbound message to reply to (e.g. msg_…)."),
         body: z.string().describe("Plain-text reply body."),
         html_body: z.string().optional(),
@@ -80,7 +80,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
             "Stable key for retry-safe replies. A natural choice is the inbound `message_id` you're replying to — the same triggering event yields the same key, so a retry replays the original response instead of double-sending. Omit to let the SDK mint a fresh UUIDv4 per call.",
           ),
         agent_email: z.string().optional(),
-      },
+      }),
     },
     async (args) =>
       runTool(() =>
@@ -107,7 +107,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
       title: "List inbound messages",
       description:
         "List messages the agent has received, newest first by default. Filter by `status` (unread/read/all; default unread) and paginate with `page_size` + `token`. Pass `sort: \"asc\"` for FIFO order (oldest unread first) when the caller wants to drain the inbox in arrival order. **Search filters** (`from`, `subject_contains`, `conversation_id`, `since`, `until`) narrow the result set server-side — use them instead of paginating the full inbox client-side. Returns summaries only — use `get_message` for the full body.",
-      inputSchema: {
+      inputSchema: strictInputSchema({
         status: z.enum(["unread", "read", "all"]).optional(),
         page_size: z.number().int().positive().max(100).optional(),
         sort: z
@@ -149,7 +149,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
           ),
         token: z.string().optional().describe("Pagination token from a previous response."),
         agent_email: z.string().optional(),
-      },
+      }),
     },
     async (args) =>
       runTool(() =>
@@ -178,10 +178,10 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
       title: "Get a message",
       description:
         "Use after `list_messages` to read one inbound message in full — body (text + html), headers, conversation id, and attachment metadata. Pass the `message_id` from the list response. Attachment bytes are NOT included (would blow context for any non-trivial PDF); the response lists each attachment's filename, content_type, and 0-based `index` plus size_bytes. To get the actual bytes of one attachment (inspect, forward, hand off), call `get_attachment_data` with that index. The raw MIME blob is also omitted for the same reason.",
-      inputSchema: {
+      inputSchema: strictInputSchema({
         message_id: z.string(),
         agent_email: z.string().optional(),
-      },
+      }),
     },
     async (args) =>
       runTool(async () => {
@@ -236,7 +236,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
       title: "Fetch one attachment's bytes from an inbound message",
       description:
         "Returns the base64-encoded content of one attachment from an inbound message. Use this when you want to inspect, forward, or hand off an attachment surfaced by `get_message`. Indexes are 0-based and stable within a message (see `attachments[].index` from get_message). To forward to another recipient, pass the returned `{filename, content_type, data}` verbatim as an entry in `send_email`'s or `reply_to_message`'s `attachments[]` array. Refuses attachments larger than 2 MB after decoding — these are too big for inline retrieval and the LLM context cost would be prohibitive.",
-      inputSchema: {
+      inputSchema: strictInputSchema({
         message_id: z.string(),
         attachment_index: z
           .number()
@@ -251,7 +251,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
           .describe(
             "Agent inbox holding the message. Omit when E2A_AGENT_EMAIL is set in the server environment.",
           ),
-      },
+      }),
     },
     async (args) =>
       runTool(async () => {

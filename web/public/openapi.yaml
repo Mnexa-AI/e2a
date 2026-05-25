@@ -550,15 +550,27 @@ definitions:
   RegisterAgentRequest:
     properties:
       agent_mode:
+        description: AgentMode selects how inbound mail is delivered. Required; must
+          be "local" or "cloud". See the type-level docs for the difference.
+        enum:
+        - local
+        - cloud
+        example: local
         type: string
       email:
+        example: my-bot@yourdomain.com
         type: string
       name:
+        example: My Bot
         type: string
       slug:
+        example: my-bot
         type: string
       webhook_url:
+        example: https://example.com/e2a/webhook
         type: string
+    required:
+    - agent_mode
     type: object
   RegisterAgentResponse:
     properties:
@@ -1117,7 +1129,10 @@ paths:
       description: Register a new agent with a custom domain or, on deployments where
         slug registration is enabled, a slug on the shared domain. Use `slug` for
         instant onboarding (no DNS needed), or `email` for a custom domain (requires
-        domain to be registered and verified first).
+        domain to be registered and verified first). `agent_mode` is required and
+        must be "local" (inbound delivered via WebSocket / pollable REST) or "cloud"
+        (inbound POSTed to `webhook_url`). Rate limited to 20 registrations per source
+        IP per hour; 429 responses carry a `Retry-After` header in delay-seconds form.
       parameters:
       - description: Agent registration details
         in: body
@@ -1145,7 +1160,7 @@ paths:
           schema:
             type: string
         "429":
-          description: Rate limit exceeded
+          description: Rate limit exceeded — see Retry-After header
           schema:
             type: string
       security:
@@ -1418,8 +1433,9 @@ paths:
         reply is sent as a real email back to the original sender, with proper threading
         headers (In-Reply-To, References). Pass conversation_id to tag the reply with
         your thread ID — the recipient will see it on their inbound payload. Rate
-        limited to 60 sends per agent per minute. When the owning agent has HITL enabled,
-        the server returns 202 Accepted and status="pending_approval" instead of sending
+        limited to 60 sends per agent per minute; 429 responses carry a `Retry-After`
+        header in delay-seconds form. When the owning agent has HITL enabled, the
+        server returns 202 Accepted and status="pending_approval" instead of sending
         immediately.
       parameters:
       - description: Agent email address
@@ -1902,11 +1918,12 @@ paths:
       - application/json
       description: Send an email from your agent to any recipient. Your agent must
         be domain-verified. Messages are delivered via SMTP. Rate limited to 60 sends
-        per agent per minute. Pass conversation_id to tag the message as part of a
-        thread. When the owning agent has HITL (human-in-the-loop) enabled, the server
-        responds with 202 Accepted and status="pending_approval" instead — the message
-        is held until a reviewer approves it via the dashboard, CLI, or magic link,
-        or until the approval TTL expires and the configured expiration action fires.
+        per agent per minute; 429 responses carry a `Retry-After` header in delay-seconds
+        form. Pass conversation_id to tag the message as part of a thread. When the
+        owning agent has HITL (human-in-the-loop) enabled, the server responds with
+        202 Accepted and status="pending_approval" instead — the message is held until
+        a reviewer approves it via the dashboard, CLI, or magic link, or until the
+        approval TTL expires and the configured expiration action fires.
       parameters:
       - description: Email to send
         in: body

@@ -618,6 +618,7 @@ func (ua *UserAuth) HandleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	// Extract agent email from URL path
 	path := strings.TrimPrefix(r.URL.Path, "/api/dashboard/agents/")
 	email, _ := url.PathUnescape(path)
+	email = identity.NormalizeEmail(email)
 	if email == "" {
 		http.Error(w, "agent email required", http.StatusBadRequest)
 		return
@@ -647,6 +648,7 @@ func (ua *UserAuth) HandleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 
 	path := strings.TrimPrefix(r.URL.Path, "/api/dashboard/agents/")
 	email, _ := url.PathUnescape(path)
+	email = identity.NormalizeEmail(email)
 	if email == "" {
 		http.Error(w, "agent email required", http.StatusBadRequest)
 		return
@@ -747,6 +749,7 @@ func (ua *UserAuth) HandleAgentActivity(w http.ResponseWriter, r *http.Request) 
 	// Extract agent email from URL path: /api/dashboard/agents/{email}/activity
 	path := strings.TrimPrefix(r.URL.Path, "/api/dashboard/agents/")
 	email, _ := url.PathUnescape(strings.TrimSuffix(path, "/activity"))
+	email = identity.NormalizeEmail(email)
 	if email == "" {
 		http.Error(w, "agent email required", http.StatusBadRequest)
 		return

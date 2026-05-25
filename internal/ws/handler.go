@@ -45,8 +45,10 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve agent and verify ownership
-	email := mux.Vars(r)["email"]
+	// Resolve agent and verify ownership. Canonicalize the email so that
+	// `ws://.../UPPER@x.dev/ws?token=…` resolves identically to the
+	// lower-case form — matches the REST API's `normalizeEmail` policy.
+	email := identity.NormalizeEmail(mux.Vars(r)["email"])
 	agent, err := h.store.GetAgentByEmail(r.Context(), email)
 	if err != nil {
 		http.Error(w, "agent not found", http.StatusNotFound)

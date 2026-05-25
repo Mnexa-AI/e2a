@@ -11,9 +11,11 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5"
@@ -243,7 +245,12 @@ func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if !a.dcrLimit.Allow(dcrSourceIP(r)) {
+	if ok, retryAfter := a.dcrLimit.AllowWithRetryAfter(dcrSourceIP(r)); !ok {
+		secs := int(retryAfter.Round(time.Second).Seconds())
+		if secs < 1 {
+			secs = 1
+		}
+		w.Header().Set("Retry-After", strconv.Itoa(secs))
 		writeOAuthError(w, http.StatusTooManyRequests, "rate_limited",
 			"too many registrations from this IP; try again later")
 		return
@@ -401,7 +408,12 @@ func (a *API) handleOAuthGetClient(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if !a.dcrLimit.Allow(dcrSourceIP(r)) {
+	if ok, retryAfter := a.dcrLimit.AllowWithRetryAfter(dcrSourceIP(r)); !ok {
+		secs := int(retryAfter.Round(time.Second).Seconds())
+		if secs < 1 {
+			secs = 1
+		}
+		w.Header().Set("Retry-After", strconv.Itoa(secs))
 		writeOAuthError(w, http.StatusTooManyRequests, "rate_limited",
 			"too many client-metadata requests from this IP; try again later")
 		return
@@ -713,7 +725,7 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 	agentChoice := r.PostFormValue("agent_choice")
 	switch {
 	case strings.HasPrefix(agentChoice, "existing:"):
-		email := strings.TrimPrefix(agentChoice, "existing:")
+		email := identity.NormalizeEmail(strings.TrimPrefix(agentChoice, "existing:"))
 		agent, err := a.store.GetAgentByEmail(ctx, email)
 		if err != nil {
 			http.Error(w, "chosen agent does not exist", http.StatusBadRequest)

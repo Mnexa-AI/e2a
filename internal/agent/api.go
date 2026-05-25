@@ -53,6 +53,28 @@ func readJSON(w http.ResponseWriter, r *http.Request, dst any, maxBytes int64) e
 	return json.NewDecoder(r.Body).Decode(dst)
 }
 
+// normalizeEmail is the agent-package-local alias for identity.NormalizeEmail.
+// Defined here as a one-line forwarder so the existing call sites in this
+// file stay readable; the canonical implementation lives in identity so
+// ws/, auth/, and oauth_handlers all reach the same canonicalization.
+func normalizeEmail(email string) string {
+	return identity.NormalizeEmail(email)
+}
+
+// writeTooManyRequests sends a 429 response with a Retry-After header
+// (delay-seconds form, RFC 7231 §7.1.3). Callers should pass the
+// duration returned from Limiter.AllowWithRetryAfter so the value
+// reflects when the next slot actually opens up. Callers must return
+// after invoking this — it writes the full response.
+func writeTooManyRequests(w http.ResponseWriter, retryAfter time.Duration, msg string) {
+	secs := int(retryAfter.Round(time.Second).Seconds())
+	if secs < 1 {
+		secs = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(secs))
+	http.Error(w, msg, http.StatusTooManyRequests)
+}
+
 // Standard request body limits. Most agent/domain payloads are tiny;
 // /send carries a full email body which can include large HTML +
 // attachments base64-inlined, so it gets the largest cap. Anything over
@@ -205,6 +227,18 @@ func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.
 }
 
 func (a *API) RegisterRoutes(r *mux.Router) {
+	// Catch-all 404/405 handlers so every error response leaves the
+	// server as `text/plain; charset=utf-8` with a single-line body.
+	// gorilla/mux's defaults are bare status codes with no body and no
+	// Content-Type, which breaks client error handling and surfaced
+	// during the e2e contract sweep — see tests/e2e-prod 07-error-contract.
+	r.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	})
+	r.MethodNotAllowedHandler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	})
+
 	// --- Public SDK/CLI contract: /api/v1/... ---
 	r.HandleFunc("/api/v1/agents", a.handleListAgents).Methods("GET")
 	r.HandleFunc("/api/v1/agents", a.handleRegisterAgent).Methods("POST")
@@ -445,12 +479,27 @@ func (a *API) resolveAgentForUser(r *http.Request, email string, user *identity.
 	return agent, nil
 }
 
+// RegisterAgentRequest is the request body for POST /api/v1/agents.
+//
+// `agent_mode` is required and must be either "local" or "cloud":
+//
+//   - "local"  — the e2a server queues inbound mail in its own store and
+//     pushes notifications over a WebSocket (`/api/v1/agents/{email}/ws`)
+//     or makes it pollable via the REST API. Use this when the agent
+//     runs on a laptop, edge device, or behind NAT without a public URL.
+//     `webhook_url` is not required.
+//
+//   - "cloud" — the e2a server delivers inbound mail to the agent over
+//     HTTPS POST to `webhook_url`. Use this when the agent is deployed
+//     somewhere publicly reachable. `webhook_url` MUST be set and must
+//     point to an HTTPS endpoint that resolves to a non-private IP.
 type RegisterAgentRequest struct {
-	Email      string `json:"email"`
-	Slug       string `json:"slug"`
-	Name       string `json:"name"`
-	WebhookURL string `json:"webhook_url"`
-	AgentMode  string `json:"agent_mode"`
+	Email      string `json:"email" example:"my-bot@yourdomain.com"`
+	Slug       string `json:"slug" example:"my-bot"`
+	Name       string `json:"name" example:"My Bot"`
+	WebhookURL string `json:"webhook_url,omitempty" example:"https://example.com/e2a/webhook"`
+	// AgentMode selects how inbound mail is delivered. Required; must be "local" or "cloud". See the type-level docs for the difference.
+	AgentMode string `json:"agent_mode" example:"local" enums:"local,cloud" binding:"required"`
 } // @name RegisterAgentRequest
 
 type RegisterAgentResponse struct {
@@ -461,7 +510,7 @@ type RegisterAgentResponse struct {
 
 // handleRegisterAgent creates a new agent.
 // @Summary      Register a new agent
-// @Description  Register a new agent with a custom domain or, on deployments where slug registration is enabled, a slug on the shared domain. Use `slug` for instant onboarding (no DNS needed), or `email` for a custom domain (requires domain to be registered and verified first).
+// @Description  Register a new agent with a custom domain or, on deployments where slug registration is enabled, a slug on the shared domain. Use `slug` for instant onboarding (no DNS needed), or `email` for a custom domain (requires domain to be registered and verified first). `agent_mode` is required and must be "local" (inbound delivered via WebSocket / pollable REST) or "cloud" (inbound POSTed to `webhook_url`). Rate limited to 20 registrations per source IP per hour; 429 responses carry a `Retry-After` header in delay-seconds form.
 // @Tags         Agents
 // @Accept       json
 // @Produce      json
@@ -471,11 +520,11 @@ type RegisterAgentResponse struct {
 // @Failure      400 {string} string "Invalid request"
 // @Failure      401 {string} string "Missing or invalid API key"
 // @Failure      409 {string} string "Agent already exists"
-// @Failure      429 {string} string "Rate limit exceeded"
+// @Failure      429 {string} string "Rate limit exceeded — see Retry-After header"
 // @Router       /api/v1/agents [post]
 func (a *API) handleRegisterAgent(w http.ResponseWriter, r *http.Request) {
-	if !a.regLimit.Allow(clientIP(r)) {
-		http.Error(w, "rate limit exceeded — try again later", http.StatusTooManyRequests)
+	if ok, retryAfter := a.regLimit.AllowWithRetryAfter(clientIP(r)); !ok {
+		writeTooManyRequests(w, retryAfter, "rate limit exceeded — max 20 agent registrations per hour per IP")
 		return
 	}
 
@@ -484,6 +533,12 @@ func (a *API) handleRegisterAgent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	// Canonicalize the address so subsequent lookups match regardless
+	// of the case the caller used. See normalizeEmail's doc comment.
+	// `slug` is deliberately NOT normalized — its validator (validateSlug)
+	// is strict-lowercase by design, so "MyBot" must 400 rather than
+	// silently becoming "mybot".
+	req.Email = normalizeEmail(req.Email)
 
 	// Shared-domain registration via slug
 	isSharedDomain := false
@@ -547,10 +602,14 @@ func (a *API) handleRegisterAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Validate agent mode
+	// agent_mode is required (no implicit default — see RegisterAgentRequest
+	// docs). The old behavior defaulted to "cloud" and then 400'd with
+	// "webhook_url is required for cloud agent mode" on innocuous slug-only
+	// payloads, which was a surprising DX foot-gun.
 	agentMode := req.AgentMode
 	if agentMode == "" {
-		agentMode = "cloud"
+		http.Error(w, "agent_mode is required (must be 'local' or 'cloud')", http.StatusBadRequest)
+		return
 	}
 	if agentMode != "cloud" && agentMode != "local" {
 		http.Error(w, "agent_mode must be 'cloud' or 'local'", http.StatusBadRequest)
@@ -629,7 +688,7 @@ func (a *API) handleListAgents(w http.ResponseWriter, r *http.Request) {
 // @Failure      403 {string} string "Agent not owned by this user"
 // @Router       /api/v1/agents/{email} [get]
 func (a *API) handleGetAgent(w http.ResponseWriter, r *http.Request) {
-	email := mux.Vars(r)["email"]
+	email := normalizeEmail(mux.Vars(r)["email"])
 
 	user, err := a.authenticateUser(r)
 	if err != nil {
@@ -688,7 +747,7 @@ func agentInfoFromIdentity(ag *identity.AgentIdentity) AgentInfo {
 // @Failure      404 {string} string "Agent not found"
 // @Router       /api/v1/agents/{email} [put]
 func (a *API) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
-	email := mux.Vars(r)["email"]
+	email := normalizeEmail(mux.Vars(r)["email"])
 
 	user, err := a.authenticateUser(r)
 	if err != nil {
@@ -791,7 +850,7 @@ func (a *API) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 // @Failure      500 {string} string "Internal server error"
 // @Router       /api/v1/agents/{email} [delete]
 func (a *API) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
-	email := mux.Vars(r)["email"]
+	email := normalizeEmail(mux.Vars(r)["email"])
 
 	user, err := a.authenticateUser(r)
 	if err != nil {
@@ -1294,7 +1353,7 @@ func (a *API) holdForApproval(w http.ResponseWriter, r *http.Request, agent *ide
 
 // handleSendEmail sends a new email from the authenticated user's agent.
 // @Summary      Send a new email
-// @Description  Send an email from your agent to any recipient. Your agent must be domain-verified. Messages are delivered via SMTP. Rate limited to 60 sends per agent per minute. Pass conversation_id to tag the message as part of a thread. When the owning agent has HITL (human-in-the-loop) enabled, the server responds with 202 Accepted and status="pending_approval" instead — the message is held until a reviewer approves it via the dashboard, CLI, or magic link, or until the approval TTL expires and the configured expiration action fires.
+// @Description  Send an email from your agent to any recipient. Your agent must be domain-verified. Messages are delivered via SMTP. Rate limited to 60 sends per agent per minute; 429 responses carry a `Retry-After` header in delay-seconds form. Pass conversation_id to tag the message as part of a thread. When the owning agent has HITL (human-in-the-loop) enabled, the server responds with 202 Accepted and status="pending_approval" instead — the message is held until a reviewer approves it via the dashboard, CLI, or magic link, or until the approval TTL expires and the configured expiration action fires.
 // @Tags         Email
 // @Accept       json
 // @Produce      json
@@ -1340,6 +1399,15 @@ func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "subject and body are required", http.StatusBadRequest)
 		return
 	}
+	// Reject CRLF in subject at the API boundary. Downstream the subject
+	// is Q-encoded by outbound/compose, so unencoded CRLF can't actually
+	// reach the SMTP envelope and smuggle headers — but allowing it
+	// through the API means malformed bytes propagate into stored rows,
+	// notification emails, dashboards, and audit logs. Reject early.
+	if strings.ContainsAny(req.Subject, "\r\n") {
+		http.Error(w, "subject must not contain CR or LF characters", http.StatusBadRequest)
+		return
+	}
 	if len(req.To) == 0 && len(req.CC) == 0 {
 		http.Error(w, "at least one recipient in to or cc is required", http.StatusBadRequest)
 		return
@@ -1352,6 +1420,7 @@ func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 	// Resolve agent from "from" field, or auto-select if user has exactly one agent
 	var agent *identity.AgentIdentity
 	if req.From != "" {
+		req.From = normalizeEmail(req.From)
 		agent, err = a.resolveAgentForUser(r, req.From, user)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("invalid from: %v", err), http.StatusBadRequest)
@@ -1370,8 +1439,8 @@ func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 		agent = &agents[0]
 	}
 
-	if !a.sendLimit.Allow(agent.ID) {
-		http.Error(w, "rate limit exceeded — max 60 sends per minute", http.StatusTooManyRequests)
+	if ok, retryAfter := a.sendLimit.AllowWithRetryAfter(agent.ID); !ok {
+		writeTooManyRequests(w, retryAfter, "rate limit exceeded — max 60 sends per minute per agent")
 		return
 	}
 
@@ -1473,7 +1542,7 @@ func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 // @Failure      500 {string} string "Failed to send test email"
 // @Router       /api/v1/agents/{email}/test [post]
 func (a *API) handleSendTestEmail(w http.ResponseWriter, r *http.Request) {
-	agentEmail := mux.Vars(r)["email"]
+	agentEmail := normalizeEmail(mux.Vars(r)["email"])
 
 	user, err := a.authenticateUser(r)
 	if err != nil {
@@ -1542,7 +1611,7 @@ type ReplyRequest struct {
 
 // handleReplyToMessage replies to a previously received email.
 // @Summary      Reply to an inbound email
-// @Description  Reply to a previously received email using its message ID. The reply is sent as a real email back to the original sender, with proper threading headers (In-Reply-To, References). Pass conversation_id to tag the reply with your thread ID — the recipient will see it on their inbound payload. Rate limited to 60 sends per agent per minute. When the owning agent has HITL enabled, the server returns 202 Accepted and status="pending_approval" instead of sending immediately.
+// @Description  Reply to a previously received email using its message ID. The reply is sent as a real email back to the original sender, with proper threading headers (In-Reply-To, References). Pass conversation_id to tag the reply with your thread ID — the recipient will see it on their inbound payload. Rate limited to 60 sends per agent per minute; 429 responses carry a `Retry-After` header in delay-seconds form. When the owning agent has HITL enabled, the server returns 202 Accepted and status="pending_approval" instead of sending immediately.
 // @Tags         Email
 // @Accept       json
 // @Produce      json
@@ -1582,7 +1651,7 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 	w = captureW
 
 	vars := mux.Vars(r)
-	email := vars["email"]
+	email := normalizeEmail(vars["email"])
 	msgID := vars["id"]
 
 	// Resolve agent from URL path and verify user owns it
@@ -1604,8 +1673,8 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !a.sendLimit.Allow(agent.ID) {
-		http.Error(w, "rate limit exceeded — max 60 sends per minute", http.StatusTooManyRequests)
+	if ok, retryAfter := a.sendLimit.AllowWithRetryAfter(agent.ID); !ok {
+		writeTooManyRequests(w, retryAfter, "rate limit exceeded — max 60 sends per minute per agent")
 		return
 	}
 
@@ -1786,14 +1855,13 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !a.pollLimit.Allow(user.ID) {
-		w.Header().Set("Retry-After", "60")
-		http.Error(w, "rate limit exceeded — max 60 requests per minute", http.StatusTooManyRequests)
+	if ok, retryAfter := a.pollLimit.AllowWithRetryAfter(user.ID); !ok {
+		writeTooManyRequests(w, retryAfter, "rate limit exceeded — max 60 requests per minute per user")
 		return
 	}
 
 	// Resolve agent from URL path
-	email := mux.Vars(r)["email"]
+	email := normalizeEmail(mux.Vars(r)["email"])
 	agent, err := a.resolveAgentForUser(r, email, user)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("agent not found: %v", err), http.StatusNotFound)
@@ -2152,14 +2220,13 @@ func (a *API) handleGetMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !a.pollLimit.Allow(user.ID) {
-		w.Header().Set("Retry-After", "60")
-		http.Error(w, "rate limit exceeded — max 60 requests per minute", http.StatusTooManyRequests)
+	if ok, retryAfter := a.pollLimit.AllowWithRetryAfter(user.ID); !ok {
+		writeTooManyRequests(w, retryAfter, "rate limit exceeded — max 60 requests per minute per user")
 		return
 	}
 
 	vars := mux.Vars(r)
-	email := vars["email"]
+	email := normalizeEmail(vars["email"])
 	msgID := vars["id"]
 
 	// Resolve agent from URL path and verify user owns it
@@ -2232,8 +2299,8 @@ func (a *API) handleInfo(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleFeedback(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
-	if !a.feedbackLimit.Allow(ip) {
-		http.Error(w, "rate limit exceeded — max 10 feedback submissions per hour", http.StatusTooManyRequests)
+	if ok, retryAfter := a.feedbackLimit.AllowWithRetryAfter(ip); !ok {
+		writeTooManyRequests(w, retryAfter, "rate limit exceeded — max 10 feedback submissions per hour per IP")
 		return
 	}
 

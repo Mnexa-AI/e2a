@@ -1,0 +1,9 @@
+{
+  "name": "e2a-e2e-prod",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke": "node smoke.ts",
+    "test": "node --test --test-reporter=spec suites/*.test.ts"
+  }
+}
