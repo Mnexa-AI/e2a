@@ -378,8 +378,10 @@ class E2AClient:
 
         ``idempotency_key`` makes retries safe across the SES double-
         send window. Supply a stable key derived from the review event
-        (e.g. the dashboard click id); omit to let the SDK generate a
-        fresh per-call key.
+        (e.g. the dashboard click id or the pending ``message_id``) to
+        make retries dedupe. When omitted the SDK mints a fresh UUIDv4
+        per call — that gives network-layer retry safety only; the
+        per-call default does not survive an explicit retry loop.
         """
         any_override = any(
             v is not None for v in (subject, body_text, body_html, to, cc, bcc)

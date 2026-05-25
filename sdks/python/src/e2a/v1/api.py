@@ -276,7 +276,9 @@ class E2AApi:
         Approve fires a real SES send, so supplying a stable key
         derived from the review event makes retries safe (the server
         replays the original response instead of double-sending).
-        When omitted the SDK mints a fresh UUIDv4 per call.
+        When omitted the SDK mints a fresh UUIDv4 per call — that
+        gives network-layer retry safety only; the per-call default
+        does not survive an explicit retry loop.
         """
         payload = overrides.model_dump(by_alias=True, exclude_none=True) if overrides else {}
         resp = self._client.post(
