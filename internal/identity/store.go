@@ -1812,30 +1812,47 @@ func (s *Store) ListActivityByAgent(ctx context.Context, agentID string, limit i
 	return messages, rows.Err()
 }
 
-// GetMessagesByAgent returns messages for an agent, filtered by status and
-// direction.
+// MessageListFilter bundles the params for GetMessagesByAgent. Zero
+// values on the optional substring / time / ID filters mean "no
+// constraint" — callers omit what they don't want to filter on.
+type MessageListFilter struct {
+	AgentID    string
+	Status     string // "unread" | "read" | "all"
+	Direction  string // "inbound" | "outbound" | "all"
+	Descending bool
+	Limit      int
+	AfterTime  time.Time
+	AfterID    string
+	// Optional search filters. Empty / zero means "no constraint".
+	// From / SubjectContains are case-insensitive substring matches
+	// (Postgres ILIKE) and bound to 200 chars at the handler layer.
+	From            string
+	SubjectContains string
+	ConversationID  string // exact match
+	Since           time.Time // created_at >= Since
+	Until           time.Time // created_at <  Until
+}
+
+// GetMessagesByAgent returns messages for an agent, filtered by status,
+// direction, and the optional search filters on the MessageListFilter
+// struct.
 //
 //   - direction: "inbound" (default for SDK polling), "outbound", or "all"
 //     (used by the dashboard inbox).
 //   - status: "unread" | "read" | "all" — only applies when direction
 //     selects inbound rows; ignored on pure outbound queries.
-//   - descending: cursor walks newest→oldest when true (dashboard inbox);
-//     oldest→newest when false (SDK polling — agents process the oldest
-//     unread message first).
+//   - descending: cursor walks newest→oldest when true; oldest→newest
+//     when false (FIFO polling).
+//   - From / SubjectContains: case-insensitive substring (ILIKE).
+//   - ConversationID: exact match.
+//   - Since / Until: time-range bracket on created_at.
 //
 // The SELECT includes columns both consumers need: the inbox needs
 // `status` (outbound HITL lifecycle), `webhook_status`/`last_error`
 // (outbound delivery), and `octet_length(raw_message)` (size column);
 // the polling SDK ignores these fields and reads only the existing
 // inbound-relevant ones from the Message struct.
-func (s *Store) GetMessagesByAgent(
-	ctx context.Context,
-	agentID, status, direction string,
-	descending bool,
-	limit int,
-	afterTime time.Time,
-	afterID string,
-) ([]Message, error) {
+func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]Message, error) {
 	var query string
 	var args []interface{}
 
@@ -1844,7 +1861,7 @@ func (s *Store) GetMessagesByAgent(
 		 LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
 		 WHERE m.agent_id = $1 AND m.expires_at > now()`
 
-	switch direction {
+	switch f.Direction {
 	case "outbound":
 		query = baseSelect + ` AND m.direction = 'outbound'`
 	case "all":
@@ -1856,14 +1873,14 @@ func (s *Store) GetMessagesByAgent(
 	// Inbox status filter only applies when inbound rows are in the
 	// result set. Silently ignored for pure outbound queries — the
 	// handler validates 400 on bad combinations before reaching here.
-	if direction != "outbound" {
-		switch status {
+	if f.Direction != "outbound" {
+		switch f.Status {
 		case "all":
 			// no extra clause
 		case "read":
 			query += ` AND m.inbox_status = 'read'`
 		default: // "unread"
-			if direction == "inbound" {
+			if f.Direction == "inbound" {
 				query += ` AND m.inbox_status = 'unread'`
 			}
 			// For direction='all', "unread" would silently drop every
@@ -1873,22 +1890,46 @@ func (s *Store) GetMessagesByAgent(
 		}
 	}
 
-	args = append(args, agentID)
+	args = append(args, f.AgentID)
+
+	// Optional search filters — each appends one arg and one WHERE
+	// clause. Ordering matches the docstring so a code reader can
+	// see at a glance which knobs map to which SQL fragment.
+	if f.From != "" {
+		query += fmt.Sprintf(` AND m.sender ILIKE $%d`, len(args)+1)
+		args = append(args, "%"+f.From+"%")
+	}
+	if f.SubjectContains != "" {
+		query += fmt.Sprintf(` AND m.subject ILIKE $%d`, len(args)+1)
+		args = append(args, "%"+f.SubjectContains+"%")
+	}
+	if f.ConversationID != "" {
+		query += fmt.Sprintf(` AND m.conversation_id = $%d`, len(args)+1)
+		args = append(args, f.ConversationID)
+	}
+	if !f.Since.IsZero() {
+		query += fmt.Sprintf(` AND m.created_at >= $%d`, len(args)+1)
+		args = append(args, f.Since)
+	}
+	if !f.Until.IsZero() {
+		query += fmt.Sprintf(` AND m.created_at < $%d`, len(args)+1)
+		args = append(args, f.Until)
+	}
 
 	cursorCmp := ">"
 	sortDir := "ASC"
-	if descending {
+	if f.Descending {
 		cursorCmp = "<"
 		sortDir = "DESC"
 	}
 
-	if afterID != "" {
+	if f.AfterID != "" {
 		query += fmt.Sprintf(` AND (m.created_at, m.id) %s ($%d, $%d)`, cursorCmp, len(args)+1, len(args)+2)
-		args = append(args, afterTime, afterID)
+		args = append(args, f.AfterTime, f.AfterID)
 	}
 
 	query += fmt.Sprintf(` ORDER BY m.created_at %s, m.id %s LIMIT $%d`, sortDir, sortDir, len(args)+1)
-	args = append(args, limit)
+	args = append(args, f.Limit)
 
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {

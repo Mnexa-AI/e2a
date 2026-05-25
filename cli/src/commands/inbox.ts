@@ -4,10 +4,17 @@ export async function inbox(
   status: string,
   limit: number,
   token: string | undefined,
-  from: string | undefined,
+  agentFrom: string | undefined,
   sort?: "asc" | "desc",
+  filters?: {
+    from?: string;
+    subjectContains?: string;
+    conversationId?: string;
+    since?: string;
+    until?: string;
+  },
 ): Promise<void> {
-  const client = createClient({ from });
+  const client = createClient({ from: agentFrom });
 
   if (!client.agentEmail) {
     process.stderr.write("No agent email. Set one with: e2a config set agent_email <email>\n");
@@ -19,6 +26,11 @@ export async function inbox(
     pageSize: limit,
     token,
     sort,
+    from: filters?.from,
+    subjectContains: filters?.subjectContains,
+    conversationId: filters?.conversationId,
+    since: filters?.since,
+    until: filters?.until,
   });
 
   if (!res.messages || res.messages.length === 0) {

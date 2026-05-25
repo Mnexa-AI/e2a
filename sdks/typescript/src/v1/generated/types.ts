@@ -316,7 +316,7 @@ export interface paths {
         };
         /**
          * List messages for an agent
-         * @description Fetch messages for an agent. Returns lightweight summaries (no raw message content). Supports opaque token-based pagination via `page_size` and `token`. **Default sort is newest-first** across all directions — pass `?sort=asc` to flip to oldest-first when you need FIFO polling semantics (drain the inbox in arrival order). `direction` defaults to `inbound` for SDK back-compat.
+         * @description Fetch messages for an agent. Returns lightweight summaries (no raw message content). Supports opaque token-based pagination via `page_size` and `token`. **Default sort is newest-first** across all directions — pass `?sort=asc` to flip to oldest-first when you need FIFO polling semantics (drain the inbox in arrival order). `direction` defaults to `inbound` for SDK back-compat. **Search filters** (`from`, `subject_contains`, `conversation_id`, `since`, `until`) narrow the result set server-side; substring filters are case-insensitive (Postgres ILIKE). Filter values are encoded into `next_token`, so continuation requests must keep the same filters or restart the query.
          */
         get: {
             parameters: {
@@ -329,6 +329,16 @@ export interface paths {
                     page_size?: number;
                     /** @description Sort order by created_at. Default `desc` (newest first); pass `asc` for FIFO polling. */
                     sort?: "asc" | "desc";
+                    /** @description Case-insensitive substring match on the sender column. Max 200 chars. */
+                    from?: string;
+                    /** @description Case-insensitive substring match on the subject column. Max 200 chars. */
+                    subject_contains?: string;
+                    /** @description Exact match on conversation_id — narrow to a single thread. */
+                    conversation_id?: string;
+                    /** @description RFC3339 timestamp; only messages with created_at >= since are returned. */
+                    since?: string;
+                    /** @description RFC3339 timestamp; only messages with created_at < until are returned. */
+                    until?: string;
                     /** @description Opaque pagination token from a previous response's next_token */
                     token?: string;
                 };

@@ -148,12 +148,30 @@ export class E2AApi {
        * oldest unread message first, drain in arrival order.
        */
       sort?: "asc" | "desc";
+      /**
+       * Server-side search filters. All optional; substring filters
+       * are case-insensitive (Postgres ILIKE) and capped at 200 chars
+       * by the server. `since` / `until` accept RFC3339 timestamps
+       * (`new Date().toISOString()` works). Filters are encoded into
+       * `next_token`, so continuation requests must reuse the same
+       * filter values or restart the query.
+       */
+      from?: string;
+      subjectContains?: string;
+      conversationId?: string;
+      since?: string;
+      until?: string;
     },
   ): Promise<Schemas["ListMessagesResponse"]> {
     const params = new URLSearchParams();
     if (opts?.status) params.set("status", opts.status);
     if (opts?.pageSize) params.set("page_size", String(opts.pageSize));
     if (opts?.sort) params.set("sort", opts.sort);
+    if (opts?.from) params.set("from", opts.from);
+    if (opts?.subjectContains) params.set("subject_contains", opts.subjectContains);
+    if (opts?.conversationId) params.set("conversation_id", opts.conversationId);
+    if (opts?.since) params.set("since", opts.since);
+    if (opts?.until) params.set("until", opts.until);
     if (opts?.token) params.set("token", opts.token);
     const qs = params.toString();
     const path = `/api/v1/agents/${encodeURIComponent(email)}/messages${qs ? `?${qs}` : ""}`;

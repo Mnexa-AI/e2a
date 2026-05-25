@@ -165,13 +165,27 @@ class AsyncE2AApi:
         page_size: int = 50,
         token: Optional[str] = None,
         sort: Optional[str] = None,
+        from_: Optional[str] = None,
+        subject_contains: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
     ) -> ListMessagesResponse:
         """Async variant of :meth:`E2AApi.list_messages`. See that
-        method for the ``sort`` semantics (defaults newest-first;
-        pass ``"asc"`` for FIFO polling)."""
+        method for the full filter / sort docs."""
         params: dict[str, str] = {"status": status, "page_size": str(page_size)}
         if sort:
             params["sort"] = sort
+        if from_:
+            params["from"] = from_
+        if subject_contains:
+            params["subject_contains"] = subject_contains
+        if conversation_id:
+            params["conversation_id"] = conversation_id
+        if since:
+            params["since"] = since
+        if until:
+            params["until"] = until
         if token:
             params["token"] = token
         resp = await self._client.get(
@@ -396,14 +410,34 @@ class AsyncE2AClient:
         token: Optional[str] = None,
         agent_email: Optional[str] = None,
         sort: Optional[str] = None,
+        from_: Optional[str] = None,
+        subject_contains: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
     ) -> MessageList:
         """Fetch message summaries with ergonomic field names.
 
         ``sort`` defaults server-side to ``"desc"`` (newest first). Pass
         ``"asc"`` to drain the inbox in arrival order — FIFO polling.
+
+        Search filters (``from_``, ``subject_contains``, ``conversation_id``,
+        ``since``, ``until``) match the sync client — see
+        :meth:`E2AApi.list_messages` for the full reference.
         """
         email = self._require_agent_email(agent_email)
-        resp = await self.api.list_messages(email, status=status, page_size=page_size, token=token, sort=sort)
+        resp = await self.api.list_messages(
+            email,
+            status=status,
+            page_size=page_size,
+            token=token,
+            sort=sort,
+            from_=from_,
+            subject_contains=subject_contains,
+            conversation_id=conversation_id,
+            since=since,
+            until=until,
+        )
         messages = [
             MessageSummary(
                 message_id=m.message_id or "",
