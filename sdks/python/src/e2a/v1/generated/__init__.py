@@ -182,13 +182,32 @@ class MessageSummary(BaseModel):
     cc: list[str] | None = None
     conversation_id: str | None = None
     created_at: str | None = Field(None, examples=['2025-01-15T10:30:00Z'])
+    direction: Literal['inbound', 'outbound'] | None = Field(None, examples=['inbound'])
     from_: str | None = Field(None, alias='from', examples=['alice@example.com'])
+    hitl_status: (
+        Literal[
+            'pending_approval',
+            'sent',
+            'rejected',
+            'expired_approved',
+            'expired_rejected',
+        ]
+        | None
+    ) = Field(None, examples=['sent'])
     message_id: str | None = Field(None, examples=['msg_abc123'])
     recipient: str | None = Field(None, examples=['my-bot@example.com'])
     reply_to: list[str] | None = None
-    status: Literal['unread', 'read'] | None = Field(None, examples=['unread'])
+    size_bytes: int | None = Field(None, examples=[4231])
+    status: str | None = Field(
+        None,
+        description='Status carries the inbound inbox_status value (`unread` | `read`).\nEmpty string for outbound rows — clients filtering on Status must\ngate on `Direction == "inbound"` first. The enum was removed from\nthe swag annotation deliberately so SDK generators don\'t emit a\n`Literal["unread", "read"]` that breaks at runtime.',
+    )
     subject: str | None = Field(None, examples=['Hello'])
     to: list[str] | None = Field(None, examples=[['my-bot@example.com']])
+    webhook_error: str | None = None
+    webhook_status: Literal['pending', 'delivered', 'failed'] | None = Field(
+        None, examples=['delivered']
+    )
 
 
 class OAuthConnectionEntry(BaseModel):

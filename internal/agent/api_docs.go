@@ -75,8 +75,25 @@ type ListMessagesResponse struct {
 // Recipient is this delivery's per-agent target. ReplyTo is the parsed
 // Reply-To: header — empty when the sender did not request a different
 // reply mailbox (the server never falls back to From: silently).
+//
+// This shape covers both inbound and outbound rows since the dashboard
+// inbox queries `?direction=all`. The non-`omitempty` fields are
+// present on every row; the others are direction-specific:
+//
+//   - Status (inbound):       "unread" | "read"; empty string for outbound rows.
+//   - HITLStatus (outbound):  the outbound delivery state ("pending_approval",
+//                              "sent", "rejected", "expired_*"); empty for inbound.
+//   - WebhookStatus (outbound): delivery state of the most recent webhook
+//                              attempt ("delivered", "pending", "failed");
+//                              empty for inbound.
+//   - WebhookError (outbound): last webhook delivery error text when
+//                              WebhookStatus is "failed"; empty otherwise.
+//   - SizeBytes:               raw message length in bytes (best-effort,
+//                              0 when the row was migrated from a pre-sizing
+//                              build).
 type MessageSummary struct {
 	MessageID      string   `json:"message_id" example:"msg_abc123"`
+	Direction      string   `json:"direction" example:"inbound" enums:"inbound,outbound"`
 	From           string   `json:"from" example:"alice@example.com"`
 	To             []string `json:"to" example:"my-bot@example.com"`
 	CC             []string `json:"cc,omitempty"`
@@ -84,7 +101,16 @@ type MessageSummary struct {
 	Recipient      string   `json:"recipient" example:"my-bot@example.com"`
 	Subject        string   `json:"subject" example:"Hello"`
 	ConversationID string   `json:"conversation_id,omitempty"`
-	Status         string   `json:"status" example:"unread" enums:"unread,read"`
+	// Status carries the inbound inbox_status value (`unread` | `read`).
+	// Empty string for outbound rows — clients filtering on Status must
+	// gate on `Direction == "inbound"` first. The enum was removed from
+	// the swag annotation deliberately so SDK generators don't emit a
+	// `Literal["unread", "read"]` that breaks at runtime.
+	Status         string   `json:"status"`
+	HITLStatus     string   `json:"hitl_status,omitempty" example:"sent" enums:"pending_approval,sent,rejected,expired_approved,expired_rejected"`
+	WebhookStatus  string   `json:"webhook_status,omitempty" example:"delivered" enums:"pending,delivered,failed"`
+	WebhookError   string   `json:"webhook_error,omitempty"`
+	SizeBytes      int      `json:"size_bytes,omitempty" example:"4231"`
 	CreatedAt      string   `json:"created_at" example:"2025-01-15T10:30:00Z"`
 } // @name MessageSummary
 

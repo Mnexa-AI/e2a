@@ -301,8 +301,23 @@ definitions:
       created_at:
         example: "2025-01-15T10:30:00Z"
         type: string
+      direction:
+        enum:
+        - inbound
+        - outbound
+        example: inbound
+        type: string
       from:
         example: alice@example.com
+        type: string
+      hitl_status:
+        enum:
+        - pending_approval
+        - sent
+        - rejected
+        - expired_approved
+        - expired_rejected
+        example: sent
         type: string
       message_id:
         example: msg_abc123
@@ -314,11 +329,16 @@ definitions:
         items:
           type: string
         type: array
+      size_bytes:
+        example: 4231
+        type: integer
       status:
-        enum:
-        - unread
-        - read
-        example: unread
+        description: |-
+          Status carries the inbound inbox_status value (`unread` | `read`).
+          Empty string for outbound rows — clients filtering on Status must
+          gate on `Direction == "inbound"` first. The enum was removed from
+          the swag annotation deliberately so SDK generators don't emit a
+          `Literal["unread", "read"]` that breaks at runtime.
         type: string
       subject:
         example: Hello
@@ -329,6 +349,15 @@ definitions:
         items:
           type: string
         type: array
+      webhook_error:
+        type: string
+      webhook_status:
+        enum:
+        - pending
+        - delivered
+        - failed
+        example: delivered
+        type: string
     type: object
   OAuthConnectionEntry:
     properties:

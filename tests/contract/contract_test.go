@@ -75,6 +75,12 @@ type step struct {
 	Subject      string                 `yaml:"subject,omitempty"`
 	VerifyDomain string                 `yaml:"verify_domain,omitempty"`
 	Expect       *expectation           `yaml:"expect,omitempty"`
+	// Capture extracts values from the response and stores them as
+	// placeholders for later steps. Keys are the placeholder names
+	// (without curly braces); values are dotted JSON paths into the
+	// response body. After this step runs, later steps can reference
+	// the captured value as `{name}` in `path` / `body` / `expect`.
+	Capture map[string]string `yaml:"capture,omitempty"`
 }
 
 type expectation struct {
@@ -384,6 +390,20 @@ func (r *runner) execRequest(t *testing.T, s *step) {
 		if !valuesEqual(actual, resolvedExpected) {
 			t.Fatalf("step %s: path %q = %v (%T), want %v (%T)", s.ID, resolvedPath, actual, actual, resolvedExpected, resolvedExpected)
 		}
+	}
+
+	// Capture phase — done after assertions so a captured value is
+	// only stored when the step's contract held. Values are stringified
+	// because that's the form the placeholder resolver works with;
+	// downstream `body_match` comparisons coerce via valuesEqual so
+	// types still round-trip correctly when needed.
+	for name, srcPath := range s.Capture {
+		resolvedSrc := r.resolve(srcPath)
+		raw, found := jsonPathGet(jsonBody, resolvedSrc)
+		if !found {
+			t.Fatalf("step %s: capture path %q not found in response: %s", s.ID, resolvedSrc, rawBody)
+		}
+		r.vars[name] = fmt.Sprint(raw)
 	}
 }
 
