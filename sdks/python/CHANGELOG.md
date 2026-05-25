@@ -1,8 +1,16 @@
 # Changelog
 
-## Unreleased
+## 2.3.0
 
 ### Added
+- `idempotency_key` parameter on `E2AClient.send()` / `.reply()` and their async
+  counterparts (and on the lower-level `E2AApi.send_email()` /
+  `reply_to_message()`). When supplied, it is sent as the `Idempotency-Key`
+  header so the server can deduplicate retries of the same send/reply. When
+  omitted, the SDK generates a fresh UUIDv4 per call — that gives
+  network-layer retry safety only; supply a stable key derived from the
+  triggering event (e.g. the inbound message id or a job id) to deduplicate
+  across an explicit retry loop.
 - `InboundEmail.reply_to` and `AsyncInboundEmail.reply_to` (`list[str]`) — the
   parsed `Reply-To:` header from the inbound message, surfaced as a first-class
   field so consumers no longer need to re-parse `raw_message` with stdlib
