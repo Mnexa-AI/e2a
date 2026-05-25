@@ -52,7 +52,7 @@
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
-    "@types/node": "^22.0.0",
+    "@types/node": "^25.9.1",
     "supertest": "^7.0.0",
     "@types/supertest": "^6.0.2",
     "typescript": "^5.4",
