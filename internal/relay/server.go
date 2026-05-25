@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"io"
 	"log"
+	"mime"
 	"net"
 	"net/mail"
 	"strings"
@@ -433,7 +434,7 @@ func extractThreadInfo(body []byte) threadInfo {
 	}
 	return threadInfo{
 		MessageID:      msg.Header.Get("Message-Id"),
-		Subject:        msg.Header.Get("Subject"),
+		Subject:        decodeMIMEHeader(msg.Header.Get("Subject")),
 		InReplyTo:      msg.Header.Get("In-Reply-To"),
 		References:     refs,
 		From:           fromHeader,
@@ -445,6 +446,22 @@ func extractThreadInfo(body []byte) threadInfo {
 		CC:             extractAddressList(msg.Header.Get("Cc")),
 		ConversationID: msg.Header.Get("X-E2A-Conversation-Id"),
 	}
+}
+
+// decodeMIMEHeader decodes any RFC 2047 encoded-word runs in a header value
+// (e.g. `=?utf-8?Q?caf=C3=A9?=` → `café`). Used for display fields like
+// Subject so downstream consumers (DB, list summaries, dashboard) see the
+// UTF-8 form instead of the wire-encoded form. If decoding fails the original
+// value is returned — preserving the field is better than dropping it.
+func decodeMIMEHeader(v string) string {
+	if v == "" {
+		return v
+	}
+	decoded, err := (&mime.WordDecoder{}).DecodeHeader(v)
+	if err != nil {
+		return v
+	}
+	return decoded
 }
 
 // extractAddressList parses an RFC 5322 address-list header (To/Cc) into bare

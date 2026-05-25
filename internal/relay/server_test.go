@@ -212,6 +212,47 @@ func TestExtractThreadInfoMalformed(t *testing.T) {
 	}
 }
 
+// TestExtractThreadInfoDecodesEncodedSubject covers RFC 2047 encoded-word
+// subjects like the ones SES emits for unicode characters. Storing the wire
+// form leaked `=?utf-8?q?...?=` into list summaries, dashboards, and the CLI
+// inbox — every consumer that didn't independently re-parse raw_message.
+func TestExtractThreadInfoDecodesEncodedSubject(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "Q-encoded em dash",
+			raw:  "Message-Id: <x@send.e2a.dev>\r\nSubject: =?utf-8?q?e2a_MCP_e2e_=E2=80=94_HITL_approve_path?=\r\nFrom: a@b.com\r\nTo: c@d.com\r\n\r\nHi\r\n",
+			want: "e2a MCP e2e — HITL approve path",
+		},
+		{
+			name: "B-encoded utf-8",
+			raw:  "Message-Id: <x@send.e2a.dev>\r\nSubject: =?utf-8?B?Y2Fmw6k=?=\r\nFrom: a@b.com\r\nTo: c@d.com\r\n\r\nHi\r\n",
+			want: "café",
+		},
+		{
+			name: "plain ASCII passes through untouched",
+			raw:  "Message-Id: <x@send.e2a.dev>\r\nSubject: Plain ASCII\r\nFrom: a@b.com\r\nTo: c@d.com\r\n\r\nHi\r\n",
+			want: "Plain ASCII",
+		},
+		{
+			name: "malformed encoded-word falls back to raw",
+			raw:  "Message-Id: <x@send.e2a.dev>\r\nSubject: =?utf-8?q?broken\r\nFrom: a@b.com\r\nTo: c@d.com\r\n\r\nHi\r\n",
+			want: "=?utf-8?q?broken",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractThreadInfo([]byte(tc.raw)).Subject
+			if got != tc.want {
+				t.Errorf("Subject = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestSessionResetClearsThreadInfo(t *testing.T) {
 	s := &session{
 		from:           "alice@example.com",
