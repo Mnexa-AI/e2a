@@ -292,6 +292,116 @@ func TestApproveAndSend_SendErrorMarksFailedAndAllowsRetry(t *testing.T) {
 	}
 }
 
+// ExpireApproveAndSend (worker path) — same exactly-once guarantee
+// as ApproveAndSend. The polling-loop nature of the auto-expire
+// worker makes a missing gate strictly worse than the human-approval
+// path: any commit failure after SES success guarantees a re-send on
+// the next poll. These tests verify the gate behaves identically on
+// the worker side.
+
+// Mirrors TestApproveAndSend_TxRollbackRetry_DoesNotCallSendTwice
+// but for the worker-side expiration path.
+func TestExpireApproveAndSend_TxRollbackRetry_DoesNotCallSendTwice(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	_, a := setupPendingAgent(t, store, "expire-rollback")
+	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
+		[]string{"alice@example.com"}, nil, nil, "x", "body", "", nil, "send", "", "", 60)
+	// ExpireApproveAndSend only picks up rows whose approval_expires_at
+	// is in the past — push the expiry back so the WHERE matches.
+	if _, err := pool.Exec(ctx, `UPDATE messages SET approval_expires_at = now() - interval '1 minute' WHERE id = $1`, msg.ID); err != nil {
+		t.Fatalf("age approval_expires_at: %v", err)
+	}
+
+	var sendCalls int32
+
+	// First poll — succeeds end-to-end.
+	_, err := store.ExpireApproveAndSend(ctx, msg.ID,
+		func(m *identity.Message) (identity.SendResult, error) {
+			atomic.AddInt32(&sendCalls, 1)
+			return identity.SendResult{
+				ProviderMessageID: "<ses-exp-orig@amazonses.com>",
+				Method:            "smtp",
+				To:                m.ToRecipients,
+			}, nil
+		})
+	if err != nil {
+		t.Fatalf("first ExpireApproveAndSend: %v", err)
+	}
+
+	// Simulate the surrounding approval-tx having rolled back AFTER
+	// SES accepted the send: status goes back to pending_approval,
+	// reviewed_at + provider_message_id cleared, approval_expires_at
+	// re-aged so the next poll still matches.
+	if _, err := pool.Exec(ctx,
+		`UPDATE messages
+		    SET status              = 'pending_approval',
+		        provider_message_id = '',
+		        reviewed_at         = NULL,
+		        body_text           = 'body',
+		        body_html           = '',
+		        approval_expires_at = now() - interval '1 minute'
+		  WHERE id = $1`, msg.ID); err != nil {
+		t.Fatalf("simulate rollback: %v", err)
+	}
+
+	// Second poll — must reuse the cached SendResult, NOT re-invoke send().
+	second, err := store.ExpireApproveAndSend(ctx, msg.ID,
+		func(m *identity.Message) (identity.SendResult, error) {
+			atomic.AddInt32(&sendCalls, 1)
+			return identity.SendResult{}, errors.New("send should not have been called on retry")
+		})
+	if err != nil {
+		t.Fatalf("retry ExpireApproveAndSend: %v", err)
+	}
+	if got := atomic.LoadInt32(&sendCalls); got != 1 {
+		t.Errorf("send() invoked %d time(s), want exactly 1 across the rollback + retry", got)
+	}
+	if second.ProviderMessageID != "<ses-exp-orig@amazonses.com>" {
+		t.Errorf("retry returned ProviderMessageID = %q, want the cached <ses-exp-orig@amazonses.com>", second.ProviderMessageID)
+	}
+	if second.Status != identity.MessageStatusExpiredApproved {
+		t.Errorf("retry returned status = %q, want expired_approved", second.Status)
+	}
+}
+
+// ExpireApproveAndSend in the face of a peer-worker mid-send: the
+// claim sees status='attempting' and returns ErrSendInProgress. The
+// hitlworker loop treats this as "skip silently" so it does NOT
+// auto-reject a row that may have actually been sent.
+func TestExpireApproveAndSend_InFlightReturnsErrSendInProgress(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	_, a := setupPendingAgent(t, store, "expire-inflight")
+	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
+		[]string{"alice@example.com"}, nil, nil, "x", "body", "", nil, "send", "", "", 60)
+	if _, err := pool.Exec(ctx, `UPDATE messages SET approval_expires_at = now() - interval '1 minute' WHERE id = $1`, msg.ID); err != nil {
+		t.Fatalf("age approval_expires_at: %v", err)
+	}
+
+	// Plant a recent 'attempting' row as if a peer worker had claimed it.
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO send_attempts (message_id, status, attempted_at)
+		 VALUES ($1, 'attempting', now())`, msg.ID); err != nil {
+		t.Fatalf("seed inflight row: %v", err)
+	}
+
+	var sendCalls int32
+	_, err := store.ExpireApproveAndSend(ctx, msg.ID,
+		func(m *identity.Message) (identity.SendResult, error) {
+			atomic.AddInt32(&sendCalls, 1)
+			return identity.SendResult{}, nil
+		})
+	if !errors.Is(err, identity.ErrSendInProgress) {
+		t.Errorf("err = %v, want ErrSendInProgress", err)
+	}
+	if got := atomic.LoadInt32(&sendCalls); got != 0 {
+		t.Errorf("send() invoked %d time(s), want 0 when InFlight", got)
+	}
+}
+
 // Direct InFlight: force a stale in_progress claim into the table
 // (without going through ApproveAndSend) and verify the next call
 // surfaces ErrSendInProgress via the wrapper.

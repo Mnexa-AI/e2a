@@ -151,6 +151,17 @@ func (w *Worker) autoApprove(ctx context.Context, c identity.ExpirationCandidate
 		if err == identity.ErrNotPendingApproval {
 			return
 		}
+		// ErrSendInProgress means another worker is mid-send for this
+		// row (send_attempts is 'attempting' and not yet stale). Don't
+		// auto-reject — that would invert the operator-configured
+		// expiration_action="approve" policy by terminally rejecting a
+		// message that may have actually been sent. Skip silently; the
+		// next poll either sees status='sent' (the in-flight worker
+		// committed) or the row goes stale (10min window) and another
+		// worker takes over.
+		if err == identity.ErrSendInProgress {
+			return
+		}
 		log.Printf("[hitl-worker] auto-approve %s: send failed: %v", c.MessageID, err)
 		w.autoReject(ctx, c.MessageID, fmt.Sprintf("auto-approve send failed: %v", err))
 		return

@@ -1485,18 +1485,36 @@ func (s *Store) ListExpiredPending(ctx context.Context, limit int) ([]Expiration
 
 // ExpireApproveAndSend is the worker-side counterpart to ApproveAndSend:
 // no user ownership check (the caller is the expiration worker, which is
-// system-scoped), SELECT ... FOR UPDATE SKIP LOCKED so concurrent workers
-// don't race for the same row, and the terminal status is
+// system-scoped), SELECT ... FOR NO KEY UPDATE SKIP LOCKED so concurrent
+// workers don't race for the same row, and the terminal status is
 // 'expired_approved' instead of 'sent'. On send failure the transaction
 // rolls back; the worker should then call ExpireReject to move the row
 // to a final state so the row doesn't get picked up on every sweep.
 //
-// Same concurrency / crash-window notes as ApproveAndSend apply: the
-// row-level lock is held for the duration of the send callback (bounded
-// by SMTPRelay timeouts), and a crash between SES acceptance and
-// commit can leave a pending row that would re-send on the next sweep.
+// Exactly-once guarantee: like ApproveAndSend, this method runs the
+// send() callback under a send_attempts gate so a crash between SES
+// acceptance and the surrounding tx commit does NOT cause the next
+// worker poll to re-send. ClaimSendAttempt / MarkSendSucceeded /
+// MarkSendFailed run in separate small transactions that outlive the
+// approval tx; on retry, an AlreadySent verdict reuses the cached
+// SendResult and skips the upstream send entirely. Without this, the
+// polling-loop nature of the worker would guarantee a re-send on any
+// commit failure — strictly worse than the human-approval path,
+// where a re-send needs an explicit click.
+//
 // SKIP LOCKED means multiple app instances can run the worker without
-// contending on the same row.
+// contending on the same row. The row-level FOR NO KEY UPDATE lock on
+// messages is held for the duration of the send callback (bounded by
+// SMTPRelay timeouts); FOR NO KEY UPDATE rather than FOR UPDATE so
+// the send_attempts INSERT in a separate connection can acquire its
+// KEY SHARE lock for FK enforcement — see ApproveAndSend's docstring
+// for the full rationale.
+//
+// If a concurrent worker is mid-send for the same row (the
+// send_attempts row is 'attempting' and not yet stale), returns
+// ErrSendInProgress. The worker loop should treat this like
+// ErrNotPendingApproval — skip silently and let the next poll handle
+// it.
 func (s *Store) ExpireApproveAndSend(
 	ctx context.Context,
 	messageID string,
@@ -1536,7 +1554,7 @@ func (s *Store) ExpireApproveAndSend(
 		   AND direction = 'outbound'
 		   AND status = 'pending_approval'
 		   AND approval_expires_at < now()
-		 FOR UPDATE SKIP LOCKED`,
+		 FOR NO KEY UPDATE SKIP LOCKED`,
 		messageID,
 	).Scan(
 		&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject,
@@ -1572,9 +1590,35 @@ func (s *Store) ExpireApproveAndSend(
 		m.AttachmentsJSON = json.RawMessage(attachments)
 	}
 
-	result, err := send(&m)
+	// Exactly-once gate, identical to ApproveAndSend's bracket. Runs
+	// OUTSIDE this approval tx so the SES outcome survives an approval
+	// tx rollback. See ApproveAndSend's docstring for the full
+	// rationale.
+	claim, err := s.ClaimSendAttempt(ctx, messageID)
 	if err != nil {
 		return nil, err
+	}
+
+	var result SendResult
+	switch claim.Outcome {
+	case SendAttemptAcquired:
+		result, err = send(&m)
+		if err != nil {
+			if markErr := s.MarkSendFailed(ctx, messageID, err.Error()); markErr != nil {
+				log.Printf("[expire] MarkSendFailed for %s: %v", messageID, markErr)
+			}
+			return nil, err
+		}
+		if markErr := s.MarkSendSucceeded(ctx, messageID, result); markErr != nil {
+			log.Printf("[expire] MarkSendSucceeded for %s: %v (next worker poll may re-send)", messageID, markErr)
+		}
+	case SendAttemptAlreadySent:
+		// A prior auto-approve attempt succeeded at SES but its
+		// approval tx rolled back. Reuse the recorded result and
+		// skip the upstream send.
+		result = claim.Sent
+	case SendAttemptInFlight:
+		return nil, ErrSendInProgress
 	}
 
 	_, err = tx.Exec(txCtx,
