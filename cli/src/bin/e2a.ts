@@ -163,7 +163,18 @@ async function main() {
       } else if (sub === "show") {
         await pendingShow(args[1]);
       } else if (sub === "approve") {
-        await pendingApprove(args[1], { edit: hasFlag(args, "--edit") });
+        // Default the idempotency key to the message_id when the user
+        // doesn't pass one. Approve fires SES, and a fresh per-call
+        // UUIDv4 (the SDK fallback) provides zero protection across
+        // a CLI retry loop — Ctrl-C, hit-up, run-again is the actual
+        // user pattern. Tying the default to the message_id makes
+        // every retry of the same approve replay the original
+        // response. Override with --idempotency-key when the same
+        // message needs a fresh attempt (e.g. after a relay outage).
+        await pendingApprove(args[1], {
+          edit: hasFlag(args, "--edit"),
+          idempotencyKey: getFlag(args, "--idempotency-key") ?? args[1],
+        });
       } else if (sub === "reject") {
         await pendingReject(args[1], getFlag(args, "--reason"));
       } else {
@@ -206,6 +217,7 @@ async function main() {
         cc: getFlags(args, "--cc"),
         bcc: getFlags(args, "--bcc"),
         from: getFlag(args, "--agent"),
+        idempotencyKey: getFlag(args, "--idempotency-key"),
       });
       break;
     case "send":
@@ -218,6 +230,7 @@ async function main() {
           cc: getFlags(args, "--cc"),
           bcc: getFlags(args, "--bcc"),
           from: getFlag(args, "--agent"),
+          idempotencyKey: getFlag(args, "--idempotency-key"),
         },
       );
       break;

@@ -320,12 +320,19 @@ export class E2AClient {
   /**
    * Approve a held outbound message. Pass overrides to approve with
    * edits; omit for approve-as-is.
+   *
+   * Approve fires a real SES send, so `idempotencyKey` works the same
+   * way as on send / reply — supply a stable key derived from the
+   * review event to make retries safe.
    */
   async approveMessage(
     messageId: string,
     overrides: Schemas["ApprovePendingMessageRequest"] = {},
+    opts?: { idempotencyKey?: string },
   ) {
-    return this.api.approveMessage(messageId, overrides);
+    return this.api.approveMessage(messageId, overrides, {
+      idempotencyKey: opts?.idempotencyKey,
+    });
   }
 
   /**

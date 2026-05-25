@@ -9,6 +9,7 @@ export async function send(
     cc?: string[];
     bcc?: string[];
     from?: string;
+    idempotencyKey?: string;
   },
 ): Promise<void> {
   const hasVisibleRecipient = to.length > 0 || (opts.cc?.length ?? 0) > 0;
@@ -32,6 +33,7 @@ export async function send(
     htmlBody: opts.htmlBody,
     cc: opts.cc?.length ? opts.cc : undefined,
     bcc: opts.bcc?.length ? opts.bcc : undefined,
+    idempotencyKey: opts.idempotencyKey,
   });
 
   process.stdout.write(`Sent: ${res.message_id}\n`);

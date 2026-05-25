@@ -116,4 +116,45 @@ describe("Idempotency-Key transport behavior", () => {
     await client.reply("msg_in_abc", "hi", { idempotencyKey: "client-reply-key" });
     expect(spy.lastHeaders()["Idempotency-Key"]).toBe("client-reply-key");
   });
+
+  // approveMessage is also side-effectful (fires a real SES send when
+  // the reviewer approves a held draft) so it carries the same
+  // Idempotency-Key contract as sendEmail / replyToMessage. Without
+  // this header a transient retry after a successful approve could
+  // double-send.
+  it("approveMessage carries an auto-generated Idempotency-Key by default", async () => {
+    const spy = spyFetch();
+    globalThis.fetch = spy.mock;
+
+    const api = new E2AApi({ apiKey: "e2a_test", baseUrl: BASE });
+    await api.approveMessage("msg_p", { subject: "edit" });
+
+    const key = spy.lastHeaders()["Idempotency-Key"];
+    expect(key).toBeDefined();
+    expect(key.length).toBeGreaterThan(0);
+  });
+
+  it("approveMessage honors a caller-supplied Idempotency-Key", async () => {
+    const spy = spyFetch();
+    globalThis.fetch = spy.mock;
+
+    const api = new E2AApi({ apiKey: "e2a_test", baseUrl: BASE });
+    await api.approveMessage("msg_p", {}, { idempotencyKey: "approve-key-1" });
+
+    expect(spy.lastHeaders()["Idempotency-Key"]).toBe("approve-key-1");
+  });
+
+  it("high-level E2AClient.approveMessage threads idempotencyKey through", async () => {
+    const spy = spyFetch();
+    globalThis.fetch = spy.mock;
+
+    const client = new E2AClient({
+      apiKey: "e2a_test",
+      baseUrl: BASE,
+      agentEmail: "bot@test.dev",
+    });
+    await client.approveMessage("msg_p", {}, { idempotencyKey: "high-level-approve-key" });
+
+    expect(spy.lastHeaders()["Idempotency-Key"]).toBe("high-level-approve-key");
+  });
 });
