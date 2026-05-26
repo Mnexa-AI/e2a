@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import useSWR from "swr";
 import { PageShell } from "../../components/loft/PageShell";
 
@@ -107,6 +108,20 @@ export default function BillingPage() {
     fetchLimits,
   );
 
+  // When the user navigates away (e.g. to Stripe Checkout) and hits
+  // Back, the browser may restore the page from bfcache with any
+  // in-flight fetch abandoned. SWR's isLoading state then sticks at
+  // true and the user sees a permanent "Loading…". Force a revalidate
+  // on every pageshow with persisted=true so the page never gets
+  // stuck after a Back navigation.
+  useEffect(() => {
+    const onShow = (e: PageTransitionEvent) => {
+      if (e.persisted) void mutate();
+    };
+    window.addEventListener("pageshow", onShow);
+    return () => window.removeEventListener("pageshow", onShow);
+  }, [mutate]);
+
   // Compute usage percentages once data is loaded. Guard zero limits
   // (treat as 0% rather than NaN/Infinity) so a misconfigured row with
   // max_*=0 doesn't paint a full red bar.
@@ -174,9 +189,12 @@ export default function BillingPage() {
                     </a>
                   ) : (
                     // No upgrade_url → user is on the free/default plan.
-                    // Send them to the sidecar's checkout endpoint.
+                    // Send them to the sidecar's checkout endpoint. The
+                    // sidecar's GET /api/billing/checkout 302-redirects
+                    // to Stripe-hosted Checkout for the Pro plan (the
+                    // default when ?plan= is omitted).
                     <a
-                      href={`${BILLING_API}/checkout`}
+                      href={`${BILLING_API}/api/billing/checkout`}
                       className="px-3 py-1.5 rounded-md text-sm font-medium bg-accent text-white hover:bg-accent/90 transition"
                     >
                       Upgrade
