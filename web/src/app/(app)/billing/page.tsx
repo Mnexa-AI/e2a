@@ -176,12 +176,15 @@ export default function BillingPage() {
                 <div className="flex items-center gap-2">
                   {data.upgrade_url ? (
                     // upgrade_url is set by the external provisioner on
-                    // active subscriptions to point at the Stripe-managed
-                    // portal. Render as "Manage billing".
+                    // active subscriptions to point at the Stripe-hosted
+                    // billing portal (via a GET on the sidecar's
+                    // /api/billing/portal which 302s to a fresh portal
+                    // session). Same-tab navigation: Stripe's portal
+                    // already has a "Return to merchant" link that
+                    // redirects back to PORTAL_RETURN_URL, so the user
+                    // never gets stranded.
                     <a
                       href={data.upgrade_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
                       className="px-3 py-1.5 rounded-md text-sm border hover:bg-background transition"
                       style={{ borderColor: "var(--border)", color: "var(--fg)" }}
                     >
