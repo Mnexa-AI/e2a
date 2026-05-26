@@ -1131,7 +1131,7 @@ paths:
         instant onboarding (no DNS needed), or `email` for a custom domain (requires
         domain to be registered and verified first). `agent_mode` is required and
         must be "local" (inbound delivered via WebSocket / pollable REST) or "cloud"
-        (inbound POSTed to `webhook_url`). Rate limited to 20 registrations per source
+        (inbound POSTed to `webhook_url`). Rate limited to 200 registrations per source
         IP per hour; 429 responses carry a `Retry-After` header in delay-seconds form.
       parameters:
       - description: Agent registration details

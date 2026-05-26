@@ -219,7 +219,7 @@ func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.
 		publicURL:     publicURL,
 		production:    production,
 		sendLimit:     ratelimit.New(1*time.Minute, 60), // 60 sends per agent per minute
-		regLimit:      ratelimit.New(1*time.Hour, 20),   // 20 registrations per IP per hour
+		regLimit:      ratelimit.New(1*time.Hour, 200),  // 200 registrations per IP per hour
 		pollLimit:     ratelimit.New(1*time.Minute, 60), // 60 poll requests per user per minute
 		feedbackLimit: ratelimit.New(1*time.Hour, 10),   // 10 feedback submissions per IP per hour
 		dcrLimit:      ratelimit.New(1*time.Hour, 10),   // 10 OAuth client registrations per IP per hour
@@ -510,7 +510,7 @@ type RegisterAgentResponse struct {
 
 // handleRegisterAgent creates a new agent.
 // @Summary      Register a new agent
-// @Description  Register a new agent with a custom domain or, on deployments where slug registration is enabled, a slug on the shared domain. Use `slug` for instant onboarding (no DNS needed), or `email` for a custom domain (requires domain to be registered and verified first). `agent_mode` is required and must be "local" (inbound delivered via WebSocket / pollable REST) or "cloud" (inbound POSTed to `webhook_url`). Rate limited to 20 registrations per source IP per hour; 429 responses carry a `Retry-After` header in delay-seconds form.
+// @Description  Register a new agent with a custom domain or, on deployments where slug registration is enabled, a slug on the shared domain. Use `slug` for instant onboarding (no DNS needed), or `email` for a custom domain (requires domain to be registered and verified first). `agent_mode` is required and must be "local" (inbound delivered via WebSocket / pollable REST) or "cloud" (inbound POSTed to `webhook_url`). Rate limited to 200 registrations per source IP per hour; 429 responses carry a `Retry-After` header in delay-seconds form.
 // @Tags         Agents
 // @Accept       json
 // @Produce      json
@@ -524,7 +524,7 @@ type RegisterAgentResponse struct {
 // @Router       /api/v1/agents [post]
 func (a *API) handleRegisterAgent(w http.ResponseWriter, r *http.Request) {
 	if ok, retryAfter := a.regLimit.AllowWithRetryAfter(clientIP(r)); !ok {
-		writeTooManyRequests(w, retryAfter, "rate limit exceeded — max 20 agent registrations per hour per IP")
+		writeTooManyRequests(w, retryAfter, "rate limit exceeded — max 200 agent registrations per hour per IP")
 		return
 	}
 

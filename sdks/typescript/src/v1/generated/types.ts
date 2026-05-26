@@ -47,7 +47,7 @@ export interface paths {
         put?: never;
         /**
          * Register a new agent
-         * @description Register a new agent with a custom domain or, on deployments where slug registration is enabled, a slug on the shared domain. Use `slug` for instant onboarding (no DNS needed), or `email` for a custom domain (requires domain to be registered and verified first). `agent_mode` is required and must be "local" (inbound delivered via WebSocket / pollable REST) or "cloud" (inbound POSTed to `webhook_url`). Rate limited to 20 registrations per source IP per hour; 429 responses carry a `Retry-After` header in delay-seconds form.
+         * @description Register a new agent with a custom domain or, on deployments where slug registration is enabled, a slug on the shared domain. Use `slug` for instant onboarding (no DNS needed), or `email` for a custom domain (requires domain to be registered and verified first). `agent_mode` is required and must be "local" (inbound delivered via WebSocket / pollable REST) or "cloud" (inbound POSTed to `webhook_url`). Rate limited to 200 registrations per source IP per hour; 429 responses carry a `Retry-After` header in delay-seconds form.
          */
         post: {
             parameters: {
