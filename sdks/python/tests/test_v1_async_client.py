@@ -294,10 +294,10 @@ async def test_register_agent_slug(httpx_mock):
     )
 
     async with AsyncE2AClient(api_key="k") as client:
-        await client.register_agent("new")
+        await client.register_agent("new", agent_mode="local")
 
     body = json.loads(httpx_mock.get_request().content)
-    assert body == {"slug": "new"}
+    assert body == {"slug": "new", "agent_mode": "local"}
 
 
 @pytest.mark.anyio

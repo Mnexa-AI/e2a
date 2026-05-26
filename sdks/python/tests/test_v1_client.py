@@ -442,10 +442,10 @@ def test_register_agent_slug_only(httpx_mock):
     )
 
     with E2AClient(api_key="k") as client:
-        result = client.register_agent("new")
+        result = client.register_agent("new", agent_mode="local")
 
     body = json.loads(httpx_mock.get_request().content)
-    assert body == {"slug": "new"}
+    assert body == {"slug": "new", "agent_mode": "local"}
 
 
 def test_register_agent_custom_domain(httpx_mock):

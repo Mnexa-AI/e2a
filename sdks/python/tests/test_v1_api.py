@@ -158,13 +158,13 @@ def test_register_agent(httpx_mock):
     )
 
     with E2AApi(api_key="k") as api:
-        result = api.register_agent(RegisterAgentRequest(slug="new"))
+        result = api.register_agent(RegisterAgentRequest(slug="new", agent_mode="local"))
 
     assert isinstance(result, RegisterAgentResponse)
     assert result.email == "new@agents.e2a.dev"
 
     body = json.loads(httpx_mock.get_request().content)
-    assert body == {"slug": "new"}
+    assert body == {"slug": "new", "agent_mode": "local"}
 
 
 def test_get_agent(httpx_mock):
