@@ -21,6 +21,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/hitlworker"
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/relay"
@@ -201,6 +202,30 @@ func main() {
 	idempotencyStore := idempotency.NewStore(pool)
 	api.SetIdempotencyStore(idempotencyStore)
 
+	// Resource-limits enforcer. The OSS server is plan-agnostic: it
+	// reads the per-user caps from account_limits and enforces them at
+	// agent-create / domain-register / message-send / inbound RCPT TO.
+	// What "Free" or "Pro" mean (and how Stripe plumbs those into
+	// account_limits) is the responsibility of an external provisioner
+	// (hosted billing sidecar, admin tooling). Self-hosters who don't
+	// run a provisioner get the generous config defaults applied to
+	// every user — effectively unlimited unless they tighten the
+	// `limits:` config block.
+	usageStore := usage.NewStore(pool)
+	enforcer := limits.NewEnforcer(
+		limits.NewStore(pool),
+		usageStore,
+		limits.Defaults{
+			PlanCode:         cfg.Limits.PlanCode,
+			MaxAgents:        cfg.Limits.MaxAgents,
+			MaxDomains:       cfg.Limits.MaxDomains,
+			MaxMessagesMonth: cfg.Limits.MaxMessagesMonth,
+			MaxStorageBytes:  cfg.Limits.MaxStorageBytes,
+		},
+		time.Duration(cfg.Limits.CacheTTLSeconds)*time.Second,
+	)
+	api.SetEnforcer(enforcer)
+
 	api.RegisterRoutes(router)
 
 	// WebSocket route for local-mode agents
@@ -216,6 +241,7 @@ func main() {
 
 	// SMTP Relay
 	smtpServer := relay.NewServer(cfg, store, signer, persistentDeliverer, usageTracker, wsHub)
+	smtpServer.SetEnforcer(enforcer)
 
 	// Graceful shutdown
 	sigCh := make(chan os.Signal, 1)

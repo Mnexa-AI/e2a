@@ -18,6 +18,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/emailauth"
 	"github.com/Mnexa-AI/e2a/internal/headers"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
 	"github.com/Mnexa-AI/e2a/internal/ws"
@@ -31,6 +32,7 @@ type Server struct {
 	deliverer  *webhook.PersistentDeliverer
 	hub        *ws.Hub
 	usage      usage.UsageTracker
+	enforcer   limits.Enforcer // optional; when nil, inbound caps are not enforced
 	smtpDomain string
 	// outboundFromDomain is the domain used in envelope MAIL FROM for mail we
 	// originate (e.g. "send.e2a.dev"). Inbound messages whose envelope MAIL FROM
@@ -39,6 +41,14 @@ type Server struct {
 	// In-Reply-To lookup so they cannot forge conversation IDs.
 	outboundFromDomain string
 }
+
+// SetEnforcer wires in the resource-limits enforcer used to reject
+// inbound recipients whose owner has hit the message-flow or storage
+// cap. When nil (the default) every RCPT TO is accepted as far as the
+// limits subsystem is concerned — handy for tests and for self-host
+// operators who run without limits enabled. The cmd/e2a runtime always
+// sets it.
+func (s *Server) SetEnforcer(e limits.Enforcer) { s.enforcer = e }
 
 func NewServer(cfg *config.Config, store *identity.Store, signer *headers.Signer, deliverer *webhook.PersistentDeliverer, usage usage.UsageTracker, hub *ws.Hub) *Server {
 	s := &Server{
@@ -140,6 +150,22 @@ func (s *session) Rcpt(to string, opts *smtp.RcptOptions) error {
 	if !agent.DomainVerified {
 		log.Printf("[%s] [%s] rejecting %s: domain not verified", s.id, s.from, to)
 		return &smtp.SMTPError{Code: 550, EnhancedCode: smtp.EnhancedCode{5, 1, 1}, Message: "recipient not found"}
+	}
+
+	// Reject at SMTP envelope time if the recipient's owner has hit the
+	// message-flow or storage cap. 552 (mailbox quota exceeded, RFC 5321
+	// §4.2.2) tells the upstream MTA to bounce the message back to the
+	// original sender with a deliverable error rather than retry. We
+	// fail open on enforcer errors (DB hiccup) so a transient outage
+	// doesn't lose mail — the storage trigger is the safety net.
+	if s.relay.enforcer != nil && agent.UserID != "" {
+		if err := s.relay.enforcer.CheckMessageSend(ctx, agent.UserID); err != nil {
+			if le, ok := limits.IsLimitExceeded(err); ok {
+				log.Printf("[%s] [%s] rejecting %s: limit exceeded (%s)", s.id, s.from, to, le.Resource)
+				return &smtp.SMTPError{Code: 552, EnhancedCode: smtp.EnhancedCode{5, 2, 2}, Message: "mailbox quota exceeded"}
+			}
+			log.Printf("[%s] [%s] limits check error (failing open): %v", s.id, s.from, err)
+		}
 	}
 
 	s.recipients = append(s.recipients, to)
