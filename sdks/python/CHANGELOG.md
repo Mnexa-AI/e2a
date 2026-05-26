@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.5.0
+
+### Added
+- Generated types for the per-user resource-limits primitive that
+  shipped with #158: `LimitsInfo`, `LimitsCaps`, `LimitsUsage`. These
+  describe the response shape of `GET /api/v1/users/me/limits`, which
+  the hosted dashboard uses to render the upgrade affordance and the
+  "you've used X of Y" surface. The high-level `E2AClient` doesn't
+  yet expose a typed helper for this endpoint — it's surfaced as a
+  dashboard-only concern today, and SDK consumers querying their own
+  usage should call `/agents` / `/messages` directly. The types are
+  emitted so anyone consuming the raw OpenAPI generation has the
+  shapes available.
+
+### Notes
+- No runtime client behavior changed in this release. If you're not
+  using the limits primitive (self-host deployments without a paid
+  tier), 2.5.0 is functionally identical to 2.4.0.
+
 ## 2.4.0
 
 ### Added
