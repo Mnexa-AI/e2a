@@ -52,3 +52,21 @@ outbound_smtp:
   password: ""
   from_domain: "relay.example.com"
 
+# Per-user resource caps applied when a user has no row in the
+# account_limits table. Hosted-service deployments overwrite these per
+# user via an external provisioner (the e2a-billing sidecar, an admin
+# tool, manual SQL). Self-host operators who do not run any provisioner
+# rely solely on these defaults — values below are intentionally high so
+# the limits subsystem is effectively off until you opt in.
+#
+# To convert a self-host into a paywall-aware install, set these to your
+# "free" shape and write the upgraded caps into account_limits from
+# whatever billing system you run.
+limits:
+  plan_code: "default"
+  max_agents: 1000000
+  max_domains: 1000000
+  max_messages_month: 1000000000
+  max_storage_bytes: 1125899906842624  # 1 PiB — effectively unbounded
+  cache_ttl_seconds: 60
+
