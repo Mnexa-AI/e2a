@@ -225,6 +225,8 @@ func main() {
 		time.Duration(cfg.Limits.CacheTTLSeconds)*time.Second,
 	)
 	api.SetEnforcer(enforcer)
+	api.SetUsageStore(usageStore)
+	api.SetInternalAPISecret(cfg.Limits.InternalAPISecret)
 
 	api.RegisterRoutes(router)
 

@@ -69,4 +69,10 @@ limits:
   max_messages_month: 1000000000
   max_storage_bytes: 1125899906842624  # 1 PiB — effectively unbounded
   cache_ttl_seconds: 60
+  # Shared HMAC secret used to authenticate /api/internal/limits/invalidate.
+  # Set this on both the e2a server and the external limits provisioner
+  # (e.g. a hosted-service billing sidecar). Leave empty for self-host
+  # without a provisioner — the endpoint will 503. Generate with:
+  # openssl rand -hex 32. Override with E2A_INTERNAL_API_SECRET.
+  internal_api_secret: ""
 

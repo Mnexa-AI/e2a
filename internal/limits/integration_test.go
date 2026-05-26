@@ -13,11 +13,16 @@ import (
 )
 
 // These tests exercise the real Postgres trigger + account_limits + the
-// enforcer end to end. They live behind testutil.TestDB so they're part
-// of the integration tier (skipped when no DB is reachable).
+// enforcer end to end. They share the test database with other DB-using
+// packages, so we skip under `go test -short` (used by `make test-unit`)
+// to avoid trampling concurrent-package state. `make test-integration`
+// runs without -short and serializes packages with -p 1.
 
 func setupLimitsUser(t *testing.T, name string) (*pgxpool.Pool, *identity.Store, *usage.Store, *identity.AgentIdentity, string) {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping DB-backed limits test under -short")
+	}
 	pool := testutil.TestDB(t)
 	idStore := identity.NewStore(pool)
 	usageStore := usage.NewStore(pool)

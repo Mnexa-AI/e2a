@@ -102,6 +102,12 @@ type LimitsConfig struct {
 	// (recommended for tests that mutate account_limits and want
 	// immediate visibility).
 	CacheTTLSeconds int `yaml:"cache_ttl_seconds"`
+	// InternalAPISecret is the shared HMAC secret the external limits
+	// provisioner (e.g. the hosted billing sidecar) uses to authenticate
+	// to /api/internal/limits/invalidate. When empty (the self-host
+	// default), that endpoint returns 503 — no provisioner, no
+	// invalidation. Must be set to the same value on both ends.
+	InternalAPISecret string `yaml:"internal_api_secret"`
 }
 
 func Load(path string) (*Config, error) {
@@ -139,6 +145,9 @@ func Load(path string) (*Config, error) {
 	// Env overrides — secrets only (never duplicated in yaml)
 	if v := os.Getenv("E2A_DATABASE_URL"); v != "" {
 		cfg.Database.URL = v
+	}
+	if v := os.Getenv("E2A_INTERNAL_API_SECRET"); v != "" {
+		cfg.Limits.InternalAPISecret = v
 	}
 	if v := os.Getenv("E2A_HMAC_SECRET"); v != "" {
 		cfg.Signing.HMACSecret = v

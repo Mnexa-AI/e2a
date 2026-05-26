@@ -173,6 +173,8 @@ type API struct {
 	oauthStorage   *oauth.Storage         // optional; consent handler needs Pool() for cross-package tx
 	idempotency    *idempotency.Store     // optional; when nil, Idempotency-Key header is ignored
 	enforcer       limits.Enforcer        // optional; when nil, all limit checks are skipped (effectively unlimited)
+	usageStore     *usage.Store           // optional; needed by handleGetMyLimits to surface current counts
+	internalAPISecret string              // optional; when empty, /api/internal/* endpoints return 503
 }
 
 // SetApprovalSigner wires in the magic-link signer after construction so
@@ -213,6 +215,19 @@ func (a *API) SetIdempotencyStore(s *idempotency.Store) { a.idempotency = s }
 // unlimited capacity. The cmd/e2a runtime always sets it; tests that
 // don't care about limits omit it and continue to work as before.
 func (a *API) SetEnforcer(e limits.Enforcer) { a.enforcer = e }
+
+// SetUsageStore wires in the usage store used by handleGetMyLimits to
+// surface the user's current counts (agents, domains, messages this
+// month, storage bytes) alongside the resolved caps. Separate from the
+// usage.UsageTracker (which is for recording events) so the dashboard
+// read path can stay alive even when usage-tracking is otherwise off.
+func (a *API) SetUsageStore(s *usage.Store) { a.usageStore = s }
+
+// SetInternalAPISecret wires in the shared HMAC secret used to
+// authenticate the /api/internal/limits/invalidate endpoint. When
+// empty (default), that endpoint returns 503 — self-host operators
+// who don't run a billing provisioner never need to configure it.
+func (a *API) SetInternalAPISecret(s string) { a.internalAPISecret = s }
 
 func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.SMTPRelay, userAuth *auth.UserAuth, usage usage.UsageTracker, smtpDomain, fromDomain, sharedDomain, publicURL string, production bool) *API {
 	return &API{
@@ -270,6 +285,19 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	// no way to target someone else's data.
 	r.HandleFunc("/api/v1/users/me/export", a.handleExportUserData).Methods("GET")
 	r.HandleFunc("/api/v1/users/me", a.handleDeleteUserData).Methods("DELETE")
+
+	// Internal machine-to-machine endpoint: the external limits
+	// provisioner (hosted billing sidecar) calls this to bust the
+	// in-process limits cache for a given user immediately after it
+	// writes account_limits. Authenticated by shared HMAC over the
+	// request body; deliberately not advertised in OpenAPI.
+	r.HandleFunc("/api/internal/limits/invalidate", a.handleInvalidateLimits).Methods("POST")
+
+	// Current user's resource limits + month-to-date usage. Dashboard
+	// reads this on every page load to render the "you've used X of Y"
+	// surface and an upgrade affordance when an external provisioner
+	// has populated an upgrade_url.
+	r.HandleFunc("/api/v1/users/me/limits", a.handleGetMyLimits).Methods("GET")
 
 	// Per-user webhook signing secrets — multi-secret rotation, fully
 	// user-managed (create + delete; no auto-rotation, no TTL).
