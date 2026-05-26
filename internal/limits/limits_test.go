@@ -221,6 +221,14 @@ func TestCheckMessageSend_BlocksOnStorage(t *testing.T) {
 	if le.Resource != "storage" {
 		t.Errorf("Resource = %q, want storage", le.Resource)
 	}
+	// Storage values come through as RAW BYTES (not KB) per the
+	// resource-natural-unit contract documented on LimitErrorBody.
+	if le.Limit != 1024*1024 {
+		t.Errorf("Limit = %d, want %d (bytes)", le.Limit, 1024*1024)
+	}
+	if le.Current != 1024*1024 {
+		t.Errorf("Current = %d, want %d (bytes)", le.Current, 1024*1024)
+	}
 }
 
 func TestCheckMessageSend_MonthCapTakesPrecedenceOverStorage(t *testing.T) {

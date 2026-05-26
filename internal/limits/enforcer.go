@@ -173,14 +173,32 @@ func (e *DBEnforcer) CheckMessageSend(ctx context.Context, userID string) error 
 		return err
 	}
 	if storage >= lim.MaxStorageBytes {
+		// Storage values can exceed int32 (MaxStorageBytes is BIGINT in
+		// the DB and may be 100 GiB+ on Scale). The LimitExceededError
+		// fields are int — that's 32-bit on 32-bit platforms. Clamp via
+		// safeInt64ToInt so we don't roll over on unusual targets; the
+		// real value is also surfaced verbatim in the Limits field for
+		// callers that need bytes-accurate access.
 		return &LimitExceededError{
 			Resource: "storage",
-			Limit:    int(lim.MaxStorageBytes / 1024), // expose in KB for log/UI legibility
-			Current:  int(storage / 1024),
+			Limit:    safeInt64ToInt(lim.MaxStorageBytes),
+			Current:  safeInt64ToInt(storage),
 			Limits:   lim,
 		}
 	}
 	return nil
+}
+
+// safeInt64ToInt clamps an int64 to int.Max{,Min} so a downstream JSON
+// encode never silently produces a negative number from int overflow
+// on 32-bit Go targets. Production runs 64-bit; this is purely
+// defensive against a future 32-bit build (or an ARM32 host).
+func safeInt64ToInt(v int64) int {
+	const maxInt = int64(^uint(0) >> 1)
+	if v > maxInt {
+		return int(maxInt)
+	}
+	return int(v)
 }
 
 func (e *DBEnforcer) cacheGet(userID string) (Limits, bool) {

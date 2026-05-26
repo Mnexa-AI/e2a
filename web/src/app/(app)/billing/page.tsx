@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { PageShell } from "../../components/loft/PageShell";
 
@@ -108,6 +108,43 @@ export default function BillingPage() {
     fetchLimits,
   );
 
+  // Disable the action buttons while a POST is in flight so a
+  // double-click doesn't create two Stripe sessions.
+  const [actionPending, setActionPending] = useState<"upgrade" | "portal" | null>(null);
+
+  // Both Upgrade and Manage Billing POST to the sidecar and follow the
+  // returned `url`. POST (not GET) because the OSS session cookie is
+  // SameSite=Lax — Lax permits top-level GET navigations from third
+  // parties, which would make GET endpoints CSRF-able (a malicious
+  // page could create real Stripe Checkout sessions for the victim).
+  // POSTs from a third-party origin are blocked by Lax, so the dashboard
+  // owns the call and the cross-origin attack surface is gone.
+  async function postBilling(endpoint: string, kind: "upgrade" | "portal") {
+    setActionPending(kind);
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`HTTP ${res.status}${body ? `: ${body}` : ""}`);
+      }
+      const json = (await res.json()) as { url?: string };
+      if (!json.url) {
+        throw new Error("billing endpoint returned no url");
+      }
+      window.location.href = json.url;
+    } catch (err) {
+      // Best-effort recovery: surface the error to the user, clear
+      // the pending state, and let them retry. We don't reset SWR
+      // because the underlying limits data is unaffected by a
+      // failed checkout/portal session.
+      setActionPending(null);
+      alert(`Could not open billing: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   // When the user navigates away (e.g. to Stripe Checkout) and hits
   // Back, the browser may restore the page from bfcache with any
   // in-flight fetch abandoned. SWR's isLoading state then sticks at
@@ -175,33 +212,31 @@ export default function BillingPage() {
               {BILLING_API && (
                 <div className="flex items-center gap-2">
                   {data.upgrade_url ? (
-                    // upgrade_url is set by the external provisioner on
-                    // active subscriptions to point at the Stripe-hosted
-                    // billing portal (via a GET on the sidecar's
-                    // /api/billing/portal which 302s to a fresh portal
-                    // session). Same-tab navigation: Stripe's portal
-                    // already has a "Return to merchant" link that
-                    // redirects back to PORTAL_RETURN_URL, so the user
-                    // never gets stranded.
-                    <a
-                      href={data.upgrade_url}
-                      className="px-3 py-1.5 rounded-md text-sm border hover:bg-background transition"
+                    // upgrade_url present → user has an active Stripe
+                    // subscription. Clicking POSTs to the sidecar,
+                    // which returns a fresh Stripe Billing Portal URL.
+                    <button
+                      type="button"
+                      disabled={actionPending !== null}
+                      onClick={() => postBilling(data.upgrade_url, "portal")}
+                      className="px-3 py-1.5 rounded-md text-sm border hover:bg-background transition disabled:opacity-50 disabled:cursor-not-allowed"
                       style={{ borderColor: "var(--border)", color: "var(--fg)" }}
                     >
-                      Manage billing
-                    </a>
+                      {actionPending === "portal" ? "Opening…" : "Manage billing"}
+                    </button>
                   ) : (
-                    // No upgrade_url → user is on the free/default plan.
-                    // Send them to the sidecar's checkout endpoint. The
-                    // sidecar's GET /api/billing/checkout 302-redirects
-                    // to Stripe-hosted Checkout for the Pro plan (the
-                    // default when ?plan= is omitted).
-                    <a
-                      href={`${BILLING_API}/api/billing/checkout`}
-                      className="px-3 py-1.5 rounded-md text-sm font-medium bg-accent text-white hover:bg-accent/90 transition"
+                    // No upgrade_url → free/default plan. POST to the
+                    // sidecar's checkout endpoint to create a Stripe
+                    // Checkout session for the Pro plan (default when
+                    // no plan is specified in the body).
+                    <button
+                      type="button"
+                      disabled={actionPending !== null}
+                      onClick={() => postBilling(`${BILLING_API}/api/billing/checkout`, "upgrade")}
+                      className="px-3 py-1.5 rounded-md text-sm font-medium bg-accent text-white hover:bg-accent/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Upgrade
-                    </a>
+                      {actionPending === "upgrade" ? "Opening…" : "Upgrade"}
+                    </button>
                   )}
                 </div>
               )}

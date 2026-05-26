@@ -108,6 +108,13 @@ type LimitsConfig struct {
 	// default), that endpoint returns 503 — no provisioner, no
 	// invalidation. Must be set to the same value on both ends.
 	InternalAPISecret string `yaml:"internal_api_secret"`
+	// BillingHookURL is the URL the OSS server POSTs to when a user
+	// deletes their account, so the external billing service (e.g.
+	// the hosted billing sidecar's /api/internal/billing/cancel) can
+	// cancel the user's Stripe subscription. Empty disables the call
+	// — appropriate for self-host without billing. The same
+	// InternalAPISecret signs the POST body.
+	BillingHookURL string `yaml:"billing_hook_url"`
 }
 
 func Load(path string) (*Config, error) {

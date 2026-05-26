@@ -175,6 +175,7 @@ type API struct {
 	enforcer       limits.Enforcer        // optional; when nil, all limit checks are skipped (effectively unlimited)
 	usageStore     *usage.Store           // optional; needed by handleGetMyLimits to surface current counts
 	internalAPISecret string              // optional; when empty, /api/internal/* endpoints return 503
+	billingHookURL string                 // optional; when set, handleDeleteUserData POSTs an HMAC-signed user-deleted notice here (sidecar's /api/internal/billing/cancel)
 }
 
 // SetApprovalSigner wires in the magic-link signer after construction so
@@ -228,6 +229,15 @@ func (a *API) SetUsageStore(s *usage.Store) { a.usageStore = s }
 // empty (default), that endpoint returns 503 — self-host operators
 // who don't run a billing provisioner never need to configure it.
 func (a *API) SetInternalAPISecret(s string) { a.internalAPISecret = s }
+
+// SetBillingHookURL wires in the URL of an external billing service's
+// user-event endpoint. When the user deletes their account, the API
+// HMAC-signs a JSON payload and POSTs it there so the billing service
+// can cancel the corresponding Stripe subscription. When empty (the
+// self-host default), no hook fires — appropriate for deployments
+// without a billing service. The same internal_api_secret is reused
+// for the signature.
+func (a *API) SetBillingHookURL(s string) { a.billingHookURL = s }
 
 func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.SMTPRelay, userAuth *auth.UserAuth, usage usage.UsageTracker, smtpDomain, fromDomain, sharedDomain, publicURL string, production bool) *API {
 	return &API{

@@ -227,6 +227,7 @@ func main() {
 	api.SetEnforcer(enforcer)
 	api.SetUsageStore(usageStore)
 	api.SetInternalAPISecret(cfg.Limits.InternalAPISecret)
+	api.SetBillingHookURL(cfg.Limits.BillingHookURL)
 
 	api.RegisterRoutes(router)
 

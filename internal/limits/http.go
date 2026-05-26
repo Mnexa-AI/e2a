@@ -13,10 +13,16 @@ import (
 // provisioner; upgrade_url is empty when no provisioner has supplied
 // one.
 type LimitErrorBody struct {
-	Error      string `json:"error"`      // human-readable message
-	Resource   string `json:"resource"`   // "agents" | "domains" | "messages" | "storage"
-	Limit      int    `json:"limit"`      // cap that was hit
-	Current    int    `json:"current"`    // the user's current count for that resource
+	Error    string `json:"error"`    // human-readable message
+	Resource string `json:"resource"` // "agents" | "domains" | "messages" | "storage"
+	// Limit + Current are RAW counts in the resource's natural unit:
+	// integer count for agents/domains/messages, **bytes** for storage.
+	// SDK consumers should treat them as opaque and format per
+	// resource. An earlier revision returned storage values in KB,
+	// which is inconsistent with every other resource — fixed in
+	// favor of bytes-everywhere.
+	Limit      int    `json:"limit"`
+	Current    int    `json:"current"`
 	PlanCode   string `json:"plan_code"`  // opaque label from account_limits
 	UpgradeURL string `json:"upgrade_url"`// optional URL to surface in the dashboard
 }
