@@ -31,24 +31,29 @@ func NewDeliveryStore(pool *pgxpool.Pool) *DeliveryStore {
 }
 
 func (s *DeliveryStore) CreateDelivery(ctx context.Context, messageID string, lastError string) (*Delivery, error) {
-	now := time.Now()
-
 	d := &Delivery{
 		MessageID:   messageID,
 		Status:      "pending",
 		Attempts:    0,
 		MaxAttempts: 2,
 		LastError:   lastError,
-		NextRetryAt: now,
-		CreatedAt:   now,
-		ExpiresAt:   now.Add(DeliveryTTL),
 	}
 
-	_, err := s.pool.Exec(ctx,
+	// next_retry_at MUST be set in the Postgres clock domain — the
+	// GetPendingDeliveries SELECT compares against Postgres now(), and a
+	// Go-side time.Now() rounded into Postgres's microsecond TIMESTAMPTZ
+	// can land fractionally in the future relative to a now() captured
+	// microseconds later, causing the just-inserted row to be excluded
+	// from the next claim cycle. created_at and expires_at use the same
+	// Postgres now() for internal consistency. RETURNING populates the
+	// struct so callers see the actual stored values.
+	ttlSeconds := int(DeliveryTTL.Seconds())
+	err := s.pool.QueryRow(ctx,
 		`INSERT INTO webhook_deliveries (message_id, status, attempts, max_attempts, last_error, next_retry_at, created_at, expires_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		d.MessageID, d.Status, d.Attempts, d.MaxAttempts, d.LastError, d.NextRetryAt, d.CreatedAt, d.ExpiresAt,
-	)
+		 VALUES ($1, $2, $3, $4, $5, now(), now(), now() + ($6 * interval '1 second'))
+		 RETURNING next_retry_at, created_at, expires_at`,
+		d.MessageID, d.Status, d.Attempts, d.MaxAttempts, d.LastError, ttlSeconds,
+	).Scan(&d.NextRetryAt, &d.CreatedAt, &d.ExpiresAt)
 	if err != nil {
 		return nil, err
 	}
