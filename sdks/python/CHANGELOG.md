@@ -1,5 +1,38 @@
 # Changelog
 
+## 2.4.0
+
+### Added
+- `idempotency_key` parameter on `E2AClient.approve_message()` and its
+  async counterpart (and on the lower-level `E2AApi.approve_message()`).
+  Approve fires a real SES send, so without a stable key a retry after
+  a transient failure could double-send. When supplied it's threaded
+  through as the `Idempotency-Key` header; when omitted the SDK mints
+  a fresh UUIDv4 per call — that gives network-layer retry safety only.
+  Supply a stable key derived from the review event (typically the
+  pending `message_id`) to dedupe across an explicit retry loop.
+- `sort`, `from_`, `subject_contains`, `conversation_id`, `since`,
+  `until` kwargs on `E2AApi.list_messages()` and the high-level
+  `E2AClient.get_messages()` (sync + async). `sort` defaults
+  server-side to newest-first; pass `"asc"` for FIFO polling. The
+  substring filters are case-insensitive and capped at 200 chars
+  server-side. `since` / `until` accept RFC3339 timestamps and
+  bracket `created_at`. Filter values are encoded into `next_token`,
+  so continuation requests must keep the same filter values.
+
+### Changed
+- **Default sort flipped to newest-first** on `GET /messages`. Prior
+  releases silently returned oldest-first for `direction=inbound` (the
+  SDK default) and newest-first for `direction=all`. A polling agent
+  that relied on FIFO drain order should now pass `sort="asc"` to
+  preserve the old behavior.
+- `agent_mode` is now a required field on `RegisterAgentRequest`. The
+  server previously silently defaulted to `"cloud"` and then 400'd
+  with a cryptic "webhook_url is required" message; it now explicitly
+  rejects requests missing `agent_mode` with a clear error. Pydantic
+  v2 will raise a validation error if you instantiate the request
+  without it. Set `agent_mode="local"` or `"cloud"` explicitly.
+
 ## 2.3.0
 
 ### Added
