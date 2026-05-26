@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import { useAuth } from "../AuthProvider";
 import { usePendingCount } from "../hooks/usePendingCount";
 
-type IconKey = "plus" | "grid" | "clock" | "globe" | "key" | "settings" | "msg" | "shield";
+type IconKey = "plus" | "grid" | "clock" | "globe" | "key" | "settings" | "msg" | "shield" | "card";
 
 const ICONS: Record<IconKey, ReactNode> = {
   plus: (
@@ -49,6 +49,13 @@ const ICONS: Record<IconKey, ReactNode> = {
     </>
   ),
   msg: <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />,
+  card: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3 10h18" />
+      <path d="M7 15h3" />
+    </>
+  ),
   // Shield-with-checkmark — denotes the signing-secret integrity guard.
   // Matches the "API keys" icon's silhouette weight so the credential
   // pair reads as visually related in the sidebar.
@@ -93,6 +100,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/domains", label: "Domains", icon: "globe" },
   { href: "/api-keys", label: "API keys", icon: "key" },
   { href: "/webhook-secrets", label: "Webhook secrets", icon: "shield" },
+  { href: "/billing", label: "Billing", icon: "card" },
 ];
 
 function NavIcon({ kind }: { kind: IconKey }) {

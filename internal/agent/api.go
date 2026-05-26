@@ -22,6 +22,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/hitlnotify"
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/ratelimit"
@@ -171,6 +172,10 @@ type API struct {
 	oauthProvider  fosite.OAuth2Provider  // optional; if nil, /api/oauth/* endpoints return 404
 	oauthStorage   *oauth.Storage         // optional; consent handler needs Pool() for cross-package tx
 	idempotency    *idempotency.Store     // optional; when nil, Idempotency-Key header is ignored
+	enforcer       limits.Enforcer        // optional; when nil, all limit checks are skipped (effectively unlimited)
+	usageStore     *usage.Store           // optional; needed by handleGetMyLimits to surface current counts
+	internalAPISecret string              // optional; when empty, /api/internal/* endpoints return 503
+	billingHookURL string                 // optional; when set, handleDeleteUserData POSTs an HMAC-signed user-deleted notice here (sidecar's /api/internal/billing/cancel)
 }
 
 // SetApprovalSigner wires in the magic-link signer after construction so
@@ -205,6 +210,34 @@ func (a *API) SetOAuthStorage(s *oauth.Storage) { a.oauthStorage = s }
 // environments that don't have postgres wired or want to disable
 // the feature. The cmd/e2a runtime always sets it.
 func (a *API) SetIdempotencyStore(s *idempotency.Store) { a.idempotency = s }
+
+// SetEnforcer wires in the resource-limits enforcer. When nil (the
+// default) every check passes — handlers behave as if every user has
+// unlimited capacity. The cmd/e2a runtime always sets it; tests that
+// don't care about limits omit it and continue to work as before.
+func (a *API) SetEnforcer(e limits.Enforcer) { a.enforcer = e }
+
+// SetUsageStore wires in the usage store used by handleGetMyLimits to
+// surface the user's current counts (agents, domains, messages this
+// month, storage bytes) alongside the resolved caps. Separate from the
+// usage.UsageTracker (which is for recording events) so the dashboard
+// read path can stay alive even when usage-tracking is otherwise off.
+func (a *API) SetUsageStore(s *usage.Store) { a.usageStore = s }
+
+// SetInternalAPISecret wires in the shared HMAC secret used to
+// authenticate the /api/internal/limits/invalidate endpoint. When
+// empty (default), that endpoint returns 503 — self-host operators
+// who don't run a billing provisioner never need to configure it.
+func (a *API) SetInternalAPISecret(s string) { a.internalAPISecret = s }
+
+// SetBillingHookURL wires in the URL of an external billing service's
+// user-event endpoint. When the user deletes their account, the API
+// HMAC-signs a JSON payload and POSTs it there so the billing service
+// can cancel the corresponding Stripe subscription. When empty (the
+// self-host default), no hook fires — appropriate for deployments
+// without a billing service. The same internal_api_secret is reused
+// for the signature.
+func (a *API) SetBillingHookURL(s string) { a.billingHookURL = s }
 
 func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.SMTPRelay, userAuth *auth.UserAuth, usage usage.UsageTracker, smtpDomain, fromDomain, sharedDomain, publicURL string, production bool) *API {
 	return &API{
@@ -262,6 +295,19 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	// no way to target someone else's data.
 	r.HandleFunc("/api/v1/users/me/export", a.handleExportUserData).Methods("GET")
 	r.HandleFunc("/api/v1/users/me", a.handleDeleteUserData).Methods("DELETE")
+
+	// Internal machine-to-machine endpoint: the external limits
+	// provisioner (hosted billing sidecar) calls this to bust the
+	// in-process limits cache for a given user immediately after it
+	// writes account_limits. Authenticated by shared HMAC over the
+	// request body; deliberately not advertised in OpenAPI.
+	r.HandleFunc("/api/internal/limits/invalidate", a.handleInvalidateLimits).Methods("POST")
+
+	// Current user's resource limits + month-to-date usage. Dashboard
+	// reads this on every page load to render the "you've used X of Y"
+	// surface and an upgrade affordance when an external provisioner
+	// has populated an upgrade_url.
+	r.HandleFunc("/api/v1/users/me/limits", a.handleGetMyLimits).Methods("GET")
 
 	// Per-user webhook signing secrets — multi-secret rotation, fully
 	// user-managed (create + delete; no auto-rotation, no TTL).
@@ -602,6 +648,21 @@ func (a *API) handleRegisterAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Enforce the per-user agent cap. Done after auth + domain checks so
+	// unauthenticated / invalid-domain callers see the same 401/400 they
+	// would without limits enabled — the 402 is reserved for "valid
+	// request, but you're out of capacity."
+	if a.enforcer != nil {
+		if err := a.enforcer.CheckAgentCreate(r.Context(), user.ID); err != nil {
+			if limits.WriteLimitError(w, err) {
+				return
+			}
+			log.Printf("[api] limits.CheckAgentCreate error: %v", err)
+			http.Error(w, "limits check failed", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	// agent_mode is required (no implicit default — see RegisterAgentRequest
 	// docs). The old behavior defaulted to "cloud" and then 400'd with
 	// "webhook_url is required for cloud agent mode" on innocuous slug-only
@@ -910,6 +971,20 @@ func (a *API) handleRegisterDomain(w http.ResponseWriter, r *http.Request) {
 	if a.sharedDomain != "" && strings.EqualFold(req.Domain, a.sharedDomain) {
 		http.Error(w, "reserved domain", http.StatusBadRequest)
 		return
+	}
+
+	// Enforce the per-user domain cap. Reserved-domain rejection above
+	// runs first because a reserved attempt is invalid regardless of
+	// capacity — surface the more specific error.
+	if a.enforcer != nil {
+		if err := a.enforcer.CheckDomainCreate(r.Context(), user.ID); err != nil {
+			if limits.WriteLimitError(w, err) {
+				return
+			}
+			log.Printf("[api] limits.CheckDomainCreate error: %v", err)
+			http.Error(w, "limits check failed", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	domainRecord, err := a.store.ClaimOrCreateDomain(r.Context(), req.Domain, user.ID)
@@ -1449,6 +1524,22 @@ func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enforce the per-user message-flow + storage caps before any
+	// expensive work (HITL hold, MIME compose, SES handoff). HITL holds
+	// count: a held message will eventually be sent, so admitting it
+	// past the cap would let users bank thousands of holds against a
+	// future downgrade.
+	if a.enforcer != nil {
+		if err := a.enforcer.CheckMessageSend(r.Context(), user.ID); err != nil {
+			if limits.WriteLimitError(w, err) {
+				return
+			}
+			log.Printf("[api] limits.CheckMessageSend error: %v", err)
+			http.Error(w, "limits check failed", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	selfSend := isSelfSend(req, agent.EmailAddress())
 
 	// HITL applies to self-sends too — the gate is "did a human
@@ -1463,7 +1554,10 @@ func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Record usage (side-effect only — never block on quota)
+	// Record usage (side-effect only — never block on quota; the
+	// pre-check above is the gate. RecordAndCheck stays "record" because
+	// it also fires from background workers (hitlworker, magic-link
+	// approval) where a pre-check has already happened upstream.)
 	if _, err := a.usage.RecordAndCheck(r.Context(), user.ID, agent.ID, agent.Domain, "outbound"); err != nil {
 		log.Printf("[api] usage recording error: %v", err)
 	}
@@ -1559,6 +1653,19 @@ func (a *API) handleSendTestEmail(w http.ResponseWriter, r *http.Request) {
 	if !agent.DomainVerified {
 		http.Error(w, "agent domain must be verified before sending test email", http.StatusForbidden)
 		return
+	}
+
+	// Test sends count against the cap — they're a real outbound
+	// message that flows through SES (or loopback under HITL). No carve-out.
+	if a.enforcer != nil {
+		if err := a.enforcer.CheckMessageSend(r.Context(), user.ID); err != nil {
+			if limits.WriteLimitError(w, err) {
+				return
+			}
+			log.Printf("[api] limits.CheckMessageSend error: %v", err)
+			http.Error(w, "limits check failed", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	envelopeFrom := fmt.Sprintf("noreply@%s", a.fromDomain)
@@ -1681,6 +1788,19 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 	if !agent.DomainVerified {
 		http.Error(w, "agent domain must be verified before sending", http.StatusForbidden)
 		return
+	}
+
+	// Enforce message-flow + storage caps before composing the reply.
+	// See handleSendEmail for the rationale on HITL accounting.
+	if a.enforcer != nil {
+		if err := a.enforcer.CheckMessageSend(r.Context(), user.ID); err != nil {
+			if limits.WriteLimitError(w, err) {
+				return
+			}
+			log.Printf("[api] limits.CheckMessageSend error: %v", err)
+			http.Error(w, "limits check failed", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	var req ReplyRequest

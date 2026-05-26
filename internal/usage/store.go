@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -93,6 +95,59 @@ func (s *Store) CountAgentsByUser(ctx context.Context, userID string) (int, erro
 		`SELECT COUNT(*) FROM agent_identities WHERE user_id = $1`, userID,
 	).Scan(&count)
 	return count, err
+}
+
+// CountDomainsByUser returns the number of domains owned by the user.
+// Used by the limits enforcer to check max_domains caps. Counts every
+// row in domains regardless of verification status; an unverified
+// domain still consumes a slot until the user deletes it.
+func (s *Store) CountDomainsByUser(ctx context.Context, userID string) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM domains WHERE user_id = $1`, userID,
+	).Scan(&count)
+	return count, err
+}
+
+// MessagesThisMonth returns the user's inbound+outbound message count
+// for the current UTC calendar month, summed from usage_summaries.
+// Returns 0 with no error if the user has no rows yet. The reference is
+// time.Now().UTC() so server clocks crossing midnight UTC roll the
+// counter consistently with the daily bucket_date written by
+// IncrementUsageSummary.
+func (s *Store) MessagesThisMonth(ctx context.Context, userID string) (int, error) {
+	now := time.Now().UTC()
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
+	var count int
+	err := s.pool.QueryRow(ctx,
+		`SELECT COALESCE(SUM(total_count), 0)
+		   FROM usage_summaries
+		  WHERE user_id = $1 AND bucket_date >= $2`,
+		userID, monthStart,
+	).Scan(&count)
+	return count, err
+}
+
+// GetStorageBytes returns the user's current materialized storage bytes
+// from account_usage. Returns 0 with no error if the user has no row
+// yet — the trigger in migration 016 lazily creates the row on first
+// message insert, so a pre-message user legitimately has 0 storage.
+func (s *Store) GetStorageBytes(ctx context.Context, userID string) (int64, error) {
+	var bytes int64
+	err := s.pool.QueryRow(ctx,
+		`SELECT storage_bytes FROM account_usage WHERE user_id = $1`, userID,
+	).Scan(&bytes)
+	if err != nil {
+		// No row yet → 0 bytes. The trigger creates rows lazily on
+		// first message insert, so a pre-message user legitimately has
+		// 0 storage and should not see a synthetic error on first
+		// dashboard load.
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return bytes, nil
 }
 
 func generateBillingID() string {

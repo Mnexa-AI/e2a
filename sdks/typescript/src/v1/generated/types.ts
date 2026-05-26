@@ -1553,6 +1553,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/me/limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the current user's limits and usage
+         * @description Returns the resolved per-user caps (from account_limits or operator defaults) plus the user's current usage. Dashboard uses this to render the upgrade affordance and the "you've used X of Y" surface.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LimitsInfo"];
+                    };
+                };
+                /** @description Missing or invalid API key */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Limits subsystem not configured */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me/signing-secrets": {
         parameters: {
             query?: never;
@@ -1855,6 +1912,24 @@ export interface components {
             verification_token?: string;
             verified?: boolean;
             verified_at?: string;
+        };
+        LimitsCaps: {
+            max_agents?: number;
+            max_domains?: number;
+            max_messages_month?: number;
+            max_storage_bytes?: number;
+        };
+        LimitsInfo: {
+            limits?: components["schemas"]["LimitsCaps"];
+            plan_code?: string;
+            upgrade_url?: string;
+            usage?: components["schemas"]["LimitsUsage"];
+        };
+        LimitsUsage: {
+            agents?: number;
+            domains?: number;
+            messages_month?: number;
+            storage_bytes?: number;
         };
         ListAgentsResponse: {
             agents?: components["schemas"]["Agent"][];

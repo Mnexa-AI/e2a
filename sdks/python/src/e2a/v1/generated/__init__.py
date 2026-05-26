@@ -143,6 +143,26 @@ class Domain(BaseModel):
     verified_at: str | None = None
 
 
+class LimitsCaps(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    max_agents: int | None = None
+    max_domains: int | None = None
+    max_messages_month: int | None = None
+    max_storage_bytes: int | None = None
+
+
+class LimitsUsage(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    agents: int | None = None
+    domains: int | None = None
+    messages_month: int | None = None
+    storage_bytes: int | None = None
+
+
 class ListAgentsResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -407,6 +427,16 @@ class ApprovePendingMessageRequest(BaseModel):
     cc: list[str] | None = None
     subject: str | None = None
     to: list[str] | None = None
+
+
+class LimitsInfo(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    limits: LimitsCaps | None = None
+    plan_code: str | None = None
+    upgrade_url: str | None = None
+    usage: LimitsUsage | None = None
 
 
 class ListMessagesResponse(BaseModel):

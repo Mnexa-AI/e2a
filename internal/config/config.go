@@ -27,6 +27,7 @@ type Config struct {
 	OAuth        OAuthConfig        `yaml:"oauth"`
 	Signing      SigningConfig      `yaml:"signing"`
 	OutboundSMTP OutboundSMTPConfig `yaml:"outbound_smtp"`
+	Limits       LimitsConfig       `yaml:"limits"`
 	Env          string             `yaml:"env"` // "development" or "production"
 	// SharedDomain enables slug-based agent registration. When set
 	// (e.g. "agents.example.com"), users can register agents with just a
@@ -79,6 +80,43 @@ type OutboundSMTPConfig struct {
 	FromDomain string `yaml:"from_domain"`
 }
 
+// LimitsConfig is the operator-configured fallback applied to any user
+// who does not yet have a row in account_limits. The hosted billing
+// sidecar populates rows for paying customers; self-hosted operators
+// who do not run a billing service rely on these defaults for every
+// user. Defaults below intentionally lean generous so a self-host that
+// never touches the limits subsystem is not accidentally throttled.
+//
+// Hosted-service operators who want every brand-new signup capped to a
+// "free" shape should set these to the Free-tier numbers — the sidecar
+// will then overwrite them on upgrade.
+type LimitsConfig struct {
+	PlanCode         string `yaml:"plan_code"`
+	MaxAgents        int    `yaml:"max_agents"`
+	MaxDomains       int    `yaml:"max_domains"`
+	MaxMessagesMonth int    `yaml:"max_messages_month"`
+	MaxStorageBytes  int64  `yaml:"max_storage_bytes"`
+	// CacheTTLSeconds controls how long resolved Limits are cached
+	// in-process. The cache covers the account_limits read only; current
+	// usage counts are always live. Set to 0 to disable caching
+	// (recommended for tests that mutate account_limits and want
+	// immediate visibility).
+	CacheTTLSeconds int `yaml:"cache_ttl_seconds"`
+	// InternalAPISecret is the shared HMAC secret the external limits
+	// provisioner (e.g. the hosted billing sidecar) uses to authenticate
+	// to /api/internal/limits/invalidate. When empty (the self-host
+	// default), that endpoint returns 503 — no provisioner, no
+	// invalidation. Must be set to the same value on both ends.
+	InternalAPISecret string `yaml:"internal_api_secret"`
+	// BillingHookURL is the URL the OSS server POSTs to when a user
+	// deletes their account, so the external billing service (e.g.
+	// the hosted billing sidecar's /api/internal/billing/cancel) can
+	// cancel the user's Stripe subscription. Empty disables the call
+	// — appropriate for self-host without billing. The same
+	// InternalAPISecret signs the POST body.
+	BillingHookURL string `yaml:"billing_hook_url"`
+}
+
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -93,6 +131,17 @@ func Load(path string) (*Config, error) {
 		HTTP: HTTPConfig{
 			ListenAddr: ":8080",
 		},
+		// Generous defaults so self-host operators who do not configure
+		// `limits:` are not accidentally throttled. Hosted operators
+		// override these in config.prod.yaml.
+		Limits: LimitsConfig{
+			PlanCode:         "default",
+			MaxAgents:        1_000_000,
+			MaxDomains:       1_000_000,
+			MaxMessagesMonth: 1_000_000_000,
+			MaxStorageBytes:  1 << 50, // 1 PiB
+			CacheTTLSeconds:  60,
+		},
 		Env: "development",
 	}
 
@@ -103,6 +152,9 @@ func Load(path string) (*Config, error) {
 	// Env overrides — secrets only (never duplicated in yaml)
 	if v := os.Getenv("E2A_DATABASE_URL"); v != "" {
 		cfg.Database.URL = v
+	}
+	if v := os.Getenv("E2A_INTERNAL_API_SECRET"); v != "" {
+		cfg.Limits.InternalAPISecret = v
 	}
 	if v := os.Getenv("E2A_HMAC_SECRET"); v != "" {
 		cfg.Signing.HMACSecret = v

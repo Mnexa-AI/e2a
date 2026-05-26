@@ -211,6 +211,39 @@ definitions:
       verified_at:
         type: string
     type: object
+  LimitsCaps:
+    properties:
+      max_agents:
+        type: integer
+      max_domains:
+        type: integer
+      max_messages_month:
+        type: integer
+      max_storage_bytes:
+        type: integer
+    type: object
+  LimitsInfo:
+    properties:
+      limits:
+        $ref: '#/definitions/LimitsCaps'
+      plan_code:
+        type: string
+      upgrade_url:
+        type: string
+      usage:
+        $ref: '#/definitions/LimitsUsage'
+    type: object
+  LimitsUsage:
+    properties:
+      agents:
+        type: integer
+      domains:
+        type: integer
+      messages_month:
+        type: integer
+      storage_bytes:
+        type: integer
+    type: object
   ListAgentsResponse:
     properties:
       agents:
@@ -2031,6 +2064,31 @@ paths:
       summary: Export your data
       tags:
       - User
+  /api/v1/users/me/limits:
+    get:
+      description: Returns the resolved per-user caps (from account_limits or operator
+        defaults) plus the user's current usage. Dashboard uses this to render the
+        upgrade affordance and the "you've used X of Y" surface.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/LimitsInfo'
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "503":
+          description: Limits subsystem not configured
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get the current user's limits and usage
+      tags:
+      - Users
   /api/v1/users/me/signing-secrets:
     get:
       description: Returns the authenticated user's webhook signing secrets (metadata,

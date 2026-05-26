@@ -1,9 +1,17 @@
 package agent
 
 import (
+	"bytes"
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
 )
@@ -122,6 +130,21 @@ func (a *API) handleDeleteUserData(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Best-effort notify of the external billing hook (sidecar) BEFORE
+	// the cascade. The hook is responsible for canceling the user's
+	// Stripe subscription so they stop being billed. We do NOT block
+	// account deletion on this — if the hook is unreachable or the
+	// underlying Stripe call fails, log loud and proceed. A reconciler
+	// (post-launch follow-up) catches the orphan.
+	//
+	// Self-host operators who don't run a billing service leave
+	// billingHookURL empty; the call is then a no-op.
+	if a.billingHookURL != "" {
+		if err := a.notifyBillingUserDeleted(r.Context(), user.ID); err != nil {
+			log.Printf("[api] billing-hook user-delete failed (continuing): user=%s err=%v", user.ID, err)
+		}
+	}
+
 	res, err := a.store.DeleteUserData(r.Context(), user.ID)
 	if err != nil {
 		log.Printf("[api] delete user data failed: user=%s err=%v", user.ID, err)
@@ -136,4 +159,42 @@ func (a *API) handleDeleteUserData(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, res)
+}
+
+// notifyBillingUserDeleted HMAC-POSTs to the external billing hook so
+// the user's Stripe subscription gets canceled before the OSS cascade
+// removes the rest of their data. Caller already checked
+// a.billingHookURL is non-empty.
+//
+// Returns an error on transport / non-204 status, but the caller logs
+// + continues — we never block a user's account deletion on a
+// billing-side outage. A reconciler picks up any orphaned customer
+// records later.
+func (a *API) notifyBillingUserDeleted(ctx context.Context, userID string) error {
+	body, err := json.Marshal(map[string]string{"user_id": userID})
+	if err != nil {
+		return err
+	}
+	h := hmac.New(sha256.New, []byte(a.internalAPISecret))
+	h.Write(body)
+	sig := hex.EncodeToString(h.Sum(nil))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.billingHookURL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-E2A-Internal-Signature", sig)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("billing hook returned %d: %s", resp.StatusCode, string(b))
+	}
+	return nil
 }
