@@ -74,30 +74,51 @@ test("reliability: WS to own agent opens", async () => {
 });
 
 test("reliability: WS without api_key fails to open", async () => {
+  let opened = false;
   try {
-    await openWS(wsUrl(sharedAgentEmail), null, 3_000);
-    fail(SUITE, "ws-unauth-open", "WS opened without auth — should have rejected");
+    const ws = await openWS(wsUrl(sharedAgentEmail), null, 3_000);
+    opened = true;
+    try { ws.close(); } catch {}
   } catch {
-    info(SUITE, "ws-unauth-rejected", "WS without api_key correctly rejected");
+    // expected — rejection is correct
   }
+  if (opened) {
+    fail(SUITE, "ws-unauth-open", "WS opened without auth — should have rejected");
+    assert.fail("WS without api_key opened successfully — auth gate broken");
+  }
+  info(SUITE, "ws-unauth-rejected", "WS without api_key correctly rejected");
 });
 
 test("reliability: WS with wrong api_key fails to open", async () => {
+  let opened = false;
   try {
-    await openWS(wsUrl(sharedAgentEmail), "e2a_00000000000000000000000000000000", 3_000);
-    fail(SUITE, "ws-badkey-open", "WS opened with bogus key — should have rejected");
+    const ws = await openWS(wsUrl(sharedAgentEmail), "e2a_00000000000000000000000000000000", 3_000);
+    opened = true;
+    try { ws.close(); } catch {}
   } catch {
-    info(SUITE, "ws-badkey-rejected", "WS with bogus api_key correctly rejected");
+    // expected
   }
+  if (opened) {
+    fail(SUITE, "ws-badkey-open", "WS opened with bogus key — should have rejected");
+    assert.fail("WS with bogus api_key opened successfully — auth gate broken");
+  }
+  info(SUITE, "ws-badkey-rejected", "WS with bogus api_key correctly rejected");
 });
 
 test("reliability: WS to non-owned agent fails to open", async () => {
+  let opened = false;
   try {
-    await openWS(wsUrl("nobody@example.com"), client.env.apiKey, 3_000);
-    fail(SUITE, "ws-cross-tenant", "WS opened against non-owned agent — cross-tenant break");
+    const ws = await openWS(wsUrl("nobody@example.com"), client.env.apiKey, 3_000);
+    opened = true;
+    try { ws.close(); } catch {}
   } catch {
-    info(SUITE, "ws-cross-tenant-rejected", "WS to non-owned agent correctly rejected");
+    // expected
   }
+  if (opened) {
+    fail(SUITE, "ws-cross-tenant", "WS opened against non-owned agent — cross-tenant break");
+    assert.fail("WS opened against an unowned agent — cross-tenant guard broken");
+  }
+  info(SUITE, "ws-cross-tenant-rejected", "WS to non-owned agent correctly rejected");
 });
 
 test("reliability: WS reconnect cycle (open → close → open) works", async () => {

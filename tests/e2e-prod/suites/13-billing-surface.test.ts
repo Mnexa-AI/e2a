@@ -103,6 +103,9 @@ test("billing: GET /api/billing/health returns 200", async () => {
 test("billing: GET /api/billing/checkout is rejected (CSRF discipline — POST only)", async () => {
   // Under SameSite=Lax, a top-level GET navigation forwards the session cookie.
   // The billing endpoints were intentionally moved to POST-only as a CSRF defense.
+  // Harness uses redirect:"manual" (client.ts) so any 200 or 3xx here is the
+  // smoking-gun leak: it means a top-level <a> click could mint a real Stripe
+  // checkout session for a victim's account.
   const r = await client.get("/api/billing/checkout");
   if (r.status === 200 || (r.status >= 300 && r.status < 400)) {
     fail(
@@ -110,7 +113,7 @@ test("billing: GET /api/billing/checkout is rejected (CSRF discipline — POST o
       "billing-checkout-get-leak",
       `GET /api/billing/checkout returned ${r.status} — should be 405/404 to prevent CSRF via top-level navigation. Body: ${r.raw.slice(0, 200)}`,
     );
-    return;
+    assert.fail(`GET /api/billing/checkout must reject with 4xx; got ${r.status}`);
   }
   // 405 / 404 / 401 are all acceptable rejection codes here.
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
@@ -124,7 +127,7 @@ test("billing: GET /api/billing/portal is rejected (CSRF discipline — POST onl
       "billing-portal-get-leak",
       `GET /api/billing/portal returned ${r.status} — should be 405/404 to prevent CSRF. Body: ${r.raw.slice(0, 200)}`,
     );
-    return;
+    assert.fail(`GET /api/billing/portal must reject with 4xx; got ${r.status}`);
   }
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
@@ -142,6 +145,7 @@ test("billing: POST /api/billing/checkout without auth returns 401", async () =>
       "billing-checkout-no-auth-accepted",
       `POST /api/billing/checkout with no creds returned ${r.status} — must require auth`,
     );
+    assert.fail(`POST /api/billing/checkout without auth must reject with 4xx; got ${r.status}`);
   }
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });

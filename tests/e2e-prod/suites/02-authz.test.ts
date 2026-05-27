@@ -37,17 +37,25 @@ test("authz: random API key without 'e2a_' prefix returns 401", async () => {
 });
 
 test("authz: 401 body does NOT leak hint about key validity", async () => {
+  // Both keys are bogus. r1 has the e2a_ prefix and the right length; r2
+  // is unrelated garbage. A correct auth gate must return byte-identical
+  // 401 responses for both so an attacker can't distinguish "key shape
+  // is right but invalid" from "completely malformed input."
   const r1 = await client.get("/api/v1/agents", { apiKey: "e2a_00000000000000000000000000000000" });
   const r2 = await client.get("/api/v1/agents", { apiKey: "garbage" });
-  if (r1.raw === r2.raw) {
-    info(SUITE, "401-uniform", "401 bodies are identical for malformed vs bogus-but-shaped — good (no oracle)");
-  } else {
-    info(
+  assert.equal(r1.status, 401, `r1 expected 401, got ${r1.status}`);
+  assert.equal(r2.status, 401, `r2 expected 401, got ${r2.status}`);
+  if (r1.raw !== r2.raw) {
+    fail(
       SUITE,
-      "401-uniform",
-      `401 bodies differ between malformed and well-shaped bogus keys. Could be a weak side-channel oracle. Bodies: "${r1.raw.slice(0, 80)}" vs "${r2.raw.slice(0, 80)}"`,
+      "401-oracle",
+      `401 bodies differ between malformed and well-shaped bogus keys — side-channel oracle. Bodies: "${r1.raw.slice(0, 80)}" vs "${r2.raw.slice(0, 80)}"`,
+    );
+    assert.fail(
+      `401 bodies must be byte-identical to avoid leaking key-shape info; r1=${JSON.stringify(r1.raw.slice(0, 60))} r2=${JSON.stringify(r2.raw.slice(0, 60))}`,
     );
   }
+  info(SUITE, "401-uniform", "401 bodies are identical for malformed vs bogus-but-shaped — good (no oracle)");
 });
 
 test("authz: bogus 'from' on /send returns 4xx (cannot impersonate)", async () => {

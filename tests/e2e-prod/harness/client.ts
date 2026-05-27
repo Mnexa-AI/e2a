@@ -61,7 +61,16 @@ export class ApiClient {
       headers["Content-Type"] = headers["Content-Type"] ?? "application/json";
     }
     const t0 = performance.now();
-    const res = await fetch(url, { method, headers, body });
+    // redirect: "manual" stops fetch from transparently following 3xx
+    // responses. The default `"follow"` makes tests assert against
+    // whatever the redirect target replies — which silently defeats
+    // CSRF-discipline checks like "/api/billing/checkout via GET must
+    // be rejected" if the endpoint ever started returning 302 →
+    // Stripe (fetch would follow to Stripe and the test would assert
+    // against Stripe's response, not ours). We test API endpoints, so
+    // a 3xx from any of our routes is a real signal that callers must
+    // see, not transparently swallow.
+    const res = await fetch(url, { method, headers, body, redirect: "manual" });
     const raw = await res.text();
     const latencyMs = performance.now() - t0;
     let parsed: T | null = null;

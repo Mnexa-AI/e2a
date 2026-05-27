@@ -101,7 +101,15 @@ test("concurrency: parallel PUT toggles converge to a final state (no 500)", asy
   assert.equal(typeof final.body?.hitl_enabled, "boolean");
 });
 
-test("concurrency: parallel DELETE of the same agent — one succeeds, rest 403/4xx, never 500", async () => {
+test("concurrency: parallel DELETE of the same agent is idempotent under contention (no 5xx)", async () => {
+  // Two valid designs exist:
+  //   - First-writer-wins: one 2xx, rest 403/404 (anti-enumeration).
+  //   - Idempotent delete: all 2xx (DELETE is conceptually a state assertion).
+  // Both are defensible. The non-negotiable invariant is "no 5xx under
+  // contention" — the test name was renamed from "one succeeds, rest 4xx"
+  // because the previous assert (>=1 success) accepted all 4 returning
+  // 2xx and only emitted info(). If you want to lock in first-writer-wins
+  // specifically, tighten the assertion to ok.length === 1.
   const slug = uniqueSlug("del");
   const c = await client.post<{ email: string }>("/api/v1/agents", {
     body: { slug, name: "del", agent_mode: "local" },
@@ -117,8 +125,15 @@ test("concurrency: parallel DELETE of the same agent — one succeeds, rest 403/
   const fivexx = results.filter((r) => r.status >= 500);
   assert.equal(fivexx.length, 0, `no 5xx under parallel delete, got: ${results.map((r) => r.status).join(",")}`);
   assert.ok(ok.length >= 1, `at least one delete should succeed, got ${ok.length}: ${results.map((r) => r.status).join(",")}`);
+  // Final state check: a GET after all the parallel deletes must say 403
+  // (anti-enumeration on deleted) — confirms the agent is actually gone
+  // regardless of which delete "won."
+  const after = await client.get(`/api/v1/agents/${encodeURIComponent(email)}`);
+  assert.equal(after.status, 403, `after parallel delete, GET expected 403, got ${after.status}`);
   if (ok.length > 1) {
-    info(SUITE, "delete-idempotent", `${ok.length} parallel deletes all returned 2xx — endpoint is idempotent (fine, but worth noting)`);
+    info(SUITE, "delete-idempotent", `${ok.length} parallel deletes returned 2xx — server treats DELETE as idempotent`);
+  } else {
+    info(SUITE, "delete-first-writer-wins", `${ok.length} parallel delete succeeded, ${results.length - ok.length} got 4xx — first-writer-wins design`);
   }
 });
 

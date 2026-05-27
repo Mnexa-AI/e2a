@@ -28,7 +28,10 @@ test("domains: register returns 201 with DNS records + zero-counted Domain", asy
   );
   if (r.status !== 201) {
     fail(SUITE, "register-non-201", `expected 201, got ${r.status}: ${r.raw.slice(0, 240)}`);
-    return;
+    // Hard assert — the primary register test of the domains suite must
+    // fail loudly if POST /domains regresses, not just record a JSON
+    // finding behind a green node:test dot.
+    assert.fail(`POST /api/v1/domains expected 201, got ${r.status}: ${r.raw.slice(0, 200)}`);
   }
   track("domain", domain);
   assert.equal(r.body?.domain, domain, "echoed domain matches");

@@ -62,6 +62,9 @@ test("messaging: pagination roundtrip — limit=3 then follow next_token; no dup
   const overlap = [...ids1].filter((id) => ids2.has(id));
   if (overlap.length > 0) {
     fail(SUITE, "pagination-duplicate-ids", `${overlap.length} ids appear on both pages: ${overlap.slice(0, 5).join(",")}`);
+    // Cleanup before throwing so we don't leak HITL-held messages.
+    for (const id of queued) await client.post(`/api/v1/messages/${id}/reject`, { body: { reason: "e2e pagination cleanup" } });
+    assert.fail(`pagination roundtrip returned ${overlap.length} duplicate id(s) — pagination is broken`);
   }
   // Cleanup.
   for (const id of queued) await client.post(`/api/v1/messages/${id}/reject`, { body: { reason: "e2e pagination cleanup" } });
@@ -90,9 +93,15 @@ test("messaging: Idempotency-Key replay — same key+body returns same message_i
       "idem-key-not-replayed",
       `same Idempotency-Key + same body yielded different message_id: ${firstId} → ${r2.body?.message_id}. Server should replay original response, not re-queue.`,
     );
-  } else {
-    info(SUITE, "idem-key-replayed", `Idempotency-Key replay correct: same key+body → same message_id ${firstId}`);
+    // Hard assert — Idempotency-Key semantics are a financial-stakes
+    // contract (double-send protection on approve). Don't paper over.
+    await client.post(`/api/v1/messages/${firstId}/reject`, { body: { reason: "e2e idem cleanup pre-fail" } });
+    if (r2.body?.message_id) {
+      await client.post(`/api/v1/messages/${r2.body.message_id}/reject`, { body: { reason: "e2e idem cleanup pre-fail" } });
+    }
+    assert.fail(`Idempotency-Key replay broken: ${firstId} !== ${r2.body?.message_id}`);
   }
+  info(SUITE, "idem-key-replayed", `Idempotency-Key replay correct: same key+body → same message_id ${firstId}`);
 
   // Different body, same key → 422 per spec.
   const r3 = await client.post("/api/v1/send", {
