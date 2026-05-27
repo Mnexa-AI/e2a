@@ -59,6 +59,43 @@ func TestCreateAgentDuplicate(t *testing.T) {
 	}
 }
 
+// TestClaimOrCreateDomain_StableOnReclaim asserts that re-claiming an
+// unverified domain returns the row unchanged: the verification_token
+// and DKIM public key minted on the first call must survive the second.
+// A caller that has already published the TXT record on DNS would
+// otherwise be silently invalidated by a benign second register call
+// (e.g. an agent re-fetching the records to show the user).
+func TestClaimOrCreateDomain_StableOnReclaim(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-stable@example.com", "Owner", "google-stable-token")
+
+	first, err := store.ClaimOrCreateDomain(ctx, "stable.example.com", user.ID)
+	if err != nil {
+		t.Fatalf("first ClaimOrCreateDomain: %v", err)
+	}
+	if first.VerificationToken == "" {
+		t.Fatal("first call returned empty VerificationToken")
+	}
+
+	second, err := store.ClaimOrCreateDomain(ctx, "stable.example.com", user.ID)
+	if err != nil {
+		t.Fatalf("second ClaimOrCreateDomain: %v", err)
+	}
+
+	if second.VerificationToken != first.VerificationToken {
+		t.Errorf("VerificationToken rotated on reclaim: first=%q second=%q", first.VerificationToken, second.VerificationToken)
+	}
+	if second.DKIMPublicKey != first.DKIMPublicKey {
+		t.Errorf("DKIMPublicKey rotated on reclaim: first=%q second=%q", first.DKIMPublicKey, second.DKIMPublicKey)
+	}
+	if !second.CreatedAt.Equal(first.CreatedAt) {
+		t.Errorf("CreatedAt changed on reclaim: first=%v second=%v", first.CreatedAt, second.CreatedAt)
+	}
+}
+
 func TestGetAgentByID(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
