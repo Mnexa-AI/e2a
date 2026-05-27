@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"os"
 	"regexp"
@@ -30,6 +31,7 @@ import (
 	"github.com/google/go-github/v72/github"
 	"github.com/gorilla/mux"
 	"github.com/ory/fosite"
+	"golang.org/x/net/idna"
 )
 
 // writeJSON encodes payload as the response body. Logs encoding errors
@@ -285,6 +287,7 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/v1/domains", a.handleListDomains).Methods("GET")
 	r.HandleFunc("/api/v1/domains", a.handleRegisterDomain).Methods("POST")
 	r.HandleFunc("/api/v1/domains/{domain}/verify", a.handleVerifyDomain).Methods("POST")
+	r.HandleFunc("/api/v1/domains/{domain}", a.handleGetDomain).Methods("GET")
 	r.HandleFunc("/api/v1/domains/{domain}", a.handleUpdateDomain).Methods("PATCH")
 	r.HandleFunc("/api/v1/domains/{domain}", a.handleDeleteDomain).Methods("DELETE")
 
@@ -961,13 +964,21 @@ func (a *API) handleRegisterDomain(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.Domain == "" {
-		http.Error(w, "domain is required", http.StatusBadRequest)
+	// Syntactic validation before any DB work — rejects whitespace,
+	// control chars, missing TLD, over-length names, etc., and
+	// normalizes IDN to Punycode. Without this the previous handler
+	// accepted strings like "not a domain, just garbage" and wrote
+	// them straight to billing_customers + DNS records.
+	normalized, err := validateDomain(req.Domain)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	req.Domain = normalized
 	// The configured shared domain is reserved — users cannot claim it
 	// as a custom domain, since it backs slug-based agent registration
-	// for everyone.
+	// for everyone. Compare against the normalized form so an attacker
+	// can't sneak in a homoglyph or trailing whitespace variant.
 	if a.sharedDomain != "" && strings.EqualFold(req.Domain, a.sharedDomain) {
 		http.Error(w, "reserved domain", http.StatusBadRequest)
 		return
@@ -996,6 +1007,58 @@ func (a *API) handleRegisterDomain(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	writeJSON(w, a.domainInfoFromRecord(domainRecord))
+}
+
+// handleGetDomain serves GET /api/v1/domains/{domain}. Returns the
+// caller's view of a single domain they own, including the DNS-record
+// instructions and the current verification + agent-count state. The
+// OpenAPI spec has documented this endpoint since the domains CRUD
+// surface landed, but the route was never registered — clients hitting
+// it got 405 (other methods are wired at the same path) and had to fall
+// back to listing all domains and filtering client-side.
+//
+// Anti-enumeration: an unowned domain returns the same 404 as a
+// nonexistent domain. We never confirm existence to a non-owner.
+//
+// @Summary      Get a domain
+// @Description  Returns the authenticated user's view of a single domain
+//
+//	they own, including DNS records and verification state.
+//	Returns 404 for both nonexistent and unowned domains
+//	(anti-enumeration — we never confirm existence to a
+//	non-owner).
+//
+// @Tags         Domains
+// @Produce      json
+// @Security     BearerAuth
+// @Param        domain path string true "Domain name"
+// @Success      200 {object} Domain "OK"
+// @Failure      401 {string} string "Missing or invalid API key"
+// @Failure      404 {string} string "Domain not found"
+// @Router       /api/v1/domains/{domain} [get]
+func (a *API) handleGetDomain(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticateUser(r)
+	if err != nil {
+		a.writeAuthError(w, r, err)
+		return
+	}
+
+	domain := mux.Vars(r)["domain"]
+	if domain == "" {
+		http.Error(w, "domain is required", http.StatusBadRequest)
+		return
+	}
+
+	d, err := a.store.LookupDomain(r.Context(), domain, user.ID)
+	if err != nil {
+		// LookupDomain is ownership-scoped — same 404 for nonexistent
+		// and unowned. Don't surface the underlying error string.
+		http.Error(w, "domain not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	writeJSON(w, a.domainInfoFromRecord(d))
 }
 
 // dnsRecordCheck holds the per-record probe results for the verify
@@ -1487,6 +1550,15 @@ func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "at least one recipient in to or cc is required", http.StatusBadRequest)
 		return
 	}
+	// Reject syntactically-invalid recipients before queueing. Without
+	// this the message would HITL-queue, consume a slot of the user's
+	// messages_month quota, and only fail downstream at SMTP-time as
+	// an unactionable bounce. Per-recipient delivery success/bounce
+	// for *syntactically-valid* addresses is handled at the SMTP layer.
+	if err := validateRecipients(req.To, req.CC, req.BCC); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if err := validateConversationID(req.ConversationID); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1810,6 +1882,14 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Body == "" {
 		http.Error(w, "body is required", http.StatusBadRequest)
+		return
+	}
+	// User-supplied CC/BCC on the reply must still pass syntactic
+	// validation; the implicit "To" comes from the inbound message
+	// and is trusted to already be valid (SES would have rejected the
+	// inbound otherwise).
+	if err := validateRecipients(req.CC, req.BCC); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if err := validateConversationID(req.ConversationID); err != nil {
@@ -2549,6 +2629,72 @@ func validateConversationID(id string) error {
 		return errors.New("conversation_id must not contain CR or LF")
 	}
 	return nil
+}
+
+// validateRecipients ensures every entry in the joined To/CC/BCC slices
+// is a syntactically valid RFC 5322 address. We use net/mail.ParseAddress
+// rather than a custom regex because it handles bare local@domain,
+// display-name forms ("Bob Smith <bob@x.com>"), quoted local parts, and
+// IDN domains uniformly. Semantic validity (the mailbox actually exists,
+// the user can receive) is checked downstream by the SMTP relay on a
+// per-recipient basis — that's the right layer for best-effort delivery.
+// The API layer's job is only to reject syntactic garbage that could
+// never route through SMTP at all (no @, whitespace, etc.).
+//
+// Returns the first invalid address found, with a wrapped parser error
+// suitable for surfacing to the caller. Empty slices are not an error
+// here — handlers already enforce "at least one recipient" separately
+// with a more specific message.
+func validateRecipients(groups ...[]string) error {
+	for _, group := range groups {
+		for _, addr := range group {
+			if addr == "" {
+				return errors.New("recipient address must not be empty")
+			}
+			if _, err := mail.ParseAddress(addr); err != nil {
+				return fmt.Errorf("invalid recipient %q: %w", addr, err)
+			}
+		}
+	}
+	return nil
+}
+
+// validateDomain runs the IDNA "Lookup" profile against a user-supplied
+// domain string. Lookup is the strictest of the four IDNA profiles and
+// is what DNS resolvers themselves apply when converting a name into
+// a wire-format query — it rejects whitespace, control characters,
+// invalid label combinations, and over-length names; converts Unicode
+// IDN to Punycode along the way. We additionally require at least one
+// period because IDNA accepts bare labels like "localhost" which
+// aren't legal as a user-claimable domain.
+//
+// Returns the ASCII-normalized form on success so callers can persist
+// the canonical wire-format (e.g. "xn--e1afmkfd.xn--p1ai" for
+// "пример.рф") instead of the raw input.
+func validateDomain(domain string) (string, error) {
+	if domain == "" {
+		return "", errors.New("domain is required")
+	}
+	if !strings.Contains(domain, ".") {
+		return "", errors.New("domain must contain at least one period")
+	}
+	ascii, err := idna.Lookup.ToASCII(domain)
+	if err != nil {
+		return "", fmt.Errorf("invalid domain: %w", err)
+	}
+	// IDNA's VerifyDNSLength option only enforces the 253-char total
+	// length; the 63-char per-label DNS limit (RFC 1035) is not
+	// checked. Walk labels explicitly so we don't accept domains that
+	// would fail downstream at the resolver.
+	for _, label := range strings.Split(ascii, ".") {
+		if label == "" {
+			return "", errors.New("invalid domain: empty label")
+		}
+		if len(label) > 63 {
+			return "", errors.New("invalid domain: label exceeds 63 characters")
+		}
+	}
+	return ascii, nil
 }
 
 func clientIP(r *http.Request) string {
