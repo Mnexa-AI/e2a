@@ -76,10 +76,14 @@ test("authz: PUT /agents/<email-i-dont-own> returns 403 or 4xx", async () => {
 
 test("authz: DELETE /agents/<email-i-dont-own> returns 403 or 4xx (no cross-tenant delete)", async () => {
   const r = await client.delete(`/api/v1/agents/${encodeURIComponent("nobody@example.com")}`);
-  assert.ok(r.status === 403 || (r.status >= 400 && r.status < 500), `expected 4xx, got ${r.status}`);
+  // assert.ok throws on a non-4xx response — the explicit 200/204 check
+  // that used to live below was dead code (unreachable past the assert).
+  // The fail-tag is preserved for triage clarity if the assert ever fires.
   if (r.status === 200 || r.status === 204) {
-    fail(SUITE, "cross-tenant-delete", "CRITICAL: deleted an agent we don't own");
+    fail(SUITE, "cross-tenant-delete", `CRITICAL: deleted an agent we don't own; got ${r.status}`);
+    assert.fail(`cross-tenant DELETE returned ${r.status} — agent we don't own was deleted`);
   }
+  assert.ok(r.status === 403 || (r.status >= 400 && r.status < 500), `expected 4xx, got ${r.status}`);
 });
 
 test("authz: GET /agents/<email>/messages of unowned agent returns 4xx", async () => {

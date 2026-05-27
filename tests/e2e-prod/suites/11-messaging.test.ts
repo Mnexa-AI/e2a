@@ -226,20 +226,35 @@ test("messaging: reply to bogus message ID returns 404", async () => {
 });
 
 test("messaging: reply with empty body returns 400", async () => {
-  // Find any message we own to attempt reply against; if none, skip.
-  const list = await client.get<{ messages: Array<{ id: string; direction?: string }> }>("/api/v1/messages", { query: { limit: 5 } });
-  const candidate = list.body?.messages?.find((m) => m.direction === "inbound") ?? list.body?.messages?.[0];
+  // /reply requires the target message be inbound and belong to the
+  // agent in the path. The previous version fell back to any message
+  // including outbound, which routinely 404'd before the 400-missing-
+  // body check ran — so the test passed without ever exercising the
+  // "empty body returns 400" branch. Now: pull from the agent-scoped
+  // inbound listing, skip cleanly if none exist.
+  const email = client.env.primaryAgentEmail;
+  const list = await client.get<{ messages: Array<{ id: string; direction?: string }> }>(
+    `/api/v1/agents/${encodeURIComponent(email)}/messages`,
+    { query: { limit: 5, direction: "inbound" } },
+  );
+  const candidate = list.body?.messages?.find((m) => m.direction === "inbound" || m.direction === undefined);
   if (!candidate) {
-    info(SUITE, "reply-empty-skipped", "no messages in inbox to attempt reply against");
+    info(SUITE, "reply-empty-skipped", `no inbound messages on ${email} — cannot exercise empty-body reply check`);
     return;
   }
-  const email = client.env.primaryAgentEmail;
   const r = await client.post(
     `/api/v1/agents/${encodeURIComponent(email)}/messages/${encodeURIComponent(candidate.id)}/reply`,
     { body: {} },
   );
-  // Spec: 400 missing body, OR 404 if message isn't owned by THIS agent.
-  assert.ok(r.status >= 400 && r.status < 500, `expected 4xx (400 or 404), got ${r.status}: ${r.raw.slice(0, 200)}`);
+  // Now that we picked from the agent-scoped inbound list, 400 is the
+  // expected response (missing body). 404 here would mean the inbound
+  // listing returned a stale id — flag it informationally rather than
+  // assert away a different bug.
+  if (r.status === 404) {
+    info(SUITE, "reply-empty-404-on-listed-msg", `inbound list returned ${candidate.id} but /reply 404'd — possible listing/storage skew`);
+    return;
+  }
+  assert.equal(r.status, 400, `expected 400 (empty body) on owned inbound message, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("messaging: /messages search filters — surface what's supported", async () => {
