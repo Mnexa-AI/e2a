@@ -1670,6 +1670,34 @@ paths:
       summary: Delete a domain
       tags:
       - Domains
+    get:
+      description: Returns the authenticated user's view of a single domain
+      parameters:
+      - description: Domain name
+        in: path
+        name: domain
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Domain'
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "404":
+          description: Domain not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get a domain
+      tags:
+      - Domains
     patch:
       consumes:
       - application/json
