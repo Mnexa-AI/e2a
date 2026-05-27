@@ -262,14 +262,17 @@ func (s *Store) EnsureSharedDomain(ctx context.Context, domain string) error {
 }
 
 // ClaimOrCreateDomain implements the atomic create/claim logic from the design doc.
-// Creates if new, overwrites user_id if unverified, returns if verified+same
-// user, errors if verified+different user. The verification_token and DKIM
-// keypair are minted on first INSERT and remain stable across re-claims of
-// an unverified domain — so a caller that has already published the TXT
-// record (or has mail in flight signed with the DKIM key) isn't silently
-// invalidated by a second call. Callers are responsible for rejecting the
-// configured shared domain before invoking this — the store has no concept
-// of a reserved domain.
+// Creates if new, returns the existing row when the same user already owns
+// it (verified or not), and errors if a different user owns it. The
+// verification_token and DKIM keypair are minted on first INSERT and remain
+// stable across re-claims — a caller that has already published the TXT
+// record on DNS (or has mail in flight signed with the DKIM key) isn't
+// silently invalidated by a second call. A different user cannot take
+// over an unverified row; that closes a squatting window where the new
+// owner could verify against a TXT record the original owner already
+// published. Callers are responsible for rejecting the configured shared
+// domain before invoking this — the store has no concept of a reserved
+// domain.
 func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) (*Domain, error) {
 	domain = normalizeDomain(domain)
 
@@ -291,20 +294,24 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 		log.Printf("[identity] dkim keygen failed for %s: %v", domain, kerr)
 	}
 
-	// Atomic upsert: insert new or claim unverified. The DKIM columns
-	// and verification_token are only written on a true INSERT — the
-	// ON CONFLICT branch leaves existing values in place. DKIM
-	// stability avoids invalidating signatures on mail in flight;
-	// verification_token stability means a caller that already
-	// published the TXT record on DNS isn't silently invalidated by a
-	// second register call (e.g. to re-fetch the records).
+	// Atomic upsert. The conflict branch only fires for a same-user
+	// re-claim of an unverified row, and runs as a no-op SET so
+	// RETURNING surfaces the existing row. DKIM columns and the
+	// verification_token are only written on a true INSERT, so they
+	// stay stable across re-claims — DKIM stability avoids
+	// invalidating signatures on mail in flight, and token stability
+	// means a caller who already published the TXT record on DNS
+	// isn't silently invalidated. A different-user conflict falls
+	// through to the SELECT below and returns "domain not available",
+	// preventing squatting on an unverified row whose TXT record the
+	// original owner may have already published.
 	d := &Domain{}
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO domains (domain, user_id, verified, verification_token, dkim_selector, dkim_public_key, dkim_private_key)
 		 VALUES ($1, $2, false, $3, $4, $5, $6)
 		 ON CONFLICT (domain) DO UPDATE
-		 SET user_id = EXCLUDED.user_id
-		 WHERE domains.verified = false
+		 SET user_id = domains.user_id
+		 WHERE domains.verified = false AND domains.user_id = $2
 		 RETURNING domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, '')`,
 		domain, userID, verificationToken, nullIfEmpty(dkimSelector), nullIfEmpty(dkimPubKey), nullIfEmptyBytes(dkimPrivKey),
 	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey)
@@ -313,7 +320,10 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 		return d, nil
 	}
 
-	// No row returned — domain exists and is verified. Check ownership.
+	// No row returned — the row exists but the conflict UPDATE was
+	// skipped because either it's already verified or a different user
+	// owns it. Re-read to decide between "verified + same user → return
+	// it" and "different user → not available".
 	existing := &Domain{}
 	err = s.pool.QueryRow(ctx,
 		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, '')

@@ -96,6 +96,45 @@ func TestClaimOrCreateDomain_StableOnReclaim(t *testing.T) {
 	}
 }
 
+// TestClaimOrCreateDomain_CrossUserReclaimRejected asserts that a second
+// user cannot take over an unverified domain that another user has
+// already claimed. Combined with the stable verification_token, this
+// closes the squatting window where the takeover user could verify
+// against a TXT record the original owner had already published.
+func TestClaimOrCreateDomain_CrossUserReclaimRejected(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	userA, _ := store.CreateOrGetUser(ctx, "owner-a@example.com", "Owner A", "google-a")
+	userB, _ := store.CreateOrGetUser(ctx, "owner-b@example.com", "Owner B", "google-b")
+
+	first, err := store.ClaimOrCreateDomain(ctx, "squat.example.com", userA.ID)
+	if err != nil {
+		t.Fatalf("userA ClaimOrCreateDomain: %v", err)
+	}
+
+	if _, err := store.ClaimOrCreateDomain(ctx, "squat.example.com", userB.ID); err == nil {
+		t.Fatal("userB reclaim should fail when userA already owns the unverified row")
+	}
+
+	// userB cannot read the row either; userA still owns it and the
+	// verification_token is unchanged.
+	if _, err := store.LookupDomain(ctx, "squat.example.com", userB.ID); err == nil {
+		t.Error("userB LookupDomain should not see squat.example.com")
+	}
+	after, err := store.LookupDomain(ctx, "squat.example.com", userA.ID)
+	if err != nil {
+		t.Fatalf("userA LookupDomain: %v", err)
+	}
+	if after.UserID == nil || *after.UserID != userA.ID {
+		t.Errorf("ownership changed: got user_id=%v, want %s", after.UserID, userA.ID)
+	}
+	if after.VerificationToken != first.VerificationToken {
+		t.Errorf("verification_token rotated under cross-user reclaim: first=%q after=%q", first.VerificationToken, after.VerificationToken)
+	}
+}
+
 func TestGetAgentByID(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
