@@ -65,6 +65,17 @@ function pctTone(pct: number): "neutral" | "warn" | "danger" {
   return "neutral";
 }
 
+// PLAN_CATALOG mirrors the operator-side plan catalog at
+// e2a-ops/billing/internal/plans/plans.go. Hardcoded here because the
+// dashboard isn't yet wired to the sidecar's GET /api/billing/plan
+// listing endpoint — and even if it were, the values are stable enough
+// that an extra round-trip on the upgrade page isn't worth it. If you
+// change a cap on either side, update both files in the same PR.
+const PLAN_CATALOG = [
+  { code: "pro", name: "Pro", price: "$20/mo", chips: ["25 agents", "10 domains", "50k msgs/mo", "10 GiB"] },
+  { code: "scale", name: "Scale", price: "$99/mo", chips: ["250 agents", "50 domains", "500k msgs/mo", "100 GiB"] },
+] as const;
+
 type UsageRowProps = {
   label: string;
   current: string;
@@ -108,9 +119,11 @@ export default function BillingPage() {
     fetchLimits,
   );
 
-  // Disable the action buttons while a POST is in flight so a
-  // double-click doesn't create two Stripe sessions.
-  const [actionPending, setActionPending] = useState<"upgrade" | "portal" | null>(null);
+  // Track the specific action in flight so each button can show its own
+  // "Opening…" label while disabling the others. Two upgrade variants
+  // because the page renders a Pro and a Scale CTA side-by-side.
+  type PendingAction = "upgrade-pro" | "upgrade-scale" | "portal";
+  const [actionPending, setActionPending] = useState<PendingAction | null>(null);
 
   // Both Upgrade and Manage Billing POST to the sidecar and follow the
   // returned `url`. POST (not GET) because the OSS session cookie is
@@ -119,16 +132,21 @@ export default function BillingPage() {
   // page could create real Stripe Checkout sessions for the victim).
   // POSTs from a third-party origin are blocked by Lax, so the dashboard
   // owns the call and the cross-origin attack surface is gone.
-  async function postBilling(endpoint: string, kind: "upgrade" | "portal") {
+  //
+  // `body` carries the plan selector for /api/billing/checkout (sidecar
+  // defaults to Pro when absent). /api/billing/portal ignores it.
+  async function postBilling(endpoint: string, kind: PendingAction, body?: unknown) {
     setActionPending(kind);
     try {
       const res = await fetch(endpoint, {
         method: "POST",
         credentials: "include",
+        headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
       });
       if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}${body ? `: ${body}` : ""}`);
+        const text = await res.text().catch(() => "");
+        throw new Error(`HTTP ${res.status}${text ? `: ${text}` : ""}`);
       }
       const json = (await res.json()) as { url?: string };
       if (!json.url) {
@@ -209,38 +227,68 @@ export default function BillingPage() {
                     : data.plan_code}
                 </div>
               </div>
-              {BILLING_API && (
-                <div className="flex items-center gap-2">
-                  {data.upgrade_url ? (
-                    // upgrade_url present → user has an active Stripe
-                    // subscription. Clicking POSTs to the sidecar,
-                    // which returns a fresh Stripe Billing Portal URL.
-                    <button
-                      type="button"
-                      disabled={actionPending !== null}
-                      onClick={() => postBilling(data.upgrade_url, "portal")}
-                      className="px-3 py-1.5 rounded-md text-sm border hover:bg-background transition disabled:opacity-50 disabled:cursor-not-allowed"
-                      style={{ borderColor: "var(--border)", color: "var(--fg)" }}
-                    >
-                      {actionPending === "portal" ? "Opening…" : "Manage billing"}
-                    </button>
-                  ) : (
-                    // No upgrade_url → free/default plan. POST to the
-                    // sidecar's checkout endpoint to create a Stripe
-                    // Checkout session for the Pro plan (default when
-                    // no plan is specified in the body).
-                    <button
-                      type="button"
-                      disabled={actionPending !== null}
-                      onClick={() => postBilling(`${BILLING_API}/api/billing/checkout`, "upgrade")}
-                      className="px-3 py-1.5 rounded-md text-sm font-medium bg-accent text-white hover:bg-accent/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {actionPending === "upgrade" ? "Opening…" : "Upgrade"}
-                    </button>
-                  )}
+              {BILLING_API && data.upgrade_url && (
+                // upgrade_url present → user has an active Stripe
+                // subscription. Clicking POSTs to the sidecar, which
+                // returns a fresh Stripe Billing Portal URL. From the
+                // Portal, users can switch plans (Pro ↔ Scale) and
+                // cancel — that's why we don't render separate
+                // upgrade-to-Scale buttons for paid users.
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                  <button
+                    type="button"
+                    disabled={actionPending !== null}
+                    onClick={() => postBilling(data.upgrade_url, "portal")}
+                    className="px-3 py-1.5 rounded-md text-sm border hover:bg-background transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ borderColor: "var(--border)", color: "var(--fg)" }}
+                  >
+                    {actionPending === "portal" ? "Opening…" : "Manage billing"}
+                  </button>
                 </div>
               )}
             </div>
+
+            {/* Plan picker for free users: render Pro + Scale side-by-side
+                with the caps each tier includes spelled out, so users
+                aren't picking blind from "Upgrade to Pro · $20/mo" alone.
+                Hidden once the user has an active subscription — they
+                manage plan changes through the Stripe Billing Portal. */}
+            {BILLING_API && !data.upgrade_url && (
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                {PLAN_CATALOG.map((p) => {
+                  const pendingKey = `upgrade-${p.code}` as PendingAction;
+                  return (
+                    <div
+                      key={p.code}
+                      className="rounded-lg border p-4 flex flex-col gap-3"
+                      style={{ borderColor: "var(--border)", background: "var(--bg-elev)" }}
+                    >
+                      <div>
+                        <div className="text-sm font-semibold text-foreground">{p.name}</div>
+                        <div className="text-xs text-muted mt-0.5">{p.price}</div>
+                      </div>
+                      <ul className="text-xs text-muted space-y-1">
+                        {p.chips.map((c) => (
+                          <li key={c}>· {c}</li>
+                        ))}
+                      </ul>
+                      <button
+                        type="button"
+                        disabled={actionPending !== null}
+                        onClick={() =>
+                          postBilling(`${BILLING_API}/api/billing/checkout`, pendingKey, {
+                            plan: p.code,
+                          })
+                        }
+                        className="mt-auto px-3 py-1.5 rounded-md text-sm font-medium bg-accent text-white hover:bg-accent/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {actionPending === pendingKey ? "Opening…" : `Upgrade to ${p.name}`}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </section>
 
           {/* Usage card */}
