@@ -70,8 +70,15 @@ test("mcp-ext: send_email tool happy path with HITL agent queues message", async
     return;
   }
   const email = await ensureHitlAgent();
+  // The MCP send_email tool's schema uses `agent_email` (matching the
+  // E2A_AGENT_EMAIL env var name), NOT `from` (which is the raw HTTP
+  // API name). Passing `from` triggers Zod's strict-schema rejection
+  // before the tool body ever runs. The corresponding param is also
+  // optional when E2A_AGENT_EMAIL is set in the server env, but we
+  // pass it explicitly here because this test creates a fresh agent
+  // per run and we want to send from THAT agent, not the env default.
   const r = await callTool(mcp, "send_email", {
-    from: email,
+    agent_email: email,
     to: [SINK_EMAIL],
     subject: uniqueSubject("mcp send"),
     body: "from MCP",
@@ -108,8 +115,11 @@ test("mcp-ext: list_pending_messages and get_pending_message round-trip", async 
   }
   const id = s.body.message_id;
 
-  // list_pending_messages — should include our queued msg.
-  const lp = await callTool(mcp, "list_pending_messages", { page_size: 20 });
+  // list_pending_messages — should include our queued msg. The MCP
+  // tool's schema is strictInputSchema({}) — it takes ZERO arguments
+  // (no page_size, no token). The HTTP API does paginate; the MCP
+  // wrapper deliberately doesn't expose that surface. Pass nothing.
+  const lp = await callTool(mcp, "list_pending_messages");
   if (lp.isError) {
     fail(SUITE, "list-pending-error", `list_pending_messages isError: ${extractText(lp).slice(0, 200)}`);
   } else {
@@ -195,11 +205,19 @@ test("mcp-ext: get_message returns shape and only own messages", async () => {
     info(SUITE, "get-msg-absent", "no get_message tool — skipping");
     return;
   }
-  // First find a message id from the inbox.
-  const listMsgs = await apiClient.get<{ messages: Array<{ id: string }> }>("/api/v1/messages", { query: { limit: 1 } });
+  // The MCP get_message tool fetches via the AGENT-scoped endpoint
+  // GET /api/v1/agents/{agent_email}/messages/{id} — anti-enumeration
+  // 404s on any message that doesn't belong to the pinned agent. We
+  // pull candidate IDs from the same scope so the test exercises the
+  // happy path instead of accidentally tripping the cross-agent guard.
+  const pinnedAgent = apiClient.env.primaryAgentEmail;
+  const listMsgs = await apiClient.get<{ messages: Array<{ id: string }> }>(
+    `/api/v1/agents/${encodeURIComponent(pinnedAgent)}/messages`,
+    { query: { limit: 1 } },
+  );
   const id = listMsgs.body?.messages?.[0]?.id;
   if (!id) {
-    info(SUITE, "get-msg-no-fixture", "no messages in inbox — cannot probe get_message happy path");
+    info(SUITE, "get-msg-no-fixture", `no messages in agent ${pinnedAgent}'s inbox — cannot probe get_message happy path`);
     return;
   }
   const r = await callTool(mcp, "get_message", { message_id: id });
