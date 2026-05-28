@@ -48,12 +48,12 @@ type pendingMessageDetail struct {
 	RejectionReason   string                `json:"rejection_reason,omitempty"`
 	ProviderMessageID string                `json:"provider_message_id,omitempty"`
 	Method            string                `json:"method,omitempty"`
-	// InboundContext is attached only when this is a reply (i.e. when
-	// email_message_id is non-empty and the inbound row is still in
-	// retention). Used by the review panel to render the "In reply to"
-	// pane with SPF/DKIM/DMARC provenance — without it, reviewers can't
-	// see what the original message looked like or whether it was
-	// auth-validated.
+	// InboundContext is attached when this is a reply or a forward
+	// (i.e. when email_message_id is non-empty and the parent inbound
+	// row is still in retention). Used by the review panel to render
+	// the "In reply to" / "Forwarding" pane with SPF/DKIM/DMARC
+	// provenance — without it, reviewers can't see what the original
+	// message looked like or whether it was auth-validated.
 	InboundContext *pendingMessageInboundContext `json:"inbound,omitempty"`
 }
 
@@ -449,12 +449,23 @@ type hitlInboundLookup interface {
 
 // buildSendRequestFromMessage reconstructs a SendRequest from a stored
 // pending-approval message (with any reviewer edits already applied).
+//
+// ReplyToMessageID is only copied through for type="reply". Forwards
+// also persist email_message_id (so the review panel can render the
+// "what's being forwarded" pane via InboundContext), but a forward must
+// ship as a new thread — copying email_message_id into ReplyToMessageID
+// would emit In-Reply-To/References on the outbound and stitch the
+// forward into the original thread.
 func buildSendRequestFromMessage(m *identity.Message) (outbound.SendRequest, error) {
 	var attachments []outbound.Attachment
 	if len(m.AttachmentsJSON) > 0 {
 		if err := json.Unmarshal(m.AttachmentsJSON, &attachments); err != nil {
 			return outbound.SendRequest{}, err
 		}
+	}
+	replyToMessageID := ""
+	if m.Type == "reply" {
+		replyToMessageID = m.EmailMessageID
 	}
 	return outbound.SendRequest{
 		To:               m.ToRecipients,
@@ -463,7 +474,7 @@ func buildSendRequestFromMessage(m *identity.Message) (outbound.SendRequest, err
 		Subject:          m.Subject,
 		Body:             m.BodyText,
 		HTMLBody:         m.BodyHTML,
-		ReplyToMessageID: m.EmailMessageID,
+		ReplyToMessageID: replyToMessageID,
 		ConversationID:   m.ConversationID,
 		Attachments:      attachments,
 	}, nil

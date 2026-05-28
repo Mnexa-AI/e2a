@@ -211,6 +211,39 @@ definitions:
       verified_at:
         type: string
     type: object
+  ForwardMessageRequest:
+    properties:
+      attachments:
+        items:
+          $ref: '#/definitions/internal_agent.Attachment'
+        type: array
+      bcc:
+        example:
+        - carol@example.com
+        items:
+          type: string
+        type: array
+      body:
+        example: FYI — see below
+        type: string
+      cc:
+        example:
+        - bob@example.com
+        items:
+          type: string
+        type: array
+      conversation_id:
+        type: string
+      html_body:
+        example: <p>FYI — see below</p>
+        type: string
+      to:
+        example:
+        - alice@example.com
+        items:
+          type: string
+        type: array
+    type: object
   LimitsCaps:
     properties:
       max_agents:
@@ -504,6 +537,7 @@ definitions:
         - send
         - reply
         - test
+        - forward
         example: send
         type: string
     type: object
@@ -577,6 +611,7 @@ definitions:
         - send
         - reply
         - test
+        - forward
         example: send
         type: string
     type: object
@@ -1456,6 +1491,87 @@ paths:
       security:
       - BearerAuth: []
       summary: Get a single message
+      tags:
+      - Email
+  /api/v1/agents/{email}/messages/{id}/forward:
+    post:
+      consumes:
+      - application/json
+      description: Forward a previously received email to one or more new recipients.
+        The server prepends the caller's optional comment, then a Gmail-style "Forwarded
+        message" block with the original headers and best-effort extracted body. A
+        forward is treated as a NEW thread — no In-Reply-To/References headers are
+        emitted; pass conversation_id to bind it to an existing thread explicitly.
+        Rate limited to 60 sends per agent per minute; 429 responses carry a `Retry-After`
+        header in delay-seconds form. When the owning agent has HITL enabled, the
+        server returns 202 Accepted with status="pending_approval".
+      parameters:
+      - description: Agent email address
+        example: my-bot@example.com
+        in: path
+        name: email
+        required: true
+        type: string
+      - description: Message ID from the inbound payload
+        example: msg_abc123
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Forward content
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/ForwardMessageRequest'
+      - description: Caller-generated unique key (recommend UUIDv4). Retries with
+          the same key + same body replay the original response; with a different
+          body return 422.
+        in: header
+        name: Idempotency-Key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Forward sent immediately
+          schema:
+            $ref: '#/definitions/SendEmailResponse'
+        "202":
+          description: Forward held for human approval
+          schema:
+            $ref: '#/definitions/SendEmailResponse'
+        "400":
+          description: Missing or invalid fields
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "403":
+          description: Agent domain not verified
+          schema:
+            type: string
+        "404":
+          description: Message not found or does not belong to this agent
+          schema:
+            type: string
+        "409":
+          description: Another request with this Idempotency-Key is in progress
+          schema:
+            type: string
+        "422":
+          description: Idempotency-Key reused with a different request body
+          schema:
+            type: string
+        "429":
+          description: Rate limit exceeded
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Forward an inbound email
       tags:
       - Email
   /api/v1/agents/{email}/messages/{id}/reply:

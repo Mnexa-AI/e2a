@@ -402,6 +402,31 @@ export class InboundEmail {
   }
 
   /**
+   * Forward this email to new recipients. Requires the email to be
+   * verified first. The server prepends the optional comment, then a
+   * Gmail-style header block with the original From/Date/Subject/To/Cc
+   * and the original body. Forwards ship as a new thread (no
+   * In-Reply-To); pass conversationId to bind to an existing thread.
+   */
+  async forward(
+    to: string[],
+    opts?: {
+      body?: string;
+      htmlBody?: string;
+      cc?: string[];
+      bcc?: string[];
+      conversationId?: string;
+      attachments?: Schemas["internal_agent.Attachment"][];
+    },
+  ) {
+    this.requireVerified();
+    return this._client.forward(this._messageId, to, {
+      ...opts,
+      agentEmail: this._recipient,
+    });
+  }
+
+  /**
    * Build an InboundEmail from a raw `MessageDetail` response.
    *
    * Decodes the base64 `raw_message`, parses MIME headers/body/attachments.

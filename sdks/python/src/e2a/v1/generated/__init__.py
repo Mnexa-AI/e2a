@@ -280,7 +280,9 @@ class PendingMessageSummary(BaseModel):
     ) = Field(None, examples=['pending_approval'])
     subject: str | None = Field(None, examples=['Re: contract details'])
     to: list[str] | None = Field(None, examples=[['alice@example.com']])
-    type: Literal['send', 'reply', 'test'] | None = Field(None, examples=['send'])
+    type: Literal['send', 'reply', 'test', 'forward'] | None = Field(
+        None, examples=['send']
+    )
 
 
 class RegisterAgentRequest(BaseModel):
@@ -429,6 +431,19 @@ class ApprovePendingMessageRequest(BaseModel):
     to: list[str] | None = None
 
 
+class ForwardMessageRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    attachments: list[internal_agent.Attachment] | None = None
+    bcc: list[str] | None = Field(None, examples=[['carol@example.com']])
+    body: str | None = Field(None, examples=['FYI — see below'])
+    cc: list[str] | None = Field(None, examples=[['bob@example.com']])
+    conversation_id: str | None = None
+    html_body: str | None = Field(None, examples=['<p>FYI — see below</p>'])
+    to: list[str] | None = Field(None, examples=[['alice@example.com']])
+
+
 class LimitsInfo(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -508,7 +523,9 @@ class PendingMessageDetail(BaseModel):
     ) = Field(None, examples=['pending_approval'])
     subject: str | None = Field(None, examples=['Re: contract details'])
     to: list[str] | None = Field(None, examples=[['alice@example.com']])
-    type: Literal['send', 'reply', 'test'] | None = Field(None, examples=['send'])
+    type: Literal['send', 'reply', 'test', 'forward'] | None = Field(
+        None, examples=['send']
+    )
 
 
 class ReplyToMessageRequest(BaseModel):

@@ -68,8 +68,8 @@ func TestInboundDelivered(t *testing.T) {
 	if p.Body.From != "alice@gmail.com" {
 		t.Errorf("From = %q", p.Body.From)
 	}
-	if p.Body.To != "agent@inbound.example.com" {
-		t.Errorf("To = %q", p.Body.To)
+	if len(p.Body.To) != 1 || p.Body.To[0] != "agent@inbound.example.com" {
+		t.Errorf("To = %v, want [agent@inbound.example.com]", p.Body.To)
 	}
 
 	// Domain-Check header should be present
@@ -242,12 +242,12 @@ func TestPollMode_E2E(t *testing.T) {
 
 	var listResp struct {
 		Messages []struct {
-			MessageID      string `json:"message_id"`
-			From           string `json:"from"`
-			To             string `json:"to"`
-			Subject        string `json:"subject"`
-			Status         string `json:"status"`
-			ConversationID string `json:"conversation_id"`
+			MessageID      string   `json:"message_id"`
+			From           string   `json:"from"`
+			To             []string `json:"to"`
+			Subject        string   `json:"subject"`
+			Status         string   `json:"status"`
+			ConversationID string   `json:"conversation_id"`
 		} `json:"messages"`
 		HasMore bool `json:"has_more"`
 	}
@@ -278,7 +278,7 @@ func TestPollMode_E2E(t *testing.T) {
 	var msgResp struct {
 		MessageID      string            `json:"message_id"`
 		From           string            `json:"from"`
-		To             string            `json:"to"`
+		To             []string          `json:"to"`
 		AuthHeaders    map[string]string `json:"auth_headers"`
 		RawMessage     string            `json:"raw_message"`
 		ConversationID string            `json:"conversation_id"`

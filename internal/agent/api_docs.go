@@ -64,6 +64,21 @@ type ReplyToMessageRequest struct {
 	Attachments    []Attachment `json:"attachments,omitempty"`
 } // @name ReplyToMessageRequest
 
+// ForwardMessageRequest is the request body for forwarding a message.
+// Body and html_body are the caller's optional comment to prepend; the
+// server appends a quoted block with the original headers and body. A
+// forward is treated as a new thread (no In-Reply-To/References) — pass
+// conversation_id to bind it to an existing thread explicitly.
+type ForwardMessageRequest struct {
+	To             []string     `json:"to" example:"alice@example.com"`
+	CC             []string     `json:"cc,omitempty" example:"bob@example.com"`
+	BCC            []string     `json:"bcc,omitempty" example:"carol@example.com"`
+	Body           string       `json:"body,omitempty" example:"FYI — see below"`
+	HTMLBody       string       `json:"html_body,omitempty" example:"<p>FYI — see below</p>"`
+	ConversationID string       `json:"conversation_id,omitempty"`
+	Attachments    []Attachment `json:"attachments,omitempty"`
+} // @name ForwardMessageRequest
+
 // ListMessagesResponse wraps the message list with pagination.
 type ListMessagesResponse struct {
 	Messages  []MessageSummary `json:"messages"`
@@ -323,7 +338,7 @@ type PendingMessageSummary struct {
 	AgentID           string    `json:"agent_id" example:"my-bot@example.com"`
 	Direction         string    `json:"direction" example:"outbound"`
 	Subject           string    `json:"subject" example:"Re: contract details"`
-	Type              string    `json:"type,omitempty" example:"send" enums:"send,reply,test"`
+	Type              string    `json:"type,omitempty" example:"send" enums:"send,reply,test,forward"`
 	ConversationID    string    `json:"conversation_id,omitempty"`
 	To                []string  `json:"to" example:"alice@example.com"`
 	CC                []string  `json:"cc,omitempty"`

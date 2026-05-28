@@ -102,6 +102,59 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
   );
 
   server.registerTool(
+    "forward_message",
+    {
+      title: "Forward an inbound message",
+      description:
+        "Forward a message the agent has received to one or more new recipients. The server auto-prepends a Gmail-style header block (From/Date/Subject/To/Cc) and the original body to whatever optional comment you pass in `body`/`html_body`. **Unlike `reply_to_message`, a forward is a NEW thread** — no In-Reply-To / References headers are emitted, so the recipient sees a fresh conversation. Use this when the user asks to share a received email with someone else; use `reply_to_message` when continuing the existing conversation. Same HITL behavior as send/reply: `pending_approval` is success, not failure.",
+      inputSchema: strictInputSchema({
+        message_id: z.string().describe("ID of the inbound message to forward (e.g. msg_…)."),
+        to: z.array(z.string()).describe("Forward target addresses (one or more)."),
+        cc: z.array(z.string()).optional(),
+        bcc: z.array(z.string()).optional(),
+        body: z
+          .string()
+          .optional()
+          .describe(
+            "Optional plain-text comment to prepend above the forwarded content. The original body is appended automatically.",
+          ),
+        html_body: z.string().optional(),
+        attachments: attachmentsArraySchema,
+        conversation_id: z
+          .string()
+          .optional()
+          .describe(
+            "Optional conversation grouping ID. A forward is a new thread by default — set this only to bind it to an existing thread explicitly.",
+          ),
+        idempotency_key: z
+          .string()
+          .optional()
+          .describe(
+            "Stable key for retry-safe forwards. The inbound `message_id` plus target list is a natural choice.",
+          ),
+        agent_email: z.string().optional(),
+      }),
+    },
+    async (args) =>
+      runTool(() =>
+        client.forward(args.message_id, args.to, {
+          ...(args.body !== undefined ? { body: args.body } : {}),
+          ...(args.html_body !== undefined ? { htmlBody: args.html_body } : {}),
+          ...(args.cc !== undefined ? { cc: args.cc } : {}),
+          ...(args.bcc !== undefined ? { bcc: args.bcc } : {}),
+          ...(args.attachments !== undefined ? { attachments: args.attachments } : {}),
+          ...(args.conversation_id !== undefined
+            ? { conversationId: args.conversation_id }
+            : {}),
+          ...(args.idempotency_key !== undefined
+            ? { idempotencyKey: args.idempotency_key }
+            : {}),
+          ...(args.agent_email !== undefined ? { agentEmail: args.agent_email } : {}),
+        }),
+      ),
+  );
+
+  server.registerTool(
     "list_messages",
     {
       title: "List inbound messages",

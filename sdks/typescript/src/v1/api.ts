@@ -202,6 +202,20 @@ export class E2AApi {
     );
   }
 
+  async forwardMessage(
+    email: string,
+    messageId: string,
+    body: Schemas["ForwardMessageRequest"],
+    opts: SendOptions = {},
+  ): Promise<Schemas["SendEmailResponse"]> {
+    return this.request(
+      "POST",
+      `/api/v1/agents/${encodeURIComponent(email)}/messages/${encodeURIComponent(messageId)}/forward`,
+      body,
+      { extraHeaders: idempotencyHeaders(opts) },
+    );
+  }
+
   // ── Domains ─────────────────────────────────────────────────────
 
   async listDomains(): Promise<Schemas["ListDomainsResponse"]> {

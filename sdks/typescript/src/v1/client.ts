@@ -261,6 +261,47 @@ export class E2AClient {
     );
   }
 
+  /**
+   * Forward an inbound message to one or more new recipients. The
+   * server prepends the optional comment, then a Gmail-style header
+   * block with the original From/Date/Subject/To/Cc and the original
+   * body. A forward is treated as a new thread — no In-Reply-To /
+   * References headers are emitted. Pass conversationId to bind the
+   * forward to an existing thread explicitly.
+   */
+  async forward(
+    messageId: string,
+    to: string[],
+    opts?: {
+      body?: string;
+      htmlBody?: string;
+      cc?: string[];
+      bcc?: string[];
+      conversationId?: string;
+      attachments?: Schemas["internal_agent.Attachment"][];
+      agentEmail?: string;
+      /**
+       * Stable key for retry-safe forwards. When set, the server caches
+       * the response and replays it on retry with the same key + body.
+       */
+      idempotencyKey?: string;
+    },
+  ) {
+    const req: Schemas["ForwardMessageRequest"] = { to };
+    if (opts?.body) req.body = opts.body;
+    if (opts?.htmlBody) req.html_body = opts.htmlBody;
+    if (opts?.cc) req.cc = opts.cc;
+    if (opts?.bcc) req.bcc = opts.bcc;
+    if (opts?.conversationId) req.conversation_id = opts.conversationId;
+    if (opts?.attachments) req.attachments = opts.attachments;
+    return this.api.forwardMessage(
+      this.requireEmail(opts?.agentEmail),
+      messageId,
+      req,
+      { idempotencyKey: opts?.idempotencyKey },
+    );
+  }
+
   // ── Domains ─────────────────────────────────────────────────────
 
   async listDomains() {

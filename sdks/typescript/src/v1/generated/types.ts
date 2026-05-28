@@ -468,6 +468,136 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agents/{email}/messages/{id}/forward": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Forward an inbound email
+         * @description Forward a previously received email to one or more new recipients. The server prepends the caller's optional comment, then a Gmail-style "Forwarded message" block with the original headers and best-effort extracted body. A forward is treated as a NEW thread — no In-Reply-To/References headers are emitted; pass conversation_id to bind it to an existing thread explicitly. Rate limited to 60 sends per agent per minute; 429 responses carry a `Retry-After` header in delay-seconds form. When the owning agent has HITL enabled, the server returns 202 Accepted with status="pending_approval".
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: {
+                    /** @description Caller-generated unique key (recommend UUIDv4). Retries with the same key + same body replay the original response; with a different body return 422. */
+                    "Idempotency-Key"?: string;
+                };
+                path: {
+                    /**
+                     * @description Agent email address
+                     * @example my-bot@example.com
+                     */
+                    email: string;
+                    /**
+                     * @description Message ID from the inbound payload
+                     * @example msg_abc123
+                     */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Forward content */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ForwardMessageRequest"];
+                };
+            };
+            responses: {
+                /** @description Forward sent immediately */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SendEmailResponse"];
+                    };
+                };
+                /** @description Forward held for human approval */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SendEmailResponse"];
+                    };
+                };
+                /** @description Missing or invalid fields */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Missing or invalid API key */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Agent domain not verified */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Message not found or does not belong to this agent */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Another request with this Idempotency-Key is in progress */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Idempotency-Key reused with a different request body */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Rate limit exceeded */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agents/{email}/messages/{id}/reply": {
         parameters: {
             query?: never;
@@ -1957,6 +2087,32 @@ export interface components {
             verified?: boolean;
             verified_at?: string;
         };
+        ForwardMessageRequest: {
+            attachments?: components["schemas"]["internal_agent.Attachment"][];
+            /**
+             * @example [
+             *       "carol@example.com"
+             *     ]
+             */
+            bcc?: string[];
+            /** @example FYI — see below */
+            body?: string;
+            /**
+             * @example [
+             *       "bob@example.com"
+             *     ]
+             */
+            cc?: string[];
+            conversation_id?: string;
+            /** @example <p>FYI — see below</p> */
+            html_body?: string;
+            /**
+             * @example [
+             *       "alice@example.com"
+             *     ]
+             */
+            to?: string[];
+        };
         LimitsCaps: {
             max_agents?: number;
             max_domains?: number;
@@ -2137,7 +2293,7 @@ export interface components {
              * @example send
              * @enum {string}
              */
-            type?: "send" | "reply" | "test";
+            type?: "send" | "reply" | "test" | "forward";
         };
         PendingMessageInboundContext: {
             /**
@@ -2186,7 +2342,7 @@ export interface components {
              * @example send
              * @enum {string}
              */
-            type?: "send" | "reply" | "test";
+            type?: "send" | "reply" | "test" | "forward";
         };
         RegisterAgentRequest: {
             /**

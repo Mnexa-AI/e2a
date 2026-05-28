@@ -284,6 +284,7 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/v1/agents/{email}/messages", a.handleGetMessages).Methods("GET")
 	r.HandleFunc("/api/v1/agents/{email}/messages/{id}", a.handleGetMessage).Methods("GET")
 	r.HandleFunc("/api/v1/agents/{email}/messages/{id}/reply", a.handleReplyToMessage).Methods("POST")
+	r.HandleFunc("/api/v1/agents/{email}/messages/{id}/forward", a.handleForwardMessage).Methods("POST")
 	r.HandleFunc("/api/v1/domains", a.handleListDomains).Methods("GET")
 	r.HandleFunc("/api/v1/domains", a.handleRegisterDomain).Methods("POST")
 	r.HandleFunc("/api/v1/domains/{domain}/verify", a.handleVerifyDomain).Methods("POST")
@@ -1441,7 +1442,7 @@ func (a *API) domainInfoFromRecord(d *identity.Domain) DomainInfo {
 // handleSendTestEmail when agent.HITLEnabled is true.
 //
 // replyToEmailMessageID is the inbound Message-ID being replied to, or "".
-// msgType is one of "send", "reply", or "test".
+// msgType is one of "send", "reply", "test", or "forward".
 func (a *API) holdForApproval(w http.ResponseWriter, r *http.Request, agent *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string) {
 	var attachmentsJSON []byte
 	if len(req.Attachments) > 0 {
@@ -2014,6 +2015,205 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 	slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
 	if outMsg != nil {
 		log.Printf("[mail:%s] dir=outbound type=reply from=%s to=%v slug=%s conv_id=%s subject=%q in_reply_to=%s", outMsg.ID, agent.EmailAddress(), result.To, slug, req.ConversationID, subject, msgID)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	writeJSON(w, map[string]string{
+		"status":     "sent",
+		"message_id": result.MessageID,
+		"method":     result.Method,
+	})
+}
+
+// ForwardRequest is the JSON body for /api/v1/agents/{email}/messages/{id}/forward.
+type ForwardRequest struct {
+	To             []string              `json:"to"`
+	CC             []string              `json:"cc,omitempty"`
+	BCC            []string              `json:"bcc,omitempty"`
+	Body           string                `json:"body,omitempty"`
+	HTMLBody       string                `json:"html_body,omitempty"`
+	ConversationID string                `json:"conversation_id,omitempty"`
+	Attachments    []outbound.Attachment `json:"attachments,omitempty"`
+}
+
+// handleForwardMessage forwards a previously received email to new recipients.
+// @Summary      Forward an inbound email
+// @Description  Forward a previously received email to one or more new recipients. The server prepends the caller's optional comment, then a Gmail-style "Forwarded message" block with the original headers and best-effort extracted body. A forward is treated as a NEW thread — no In-Reply-To/References headers are emitted; pass conversation_id to bind it to an existing thread explicitly. Rate limited to 60 sends per agent per minute; 429 responses carry a `Retry-After` header in delay-seconds form. When the owning agent has HITL enabled, the server returns 202 Accepted with status="pending_approval".
+// @Tags         Email
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        email path string true "Agent email address" example(my-bot@example.com)
+// @Param        id    path string true "Message ID from the inbound payload" example(msg_abc123)
+// @Param        request body ForwardMessageRequest true "Forward content"
+// @Success      200 {object} SendEmailResponse "Forward sent immediately"
+// @Success      202 {object} SendEmailResponse "Forward held for human approval"
+// @Failure      400 {string} string "Missing or invalid fields"
+// @Failure      401 {string} string "Missing or invalid API key"
+// @Failure      403 {string} string "Agent domain not verified"
+// @Failure      404 {string} string "Message not found or does not belong to this agent"
+// @Failure      409 {string} string "Another request with this Idempotency-Key is in progress"
+// @Failure      422 {string} string "Idempotency-Key reused with a different request body"
+// @Failure      429 {string} string "Rate limit exceeded"
+// @Param        Idempotency-Key header string false "Caller-generated unique key (recommend UUIDv4). Retries with the same key + same body replay the original response; with a different body return 422."
+// @Router       /api/v1/agents/{email}/messages/{id}/forward [post]
+func (a *API) handleForwardMessage(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticateUser(r)
+	if err != nil {
+		a.writeAuthError(w, r, err)
+		return
+	}
+
+	bodyBytes, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBytesSend))
+	if err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	replayed, captureW, finalize := a.idempotencyGuard(w, r, user.ID, bodyBytes)
+	if replayed {
+		return
+	}
+	defer finalize()
+	w = captureW
+
+	vars := mux.Vars(r)
+	email := normalizeEmail(vars["email"])
+	msgID := vars["id"]
+
+	agent, err := a.resolveAgentForUser(r, email, user)
+	if err != nil {
+		http.Error(w, "agent not found", http.StatusNotFound)
+		return
+	}
+
+	inbound, err := a.store.GetInboundMessage(r.Context(), msgID)
+	if err != nil {
+		http.Error(w, "message not found", http.StatusNotFound)
+		return
+	}
+	if inbound.AgentID != agent.ID {
+		http.Error(w, "message not found", http.StatusNotFound)
+		return
+	}
+
+	if ok, retryAfter := a.sendLimit.AllowWithRetryAfter(agent.ID); !ok {
+		writeTooManyRequests(w, retryAfter, "rate limit exceeded — max 60 sends per minute per agent")
+		return
+	}
+
+	if !agent.DomainVerified {
+		http.Error(w, "agent domain must be verified before sending", http.StatusForbidden)
+		return
+	}
+
+	if a.enforcer != nil {
+		if err := a.enforcer.CheckMessageSend(r.Context(), user.ID); err != nil {
+			if limits.WriteLimitError(w, err) {
+				return
+			}
+			log.Printf("[api] limits.CheckMessageSend error: %v", err)
+			http.Error(w, "limits check failed", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	var req ForwardRequest
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if len(req.To) == 0 && len(req.CC) == 0 {
+		http.Error(w, "at least one recipient in to or cc is required", http.StatusBadRequest)
+		return
+	}
+	if err := validateRecipients(req.To, req.CC, req.BCC); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := validateConversationID(req.ConversationID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	subject := outbound.BuildForwardSubject(inbound.Subject)
+	fwdCtx := outbound.ExtractForwardContext(inbound.RawMessage)
+	composedBody := outbound.BuildForwardBody(req.Body, fwdCtx)
+	var composedHTML string
+	if req.HTMLBody != "" || fwdCtx.HTML != "" || fwdCtx.Text != "" {
+		composedHTML = outbound.BuildForwardHTMLBody(req.HTMLBody, fwdCtx)
+	}
+
+	sendReq := outbound.SendRequest{
+		To:             req.To,
+		CC:             req.CC,
+		BCC:            req.BCC,
+		Subject:        subject,
+		Body:           composedBody,
+		HTMLBody:       composedHTML,
+		ConversationID: req.ConversationID,
+		Attachments:    req.Attachments,
+	}
+
+	// Pre-clean self-aliases so isSelfSend sees a true self-loop when
+	// the caller forwarded a message to the agent's own address.
+	sendReq.CC = stripAgentSelfAliases(sendReq.CC, agent.EmailAddress())
+	sendReq.BCC = stripAgentSelfAliases(sendReq.BCC, agent.EmailAddress())
+	selfForward := isSelfSend(sendReq, agent.EmailAddress())
+
+	if agent.HITLEnabled {
+		// inbound.EmailMessageID is persisted so the review panel can
+		// attach the InboundContext pane. buildSendRequestFromMessage
+		// gates ReplyToMessageID on type="reply", so this won't be
+		// promoted to a threading header on approval.
+		a.holdForApproval(w, r, agent, sendReq, "forward", inbound.EmailMessageID)
+		return
+	}
+
+	if _, err := a.usage.RecordAndCheck(r.Context(), user.ID, agent.ID, agent.Domain, "outbound"); err != nil {
+		log.Printf("[api] usage recording error: %v", err)
+	}
+
+	if selfForward {
+		providerID, err := a.performSelfSend(r.Context(), agent, sendReq)
+		if err != nil {
+			log.Printf("[api] self-forward failed: agent=%s error=%v", agent.EmailAddress(), err)
+			http.Error(w, "self-forward failed", http.StatusInternalServerError)
+			return
+		}
+		markSideEffectCommitted(w)
+		slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
+		log.Printf("[mail] dir=outbound type=forward method=loopback from=%s to=%s slug=%s conv_id=%s subject=%q provider_id=%s orig=%s",
+			agent.EmailAddress(), agent.EmailAddress(), slug, req.ConversationID, subject, providerID, msgID)
+		w.Header().Set("Content-Type", "application/json")
+		writeJSON(w, map[string]string{
+			"status":     "sent",
+			"message_id": providerID,
+			"method":     "loopback",
+		})
+		return
+	}
+
+	result, err := a.sender.Send(agent, sendReq)
+	if err != nil {
+		if outbound.IsValidationError(err) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		log.Printf("[api] forward failed: agent=%s to=%v error=%v", agent.Domain, req.To, err)
+		http.Error(w, fmt.Sprintf("delivery failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	markSideEffectCommitted(w)
+
+	outMsg, err := a.store.CreateOutboundMessage(r.Context(), agent.ID, result.To, result.CC, result.BCC, subject, "forward", result.Method, result.MessageID, req.ConversationID)
+	if err != nil {
+		log.Printf("[api] failed to record outbound message: %v", err)
+	}
+
+	slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
+	if outMsg != nil {
+		log.Printf("[mail:%s] dir=outbound type=forward from=%s to=%v slug=%s conv_id=%s subject=%q orig=%s", outMsg.ID, agent.EmailAddress(), result.To, slug, req.ConversationID, subject, msgID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -197,6 +197,7 @@ describe("HTTP MCP server", () => {
       [
         "send_email",
         "reply_to_message",
+        "forward_message",
         "list_messages",
         "get_message",
         "get_attachment_data",

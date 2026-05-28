@@ -9,6 +9,7 @@ import {
 } from "../commands/agents.js";
 import { inbox } from "../commands/inbox.js";
 import { read } from "../commands/read.js";
+import { forward } from "../commands/forward.js";
 import { reply } from "../commands/reply.js";
 import { send } from "../commands/send.js";
 import { config } from "../commands/config.js";
@@ -40,6 +41,7 @@ Usage:
   e2a inbox [--unread|--read] [--limit N] [--oldest] [--from substr] [--subject substr] [--conversation id] [--since ts] [--until ts] [--token …]   List messages (newest first; --oldest for FIFO)
   e2a read <message-id>             Read a message
   e2a reply <msg-id> --body … [--reply-all] [--cc …] [--bcc …]
+  e2a forward <msg-id> --to … [--cc …] [--bcc …] [--body …]
   e2a send [--to …] [--cc …] [--bcc …] --subject … --body …
   e2a listen [options]              Listen for emails via WebSocket
   e2a domains list                  List your domains
@@ -222,6 +224,17 @@ async function main() {
         replyAll: hasFlag(args, "--reply-all"),
         cc: getFlags(args, "--cc"),
         bcc: getFlags(args, "--bcc"),
+        from: getFlag(args, "--agent"),
+        idempotencyKey: getFlag(args, "--idempotency-key"),
+      });
+      break;
+    case "forward":
+      await forward(args[0], {
+        to: getFlags(args, "--to"),
+        cc: getFlags(args, "--cc"),
+        bcc: getFlags(args, "--bcc"),
+        body: getFlag(args, "--body"),
+        htmlBody: getFlag(args, "--html-body"),
         from: getFlag(args, "--agent"),
         idempotencyKey: getFlag(args, "--idempotency-key"),
       });

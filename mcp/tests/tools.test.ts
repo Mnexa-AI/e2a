@@ -22,6 +22,7 @@ function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): E2ACli
     },
     send: vi.fn(async () => ({ message_id: "msg_sent", status: "sent" })),
     reply: vi.fn(async () => ({ message_id: "msg_reply", status: "sent" })),
+    forward: vi.fn(async () => ({ message_id: "msg_fwd", status: "sent" })),
     listMessages: vi.fn(async () => ({ messages: [], next_token: undefined })),
     listAgents: vi.fn(async () => ({ agents: [{ email: "bot@example.com" }] })),
     registerAgent: vi.fn(async (body: Record<string, unknown>) => ({
@@ -122,6 +123,7 @@ describe("e2a MCP server", () => {
       [
         "send_email",
         "reply_to_message",
+        "forward_message",
         "list_messages",
         "get_message",
         "get_attachment_data",
@@ -170,6 +172,22 @@ describe("e2a MCP server", () => {
       },
     });
     expect(stub.reply).toHaveBeenCalledWith("msg_in", "thanks", { replyAll: true });
+  });
+
+  it("forward_message forwards args to client.forward", async () => {
+    await client.callTool({
+      name: "forward_message",
+      arguments: {
+        message_id: "msg_in",
+        to: ["destination@example.com"],
+        body: "FYI",
+      },
+    });
+    expect(stub.forward).toHaveBeenCalledWith(
+      "msg_in",
+      ["destination@example.com"],
+      { body: "FYI" },
+    );
   });
 
   it("list_messages forwards filters", async () => {
