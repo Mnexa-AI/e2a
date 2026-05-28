@@ -15,6 +15,7 @@ from typing import Any, Optional
 from e2a.v1.api import E2AApi
 from e2a.v1.generated import (
     ApprovePendingMessageRequest,
+    ForwardMessageRequest,
     MessageDetail,
     RegisterAgentRequest,
     RegisterDomainRequest,
@@ -276,6 +277,49 @@ class E2AClient:
             attachments=_serialize_attachments(attachments),
         )
         resp = self.api.reply_to_message(email, message_id, req, idempotency_key=idempotency_key)
+        return SendResult(
+            status=resp.status or "",
+            message_id=resp.message_id or "",
+            method=resp.method or "",
+        )
+
+    def forward(
+        self,
+        message_id: str,
+        to: list[str],
+        body: Optional[str] = None,
+        html_body: Optional[str] = None,
+        cc: Optional[list[str]] = None,
+        bcc: Optional[list[str]] = None,
+        conversation_id: Optional[str] = None,
+        attachments: Optional[list[Attachment]] = None,
+        agent_email: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> SendResult:
+        """Forward an inbound email to new recipients.
+
+        The server prepends ``body`` / ``html_body`` (your optional
+        comment), then a Gmail-style "Forwarded message" block with
+        the original headers and body. A forward is a new thread —
+        no ``In-Reply-To`` / ``References`` headers are emitted. Pass
+        ``conversation_id`` to bind to an existing thread.
+
+        ``idempotency_key`` is sent as the ``Idempotency-Key`` header.
+        Supply a stable key derived from the triggering event (e.g.
+        the inbound ``message_id`` plus targets) to make this forward
+        safe to retry.
+        """
+        email = self._require_agent_email(agent_email)
+        req = ForwardMessageRequest(
+            to=to,
+            cc=cc,
+            bcc=bcc,
+            body=body,
+            html_body=html_body,
+            conversation_id=conversation_id,
+            attachments=_serialize_attachments(attachments),
+        )
+        resp = self.api.forward_message(email, message_id, req, idempotency_key=idempotency_key)
         return SendResult(
             status=resp.status or "",
             message_id=resp.message_id or "",

@@ -273,6 +273,53 @@ def test_get_messages_with_labels_filter(httpx_mock):
         client.get_messages(status="all", labels=["urgent", "follow-up"])
 
 
+def test_forward(httpx_mock):
+    # High-level forward() builds a ForwardMessageRequest and returns
+    # a SendResult dataclass — same shape callers already use for
+    # reply/send.
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123/forward",
+        method="POST",
+        json={"status": "sent", "message_id": "fwd_456", "method": "smtp"},
+    )
+
+    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        result = client.forward("msg_123", to=["dest@example.com"], body="FYI")
+
+    assert isinstance(result, SendResult)
+    assert result.status == "sent"
+    assert result.message_id == "fwd_456"
+    body = json.loads(httpx_mock.get_request().content)
+    assert body == {"to": ["dest@example.com"], "body": "FYI"}
+
+
+def test_forward_with_attachments_and_conversation(httpx_mock):
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123/forward",
+        method="POST",
+        json={"status": "sent", "message_id": "fwd_789", "method": "smtp"},
+    )
+
+    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        client.forward(
+            "msg_123",
+            to=["dest@example.com"],
+            cc=["copy@example.com"],
+            conversation_id="conv_explicit",
+            attachments=[Attachment(filename="note.txt", content_type="text/plain", data=b"hello", size=5)],
+        )
+
+    body = json.loads(httpx_mock.get_request().content)
+    assert body["to"] == ["dest@example.com"]
+    assert body["cc"] == ["copy@example.com"]
+    assert body["conversation_id"] == "conv_explicit"
+    # Attachment data is base64-encoded by the SDK before serialization,
+    # so the wire form is base64("hello") = "aGVsbG8=".
+    assert body["attachments"] == [
+        {"filename": "note.txt", "content_type": "text/plain", "data": "aGVsbG8="}
+    ]
+
+
 def test_update_message_labels(httpx_mock):
     httpx_mock.add_response(
         url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123",
