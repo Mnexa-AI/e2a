@@ -26,6 +26,7 @@ from e2a.v1.generated import (
     ApprovePendingMessageResponse,
     DeploymentInfo,
     Domain,
+    ForwardMessageRequest,
     ListAgentsResponse,
     ListDomainsResponse,
     ListMessagesResponse,
@@ -222,6 +223,22 @@ class AsyncE2AApi:
     ) -> SendEmailResponse:
         resp = await self._client.post(
             f"/api/v1/agents/{_encode_email(agent_email)}/messages/{message_id}/reply",
+            json=body.model_dump(by_alias=True, exclude_none=True),
+            headers=_idempotency_header(idempotency_key),
+        )
+        _check_response(resp)
+        return SendEmailResponse.model_validate(resp.json())
+
+    async def forward_message(
+        self,
+        agent_email: str,
+        message_id: str,
+        body: ForwardMessageRequest,
+        idempotency_key: Optional[str] = None,
+    ) -> SendEmailResponse:
+        """Async variant of :meth:`E2AApi.forward_message`."""
+        resp = await self._client.post(
+            f"/api/v1/agents/{_encode_email(agent_email)}/messages/{message_id}/forward",
             json=body.model_dump(by_alias=True, exclude_none=True),
             headers=_idempotency_header(idempotency_key),
         )
@@ -520,6 +537,37 @@ class AsyncE2AClient:
             attachments=_serialize_attachments(attachments),
         )
         resp = await self.api.reply_to_message(email, message_id, req, idempotency_key=idempotency_key)
+        return SendResult(
+            status=resp.status or "",
+            message_id=resp.message_id or "",
+            method=resp.method or "",
+        )
+
+    async def forward(
+        self,
+        message_id: str,
+        to: list[str],
+        body: Optional[str] = None,
+        html_body: Optional[str] = None,
+        cc: Optional[list[str]] = None,
+        bcc: Optional[list[str]] = None,
+        conversation_id: Optional[str] = None,
+        attachments: Optional[list[Attachment]] = None,
+        agent_email: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> SendResult:
+        """Async variant of :meth:`E2AClient.forward`."""
+        email = self._require_agent_email(agent_email)
+        req = ForwardMessageRequest(
+            to=to,
+            cc=cc,
+            bcc=bcc,
+            body=body,
+            html_body=html_body,
+            conversation_id=conversation_id,
+            attachments=_serialize_attachments(attachments),
+        )
+        resp = await self.api.forward_message(email, message_id, req, idempotency_key=idempotency_key)
         return SendResult(
             status=resp.status or "",
             message_id=resp.message_id or "",

@@ -10,6 +10,7 @@ from e2a.v1.generated import (
     ApprovePendingMessageRequest,
     ApprovePendingMessageResponse,
     Domain,
+    ForwardMessageRequest,
     ListAgentsResponse,
     ListDomainsResponse,
     ListMessagesResponse,
@@ -398,6 +399,34 @@ def test_reply_with_html_and_conversation(httpx_mock):
         "html_body": "<p>Thanks!</p>",
         "conversation_id": "conv_abc",
     }
+
+
+def test_forward_message(httpx_mock):
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123/forward",
+        method="POST",
+        json={"status": "sent", "message_id": "fwd_456", "method": "smtp"},
+    )
+
+    with E2AApi(api_key="k") as api:
+        result = api.forward_message(
+            "bot@agents.e2a.dev",
+            "msg_123",
+            ForwardMessageRequest(
+                to=["dest@example.com"],
+                body="FYI",
+            ),
+            idempotency_key="fwd-key-1",
+        )
+
+    assert isinstance(result, SendEmailResponse)
+    assert result.status == "sent"
+    assert result.message_id == "fwd_456"
+    assert result.method == "smtp"
+    req = httpx_mock.get_request()
+    body = json.loads(req.content)
+    assert body == {"to": ["dest@example.com"], "body": "FYI"}
+    assert req.headers["Idempotency-Key"] == "fwd-key-1"
 
 
 def test_update_message_labels(httpx_mock):

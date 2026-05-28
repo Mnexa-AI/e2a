@@ -23,6 +23,7 @@ from e2a.v1.generated import (
     ApprovePendingMessageResponse,
     DeploymentInfo,
     Domain,
+    ForwardMessageRequest,
     ListAgentsResponse,
     ListDomainsResponse,
     ListMessagesResponse,
@@ -275,6 +276,36 @@ class E2AApi:
     ) -> SendEmailResponse:
         resp = self._client.post(
             f"/api/v1/agents/{_encode_email(agent_email)}/messages/{message_id}/reply",
+            json=body.model_dump(by_alias=True, exclude_none=True),
+            headers=_idempotency_header(idempotency_key),
+        )
+        _check_response(resp)
+        return SendEmailResponse.model_validate(resp.json())
+
+    def forward_message(
+        self,
+        agent_email: str,
+        message_id: str,
+        body: ForwardMessageRequest,
+        idempotency_key: Optional[str] = None,
+    ) -> SendEmailResponse:
+        """Forward an inbound message to new recipients.
+
+        The server prepends the caller's optional comment (``body`` /
+        ``html_body``), then a Gmail-style "Forwarded message" block
+        with the original headers and a best-effort extraction of the
+        original body. **A forward is a NEW thread** — no
+        ``In-Reply-To`` / ``References`` headers are emitted. Pass
+        ``conversation_id`` to bind the forward to an existing thread
+        explicitly.
+
+        ``idempotency_key`` is sent as the ``Idempotency-Key`` header;
+        a natural choice is the inbound ``message_id`` plus target
+        list. Without it the SDK does not auto-mint one — the server
+        will deliver every retry as a fresh forward.
+        """
+        resp = self._client.post(
+            f"/api/v1/agents/{_encode_email(agent_email)}/messages/{message_id}/forward",
             json=body.model_dump(by_alias=True, exclude_none=True),
             headers=_idempotency_header(idempotency_key),
         )

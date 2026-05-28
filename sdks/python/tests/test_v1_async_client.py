@@ -209,6 +209,21 @@ async def test_get_messages(httpx_mock):
 
 
 @pytest.mark.anyio
+async def test_forward(httpx_mock):
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123/forward",
+        method="POST",
+        json={"status": "sent", "message_id": "fwd_456", "method": "smtp"},
+    )
+
+    async with AsyncE2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        result = await client.forward("msg_123", to=["dest@example.com"], body="FYI")
+
+    assert result.status == "sent"
+    assert result.message_id == "fwd_456"
+
+
+@pytest.mark.anyio
 async def test_update_message_labels(httpx_mock):
     httpx_mock.add_response(
         url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123",
