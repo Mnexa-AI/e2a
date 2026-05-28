@@ -1636,7 +1636,7 @@ func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if selfSend {
-		providerID, err := a.performSelfSend(r.Context(), agent, req)
+		providerID, err := a.performSelfSend(r.Context(), agent, req, "send")
 		if err != nil {
 			log.Printf("[api] self-send failed: agent=%s error=%v", agent.EmailAddress(), err)
 			http.Error(w, "self-send failed", http.StatusInternalServerError)
@@ -1973,7 +1973,7 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if selfReply {
-		providerID, err := a.performSelfSend(r.Context(), agent, sendReq)
+		providerID, err := a.performSelfSend(r.Context(), agent, sendReq, "reply")
 		if err != nil {
 			log.Printf("[api] self-reply failed: agent=%s error=%v", agent.EmailAddress(), err)
 			http.Error(w, "self-reply failed", http.StatusInternalServerError)
@@ -2175,7 +2175,7 @@ func (a *API) handleForwardMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if selfForward {
-		providerID, err := a.performSelfSend(r.Context(), agent, sendReq)
+		providerID, err := a.performSelfSend(r.Context(), agent, sendReq, "forward")
 		if err != nil {
 			log.Printf("[api] self-forward failed: agent=%s error=%v", agent.EmailAddress(), err)
 			http.Error(w, "self-forward failed", http.StatusInternalServerError)

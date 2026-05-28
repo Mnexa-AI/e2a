@@ -187,8 +187,15 @@ func BuildForwardBody(comment string, ctx ForwardContext) string {
 	writeHeaderLine(&buf, "Cc", ctx.Cc)
 	buf.WriteString("\r\n")
 	if ctx.Text != "" {
-		buf.WriteString(strings.ReplaceAll(ctx.Text, "\n", "\r\n"))
-		if !strings.HasSuffix(ctx.Text, "\n") {
+		// Normalize line endings before re-emitting: a naive
+		// ReplaceAll("\n","\r\n") turns existing "\r\n" into "\r\r\n",
+		// which mail clients render as a literal CR. Real-world bodies
+		// almost always arrive CRLF-terminated, so the lazy form would
+		// fire on virtually every multi-line forward.
+		text := strings.ReplaceAll(ctx.Text, "\r\n", "\n")
+		text = strings.ReplaceAll(text, "\n", "\r\n")
+		buf.WriteString(text)
+		if !strings.HasSuffix(text, "\r\n") {
 			buf.WriteString("\r\n")
 		}
 	}

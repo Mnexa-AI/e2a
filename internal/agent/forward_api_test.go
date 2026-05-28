@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -277,4 +278,239 @@ func firstNLines(s string, n int) string {
 		lines = lines[:n]
 	}
 	return strings.Join(lines, "\n")
+}
+
+func TestForwardMessageSelfForwardUsesLoopback(t *testing.T) {
+	server, store, pool, smtpDone := setupAPIWithSMTP(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-fwd-self@example.com", "Owner", "google-fwd-self")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "fwd-self-key", nil)
+	store.ClaimOrCreateDomain(ctx, "fwd-self.example.com", user.ID)
+	store.VerifyDomain(ctx, "fwd-self.example.com", user.ID)
+	// agent_mode=local so we don't need a webhook URL — the loopback
+	// delivery writes the inbound row directly.
+	agent, _ := store.CreateAgent(ctx, "bot@fwd-self.example.com", "fwd-self.example.com", "", "", "local", user.ID)
+
+	raw := rawInboundForForwardTest("alice@gmail.com", "bot@fwd-self.example.com", "Original", "body line")
+	msg, _ := store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", "bot@fwd-self.example.com", "<orig@gmail.com>", "Original", "", "", raw, nil, nil, nil, nil)
+
+	// Forward to the agent's OWN address — should short-circuit SMTP.
+	payload := `{"to":["bot@fwd-self.example.com"],"body":"loopback me"}`
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/v1/agents/bot@fwd-self.example.com/messages/"+msg.ID+"/forward",
+		bytes.NewBufferString(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["method"] != "loopback" {
+		t.Errorf("method = %q, want loopback (SMTP must not be involved on self-forward)", result["method"])
+	}
+	if result["status"] != "sent" {
+		t.Errorf("status = %q, want sent", result["status"])
+	}
+
+	// SMTP must NOT have been touched.
+	if msgs := smtpDone(); len(msgs) != 0 {
+		t.Fatalf("expected 0 SMTP messages on self-forward, got %d", len(msgs))
+	}
+
+	// Two outbound rows now exist for the agent: the original inbound
+	// (direction=inbound) created by setup, plus a new outbound
+	// (type=forward) AND a new inbound for the loopback delivery.
+	var outboundForwards, inboundLoopback int
+	pool.QueryRow(ctx,
+		`SELECT count(*) FROM messages WHERE agent_id=$1 AND direction='outbound' AND message_type='forward'`,
+		agent.ID).Scan(&outboundForwards)
+	pool.QueryRow(ctx,
+		`SELECT count(*) FROM messages WHERE agent_id=$1 AND direction='inbound' AND sender='bot@fwd-self.example.com'`,
+		agent.ID).Scan(&inboundLoopback)
+	if outboundForwards != 1 {
+		t.Errorf("outbound forward rows = %d, want 1", outboundForwards)
+	}
+	if inboundLoopback != 1 {
+		t.Errorf("inbound loopback rows = %d, want 1", inboundLoopback)
+	}
+}
+
+func TestForwardMessageHTMLAtSMTP(t *testing.T) {
+	server, store, _, smtpDone := setupAPIWithSMTP(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-fwd-html@example.com", "Owner", "google-fwd-html")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "fwd-html-key", nil)
+	store.ClaimOrCreateDomain(ctx, "fwd-html.example.com", user.ID)
+	store.VerifyDomain(ctx, "fwd-html.example.com", user.ID)
+	agent, _ := store.CreateAgent(ctx, "bot@fwd-html.example.com", "fwd-html.example.com", "", "https://example.com/webhook", "", user.ID)
+
+	// Multipart inbound with both text and HTML parts — the forward
+	// should preserve both at the SMTP wire.
+	boundary := "INBOUNDBOUND"
+	raw := []byte("From: alice@gmail.com\r\n" +
+		"To: bot@fwd-html.example.com\r\n" +
+		"Subject: Multi-part\r\n" +
+		"Message-ID: <orig-html@gmail.com>\r\n" +
+		"Content-Type: multipart/alternative; boundary=\"" + boundary + "\"\r\n" +
+		"\r\n" +
+		"--" + boundary + "\r\n" +
+		"Content-Type: text/plain; charset=utf-8\r\n" +
+		"\r\n" +
+		"text part body\r\n" +
+		"--" + boundary + "\r\n" +
+		"Content-Type: text/html; charset=utf-8\r\n" +
+		"\r\n" +
+		"<p>html part body</p>\r\n" +
+		"--" + boundary + "--\r\n")
+	msg, _ := store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", "bot@fwd-html.example.com", "<orig-html@gmail.com>", "Multi-part", "", "", raw, nil, nil, nil, nil)
+
+	payload := `{"to":["dest@example.com"],"body":"plain comment","html_body":"<p>html comment</p>"}`
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/v1/agents/bot@fwd-html.example.com/messages/"+msg.ID+"/forward",
+		bytes.NewBufferString(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	msgs := smtpDone()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 SMTP message, got %d", len(msgs))
+	}
+	body := msgs[0].Data
+
+	if !strings.Contains(body, "multipart/alternative") {
+		t.Errorf("SMTP body missing multipart/alternative Content-Type")
+	}
+	if !strings.Contains(body, "Content-Type: text/plain") {
+		t.Errorf("SMTP body missing text/plain part")
+	}
+	if !strings.Contains(body, "Content-Type: text/html") {
+		t.Errorf("SMTP body missing text/html part")
+	}
+	if !strings.Contains(body, "plain comment") {
+		t.Errorf("SMTP body missing plain-text caller comment")
+	}
+	// HTML can be QP-encoded over the wire, so check the HTML
+	// comment substring; the forwarded original HTML follows.
+	if !strings.Contains(body, "html comment") {
+		t.Errorf("SMTP body missing html caller comment")
+	}
+	if !strings.Contains(body, "html part body") {
+		t.Errorf("SMTP body missing original HTML content quoted from forwarded message")
+	}
+}
+
+func TestForwardMessageWithAttachments(t *testing.T) {
+	server, store, _, smtpDone := setupAPIWithSMTP(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-fwd-att@example.com", "Owner", "google-fwd-att")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "fwd-att-key", nil)
+	store.ClaimOrCreateDomain(ctx, "fwd-att.example.com", user.ID)
+	store.VerifyDomain(ctx, "fwd-att.example.com", user.ID)
+	agent, _ := store.CreateAgent(ctx, "bot@fwd-att.example.com", "fwd-att.example.com", "", "https://example.com/webhook", "", user.ID)
+
+	raw := rawInboundForForwardTest("alice@gmail.com", "bot@fwd-att.example.com", "Original", "body")
+	msg, _ := store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", "bot@fwd-att.example.com", "<orig-att@gmail.com>", "Original", "", "", raw, nil, nil, nil, nil)
+
+	// "hello" → "aGVsbG8=" base64
+	payload := `{
+	  "to":["dest@example.com"],
+	  "body":"see attached",
+	  "attachments":[
+	    {"filename":"note.txt","content_type":"text/plain","data":"aGVsbG8="}
+	  ]
+	}`
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/v1/agents/bot@fwd-att.example.com/messages/"+msg.ID+"/forward",
+		bytes.NewBufferString(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	msgs := smtpDone()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 SMTP message, got %d", len(msgs))
+	}
+	body := msgs[0].Data
+
+	if !strings.Contains(body, `filename="note.txt"`) {
+		t.Errorf("SMTP body missing attachment filename")
+	}
+	if !strings.Contains(body, "Content-Disposition: attachment") {
+		t.Errorf("SMTP body missing attachment Content-Disposition")
+	}
+	if !strings.Contains(body, "aGVsbG8=") {
+		t.Errorf("SMTP body missing attachment data (base64 of 'hello')")
+	}
+}
+
+func TestForwardMessageIdempotentReplay(t *testing.T) {
+	server, store, _, smtpDone := setupAPIWithSMTP(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-fwd-idem@example.com", "Owner", "google-fwd-idem")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "fwd-idem-key", nil)
+	store.ClaimOrCreateDomain(ctx, "fwd-idem.example.com", user.ID)
+	store.VerifyDomain(ctx, "fwd-idem.example.com", user.ID)
+	agent, _ := store.CreateAgent(ctx, "bot@fwd-idem.example.com", "fwd-idem.example.com", "", "https://example.com/webhook", "", user.ID)
+
+	raw := rawInboundForForwardTest("alice@gmail.com", "bot@fwd-idem.example.com", "Original", "body")
+	msg, _ := store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", "bot@fwd-idem.example.com", "<orig-idem@gmail.com>", "Original", "", "", raw, nil, nil, nil, nil)
+
+	url := server.URL + "/api/v1/agents/bot@fwd-idem.example.com/messages/" + msg.ID + "/forward"
+	payload := `{"to":["dest@example.com"],"body":"once"}`
+	idemKey := "fwd-idem-key-001"
+
+	doForward := func() (*http.Response, []byte) {
+		req, _ := http.NewRequest("POST", url, bytes.NewBufferString(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
+		req.Header.Set("Idempotency-Key", idemKey)
+		r, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("forward: %v", err)
+		}
+		b, _ := io.ReadAll(r.Body)
+		r.Body.Close()
+		return r, b
+	}
+
+	r1, b1 := doForward()
+	if r1.StatusCode != 200 {
+		t.Fatalf("first status = %d, body=%s", r1.StatusCode, b1)
+	}
+	if r1.Header.Get("Idempotent-Replayed") != "" {
+		t.Errorf("first call should not be marked replayed")
+	}
+
+	r2, b2 := doForward()
+	if r2.StatusCode != 200 {
+		t.Fatalf("second status = %d, body=%s", r2.StatusCode, b2)
+	}
+	if r2.Header.Get("Idempotent-Replayed") != "true" {
+		t.Errorf("second call must be marked Idempotent-Replayed=true, got %q", r2.Header.Get("Idempotent-Replayed"))
+	}
+	if !bytes.Equal(b1, b2) {
+		t.Errorf("replay body diverged:\nfirst:  %s\nsecond: %s", b1, b2)
+	}
+
+	if msgs := smtpDone(); len(msgs) != 1 {
+		t.Errorf("SMTP messages = %d, want exactly 1 (replay must not re-send)", len(msgs))
+	}
 }

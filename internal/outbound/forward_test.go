@@ -165,6 +165,33 @@ func TestBuildForwardBody_WithCommentAndContext(t *testing.T) {
 	}
 }
 
+func TestBuildForwardBody_PreservesCRLFLineEndings(t *testing.T) {
+	// Regression: a naive strings.ReplaceAll("\n","\r\n") turns
+	// already-CRLF input into "\r\r\n", which renders as a literal
+	// CR character in some mail clients. Real inbound bodies are
+	// CRLF-terminated, so this would fire on most forwards.
+	ctx := ForwardContext{From: "alice@example.com", Text: "line1\r\nline2\r\nline3\r\n"}
+	body := BuildForwardBody("", ctx)
+	if strings.Contains(body, "\r\r\n") {
+		t.Errorf("body contains malformed \\r\\r\\n sequence:\n%q", body)
+	}
+	if !strings.Contains(body, "line1\r\nline2\r\nline3\r\n") {
+		t.Errorf("body lost CRLF line endings:\n%q", body)
+	}
+}
+
+func TestBuildForwardBody_NormalizesLFOnlyInput(t *testing.T) {
+	// LF-only input must still be re-emitted as CRLF (SMTP requirement).
+	ctx := ForwardContext{From: "alice@example.com", Text: "line1\nline2\nline3"}
+	body := BuildForwardBody("", ctx)
+	if strings.Contains(body, "\r\r\n") {
+		t.Errorf("body contains malformed \\r\\r\\n sequence:\n%q", body)
+	}
+	if !strings.Contains(body, "line1\r\nline2\r\nline3\r\n") {
+		t.Errorf("body did not convert LF to CRLF or add trailing CRLF:\n%q", body)
+	}
+}
+
 func TestBuildForwardBody_NoCommentNoOriginalBody(t *testing.T) {
 	ctx := ForwardContext{From: "alice@example.com", Subject: "Hi"}
 	body := BuildForwardBody("", ctx)

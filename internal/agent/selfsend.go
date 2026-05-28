@@ -35,10 +35,17 @@ func stripAgentSelfAliases(addrs []string, agentEmail string) []string {
 // Returns the provider-style message id used for the outbound row.
 // Method on the outbound row is "loopback" so operators can tell the
 // difference from "smtp" in logs and audits.
+// msgType is one of "send", "reply", or "forward" — recorded on the
+// outbound row so audit queries can distinguish a self-note from a
+// self-reply or self-forward. Without it, the loopback branch of
+// handleReplyToMessage / handleForwardMessage would store "send" and
+// fork the audit shape from the SMTP branch (which records the
+// caller's actual intent).
 func (a *API) performSelfSend(
 	ctx context.Context,
 	agent *identity.AgentIdentity,
 	req outbound.SendRequest,
+	msgType string,
 ) (string, error) {
 	email := agent.EmailAddress()
 
@@ -54,7 +61,7 @@ func (a *API) performSelfSend(
 		nil,
 		nil,
 		req.Subject,
-		"send",
+		msgType,
 		"loopback",
 		providerID,
 		req.ConversationID,
