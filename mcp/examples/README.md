@@ -5,6 +5,7 @@ End-to-end demos showing how to wire the e2a MCP surface into popular agent fram
 | Framework | Path | LLM | Stdio variant | Hosted variant |
 | --- | --- | --- | --- | --- |
 | LangChain (LangGraph ReAct) | [langchain/](./langchain/) | Anthropic Claude | `agent.py` | `agent_hosted.py` |
+| CrewAI | [crewai/](./crewai/) | Anthropic Claude | `agent.py` | `agent_hosted.py` |
 | Google ADK | [adk/](./adk/) | Google Gemini | `agent.py` | `agent_hosted.py` |
 | OpenAI Agents SDK | [openai-agents/](./openai-agents/) | OpenAI GPT | `agent.py` | `agent_hosted.py` |
 | OpenAI Codex CLI | [codex/](./codex/) | Codex (OpenAI) | `[mcp_servers.e2a]` in `config.toml` | `[mcp_servers.e2a-hosted]` in `config.toml` |
