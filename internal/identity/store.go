@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -189,6 +190,14 @@ type Message struct {
 	// recover the original From: of forwarded / notification mail whose
 	// Reply-To points at a different mailbox. Outbound-irrelevant.
 	ReplyTo []string `json:"reply_to,omitempty"`
+
+	// Labels are user-applied string tags (`urgent`, `follow-up`, …).
+	// Always lowercase, charset `[a-z0-9:_-]+`, ≤ 64 chars per label,
+	// capped at 100 per message. Empty slice means no labels — the DB
+	// default is `'{}'` so this is never null on read. Labels with the
+	// `e2a:` prefix are reserved for server-applied system labels;
+	// caller writes that try to set them are rejected at the API layer.
+	Labels []string `json:"labels,omitempty"`
 
 	// HITL approval fields. Status defaults to 'sent'; body and attachments
 	// are populated only while a message is in 'pending_approval', and are
@@ -1846,6 +1855,12 @@ type MessageListFilter struct {
 	ConversationID  string // exact match
 	Since           time.Time // created_at >= Since
 	Until           time.Time // created_at <  Until
+	// Labels filters rows where ALL given labels are present on the
+	// message (AND-match via Postgres @> array containment). Empty slice
+	// means "no label constraint" — matches both labelled and unlabelled
+	// rows. Handler-layer validates each entry against the same charset
+	// rule used on writes so callers can't smuggle SQL through here.
+	Labels []string
 }
 
 // GetMessagesByAgent returns messages for an agent, filtered by status,
@@ -1871,7 +1886,7 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]
 	var query string
 	var args []interface{}
 
-	baseSelect := `SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.to_recipients, m.cc, m.reply_to, m.subject, m.email_message_id, m.conversation_id, COALESCE(m.inbox_status, ''), COALESCE(m.status, ''), COALESCE(wd.status, ''), COALESCE(wd.last_error, ''), COALESCE(octet_length(m.raw_message), 0), m.created_at
+	baseSelect := `SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.to_recipients, m.cc, m.reply_to, m.subject, m.email_message_id, m.conversation_id, COALESCE(m.inbox_status, ''), COALESCE(m.status, ''), COALESCE(wd.status, ''), COALESCE(wd.last_error, ''), COALESCE(octet_length(m.raw_message), 0), m.created_at, m.labels
 		 FROM messages m
 		 LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
 		 WHERE m.agent_id = $1 AND m.expires_at > now()`
@@ -1937,6 +1952,15 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]
 		query += fmt.Sprintf(` AND m.created_at < $%d`, len(args)+1)
 		args = append(args, f.Until)
 	}
+	if len(f.Labels) > 0 {
+		// AND-match via @> array containment. The GIN index on labels
+		// makes this O(log n) for the typical case (≤ 5 filter labels,
+		// ≤ 100 labels per row). Empty caller-supplied labels are
+		// stripped at the handler layer so we never produce
+		// "labels @> ARRAY['']" which would match nothing.
+		query += fmt.Sprintf(` AND m.labels @> $%d`, len(args)+1)
+		args = append(args, f.Labels)
+	}
 
 	cursorCmp := ">"
 	sortDir := "ASC"
@@ -1966,7 +1990,7 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]
 			&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo,
 			&m.Subject, &m.EmailMessageID, &m.ConversationID,
 			&m.InboxStatus, &m.Status, &m.WebhookStatus, &m.WebhookError, &m.SizeBytes,
-			&m.CreatedAt,
+			&m.CreatedAt, &m.Labels,
 		); err != nil {
 			return nil, err
 		}
@@ -1986,9 +2010,9 @@ func (s *Store) GetMessageWithContent(ctx context.Context, messageID, agentID st
 	err := s.pool.QueryRow(ctx,
 		`UPDATE messages SET inbox_status = CASE WHEN inbox_status = 'unread' THEN 'read' ELSE inbox_status END
 		 WHERE id = $1 AND agent_id = $2 AND expires_at > now()
-		 RETURNING id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, conversation_id, COALESCE(inbox_status, ''), raw_message, auth_headers, created_at, expires_at`,
+		 RETURNING id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, conversation_id, COALESCE(inbox_status, ''), raw_message, auth_headers, created_at, expires_at, labels`,
 		messageID, agentID,
-	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.DeliveryStatus, &m.RawMessage, &authHeadersJSON, &m.CreatedAt, &m.ExpiresAt)
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.DeliveryStatus, &m.RawMessage, &authHeadersJSON, &m.CreatedAt, &m.ExpiresAt, &m.Labels)
 	if err != nil {
 		return nil, err
 	}
@@ -1998,6 +2022,90 @@ func (s *Store) GetMessageWithContent(ctx context.Context, messageID, agentID st
 		}
 	}
 	return m, nil
+}
+
+// ErrLabelLimitExceeded reports that an add operation would push a
+// message past MaxLabelsPerMessage. Mapped to HTTP 400 at the handler.
+var ErrLabelLimitExceeded = errors.New("label limit exceeded")
+
+// MaxLabelsPerMessage is the post-add cap on the labels[] column. The
+// per-operation cap (max items in add_labels / remove_labels) is
+// enforced earlier at the handler. The two together bound the array
+// at a size where GIN containment + JSON marshalling stay cheap.
+const MaxLabelsPerMessage = 100
+
+// ModifyMessageLabels applies a delta — add then remove — to a
+// message's labels[] in a single atomic statement. Returns the updated
+// labels (deduplicated, sorted) so the caller can echo them back in
+// the response without a second round-trip.
+//
+// Inputs are assumed already normalized (lowercased, charset-validated,
+// dedup'd within each list, e2a:* gated). The store layer:
+//   - applies adds first, then removes (so a label in both lists ends up removed)
+//   - rejects if the post-add total would exceed MaxLabelsPerMessage
+//   - returns ErrMessageNotFound if the row is missing / expired / cross-agent
+//
+// The whole thing runs as one UPDATE so a concurrent PATCH from a
+// second client can't observe a partial state.
+func (s *Store) ModifyMessageLabels(ctx context.Context, messageID, agentID string, add, remove []string) ([]string, error) {
+	// Pre-check the post-add length against the cap. Done as a
+	// dedicated SELECT-then-UPDATE so we can return a specific error
+	// rather than a generic constraint violation — the handler maps
+	// ErrLabelLimitExceeded to 400 with a useful message.
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	var current []string
+	err = tx.QueryRow(ctx,
+		`SELECT labels FROM messages WHERE id = $1 AND agent_id = $2 AND expires_at > now() FOR UPDATE`,
+		messageID, agentID,
+	).Scan(&current)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrMessageNotFound
+		}
+		return nil, err
+	}
+
+	// Apply the delta in-memory so the cap check is exact. The set
+	// semantics here mirror what the SQL UPDATE below does:
+	// labels' = (labels ∪ add) \ remove.
+	labelSet := map[string]struct{}{}
+	for _, l := range current {
+		labelSet[l] = struct{}{}
+	}
+	for _, l := range add {
+		labelSet[l] = struct{}{}
+	}
+	for _, l := range remove {
+		delete(labelSet, l)
+	}
+	if len(labelSet) > MaxLabelsPerMessage {
+		return nil, ErrLabelLimitExceeded
+	}
+
+	final := make([]string, 0, len(labelSet))
+	for l := range labelSet {
+		final = append(final, l)
+	}
+	sort.Strings(final)
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE messages SET labels = $1 WHERE id = $2 AND agent_id = $3`,
+		final, messageID, agentID,
+	); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	if final == nil {
+		final = []string{}
+	}
+	return final, nil
 }
 
 // UpdateMessageDeliveryStatus sets the inbox_status on a message.

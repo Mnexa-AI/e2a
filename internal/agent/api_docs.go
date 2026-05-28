@@ -64,6 +64,24 @@ type ReplyToMessageRequest struct {
 	Attachments    []Attachment `json:"attachments,omitempty"`
 } // @name ReplyToMessageRequest
 
+// UpdateMessageRequest is the request body for PATCH /api/v1/agents/{email}/messages/{id}.
+// Currently the only supported mutation is the labels delta — passing
+// an empty body is a no-op. Both add_labels and remove_labels may be
+// set in one request; on overlap the remove wins (the union is applied
+// first, then the difference, mirroring Gmail's semantics).
+type UpdateMessageRequest struct {
+	AddLabels    []string `json:"add_labels,omitempty" example:"urgent"`
+	RemoveLabels []string `json:"remove_labels,omitempty" example:"unread"`
+} // @name UpdateMessageRequest
+
+// UpdateMessageResponse is the response shape for label mutations.
+// Returns the post-update label set so callers can echo state without
+// a separate fetch.
+type UpdateMessageResponse struct {
+	MessageID string   `json:"message_id" example:"msg_abc123"`
+	Labels    []string `json:"labels"`
+} // @name UpdateMessageResponse
+
 // ForwardMessageRequest is the request body for forwarding a message.
 // Body and html_body are the caller's optional comment to prepend; the
 // server appends a quoted block with the original headers and body. A
@@ -126,6 +144,11 @@ type MessageSummary struct {
 	WebhookStatus  string   `json:"webhook_status,omitempty" example:"delivered" enums:"pending,delivered,failed"`
 	WebhookError   string   `json:"webhook_error,omitempty"`
 	SizeBytes      int      `json:"size_bytes,omitempty" example:"4231"`
+	// Labels are caller-applied string tags. Always lowercase, charset
+	// `[a-z0-9:_-]+`, ≤ 64 chars each, ≤ 100 per message. The `e2a:`
+	// prefix is reserved for server-applied system labels. Empty array
+	// when no labels are set — never null.
+	Labels         []string `json:"labels"`
 	CreatedAt      string   `json:"created_at" example:"2025-01-15T10:30:00Z"`
 } // @name MessageSummary
 
@@ -145,6 +168,10 @@ type MessageDetail struct {
 	Subject        string            `json:"subject" example:"Hello"`
 	ConversationID string            `json:"conversation_id,omitempty"`
 	Status         string            `json:"status" example:"read"`
+	// Labels are caller-applied string tags. See MessageSummary.Labels
+	// for the validation rules. Empty array when no labels are set —
+	// never null.
+	Labels         []string          `json:"labels"`
 	CreatedAt      string            `json:"created_at"`
 	AuthHeaders    map[string]string `json:"auth_headers"`
 	RawMessage     string            `json:"raw_message"`
