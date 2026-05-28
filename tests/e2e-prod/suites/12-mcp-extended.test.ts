@@ -11,7 +11,11 @@ const SUITE = "12-mcp-extended";
 const mcp = new StdioMcpClient();
 
 before(async () => {
-  await mcp.start("node", ["/Users/joshzhang/Desktop/e2a/mcp/dist/index.js"], {
+  // Default to the repo-relative dist path so the suite works for any
+  // contributor / CI runner. Override with E2A_MCP_DIST if needed.
+  const mcpDist =
+    process.env.E2A_MCP_DIST ?? new URL("../../../mcp/dist/index.js", import.meta.url).pathname;
+  await mcp.start("node", [mcpDist], {
     E2A_API_KEY: apiClient.env.apiKey,
     E2A_BASE_URL: apiClient.env.apiUrl,
     E2A_AGENT_EMAIL: apiClient.env.primaryAgentEmail,

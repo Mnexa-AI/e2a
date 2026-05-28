@@ -74,12 +74,20 @@ test("billing: usage.agents counts roughly match the actual /agents list", async
   const agents = await client.get<{ agents: unknown[] }>("/api/v1/agents");
   const actual = agents.body?.agents?.length ?? 0;
   const reported = limits.body.usage.agents!;
-  // Allow ±1 drift for in-flight resources, but a big mismatch is a bug.
-  if (Math.abs(reported - actual) > 1) {
+  const drift = Math.abs(reported - actual);
+  // ±1 is benign timing under 1 RPS concurrent creates (the two HTTP calls
+  // are not atomic). Wider drift signals a real counter-staleness bug — the
+  // limits primitive is supposed to read live, not cache counts.
+  if (drift > 1) {
     info(
       SUITE,
       "usage-agents-drift",
-      `usage.agents=${reported} but /agents list has ${actual} — drift larger than ±1 may indicate counter is stale`,
+      `usage.agents=${reported}, /agents list=${actual}, drift=${drift} — wider than expected timing race`,
+    );
+    // Hard-fail past a meaningful threshold; anything inside it is noise.
+    assert.ok(
+      drift <= 3,
+      `usage.agents counter drift ${drift} (reported=${reported}, actual=${actual}) — counter is stale or broken`,
     );
   } else {
     info(SUITE, "usage-agents-consistent", `usage.agents=${reported}, /agents list=${actual} — within ±1`);

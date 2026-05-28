@@ -105,16 +105,12 @@ test("postfix #7: bare LF in subject is also rejected (no carriage return)", asy
   assert.equal(r.status, 400, `expected 400 for bare LF, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
-test("postfix #1 #2: /send 429 includes Retry-After header (probed via invalid payloads + 1 quota-hit guard)", async () => {
-  // We can't probe the send rate limit on prod without queueing real HITL
-  // notifications. Instead we verify the header CONTRACT: the docs (and
-  // OpenAPI) now say 429 carries Retry-After. We'll skip the active probe.
-  info(
-    SUITE,
-    "retry-after-probe-skipped",
-    "skipping active 60-send rate-limit probe to avoid triggering HITL notification emails — see issue #146",
-  );
-});
+// Skipped: actively probing the /send rate limit queues 60+ real HITL
+// notifications to the owner inbox (see auto-memory feedback note). The
+// /agents Retry-After test below covers the header CONTRACT via a cheaper
+// path that doesn't fan out to SMTP. Marked as test.skip so it doesn't
+// pollute the green-pass count.
+test.skip("postfix #1 #2: /send 429 includes Retry-After header (skipped — would queue real HITL notifications)", async () => {});
 
 test("postfix #1 #2: /agents 429 includes Retry-After header (active probe — does NOT send mail)", async () => {
   // Agent creation is a pure CRUD op; failing creates don't fan out to SMTP.
