@@ -223,6 +223,94 @@ def test_get_messages_empty(httpx_mock):
     assert result.next_token is None
 
 
+def test_get_messages_surfaces_labels(httpx_mock):
+    # Regression: every row must expose `labels` as a list (never
+    # None). The wire field is a JSON array; the dataclass mirror
+    # must populate it.
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages?status=unread&page_size=50",
+        method="GET",
+        json={
+            "messages": [
+                {
+                    "message_id": "m1",
+                    "from": "alice@example.com",
+                    "to": ["bot@agents.e2a.dev"], "recipient": "bot@agents.e2a.dev",
+                    "subject": "Hi",
+                    "status": "unread",
+                    "created_at": "2026-03-30T10:00:00Z",
+                    "labels": ["urgent", "follow-up"],
+                },
+                {
+                    "message_id": "m2",
+                    "from": "bob@example.com",
+                    "to": ["bot@agents.e2a.dev"], "recipient": "bot@agents.e2a.dev",
+                    "subject": "Hi",
+                    "status": "unread",
+                    "created_at": "2026-03-30T10:00:00Z",
+                    "labels": [],
+                },
+            ]
+        },
+    )
+
+    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        result = client.get_messages()
+
+    assert result.messages[0].labels == ["urgent", "follow-up"]
+    assert result.messages[1].labels == []
+
+
+def test_get_messages_with_labels_filter(httpx_mock):
+    # Filter must be emitted as repeated ?labels=foo&labels=bar.
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages?status=all&page_size=50&labels=urgent&labels=follow-up",
+        method="GET",
+        json={"messages": []},
+    )
+
+    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        client.get_messages(status="all", labels=["urgent", "follow-up"])
+
+
+def test_update_message_labels(httpx_mock):
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123",
+        method="PATCH",
+        json={"message_id": "msg_123", "labels": ["follow-up", "urgent"]},
+    )
+
+    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        result = client.update_message_labels(
+            "msg_123", add_labels=["urgent", "follow-up"], remove_labels=["unread"],
+        )
+
+    # High-level returns just the labels list (most callers want the
+    # post-update state, not the wrapping response object).
+    assert result == ["follow-up", "urgent"]
+    body = json.loads(httpx_mock.get_request().content)
+    assert body == {"add_labels": ["urgent", "follow-up"], "remove_labels": ["unread"]}
+
+
+def test_update_message_labels_empty_delta_echoes_current(httpx_mock):
+    # PATCH with both lists None is a no-op that returns current
+    # labels — useful as a cheap "fetch labels only" call. The
+    # request body has no add_labels/remove_labels (model_dump
+    # exclude_none=True drops them).
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123",
+        method="PATCH",
+        json={"message_id": "msg_123", "labels": ["urgent"]},
+    )
+
+    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        result = client.update_message_labels("msg_123")
+
+    assert result == ["urgent"]
+    body = json.loads(httpx_mock.get_request().content)
+    assert body == {}
+
+
 # ── reply() ──────────────────────────────────────────────────────
 
 

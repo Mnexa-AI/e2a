@@ -41,6 +41,8 @@ from e2a.v1.generated import (
     SendEmailRequest,
     SendEmailResponse,
     UpdateAgentRequest,
+    UpdateMessageRequest,
+    UpdateMessageResponse,
     VerifyDomainResponse,
 )
 from e2a.v1.generated import internal_agent
@@ -170,24 +172,33 @@ class AsyncE2AApi:
         conversation_id: Optional[str] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
+        labels: Optional[list[str]] = None,
     ) -> ListMessagesResponse:
         """Async variant of :meth:`E2AApi.list_messages`. See that
         method for the full filter / sort docs."""
-        params: dict[str, str] = {"status": status, "page_size": str(page_size)}
+        # Build query string by hand so repeated `labels=` params work
+        # — see the sync sibling for the rationale.
+        params: list[tuple[str, str]] = [
+            ("status", status),
+            ("page_size", str(page_size)),
+        ]
         if sort:
-            params["sort"] = sort
+            params.append(("sort", sort))
         if from_:
-            params["from"] = from_
+            params.append(("from", from_))
         if subject_contains:
-            params["subject_contains"] = subject_contains
+            params.append(("subject_contains", subject_contains))
         if conversation_id:
-            params["conversation_id"] = conversation_id
+            params.append(("conversation_id", conversation_id))
         if since:
-            params["since"] = since
+            params.append(("since", since))
         if until:
-            params["until"] = until
+            params.append(("until", until))
+        if labels:
+            for label in labels:
+                params.append(("labels", label))
         if token:
-            params["token"] = token
+            params.append(("token", token))
         resp = await self._client.get(
             f"/api/v1/agents/{_encode_email(agent_email)}/messages",
             params=params,
@@ -216,6 +227,20 @@ class AsyncE2AApi:
         )
         _check_response(resp)
         return SendEmailResponse.model_validate(resp.json())
+
+    async def update_message_labels(
+        self,
+        agent_email: str,
+        message_id: str,
+        body: UpdateMessageRequest,
+    ) -> UpdateMessageResponse:
+        """Async variant of :meth:`E2AApi.update_message_labels`."""
+        resp = await self._client.patch(
+            f"/api/v1/agents/{_encode_email(agent_email)}/messages/{message_id}",
+            json=body.model_dump(by_alias=True, exclude_none=True),
+        )
+        _check_response(resp)
+        return UpdateMessageResponse.model_validate(resp.json())
 
     async def send_email(
         self,
@@ -419,6 +444,7 @@ class AsyncE2AClient:
         conversation_id: Optional[str] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
+        labels: Optional[list[str]] = None,
     ) -> MessageList:
         """Fetch message summaries with ergonomic field names.
 
@@ -426,7 +452,7 @@ class AsyncE2AClient:
         ``"asc"`` to drain the inbox in arrival order — FIFO polling.
 
         Search filters (``from_``, ``subject_contains``, ``conversation_id``,
-        ``since``, ``until``) match the sync client — see
+        ``since``, ``until``, ``labels``) match the sync client — see
         :meth:`E2AApi.list_messages` for the full reference.
         """
         email = self._require_agent_email(agent_email)
@@ -441,6 +467,7 @@ class AsyncE2AClient:
             conversation_id=conversation_id,
             since=since,
             until=until,
+            labels=labels,
         )
         messages = [
             MessageSummary(
@@ -454,6 +481,7 @@ class AsyncE2AClient:
                 subject=m.subject or "",
                 status=m.status or "",
                 created_at=m.created_at or "",
+                labels=list(m.labels or []),
             )
             for m in (resp.messages or [])
         ]
@@ -497,6 +525,27 @@ class AsyncE2AClient:
             message_id=resp.message_id or "",
             method=resp.method or "",
         )
+
+    async def update_message_labels(
+        self,
+        message_id: str,
+        add_labels: Optional[list[str]] = None,
+        remove_labels: Optional[list[str]] = None,
+        agent_email: Optional[str] = None,
+    ) -> list[str]:
+        """Async variant of :meth:`E2AClient.update_message_labels`.
+
+        Returns the post-update label set so the caller can echo state
+        without a separate fetch. ``add_labels`` / ``remove_labels`` are
+        each capped at 50 entries per call; the per-message cap is 100.
+        Labels matching ``e2a:*`` are server-applied only and rejected
+        on user writes. Empty / None for both arguments is a no-op
+        that returns the current labels.
+        """
+        email = self._require_agent_email(agent_email)
+        req = UpdateMessageRequest(add_labels=add_labels, remove_labels=remove_labels)
+        resp = await self.api.update_message_labels(email, message_id, req)
+        return list(resp.labels or [])
 
     async def send(
         self,

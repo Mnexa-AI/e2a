@@ -21,6 +21,8 @@ from e2a.v1.generated import (
     ReplyToMessageRequest,
     SendEmailRequest,
     UpdateAgentRequest,
+    UpdateMessageRequest,
+    UpdateMessageResponse,
 )
 from e2a.v1.generated import internal_agent
 from e2a.v1.handler import (
@@ -191,6 +193,7 @@ class E2AClient:
         conversation_id: Optional[str] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
+        labels: Optional[list[str]] = None,
     ) -> MessageList:
         """Fetch message summaries with ergonomic field names.
 
@@ -201,6 +204,11 @@ class E2AClient:
         filters (capped at 200 chars server-side). ``conversation_id``
         exact-matches a thread. ``since`` / ``until`` are RFC3339
         timestamps bounding ``created_at``.
+
+        ``labels``: AND-match filter. A row is returned only if EVERY
+        label in the list is present. Each entry must match
+        ``[a-z0-9:_-]+`` (≤64 chars). Reading by ``e2a:*`` system
+        labels is allowed; setting them is server-only.
         """
         email = self._require_agent_email(agent_email)
         resp = self.api.list_messages(
@@ -214,6 +222,7 @@ class E2AClient:
             conversation_id=conversation_id,
             since=since,
             until=until,
+            labels=labels,
         )
         messages = [
             MessageSummary(
@@ -227,6 +236,7 @@ class E2AClient:
                 subject=m.subject or "",
                 status=m.status or "",
                 created_at=m.created_at or "",
+                labels=list(m.labels or []),
             )
             for m in (resp.messages or [])
         ]
@@ -271,6 +281,31 @@ class E2AClient:
             message_id=resp.message_id or "",
             method=resp.method or "",
         )
+
+    def update_message_labels(
+        self,
+        message_id: str,
+        add_labels: Optional[list[str]] = None,
+        remove_labels: Optional[list[str]] = None,
+        agent_email: Optional[str] = None,
+    ) -> list[str]:
+        """Apply a labels delta to a message; return the post-update set.
+
+        ``add_labels`` / ``remove_labels`` are each capped at 50 entries
+        per call. Labels are lowercased server-side and must match
+        ``[a-z0-9:_-]+`` up to 64 chars. The ``e2a:`` prefix is
+        reserved for server-applied system labels — caller writes that
+        try to set them return 400. A label that appears in both
+        lists is removed (remove wins).
+
+        Empty / None for both arguments is a no-op that simply echoes
+        the current label set — useful as a cheap "fetch labels only"
+        call without pulling the full message body.
+        """
+        email = self._require_agent_email(agent_email)
+        req = UpdateMessageRequest(add_labels=add_labels, remove_labels=remove_labels)
+        resp = self.api.update_message_labels(email, message_id, req)
+        return list(resp.labels or [])
 
     def send(
         self,
