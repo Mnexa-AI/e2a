@@ -10,6 +10,7 @@ import {
 import { inbox } from "../commands/inbox.js";
 import { read } from "../commands/read.js";
 import { forward } from "../commands/forward.js";
+import { labels } from "../commands/labels.js";
 import { reply } from "../commands/reply.js";
 import { send } from "../commands/send.js";
 import { config } from "../commands/config.js";
@@ -42,6 +43,7 @@ Usage:
   e2a read <message-id>             Read a message
   e2a reply <msg-id> --body … [--reply-all] [--cc …] [--bcc …]
   e2a forward <msg-id> --to … [--cc …] [--bcc …] [--body …]
+  e2a labels <msg-id> [--add <label> …] [--remove <label> …]
   e2a send [--to …] [--cc …] [--bcc …] --subject … --body …
   e2a listen [options]              Listen for emails via WebSocket
   e2a domains list                  List your domains
@@ -237,6 +239,13 @@ async function main() {
         htmlBody: getFlag(args, "--html-body"),
         from: getFlag(args, "--agent"),
         idempotencyKey: getFlag(args, "--idempotency-key"),
+      });
+      break;
+    case "labels":
+      await labels(args[0], {
+        add: getFlags(args, "--add"),
+        remove: getFlags(args, "--remove"),
+        from: getFlag(args, "--agent"),
       });
       break;
     case "send":

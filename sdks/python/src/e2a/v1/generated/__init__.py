@@ -186,6 +186,10 @@ class MessageDetail(BaseModel):
     conversation_id: str | None = None
     created_at: str | None = None
     from_: str | None = Field(None, alias='from', examples=['alice@example.com'])
+    labels: list[str] | None = Field(
+        None,
+        description='Labels are caller-applied string tags. See MessageSummary.Labels\nfor the validation rules. Empty array when no labels are set —\nnever null.',
+    )
     message_id: str | None = Field(None, examples=['msg_abc123'])
     raw_message: str | None = None
     recipient: str | None = Field(None, examples=['my-bot@example.com'])
@@ -214,6 +218,10 @@ class MessageSummary(BaseModel):
         ]
         | None
     ) = Field(None, examples=['sent'])
+    labels: list[str] | None = Field(
+        None,
+        description='Labels are caller-applied string tags. Always lowercase, charset\n`[a-z0-9:_-]+`, ≤ 64 chars each, ≤ 100 per message. The `e2a:`\nprefix is reserved for server-applied system labels. Empty array\nwhen no labels are set — never null.',
+    )
     message_id: str | None = Field(None, examples=['msg_abc123'])
     recipient: str | None = Field(None, examples=['my-bot@example.com'])
     reply_to: list[str] | None = None
@@ -370,6 +378,22 @@ class UpdateDomainRequest(BaseModel):
         populate_by_name=True,
     )
     is_primary: bool | None = None
+
+
+class UpdateMessageRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    add_labels: list[str] | None = Field(None, examples=[['urgent']])
+    remove_labels: list[str] | None = Field(None, examples=[['unread']])
+
+
+class UpdateMessageResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    labels: list[str] | None = None
+    message_id: str | None = Field(None, examples=['msg_abc123'])
 
 
 class UsageEventEntry(BaseModel):

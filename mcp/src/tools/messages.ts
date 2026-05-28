@@ -155,6 +155,35 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
   );
 
   server.registerTool(
+    "update_message_labels",
+    {
+      title: "Add or remove labels on an inbound message",
+      description:
+        "Apply a labels delta — `add_labels` and/or `remove_labels`. Labels are lowercase strings drawn from `[a-z0-9:_-]+`, capped at 64 chars each; the `e2a:` prefix is reserved for server-applied system labels and rejected on writes. A label appearing in both lists is removed (remove wins). Per-request cap is 50 entries per list; per-message cap is 100 total labels. The response includes the post-update label set so you can echo back to the user without a follow-up read. Use this when the user wants to categorize a message (e.g. `add: urgent`) or clear a tag (`remove: follow-up`).",
+      inputSchema: strictInputSchema({
+        message_id: z.string().describe("ID of the message to label."),
+        add_labels: z
+          .array(z.string())
+          .optional()
+          .describe("Labels to add. Already-set entries are no-ops."),
+        remove_labels: z
+          .array(z.string())
+          .optional()
+          .describe("Labels to remove. Entries not on the message are no-ops."),
+        agent_email: z.string().optional(),
+      }),
+    },
+    async (args) =>
+      runTool(() =>
+        client.updateMessageLabels(args.message_id, {
+          ...(args.add_labels !== undefined ? { addLabels: args.add_labels } : {}),
+          ...(args.remove_labels !== undefined ? { removeLabels: args.remove_labels } : {}),
+          ...(args.agent_email !== undefined ? { agentEmail: args.agent_email } : {}),
+        }),
+      ),
+  );
+
+  server.registerTool(
     "list_messages",
     {
       title: "List inbound messages",
@@ -200,6 +229,12 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
           .describe(
             "RFC3339 timestamp. Only messages with `created_at < until` are returned. Combine with `since` to bracket a date range.",
           ),
+        labels: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "AND-match filter on labels. A row is returned only if ALL given labels are present. Use lowercase strings matching `[a-z0-9:_-]+`; `e2a:*` system labels can be filtered even though setting them is server-only.",
+          ),
         token: z.string().optional().describe("Pagination token from a previous response."),
         agent_email: z.string().optional(),
       }),
@@ -219,6 +254,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
             : {}),
           ...(args.since !== undefined ? { since: args.since } : {}),
           ...(args.until !== undefined ? { until: args.until } : {}),
+          ...(args.labels !== undefined ? { labels: args.labels } : {}),
           ...(args.token !== undefined ? { token: args.token } : {}),
           ...(args.agent_email !== undefined ? { agentEmail: args.agent_email } : {}),
         }),

@@ -89,6 +89,10 @@ class Message(BaseModel):
         None,
         description="InboxStatus mirrors messages.inbox_status ('unread' | 'read') for\ninbound rows. Kept separate from DeliveryStatus (which currently\ncarries the same value under a confusing JSON key — see line 161)\nso the dashboard's inbox can read it under a non-overloaded key.\nEmpty on outbound rows. Populated by GetMessagesByAgent.",
     )
+    labels: list[str] | None = Field(
+        None,
+        description="Labels are user-applied string tags (`urgent`, `follow-up`, …).\nAlways lowercase, charset `[a-z0-9:_-]+`, ≤ 64 chars per label,\ncapped at 100 per message. Empty slice means no labels — the DB\ndefault is `'{}'` so this is never null on read. Labels with the\n`e2a:` prefix are reserved for server-applied system labels;\ncaller writes that try to set them are rejected at the API layer.",
+    )
     method: str | None = None
     provider_message_id: str | None = None
     raw_message: list[int] | None = None

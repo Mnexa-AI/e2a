@@ -331,6 +331,14 @@ definitions:
       from:
         example: alice@example.com
         type: string
+      labels:
+        description: |-
+          Labels are caller-applied string tags. See MessageSummary.Labels
+          for the validation rules. Empty array when no labels are set —
+          never null.
+        items:
+          type: string
+        type: array
       message_id:
         example: msg_abc123
         type: string
@@ -385,6 +393,15 @@ definitions:
         - expired_rejected
         example: sent
         type: string
+      labels:
+        description: |-
+          Labels are caller-applied string tags. Always lowercase, charset
+          `[a-z0-9:_-]+`, ≤ 64 chars each, ≤ 100 per message. The `e2a:`
+          prefix is reserved for server-applied system labels. Empty array
+          when no labels are set — never null.
+        items:
+          type: string
+        type: array
       message_id:
         example: msg_abc123
         type: string
@@ -799,6 +816,31 @@ definitions:
       is_primary:
         type: boolean
     type: object
+  UpdateMessageRequest:
+    properties:
+      add_labels:
+        example:
+        - urgent
+        items:
+          type: string
+        type: array
+      remove_labels:
+        example:
+        - unread
+        items:
+          type: string
+        type: array
+    type: object
+  UpdateMessageResponse:
+    properties:
+      labels:
+        items:
+          type: string
+        type: array
+      message_id:
+        example: msg_abc123
+        type: string
+    type: object
   UsageEventEntry:
     properties:
       agent_id:
@@ -1047,6 +1089,17 @@ definitions:
           so the dashboard's inbox can read it under a non-overloaded key.
           Empty on outbound rows. Populated by GetMessagesByAgent.
         type: string
+      labels:
+        description: |-
+          Labels are user-applied string tags (`urgent`, `follow-up`, …).
+          Always lowercase, charset `[a-z0-9:_-]+`, ≤ 64 chars per label,
+          capped at 100 per message. Empty slice means no labels — the DB
+          default is `'{}'` so this is never null on read. Labels with the
+          `e2a:` prefix are reserved for server-applied system labels;
+          caller writes that try to set them are rejected at the API layer.
+        items:
+          type: string
+        type: array
       method:
         type: string
       provider_message_id:
@@ -1491,6 +1544,59 @@ paths:
       security:
       - BearerAuth: []
       summary: Get a single message
+      tags:
+      - Email
+    patch:
+      consumes:
+      - application/json
+      description: Apply a delta to a message's labels. Pass `add_labels` and/or `remove_labels`
+        — each capped at 50 entries per request. Labels are lowercase strings drawn
+        from `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for server-applied
+        system labels and rejected on user writes. The total label count per message
+        is capped at 100. A label appearing in both add and remove is removed (remove
+        wins). Returns the post-update label set so callers can echo state without
+        a fetch.
+      parameters:
+      - description: Agent email address
+        example: my-bot@example.com
+        in: path
+        name: email
+        required: true
+        type: string
+      - description: Message ID
+        example: msg_abc123
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Label delta
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/UpdateMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/UpdateMessageResponse'
+        "400":
+          description: Invalid label or per-message cap exceeded
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "404":
+          description: Message not found or does not belong to this agent
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Update a message (labels)
       tags:
       - Email
   /api/v1/agents/{email}/messages/{id}/forward:

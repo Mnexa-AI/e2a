@@ -188,6 +188,14 @@ export class E2AClient {
     since?: string;
     /** RFC3339 timestamp; messages with created_at < until. */
     until?: string;
+    /**
+     * AND-match filter on message labels. A row is returned only if
+     * ALL given labels are present. Each entry must match the same
+     * charset as a writable label (`[a-z0-9:_-]+`, ≤ 64 chars). Passing
+     * `e2a:*` system labels is allowed at the read layer even though
+     * setting them is server-only.
+     */
+    labels?: string[];
   }) {
     return this.api.listMessages(this.requireEmail(opts?.agentEmail), {
       status: opts?.status,
@@ -199,7 +207,34 @@ export class E2AClient {
       conversationId: opts?.conversationId,
       since: opts?.since,
       until: opts?.until,
+      labels: opts?.labels,
     });
+  }
+
+  /**
+   * Apply a delta to a message's labels. Pass `addLabels` and/or
+   * `removeLabels` — each capped at 50 entries per call. Labels are
+   * lowercased server-side and must match `[a-z0-9:_-]+` up to 64
+   * chars. The `e2a:` prefix is reserved for server-applied system
+   * labels; user writes that try to set them return 400. Returns the
+   * post-update label set so callers can echo state without a fetch.
+   */
+  async updateMessageLabels(
+    messageId: string,
+    opts: {
+      addLabels?: string[];
+      removeLabels?: string[];
+      agentEmail?: string;
+    },
+  ) {
+    const body: Schemas["UpdateMessageRequest"] = {};
+    if (opts.addLabels) body.add_labels = opts.addLabels;
+    if (opts.removeLabels) body.remove_labels = opts.removeLabels;
+    return this.api.updateMessageLabels(
+      this.requireEmail(opts.agentEmail),
+      messageId,
+      body,
+    );
   }
 
   /**

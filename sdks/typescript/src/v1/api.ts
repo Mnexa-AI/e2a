@@ -161,6 +161,12 @@ export class E2AApi {
       conversationId?: string;
       since?: string;
       until?: string;
+      /**
+       * AND-match filter on labels. Emitted as repeated `labels=X`
+       * query params to mirror the server-side parser. Empty / undefined
+       * skips the filter entirely.
+       */
+      labels?: string[];
     },
   ): Promise<Schemas["ListMessagesResponse"]> {
     const params = new URLSearchParams();
@@ -172,6 +178,9 @@ export class E2AApi {
     if (opts?.conversationId) params.set("conversation_id", opts.conversationId);
     if (opts?.since) params.set("since", opts.since);
     if (opts?.until) params.set("until", opts.until);
+    if (opts?.labels) {
+      for (const l of opts.labels) params.append("labels", l);
+    }
     if (opts?.token) params.set("token", opts.token);
     const qs = params.toString();
     const path = `/api/v1/agents/${encodeURIComponent(email)}/messages${qs ? `?${qs}` : ""}`;
@@ -213,6 +222,18 @@ export class E2AApi {
       `/api/v1/agents/${encodeURIComponent(email)}/messages/${encodeURIComponent(messageId)}/forward`,
       body,
       { extraHeaders: idempotencyHeaders(opts) },
+    );
+  }
+
+  async updateMessageLabels(
+    email: string,
+    messageId: string,
+    body: Schemas["UpdateMessageRequest"],
+  ): Promise<Schemas["UpdateMessageResponse"]> {
+    return this.request(
+      "PATCH",
+      `/api/v1/agents/${encodeURIComponent(email)}/messages/${encodeURIComponent(messageId)}`,
+      body,
     );
   }
 

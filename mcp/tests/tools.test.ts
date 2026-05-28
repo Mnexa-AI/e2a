@@ -23,6 +23,7 @@ function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): E2ACli
     send: vi.fn(async () => ({ message_id: "msg_sent", status: "sent" })),
     reply: vi.fn(async () => ({ message_id: "msg_reply", status: "sent" })),
     forward: vi.fn(async () => ({ message_id: "msg_fwd", status: "sent" })),
+    updateMessageLabels: vi.fn(async () => ({ message_id: "msg_in", labels: ["urgent"] })),
     listMessages: vi.fn(async () => ({ messages: [], next_token: undefined })),
     listAgents: vi.fn(async () => ({ agents: [{ email: "bot@example.com" }] })),
     registerAgent: vi.fn(async (body: Record<string, unknown>) => ({
@@ -124,6 +125,7 @@ describe("e2a MCP server", () => {
         "send_email",
         "reply_to_message",
         "forward_message",
+        "update_message_labels",
         "list_messages",
         "get_message",
         "get_attachment_data",
@@ -188,6 +190,21 @@ describe("e2a MCP server", () => {
       ["destination@example.com"],
       { body: "FYI" },
     );
+  });
+
+  it("update_message_labels forwards args to client.updateMessageLabels", async () => {
+    await client.callTool({
+      name: "update_message_labels",
+      arguments: {
+        message_id: "msg_in",
+        add_labels: ["urgent"],
+        remove_labels: ["unread"],
+      },
+    });
+    expect(stub.updateMessageLabels).toHaveBeenCalledWith("msg_in", {
+      addLabels: ["urgent"],
+      removeLabels: ["unread"],
+    });
   });
 
   it("list_messages forwards filters", async () => {

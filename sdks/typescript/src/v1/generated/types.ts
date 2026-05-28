@@ -465,7 +465,73 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update a message (labels)
+         * @description Apply a delta to a message's labels. Pass `add_labels` and/or `remove_labels` — each capped at 50 entries per request. Labels are lowercase strings drawn from `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for server-applied system labels and rejected on user writes. The total label count per message is capped at 100. A label appearing in both add and remove is removed (remove wins). Returns the post-update label set so callers can echo state without a fetch.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /**
+                     * @description Agent email address
+                     * @example my-bot@example.com
+                     */
+                    email: string;
+                    /**
+                     * @description Message ID
+                     * @example msg_abc123
+                     */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Label delta */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateMessageRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["UpdateMessageResponse"];
+                    };
+                };
+                /** @description Invalid label or per-message cap exceeded */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Missing or invalid API key */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Message not found or does not belong to this agent */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
         trace?: never;
     };
     "/api/v1/agents/{email}/messages/{id}/forward": {
@@ -2156,6 +2222,12 @@ export interface components {
             created_at?: string;
             /** @example alice@example.com */
             from?: string;
+            /**
+             * @description Labels are caller-applied string tags. See MessageSummary.Labels
+             *     for the validation rules. Empty array when no labels are set —
+             *     never null.
+             */
+            labels?: string[];
             /** @example msg_abc123 */
             message_id?: string;
             raw_message?: string;
@@ -2190,6 +2262,13 @@ export interface components {
              * @enum {string}
              */
             hitl_status?: "pending_approval" | "sent" | "rejected" | "expired_approved" | "expired_rejected";
+            /**
+             * @description Labels are caller-applied string tags. Always lowercase, charset
+             *     `[a-z0-9:_-]+`, ≤ 64 chars each, ≤ 100 per message. The `e2a:`
+             *     prefix is reserved for server-applied system labels. Empty array
+             *     when no labels are set — never null.
+             */
+            labels?: string[];
             /** @example msg_abc123 */
             message_id?: string;
             /** @example my-bot@example.com */
@@ -2466,6 +2545,25 @@ export interface components {
         UpdateDomainRequest: {
             is_primary?: boolean;
         };
+        UpdateMessageRequest: {
+            /**
+             * @example [
+             *       "urgent"
+             *     ]
+             */
+            add_labels?: string[];
+            /**
+             * @example [
+             *       "unread"
+             *     ]
+             */
+            remove_labels?: string[];
+        };
+        UpdateMessageResponse: {
+            labels?: string[];
+            /** @example msg_abc123 */
+            message_id?: string;
+        };
         UsageEventEntry: {
             agent_id?: string;
             created_at?: string;
@@ -2621,6 +2719,15 @@ export interface components {
              *     Empty on outbound rows. Populated by GetMessagesByAgent.
              */
             inbox_status?: string;
+            /**
+             * @description Labels are user-applied string tags (`urgent`, `follow-up`, …).
+             *     Always lowercase, charset `[a-z0-9:_-]+`, ≤ 64 chars per label,
+             *     capped at 100 per message. Empty slice means no labels — the DB
+             *     default is `'{}'` so this is never null on read. Labels with the
+             *     `e2a:` prefix are reserved for server-applied system labels;
+             *     caller writes that try to set them are rejected at the API layer.
+             */
+            labels?: string[];
             method?: string;
             provider_message_id?: string;
             raw_message?: number[];
