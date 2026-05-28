@@ -257,6 +257,172 @@ func TestListMessages_LabelsFilterANDMatch(t *testing.T) {
 	}
 }
 
+func TestListMessages_LabelsFilterCursorRejectsMismatch(t *testing.T) {
+	// Regression: the cursor encodes the labels filter so a token
+	// issued for ?labels=urgent cannot be replayed against
+	// ?labels=urgent&labels=follow-up. The result set isn't stable
+	// across that change, so accepting the token would silently
+	// skip / duplicate rows.
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+	user, _ := store.CreateOrGetUser(ctx, "owner-lblcursor@example.com", "Owner", "google-lblcursor")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "lblcursor-key", nil)
+	store.ClaimOrCreateDomain(ctx, "lblcursor.example.com", user.ID)
+	store.VerifyDomain(ctx, "lblcursor.example.com", user.ID)
+	agentEmail := "bot@lblcursor.example.com"
+	agent, _ := store.CreateAgent(ctx, agentEmail, "lblcursor.example.com", "", "https://example.com/webhook", "", user.ID)
+
+	// Two messages both tagged with `urgent` so page 1 returns one and
+	// emits a next_token.
+	m1, _ := store.CreateInboundMessage(ctx, "", agent.ID, "a@gmail.com", agentEmail, "<m1c@gmail.com>", "M1", "", "", nil, nil, nil, nil, nil)
+	m2, _ := store.CreateInboundMessage(ctx, "", agent.ID, "a@gmail.com", agentEmail, "<m2c@gmail.com>", "M2", "", "", nil, nil, nil, nil, nil)
+	store.ModifyMessageLabels(ctx, m1.ID, agent.ID, []string{"urgent"}, nil)
+	store.ModifyMessageLabels(ctx, m2.ID, agent.ID, []string{"urgent"}, nil)
+
+	// Page 1: one row with labels=urgent.
+	req1, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/"+agentEmail+"/messages?status=all&direction=all&page_size=1&labels=urgent", nil)
+	req1.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
+	resp1, _ := http.DefaultClient.Do(req1)
+	defer resp1.Body.Close()
+	if resp1.StatusCode != 200 {
+		t.Fatalf("page 1 status = %d, want 200", resp1.StatusCode)
+	}
+	var page1 struct {
+		NextToken string `json:"next_token"`
+	}
+	json.NewDecoder(resp1.Body).Decode(&page1)
+	if page1.NextToken == "" {
+		t.Fatal("expected next_token on page 1")
+	}
+
+	// Page 2 with a DIFFERENT labels filter — must 400.
+	req2, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/"+agentEmail+"/messages?status=all&direction=all&page_size=1&labels=urgent&labels=follow-up&token="+page1.NextToken, nil)
+	req2.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
+	resp2, _ := http.DefaultClient.Do(req2)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != 400 {
+		t.Errorf("status = %d, want 400 (label-filter mismatch must reject token)", resp2.StatusCode)
+	}
+}
+
+func TestUpdateMessageLabels_OutboundCanBeLabeled(t *testing.T) {
+	// The labels column lives on every messages row, not just inbound.
+	// Confirm an agent can categorize their sent mail too (e.g.
+	// "billing", "follow-up-sent"). Cross-direction by design — the
+	// handler doesn't gate direction.
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+	user, _ := store.CreateOrGetUser(ctx, "owner-lbloutb@example.com", "Owner", "google-lbloutb")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "lbloutb-key", nil)
+	store.ClaimOrCreateDomain(ctx, "lbloutb.example.com", user.ID)
+	store.VerifyDomain(ctx, "lbloutb.example.com", user.ID)
+	agentEmail := "bot@lbloutb.example.com"
+	agent, _ := store.CreateAgent(ctx, agentEmail, "lbloutb.example.com", "", "https://example.com/webhook", "", user.ID)
+
+	outMsg, err := store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "Hello Alice", "send", "smtp", "<provider-id>", "")
+	if err != nil {
+		t.Fatalf("CreateOutboundMessage: %v", err)
+	}
+
+	req, _ := http.NewRequest("PATCH", server.URL+"/api/v1/agents/"+agentEmail+"/messages/"+outMsg.ID, bytes.NewBufferString(`{"add_labels":["billing","follow-up-sent"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200 (outbound messages must be labelable)", resp.StatusCode)
+	}
+	var body struct {
+		Labels []string `json:"labels"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	sort.Strings(body.Labels)
+	want := []string{"billing", "follow-up-sent"}
+	if len(body.Labels) != 2 || body.Labels[0] != want[0] || body.Labels[1] != want[1] {
+		t.Errorf("labels = %v, want %v", body.Labels, want)
+	}
+}
+
+func TestUpdateMessageLabels_HITLPendingCanBeLabeled(t *testing.T) {
+	// A reviewer should be able to tag a pending HITL message before
+	// approving (e.g. "needs-legal-review"). Confirm the labels column
+	// works on rows whose direction='outbound' AND status='pending_approval'.
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+	user, _ := store.CreateOrGetUser(ctx, "owner-lblhitl@example.com", "Owner", "google-lblhitl")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "lblhitl-key", nil)
+	store.ClaimOrCreateDomain(ctx, "lblhitl.example.com", user.ID)
+	store.VerifyDomain(ctx, "lblhitl.example.com", user.ID)
+	agentEmail := "bot@lblhitl.example.com"
+	agent, _ := store.CreateAgent(ctx, agentEmail, "lblhitl.example.com", "", "https://example.com/webhook", "", user.ID)
+
+	pending, err := store.CreatePendingOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "Pending review", "plain body", "", nil, "send", "", "", 604800)
+	if err != nil {
+		t.Fatalf("CreatePendingOutboundMessage: %v", err)
+	}
+
+	req, _ := http.NewRequest("PATCH", server.URL+"/api/v1/agents/"+agentEmail+"/messages/"+pending.ID, bytes.NewBufferString(`{"add_labels":["needs-legal-review"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var body struct {
+		Labels []string `json:"labels"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	if len(body.Labels) != 1 || body.Labels[0] != "needs-legal-review" {
+		t.Errorf("labels = %v, want [needs-legal-review]", body.Labels)
+	}
+}
+
+func TestUpdateMessageLabels_DedupsWithinAddList(t *testing.T) {
+	// Caller passes duplicates within a single add_labels list — the
+	// handler must collapse to one. Defensive: an LLM-generated tag
+	// stream may emit the same tag twice and we don't want that to
+	// cost a slot of the per-op cap or show up duplicated in the
+	// stored array.
+	f := setupLabelsFixture(t, "lbl-dedup")
+	resp := patchLabels(t, f, `{"add_labels":["urgent","urgent","urgent"]}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var body struct {
+		Labels []string `json:"labels"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	if len(body.Labels) != 1 || body.Labels[0] != "urgent" {
+		t.Errorf("labels = %v, want exactly [urgent] (duplicates collapsed)", body.Labels)
+	}
+}
+
+func TestUpdateMessageLabels_EmptyDeltaReturnsCurrentLabels(t *testing.T) {
+	// Documented behavior: a PATCH with no add/remove (or empty arrays)
+	// is a no-op that echoes the current label set. Useful as a
+	// cheap "fetch labels only" side channel, and a sentinel test
+	// against accidentally changing this to a 400 in the future.
+	f := setupLabelsFixture(t, "lbl-empty")
+	// Seed one label so the no-op response is non-trivially correct.
+	setup := patchLabels(t, f, `{"add_labels":["urgent"]}`)
+	setup.Body.Close()
+
+	resp := patchLabels(t, f, `{}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var body struct {
+		Labels []string `json:"labels"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	if len(body.Labels) != 1 || body.Labels[0] != "urgent" {
+		t.Errorf("labels = %v, want [urgent] (no-op must preserve state)", body.Labels)
+	}
+}
+
 func TestListMessages_LabelsFilterInvalidChar(t *testing.T) {
 	server, store, _ := setupAPI(t)
 	ctx := context.Background()

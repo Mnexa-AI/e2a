@@ -1798,7 +1798,8 @@ func (s *Store) ListActivityByAgent(ctx context.Context, agentID string, limit i
 		`SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.subject, m.email_message_id, COALESCE(m.method, ''), COALESCE(m.message_type, ''), COALESCE(m.inbox_status, ''), m.created_at, m.expires_at,
 		        COALESCE(wd.status, ''), COALESCE(wd.last_error, ''), COALESCE(wd.attempts, 0),
 		        m.to_recipients, m.cc, m.bcc,
-		        COALESCE(m.conversation_id, ''), COALESCE(octet_length(m.raw_message), 0)
+		        COALESCE(m.conversation_id, ''), COALESCE(octet_length(m.raw_message), 0),
+		        m.labels
 		 FROM messages m
 		 LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
 		 WHERE m.agent_id = $1 AND m.expires_at > now()
@@ -1813,7 +1814,7 @@ func (s *Store) ListActivityByAgent(ctx context.Context, agentID string, limit i
 	var messages []Message
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject, &m.EmailMessageID, &m.Method, &m.Type, &m.DeliveryStatus, &m.CreatedAt, &m.ExpiresAt, &m.WebhookStatus, &m.WebhookError, &m.WebhookAttempts, &m.ToRecipients, &m.CC, &m.BCC, &m.ConversationID, &m.SizeBytes); err != nil {
+		if err := rows.Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject, &m.EmailMessageID, &m.Method, &m.Type, &m.DeliveryStatus, &m.CreatedAt, &m.ExpiresAt, &m.WebhookStatus, &m.WebhookError, &m.WebhookAttempts, &m.ToRecipients, &m.CC, &m.BCC, &m.ConversationID, &m.SizeBytes, &m.Labels); err != nil {
 			return nil, err
 		}
 		messages = append(messages, m)

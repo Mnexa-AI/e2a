@@ -2770,8 +2770,12 @@ func (a *API) handleUpdateMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 64 KB cap is plenty for a labels delta — the per-op cap of 50
+	// labels × 64 chars + JSON overhead is well under a KB. Without
+	// this cap a client could ship multi-MB bodies and the per-op
+	// validation only kicks in after full JSON allocation.
 	var req updateMessageRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(w, r, &req, maxRequestBytesSmall); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
