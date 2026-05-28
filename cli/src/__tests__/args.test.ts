@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getFlag, hasFlag, parseArgs } from "../bin/e2a.js";
+import { getFlag, getFlags, hasFlag, parseArgs } from "../bin/e2a.js";
 
 describe("parseArgs", () => {
   it("extracts command and remaining args", () => {
@@ -46,6 +46,22 @@ describe("getFlag", () => {
     expect(getFlag(args, "--body")).toBe("hello");
     // --to should still work
     expect(getFlag(args, "--to")).toBe("a@b.com");
+  });
+});
+
+describe("getFlags", () => {
+  it("collects repeated flag values (used by --label, --to, --cc, etc.)", () => {
+    expect(
+      getFlags(["--label", "urgent", "--label", "follow-up"], "--label"),
+    ).toEqual(["urgent", "follow-up"]);
+  });
+
+  it("returns an empty array when the flag is absent", () => {
+    expect(getFlags(["--unread"], "--label")).toEqual([]);
+  });
+
+  it("returns a single-entry array for a single occurrence", () => {
+    expect(getFlags(["--label", "urgent"], "--label")).toEqual(["urgent"]);
   });
 });
 

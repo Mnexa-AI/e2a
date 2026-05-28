@@ -12,6 +12,7 @@ export async function inbox(
     conversationId?: string;
     since?: string;
     until?: string;
+    labels?: string[];
   },
 ): Promise<void> {
   const client = createClient({ from: agentFrom });
@@ -31,6 +32,7 @@ export async function inbox(
     conversationId: filters?.conversationId,
     since: filters?.since,
     until: filters?.until,
+    labels: filters?.labels && filters.labels.length ? filters.labels : undefined,
   });
 
   if (!res.messages || res.messages.length === 0) {

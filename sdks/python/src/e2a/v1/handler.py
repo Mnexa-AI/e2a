@@ -197,6 +197,10 @@ class MessageSummary:
     # positional constructors (test fixtures, custom adapters) keep
     # working without shifting the trailing args.
     reply_to: list[str] = field(default_factory=list)
+    # Per-message string labels (`urgent`, `follow-up`, …). Always a
+    # list — empty for unlabelled rows, never None. Defaulted so
+    # existing positional constructors keep working.
+    labels: list[str] = field(default_factory=list)
 
 
 @dataclass

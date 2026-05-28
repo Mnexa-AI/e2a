@@ -38,6 +38,8 @@ from e2a.v1.generated import (
     SendEmailRequest,
     SendEmailResponse,
     UpdateAgentRequest,
+    UpdateMessageRequest,
+    UpdateMessageResponse,
     VerifyDomainResponse,
 )
 
@@ -197,6 +199,7 @@ class E2AApi:
         conversation_id: Optional[str] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
+        labels: Optional[list[str]] = None,
     ) -> ListMessagesResponse:
         """List messages for an agent.
 
@@ -215,22 +218,40 @@ class E2AApi:
         produces a valid value as long as it ends in ``Z`` or has a
         timezone offset). Bracket on ``created_at`` (``>= since`` and
         ``< until``).
+
+        ``labels``: AND-match. A row is returned only if EVERY label
+        in the list is present on the row. Each entry must match the
+        same charset as a writable label (``[a-z0-9:_-]+``, ≤64 chars).
+        Reading by ``e2a:*`` system labels is allowed even though
+        setting them is server-only. Encoded as repeated
+        ``?labels=`` query params; the filter is part of the cursor
+        identity so continuation pages must reuse the same labels.
         """
-        params: dict[str, str] = {"status": status, "page_size": str(page_size)}
+        # Build query string by hand so repeated `labels=` params
+        # work — httpx accepts a list value for a key and emits each
+        # element as its own occurrence, which is the shape the
+        # server-side parser expects (`r.URL.Query()["labels"]`).
+        params: list[tuple[str, str]] = [
+            ("status", status),
+            ("page_size", str(page_size)),
+        ]
         if sort:
-            params["sort"] = sort
+            params.append(("sort", sort))
         if from_:
-            params["from"] = from_
+            params.append(("from", from_))
         if subject_contains:
-            params["subject_contains"] = subject_contains
+            params.append(("subject_contains", subject_contains))
         if conversation_id:
-            params["conversation_id"] = conversation_id
+            params.append(("conversation_id", conversation_id))
         if since:
-            params["since"] = since
+            params.append(("since", since))
         if until:
-            params["until"] = until
+            params.append(("until", until))
+        if labels:
+            for label in labels:
+                params.append(("labels", label))
         if token:
-            params["token"] = token
+            params.append(("token", token))
         resp = self._client.get(
             f"/api/v1/agents/{_encode_email(agent_email)}/messages",
             params=params,
@@ -259,6 +280,30 @@ class E2AApi:
         )
         _check_response(resp)
         return SendEmailResponse.model_validate(resp.json())
+
+    def update_message_labels(
+        self,
+        agent_email: str,
+        message_id: str,
+        body: UpdateMessageRequest,
+    ) -> UpdateMessageResponse:
+        """Apply a labels delta to a message.
+
+        ``body`` carries ``add_labels`` and/or ``remove_labels``. Labels
+        are lowercase strings drawn from ``[a-z0-9:_-]+``, capped at 64
+        chars each and 50 per request; the post-update label set is
+        capped at 100 per message. The ``e2a:`` prefix is reserved for
+        server-applied system labels and rejected on user writes. A
+        label appearing in both lists is removed (remove wins).
+        Returns the post-update label set so callers can echo state
+        without a follow-up fetch.
+        """
+        resp = self._client.patch(
+            f"/api/v1/agents/{_encode_email(agent_email)}/messages/{message_id}",
+            json=body.model_dump(by_alias=True, exclude_none=True),
+        )
+        _check_response(resp)
+        return UpdateMessageResponse.model_validate(resp.json())
 
     def send_email(
         self,

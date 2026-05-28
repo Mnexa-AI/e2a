@@ -39,7 +39,7 @@ Usage:
   e2a pending show <id>             Show a held message's full detail
   e2a pending approve <id> [--edit] Approve (and optionally edit) a held message
   e2a pending reject <id> [--reason …]  Reject a held message
-  e2a inbox [--unread|--read] [--limit N] [--oldest] [--from substr] [--subject substr] [--conversation id] [--since ts] [--until ts] [--token …]   List messages (newest first; --oldest for FIFO)
+  e2a inbox [--unread|--read] [--limit N] [--oldest] [--from substr] [--subject substr] [--conversation id] [--since ts] [--until ts] [--label …] [--token …]   List messages (newest first; --oldest for FIFO; --label repeats to AND-match)
   e2a read <message-id>             Read a message
   e2a reply <msg-id> --body … [--reply-all] [--cc …] [--bcc …]
   e2a forward <msg-id> --to … [--cc …] [--bcc …] [--body …]
@@ -214,6 +214,7 @@ async function main() {
         conversationId: getFlag(args, "--conversation"),
         since: getFlag(args, "--since"),
         until: getFlag(args, "--until"),
+        labels: getFlags(args, "--label"),
       });
       break;
     }
@@ -306,4 +307,4 @@ if (!isTestImport) {
   });
 }
 
-export { getFlag, hasFlag, parseArgs };
+export { getFlag, getFlags, hasFlag, parseArgs };

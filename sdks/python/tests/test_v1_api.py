@@ -24,6 +24,8 @@ from e2a.v1.generated import (
     SendEmailRequest,
     SendEmailResponse,
     UpdateAgentRequest,
+    UpdateMessageRequest,
+    UpdateMessageResponse,
     VerifyDomainResponse,
 )
 
@@ -396,6 +398,41 @@ def test_reply_with_html_and_conversation(httpx_mock):
         "html_body": "<p>Thanks!</p>",
         "conversation_id": "conv_abc",
     }
+
+
+def test_update_message_labels(httpx_mock):
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123",
+        method="PATCH",
+        json={"message_id": "msg_123", "labels": ["follow-up", "urgent"]},
+    )
+
+    with E2AApi(api_key="k") as api:
+        result = api.update_message_labels(
+            "bot@agents.e2a.dev",
+            "msg_123",
+            UpdateMessageRequest(add_labels=["urgent", "follow-up"], remove_labels=["unread"]),
+        )
+
+    assert isinstance(result, UpdateMessageResponse)
+    assert result.message_id == "msg_123"
+    assert result.labels == ["follow-up", "urgent"]
+    body = json.loads(httpx_mock.get_request().content)
+    assert body == {"add_labels": ["urgent", "follow-up"], "remove_labels": ["unread"]}
+
+
+def test_list_messages_emits_repeated_labels_query(httpx_mock):
+    # Multiple ?labels= params must be sent as repeated occurrences so
+    # the server-side parser (r.URL.Query()["labels"]) sees a slice.
+    # Encoded as `labels=urgent&labels=follow-up`, not a CSV.
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages?status=unread&page_size=50&labels=urgent&labels=follow-up",
+        method="GET",
+        json={"messages": []},
+    )
+
+    with E2AApi(api_key="k") as api:
+        api.list_messages("bot@agents.e2a.dev", labels=["urgent", "follow-up"])
 
 
 def test_send_email(httpx_mock):

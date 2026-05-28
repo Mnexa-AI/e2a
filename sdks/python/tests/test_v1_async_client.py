@@ -208,6 +208,35 @@ async def test_get_messages(httpx_mock):
     assert result.next_token == "tok_abc"
 
 
+@pytest.mark.anyio
+async def test_update_message_labels(httpx_mock):
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123",
+        method="PATCH",
+        json={"message_id": "msg_123", "labels": ["follow-up", "urgent"]},
+    )
+
+    async with AsyncE2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        result = await client.update_message_labels(
+            "msg_123", add_labels=["urgent", "follow-up"], remove_labels=["unread"],
+        )
+
+    assert result == ["follow-up", "urgent"]
+
+
+@pytest.mark.anyio
+async def test_get_messages_with_labels_filter(httpx_mock):
+    # Repeated ?labels= params, same shape as the sync client.
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages?status=all&page_size=50&labels=urgent&labels=follow-up",
+        method="GET",
+        json={"messages": []},
+    )
+
+    async with AsyncE2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        await client.get_messages(status="all", labels=["urgent", "follow-up"])
+
+
 # ── reply() ──────────────────────────────────────────────────────
 
 
