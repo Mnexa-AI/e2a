@@ -85,6 +85,13 @@ func writeTooManyRequests(w http.ResponseWriter, retryAfter time.Duration, msg s
 const (
 	maxRequestBytesSmall = 64 * 1024        // 64 KB — domain/agent CRUD, HITL approve
 	maxRequestBytesSend  = 25 * 1024 * 1024 // 25 MB — outbound /send + reply (matches typical SMTP attachment limits)
+
+	// maxFilterStr bounds free-form query-string filters (from /
+	// subject_contains / conversation_id) and any equivalent path
+	// param such as /conversations/{id}. 200 covers human-typed
+	// substrings and msg-style IDs without making slow-query logs
+	// noisy on bad input.
+	maxFilterStr = 200
 )
 
 // ValidateWebhookImageURL — see ValidateWebhookURL.
@@ -2330,7 +2337,6 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 	// Substring filters are bound to 200 chars to keep ILIKE patterns
 	// from running away on a hot path. Time-range filters take RFC3339
 	// timestamps and reject anything else with 400.
-	const maxFilterStr = 200
 	fromFilter := strings.TrimSpace(r.URL.Query().Get("from"))
 	if len(fromFilter) > maxFilterStr {
 		http.Error(w, "from filter too long (max 200 chars)", http.StatusBadRequest)
@@ -2526,65 +2532,13 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		messages = messages[:pageSize]
 	}
 
-	// Response shape: existing SDK consumers see the same wire fields they
-	// always have (`status` continues to carry the inbox_status value for
-	// inbound rows). New consumers (dashboard inbox) read the additional
-	// fields: `direction`, `hitl_status` (outbound HITL lifecycle),
-	// `webhook_status`/`webhook_error` (outbound delivery), `size_bytes`.
-	type messageSummary struct {
-		ID             string   `json:"message_id"`
-		Direction      string   `json:"direction"`
-		From           string   `json:"from"`
-		To             []string `json:"to"`
-		CC             []string `json:"cc,omitempty"`
-		ReplyTo        []string `json:"reply_to,omitempty"`
-		Recipient      string   `json:"recipient"`
-		Subject        string   `json:"subject"`
-		ConversationID string   `json:"conversation_id,omitempty"`
-		Status         string   `json:"status"` // back-compat: inbox_status value (read/unread); empty for outbound
-		HITLStatus     string   `json:"hitl_status,omitempty"`
-		WebhookStatus  string   `json:"webhook_status,omitempty"`
-		WebhookError   string   `json:"webhook_error,omitempty"`
-		SizeBytes      int      `json:"size_bytes,omitempty"`
-		// Labels is always present (never nil) so clients can render
-		// it without a null-check. Empty slice for unlabelled rows —
-		// matches the DB DEFAULT '{}' invariant.
-		Labels         []string `json:"labels"`
-		CreatedAt      string   `json:"created_at"`
-	}
-
+	// Response shape: messageSummary (package-level type) — every
+	// message-list endpoint uses the same builder so adding a new
+	// field is a one-place edit. See messageSummaryFromIdentity for
+	// the inbound/outbound branching of HITL/webhook fields.
 	summaries := make([]messageSummary, len(messages))
 	for i, m := range messages {
-		// HITLStatus + WebhookStatus only make sense for outbound rows;
-		// leave them empty on inbound to keep the response compact.
-		var hitl, wh, whErr string
-		var size int
-		if m.Direction == "outbound" {
-			hitl = m.Status
-			wh = m.WebhookStatus
-			whErr = m.WebhookError
-			size = m.SizeBytes
-		} else {
-			size = m.SizeBytes
-		}
-		summaries[i] = messageSummary{
-			ID:             m.ID,
-			Direction:      m.Direction,
-			From:           m.Sender,
-			To:             orEmptySlice(m.ToRecipients),
-			CC:             m.CC,
-			ReplyTo:        m.ReplyTo,
-			Recipient:      m.Recipient,
-			Subject:        m.Subject,
-			ConversationID: m.ConversationID,
-			Status:         m.InboxStatus,
-			HITLStatus:     hitl,
-			WebhookStatus:  wh,
-			WebhookError:   whErr,
-			SizeBytes:      size,
-			Labels:         orEmptySlice(m.Labels),
-			CreatedAt:      m.CreatedAt.UTC().Format(time.RFC3339),
-		}
+		summaries[i] = messageSummaryFromIdentity(m)
 	}
 
 	// Build next_token from last message (includes filters for validation)
@@ -2826,6 +2780,21 @@ func (a *API) handleGetConversation(w http.ResponseWriter, r *http.Request) {
 	email := normalizeEmail(vars["email"])
 	convoID := vars["id"]
 
+	// Bound the path-param length and reject CRLF before it reaches
+	// the DB. pgx parameter binding prevents SQL injection, but an
+	// unbounded path param could still produce slow-query log noise
+	// and waste an index lookup on a giant comparison key. The same
+	// 200-char cap that the list endpoint's ?conversation_id= filter
+	// uses; matches validateConversationID's CR/LF check.
+	if len(convoID) > maxFilterStr {
+		http.Error(w, "conversation_id too long (max 200 chars)", http.StatusBadRequest)
+		return
+	}
+	if err := validateConversationID(convoID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	agent, err := a.resolveAgentForUser(r, email, user)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("agent not found: %v", err), http.StatusNotFound)
@@ -2844,28 +2813,17 @@ func (a *API) handleGetConversation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build the wire shape: embedded summary fields + member messages
-	// rendered the same way GetMessages does (reuses the contract for
-	// labels/cc/reply_to/status etc.).
+	// rendered via the shared messageSummaryFromIdentity helper, so a
+	// conversation row and a list-messages row carry the identical
+	// contract. If MessageSummary ever gains a new field, both
+	// endpoints surface it automatically.
 	resp := conversationSummaryToWire(detail.ConversationSummary)
 	resp["participants"] = orEmptySlice(detail.Participants)
 	resp["labels"] = orEmptySlice(detail.Labels)
 
-	msgs := make([]map[string]interface{}, len(detail.Messages))
+	msgs := make([]messageSummary, len(detail.Messages))
 	for i, m := range detail.Messages {
-		msgs[i] = map[string]interface{}{
-			"message_id":      m.ID,
-			"direction":       m.Direction,
-			"from":            m.Sender,
-			"to":              orEmptySlice(m.ToRecipients),
-			"cc":              m.CC,
-			"reply_to":        m.ReplyTo,
-			"recipient":       m.Recipient,
-			"subject":         m.Subject,
-			"conversation_id": m.ConversationID,
-			"status":          m.InboxStatus,
-			"labels":          orEmptySlice(m.Labels),
-			"created_at":      m.CreatedAt.UTC().Format(time.RFC3339),
-		}
+		msgs[i] = messageSummaryFromIdentity(m)
 	}
 	resp["messages"] = msgs
 
@@ -2890,6 +2848,72 @@ func conversationSummaryToWire(c identity.ConversationSummary) map[string]interf
 		"latest_subject":   c.LatestSubject,
 		"latest_sender":    c.LatestSender,
 	}
+}
+
+// messageSummary is the shared wire shape used by every endpoint that
+// returns a list of message summaries — currently handleGetMessages
+// and (the embedded messages array of) handleGetConversation. Hoisted
+// to package scope from a local declaration inside handleGetMessages
+// so the two endpoints never drift on field names or omitempty rules
+// — adding a new field is a one-place edit instead of two.
+//
+// `Status` continues to carry the inbox_status value (read/unread) for
+// inbound rows for back-compat with pre-existing SDK consumers. New
+// consumers (the dashboard inbox) read the additional fields:
+// `direction`, `hitl_status` (outbound HITL lifecycle),
+// `webhook_status` / `webhook_error` (outbound delivery), `size_bytes`.
+type messageSummary struct {
+	ID             string   `json:"message_id"`
+	Direction      string   `json:"direction"`
+	From           string   `json:"from"`
+	To             []string `json:"to"`
+	CC             []string `json:"cc,omitempty"`
+	ReplyTo        []string `json:"reply_to,omitempty"`
+	Recipient      string   `json:"recipient"`
+	Subject        string   `json:"subject"`
+	ConversationID string   `json:"conversation_id,omitempty"`
+	Status         string   `json:"status"` // back-compat: inbox_status for inbound; empty for outbound
+	HITLStatus     string   `json:"hitl_status,omitempty"`
+	WebhookStatus  string   `json:"webhook_status,omitempty"`
+	WebhookError   string   `json:"webhook_error,omitempty"`
+	SizeBytes      int      `json:"size_bytes,omitempty"`
+	// Labels is always present (never nil) so clients can render it
+	// without a null-check. Empty slice for unlabelled rows — matches
+	// the DB DEFAULT '{}' invariant.
+	Labels    []string `json:"labels"`
+	CreatedAt string   `json:"created_at"`
+}
+
+// messageSummaryFromIdentity builds the wire shape from a stored row.
+// Outbound-only fields (HITLStatus / WebhookStatus / WebhookError) are
+// empty for inbound rows so the response stays compact; SizeBytes
+// passes through for both directions (set or zero from the load path).
+//
+// Callers that populate Message from a SELECT that doesn't fetch the
+// webhook join still get correct output — empty WebhookStatus is the
+// "no info" state, and the omitempty tag drops it on the wire.
+func messageSummaryFromIdentity(m identity.Message) messageSummary {
+	s := messageSummary{
+		ID:             m.ID,
+		Direction:      m.Direction,
+		From:           m.Sender,
+		To:             orEmptySlice(m.ToRecipients),
+		CC:             m.CC,
+		ReplyTo:        m.ReplyTo,
+		Recipient:      m.Recipient,
+		Subject:        m.Subject,
+		ConversationID: m.ConversationID,
+		Status:         m.InboxStatus,
+		SizeBytes:      m.SizeBytes,
+		Labels:         orEmptySlice(m.Labels),
+		CreatedAt:      m.CreatedAt.UTC().Format(time.RFC3339),
+	}
+	if m.Direction == "outbound" {
+		s.HITLStatus = m.Status
+		s.WebhookStatus = m.WebhookStatus
+		s.WebhookError = m.WebhookError
+	}
+	return s
 }
 
 // stringSlicesEqual reports whether two ordered string slices have

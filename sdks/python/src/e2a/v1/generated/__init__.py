@@ -58,7 +58,11 @@ class ConversationSummary(BaseModel):
     )
     conversation_id: str | None = Field(None, examples=['conv_abc123'])
     first_message_at: str | None = Field(None, examples=['2026-05-20T10:00:00Z'])
-    has_unread: bool | None = Field(None, examples=[True])
+    has_unread: bool | None = Field(
+        None,
+        description="HasUnread is true iff at least one INBOUND member of this\nconversation is in inbox_status='unread'. Outbound rows do\nNOT contribute — a thread containing only your sent messages\n(or only HITL-pending outbound) returns false. This is the\nagent's mailbox view, not the reviewer's HITL queue.",
+        examples=[True],
+    )
     inbound_count: int | None = Field(None, examples=[2])
     last_message_at: str | None = Field(None, examples=['2026-05-28T12:00:00Z'])
     latest_sender: str | None = Field(None, examples=['alice@example.com'])
@@ -483,7 +487,11 @@ class ConversationDetail(BaseModel):
     )
     conversation_id: str | None = Field(None, examples=['conv_abc123'])
     first_message_at: str | None = Field(None, examples=['2026-05-20T10:00:00Z'])
-    has_unread: bool | None = Field(None, examples=[True])
+    has_unread: bool | None = Field(
+        None,
+        description="HasUnread is true iff at least one INBOUND member of this\nconversation is in inbox_status='unread'. Outbound rows do\nNOT contribute — a thread containing only your sent messages\n(or only HITL-pending outbound) returns false. This is the\nagent's mailbox view, not the reviewer's HITL queue.",
+        examples=[True],
+    )
     inbound_count: int | None = Field(None, examples=[2])
     labels: list[str] | None = None
     last_message_at: str | None = Field(None, examples=['2026-05-28T12:00:00Z'])

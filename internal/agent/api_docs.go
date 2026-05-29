@@ -106,10 +106,6 @@ type ListMessagesResponse struct {
 // ConversationSummary is one row in the conversations list. Aggregated
 // counts + the "latest" preview fields render an inbox-style
 // conversation list without a per-row drill-down.
-//
-// has_unread is true iff at least one INBOUND member is unread.
-// Outbound pending_approval doesn't count — this is the agent's
-// mailbox view, not the reviewer's HITL queue.
 type ConversationSummary struct {
 	ConversationID string `json:"conversation_id" example:"conv_abc123"`
 	LastMessageAt  string `json:"last_message_at" example:"2026-05-28T12:00:00Z"`
@@ -117,9 +113,14 @@ type ConversationSummary struct {
 	MessageCount   int    `json:"message_count" example:"4"`
 	InboundCount   int    `json:"inbound_count" example:"2"`
 	OutboundCount  int    `json:"outbound_count" example:"2"`
-	HasUnread      bool   `json:"has_unread" example:"true"`
-	LatestSubject  string `json:"latest_subject" example:"Re: Quarterly report"`
-	LatestSender   string `json:"latest_sender" example:"alice@example.com"`
+	// HasUnread is true iff at least one INBOUND member of this
+	// conversation is in inbox_status='unread'. Outbound rows do
+	// NOT contribute — a thread containing only your sent messages
+	// (or only HITL-pending outbound) returns false. This is the
+	// agent's mailbox view, not the reviewer's HITL queue.
+	HasUnread     bool   `json:"has_unread" example:"true"`
+	LatestSubject string `json:"latest_subject" example:"Re: Quarterly report"`
+	LatestSender  string `json:"latest_sender" example:"alice@example.com"`
 } // @name ConversationSummary
 
 // ConversationDetail extends the summary with computed aggregates

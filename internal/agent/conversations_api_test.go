@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -269,6 +270,101 @@ func TestGetConversation_DetailShape(t *testing.T) {
 	for i, m := range detail.Messages {
 		if m.Labels == nil {
 			t.Errorf("messages[%d].labels = nil, want array", i)
+		}
+	}
+}
+
+func TestGetConversation_RejectsOversizedID(t *testing.T) {
+	// Defensive cap: a 300-char path param should 400 before reaching
+	// the DB. Matches the same maxFilterStr cap the list endpoint
+	// applies to the conversation_id query param.
+	f := setupConvoFixture(t, "convo-oversize")
+	longID := strings.Repeat("a", 250)
+	resp, _ := f.get(t, "/api/v1/agents/"+f.agentEmail+"/conversations/"+longID)
+	if resp.StatusCode != 400 {
+		t.Errorf("status = %d, want 400 (oversized conversation_id)", resp.StatusCode)
+	}
+}
+
+func TestGetConversation_RejectsCRLFInID(t *testing.T) {
+	// validateConversationID rejects CR/LF; the path param is no
+	// different from the query param for this guard.
+	f := setupConvoFixture(t, "convo-crlf")
+	resp, _ := f.get(t, "/api/v1/agents/"+f.agentEmail+"/conversations/conv%0D%0Ainjected")
+	if resp.StatusCode != 400 {
+		t.Errorf("status = %d, want 400 (CRLF in conversation_id)", resp.StatusCode)
+	}
+}
+
+func TestGetConversation_MessageRowHasAllSummaryFields(t *testing.T) {
+	// Contract regression: each message row in the conversation
+	// detail's `messages[]` must carry the same set of summary fields
+	// as `GET /messages`. Previously the detail handler hand-rolled
+	// a map[string]interface{} that omitted hitl_status, webhook_status,
+	// webhook_error, size_bytes, and could silently drift from
+	// MessageSummary on every list-endpoint addition. Now both paths
+	// share messageSummaryFromIdentity — this test prevents future
+	// drift by asserting that the detail-message JSON keys are a
+	// superset of the list-endpoint keys for the same row.
+	server, store, _ := setupAPI(t)
+	ctx := context.Background()
+	user, _ := store.CreateOrGetUser(ctx, "owner-convo-shape@example.com", "Owner", "google-convo-shape-2")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "convo-shape-2-key", nil)
+	store.ClaimOrCreateDomain(ctx, "convo-shape-2.example.com", user.ID)
+	store.VerifyDomain(ctx, "convo-shape-2.example.com", user.ID)
+	agent, _ := store.CreateAgent(ctx, "bot@convo-shape-2.example.com", "convo-shape-2.example.com", "", "https://example.com/webhook", "", user.ID)
+
+	msg, _ := store.CreateInboundMessage(ctx, "", agent.ID, "alice@x.com", "bot@convo-shape-2.example.com", "<m1@x>", "hi", "conv-shape-2", "unread", nil, nil, nil, nil, nil)
+	store.ModifyMessageLabels(ctx, msg.ID, agent.ID, []string{"urgent"}, nil)
+
+	// Fetch the row via the messages list.
+	reqList, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/bot@convo-shape-2.example.com/messages?status=all&direction=all", nil)
+	reqList.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
+	respList, _ := http.DefaultClient.Do(reqList)
+	defer respList.Body.Close()
+	var listBody struct {
+		Messages []map[string]interface{} `json:"messages"`
+	}
+	json.NewDecoder(respList.Body).Decode(&listBody)
+	if len(listBody.Messages) != 1 {
+		t.Fatalf("list len = %d, want 1", len(listBody.Messages))
+	}
+	listKeys := map[string]bool{}
+	for k := range listBody.Messages[0] {
+		listKeys[k] = true
+	}
+
+	// Fetch the same row via the conversation detail.
+	reqDetail, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/bot@convo-shape-2.example.com/conversations/conv-shape-2", nil)
+	reqDetail.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
+	respDetail, _ := http.DefaultClient.Do(reqDetail)
+	defer respDetail.Body.Close()
+	var detailBody struct {
+		Messages []map[string]interface{} `json:"messages"`
+	}
+	json.NewDecoder(respDetail.Body).Decode(&detailBody)
+	if len(detailBody.Messages) != 1 {
+		t.Fatalf("detail messages len = %d, want 1", len(detailBody.Messages))
+	}
+	detailKeys := map[string]bool{}
+	for k := range detailBody.Messages[0] {
+		detailKeys[k] = true
+	}
+
+	// Every key the list endpoint emits must also appear on the
+	// detail's member row. The reverse isn't required (the detail
+	// could emit MORE), so we only assert the superset direction.
+	for k := range listKeys {
+		if !detailKeys[k] {
+			t.Errorf("conversation detail message missing key %q (drift from MessageSummary contract)", k)
+		}
+	}
+
+	// Field-level spot checks: the keys we'd most want to know about
+	// if they ever disappeared from the conversation row.
+	for _, must := range []string{"message_id", "direction", "from", "subject", "labels", "created_at", "status"} {
+		if _, ok := detailBody.Messages[0][must]; !ok {
+			t.Errorf("conversation detail message missing critical key %q", must)
 		}
 	}
 }

@@ -2224,7 +2224,14 @@ export interface components {
             conversation_id?: string;
             /** @example 2026-05-20T10:00:00Z */
             first_message_at?: string;
-            /** @example true */
+            /**
+             * @description HasUnread is true iff at least one INBOUND member of this
+             *     conversation is in inbox_status='unread'. Outbound rows do
+             *     NOT contribute — a thread containing only your sent messages
+             *     (or only HITL-pending outbound) returns false. This is the
+             *     agent's mailbox view, not the reviewer's HITL queue.
+             * @example true
+             */
             has_unread?: boolean;
             /** @example 2 */
             inbound_count?: number;
@@ -2247,7 +2254,14 @@ export interface components {
             conversation_id?: string;
             /** @example 2026-05-20T10:00:00Z */
             first_message_at?: string;
-            /** @example true */
+            /**
+             * @description HasUnread is true iff at least one INBOUND member of this
+             *     conversation is in inbox_status='unread'. Outbound rows do
+             *     NOT contribute — a thread containing only your sent messages
+             *     (or only HITL-pending outbound) returns false. This is the
+             *     agent's mailbox view, not the reviewer's HITL queue.
+             * @example true
+             */
             has_unread?: boolean;
             /** @example 2 */
             inbound_count?: number;
