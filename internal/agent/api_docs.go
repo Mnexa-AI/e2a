@@ -103,6 +103,43 @@ type ListMessagesResponse struct {
 	NextToken string           `json:"next_token,omitempty"`
 } // @name ListMessagesResponse
 
+// ConversationSummary is one row in the conversations list. Aggregated
+// counts + the "latest" preview fields render an inbox-style
+// conversation list without a per-row drill-down.
+//
+// has_unread is true iff at least one INBOUND member is unread.
+// Outbound pending_approval doesn't count — this is the agent's
+// mailbox view, not the reviewer's HITL queue.
+type ConversationSummary struct {
+	ConversationID string `json:"conversation_id" example:"conv_abc123"`
+	LastMessageAt  string `json:"last_message_at" example:"2026-05-28T12:00:00Z"`
+	FirstMessageAt string `json:"first_message_at" example:"2026-05-20T10:00:00Z"`
+	MessageCount   int    `json:"message_count" example:"4"`
+	InboundCount   int    `json:"inbound_count" example:"2"`
+	OutboundCount  int    `json:"outbound_count" example:"2"`
+	HasUnread      bool   `json:"has_unread" example:"true"`
+	LatestSubject  string `json:"latest_subject" example:"Re: Quarterly report"`
+	LatestSender   string `json:"latest_sender" example:"alice@example.com"`
+} // @name ConversationSummary
+
+// ConversationDetail extends the summary with computed aggregates
+// (participants union, label union) and the member messages, ordered
+// chronologically (oldest first).
+type ConversationDetail struct {
+	ConversationSummary
+	Participants []string         `json:"participants"`
+	Labels       []string         `json:"labels"`
+	Messages     []MessageSummary `json:"messages"`
+} // @name ConversationDetail
+
+// ListConversationsResponse wraps the conversations list. Pagination
+// is intentionally deferred — the response is hard-capped at 100
+// conversations server-side, which covers the inbox-style use case
+// without a cursor.
+type ListConversationsResponse struct {
+	Conversations []ConversationSummary `json:"conversations"`
+} // @name ListConversationsResponse
+
 // MessageSummary is a lightweight message summary for the list endpoint.
 // To and CC are the parsed To: / Cc: headers from the original message;
 // Recipient is this delivery's per-agent target. ReplyTo is the parsed

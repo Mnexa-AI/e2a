@@ -286,6 +286,8 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/v1/agents/{email}/messages/{id}", a.handleUpdateMessage).Methods("PATCH")
 	r.HandleFunc("/api/v1/agents/{email}/messages/{id}/reply", a.handleReplyToMessage).Methods("POST")
 	r.HandleFunc("/api/v1/agents/{email}/messages/{id}/forward", a.handleForwardMessage).Methods("POST")
+	r.HandleFunc("/api/v1/agents/{email}/conversations", a.handleListConversations).Methods("GET")
+	r.HandleFunc("/api/v1/agents/{email}/conversations/{id}", a.handleGetConversation).Methods("GET")
 	r.HandleFunc("/api/v1/domains", a.handleListDomains).Methods("GET")
 	r.HandleFunc("/api/v1/domains", a.handleRegisterDomain).Methods("POST")
 	r.HandleFunc("/api/v1/domains/{domain}/verify", a.handleVerifyDomain).Methods("POST")
@@ -2700,6 +2702,194 @@ func (a *API) handleGetMessage(w http.ResponseWriter, r *http.Request) {
 		"auth_headers":    msg.AuthHeaders,
 		"raw_message":     msg.RawMessage,
 	})
+}
+
+// handleListConversations returns the agent's conversations sorted by
+// most-recent activity. Thin read layer over messages.conversation_id —
+// no separate storage, no pagination (server caps at 100 per response,
+// which covers the inbox-style use case). Filter on the window via
+// `since` / `until` (RFC3339, brackets last_message_at).
+// @Summary      List conversations for an agent
+// @Description  Returns conversation summaries for an agent — one row per non-empty conversation_id, with aggregated counts and the latest message's subject/sender. Sorted by `last_message_at` descending. The response is hard-capped at 100 conversations (pagination is intentionally deferred for slice 1). Use `since` / `until` to bracket the active window. Messages with empty `conversation_id` are NOT in any conversation — they remain individually visible via the messages list.
+// @Tags         Email
+// @Produce      json
+// @Security     BearerAuth
+// @Param        email path  string true  "Agent email address" example(my-bot@example.com)
+// @Param        since query string false "RFC3339 timestamp; only conversations whose latest message is >= since" example(2026-05-01T00:00:00Z)
+// @Param        until query string false "RFC3339 timestamp; only conversations whose latest message is < until"
+// @Param        page_size query int false "Max conversations to return (server clamps to 100)" minimum(1) maximum(100) default(100)
+// @Success      200 {object} ListConversationsResponse
+// @Failure      400 {string} string "Invalid since/until"
+// @Failure      401 {string} string "Missing or invalid API key"
+// @Failure      404 {string} string "Agent not found or not owned by this user"
+// @Router       /api/v1/agents/{email}/conversations [get]
+func (a *API) handleListConversations(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticateUser(r)
+	if err != nil {
+		a.writeAuthError(w, r, err)
+		return
+	}
+
+	if ok, retryAfter := a.pollLimit.AllowWithRetryAfter(user.ID); !ok {
+		writeTooManyRequests(w, retryAfter, "rate limit exceeded — max 60 requests per minute per user")
+		return
+	}
+
+	email := normalizeEmail(mux.Vars(r)["email"])
+	agent, err := a.resolveAgentForUser(r, email, user)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("agent not found: %v", err), http.StatusNotFound)
+		return
+	}
+
+	var since, until time.Time
+	if s := strings.TrimSpace(r.URL.Query().Get("since")); s != "" {
+		t, err := time.Parse(time.RFC3339, s)
+		if err != nil {
+			http.Error(w, "since must be RFC3339 (e.g. 2026-05-25T00:00:00Z)", http.StatusBadRequest)
+			return
+		}
+		since = t
+	}
+	if u := strings.TrimSpace(r.URL.Query().Get("until")); u != "" {
+		t, err := time.Parse(time.RFC3339, u)
+		if err != nil {
+			http.Error(w, "until must be RFC3339", http.StatusBadRequest)
+			return
+		}
+		until = t
+	}
+	if !since.IsZero() && !until.IsZero() && !since.Before(until) {
+		http.Error(w, "since must be earlier than until", http.StatusBadRequest)
+		return
+	}
+
+	pageSize := 100
+	if ps := strings.TrimSpace(r.URL.Query().Get("page_size")); ps != "" {
+		n, err := strconv.Atoi(ps)
+		if err != nil || n < 1 {
+			http.Error(w, "page_size must be a positive integer", http.StatusBadRequest)
+			return
+		}
+		pageSize = n
+	}
+
+	convos, err := a.store.ListConversationsByAgent(r.Context(), identity.ConversationListFilter{
+		AgentID: agent.ID,
+		Limit:   pageSize,
+		Since:   since,
+		Until:   until,
+	})
+	if err != nil {
+		log.Printf("[api] ListConversationsByAgent: agent=%s err=%v", agent.ID, err)
+		http.Error(w, "failed to fetch conversations", http.StatusInternalServerError)
+		return
+	}
+
+	summaries := make([]map[string]interface{}, len(convos))
+	for i, c := range convos {
+		summaries[i] = conversationSummaryToWire(c)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	writeJSON(w, map[string]interface{}{
+		"conversations": summaries,
+	})
+}
+
+// handleGetConversation returns a single conversation's detail — the
+// aggregate summary fields plus all member messages chronologically.
+// @Summary      Get a conversation
+// @Description  Returns the full conversation — aggregate counts, participant union, label union, and every member message (oldest-first). Messages share the schema of `MessageSummary` from the list endpoint. Returns 404 when no non-expired messages exist for `(agent, conversation_id)`; cross-agent access is indistinguishable from not-found.
+// @Tags         Email
+// @Produce      json
+// @Security     BearerAuth
+// @Param        email path string true "Agent email address" example(my-bot@example.com)
+// @Param        id    path string true "Conversation ID" example(conv_abc123)
+// @Success      200 {object} ConversationDetail
+// @Failure      401 {string} string "Missing or invalid API key"
+// @Failure      404 {string} string "Conversation not found"
+// @Router       /api/v1/agents/{email}/conversations/{id} [get]
+func (a *API) handleGetConversation(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticateUser(r)
+	if err != nil {
+		a.writeAuthError(w, r, err)
+		return
+	}
+
+	if ok, retryAfter := a.pollLimit.AllowWithRetryAfter(user.ID); !ok {
+		writeTooManyRequests(w, retryAfter, "rate limit exceeded — max 60 requests per minute per user")
+		return
+	}
+
+	vars := mux.Vars(r)
+	email := normalizeEmail(vars["email"])
+	convoID := vars["id"]
+
+	agent, err := a.resolveAgentForUser(r, email, user)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("agent not found: %v", err), http.StatusNotFound)
+		return
+	}
+
+	detail, err := a.store.GetConversationByID(r.Context(), agent.ID, convoID)
+	if err != nil {
+		if errors.Is(err, identity.ErrMessageNotFound) {
+			http.Error(w, "conversation not found", http.StatusNotFound)
+			return
+		}
+		log.Printf("[api] GetConversationByID: agent=%s conv=%s err=%v", agent.ID, convoID, err)
+		http.Error(w, "failed to fetch conversation", http.StatusInternalServerError)
+		return
+	}
+
+	// Build the wire shape: embedded summary fields + member messages
+	// rendered the same way GetMessages does (reuses the contract for
+	// labels/cc/reply_to/status etc.).
+	resp := conversationSummaryToWire(detail.ConversationSummary)
+	resp["participants"] = orEmptySlice(detail.Participants)
+	resp["labels"] = orEmptySlice(detail.Labels)
+
+	msgs := make([]map[string]interface{}, len(detail.Messages))
+	for i, m := range detail.Messages {
+		msgs[i] = map[string]interface{}{
+			"message_id":      m.ID,
+			"direction":       m.Direction,
+			"from":            m.Sender,
+			"to":              orEmptySlice(m.ToRecipients),
+			"cc":              m.CC,
+			"reply_to":        m.ReplyTo,
+			"recipient":       m.Recipient,
+			"subject":         m.Subject,
+			"conversation_id": m.ConversationID,
+			"status":          m.InboxStatus,
+			"labels":          orEmptySlice(m.Labels),
+			"created_at":      m.CreatedAt.UTC().Format(time.RFC3339),
+		}
+	}
+	resp["messages"] = msgs
+
+	w.Header().Set("Content-Type", "application/json")
+	writeJSON(w, resp)
+}
+
+// conversationSummaryToWire is the shared serializer for
+// ConversationSummary — used both standalone (list) and as the
+// embedded shape inside ConversationDetail. Keeps the two endpoints'
+// summary fields byte-identical so a list row can be rendered with
+// the same client code as a detail row.
+func conversationSummaryToWire(c identity.ConversationSummary) map[string]interface{} {
+	return map[string]interface{}{
+		"conversation_id":  c.ID,
+		"last_message_at":  c.LastMessageAt.UTC().Format(time.RFC3339),
+		"first_message_at": c.FirstMessageAt.UTC().Format(time.RFC3339),
+		"message_count":    c.MessageCount,
+		"inbound_count":    c.InboundCount,
+		"outbound_count":   c.OutboundCount,
+		"has_unread":       c.HasUnread,
+		"latest_subject":   c.LatestSubject,
+		"latest_sender":    c.LatestSender,
+	}
 }
 
 // stringSlicesEqual reports whether two ordered string slices have
