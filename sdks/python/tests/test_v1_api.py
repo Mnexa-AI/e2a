@@ -9,9 +9,11 @@ from e2a.v1.generated import (
     Agent,
     ApprovePendingMessageRequest,
     ApprovePendingMessageResponse,
+    ConversationDetail,
     Domain,
     ForwardMessageRequest,
     ListAgentsResponse,
+    ListConversationsResponse,
     ListDomainsResponse,
     ListMessagesResponse,
     ListPendingMessagesResponse,
@@ -462,6 +464,77 @@ def test_list_messages_emits_repeated_labels_query(httpx_mock):
 
     with E2AApi(api_key="k") as api:
         api.list_messages("bot@agents.e2a.dev", labels=["urgent", "follow-up"])
+
+
+def test_list_conversations(httpx_mock):
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/conversations?page_size=50&since=2026-05-01T00%3A00%3A00Z",
+        method="GET",
+        json={
+            "conversations": [
+                {
+                    "conversation_id": "conv_1",
+                    "last_message_at": "2026-05-28T12:00:00Z",
+                    "first_message_at": "2026-05-20T10:00:00Z",
+                    "message_count": 3,
+                    "inbound_count": 2,
+                    "outbound_count": 1,
+                    "has_unread": True,
+                    "latest_subject": "Re: hi",
+                    "latest_sender": "alice@example.com",
+                }
+            ]
+        },
+    )
+
+    with E2AApi(api_key="k") as api:
+        result = api.list_conversations(
+            "bot@agents.e2a.dev",
+            page_size=50,
+            since="2026-05-01T00:00:00Z",
+        )
+
+    assert isinstance(result, ListConversationsResponse)
+    assert len(result.conversations) == 1
+    assert result.conversations[0].conversation_id == "conv_1"
+    assert result.conversations[0].has_unread is True
+
+
+def test_get_conversation(httpx_mock):
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/conversations/conv_1",
+        method="GET",
+        json={
+            "conversation_id": "conv_1",
+            "last_message_at": "2026-05-28T12:00:00Z",
+            "first_message_at": "2026-05-20T10:00:00Z",
+            "message_count": 2,
+            "inbound_count": 1,
+            "outbound_count": 1,
+            "has_unread": False,
+            "latest_subject": "Re: hi",
+            "latest_sender": "alice@example.com",
+            "participants": ["alice@example.com", "bot@agents.e2a.dev"],
+            "labels": ["urgent"],
+            "messages": [
+                {
+                    "message_id": "m1",
+                    "from": "alice@example.com",
+                    "subject": "hi",
+                    "labels": ["urgent"],
+                }
+            ],
+        },
+    )
+
+    with E2AApi(api_key="k") as api:
+        result = api.get_conversation("bot@agents.e2a.dev", "conv_1")
+
+    assert isinstance(result, ConversationDetail)
+    assert result.conversation_id == "conv_1"
+    assert result.message_count == 2
+    assert result.participants == ["alice@example.com", "bot@agents.e2a.dev"]
+    assert result.labels == ["urgent"]
 
 
 def test_send_email(httpx_mock):

@@ -15,7 +15,9 @@ from typing import Any, Optional
 from e2a.v1.api import E2AApi
 from e2a.v1.generated import (
     ApprovePendingMessageRequest,
+    ConversationDetail,
     ForwardMessageRequest,
+    ListConversationsResponse,
     MessageDetail,
     RegisterAgentRequest,
     RegisterDomainRequest,
@@ -350,6 +352,37 @@ class E2AClient:
         req = UpdateMessageRequest(add_labels=add_labels, remove_labels=remove_labels)
         resp = self.api.update_message_labels(email, message_id, req)
         return list(resp.labels or [])
+
+    # ── Conversations ───────────────────────────────────────────────
+
+    def list_conversations(
+        self,
+        page_size: Optional[int] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        agent_email: Optional[str] = None,
+    ) -> ListConversationsResponse:
+        """List conversations for the configured agent.
+
+        One row per non-empty ``conversation_id``, sorted by most
+        recent activity. The server caps the response at 100 entries
+        — pagination is intentionally deferred for slice 1. Pass
+        ``since`` / ``until`` (RFC3339) to bracket ``last_message_at``.
+        """
+        email = self._require_agent_email(agent_email)
+        return self.api.list_conversations(
+            email, page_size=page_size, since=since, until=until,
+        )
+
+    def get_conversation(
+        self,
+        conversation_id: str,
+        agent_email: Optional[str] = None,
+    ) -> ConversationDetail:
+        """Fetch a single conversation with member messages, computed
+        participants union, and computed labels union."""
+        email = self._require_agent_email(agent_email)
+        return self.api.get_conversation(email, conversation_id)
 
     def send(
         self,

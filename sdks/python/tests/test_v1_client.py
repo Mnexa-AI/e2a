@@ -437,6 +437,41 @@ def test_reply_with_attachments(httpx_mock):
 # ── send() ───────────────────────────────────────────────────────
 
 
+def test_list_conversations(httpx_mock):
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/conversations",
+        method="GET",
+        json={"conversations": [{"conversation_id": "conv_1", "message_count": 3, "has_unread": True}]},
+    )
+
+    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        result = client.list_conversations()
+
+    assert len(result.conversations) == 1
+    assert result.conversations[0].conversation_id == "conv_1"
+
+
+def test_get_conversation(httpx_mock):
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/conversations/conv_1",
+        method="GET",
+        json={
+            "conversation_id": "conv_1",
+            "message_count": 1,
+            "participants": ["alice@example.com"],
+            "labels": ["follow-up"],
+            "messages": [],
+        },
+    )
+
+    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        result = client.get_conversation("conv_1")
+
+    assert result.conversation_id == "conv_1"
+    assert result.participants == ["alice@example.com"]
+    assert result.labels == ["follow-up"]
+
+
 def test_send(httpx_mock):
     httpx_mock.add_response(
         url=f"{BASE}/api/v1/send",

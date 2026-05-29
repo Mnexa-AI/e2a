@@ -337,6 +337,40 @@ export class E2AClient {
     );
   }
 
+  // ── Conversations ───────────────────────────────────────────────
+
+  /**
+   * List conversations for the configured agent. Returns one summary
+   * row per conversation_id, sorted by most recent activity. The
+   * server hard-caps the response at 100 entries.
+   */
+  async listConversations(opts?: {
+    agentEmail?: string;
+    pageSize?: number;
+    since?: string;
+    until?: string;
+  }) {
+    return this.api.listConversations(this.requireEmail(opts?.agentEmail), {
+      pageSize: opts?.pageSize,
+      since: opts?.since,
+      until: opts?.until,
+    });
+  }
+
+  /**
+   * Fetch a single conversation with all member messages, computed
+   * participants union, and computed labels union (across members).
+   */
+  async getConversation(
+    conversationId: string,
+    opts?: { agentEmail?: string },
+  ) {
+    return this.api.getConversation(
+      this.requireEmail(opts?.agentEmail),
+      conversationId,
+    );
+  }
+
   // ── Domains ─────────────────────────────────────────────────────
 
   async listDomains() {

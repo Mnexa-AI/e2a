@@ -184,6 +184,59 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
   );
 
   server.registerTool(
+    "list_conversations",
+    {
+      title: "List conversations for the agent",
+      description:
+        "Lists the agent's conversations — groups of messages sharing a `conversation_id` — one row per conversation, sorted by most recent activity. Each row carries `message_count`, `inbound_count`, `outbound_count`, `has_unread`, and the latest message's subject + sender so you can render an inbox without drilling into each thread. The server caps the response at 100. Use this when the user wants to see threads rather than individual messages — e.g. \"what conversations are unread?\" or \"show recent threads with Alice\". To read a single conversation's messages, call `get_conversation`.",
+      inputSchema: strictInputSchema({
+        page_size: z.number().int().positive().max(100).optional(),
+        since: z
+          .string()
+          .optional()
+          .describe(
+            "RFC3339 timestamp. Only conversations whose latest message is >= since.",
+          ),
+        until: z
+          .string()
+          .optional()
+          .describe(
+            "RFC3339 timestamp. Only conversations whose latest message is < until.",
+          ),
+        agent_email: z.string().optional(),
+      }),
+    },
+    async (args) =>
+      runTool(() =>
+        client.listConversations({
+          ...(args.page_size !== undefined ? { pageSize: args.page_size } : {}),
+          ...(args.since !== undefined ? { since: args.since } : {}),
+          ...(args.until !== undefined ? { until: args.until } : {}),
+          ...(args.agent_email !== undefined ? { agentEmail: args.agent_email } : {}),
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "get_conversation",
+    {
+      title: "Get a single conversation with all member messages",
+      description:
+        "Returns the full thread — aggregate counts, the participants union (sender + recipient + to + cc + bcc across members), the labels union, and every member message in chronological order (oldest first). Returns a not-found error when no non-expired messages exist for `(agent, conversation_id)`. Use this after `list_conversations` (or whenever you have a `conversation_id` from an inbound/outbound payload) to read the full thread.",
+      inputSchema: strictInputSchema({
+        conversation_id: z.string(),
+        agent_email: z.string().optional(),
+      }),
+    },
+    async (args) =>
+      runTool(() =>
+        client.getConversation(args.conversation_id, {
+          ...(args.agent_email !== undefined ? { agentEmail: args.agent_email } : {}),
+        }),
+      ),
+  );
+
+  server.registerTool(
     "list_messages",
     {
       title: "List inbound messages",

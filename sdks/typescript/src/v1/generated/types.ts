@@ -307,6 +307,156 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agents/{email}/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List conversations for an agent
+         * @description Returns conversation summaries for an agent — one row per non-empty conversation_id, with aggregated counts and the latest message's subject/sender. Sorted by `last_message_at` descending. The response is hard-capped at 100 conversations (pagination is intentionally deferred for slice 1). Use `since` / `until` to bracket the active window. Messages with empty `conversation_id` are NOT in any conversation — they remain individually visible via the messages list.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /**
+                     * @description RFC3339 timestamp; only conversations whose latest message is >= since
+                     * @example 2026-05-01T00:00:00Z
+                     */
+                    since?: string;
+                    /** @description RFC3339 timestamp; only conversations whose latest message is < until */
+                    until?: string;
+                    /** @description Max conversations to return (server clamps to 100) */
+                    page_size?: number;
+                };
+                header?: never;
+                path: {
+                    /**
+                     * @description Agent email address
+                     * @example my-bot@example.com
+                     */
+                    email: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ListConversationsResponse"];
+                    };
+                };
+                /** @description Invalid since/until */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Missing or invalid API key */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Agent not found or not owned by this user */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/{email}/conversations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a conversation
+         * @description Returns the full conversation — aggregate counts, participant union, label union, and every member message (oldest-first). Messages share the schema of `MessageSummary` from the list endpoint. Returns 404 when no non-expired messages exist for `(agent, conversation_id)`; cross-agent access is indistinguishable from not-found.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /**
+                     * @description Agent email address
+                     * @example my-bot@example.com
+                     */
+                    email: string;
+                    /**
+                     * @description Conversation ID
+                     * @example conv_abc123
+                     */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConversationDetail"];
+                    };
+                };
+                /** @description Missing or invalid API key */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Conversation not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agents/{email}/messages": {
         parameters: {
             query?: never;
@@ -2069,6 +2219,49 @@ export interface components {
             /** @example sent */
             status?: string;
         };
+        ConversationDetail: {
+            /** @example conv_abc123 */
+            conversation_id?: string;
+            /** @example 2026-05-20T10:00:00Z */
+            first_message_at?: string;
+            /** @example true */
+            has_unread?: boolean;
+            /** @example 2 */
+            inbound_count?: number;
+            labels?: string[];
+            /** @example 2026-05-28T12:00:00Z */
+            last_message_at?: string;
+            /** @example alice@example.com */
+            latest_sender?: string;
+            /** @example Re: Quarterly report */
+            latest_subject?: string;
+            /** @example 4 */
+            message_count?: number;
+            messages?: components["schemas"]["MessageSummary"][];
+            /** @example 2 */
+            outbound_count?: number;
+            participants?: string[];
+        };
+        ConversationSummary: {
+            /** @example conv_abc123 */
+            conversation_id?: string;
+            /** @example 2026-05-20T10:00:00Z */
+            first_message_at?: string;
+            /** @example true */
+            has_unread?: boolean;
+            /** @example 2 */
+            inbound_count?: number;
+            /** @example 2026-05-28T12:00:00Z */
+            last_message_at?: string;
+            /** @example alice@example.com */
+            latest_sender?: string;
+            /** @example Re: Quarterly report */
+            latest_subject?: string;
+            /** @example 4 */
+            message_count?: number;
+            /** @example 2 */
+            outbound_count?: number;
+        };
         CreateSigningSecretResponse: {
             created_at?: string;
             id?: string;
@@ -2199,6 +2392,9 @@ export interface components {
         };
         ListAgentsResponse: {
             agents?: components["schemas"]["Agent"][];
+        };
+        ListConversationsResponse: {
+            conversations?: components["schemas"]["ConversationSummary"][];
         };
         ListDomainsResponse: {
             domains?: components["schemas"]["Domain"][];

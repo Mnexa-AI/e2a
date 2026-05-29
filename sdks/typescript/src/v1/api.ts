@@ -237,6 +237,44 @@ export class E2AApi {
     );
   }
 
+  // ── Conversations ───────────────────────────────────────────────
+
+  /**
+   * List conversations for an agent — one row per non-empty
+   * conversation_id, with aggregated counts and the latest message's
+   * subject/sender. Sorted by `last_message_at` DESC. The response is
+   * hard-capped at 100 entries server-side; pagination is intentionally
+   * deferred for slice 1.
+   */
+  async listConversations(
+    email: string,
+    opts?: {
+      pageSize?: number;
+      /** RFC3339; only conversations whose latest message is >= since. */
+      since?: string;
+      /** RFC3339; only conversations whose latest message is < until. */
+      until?: string;
+    },
+  ): Promise<Schemas["ListConversationsResponse"]> {
+    const params = new URLSearchParams();
+    if (opts?.pageSize) params.set("page_size", String(opts.pageSize));
+    if (opts?.since) params.set("since", opts.since);
+    if (opts?.until) params.set("until", opts.until);
+    const qs = params.toString();
+    const path = `/api/v1/agents/${encodeURIComponent(email)}/conversations${qs ? `?${qs}` : ""}`;
+    return this.request("GET", path);
+  }
+
+  async getConversation(
+    email: string,
+    conversationId: string,
+  ): Promise<Schemas["ConversationDetail"]> {
+    return this.request(
+      "GET",
+      `/api/v1/agents/${encodeURIComponent(email)}/conversations/${encodeURIComponent(conversationId)}`,
+    );
+  }
+
   // ── Domains ─────────────────────────────────────────────────────
 
   async listDomains(): Promise<Schemas["ListDomainsResponse"]> {

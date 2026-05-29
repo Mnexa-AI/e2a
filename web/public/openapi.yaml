@@ -93,6 +93,78 @@ definitions:
         example: sent
         type: string
     type: object
+  ConversationDetail:
+    properties:
+      conversation_id:
+        example: conv_abc123
+        type: string
+      first_message_at:
+        example: "2026-05-20T10:00:00Z"
+        type: string
+      has_unread:
+        example: true
+        type: boolean
+      inbound_count:
+        example: 2
+        type: integer
+      labels:
+        items:
+          type: string
+        type: array
+      last_message_at:
+        example: "2026-05-28T12:00:00Z"
+        type: string
+      latest_sender:
+        example: alice@example.com
+        type: string
+      latest_subject:
+        example: 'Re: Quarterly report'
+        type: string
+      message_count:
+        example: 4
+        type: integer
+      messages:
+        items:
+          $ref: '#/definitions/MessageSummary'
+        type: array
+      outbound_count:
+        example: 2
+        type: integer
+      participants:
+        items:
+          type: string
+        type: array
+    type: object
+  ConversationSummary:
+    properties:
+      conversation_id:
+        example: conv_abc123
+        type: string
+      first_message_at:
+        example: "2026-05-20T10:00:00Z"
+        type: string
+      has_unread:
+        example: true
+        type: boolean
+      inbound_count:
+        example: 2
+        type: integer
+      last_message_at:
+        example: "2026-05-28T12:00:00Z"
+        type: string
+      latest_sender:
+        example: alice@example.com
+        type: string
+      latest_subject:
+        example: 'Re: Quarterly report'
+        type: string
+      message_count:
+        example: 4
+        type: integer
+      outbound_count:
+        example: 2
+        type: integer
+    type: object
   CreateSigningSecretResponse:
     properties:
       created_at:
@@ -282,6 +354,13 @@ definitions:
       agents:
         items:
           $ref: '#/definitions/Agent'
+        type: array
+    type: object
+  ListConversationsResponse:
+    properties:
+      conversations:
+        items:
+          $ref: '#/definitions/ConversationSummary'
         type: array
     type: object
   ListDomainsResponse:
@@ -1404,6 +1483,104 @@ paths:
       summary: Update an agent
       tags:
       - Agents
+  /api/v1/agents/{email}/conversations:
+    get:
+      description: Returns conversation summaries for an agent — one row per non-empty
+        conversation_id, with aggregated counts and the latest message's subject/sender.
+        Sorted by `last_message_at` descending. The response is hard-capped at 100
+        conversations (pagination is intentionally deferred for slice 1). Use `since`
+        / `until` to bracket the active window. Messages with empty `conversation_id`
+        are NOT in any conversation — they remain individually visible via the messages
+        list.
+      parameters:
+      - description: Agent email address
+        example: my-bot@example.com
+        in: path
+        name: email
+        required: true
+        type: string
+      - description: RFC3339 timestamp; only conversations whose latest message is
+          >= since
+        example: "2026-05-01T00:00:00Z"
+        in: query
+        name: since
+        type: string
+      - description: RFC3339 timestamp; only conversations whose latest message is
+          < until
+        in: query
+        name: until
+        type: string
+      - default: 100
+        description: Max conversations to return (server clamps to 100)
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ListConversationsResponse'
+        "400":
+          description: Invalid since/until
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "404":
+          description: Agent not found or not owned by this user
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: List conversations for an agent
+      tags:
+      - Email
+  /api/v1/agents/{email}/conversations/{id}:
+    get:
+      description: Returns the full conversation — aggregate counts, participant union,
+        label union, and every member message (oldest-first). Messages share the schema
+        of `MessageSummary` from the list endpoint. Returns 404 when no non-expired
+        messages exist for `(agent, conversation_id)`; cross-agent access is indistinguishable
+        from not-found.
+      parameters:
+      - description: Agent email address
+        example: my-bot@example.com
+        in: path
+        name: email
+        required: true
+        type: string
+      - description: Conversation ID
+        example: conv_abc123
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ConversationDetail'
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "404":
+          description: Conversation not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get a conversation
+      tags:
+      - Email
   /api/v1/agents/{email}/messages:
     get:
       description: Fetch messages for an agent. Returns lightweight summaries (no
