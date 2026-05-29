@@ -252,6 +252,35 @@ async def test_get_messages_with_labels_filter(httpx_mock):
         await client.get_messages(status="all", labels=["urgent", "follow-up"])
 
 
+@pytest.mark.anyio
+async def test_list_conversations(httpx_mock):
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/conversations",
+        method="GET",
+        json={"conversations": [{"conversation_id": "conv_1", "message_count": 2}]},
+    )
+
+    async with AsyncE2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        result = await client.list_conversations()
+
+    assert len(result.conversations) == 1
+    assert result.conversations[0].conversation_id == "conv_1"
+
+
+@pytest.mark.anyio
+async def test_get_conversation(httpx_mock):
+    httpx_mock.add_response(
+        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/conversations/conv_1",
+        method="GET",
+        json={"conversation_id": "conv_1", "participants": [], "labels": [], "messages": []},
+    )
+
+    async with AsyncE2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
+        result = await client.get_conversation("conv_1")
+
+    assert result.conversation_id == "conv_1"
+
+
 # ── reply() ──────────────────────────────────────────────────────
 
 

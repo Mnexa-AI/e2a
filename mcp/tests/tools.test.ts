@@ -24,6 +24,8 @@ function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): E2ACli
     reply: vi.fn(async () => ({ message_id: "msg_reply", status: "sent" })),
     forward: vi.fn(async () => ({ message_id: "msg_fwd", status: "sent" })),
     updateMessageLabels: vi.fn(async () => ({ message_id: "msg_in", labels: ["urgent"] })),
+    listConversations: vi.fn(async () => ({ conversations: [{ conversation_id: "conv_1" }] })),
+    getConversation: vi.fn(async () => ({ conversation_id: "conv_1", messages: [] })),
     listMessages: vi.fn(async () => ({ messages: [], next_token: undefined })),
     listAgents: vi.fn(async () => ({ agents: [{ email: "bot@example.com" }] })),
     registerAgent: vi.fn(async (body: Record<string, unknown>) => ({
@@ -126,6 +128,8 @@ describe("e2a MCP server", () => {
         "reply_to_message",
         "forward_message",
         "update_message_labels",
+        "list_conversations",
+        "get_conversation",
         "list_messages",
         "get_message",
         "get_attachment_data",
@@ -205,6 +209,25 @@ describe("e2a MCP server", () => {
       addLabels: ["urgent"],
       removeLabels: ["unread"],
     });
+  });
+
+  it("list_conversations forwards args to client.listConversations", async () => {
+    await client.callTool({
+      name: "list_conversations",
+      arguments: { page_size: 20, since: "2026-05-01T00:00:00Z" },
+    });
+    expect(stub.listConversations).toHaveBeenCalledWith({
+      pageSize: 20,
+      since: "2026-05-01T00:00:00Z",
+    });
+  });
+
+  it("get_conversation forwards args to client.getConversation", async () => {
+    await client.callTool({
+      name: "get_conversation",
+      arguments: { conversation_id: "conv_1" },
+    });
+    expect(stub.getConversation).toHaveBeenCalledWith("conv_1", {});
   });
 
   it("list_messages forwards filters", async () => {

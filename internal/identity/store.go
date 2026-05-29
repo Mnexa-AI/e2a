@@ -2159,6 +2159,266 @@ func (s *Store) LookupConversationID(ctx context.Context, agentID string, messag
 	return conversationID, nil
 }
 
+// --- Conversations (thin read layer over messages.conversation_id) ---
+//
+// A conversation is the set of messages an agent sees that share a
+// non-empty conversation_id. The shape is computed at read time —
+// there's no `conversations` table, no persistence cost on top of
+// the existing messages row. The trade-off is that listing requires
+// an aggregate query; the partial index from migration 022 keeps it
+// cheap on large agents.
+//
+// All Conversation* methods scope by agent_id. Cross-agent
+// conversations (a user owns two agents and uses the same
+// conversation_id) are intentionally split — a conversation is an
+// agent-level concept, not a user-level one. If we ever want a
+// user-wide "all conversations" view it gets a separate endpoint
+// (mirrors the agents+messages vs. user+pending split that already
+// exists).
+
+// ConversationSummary is one row in the list endpoint. Aggregated
+// counts + the "latest message" preview fields are enough to render
+// an inbox-style conversation list without a per-row drill-down.
+//
+// HasUnread is true iff at least one INBOUND member is in
+// inbox_status='unread'. Outbound pending_approval doesn't count —
+// the conversation list is the agent's mailbox view, not the
+// reviewer's HITL queue.
+type ConversationSummary struct {
+	ID              string    `json:"conversation_id"`
+	LastMessageAt   time.Time `json:"last_message_at"`
+	FirstMessageAt  time.Time `json:"first_message_at"`
+	MessageCount    int       `json:"message_count"`
+	InboundCount    int       `json:"inbound_count"`
+	OutboundCount   int       `json:"outbound_count"`
+	HasUnread       bool      `json:"has_unread"`
+	LatestSubject   string    `json:"latest_subject"`
+	LatestSender    string    `json:"latest_sender"`
+}
+
+// ConversationDetail extends the summary with member messages and
+// computed aggregates (participants set, label union). Messages are
+// returned chronologically (oldest first) — the rendering convention
+// for a thread view.
+type ConversationDetail struct {
+	ConversationSummary
+	Participants []string  `json:"participants"`
+	Labels       []string  `json:"labels"`
+	Messages     []Message `json:"messages"`
+}
+
+// ConversationListFilter is the input to ListConversationsByAgent.
+// Limit is capped to ConversationListHardCap at the storage layer
+// regardless of what the caller passes; pagination is intentionally
+// not in this slice (most agents have dozens of conversations, not
+// thousands) and can be added cursor-style if a deployment needs it.
+type ConversationListFilter struct {
+	AgentID string
+	Limit   int
+	// Since / Until bracket the conversation's last_message_at —
+	// "show me conversations that had activity in this window".
+	// Zero values disable each bound.
+	Since time.Time
+	Until time.Time
+}
+
+// ConversationListHardCap is the maximum number of conversations a
+// single list call returns. Higher requests are silently clamped.
+// 100 covers the inbox-style use case; a deployment that needs more
+// can either ask for higher (we'll bump it) or paginate (slice 2).
+const ConversationListHardCap = 100
+
+// ListConversationsByAgent groups the agent's non-expired messages
+// by conversation_id and returns one row per conversation sorted by
+// most-recent activity. Messages without a conversation_id are not
+// included in any conversation — they remain individually visible
+// via GetMessagesByAgent.
+func (s *Store) ListConversationsByAgent(ctx context.Context, f ConversationListFilter) ([]ConversationSummary, error) {
+	limit := f.Limit
+	if limit <= 0 || limit > ConversationListHardCap {
+		limit = ConversationListHardCap
+	}
+
+	query := `
+		SELECT
+		  conversation_id,
+		  MAX(created_at)                          AS last_message_at,
+		  MIN(created_at)                          AS first_message_at,
+		  COUNT(*)                                 AS message_count,
+		  COUNT(*) FILTER (WHERE direction='inbound')  AS inbound_count,
+		  COUNT(*) FILTER (WHERE direction='outbound') AS outbound_count,
+		  -- BOOL_OR returns NULL when every row's expression is NULL
+		  -- (e.g. all-outbound conversations where inbox_status is
+		  -- NULL — the column is nullable). COALESCE to false so
+		  -- the *bool scan never fails on legitimate edge cases.
+		  COALESCE(BOOL_OR(direction='inbound' AND inbox_status='unread'), false) AS has_unread,
+		  (ARRAY_AGG(COALESCE(subject, '') ORDER BY created_at DESC))[1] AS latest_subject,
+		  (ARRAY_AGG(COALESCE(sender, '')  ORDER BY created_at DESC))[1] AS latest_sender
+		FROM messages
+		WHERE agent_id = $1
+		  AND conversation_id <> ''
+		  AND expires_at > now()
+		GROUP BY conversation_id`
+
+	args := []interface{}{f.AgentID}
+	if !f.Since.IsZero() {
+		query += fmt.Sprintf(` HAVING MAX(created_at) >= $%d`, len(args)+1)
+		args = append(args, f.Since)
+		if !f.Until.IsZero() {
+			query += fmt.Sprintf(` AND MAX(created_at) < $%d`, len(args)+1)
+			args = append(args, f.Until)
+		}
+	} else if !f.Until.IsZero() {
+		query += fmt.Sprintf(` HAVING MAX(created_at) < $%d`, len(args)+1)
+		args = append(args, f.Until)
+	}
+	query += fmt.Sprintf(` ORDER BY MAX(created_at) DESC, conversation_id DESC LIMIT $%d`, len(args)+1)
+	args = append(args, limit)
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ConversationSummary
+	for rows.Next() {
+		var c ConversationSummary
+		if err := rows.Scan(
+			&c.ID, &c.LastMessageAt, &c.FirstMessageAt,
+			&c.MessageCount, &c.InboundCount, &c.OutboundCount,
+			&c.HasUnread, &c.LatestSubject, &c.LatestSender,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// GetConversationByID returns the aggregate summary fields plus every
+// member message, ordered oldest-first (chronological reading order).
+// Returns ErrMessageNotFound when no non-expired messages exist for
+// the given (agentID, conversationID) — mirrors the
+// "looks-like-not-found-on-cross-agent" convention used by single-
+// message reads. The same code path handles "wrong agent" and "real
+// non-existent": either way the agent has no business seeing it.
+//
+// Participants are computed as the union of sender + recipient +
+// each row's to_recipients / cc / bcc (when populated). Empty
+// strings are dropped. Labels are the union of all members'
+// labels[]; both are sorted lexicographically for stable output.
+func (s *Store) GetConversationByID(ctx context.Context, agentID, conversationID string) (*ConversationDetail, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient,
+		        m.to_recipients, m.cc, m.bcc, m.reply_to,
+		        m.subject, COALESCE(m.email_message_id, ''),
+		        COALESCE(m.method, ''), COALESCE(m.message_type, ''),
+		        m.conversation_id, COALESCE(m.inbox_status, ''),
+		        COALESCE(m.status, ''),
+		        m.created_at, m.expires_at,
+		        m.labels
+		 FROM messages m
+		 WHERE m.agent_id = $1
+		   AND m.conversation_id = $2
+		   AND m.expires_at > now()
+		 ORDER BY m.created_at ASC, m.id ASC`,
+		agentID, conversationID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	d := &ConversationDetail{}
+	participantSet := map[string]struct{}{}
+	labelSet := map[string]struct{}{}
+
+	for rows.Next() {
+		var m Message
+		if err := rows.Scan(
+			&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient,
+			&m.ToRecipients, &m.CC, &m.BCC, &m.ReplyTo,
+			&m.Subject, &m.EmailMessageID,
+			&m.Method, &m.Type,
+			&m.ConversationID, &m.InboxStatus,
+			&m.Status,
+			&m.CreatedAt, &m.ExpiresAt,
+			&m.Labels,
+		); err != nil {
+			return nil, err
+		}
+		m.DeliveryStatus = m.InboxStatus
+		d.Messages = append(d.Messages, m)
+
+		// Accumulate aggregates as we go — cheaper than a second
+		// pass and keeps memory bounded to the unique-strings set.
+		if m.Sender != "" {
+			participantSet[m.Sender] = struct{}{}
+		}
+		if m.Recipient != "" {
+			participantSet[m.Recipient] = struct{}{}
+		}
+		for _, a := range m.ToRecipients {
+			if a != "" {
+				participantSet[a] = struct{}{}
+			}
+		}
+		for _, a := range m.CC {
+			if a != "" {
+				participantSet[a] = struct{}{}
+			}
+		}
+		for _, a := range m.BCC {
+			if a != "" {
+				participantSet[a] = struct{}{}
+			}
+		}
+		for _, l := range m.Labels {
+			labelSet[l] = struct{}{}
+		}
+
+		// Maintain the aggregate counts inline.
+		d.MessageCount++
+		if m.Direction == "inbound" {
+			d.InboundCount++
+			if m.InboxStatus == "unread" {
+				d.HasUnread = true
+			}
+		} else if m.Direction == "outbound" {
+			d.OutboundCount++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if d.MessageCount == 0 {
+		return nil, ErrMessageNotFound
+	}
+
+	d.ID = conversationID
+	// Messages are oldest-first so [0] is first and [n-1] is last.
+	d.FirstMessageAt = d.Messages[0].CreatedAt
+	d.LastMessageAt = d.Messages[d.MessageCount-1].CreatedAt
+	latest := d.Messages[d.MessageCount-1]
+	d.LatestSubject = latest.Subject
+	d.LatestSender = latest.Sender
+
+	d.Participants = make([]string, 0, len(participantSet))
+	for p := range participantSet {
+		d.Participants = append(d.Participants, p)
+	}
+	sort.Strings(d.Participants)
+
+	d.Labels = make([]string, 0, len(labelSet))
+	for l := range labelSet {
+		d.Labels = append(d.Labels, l)
+	}
+	sort.Strings(d.Labels)
+
+	return d, nil
+}
+
 // --- User management ---
 
 func (s *Store) CreateOrGetUser(ctx context.Context, email, name, googleSub string) (*User, error) {

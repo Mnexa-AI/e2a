@@ -199,6 +199,8 @@ describe("HTTP MCP server", () => {
         "reply_to_message",
         "forward_message",
         "update_message_labels",
+        "list_conversations",
+        "get_conversation",
         "list_messages",
         "get_message",
         "get_attachment_data",

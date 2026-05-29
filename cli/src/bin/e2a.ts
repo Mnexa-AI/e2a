@@ -9,6 +9,7 @@ import {
 } from "../commands/agents.js";
 import { inbox } from "../commands/inbox.js";
 import { read } from "../commands/read.js";
+import { conversationsList, conversationsShow } from "../commands/conversations.js";
 import { forward } from "../commands/forward.js";
 import { labels } from "../commands/labels.js";
 import { reply } from "../commands/reply.js";
@@ -44,6 +45,8 @@ Usage:
   e2a reply <msg-id> --body … [--reply-all] [--cc …] [--bcc …]
   e2a forward <msg-id> --to … [--cc …] [--bcc …] [--body …]
   e2a labels <msg-id> [--add <label> …] [--remove <label> …]
+  e2a conversations list [--limit N] [--since ts] [--until ts]   List conversations
+  e2a conversations show <conv-id>                               Show a conversation
   e2a send [--to …] [--cc …] [--bcc …] --subject … --body …
   e2a listen [options]              Listen for emails via WebSocket
   e2a domains list                  List your domains
@@ -271,6 +274,29 @@ async function main() {
         forwardToken: getFlag(args, "--forward-token"),
       });
       break;
+    case "conversations": {
+      const sub = args[0];
+      if (sub === "list") {
+        const pageSizeStr = getFlag(args, "--limit");
+        const pageSize = pageSizeStr ? parseInt(pageSizeStr, 10) : undefined;
+        if (pageSize !== undefined && (!Number.isFinite(pageSize) || pageSize < 1)) {
+          process.stderr.write("--limit must be a positive integer\n");
+          process.exit(1);
+        }
+        await conversationsList({
+          pageSize,
+          since: getFlag(args, "--since"),
+          until: getFlag(args, "--until"),
+          from: getFlag(args, "--agent"),
+        });
+      } else if (sub === "show") {
+        await conversationsShow(args[1], { from: getFlag(args, "--agent") });
+      } else {
+        process.stderr.write("Usage: e2a conversations [list|show]\n");
+        process.exit(1);
+      }
+      break;
+    }
     case "domains": {
       const sub = args[0];
       if (sub === "list") {

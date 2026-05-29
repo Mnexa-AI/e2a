@@ -24,10 +24,12 @@ from e2a.v1.generated import (
     Agent,
     ApprovePendingMessageRequest,
     ApprovePendingMessageResponse,
+    ConversationDetail,
     DeploymentInfo,
     Domain,
     ForwardMessageRequest,
     ListAgentsResponse,
+    ListConversationsResponse,
     ListDomainsResponse,
     ListMessagesResponse,
     ListPendingMessagesResponse,
@@ -271,6 +273,42 @@ class AsyncE2AApi:
         )
         _check_response(resp)
         return SendEmailResponse.model_validate(resp.json())
+
+    # ── Conversations ─────────────────────────────────────────────
+
+    async def list_conversations(
+        self,
+        agent_email: str,
+        page_size: Optional[int] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+    ) -> ListConversationsResponse:
+        """Async variant of :meth:`E2AApi.list_conversations`."""
+        params: list[tuple[str, str]] = []
+        if page_size is not None:
+            params.append(("page_size", str(page_size)))
+        if since:
+            params.append(("since", since))
+        if until:
+            params.append(("until", until))
+        resp = await self._client.get(
+            f"/api/v1/agents/{_encode_email(agent_email)}/conversations",
+            params=params,
+        )
+        _check_response(resp)
+        return ListConversationsResponse.model_validate(resp.json())
+
+    async def get_conversation(
+        self,
+        agent_email: str,
+        conversation_id: str,
+    ) -> ConversationDetail:
+        """Async variant of :meth:`E2AApi.get_conversation`."""
+        resp = await self._client.get(
+            f"/api/v1/agents/{_encode_email(agent_email)}/conversations/{_encode_email(conversation_id)}",
+        )
+        _check_response(resp)
+        return ConversationDetail.model_validate(resp.json())
 
     # ── HITL (human-in-the-loop approval) ─────────────────────────
 
@@ -594,6 +632,30 @@ class AsyncE2AClient:
         req = UpdateMessageRequest(add_labels=add_labels, remove_labels=remove_labels)
         resp = await self.api.update_message_labels(email, message_id, req)
         return list(resp.labels or [])
+
+    # ── Conversations ───────────────────────────────────────────────
+
+    async def list_conversations(
+        self,
+        page_size: Optional[int] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        agent_email: Optional[str] = None,
+    ) -> ListConversationsResponse:
+        """Async variant of :meth:`E2AClient.list_conversations`."""
+        email = self._require_agent_email(agent_email)
+        return await self.api.list_conversations(
+            email, page_size=page_size, since=since, until=until,
+        )
+
+    async def get_conversation(
+        self,
+        conversation_id: str,
+        agent_email: Optional[str] = None,
+    ) -> ConversationDetail:
+        """Async variant of :meth:`E2AClient.get_conversation`."""
+        email = self._require_agent_email(agent_email)
+        return await self.api.get_conversation(email, conversation_id)
 
     async def send(
         self,

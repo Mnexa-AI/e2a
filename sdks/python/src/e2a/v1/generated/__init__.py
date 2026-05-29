@@ -52,6 +52,25 @@ class ApprovePendingMessageResponse(BaseModel):
     status: str | None = Field(None, examples=['sent'])
 
 
+class ConversationSummary(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    conversation_id: str | None = Field(None, examples=['conv_abc123'])
+    first_message_at: str | None = Field(None, examples=['2026-05-20T10:00:00Z'])
+    has_unread: bool | None = Field(
+        None,
+        description="HasUnread is true iff at least one INBOUND member of this\nconversation is in inbox_status='unread'. Outbound rows do\nNOT contribute — a thread containing only your sent messages\n(or only HITL-pending outbound) returns false. This is the\nagent's mailbox view, not the reviewer's HITL queue.",
+        examples=[True],
+    )
+    inbound_count: int | None = Field(None, examples=[2])
+    last_message_at: str | None = Field(None, examples=['2026-05-28T12:00:00Z'])
+    latest_sender: str | None = Field(None, examples=['alice@example.com'])
+    latest_subject: str | None = Field(None, examples=['Re: Quarterly report'])
+    message_count: int | None = Field(None, examples=[4])
+    outbound_count: int | None = Field(None, examples=[2])
+
+
 class CreateSigningSecretResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -168,6 +187,13 @@ class ListAgentsResponse(BaseModel):
         populate_by_name=True,
     )
     agents: list[Agent] | None = None
+
+
+class ListConversationsResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    conversations: list[ConversationSummary] | None = None
 
 
 class ListDomainsResponse(BaseModel):
@@ -453,6 +479,28 @@ class ApprovePendingMessageRequest(BaseModel):
     cc: list[str] | None = None
     subject: str | None = None
     to: list[str] | None = None
+
+
+class ConversationDetail(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    conversation_id: str | None = Field(None, examples=['conv_abc123'])
+    first_message_at: str | None = Field(None, examples=['2026-05-20T10:00:00Z'])
+    has_unread: bool | None = Field(
+        None,
+        description="HasUnread is true iff at least one INBOUND member of this\nconversation is in inbox_status='unread'. Outbound rows do\nNOT contribute — a thread containing only your sent messages\n(or only HITL-pending outbound) returns false. This is the\nagent's mailbox view, not the reviewer's HITL queue.",
+        examples=[True],
+    )
+    inbound_count: int | None = Field(None, examples=[2])
+    labels: list[str] | None = None
+    last_message_at: str | None = Field(None, examples=['2026-05-28T12:00:00Z'])
+    latest_sender: str | None = Field(None, examples=['alice@example.com'])
+    latest_subject: str | None = Field(None, examples=['Re: Quarterly report'])
+    message_count: int | None = Field(None, examples=[4])
+    messages: list[MessageSummary] | None = None
+    outbound_count: int | None = Field(None, examples=[2])
+    participants: list[str] | None = None
 
 
 class ForwardMessageRequest(BaseModel):

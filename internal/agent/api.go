@@ -85,6 +85,13 @@ func writeTooManyRequests(w http.ResponseWriter, retryAfter time.Duration, msg s
 const (
 	maxRequestBytesSmall = 64 * 1024        // 64 KB — domain/agent CRUD, HITL approve
 	maxRequestBytesSend  = 25 * 1024 * 1024 // 25 MB — outbound /send + reply (matches typical SMTP attachment limits)
+
+	// maxFilterStr bounds free-form query-string filters (from /
+	// subject_contains / conversation_id) and any equivalent path
+	// param such as /conversations/{id}. 200 covers human-typed
+	// substrings and msg-style IDs without making slow-query logs
+	// noisy on bad input.
+	maxFilterStr = 200
 )
 
 // ValidateWebhookImageURL — see ValidateWebhookURL.
@@ -286,6 +293,8 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/v1/agents/{email}/messages/{id}", a.handleUpdateMessage).Methods("PATCH")
 	r.HandleFunc("/api/v1/agents/{email}/messages/{id}/reply", a.handleReplyToMessage).Methods("POST")
 	r.HandleFunc("/api/v1/agents/{email}/messages/{id}/forward", a.handleForwardMessage).Methods("POST")
+	r.HandleFunc("/api/v1/agents/{email}/conversations", a.handleListConversations).Methods("GET")
+	r.HandleFunc("/api/v1/agents/{email}/conversations/{id}", a.handleGetConversation).Methods("GET")
 	r.HandleFunc("/api/v1/domains", a.handleListDomains).Methods("GET")
 	r.HandleFunc("/api/v1/domains", a.handleRegisterDomain).Methods("POST")
 	r.HandleFunc("/api/v1/domains/{domain}/verify", a.handleVerifyDomain).Methods("POST")
@@ -2328,7 +2337,6 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 	// Substring filters are bound to 200 chars to keep ILIKE patterns
 	// from running away on a hot path. Time-range filters take RFC3339
 	// timestamps and reject anything else with 400.
-	const maxFilterStr = 200
 	fromFilter := strings.TrimSpace(r.URL.Query().Get("from"))
 	if len(fromFilter) > maxFilterStr {
 		http.Error(w, "from filter too long (max 200 chars)", http.StatusBadRequest)
@@ -2524,65 +2532,13 @@ func (a *API) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		messages = messages[:pageSize]
 	}
 
-	// Response shape: existing SDK consumers see the same wire fields they
-	// always have (`status` continues to carry the inbox_status value for
-	// inbound rows). New consumers (dashboard inbox) read the additional
-	// fields: `direction`, `hitl_status` (outbound HITL lifecycle),
-	// `webhook_status`/`webhook_error` (outbound delivery), `size_bytes`.
-	type messageSummary struct {
-		ID             string   `json:"message_id"`
-		Direction      string   `json:"direction"`
-		From           string   `json:"from"`
-		To             []string `json:"to"`
-		CC             []string `json:"cc,omitempty"`
-		ReplyTo        []string `json:"reply_to,omitempty"`
-		Recipient      string   `json:"recipient"`
-		Subject        string   `json:"subject"`
-		ConversationID string   `json:"conversation_id,omitempty"`
-		Status         string   `json:"status"` // back-compat: inbox_status value (read/unread); empty for outbound
-		HITLStatus     string   `json:"hitl_status,omitempty"`
-		WebhookStatus  string   `json:"webhook_status,omitempty"`
-		WebhookError   string   `json:"webhook_error,omitempty"`
-		SizeBytes      int      `json:"size_bytes,omitempty"`
-		// Labels is always present (never nil) so clients can render
-		// it without a null-check. Empty slice for unlabelled rows —
-		// matches the DB DEFAULT '{}' invariant.
-		Labels         []string `json:"labels"`
-		CreatedAt      string   `json:"created_at"`
-	}
-
+	// Response shape: messageSummary (package-level type) — every
+	// message-list endpoint uses the same builder so adding a new
+	// field is a one-place edit. See messageSummaryFromIdentity for
+	// the inbound/outbound branching of HITL/webhook fields.
 	summaries := make([]messageSummary, len(messages))
 	for i, m := range messages {
-		// HITLStatus + WebhookStatus only make sense for outbound rows;
-		// leave them empty on inbound to keep the response compact.
-		var hitl, wh, whErr string
-		var size int
-		if m.Direction == "outbound" {
-			hitl = m.Status
-			wh = m.WebhookStatus
-			whErr = m.WebhookError
-			size = m.SizeBytes
-		} else {
-			size = m.SizeBytes
-		}
-		summaries[i] = messageSummary{
-			ID:             m.ID,
-			Direction:      m.Direction,
-			From:           m.Sender,
-			To:             orEmptySlice(m.ToRecipients),
-			CC:             m.CC,
-			ReplyTo:        m.ReplyTo,
-			Recipient:      m.Recipient,
-			Subject:        m.Subject,
-			ConversationID: m.ConversationID,
-			Status:         m.InboxStatus,
-			HITLStatus:     hitl,
-			WebhookStatus:  wh,
-			WebhookError:   whErr,
-			SizeBytes:      size,
-			Labels:         orEmptySlice(m.Labels),
-			CreatedAt:      m.CreatedAt.UTC().Format(time.RFC3339),
-		}
+		summaries[i] = messageSummaryFromIdentity(m)
 	}
 
 	// Build next_token from last message (includes filters for validation)
@@ -2700,6 +2656,264 @@ func (a *API) handleGetMessage(w http.ResponseWriter, r *http.Request) {
 		"auth_headers":    msg.AuthHeaders,
 		"raw_message":     msg.RawMessage,
 	})
+}
+
+// handleListConversations returns the agent's conversations sorted by
+// most-recent activity. Thin read layer over messages.conversation_id —
+// no separate storage, no pagination (server caps at 100 per response,
+// which covers the inbox-style use case). Filter on the window via
+// `since` / `until` (RFC3339, brackets last_message_at).
+// @Summary      List conversations for an agent
+// @Description  Returns conversation summaries for an agent — one row per non-empty conversation_id, with aggregated counts and the latest message's subject/sender. Sorted by `last_message_at` descending. The response is hard-capped at 100 conversations (pagination is intentionally deferred for slice 1). Use `since` / `until` to bracket the active window. Messages with empty `conversation_id` are NOT in any conversation — they remain individually visible via the messages list.
+// @Tags         Email
+// @Produce      json
+// @Security     BearerAuth
+// @Param        email path  string true  "Agent email address" example(my-bot@example.com)
+// @Param        since query string false "RFC3339 timestamp; only conversations whose latest message is >= since" example(2026-05-01T00:00:00Z)
+// @Param        until query string false "RFC3339 timestamp; only conversations whose latest message is < until"
+// @Param        page_size query int false "Max conversations to return (server clamps to 100)" minimum(1) maximum(100) default(100)
+// @Success      200 {object} ListConversationsResponse
+// @Failure      400 {string} string "Invalid since/until"
+// @Failure      401 {string} string "Missing or invalid API key"
+// @Failure      404 {string} string "Agent not found or not owned by this user"
+// @Router       /api/v1/agents/{email}/conversations [get]
+func (a *API) handleListConversations(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticateUser(r)
+	if err != nil {
+		a.writeAuthError(w, r, err)
+		return
+	}
+
+	if ok, retryAfter := a.pollLimit.AllowWithRetryAfter(user.ID); !ok {
+		writeTooManyRequests(w, retryAfter, "rate limit exceeded — max 60 requests per minute per user")
+		return
+	}
+
+	email := normalizeEmail(mux.Vars(r)["email"])
+	agent, err := a.resolveAgentForUser(r, email, user)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("agent not found: %v", err), http.StatusNotFound)
+		return
+	}
+
+	var since, until time.Time
+	if s := strings.TrimSpace(r.URL.Query().Get("since")); s != "" {
+		t, err := time.Parse(time.RFC3339, s)
+		if err != nil {
+			http.Error(w, "since must be RFC3339 (e.g. 2026-05-25T00:00:00Z)", http.StatusBadRequest)
+			return
+		}
+		since = t
+	}
+	if u := strings.TrimSpace(r.URL.Query().Get("until")); u != "" {
+		t, err := time.Parse(time.RFC3339, u)
+		if err != nil {
+			http.Error(w, "until must be RFC3339", http.StatusBadRequest)
+			return
+		}
+		until = t
+	}
+	if !since.IsZero() && !until.IsZero() && !since.Before(until) {
+		http.Error(w, "since must be earlier than until", http.StatusBadRequest)
+		return
+	}
+
+	pageSize := 100
+	if ps := strings.TrimSpace(r.URL.Query().Get("page_size")); ps != "" {
+		n, err := strconv.Atoi(ps)
+		if err != nil || n < 1 {
+			http.Error(w, "page_size must be a positive integer", http.StatusBadRequest)
+			return
+		}
+		pageSize = n
+	}
+
+	convos, err := a.store.ListConversationsByAgent(r.Context(), identity.ConversationListFilter{
+		AgentID: agent.ID,
+		Limit:   pageSize,
+		Since:   since,
+		Until:   until,
+	})
+	if err != nil {
+		log.Printf("[api] ListConversationsByAgent: agent=%s err=%v", agent.ID, err)
+		http.Error(w, "failed to fetch conversations", http.StatusInternalServerError)
+		return
+	}
+
+	summaries := make([]map[string]interface{}, len(convos))
+	for i, c := range convos {
+		summaries[i] = conversationSummaryToWire(c)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	writeJSON(w, map[string]interface{}{
+		"conversations": summaries,
+	})
+}
+
+// handleGetConversation returns a single conversation's detail — the
+// aggregate summary fields plus all member messages chronologically.
+// @Summary      Get a conversation
+// @Description  Returns the full conversation — aggregate counts, participant union, label union, and every member message (oldest-first). Messages share the schema of `MessageSummary` from the list endpoint. Returns 404 when no non-expired messages exist for `(agent, conversation_id)`; cross-agent access is indistinguishable from not-found.
+// @Tags         Email
+// @Produce      json
+// @Security     BearerAuth
+// @Param        email path string true "Agent email address" example(my-bot@example.com)
+// @Param        id    path string true "Conversation ID" example(conv_abc123)
+// @Success      200 {object} ConversationDetail
+// @Failure      401 {string} string "Missing or invalid API key"
+// @Failure      404 {string} string "Conversation not found"
+// @Router       /api/v1/agents/{email}/conversations/{id} [get]
+func (a *API) handleGetConversation(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticateUser(r)
+	if err != nil {
+		a.writeAuthError(w, r, err)
+		return
+	}
+
+	if ok, retryAfter := a.pollLimit.AllowWithRetryAfter(user.ID); !ok {
+		writeTooManyRequests(w, retryAfter, "rate limit exceeded — max 60 requests per minute per user")
+		return
+	}
+
+	vars := mux.Vars(r)
+	email := normalizeEmail(vars["email"])
+	convoID := vars["id"]
+
+	// Bound the path-param length and reject CRLF before it reaches
+	// the DB. pgx parameter binding prevents SQL injection, but an
+	// unbounded path param could still produce slow-query log noise
+	// and waste an index lookup on a giant comparison key. The same
+	// 200-char cap that the list endpoint's ?conversation_id= filter
+	// uses; matches validateConversationID's CR/LF check.
+	if len(convoID) > maxFilterStr {
+		http.Error(w, "conversation_id too long (max 200 chars)", http.StatusBadRequest)
+		return
+	}
+	if err := validateConversationID(convoID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	agent, err := a.resolveAgentForUser(r, email, user)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("agent not found: %v", err), http.StatusNotFound)
+		return
+	}
+
+	detail, err := a.store.GetConversationByID(r.Context(), agent.ID, convoID)
+	if err != nil {
+		if errors.Is(err, identity.ErrMessageNotFound) {
+			http.Error(w, "conversation not found", http.StatusNotFound)
+			return
+		}
+		log.Printf("[api] GetConversationByID: agent=%s conv=%s err=%v", agent.ID, convoID, err)
+		http.Error(w, "failed to fetch conversation", http.StatusInternalServerError)
+		return
+	}
+
+	// Build the wire shape: embedded summary fields + member messages
+	// rendered via the shared messageSummaryFromIdentity helper, so a
+	// conversation row and a list-messages row carry the identical
+	// contract. If MessageSummary ever gains a new field, both
+	// endpoints surface it automatically.
+	resp := conversationSummaryToWire(detail.ConversationSummary)
+	resp["participants"] = orEmptySlice(detail.Participants)
+	resp["labels"] = orEmptySlice(detail.Labels)
+
+	msgs := make([]messageSummary, len(detail.Messages))
+	for i, m := range detail.Messages {
+		msgs[i] = messageSummaryFromIdentity(m)
+	}
+	resp["messages"] = msgs
+
+	w.Header().Set("Content-Type", "application/json")
+	writeJSON(w, resp)
+}
+
+// conversationSummaryToWire is the shared serializer for
+// ConversationSummary — used both standalone (list) and as the
+// embedded shape inside ConversationDetail. Keeps the two endpoints'
+// summary fields byte-identical so a list row can be rendered with
+// the same client code as a detail row.
+func conversationSummaryToWire(c identity.ConversationSummary) map[string]interface{} {
+	return map[string]interface{}{
+		"conversation_id":  c.ID,
+		"last_message_at":  c.LastMessageAt.UTC().Format(time.RFC3339),
+		"first_message_at": c.FirstMessageAt.UTC().Format(time.RFC3339),
+		"message_count":    c.MessageCount,
+		"inbound_count":    c.InboundCount,
+		"outbound_count":   c.OutboundCount,
+		"has_unread":       c.HasUnread,
+		"latest_subject":   c.LatestSubject,
+		"latest_sender":    c.LatestSender,
+	}
+}
+
+// messageSummary is the shared wire shape used by every endpoint that
+// returns a list of message summaries — currently handleGetMessages
+// and (the embedded messages array of) handleGetConversation. Hoisted
+// to package scope from a local declaration inside handleGetMessages
+// so the two endpoints never drift on field names or omitempty rules
+// — adding a new field is a one-place edit instead of two.
+//
+// `Status` continues to carry the inbox_status value (read/unread) for
+// inbound rows for back-compat with pre-existing SDK consumers. New
+// consumers (the dashboard inbox) read the additional fields:
+// `direction`, `hitl_status` (outbound HITL lifecycle),
+// `webhook_status` / `webhook_error` (outbound delivery), `size_bytes`.
+type messageSummary struct {
+	ID             string   `json:"message_id"`
+	Direction      string   `json:"direction"`
+	From           string   `json:"from"`
+	To             []string `json:"to"`
+	CC             []string `json:"cc,omitempty"`
+	ReplyTo        []string `json:"reply_to,omitempty"`
+	Recipient      string   `json:"recipient"`
+	Subject        string   `json:"subject"`
+	ConversationID string   `json:"conversation_id,omitempty"`
+	Status         string   `json:"status"` // back-compat: inbox_status for inbound; empty for outbound
+	HITLStatus     string   `json:"hitl_status,omitempty"`
+	WebhookStatus  string   `json:"webhook_status,omitempty"`
+	WebhookError   string   `json:"webhook_error,omitempty"`
+	SizeBytes      int      `json:"size_bytes,omitempty"`
+	// Labels is always present (never nil) so clients can render it
+	// without a null-check. Empty slice for unlabelled rows — matches
+	// the DB DEFAULT '{}' invariant.
+	Labels    []string `json:"labels"`
+	CreatedAt string   `json:"created_at"`
+}
+
+// messageSummaryFromIdentity builds the wire shape from a stored row.
+// Outbound-only fields (HITLStatus / WebhookStatus / WebhookError) are
+// empty for inbound rows so the response stays compact; SizeBytes
+// passes through for both directions (set or zero from the load path).
+//
+// Callers that populate Message from a SELECT that doesn't fetch the
+// webhook join still get correct output — empty WebhookStatus is the
+// "no info" state, and the omitempty tag drops it on the wire.
+func messageSummaryFromIdentity(m identity.Message) messageSummary {
+	s := messageSummary{
+		ID:             m.ID,
+		Direction:      m.Direction,
+		From:           m.Sender,
+		To:             orEmptySlice(m.ToRecipients),
+		CC:             m.CC,
+		ReplyTo:        m.ReplyTo,
+		Recipient:      m.Recipient,
+		Subject:        m.Subject,
+		ConversationID: m.ConversationID,
+		Status:         m.InboxStatus,
+		SizeBytes:      m.SizeBytes,
+		Labels:         orEmptySlice(m.Labels),
+		CreatedAt:      m.CreatedAt.UTC().Format(time.RFC3339),
+	}
+	if m.Direction == "outbound" {
+		s.HITLStatus = m.Status
+		s.WebhookStatus = m.WebhookStatus
+		s.WebhookError = m.WebhookError
+	}
+	return s
 }
 
 // stringSlicesEqual reports whether two ordered string slices have
