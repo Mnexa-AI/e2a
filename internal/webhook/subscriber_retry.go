@@ -134,7 +134,16 @@ func (w *SubscriberRetryWorker) processOne(ctx context.Context, d SubscriberDeli
 		return
 	}
 
-	out := w.deliverer.Deliver(ctx, wh.URL, d.EventPayload, wh.SigningSecret, wh.SigningSecretPrev)
+	// Only honor the previous signing secret while the 24h grace
+	// window is still open. Past expiry the column is non-null in
+	// the DB until the next janitor pass nulls it out — we treat
+	// the expired value as if it had already been nulled so
+	// receivers don't get an extra v1= they don't expect.
+	prevSecret := wh.SigningSecretPrev
+	if wh.SigningSecretPrevExpiresAt != nil && time.Now().After(*wh.SigningSecretPrevExpiresAt) {
+		prevSecret = ""
+	}
+	out := w.deliverer.Deliver(ctx, wh.URL, d.EventPayload, wh.SigningSecret, prevSecret)
 	if out.Success {
 		if err := w.store.MarkDelivered(ctx, d.ID, out.StatusCode); err != nil {
 			log.Printf("[wsd-retry] MarkDelivered err delivery=%s: %v", d.ID, err)

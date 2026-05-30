@@ -317,6 +317,16 @@ func main() {
 		subRetryWorker.Start(subRetryCtx)
 	}()
 
+	// Auto-disable + signing-secret-grace janitor (slice 4). Same
+	// lifecycle as the retry worker — share the same cancel so a
+	// single shutdown signal stops both.
+	autoDisableWorker := webhook.NewAutoDisableWorker(store)
+	workerWG.Add(1)
+	go func() {
+		defer workerWG.Done()
+		autoDisableWorker.Start(subRetryCtx)
+	}()
+
 	// HITL expiration worker: transitions pending_approval messages that
 	// blew past their TTL into expired_approved (auto-send) or
 	// expired_rejected based on the owning agent's hitl_expiration_action.

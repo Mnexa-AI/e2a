@@ -49,6 +49,12 @@ func TestDeliverSuccess(t *testing.T) {
 	if receivedHeaders.Get("X-E2A-Auth-Verified") != "true" {
 		t.Error("expected auth header to be forwarded")
 	}
+	if dep := receivedHeaders.Get("X-E2A-Deprecation"); dep == "" {
+		t.Error("expected X-E2A-Deprecation header on legacy webhook delivery")
+	}
+	if sunset := receivedHeaders.Get("Sunset"); sunset == "" {
+		t.Error("expected Sunset header on legacy webhook delivery")
+	}
 
 	// Verify the body is valid JSON
 	var p Payload

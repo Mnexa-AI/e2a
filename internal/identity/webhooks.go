@@ -482,6 +482,77 @@ func (s *Store) RotateSecret(ctx context.Context, webhookID, userID string) (new
 	return newPlaintext, prevExpiresAt, nil
 }
 
+// AutoDisableThreshold is the consecutive-failed-events count over
+// AutoDisableWindow that trips a webhook into the auto-disabled
+// state. Tuned per design decision #12 (10 / 72h). The reviewer
+// can re-enable via PATCH after the 5-min cooldown.
+const (
+	AutoDisableThreshold = 10
+	AutoDisableWindow    = 72 * time.Hour
+)
+
+// AutoDisableFailingWebhooks scans for webhooks whose recent delivery
+// history exceeds the failure threshold and flips them to
+// enabled=false with auto_disabled_at = now(). Returns the count of
+// webhooks newly disabled. Designed to be called periodically (e.g.
+// every 5 minutes) from a janitor goroutine.
+//
+// "Consecutive failed events" is interpreted as: in the last
+// AutoDisableWindow, at least AutoDisableThreshold rows in
+// webhook_subscriber_deliveries reached status='failed' AND zero
+// rows reached status='delivered'. The zero-delivered guard prevents
+// a noisy webhook that's still mostly working from being disabled.
+func (s *Store) AutoDisableFailingWebhooks(ctx context.Context) (int, error) {
+	rows, err := s.pool.Query(ctx,
+		`UPDATE webhooks
+		 SET enabled = false,
+		     auto_disabled_at = now()
+		 WHERE id IN (
+		     SELECT webhook_id
+		     FROM webhook_subscriber_deliveries
+		     WHERE created_at > now() - $2::interval
+		     GROUP BY webhook_id
+		     HAVING COUNT(*) FILTER (WHERE status = 'failed') >= $1
+		        AND COUNT(*) FILTER (WHERE status = 'delivered') = 0
+		 )
+		 AND enabled = true
+		 RETURNING id`,
+		AutoDisableThreshold, AutoDisableWindow,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("auto-disable scan: %w", err)
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return count, err
+		}
+		count++
+	}
+	return count, rows.Err()
+}
+
+// ClearExpiredPrevSecrets nulls signing_secret_prev /
+// signing_secret_prev_expires_at on rows past their grace window.
+// Idempotent. The worker already ignores expired prev secrets at
+// signing time; this janitor is a hygiene pass so GET responses
+// don't carry a meaningless prev_expires_at.
+func (s *Store) ClearExpiredPrevSecrets(ctx context.Context) (int64, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE webhooks
+		 SET signing_secret_prev = NULL,
+		     signing_secret_prev_expires_at = NULL
+		 WHERE signing_secret_prev_expires_at IS NOT NULL
+		   AND signing_secret_prev_expires_at < now()`,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("clear expired prev secrets: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // DeleteWebhook removes a webhook owned by the user. Idempotent:
 // deleting a non-existent or cross-user webhook returns
 // ErrWebhookNotFound, never silently succeeds. The ON DELETE CASCADE
