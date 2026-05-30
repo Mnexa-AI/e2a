@@ -25,6 +25,7 @@ from e2a.v1.generated import (
     ApprovePendingMessageRequest,
     ApprovePendingMessageResponse,
     ConversationDetail,
+    CreateWebhookRequest,
     DeploymentInfo,
     Domain,
     ForwardMessageRequest,
@@ -33,6 +34,8 @@ from e2a.v1.generated import (
     ListDomainsResponse,
     ListMessagesResponse,
     ListPendingMessagesResponse,
+    ListWebhookDeliveriesResponse,
+    ListWebhooksResponse,
     MessageDetail,
     PendingMessageDetail,
     RegisterAgentRequest,
@@ -41,12 +44,17 @@ from e2a.v1.generated import (
     RejectPendingMessageRequest,
     RejectPendingMessageResponse,
     ReplyToMessageRequest,
+    RotateWebhookSecretResponse,
     SendEmailRequest,
     SendEmailResponse,
+    TestWebhookRequest,
+    TestWebhookResponse,
     UpdateAgentRequest,
     UpdateMessageRequest,
     UpdateMessageResponse,
+    UpdateWebhookRequest,
     VerifyDomainResponse,
+    WebhookResponse,
 )
 from e2a.v1.generated import internal_agent
 from e2a.v1.handler import (
@@ -160,6 +168,90 @@ class AsyncE2AApi:
     async def delete_domain(self, domain: str) -> None:
         resp = await self._client.delete(f"/api/v1/domains/{quote(domain, safe='')}")
         _check_response(resp)
+
+    # ── Webhooks (top-level resource) ────────────────────────────
+
+    async def list_webhooks(self) -> ListWebhooksResponse:
+        resp = await self._client.get("/api/v1/webhooks")
+        _check_response(resp)
+        return ListWebhooksResponse.model_validate(resp.json())
+
+    async def create_webhook(
+        self, body: CreateWebhookRequest
+    ) -> WebhookResponse:
+        resp = await self._client.post(
+            "/api/v1/webhooks",
+            json=body.model_dump(by_alias=True, exclude_none=True),
+        )
+        _check_response(resp)
+        return WebhookResponse.model_validate(resp.json())
+
+    async def get_webhook(self, webhook_id: str) -> WebhookResponse:
+        resp = await self._client.get(
+            f"/api/v1/webhooks/{quote(webhook_id, safe='')}"
+        )
+        _check_response(resp)
+        return WebhookResponse.model_validate(resp.json())
+
+    async def update_webhook(
+        self, webhook_id: str, body: UpdateWebhookRequest
+    ) -> WebhookResponse:
+        resp = await self._client.patch(
+            f"/api/v1/webhooks/{quote(webhook_id, safe='')}",
+            json=body.model_dump(by_alias=True, exclude_none=True),
+        )
+        _check_response(resp)
+        return WebhookResponse.model_validate(resp.json())
+
+    async def delete_webhook(self, webhook_id: str) -> None:
+        resp = await self._client.delete(
+            f"/api/v1/webhooks/{quote(webhook_id, safe='')}"
+        )
+        _check_response(resp)
+
+    async def rotate_webhook_secret(
+        self, webhook_id: str
+    ) -> RotateWebhookSecretResponse:
+        resp = await self._client.post(
+            f"/api/v1/webhooks/{quote(webhook_id, safe='')}/rotate-secret"
+        )
+        _check_response(resp)
+        return RotateWebhookSecretResponse.model_validate(resp.json())
+
+    async def test_webhook(
+        self,
+        webhook_id: str,
+        body: Optional[TestWebhookRequest] = None,
+    ) -> TestWebhookResponse:
+        payload = (
+            body.model_dump(by_alias=True, exclude_none=True)
+            if body is not None
+            else {}
+        )
+        resp = await self._client.post(
+            f"/api/v1/webhooks/{quote(webhook_id, safe='')}/test",
+            json=payload,
+        )
+        _check_response(resp)
+        return TestWebhookResponse.model_validate(resp.json())
+
+    async def list_webhook_deliveries(
+        self,
+        webhook_id: str,
+        limit: Optional[int] = None,
+        status: Optional[str] = None,
+    ) -> ListWebhookDeliveriesResponse:
+        params = {}
+        if limit is not None:
+            params["limit"] = limit
+        if status is not None:
+            params["status"] = status
+        resp = await self._client.get(
+            f"/api/v1/webhooks/{quote(webhook_id, safe='')}/deliveries",
+            params=params,
+        )
+        _check_response(resp)
+        return ListWebhookDeliveriesResponse.model_validate(resp.json())
 
     # ── Messages ──────────────────────────────────────────────────
 
@@ -807,6 +899,80 @@ class AsyncE2AClient:
 
     async def delete_domain(self, domain: str):
         return await self.api.delete_domain(domain)
+
+    # ── Webhooks (top-level resource) ──────────────────────────────
+
+    async def list_webhooks(self):
+        return await self.api.list_webhooks()
+
+    async def create_webhook(
+        self,
+        url: str,
+        events: list[str],
+        *,
+        description: str = "",
+        filters: Optional[Any] = None,
+    ):
+        return await self.api.create_webhook(
+            CreateWebhookRequest(
+                url=url,
+                events=events,
+                description=description,
+                filters=filters,
+            )
+        )
+
+    async def get_webhook(self, webhook_id: str):
+        return await self.api.get_webhook(webhook_id)
+
+    async def update_webhook(
+        self,
+        webhook_id: str,
+        *,
+        url: Optional[str] = None,
+        events: Optional[list[str]] = None,
+        filters: Optional[Any] = None,
+        description: Optional[str] = None,
+        enabled: Optional[bool] = None,
+    ):
+        return await self.api.update_webhook(
+            webhook_id,
+            UpdateWebhookRequest(
+                url=url,
+                events=events,
+                filters=filters,
+                description=description,
+                enabled=enabled,
+            ),
+        )
+
+    async def delete_webhook(self, webhook_id: str):
+        return await self.api.delete_webhook(webhook_id)
+
+    async def rotate_webhook_secret(self, webhook_id: str):
+        return await self.api.rotate_webhook_secret(webhook_id)
+
+    async def test_webhook(
+        self,
+        webhook_id: str,
+        *,
+        event: str = "",
+        data: Optional[dict] = None,
+    ):
+        return await self.api.test_webhook(
+            webhook_id, TestWebhookRequest(event=event, data=data)
+        )
+
+    async def list_webhook_deliveries(
+        self,
+        webhook_id: str,
+        *,
+        limit: Optional[int] = None,
+        status: Optional[str] = None,
+    ):
+        return await self.api.list_webhook_deliveries(
+            webhook_id, limit=limit, status=status
+        )
 
     # ── WebSocket ─────────────────────────────────────────────────
 

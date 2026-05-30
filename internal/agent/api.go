@@ -28,6 +28,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/ratelimit"
 	"github.com/Mnexa-AI/e2a/internal/usage"
+	"github.com/Mnexa-AI/e2a/internal/webhook"
 	"github.com/google/go-github/v72/github"
 	"github.com/gorilla/mux"
 	"github.com/ory/fosite"
@@ -185,6 +186,17 @@ type API struct {
 	usageStore     *usage.Store           // optional; needed by handleGetMyLimits to surface current counts
 	internalAPISecret string              // optional; when empty, /api/internal/* endpoints return 503
 	billingHookURL string                 // optional; when set, handleDeleteUserData POSTs an HMAC-signed user-deleted notice here (sidecar's /api/internal/billing/cancel)
+	// subscriberStore powers the slice-2 webhooks-as-a-resource
+	// /webhooks/{id}/test and /webhooks/{id}/deliveries endpoints.
+	// Optional — when nil, those endpoints return 404 (the rest of
+	// the /webhooks CRUD still works, just without test + history).
+	subscriberStore *webhook.SubscriberStore
+}
+
+// SetSubscriberStore wires the subscriber-store dependency after
+// NewAPI. Same optional-setter convention as SetEnforcer / etc.
+func (a *API) SetSubscriberStore(s *webhook.SubscriberStore) {
+	a.subscriberStore = s
 }
 
 // SetApprovalSigner wires in the magic-link signer after construction so
@@ -350,6 +362,16 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	// shared domain and other deployment-specific values without requiring
 	// each user to set them by hand.
 	r.HandleFunc("/api/v1/info", a.handleInfo).Methods("GET")
+
+	// Webhooks-as-a-resource (slice 2)
+	r.HandleFunc("/api/v1/webhooks", a.handleCreateWebhook).Methods("POST")
+	r.HandleFunc("/api/v1/webhooks", a.handleListWebhooks).Methods("GET")
+	r.HandleFunc("/api/v1/webhooks/{id}", a.handleGetWebhook).Methods("GET")
+	r.HandleFunc("/api/v1/webhooks/{id}", a.handleUpdateWebhook).Methods("PATCH")
+	r.HandleFunc("/api/v1/webhooks/{id}", a.handleDeleteWebhook).Methods("DELETE")
+	r.HandleFunc("/api/v1/webhooks/{id}/rotate-secret", a.handleRotateWebhookSecret).Methods("POST")
+	r.HandleFunc("/api/v1/webhooks/{id}/test", a.handleTestWebhook).Methods("POST")
+	r.HandleFunc("/api/v1/webhooks/{id}/deliveries", a.handleListWebhookDeliveries).Methods("GET")
 
 	// --- Non-versioned operational endpoints ---
 	r.HandleFunc("/api/health", a.handleHealth).Methods("GET", "HEAD")

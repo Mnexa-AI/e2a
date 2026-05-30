@@ -17,6 +17,7 @@ from e2a.v1.handler import (  # noqa: F401
     SendResult,
     UnverifiedEmailError,
 )
+from e2a.v1.webhook_signature import verify_webhook_signature  # noqa: F401
 
 __all__ = [
     # Raw API layers
@@ -41,4 +42,6 @@ __all__ = [
     "fetch_info_async",
     # WebSocket
     "WSNotification",
+    # Webhook signature verification (top-level webhooks resource)
+    "verify_webhook_signature",
 ]

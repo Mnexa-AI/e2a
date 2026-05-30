@@ -133,6 +133,97 @@ type ConversationDetail struct {
 	Messages     []MessageSummary `json:"messages"`
 } // @name ConversationDetail
 
+// --- Webhooks-as-a-resource (slice 2) ---
+
+// WebhookFilters is the structured scope filter on a webhook. Empty /
+// missing keys mean "no constraint of that type". A webhook with
+// all-empty filters is a cross-cutting subscriber that matches every
+// event of the right type for the owning user.
+type WebhookFilters struct {
+	AgentIDs        []string `json:"agent_ids,omitempty"`
+	ConversationIDs []string `json:"conversation_ids,omitempty"`
+	Labels          []string `json:"labels,omitempty"`
+} // @name WebhookFilters
+
+// CreateWebhookRequest is the POST /api/v1/webhooks body.
+type CreateWebhookRequest struct {
+	URL         string          `json:"url" example:"https://example.com/e2a/hook"`
+	Events      []string        `json:"events" example:"email.received"`
+	Filters     *WebhookFilters `json:"filters,omitempty"`
+	Description string          `json:"description,omitempty" example:"main inbox handler"`
+} // @name CreateWebhookRequest
+
+// UpdateWebhookRequest is the PATCH body. All fields optional; only
+// fields present in the request are touched. url / events / filters
+// are full-replace when present (the sent value is canonical).
+type UpdateWebhookRequest struct {
+	URL         *string         `json:"url,omitempty"`
+	Events      *[]string       `json:"events,omitempty"`
+	Filters     *WebhookFilters `json:"filters,omitempty"`
+	Description *string         `json:"description,omitempty"`
+	Enabled     *bool           `json:"enabled,omitempty"`
+} // @name UpdateWebhookRequest
+
+// WebhookResponse is the GET / POST response shape. SigningSecret is
+// populated only on POST /webhooks and POST /webhooks/{id}/rotate-secret
+// — every other endpoint omits it so a stolen API key cannot exfiltrate
+// secrets via list/get.
+type WebhookResponse struct {
+	ID                       string         `json:"id" example:"wh_abc123"`
+	URL                      string         `json:"url"`
+	Description              string         `json:"description"`
+	Events                   []string       `json:"events"`
+	Filters                  WebhookFilters `json:"filters"`
+	SigningSecret            string         `json:"signing_secret,omitempty"` // ONLY on create + rotate
+	PreviousSecretExpiresAt  string         `json:"previous_secret_expires_at,omitempty"` // ONLY on rotate
+	Enabled                  bool           `json:"enabled"`
+	AutoDisabledAt           string         `json:"auto_disabled_at,omitempty"`
+	CreatedAt                string         `json:"created_at"`
+	LastDeliveredAt          string         `json:"last_delivered_at,omitempty"`
+} // @name WebhookResponse
+
+// ListWebhooksResponse wraps the list endpoint.
+type ListWebhooksResponse struct {
+	Webhooks []WebhookResponse `json:"webhooks"`
+} // @name ListWebhooksResponse
+
+// RotateWebhookSecretResponse carries the new plaintext secret +
+// the 24h expiry for the previous secret's grace window.
+type RotateWebhookSecretResponse struct {
+	SigningSecret           string `json:"signing_secret"`
+	PreviousSecretExpiresAt string `json:"previous_secret_expires_at"`
+} // @name RotateWebhookSecretResponse
+
+// TestWebhookRequest fires a synthetic event for development.
+type TestWebhookRequest struct {
+	Event string                 `json:"event" example:"email.received"`
+	Data  map[string]interface{} `json:"data,omitempty"`
+} // @name TestWebhookRequest
+
+// TestWebhookResponse echoes the delivery id of the synthetic event
+// so the caller can correlate it in GET /webhooks/{id}/deliveries.
+type TestWebhookResponse struct {
+	DeliveryID string `json:"delivery_id"`
+} // @name TestWebhookResponse
+
+// WebhookDeliveryResponse is one row in GET /webhooks/{id}/deliveries.
+type WebhookDeliveryResponse struct {
+	ID             string `json:"id"`
+	EventType      string `json:"event_type"`
+	Status         string `json:"status"`
+	Attempts       int    `json:"attempts"`
+	LastError      string `json:"last_error,omitempty"`
+	LastStatusCode *int   `json:"last_status_code,omitempty"`
+	LastAttemptAt  string `json:"last_attempt_at,omitempty"`
+	NextRetryAt    string `json:"next_retry_at"`
+	CreatedAt      string `json:"created_at"`
+} // @name WebhookDeliveryResponse
+
+// ListWebhookDeliveriesResponse wraps the deliveries endpoint.
+type ListWebhookDeliveriesResponse struct {
+	Deliveries []WebhookDeliveryResponse `json:"deliveries"`
+} // @name ListWebhookDeliveriesResponse
+
 // ListConversationsResponse wraps the conversations list. Pagination
 // is intentionally deferred — the response is hard-capped at 100
 // conversations server-side, which covers the inbox-style use case

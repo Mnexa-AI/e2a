@@ -214,6 +214,101 @@ func TestCreateWebhook_DefaultCapWhenNoAccountLimits(t *testing.T) {
 	}
 }
 
+func TestUpdateWebhook_PartialFields(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userID := webhookTestUser(t, store, "wh-upd")
+	w, _ := store.CreateWebhook(ctx, userID, "https://a.example.com", "first", []string{"email.received"}, identity.WebhookFilters{})
+
+	newURL := "https://b.example.com"
+	newDesc := "updated"
+	got, err := store.UpdateWebhook(ctx, w.ID, userID, identity.WebhookUpdate{URL: &newURL, Description: &newDesc})
+	if err != nil {
+		t.Fatalf("UpdateWebhook: %v", err)
+	}
+	if got.URL != newURL || got.Description != newDesc {
+		t.Errorf("after update url=%q desc=%q", got.URL, got.Description)
+	}
+	// Events and filters unchanged.
+	if len(got.Events) != 1 || got.Events[0] != "email.received" {
+		t.Errorf("events drifted: %v", got.Events)
+	}
+}
+
+func TestUpdateWebhook_ReEnableCooldown(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userID := webhookTestUser(t, store, "wh-cooldown")
+	w, _ := store.CreateWebhook(ctx, userID, "https://a.example.com", "", []string{"email.received"}, identity.WebhookFilters{})
+
+	// Simulate auto-disable that just happened.
+	_, _ = pool.Exec(ctx, `UPDATE webhooks SET enabled = false, auto_disabled_at = now() WHERE id = $1`, w.ID)
+
+	tval := true
+	_, err := store.UpdateWebhook(ctx, w.ID, userID, identity.WebhookUpdate{Enabled: &tval})
+	if !errors.Is(err, identity.ErrWebhookCooldown) {
+		t.Errorf("expected ErrWebhookCooldown, got %v", err)
+	}
+
+	// Simulate an auto_disabled_at older than 5 min — re-enable should succeed.
+	_, _ = pool.Exec(ctx, `UPDATE webhooks SET auto_disabled_at = now() - interval '10 minutes' WHERE id = $1`, w.ID)
+	got, err := store.UpdateWebhook(ctx, w.ID, userID, identity.WebhookUpdate{Enabled: &tval})
+	if err != nil {
+		t.Fatalf("re-enable after cooldown: %v", err)
+	}
+	if !got.Enabled {
+		t.Error("Enabled = false after successful re-enable")
+	}
+	if got.AutoDisabledAt != nil {
+		t.Error("auto_disabled_at not cleared after re-enable")
+	}
+}
+
+func TestRotateSecret_ReturnsNewPlaintext(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userID := webhookTestUser(t, store, "wh-rotate")
+	w, _ := store.CreateWebhook(ctx, userID, "https://a.example.com", "", []string{"email.received"}, identity.WebhookFilters{})
+	originalSecret := w.SigningSecret
+
+	newSecret, expiresAt, err := store.RotateSecret(ctx, w.ID, userID)
+	if err != nil {
+		t.Fatalf("RotateSecret: %v", err)
+	}
+	if newSecret == "" || newSecret == originalSecret {
+		t.Errorf("new secret should differ from original: new=%q orig=%q", newSecret, originalSecret)
+	}
+	if expiresAt.IsZero() {
+		t.Error("prev_expires_at is zero")
+	}
+
+	// Read back: signing_secret should be new, signing_secret_prev should be old.
+	round, _ := store.GetWebhookByID(ctx, w.ID, userID)
+	if round.SigningSecret != newSecret {
+		t.Errorf("read-back current = %q, want %q", round.SigningSecret, newSecret)
+	}
+	if round.SigningSecretPrev != originalSecret {
+		t.Errorf("read-back prev = %q, want %q (original)", round.SigningSecretPrev, originalSecret)
+	}
+}
+
+func TestRotateSecret_CrossUserNotFound(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userA := webhookTestUser(t, store, "wh-rot-a")
+	userB := webhookTestUser(t, store, "wh-rot-b")
+	w, _ := store.CreateWebhook(ctx, userA, "https://a.example.com", "", []string{"email.received"}, identity.WebhookFilters{})
+
+	_, _, err := store.RotateSecret(ctx, w.ID, userB)
+	if !errors.Is(err, identity.ErrWebhookNotFound) {
+		t.Errorf("cross-user rotate err = %v, want ErrWebhookNotFound", err)
+	}
+}
+
 func TestDeleteWebhook_OwnerOnly(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)

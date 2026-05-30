@@ -2,6 +2,8 @@ package webhook
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -154,4 +156,79 @@ func (s *SubscriberStore) RecordAttemptFailure(ctx context.Context, deliveryID, 
 		deliveryID, newAttempts, errMsg, statusCode, nextRetry,
 	)
 	return err
+}
+
+// generateDeliveryID returns a prefixed id of the form wdl_<32-hex>.
+// 16 bytes of entropy is more than enough — the row is short-lived
+// (30-day expiry), and the prefix follows the rest of the e2a id
+// scheme so logs and dashboards can spot a delivery id at a glance.
+func generateDeliveryID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("webhook: crypto/rand failed: %v", err))
+	}
+	return "wdl_" + hex.EncodeToString(b)
+}
+
+// InsertPendingForTest creates a single delivery row tied to the given
+// webhook + event type with the supplied envelope bytes. The retry
+// worker picks it up on the next tick. Used by the
+// POST /api/v1/webhooks/{id}/test endpoint to schedule a one-off
+// delivery without going through the publisher's filter-matching path.
+func (s *SubscriberStore) InsertPendingForTest(ctx context.Context, webhookID, eventType string, envelope []byte) (string, error) {
+	id := generateDeliveryID()
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO webhook_subscriber_deliveries
+		     (id, webhook_id, event_type, event_payload, status, next_retry_at)
+		 VALUES ($1, $2, $3, $4, 'pending', now())`,
+		id, webhookID, eventType, envelope,
+	)
+	if err != nil {
+		return "", fmt.Errorf("insert test delivery: %w", err)
+	}
+	return id, nil
+}
+
+// ListDeliveriesByWebhook returns up to `limit` delivery rows for the
+// webhook, most-recent first. When status is non-empty, restricts to
+// that status (pending|delivered|failed). Limit is bounded by the
+// caller; this method does not enforce a cap.
+func (s *SubscriberStore) ListDeliveriesByWebhook(ctx context.Context, webhookID, status string, limit int) ([]SubscriberDelivery, error) {
+	var (
+		rowsErr error
+		out     []SubscriberDelivery
+	)
+	q := `SELECT id, webhook_id, event_type, event_payload, message_id,
+	             status, attempts, max_attempts, last_error,
+	             last_status_code, last_attempt_at, next_retry_at,
+	             created_at, expires_at
+	      FROM webhook_subscriber_deliveries
+	      WHERE webhook_id = $1`
+	args := []interface{}{webhookID}
+	if status != "" {
+		q += ` AND status = $2`
+		args = append(args, status)
+	}
+	q += ` ORDER BY created_at DESC LIMIT $` + fmt.Sprintf("%d", len(args)+1)
+	args = append(args, limit)
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d SubscriberDelivery
+		if err := rows.Scan(
+			&d.ID, &d.WebhookID, &d.EventType, &d.EventPayload, &d.MessageID,
+			&d.Status, &d.Attempts, &d.MaxAttempts, &d.LastError,
+			&d.LastStatusCode, &d.LastAttemptAt, &d.NextRetryAt,
+			&d.CreatedAt, &d.ExpiresAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	rowsErr = rows.Err()
+	return out, rowsErr
 }

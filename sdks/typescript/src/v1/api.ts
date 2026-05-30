@@ -381,6 +381,69 @@ export class E2AApi {
     );
   }
 
+  // ── Webhooks (top-level webhooks-as-a-resource) ─────────────────
+
+  async listWebhooks(): Promise<Schemas["ListWebhooksResponse"]> {
+    return this.request("GET", "/api/v1/webhooks");
+  }
+
+  async createWebhook(
+    body: Schemas["CreateWebhookRequest"],
+  ): Promise<Schemas["WebhookResponse"]> {
+    return this.request("POST", "/api/v1/webhooks", body);
+  }
+
+  async getWebhook(id: string): Promise<Schemas["WebhookResponse"]> {
+    return this.request("GET", `/api/v1/webhooks/${encodeURIComponent(id)}`);
+  }
+
+  async updateWebhook(
+    id: string,
+    body: Schemas["UpdateWebhookRequest"],
+  ): Promise<Schemas["WebhookResponse"]> {
+    return this.request(
+      "PATCH",
+      `/api/v1/webhooks/${encodeURIComponent(id)}`,
+      body,
+    );
+  }
+
+  async deleteWebhook(id: string): Promise<void> {
+    await this.raw("DELETE", `/api/v1/webhooks/${encodeURIComponent(id)}`);
+  }
+
+  async rotateWebhookSecret(
+    id: string,
+  ): Promise<Schemas["RotateWebhookSecretResponse"]> {
+    return this.request(
+      "POST",
+      `/api/v1/webhooks/${encodeURIComponent(id)}/rotate-secret`,
+    );
+  }
+
+  async testWebhook(
+    id: string,
+    body: Schemas["TestWebhookRequest"] = { event: "" },
+  ): Promise<Schemas["TestWebhookResponse"]> {
+    return this.request(
+      "POST",
+      `/api/v1/webhooks/${encodeURIComponent(id)}/test`,
+      body,
+    );
+  }
+
+  async listWebhookDeliveries(
+    id: string,
+    opts?: { limit?: number; status?: "pending" | "delivered" | "failed" },
+  ): Promise<Schemas["ListWebhookDeliveriesResponse"]> {
+    const params = new URLSearchParams();
+    if (opts?.limit) params.set("limit", String(opts.limit));
+    if (opts?.status) params.set("status", opts.status);
+    const qs = params.toString();
+    const path = `/api/v1/webhooks/${encodeURIComponent(id)}/deliveries${qs ? `?${qs}` : ""}`;
+    return this.request("GET", path);
+  }
+
   // ── Deployment info ─────────────────────────────────────────────
 
   /**

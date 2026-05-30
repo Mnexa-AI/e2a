@@ -337,6 +337,151 @@ func (s *Store) MaxWebhooksForUser(ctx context.Context, userID string) (int, err
 	return *n, nil
 }
 
+// WebhookUpdate carries the fields a PATCH can change. All fields are
+// pointers (or "set-or-leave" flags) so handlers can distinguish
+// "field present, set to X" from "field not present, leave unchanged".
+//
+// Per the design, url / events / filters are full-replace fields (the
+// sent value is canonical when present). Enabled is a toggle. Re-enable
+// has a 5-minute cooldown — UpdateWebhook returns ErrWebhookCooldown
+// when the caller tries to flip Enabled true within 5 minutes of
+// auto_disabled_at.
+type WebhookUpdate struct {
+	URL         *string
+	Description *string
+	Events      *[]string
+	Filters     *WebhookFilters
+	Enabled     *bool
+}
+
+// ErrWebhookCooldown is returned when a PATCH would re-enable a
+// webhook that was auto-disabled within the last 5 minutes. Slice 4
+// adds the auto-disable worker; this error type lands now so the
+// handler doesn't need to map magic strings later.
+var ErrWebhookCooldown = errors.New("webhook was auto-disabled within the last 5 minutes; wait before re-enabling")
+
+// reEnableCooldown is the minimum delay between auto_disabled_at and
+// a PATCH that flips enabled back to true. Decision #10.
+const reEnableCooldown = 5 * time.Minute
+
+// UpdateWebhook applies a partial update to a webhook. Only fields
+// with a non-nil pointer in WebhookUpdate are touched. Returns the
+// updated row.
+//
+// Validation (charset, count caps, agent ownership) is the handler's
+// job; the storage layer enforces only the re-enable cooldown and
+// the per-row CHECK constraints (events non-empty, url non-empty).
+func (s *Store) UpdateWebhook(ctx context.Context, webhookID, userID string, u WebhookUpdate) (*Webhook, error) {
+	// Re-enable cooldown — read the current state once before
+	// running the UPDATE so we can return a typed error.
+	if u.Enabled != nil && *u.Enabled {
+		var autoDisabledAt *time.Time
+		err := s.pool.QueryRow(ctx,
+			`SELECT auto_disabled_at FROM webhooks WHERE id = $1 AND user_id = $2`,
+			webhookID, userID,
+		).Scan(&autoDisabledAt)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, ErrWebhookNotFound
+			}
+			return nil, err
+		}
+		if autoDisabledAt != nil && time.Since(*autoDisabledAt) < reEnableCooldown {
+			return nil, ErrWebhookCooldown
+		}
+	}
+
+	// Build a dynamic UPDATE based on which fields are present. Using
+	// COALESCE keeps the query simple at the cost of always touching
+	// every column; at slice-1 webhook counts this isn't a concern.
+	args := []interface{}{webhookID, userID}
+	sets := []string{}
+	add := func(col string, val interface{}) {
+		args = append(args, val)
+		sets = append(sets, fmt.Sprintf("%s = $%d", col, len(args)))
+	}
+	if u.URL != nil {
+		add("url", *u.URL)
+	}
+	if u.Description != nil {
+		add("description", *u.Description)
+	}
+	if u.Events != nil {
+		add("events", *u.Events)
+	}
+	if u.Filters != nil {
+		filtersJSON, err := json.Marshal(*u.Filters)
+		if err != nil {
+			return nil, fmt.Errorf("marshal filters: %w", err)
+		}
+		add("filters", filtersJSON)
+	}
+	if u.Enabled != nil {
+		add("enabled", *u.Enabled)
+		// Re-enabling clears auto_disabled_at so a subsequent fail
+		// burst can re-trip it cleanly.
+		if *u.Enabled {
+			args = append(args, nil)
+			sets = append(sets, fmt.Sprintf("auto_disabled_at = $%d", len(args)))
+		}
+	}
+
+	if len(sets) == 0 {
+		// No-op PATCH. Return the current row.
+		return s.GetWebhookByID(ctx, webhookID, userID)
+	}
+
+	query := fmt.Sprintf(
+		`UPDATE webhooks SET %s WHERE id = $1 AND user_id = $2 RETURNING id`,
+		joinComma(sets),
+	)
+	var returnedID string
+	if err := s.pool.QueryRow(ctx, query, args...).Scan(&returnedID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrWebhookNotFound
+		}
+		return nil, err
+	}
+	return s.GetWebhookByID(ctx, webhookID, userID)
+}
+
+func joinComma(parts []string) string {
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += ", "
+		}
+		out += p
+	}
+	return out
+}
+
+// RotateSecret generates a new signing secret, moves the current
+// secret into signing_secret_prev with a 24h expiry, and returns
+// the new plaintext (shown once). During the 24h grace window the
+// delivery worker dual-signs each request so receivers can verify
+// with either secret while they update their handler.
+func (s *Store) RotateSecret(ctx context.Context, webhookID, userID string) (newPlaintext string, prevExpiresAt time.Time, err error) {
+	newPlaintext = generateWebhookSecret()
+	prevExpiresAt = time.Now().Add(24 * time.Hour)
+
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE webhooks
+		 SET signing_secret_prev = signing_secret,
+		     signing_secret_prev_expires_at = $3,
+		     signing_secret = $4
+		 WHERE id = $1 AND user_id = $2`,
+		webhookID, userID, prevExpiresAt, newPlaintext,
+	)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return "", time.Time{}, ErrWebhookNotFound
+	}
+	return newPlaintext, prevExpiresAt, nil
+}
+
 // DeleteWebhook removes a webhook owned by the user. Idempotent:
 // deleting a non-existent or cross-user webhook returns
 // ErrWebhookNotFound, never silently succeeds. The ON DELETE CASCADE
