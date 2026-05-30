@@ -27,6 +27,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/relay"
 	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
+	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"github.com/Mnexa-AI/e2a/internal/ws"
 	"github.com/Mnexa-AI/e2a/migrations"
 	"github.com/gorilla/mux"
@@ -133,6 +134,17 @@ func main() {
 	deliverer := webhook.NewDeliverer(cfg.IsProduction())
 	deliveryStore := webhook.NewDeliveryStore(pool)
 	persistentDeliverer := webhook.NewPersistentDeliverer(deliverer, deliveryStore)
+
+	// New webhooks-as-a-resource pipeline (slice 1 of the feature).
+	// Lives alongside the legacy single-URL path above — both fire on
+	// inbound events. The feature flag E2A_FEATURE_WEBHOOK_RESOURCE
+	// (default ON) gates the publisher only; the subscriber retry
+	// worker keeps draining any pending rows even when the flag is
+	// OFF. See tmp/e2a_webhooks_design.md for the full design.
+	webhookFlag := webhookpub.StaticFlag(os.Getenv("E2A_FEATURE_WEBHOOK_RESOURCE") != "false")
+	subscriberStore := webhook.NewSubscriberStore(pool)
+	subscriberDeliverer := webhook.NewSubscriberDeliverer(cfg.IsProduction())
+	webhookPublisher := webhookpub.New(store, webhookpub.NewDBInserter(pool), webhookFlag)
 	smtpRelay := outbound.NewSMTPRelay(&cfg.OutboundSMTP)
 	sender := outbound.NewSenderWithDKIM(smtpRelay, cfg.OutboundSMTP.FromDomain, store)
 
@@ -245,6 +257,7 @@ func main() {
 	// SMTP Relay
 	smtpServer := relay.NewServer(cfg, store, signer, persistentDeliverer, usageTracker, wsHub)
 	smtpServer.SetEnforcer(enforcer)
+	smtpServer.SetPublisher(webhookPublisher)
 
 	// Graceful shutdown
 	sigCh := make(chan os.Signal, 1)
@@ -279,13 +292,27 @@ func main() {
 	// is a follow-up.
 	var workerWG sync.WaitGroup
 
-	// Webhook delivery retry worker
+	// Webhook delivery retry worker (legacy single-URL path)
 	retryWorker := webhook.NewRetryWorker(deliveryStore, deliverer, store)
 	retryCtx, retryCancel := context.WithCancel(context.Background())
 	workerWG.Add(1)
 	go func() {
 		defer workerWG.Done()
 		retryWorker.Start(retryCtx)
+	}()
+
+	// Webhook subscriber retry worker (new webhooks-as-a-resource path).
+	// Lives alongside the legacy worker; both drain their own table.
+	// Unconditionally started — even with the feature flag OFF (publisher
+	// disabled) this worker keeps draining any rows that were inserted
+	// before the flag flipped, so flipping the flag mid-flight doesn't
+	// leak pending deliveries.
+	subRetryWorker := webhook.NewSubscriberRetryWorker(subscriberStore, subscriberDeliverer, store)
+	subRetryCtx, subRetryCancel := context.WithCancel(context.Background())
+	workerWG.Add(1)
+	go func() {
+		defer workerWG.Done()
+		subRetryWorker.Start(subRetryCtx)
 	}()
 
 	// HITL expiration worker: transitions pending_approval messages that
@@ -361,6 +388,7 @@ func main() {
 	// calls already in flight finish their current row before the
 	// goroutine exits.
 	retryCancel()
+	subRetryCancel()
 	hitlCancel()
 	cleanupCancel()
 
