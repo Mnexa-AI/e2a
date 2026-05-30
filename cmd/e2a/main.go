@@ -240,6 +240,8 @@ func main() {
 	api.SetUsageStore(usageStore)
 	api.SetInternalAPISecret(cfg.Limits.InternalAPISecret)
 	api.SetBillingHookURL(cfg.Limits.BillingHookURL)
+	api.SetSubscriberStore(subscriberStore)
+	api.SetPublisher(webhookPublisher)
 
 	api.RegisterRoutes(router)
 
