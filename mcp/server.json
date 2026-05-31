@@ -31,8 +31,8 @@
           "description": "Default agent inbox (e.g. bot@your-domain.com). Optional — single-agent accounts auto-resolve."
         },
         {
-          "name": "E2A_BASE_URL",
-          "description": "Self-hosted e2a backend URL. Defaults to https://e2a.dev.",
+          "name": "E2A_URL",
+          "description": "Self-hosted e2a backend URL. Defaults to https://e2a.dev. (Legacy: E2A_BASE_URL is still accepted.)",
           "default": "https://e2a.dev"
         }
       ]

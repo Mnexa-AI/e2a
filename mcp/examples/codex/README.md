@@ -83,5 +83,5 @@ Setting both `command` and `url` in the same entry is rejected at load time, as 
 
 ## Pointing at a self-hosted e2a
 
-- **Stdio**: set `E2A_BASE_URL` inside `[mcp_servers.e2a.env]` (or pass `--env E2A_BASE_URL=…` to `codex mcp add`). `@e2a/mcp-server` forwards it.
+- **Stdio**: set `E2A_URL` inside `[mcp_servers.e2a.env]` (or pass `--env E2A_URL=…` to `codex mcp add`). `@e2a/mcp-server` reads it. (`E2A_BASE_URL` is the legacy name and still accepted.)
 - **Hosted**: change the `url` literal in the `[mcp_servers.e2a-hosted]` block to your deployment's MCP endpoint.

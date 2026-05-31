@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ConfigError, loadConfig } from "../src/bin/http.js";
 
 describe("bin/http loadConfig", () => {
@@ -13,10 +13,10 @@ describe("bin/http loadConfig", () => {
     });
   });
 
-  it("parses valid values", () => {
+  it("parses valid values (canonical E2A_URL)", () => {
     const cfg = loadConfig({
       PORT: "8080",
-      E2A_BASE_URL: "https://staging.e2a.dev",
+      E2A_URL: "https://staging.e2a.dev",
       MCP_ALLOWED_HOSTS: "mcp.e2a.dev,mcp-staging.e2a.dev",
       MCP_SESSION_IDLE_MS: "60000",
       MCP_MAX_SESSIONS: "100",
@@ -28,6 +28,21 @@ describe("bin/http loadConfig", () => {
       sessionIdleMs: 60_000,
       maxSessions: 100,
     });
+  });
+
+  it("falls back to E2A_BASE_URL when E2A_URL is unset", () => {
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const cfg = loadConfig({ E2A_BASE_URL: "https://legacy.example.com" });
+    expect(cfg.baseUrl).toBe("https://legacy.example.com");
+    warn.mockRestore();
+  });
+
+  it("prefers canonical E2A_URL when both are set", () => {
+    const cfg = loadConfig({
+      E2A_URL: "https://canonical.example.com",
+      E2A_BASE_URL: "https://legacy.example.com",
+    });
+    expect(cfg.baseUrl).toBe("https://canonical.example.com");
   });
 
   it("rejects non-numeric PORT", () => {

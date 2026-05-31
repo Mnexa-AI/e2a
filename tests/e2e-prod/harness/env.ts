@@ -21,12 +21,35 @@ function readLocalConfig(): { api_key?: string; api_url?: string; agent_email?: 
   }
 }
 
+// pickEnv returns the first non-empty env var from `names`, with a
+// one-shot stderr warning when a non-canonical (i.e. non-first) name
+// is what actually carries the value. Mirrors the dual-read pattern
+// in cli/src/config.ts and mcp/src/config.ts so all three surfaces
+// drift on the same migration schedule.
+const warned = new Set<string>();
+function pickEnv(canonical: string, ...legacy: string[]): string | undefined {
+  if (process.env[canonical]) return process.env[canonical];
+  for (const name of legacy) {
+    const v = process.env[name];
+    if (v) {
+      if (!warned.has(name)) {
+        process.stderr.write(
+          `[e2e-prod] ${name} is deprecated; rename it to ${canonical} (both names work today).\n`,
+        );
+        warned.add(name);
+      }
+      return v;
+    }
+  }
+  return undefined;
+}
+
 export function loadEnv(): ProdEnv {
   const local = readLocalConfig();
   const env: ProdEnv = {
-    apiUrl: process.env.E2A_API_URL ?? local.api_url ?? "https://e2a.dev",
+    apiUrl: pickEnv("E2A_URL", "E2A_API_URL") ?? local.api_url ?? "https://e2a.dev",
     apiKey: process.env.E2A_API_KEY ?? local.api_key ?? "",
-    primaryAgentEmail: process.env.E2A_PRIMARY_AGENT ?? local.agent_email ?? "",
+    primaryAgentEmail: pickEnv("E2A_AGENT_EMAIL", "E2A_PRIMARY_AGENT") ?? local.agent_email ?? "",
     sharedDomain: process.env.E2A_SHARED_DOMAIN ?? local.shared_domain ?? "agents.e2a.dev",
     allowStress: process.env.E2E_PROD_STRESS === "1",
     cleanupMode: (process.env.E2E_CLEANUP as ProdEnv["cleanupMode"]) ?? "always",
@@ -36,7 +59,7 @@ export function loadEnv(): ProdEnv {
     throw new Error("No API key found. Set E2A_API_KEY or run `e2a login` first.");
   }
   if (!env.primaryAgentEmail) {
-    throw new Error("No primary agent email. Set E2A_PRIMARY_AGENT.");
+    throw new Error("No primary agent email. Set E2A_AGENT_EMAIL.");
   }
   return env;
 }
