@@ -237,6 +237,21 @@ func (s *SubscriberStore) InsertPendingForTest(ctx context.Context, webhookID, e
 	return id, nil
 }
 
+// BumpNextRetry pushes the row's next_retry_at out by `after` so the
+// row doesn't reappear in GetPending on every tick. Used by the worker
+// when it skips a row without attempting delivery (e.g. webhook is
+// disabled, waiting for re-enable). Status stays 'pending' so the row
+// resumes processing once the deferred time arrives.
+func (s *SubscriberStore) BumpNextRetry(ctx context.Context, deliveryID string, after time.Duration) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE webhook_subscriber_deliveries
+		 SET next_retry_at = now() + ($2 * interval '1 second')
+		 WHERE id = $1`,
+		deliveryID, int(after.Seconds()),
+	)
+	return err
+}
+
 // DeleteExpiredSubscriberDeliveries removes rows whose expires_at has
 // passed. Migration 025 sets a 30-day TTL on every row; without this
 // janitor the table grows monotonically and query plans degrade.

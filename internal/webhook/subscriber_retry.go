@@ -9,6 +9,13 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/identity"
 )
 
+// disabledDeferral is how far out next_retry_at is pushed when the
+// worker skips a delivery because its webhook is currently disabled.
+// Long enough that a disabled webhook's backlog doesn't churn the
+// worker every tick; short enough that re-enabling resumes delivery
+// within the operator's workflow window.
+const disabledDeferral = 1 * time.Hour
+
 // SubscriberRetryWorker drains webhook_subscriber_deliveries on a
 // tick. Distinct from the legacy RetryWorker (which drains
 // webhook_deliveries). The two workers can run side-by-side without
@@ -126,11 +133,15 @@ func (w *SubscriberRetryWorker) processOne(ctx context.Context, d SubscriberDeli
 		return
 	}
 	if !wh.Enabled {
-		// Disabled — defer to next tick so a re-enable picks it up
-		// fast. Updating next_retry_at is unnecessary; the row
-		// stays pending. Acceptable: at slice 1 a disabled webhook
-		// doesn't fire often.
-		log.Printf("[wsd-retry] webhook %s disabled, skipping delivery=%s", d.WebhookID, d.ID)
+		// Disabled — bump next_retry_at out so the row doesn't
+		// reappear on every 30s tick eating worker quota. A
+		// re-enable still picks the row up within disabledDeferral
+		// (currently 1h), which is fast enough for the operator
+		// workflow (enable → confirm webhook works).
+		log.Printf("[wsd-retry] webhook %s disabled, deferring delivery=%s by %s", d.WebhookID, d.ID, disabledDeferral)
+		if err := w.store.BumpNextRetry(ctx, d.ID, disabledDeferral); err != nil {
+			log.Printf("[wsd-retry] bump next_retry_at err delivery=%s: %v", d.ID, err)
+		}
 		return
 	}
 
