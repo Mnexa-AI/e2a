@@ -22,7 +22,7 @@ Set these in the MCP host's environment block.
 | --- | --- | --- | --- |
 | `E2A_API_KEY` | yes | — | API key from the [e2a dashboard](https://e2a.dev) |
 | `E2A_AGENT_EMAIL` | no | — | Default agent inbox. Scopes the tools so the LLM doesn't have to repeat the address. |
-| `E2A_BASE_URL` | no | `https://e2a.dev` | Self-hosted deployment URL |
+| `E2A_URL` | no | `https://e2a.dev` | Self-hosted deployment URL. (`E2A_BASE_URL` is the legacy name; still accepted.) |
 
 ## Quick start
 

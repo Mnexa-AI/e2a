@@ -31,4 +31,4 @@ Bring your own [e2a API key](https://e2a.dev) and an LLM key for whichever frame
 
 ## Pointing at a self-hosted e2a
 
-For the **stdio** variants: set `E2A_BASE_URL=https://your-deployment.example.com` in the environment and the examples forward it to the MCP server automatically. The hosted variants are pinned to `https://mcp.e2a.dev/mcp` — edit the `url` literal in `agent_hosted.py` (or in the Codex `[mcp_servers.e2a-hosted]` block) if you run your own MCP server.
+For the **stdio** variants: set `E2A_URL=https://your-deployment.example.com` in the environment and the examples forward it to the MCP server automatically. (`E2A_BASE_URL` is the legacy name and still works.) The hosted variants are pinned to `https://mcp.e2a.dev/mcp` — edit the `url` literal in `agent_hosted.py` (or in the Codex `[mcp_servers.e2a-hosted]` block) if you run your own MCP server.

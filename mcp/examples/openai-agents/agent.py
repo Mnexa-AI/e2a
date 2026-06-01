@@ -6,7 +6,8 @@ and reply to email through natural-language prompts.
 Requires:
   E2A_API_KEY      e2a API key (https://e2a.dev)
   E2A_AGENT_EMAIL  (optional) default agent inbox
-  E2A_BASE_URL     (optional) self-hosted e2a base URL
+  E2A_URL          (optional) self-hosted e2a base URL
+                   (E2A_BASE_URL is the legacy name; still accepted)
   OPENAI_API_KEY   OpenAI API key
 
 Run:
@@ -24,7 +25,10 @@ from agents.mcp import MCPServerStdio
 
 def _e2a_env() -> dict[str, str]:
     env = {"E2A_API_KEY": os.environ["E2A_API_KEY"]}
-    for k in ("E2A_AGENT_EMAIL", "E2A_BASE_URL"):
+    # E2A_URL is canonical; E2A_BASE_URL is the legacy name and still
+    # honored by @e2a/mcp-server. Forward both so users on either
+    # convention work without edits to this file.
+    for k in ("E2A_AGENT_EMAIL", "E2A_URL", "E2A_BASE_URL"):
         if k in os.environ:
             env[k] = os.environ[k]
     return env

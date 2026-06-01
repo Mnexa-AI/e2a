@@ -17,7 +17,7 @@ before(async () => {
     process.env.E2A_MCP_DIST ?? new URL("../../../mcp/dist/index.js", import.meta.url).pathname;
   await mcp.start("node", [mcpDist], {
     E2A_API_KEY: apiClient.env.apiKey,
-    E2A_BASE_URL: apiClient.env.apiUrl,
+    E2A_URL: apiClient.env.apiUrl,
     E2A_AGENT_EMAIL: apiClient.env.primaryAgentEmail,
   });
 });

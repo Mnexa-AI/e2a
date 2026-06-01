@@ -41,10 +41,32 @@ function parseHostList(raw: string, def: string): string[] {
   return list;
 }
 
+// resolveBaseUrl picks the deployment URL the HTTP MCP server talks
+// to. Canonical is E2A_URL (matches the CLI + SDK docs); E2A_BASE_URL
+// is the legacy name this binary shipped with — still accepted so
+// existing deployment manifests keep working, with a one-shot stderr
+// deprecation note.
+function resolveBaseUrl(env: NodeJS.ProcessEnv): string {
+  const canonical = env.E2A_URL;
+  const legacy = env.E2A_BASE_URL;
+  if (canonical) return canonical;
+  if (legacy) {
+    if (!resolveBaseUrl.warned) {
+      process.stderr.write(
+        "[e2a-mcp-http] E2A_BASE_URL is deprecated; rename it to E2A_URL (both names work today).\n",
+      );
+      resolveBaseUrl.warned = true;
+    }
+    return legacy;
+  }
+  return "https://e2a.dev";
+}
+resolveBaseUrl.warned = false;
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): BinConfig {
   return {
     port: parsePort("PORT", env.PORT ?? "", 3000),
-    baseUrl: env.E2A_BASE_URL ?? "https://e2a.dev",
+    baseUrl: resolveBaseUrl(env),
     allowedHosts: parseHostList(env.MCP_ALLOWED_HOSTS ?? "", "mcp.e2a.dev"),
     sessionIdleMs: parsePositiveInt("MCP_SESSION_IDLE_MS", env.MCP_SESSION_IDLE_MS ?? "", 5 * 60_000),
     maxSessions: parsePositiveInt("MCP_MAX_SESSIONS", env.MCP_MAX_SESSIONS ?? "", 500),
