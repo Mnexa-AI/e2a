@@ -203,16 +203,19 @@ func (s *SubscriberStore) RecordAttemptFailure(ctx context.Context, deliveryID, 
 	return tx.Commit(ctx)
 }
 
-// generateDeliveryID returns a prefixed id of the form wdl_<32-hex>.
+// generateDeliveryID returns a prefixed id of the form whd_<32-hex>.
 // 16 bytes of entropy is more than enough — the row is short-lived
 // (30-day expiry), and the prefix follows the rest of the e2a id
 // scheme so logs and dashboards can spot a delivery id at a glance.
+// Matches the publisher's inline generator at webhookpub/publisher.go
+// so customers see one consistent prefix regardless of which path
+// created the row (publisher fan-out vs. /test endpoint).
 func generateDeliveryID() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		panic(fmt.Sprintf("webhook: crypto/rand failed: %v", err))
 	}
-	return "wdl_" + hex.EncodeToString(b)
+	return "whd_" + hex.EncodeToString(b)
 }
 
 // InsertPendingForTest creates a single delivery row tied to the given

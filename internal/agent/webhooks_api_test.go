@@ -343,8 +343,8 @@ func TestWebhooksAPI_Test_SchedulesDelivery(t *testing.T) {
 	var got map[string]interface{}
 	json.Unmarshal(raw, &got)
 	deliveryID, _ := got["delivery_id"].(string)
-	if !strings.HasPrefix(deliveryID, "wdl_") {
-		t.Errorf("delivery_id = %v, want wdl_ prefix", deliveryID)
+	if !strings.HasPrefix(deliveryID, "whd_") {
+		t.Errorf("delivery_id = %v, want whd_ prefix", deliveryID)
 	}
 }
 
