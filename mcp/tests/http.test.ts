@@ -125,7 +125,9 @@ describe("HTTP MCP server", () => {
     });
 
     expect(res.status).toBe(401);
-    expect(res.headers.get("www-authenticate")).toMatch(/Bearer realm="e2a"/);
+    expect(res.headers.get("www-authenticate")).toMatch(
+      /Bearer realm="e2a", .*error="invalid_token"/,
+    );
     expect(res.headers.get("mcp-session-id")).toBeNull();
     expect(sessions.size()).toBe(0);
     expect(invalidStub.listAgents).toHaveBeenCalledOnce();
