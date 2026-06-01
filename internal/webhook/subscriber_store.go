@@ -234,6 +234,20 @@ func (s *SubscriberStore) InsertPendingForTest(ctx context.Context, webhookID, e
 	return id, nil
 }
 
+// DeleteExpiredSubscriberDeliveries removes rows whose expires_at has
+// passed. Migration 025 sets a 30-day TTL on every row; without this
+// janitor the table grows monotonically and query plans degrade.
+// Mirrors DeliveryStore.DeleteExpiredDeliveries for the legacy table.
+func (s *SubscriberStore) DeleteExpiredSubscriberDeliveries(ctx context.Context) (int, error) {
+	tag, err := s.pool.Exec(ctx,
+		`DELETE FROM webhook_subscriber_deliveries WHERE expires_at <= now()`,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // ListDeliveriesByWebhook returns up to `limit` delivery rows for the
 // webhook, most-recent first. When status is non-empty, restricts to
 // that status (pending|delivered|failed). Limit is bounded by the

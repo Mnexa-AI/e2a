@@ -372,6 +372,12 @@ func main() {
 					log.Printf("Cleaned up %d expired webhook delivery record(s)", deleted)
 				}
 
+				if deleted, err := subscriberStore.DeleteExpiredSubscriberDeliveries(cleanupCtx); err != nil {
+					log.Printf("Failed to clean up expired webhook subscriber deliveries: %v", err)
+				} else if deleted > 0 {
+					log.Printf("Cleaned up %d expired webhook subscriber delivery record(s)", deleted)
+				}
+
 				if oauthStorage != nil {
 					if res, err := oauthStorage.CleanupExpired(cleanupCtx, time.Now()); err != nil {
 						log.Printf("Failed to clean up expired OAuth rows: %v", err)
