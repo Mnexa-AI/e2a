@@ -40,25 +40,47 @@ func NewSubscriberStore(pool *pgxpool.Pool) *SubscriberStore {
 	return &SubscriberStore{pool: pool}
 }
 
-// GetPending pulls up to limit rows whose next_retry_at is in the
-// past, ordered by next_retry_at ASC (oldest-due first). Caller is
-// responsible for processing them and updating status — no row-level
-// lease here; the worker's per-webhook inflight cap is what prevents
-// double-processing.
+// GetPending leases up to `limit` rows whose next_retry_at is in the
+// past. The lease is implemented as a single CTE that selects-for-update
+// the candidate rows with SKIP LOCKED and pushes their next_retry_at
+// forward by LeaseDuration, so concurrent workers (in-process OR across
+// replicas) never return the same row. Mirrors the legacy
+// DeliveryStore.GetPendingDeliveries pattern.
+//
+// The lease window is what prevents double-POST in multi-replica
+// deployments. If a worker crashes mid-attempt, the row reappears once
+// the lease expires; the caller writing MarkDelivered /
+// RecordAttemptFailure inside the lease window overwrites next_retry_at
+// to the real schedule (or 'failed' status) before the lease expires.
 func (s *SubscriberStore) GetPending(ctx context.Context, limit int) ([]SubscriberDelivery, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT id, webhook_id, event_type, event_payload, message_id,
-		        status, attempts, max_attempts, last_error,
-		        last_status_code, last_attempt_at, next_retry_at,
-		        created_at, expires_at
-		 FROM webhook_subscriber_deliveries
-		 WHERE status = 'pending' AND next_retry_at <= now()
-		 ORDER BY next_retry_at ASC
-		 LIMIT $1`, limit)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx,
+		`WITH candidates AS (
+		    SELECT id FROM webhook_subscriber_deliveries
+		    WHERE status = 'pending' AND next_retry_at <= now()
+		    ORDER BY next_retry_at ASC
+		    LIMIT $1
+		    FOR UPDATE SKIP LOCKED
+		 )
+		 UPDATE webhook_subscriber_deliveries d
+		 SET next_retry_at = now() + ($2 * interval '1 second')
+		 FROM candidates c
+		 WHERE d.id = c.id
+		 RETURNING d.id, d.webhook_id, d.event_type, d.event_payload, d.message_id,
+		           d.status, d.attempts, d.max_attempts, d.last_error,
+		           d.last_status_code, d.last_attempt_at, d.next_retry_at,
+		           d.created_at, d.expires_at`,
+		limit, int(LeaseDuration.Seconds()),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	var out []SubscriberDelivery
 	for rows.Next() {
 		var d SubscriberDelivery
@@ -68,11 +90,19 @@ func (s *SubscriberStore) GetPending(ctx context.Context, limit int) ([]Subscrib
 			&d.LastStatusCode, &d.LastAttemptAt, &d.NextRetryAt,
 			&d.CreatedAt, &d.ExpiresAt,
 		); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		out = append(out, d)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // MarkDelivered transitions a row to status='delivered' and stamps
@@ -113,20 +143,31 @@ func (s *SubscriberStore) MarkDelivered(ctx context.Context, deliveryID string, 
 //
 // statusCode is 0 when the failure was a connection error / timeout
 // (no HTTP response received).
+//
+// SELECT and UPDATE run inside a single transaction with FOR UPDATE so
+// two workers can't race on the same row (which could happen if the
+// GetPending lease expires while an attempt is in flight). Without the
+// row lock, the read-then-write pattern under-counts attempts on
+// concurrent failure recording.
 func (s *SubscriberStore) RecordAttemptFailure(ctx context.Context, deliveryID, errMsg string, statusCode int) error {
-	// First, decide: is this attempt the final one?
-	var attempts, maxAttempts int
-	err := s.pool.QueryRow(ctx,
-		`SELECT attempts, max_attempts FROM webhook_subscriber_deliveries WHERE id = $1`,
-		deliveryID,
-	).Scan(&attempts, &maxAttempts)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var attempts, maxAttempts int
+	if err := tx.QueryRow(ctx,
+		`SELECT attempts, max_attempts FROM webhook_subscriber_deliveries
+		 WHERE id = $1 FOR UPDATE`,
+		deliveryID,
+	).Scan(&attempts, &maxAttempts); err != nil {
 		return err
 	}
 	newAttempts := attempts + 1
 
 	if newAttempts >= maxAttempts {
-		_, err = s.pool.Exec(ctx,
+		if _, err := tx.Exec(ctx,
 			`UPDATE webhook_subscriber_deliveries
 			 SET status = 'failed',
 			     attempts = $2,
@@ -135,8 +176,10 @@ func (s *SubscriberStore) RecordAttemptFailure(ctx context.Context, deliveryID, 
 			     last_status_code = $4
 			 WHERE id = $1`,
 			deliveryID, newAttempts, errMsg, statusCode,
-		)
-		return err
+		); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
 	}
 
 	nextRetry, ok := nextRetryAt(newAttempts)
@@ -145,7 +188,7 @@ func (s *SubscriberStore) RecordAttemptFailure(ctx context.Context, deliveryID, 
 		// backoff slice. The branch above should have caught it.
 		nextRetry = time.Now().Add(1 * time.Hour)
 	}
-	_, err = s.pool.Exec(ctx,
+	if _, err := tx.Exec(ctx,
 		`UPDATE webhook_subscriber_deliveries
 		 SET attempts = $2,
 		     last_attempt_at = now(),
@@ -154,8 +197,10 @@ func (s *SubscriberStore) RecordAttemptFailure(ctx context.Context, deliveryID, 
 		     next_retry_at = $5
 		 WHERE id = $1`,
 		deliveryID, newAttempts, errMsg, statusCode, nextRetry,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // generateDeliveryID returns a prefixed id of the form wdl_<32-hex>.
