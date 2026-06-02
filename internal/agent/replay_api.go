@@ -55,6 +55,19 @@ type redeliverDelivery struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
+// @Summary      Replay a webhook event
+// @Description  Replay an event to one webhook (body `{webhook_id}`) or to every originally-matched webhook (empty body). Reuses the original event id so consumer dedup discards the replay if already processed.
+// @Tags         Events
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path string true "Event ID"
+// @Param        body body RedeliverRequest false "{webhook_id} for targeted replay; empty for fan-out"
+// @Success      200 {object} RedeliverResponse
+// @Failure      404 {string} string "Event not found"
+// @Failure      409 {string} string "Webhook not in originally-matched set"
+// @Failure      410 {string} string "Event past retention"
+// @Router       /api/v1/events/{id}/redeliver [post]
 func (a *API) handleRedeliverEvent(w http.ResponseWriter, r *http.Request) {
 	if a.eventsPool == nil {
 		http.Error(w, "events API not configured", http.StatusNotFound)
@@ -133,6 +146,17 @@ func (a *API) handleRedeliverEvent(w http.ResponseWriter, r *http.Request) {
 // handleRedeliverSince serves POST /webhooks/{id}/redeliver-since.
 // Body: {"since": "RFC3339"}.
 // Capped at 7 days back per §4.6.
+// @Summary      Bulk-replay events for a webhook
+// @Description  Re-fires every event the webhook originally matched since `since` (RFC3339). Window capped at 7 days. Skips events that already have a pending delivery for this webhook.
+// @Tags         Webhooks
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path string true "Webhook ID"
+// @Param        body body RedeliverSinceRequest true "Replay window"
+// @Success      200 {object} RedeliverSinceResponse
+// @Failure      400 {string} string "since out of window or malformed"
+// @Router       /api/v1/webhooks/{id}/redeliver-since [post]
 func (a *API) handleRedeliverSince(w http.ResponseWriter, r *http.Request) {
 	if a.eventsPool == nil {
 		http.Error(w, "events API not configured", http.StatusNotFound)

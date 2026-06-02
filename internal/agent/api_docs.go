@@ -555,6 +555,72 @@ type ListPendingMessagesResponse struct {
 	Messages []PendingMessageSummary `json:"messages"`
 } // @name ListPendingMessagesResponse
 
+// DeliveryStatus summarizes how many of the matched webhooks have
+// received an event so far. Computed at read time by joining against
+// webhook_subscriber_deliveries.
+type DeliveryStatus struct {
+	MatchedWebhooks int `json:"matched_webhooks"`
+	Delivered       int `json:"delivered"`
+	Pending         int `json:"pending"`
+	Failed          int `json:"failed"`
+} // @name DeliveryStatus
+
+// WebhookEvent is the wire shape returned by GET /events and GET /events/{id}.
+// Mirrors design §4.6.
+type WebhookEvent struct {
+	ID             string                 `json:"id"`
+	Type           string                 `json:"type"`
+	SchemaVersion  int                    `json:"schema_version"`
+	CreatedAt      string                 `json:"created_at"`
+	AgentID        *string                `json:"agent_id,omitempty"`
+	ConversationID *string                `json:"conversation_id,omitempty"`
+	MessageID      *string                `json:"message_id,omitempty"`
+	Status         string                 `json:"status"`
+	Data           map[string]interface{} `json:"data"`
+	DeliveryStatus *DeliveryStatus        `json:"delivery_status,omitempty"`
+} // @name WebhookEvent
+
+// ListEventsResponse wraps the events list.
+type ListEventsResponse struct {
+	Events    []WebhookEvent `json:"events"`
+	NextToken string         `json:"next_token,omitempty"`
+} // @name ListEventsResponse
+
+// RedeliverRequest is the body of POST /events/{id}/redeliver.
+type RedeliverRequest struct {
+	WebhookID string `json:"webhook_id,omitempty"`
+} // @name RedeliverRequest
+
+// RedeliverDeliveryResult is one element of a fan-out replay response.
+type RedeliverDeliveryResult struct {
+	WebhookID  string `json:"webhook_id"`
+	DeliveryID string `json:"delivery_id,omitempty"`
+	Status     string `json:"status"`
+	Reason     string `json:"reason,omitempty"`
+} // @name RedeliverDeliveryResult
+
+// RedeliverResponse wraps the result of a replay request.
+type RedeliverResponse struct {
+	DeliveryID string                    `json:"delivery_id,omitempty"`
+	EventID    string                    `json:"event_id"`
+	WebhookID  string                    `json:"webhook_id,omitempty"`
+	Status     string                    `json:"status"`
+	Deliveries []RedeliverDeliveryResult `json:"deliveries,omitempty"`
+} // @name RedeliverResponse
+
+// RedeliverSinceRequest is the body of POST /webhooks/{id}/redeliver-since.
+type RedeliverSinceRequest struct {
+	Since string `json:"since"`
+} // @name RedeliverSinceRequest
+
+// RedeliverSinceResponse wraps the result of a bulk-replay request.
+type RedeliverSinceResponse struct {
+	WebhookID             string `json:"webhook_id"`
+	Since                 string `json:"since"`
+	Scheduled             int    `json:"scheduled"`
+	SkippedAlreadyPending int    `json:"skipped_already_pending"`
+} // @name RedeliverSinceResponse
+
 // ApprovePendingMessageRequest is the optional body for
 // POST /api/v1/messages/{id}/approve. Any field present overrides the
 // stored value before the message is sent; missing fields are left as

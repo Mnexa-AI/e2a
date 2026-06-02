@@ -253,6 +253,17 @@ definitions:
       user_deleted:
         type: boolean
     type: object
+  DeliveryStatus:
+    properties:
+      delivered:
+        type: integer
+      failed:
+        type: integer
+      matched_webhooks:
+        type: integer
+      pending:
+        type: integer
+    type: object
   DeploymentInfo:
     properties:
       public_url:
@@ -398,6 +409,15 @@ definitions:
         items:
           $ref: '#/definitions/Domain'
         type: array
+    type: object
+  ListEventsResponse:
+    properties:
+      events:
+        items:
+          $ref: '#/definitions/WebhookEvent'
+        type: array
+      next_token:
+        type: string
     type: object
   ListMessagesResponse:
     properties:
@@ -752,6 +772,53 @@ definitions:
         - test
         - forward
         example: send
+        type: string
+    type: object
+  RedeliverDeliveryResult:
+    properties:
+      delivery_id:
+        type: string
+      reason:
+        type: string
+      status:
+        type: string
+      webhook_id:
+        type: string
+    type: object
+  RedeliverRequest:
+    properties:
+      webhook_id:
+        type: string
+    type: object
+  RedeliverResponse:
+    properties:
+      deliveries:
+        items:
+          $ref: '#/definitions/RedeliverDeliveryResult'
+        type: array
+      delivery_id:
+        type: string
+      event_id:
+        type: string
+      status:
+        type: string
+      webhook_id:
+        type: string
+    type: object
+  RedeliverSinceRequest:
+    properties:
+      since:
+        type: string
+    type: object
+  RedeliverSinceResponse:
+    properties:
+      scheduled:
+        type: integer
+      since:
+        type: string
+      skipped_already_pending:
+        type: integer
+      webhook_id:
         type: string
     type: object
   RegisterAgentRequest:
@@ -1123,41 +1190,28 @@ definitions:
         type: string
     type: object
   WebhookEvent:
-    description: A durable event log entry. Returned by /api/v1/events.
     properties:
-      id:
-        type: string
-        description: Stable event id (evt_<32hex>). Reused across replays so consumer dedup discards the replay.
-      type:
-        type: string
-        description: Event type from the catalog (e.g. email.received).
-      schema_version:
-        type: integer
-      created_at:
-        type: string
       agent_id:
         type: string
       conversation_id:
         type: string
+      created_at:
+        type: string
+      data:
+        additionalProperties: true
+        type: object
+      delivery_status:
+        $ref: '#/definitions/DeliveryStatus'
+      id:
+        type: string
       message_id:
         type: string
+      schema_version:
+        type: integer
       status:
         type: string
-        description: Outbox state machine value. One of pending, processed, no_match.
-      data:
-        type: object
-        description: Event-specific payload (the envelope.data block).
-      delivery_status:
-        type: object
-        properties:
-          matched_webhooks:
-            type: integer
-          delivered:
-            type: integer
-          pending:
-            type: integer
-          failed:
-            type: integer
+      type:
+        type: string
     type: object
   WebhookFilters:
     properties:
@@ -2359,87 +2413,56 @@ paths:
       summary: Verify domain ownership + DNS diagnostic
       tags:
       - Domains
-  /api/v1/info:
-    get:
-      description: Returns deployment-specific configuration (shared domain, etc.)
-        so CLI/SDK clients can self-configure. Unauthenticated.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/DeploymentInfo'
-      summary: Deployment info
-      tags:
-      - System
   /api/v1/events:
     get:
-      description: |
-        List webhook events in reverse-chronological order. Each event is a durable
-        record of something the gateway emitted to subscribers (today: `email.received`,
-        `email.sent`; future: `email.bounced`, `email.complained`, `email.delivered`).
-        Use this endpoint for reconciliation when a webhook receiver was down.
-        Cursor pagination via `token` / `next_token`; events past the 30-day retention
-        are not returned.
+      description: Returns webhook events in reverse-chronological order. Cursor-paginated
+        via `token` / `next_token`. Events past the 30-day retention are not returned.
       parameters:
-      - name: type
+      - description: Exact event-type filter (e.g. email.received)
         in: query
-        required: false
+        name: type
         type: string
-        description: Exact event-type filter (e.g. `email.received`).
-      - name: agent_id
+      - description: Filter to events for a specific agent
         in: query
-        required: false
+        name: agent_id
         type: string
-      - name: conversation_id
+      - description: Filter to events on one conversation
         in: query
-        required: false
+        name: conversation_id
         type: string
-      - name: message_id
+      - description: Filter to events on one message
         in: query
-        required: false
+        name: message_id
         type: string
-      - name: since
+      - description: RFC3339 timestamp; only events with created_at >= since
         in: query
-        required: false
+        name: since
         type: string
-        description: RFC3339 timestamp; only events with `created_at >= since` are returned.
-      - name: until
+      - description: RFC3339 timestamp; only events with created_at < until
         in: query
-        required: false
+        name: until
         type: string
-        description: RFC3339 timestamp; only events with `created_at < until` are returned.
-      - name: page_size
+      - description: Page size 1-100; default 50
         in: query
-        required: false
+        name: page_size
         type: integer
-        description: 1-100; default 50.
-      - name: token
+      - description: Opaque cursor from a previous response's next_token
         in: query
-        required: false
+        name: token
         type: string
-        description: Opaque cursor from a previous response's `next_token`.
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            type: object
-            properties:
-              events:
-                type: array
-                items:
-                  $ref: '#/definitions/WebhookEvent'
-              next_token:
-                type: string
+            $ref: '#/definitions/ListEventsResponse'
         "400":
-          description: Invalid query parameter (bad cursor, malformed timestamp, etc.)
+          description: Invalid query parameter
           schema:
             type: string
         "401":
-          description: Missing or invalid bearer token
+          description: Missing or invalid API key
           schema:
             type: string
       security:
@@ -2449,14 +2472,12 @@ paths:
       - Events
   /api/v1/events/{id}:
     get:
-      description: |
-        Fetch a single webhook event by id. Returns 410 Gone when the event has
-        passed the 30-day retention boundary (its row has been janitored). The
-        `delivery_status` block shows how many of the matched subscribers have
-        received the event so far — useful for triage.
+      description: Returns the full webhook event including delivery_status counts.
+        410 Gone when the event is past the 30-day retention boundary.
       parameters:
-      - name: id
+      - description: Event ID (evt_<32hex>)
         in: path
+        name: id
         required: true
         type: string
       produces:
@@ -2471,7 +2492,7 @@ paths:
           schema:
             type: string
         "410":
-          description: Event past the 30-day retention boundary
+          description: Event past 30-day retention
           schema:
             type: string
       security:
@@ -2481,41 +2502,35 @@ paths:
       - Events
   /api/v1/events/{id}/redeliver:
     post:
-      description: |
-        Replay a previously-emitted event to a webhook. Body `{"webhook_id": "..."}`
-        replays to one webhook; empty body replays to every webhook that originally
-        matched the event (per the snapshot at fan-out time — does NOT re-evaluate
-        against the current subscriber set, by design).
-        The replay row carries the SAME envelope id as the original delivery, so
-        a customer-side receiver that dedupes on event id will discard the replay
-        as already-processed. This is intentional — replay is recovery, not
-        re-delivery.
+      consumes:
+      - application/json
+      description: Replay an event to one webhook (body `{webhook_id}`) or to every
+        originally-matched webhook (empty body). Reuses the original event id so consumer
+        dedup discards the replay if already processed.
       parameters:
-      - name: id
+      - description: Event ID
         in: path
+        name: id
         required: true
         type: string
-      - name: body
+      - description: '{webhook_id} for targeted replay; empty for fan-out'
         in: body
-        required: false
+        name: body
         schema:
-          type: object
-          properties:
-            webhook_id:
-              type: string
+          $ref: '#/definitions/RedeliverRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            type: object
+            $ref: '#/definitions/RedeliverResponse'
         "404":
           description: Event not found
           schema:
             type: string
         "409":
-          description: Specified webhook was not in the originally-matched set
+          description: Webhook not in originally-matched set
           schema:
             type: string
         "410":
@@ -2524,56 +2539,23 @@ paths:
             type: string
       security:
       - BearerAuth: []
-      summary: Replay an event
+      summary: Replay a webhook event
       tags:
       - Events
-  /api/v1/webhooks/{id}/redeliver-since:
-    post:
-      description: |
-        Bulk-replay every event for this webhook since `since` (RFC3339).
-        Window is capped at 7 days. Skips events that already have a pending
-        delivery for this webhook (so calling this twice is idempotent).
-      parameters:
-      - name: id
-        in: path
-        required: true
-        type: string
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            since:
-              type: string
-              description: RFC3339 timestamp; window cap 7 days.
-          required:
-          - since
+  /api/v1/info:
+    get:
+      description: Returns deployment-specific configuration (shared domain, etc.)
+        so CLI/SDK clients can self-configure. Unauthenticated.
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            type: object
-            properties:
-              webhook_id:
-                type: string
-              since:
-                type: string
-              scheduled:
-                type: integer
-              skipped_already_pending:
-                type: integer
-        "400":
-          description: since is out of the allowed window or malformed
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Bulk-replay events for a webhook
+            $ref: '#/definitions/DeploymentInfo'
+      summary: Deployment info
       tags:
-      - Events
+      - System
   /api/v1/messages:
     get:
       description: Returns all pending_approval messages across every agent owned
@@ -2988,6 +2970,41 @@ paths:
       summary: Delete a webhook signing secret
       tags:
       - User
+  /api/v1/webhooks/{id}/redeliver-since:
+    post:
+      consumes:
+      - application/json
+      description: Re-fires every event the webhook originally matched since `since`
+        (RFC3339). Window capped at 7 days. Skips events that already have a pending
+        delivery for this webhook.
+      parameters:
+      - description: Webhook ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Replay window
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/RedeliverSinceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/RedeliverSinceResponse'
+        "400":
+          description: since out of window or malformed
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Bulk-replay events for a webhook
+      tags:
+      - Webhooks
   /webhooks:
     get:
       description: Returns every webhook (enabled + disabled) owned by the caller.

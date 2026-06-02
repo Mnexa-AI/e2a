@@ -63,6 +63,23 @@ const (
 // handleListEvents serves GET /api/v1/events.
 // Query params: type, agent_id, conversation_id, message_id, since, until,
 // page_size, token. See design §4.6 for the cursor format.
+// @Summary      List webhook events
+// @Description  Returns webhook events in reverse-chronological order. Cursor-paginated via `token` / `next_token`. Events past the 30-day retention are not returned.
+// @Tags         Events
+// @Produce      json
+// @Security     BearerAuth
+// @Param        type query string false "Exact event-type filter (e.g. email.received)"
+// @Param        agent_id query string false "Filter to events for a specific agent"
+// @Param        conversation_id query string false "Filter to events on one conversation"
+// @Param        message_id query string false "Filter to events on one message"
+// @Param        since query string false "RFC3339 timestamp; only events with created_at >= since"
+// @Param        until query string false "RFC3339 timestamp; only events with created_at < until"
+// @Param        page_size query int false "Page size 1-100; default 50"
+// @Param        token query string false "Opaque cursor from a previous response's next_token"
+// @Success      200 {object} ListEventsResponse
+// @Failure      400 {string} string "Invalid query parameter"
+// @Failure      401 {string} string "Missing or invalid API key"
+// @Router       /api/v1/events [get]
 func (a *API) handleListEvents(w http.ResponseWriter, r *http.Request) {
 	if a.eventsPool == nil {
 		http.Error(w, "events API not configured", http.StatusNotFound)
@@ -222,6 +239,16 @@ func listEvents(ctx context.Context, pool *pgxpool.Pool, userID, eventType, agen
 }
 
 // handleGetEvent serves GET /api/v1/events/{id}.
+// @Summary      Get a single event
+// @Description  Returns the full webhook event including delivery_status counts. 410 Gone when the event is past the 30-day retention boundary.
+// @Tags         Events
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path string true "Event ID (evt_<32hex>)"
+// @Success      200 {object} WebhookEvent
+// @Failure      404 {string} string "Event not found or not owned by caller"
+// @Failure      410 {string} string "Event past 30-day retention"
+// @Router       /api/v1/events/{id} [get]
 func (a *API) handleGetEvent(w http.ResponseWriter, r *http.Request) {
 	if a.eventsPool == nil {
 		http.Error(w, "events API not configured", http.StatusNotFound)

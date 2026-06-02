@@ -5,6 +5,7 @@ import { registerAgentTools } from "./tools/agents.js";
 import { registerDomainTools } from "./tools/domains.js";
 import { registerHitlTools } from "./tools/hitl.js";
 import { registerWebhookTools } from "./tools/webhooks.js";
+import { registerEventTools } from "./tools/events.js";
 
 export interface BuildServerOptions {
   client: E2AClient;
@@ -21,5 +22,6 @@ export function buildServer({ client, version = "0.1.0" }: BuildServerOptions): 
   registerDomainTools(server, client);
   registerHitlTools(server, client);
   registerWebhookTools(server, client);
+  registerEventTools(server, client);
   return server;
 }

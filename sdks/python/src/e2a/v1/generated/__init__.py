@@ -117,6 +117,16 @@ class DeleteUserDataResult(BaseModel):
     user_deleted: bool | None = None
 
 
+class DeliveryStatus(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    delivered: int | None = None
+    failed: int | None = None
+    matched_webhooks: int | None = None
+    pending: int | None = None
+
+
 class DeploymentInfo(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -319,6 +329,51 @@ class PendingMessageSummary(BaseModel):
     )
 
 
+class RedeliverDeliveryResult(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    delivery_id: str | None = None
+    reason: str | None = None
+    status: str | None = None
+    webhook_id: str | None = None
+
+
+class RedeliverRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    webhook_id: str | None = None
+
+
+class RedeliverResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    deliveries: list[RedeliverDeliveryResult] | None = None
+    delivery_id: str | None = None
+    event_id: str | None = None
+    status: str | None = None
+    webhook_id: str | None = None
+
+
+class RedeliverSinceRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    since: str | None = None
+
+
+class RedeliverSinceResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    scheduled: int | None = None
+    since: str | None = None
+    skipped_already_pending: int | None = None
+    webhook_id: str | None = None
+
+
 class RegisterAgentRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -506,6 +561,22 @@ class WebhookDeliveryResponse(BaseModel):
     status: str | None = None
 
 
+class WebhookEvent(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    agent_id: str | None = None
+    conversation_id: str | None = None
+    created_at: str | None = None
+    data: dict[str, Any] | None = None
+    delivery_status: DeliveryStatus | None = None
+    id: str | None = None
+    message_id: str | None = None
+    schema_version: int | None = None
+    status: str | None = None
+    type: str | None = None
+
+
 class WebhookFilters(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -598,6 +669,14 @@ class LimitsInfo(BaseModel):
     plan_code: str | None = None
     upgrade_url: str | None = None
     usage: LimitsUsage | None = None
+
+
+class ListEventsResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    events: list[WebhookEvent] | None = None
+    next_token: str | None = None
 
 
 class ListMessagesResponse(BaseModel):

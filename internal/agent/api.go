@@ -283,6 +283,57 @@ func (a *API) publishSent(ctx context.Context, e webhookpub.Event, outMsg *ident
 	a.publishAsync(e)
 }
 
+// publishPendingApproval fires email.pending_approval via the outbox
+// (PublishTx — pre-side-effect: the pending row hasn't been sent to
+// SES yet) AND the legacy goroutine. pendingMsgID seeds the
+// deterministic event id so /send retries with the same idempotency
+// key don't fire duplicate events.
+func (a *API) publishPendingApproval(ctx context.Context, e webhookpub.Event, pendingMsgID string) {
+	if a.outbox != nil && pendingMsgID != "" {
+		e.ID = webhookpub.DeterministicEventID(pendingMsgID, e.Type)
+		err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
+			return a.outbox.PublishTx(ctx, tx, e)
+		})
+		if err != nil {
+			log.Printf("[api] outbox tx for email.pending_approval err: %v", err)
+		}
+	}
+	a.publishAsync(e)
+}
+
+// publishApproved fires email.approved via the outbox
+// (PublishBestEffortTx — POST-side-effect: SES has already accepted
+// the approved send) AND the legacy goroutine.
+func (a *API) publishApproved(ctx context.Context, e webhookpub.Event, sentMsg *identity.Message) {
+	if a.outbox != nil && sentMsg != nil {
+		e.ID = webhookpub.DeterministicEventID(sentMsg.ID, e.Type)
+		err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
+			a.outbox.PublishBestEffortTx(ctx, tx, e)
+			return nil
+		})
+		if err != nil {
+			log.Printf("[api] outbox tx for email.approved err: %v", err)
+		}
+	}
+	a.publishAsync(e)
+}
+
+// publishRejected fires email.rejected via the outbox (PublishTx —
+// pre-side-effect: rejection is a row update, no SES involvement) AND
+// the legacy goroutine.
+func (a *API) publishRejected(ctx context.Context, e webhookpub.Event, rejectedMsgID string) {
+	if a.outbox != nil && rejectedMsgID != "" {
+		e.ID = webhookpub.DeterministicEventID(rejectedMsgID, e.Type)
+		err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
+			return a.outbox.PublishTx(ctx, tx, e)
+		})
+		if err != nil {
+			log.Printf("[api] outbox tx for email.rejected err: %v", err)
+		}
+	}
+	a.publishAsync(e)
+}
+
 // SetApprovalSigner wires in the magic-link signer after construction so
 // callers (and tests) that don't need HITL magic-link endpoints don't
 // have to know about it. When nil, handleApproveMagicLink /
@@ -1600,7 +1651,7 @@ func (a *API) holdForApproval(w http.ResponseWriter, r *http.Request, agent *ide
 	// finalize it even if every notification email bounces.
 	a.notifier.NotifyPendingApprovalAsync(msg, agent)
 
-	a.publishAsync(a.buildPendingApprovalEvent(agent, msg, req, msgType))
+	a.publishPendingApproval(r.Context(), a.buildPendingApprovalEvent(agent, msg, req, msgType), msg.ID)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -2142,7 +2193,7 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[mail:%s] dir=outbound type=reply from=%s to=%v slug=%s conv_id=%s subject=%q in_reply_to=%s", outMsg.ID, agent.EmailAddress(), result.To, slug, req.ConversationID, subject, msgID)
 	}
 
-	a.publishAsync(a.buildSentEvent(agent, outMsg, result, sendReq, "reply"))
+	a.publishSent(r.Context(), a.buildSentEvent(agent, outMsg, result, sendReq, "reply"), outMsg)
 
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, map[string]string{
@@ -2343,7 +2394,7 @@ func (a *API) handleForwardMessage(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[mail:%s] dir=outbound type=forward from=%s to=%v slug=%s conv_id=%s subject=%q orig=%s", outMsg.ID, agent.EmailAddress(), result.To, slug, req.ConversationID, subject, msgID)
 	}
 
-	a.publishAsync(a.buildSentEvent(agent, outMsg, result, sendReq, "forward"))
+	a.publishSent(r.Context(), a.buildSentEvent(agent, outMsg, result, sendReq, "forward"), outMsg)
 
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, map[string]string{

@@ -444,6 +444,74 @@ export class E2AApi {
     return this.request("GET", path);
   }
 
+  // ── Events (slice 6/7: customer-facing event log + replay) ──────
+
+  /**
+   * List webhook events in reverse-chronological order. Each event is a
+   * durable record of something the gateway emitted. Use this for
+   * reconciliation when a webhook receiver was down.
+   */
+  async listEvents(opts?: {
+    type?: string;
+    agentId?: string;
+    conversationId?: string;
+    messageId?: string;
+    since?: string;
+    until?: string;
+    pageSize?: number;
+    token?: string;
+  }): Promise<Schemas["ListEventsResponse"]> {
+    const params = new URLSearchParams();
+    if (opts?.type) params.set("type", opts.type);
+    if (opts?.agentId) params.set("agent_id", opts.agentId);
+    if (opts?.conversationId) params.set("conversation_id", opts.conversationId);
+    if (opts?.messageId) params.set("message_id", opts.messageId);
+    if (opts?.since) params.set("since", opts.since);
+    if (opts?.until) params.set("until", opts.until);
+    if (opts?.pageSize) params.set("page_size", String(opts.pageSize));
+    if (opts?.token) params.set("token", opts.token);
+    const qs = params.toString();
+    return this.request("GET", `/api/v1/events${qs ? `?${qs}` : ""}`);
+  }
+
+  /**
+   * Fetch a single event by id. Returns 410 Gone if the event is past
+   * the 30-day retention boundary.
+   */
+  async getEvent(id: string): Promise<Schemas["WebhookEvent"]> {
+    return this.request("GET", `/api/v1/events/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Replay an event to a webhook. Pass `{ webhookId }` to target one
+   * subscriber; omit to fan out to every originally-matched webhook.
+   * Reuses the original event id so customer-side dedup discards the
+   * replay if already processed — replay is recovery, not re-delivery.
+   */
+  async redeliverEvent(
+    id: string,
+    opts?: { webhookId?: string },
+  ): Promise<Schemas["RedeliverResponse"]> {
+    const body = opts?.webhookId ? { webhook_id: opts.webhookId } : {};
+    return this.request("POST", `/api/v1/events/${encodeURIComponent(id)}/redeliver`, body);
+  }
+
+  /**
+   * Bulk-replay every event a webhook originally matched since `since`
+   * (RFC3339). Window capped at 7 days by the server. Idempotent —
+   * events with a pending delivery for this webhook are skipped.
+   */
+  async redeliverWebhookSince(
+    webhookId: string,
+    since: string,
+  ): Promise<Schemas["RedeliverSinceResponse"]> {
+    return this.request(
+      "POST",
+      `/api/v1/webhooks/${encodeURIComponent(webhookId)}/redeliver-since`,
+      { since },
+    );
+  }
+
   // ── Deployment info ─────────────────────────────────────────────
 
   /**
