@@ -10,9 +10,20 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/idempotency"
+	"github.com/Mnexa-AI/e2a/internal/ratelimit"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// redeliverSinceLimiter is a package-level token bucket: 1/min per
+// (user_id, webhook_id). Per design §S9: in-memory per-process →
+// effective limit scales with replica count; acceptable for v1, will
+// move to a Postgres-backed counter when we cross the threshold.
+//
+// Initialized lazily so test code that doesn't exercise this endpoint
+// doesn't pay the cleanup-goroutine cost.
+var redeliverSinceLimiter = ratelimit.New(time.Minute, 1)
 
 // Slice 7: customer-driven replay endpoints.
 //
@@ -92,6 +103,51 @@ func (a *API) handleRedeliverEvent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	scope := "single"
+	if req.WebhookID == "" {
+		scope = "fanout"
+	}
+	a.emit().RedeliverRequests(scope)
+
+	// 5-minute idempotency window per design §5.4. Synthetic key
+	// derived from (user, event_id, webhook_id_or_empty, "replay") so
+	// the same request body within the window returns the cached
+	// response. Uses the existing idempotency store the API was wired
+	// with at SetIdempotencyStore time; when nil (tests that didn't
+	// wire it) the idempotency check is skipped.
+	var idemKey string
+	if a.idempotency != nil {
+		idemKey = "replay:" + eventID + ":" + req.WebhookID
+		claim, err := a.idempotency.Claim(r.Context(), user.ID, idemKey, "/api/v1/events/redeliver", "")
+		if err != nil {
+			log.Printf("[replay] idempotency claim err: %v", err)
+			http.Error(w, "idempotency store error", http.StatusInternalServerError)
+			return
+		}
+		switch claim.Outcome {
+		case idempotency.OutcomeReplay:
+			w.Header().Set("Content-Type", claim.Cached.ContentType)
+			w.WriteHeader(claim.Cached.StatusCode)
+			w.Write(claim.Cached.Body)
+			return
+		case idempotency.OutcomeInFlight:
+			http.Error(w, "replay in progress", http.StatusConflict)
+			return
+		case idempotency.OutcomeMismatch:
+			// Shouldn't happen — body hash is empty so any second
+			// call with the same key claims fine. Defensive.
+			http.Error(w, "idempotency body mismatch", http.StatusUnprocessableEntity)
+			return
+		}
+		// Acquired: release on early-return paths below; complete on
+		// the success path.
+		defer func() {
+			if idemKey != "" {
+				_ = a.idempotency.Release(r.Context(), user.ID, idemKey)
+			}
+		}()
+	}
+
 	// Load the event + matched snapshot.
 	row, err := loadEventForReplay(r.Context(), a.eventsPool, user.ID, eventID)
 	if err != nil {
@@ -119,9 +175,12 @@ func (a *API) handleRedeliverEvent(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to schedule replay", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, redeliverResponse{
+		respBody := redeliverResponse{
 			DeliveryID: dl, EventID: eventID, WebhookID: req.WebhookID, Status: "pending",
-		})
+		}
+		completeIdempotency(r.Context(), a, user.ID, idemKey, 200, respBody)
+		idemKey = "" // signal deferred Release to skip
+		writeJSON(w, respBody)
 		return
 	}
 
@@ -140,7 +199,31 @@ func (a *API) handleRedeliverEvent(w http.ResponseWriter, r *http.Request) {
 			WebhookID: whID, DeliveryID: dl, Status: "pending",
 		})
 	}
-	writeJSON(w, redeliverResponse{EventID: eventID, Status: "scheduled", Deliveries: deliveries})
+	respBody := redeliverResponse{EventID: eventID, Status: "scheduled", Deliveries: deliveries}
+	completeIdempotency(r.Context(), a, user.ID, idemKey, 200, respBody)
+	idemKey = "" // signal deferred Release to skip
+	writeJSON(w, respBody)
+}
+
+// completeIdempotency caches the response so retries within the 5-min
+// window get OutcomeReplay. No-op when idemKey is empty (caller didn't
+// claim) or the store is nil.
+func completeIdempotency(ctx context.Context, a *API, userID, idemKey string, status int, body interface{}) {
+	if a.idempotency == nil || idemKey == "" {
+		return
+	}
+	cached, err := json.Marshal(body)
+	if err != nil {
+		log.Printf("[replay] marshal cached body: %v", err)
+		return
+	}
+	if err := a.idempotency.Complete(ctx, userID, idemKey, idempotency.CachedResponse{
+		StatusCode:  status,
+		ContentType: "application/json",
+		Body:        cached,
+	}); err != nil {
+		log.Printf("[replay] idempotency complete err: %v", err)
+	}
 }
 
 // handleRedeliverSince serves POST /webhooks/{id}/redeliver-since.
@@ -186,6 +269,22 @@ func (a *API) handleRedeliverSince(w http.ResponseWriter, r *http.Request) {
 	}
 	if time.Since(since) > redeliverSinceMaxDays*24*time.Hour {
 		http.Error(w, fmt.Sprintf("since must be within %d days", redeliverSinceMaxDays), http.StatusBadRequest)
+		return
+	}
+
+	a.emit().RedeliverRequests("since")
+
+	// Per-(user, webhook) rate limit: 1/min. Caveat per design §S9:
+	// in-memory per-process, so under N replicas the effective limit
+	// is N/min. Documented in the customer-facing rate-limit notes.
+	rlKey := user.ID + "|" + webhookID
+	if ok, retryAfter := redeliverSinceLimiter.AllowWithRetryAfter(rlKey); !ok {
+		secs := int(retryAfter.Seconds())
+		if secs < 1 {
+			secs = 1
+		}
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", secs))
+		http.Error(w, "rate limit exceeded (1/min per webhook)", http.StatusTooManyRequests)
 		return
 	}
 

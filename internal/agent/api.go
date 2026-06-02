@@ -23,6 +23,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/dkim"
 	"github.com/Mnexa-AI/e2a/internal/hitlnotify"
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
+	"github.com/Mnexa-AI/e2a/internal/telemetry"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
@@ -212,6 +213,9 @@ type API struct {
 	// eventsPool is the raw pgxpool used by the slice-6 events API.
 	// Optional — when nil, GET/POST /api/v1/events return 404.
 	eventsPool *pgxpool.Pool
+	// metrics is the slice 10 observability surface. Defaulted to
+	// NoOp; production wires telemetry.Log or a real backend.
+	metrics telemetry.Metrics
 }
 
 // SetSubscriberStore wires the subscriber-store dependency after
@@ -231,6 +235,20 @@ func (a *API) SetPublisher(p webhookpub.Publisher) { a.publisher = p }
 // the legacy publisher; they will migrate in a future slice if/when
 // their handlers gain transactional plumbing.
 func (a *API) SetOutbox(o webhookpub.Outbox) { a.outbox = o }
+
+// SetMetrics wires the slice 10 observability backend. Default is
+// telemetry.NoOp; production passes telemetry.NewLog() or a real
+// counter backend.
+func (a *API) SetMetrics(m telemetry.Metrics) { a.metrics = m }
+
+// emit returns the wired metrics backend, defaulting to NoOp so
+// handler-level instrumentation doesn't need nil guards everywhere.
+func (a *API) emit() telemetry.Metrics {
+	if a.metrics == nil {
+		return telemetry.NoOp{}
+	}
+	return a.metrics
+}
 
 // publishAsync fires an event in a fresh goroutine so the handler's
 // response is not blocked by webhook routing. Returns immediately.
@@ -280,6 +298,7 @@ func (a *API) publishSent(ctx context.Context, e webhookpub.Event, outMsg *ident
 			log.Printf("[api] outbox tx for email.sent err: %v", err)
 		}
 	}
+	a.emit().OutboxEventsPublished(e.Type)
 	a.publishAsync(e)
 }
 
@@ -298,6 +317,7 @@ func (a *API) publishPendingApproval(ctx context.Context, e webhookpub.Event, pe
 			log.Printf("[api] outbox tx for email.pending_approval err: %v", err)
 		}
 	}
+	a.emit().OutboxEventsPublished(e.Type)
 	a.publishAsync(e)
 }
 
@@ -315,6 +335,7 @@ func (a *API) publishApproved(ctx context.Context, e webhookpub.Event, sentMsg *
 			log.Printf("[api] outbox tx for email.approved err: %v", err)
 		}
 	}
+	a.emit().OutboxEventsPublished(e.Type)
 	a.publishAsync(e)
 }
 
@@ -331,6 +352,7 @@ func (a *API) publishRejected(ctx context.Context, e webhookpub.Event, rejectedM
 			log.Printf("[api] outbox tx for email.rejected err: %v", err)
 		}
 	}
+	a.emit().OutboxEventsPublished(e.Type)
 	a.publishAsync(e)
 }
 

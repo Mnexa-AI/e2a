@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/telemetry"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -47,11 +48,16 @@ type OutboxWorker struct {
 	leaseDuration time.Duration
 	batchSize     int
 	concurrency   int
+	metrics       telemetry.Metrics
 
 	// notifyCh signals when LISTEN has received a notification. Buffer
 	// is 1 with drop-on-full — bursts wake the worker once per tick,
 	// not 1000 times.
 	notifyCh chan struct{}
+
+	// notifySaw tracks whether a NOTIFY fired since the last Tick.
+	// Used to attribute fallback-poll wakeups vs. NOTIFY wakeups.
+	notifySawLastTick bool
 }
 
 // identityReader is the subset of identity.Store the worker needs.
@@ -70,8 +76,19 @@ func NewOutboxWorker(pool *pgxpool.Pool, store identityReader) *OutboxWorker {
 		leaseDuration: 5 * time.Minute,
 		batchSize:     32,
 		concurrency:   8,
+		metrics:       telemetry.NoOp{},
 		notifyCh:      make(chan struct{}, 1),
 	}
+}
+
+// WithMetrics swaps in a real metrics backend. Default is NoOp so
+// tests don't have to wire anything.
+func (w *OutboxWorker) WithMetrics(m telemetry.Metrics) *OutboxWorker {
+	if m == nil {
+		m = telemetry.NoOp{}
+	}
+	w.metrics = m
+	return w
 }
 
 // Start blocks on ctx — call in its own goroutine. Spawns the LISTEN
@@ -138,6 +155,7 @@ func (w *OutboxWorker) listenLoop(ctx context.Context) {
 			// processes the batch on the next tick.
 			select {
 			case w.notifyCh <- struct{}{}:
+				w.notifySawLastTick = true
 			default:
 			}
 		}
@@ -166,13 +184,31 @@ func (w *OutboxWorker) tickLoop(ctx context.Context) {
 // synchronously instead of waiting on the timer.
 func (w *OutboxWorker) Tick(ctx context.Context) {
 	tickStart := time.Now()
+	notifyWake := w.notifySawLastTick
+	w.notifySawLastTick = false
+
+	// Publisher-lag gauge: age of the oldest pending row.
+	var oldestAge float64
+	if err := w.pool.QueryRow(ctx,
+		`SELECT EXTRACT(EPOCH FROM (now() - min(created_at)))
+		 FROM webhook_events WHERE status = 'pending'`,
+	).Scan(&oldestAge); err == nil {
+		w.metrics.SetPublisherLag(oldestAge)
+	}
+
 	events, err := w.leasePending(ctx)
 	if err != nil {
 		log.Printf("[outbox-worker] leasePending err: %v", err)
+		w.metrics.OutboxFailures("lease")
 		return
 	}
 	if len(events) == 0 {
 		return
+	}
+	// If we picked up events without a NOTIFY wakeup, the fallback
+	// poll saved us. Non-zero rate signals LISTEN churn.
+	if !notifyWake {
+		w.metrics.NotifyMissed()
 	}
 	// Slice 10 telemetry hook: log batch size + age of oldest row so
 	// publisher lag can be derived from access logs. A future
@@ -184,6 +220,7 @@ func (w *OutboxWorker) Tick(ctx context.Context) {
 	log.Printf("[outbox-worker-metrics] tick batch=%d oldest_age_estimate=lease-bound elapsed_ms_so_far=%d",
 		len(events), time.Since(tickStart).Milliseconds())
 	_ = oldest
+	_ = oldestAge // already emitted via SetPublisherLag
 
 	sem := make(chan struct{}, w.concurrency)
 	var wg sync.WaitGroup
@@ -294,6 +331,11 @@ func (w *OutboxWorker) fanOutOne(ctx context.Context, ev leasedEvent) {
 		}
 	}
 
+	if len(matched) == 0 {
+		w.metrics.OutboxEventsNoMatch(ev.eventType)
+	} else {
+		w.metrics.OutboxEventsFanOut(ev.eventType, len(matched))
+	}
 	err = poolBeginFunc(ctx, w.pool, func(tx pgx.Tx) error {
 		if len(matched) > 0 {
 			if err := insertPendingBatchTx(ctx, tx, ev.id, matched, ev.eventType, ev.messageID, ev.envelope); err != nil {
@@ -319,6 +361,7 @@ func (w *OutboxWorker) fanOutOne(ctx context.Context, ev leasedEvent) {
 	})
 	if err != nil {
 		w.recordFailure(ctx, ev.id, err.Error())
+		w.metrics.OutboxFailures("update_status")
 	}
 }
 

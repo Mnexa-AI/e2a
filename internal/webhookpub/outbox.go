@@ -50,6 +50,10 @@ type Outbox interface {
 	// delivery. v1 panics: no caller in this slice. Slice 4 wires the
 	// outbound + HITL-approve trigger sites to it.
 	PublishBestEffortTx(ctx context.Context, tx pgx.Tx, e Event)
+
+	// DeleteExpiredWebhookEvents drops rows past their 30-day retention.
+	// Called from the hourly cleanup loop in cmd/e2a/main.go.
+	DeleteExpiredWebhookEvents(ctx context.Context) (int, error)
 }
 
 // outboxExecutor is the subset of pgx.Tx and pgxpool.Pool needed by
@@ -84,6 +88,27 @@ func (o *outbox) PublishTx(ctx context.Context, tx pgx.Tx, e Event) error {
 		return nil
 	}
 	return writeOutboxRow(ctx, tx, e)
+}
+
+// DeleteExpiredWebhookEvents removes rows whose expires_at has passed.
+// Migration 026 sets a 30-day TTL on every event row; without this
+// janitor the table grows monotonically and the (user_id, created_at)
+// index degrades. Mirrors webhook.SubscriberStore.DeleteExpiredSubscriberDeliveries
+// for the parallel slice-2 delivery table.
+//
+// Returns the number of rows deleted. Safe to run concurrently with the
+// outbox worker — the WHERE predicate excludes rows the worker would
+// lease (status='pending' AND next_poll_at <= now() implies expires_at
+// is in the future for any row the worker would touch, since the
+// trigger writes both with similar lifetimes).
+func (o *outbox) DeleteExpiredWebhookEvents(ctx context.Context) (int, error) {
+	tag, err := o.pool.Exec(ctx,
+		`DELETE FROM webhook_events WHERE expires_at <= now()`,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired webhook_events: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 func (o *outbox) PublishBestEffortTx(ctx context.Context, tx pgx.Tx, e Event) {

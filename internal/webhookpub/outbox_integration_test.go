@@ -263,6 +263,64 @@ func TestOutbox_Integration_FlagOffNoWrite(t *testing.T) {
 	}
 }
 
+// TestOutbox_Integration_JanitorDeletesExpired exercises the slice-A
+// janitor: rows past expires_at are removed; rows within retention
+// stay. Critical for unbounded-growth prevention on the outbox table.
+func TestOutbox_Integration_JanitorDeletesExpired(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+
+	const userID = "u_outbox_janitor"
+	_, err := pool.Exec(ctx, `INSERT INTO users (id, email, name, google_subject, created_at)
+	                           VALUES ($1, $2, 'Janitor', $1, now())
+	                           ON CONFLICT (id) DO NOTHING`,
+		userID, userID+"@example.com")
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM webhook_events WHERE user_id = $1`, userID)
+		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
+	})
+
+	expiredID := webhookpub.DeterministicEventID("msg_expired_jan", webhookpub.EventEmailReceived)
+	freshID := webhookpub.DeterministicEventID("msg_fresh_jan", webhookpub.EventEmailReceived)
+	for _, row := range []struct {
+		id        string
+		expiresAt string
+	}{
+		{expiredID, "now() - interval '1 day'"},
+		{freshID, "now() + interval '1 day'"},
+	} {
+		_, err := pool.Exec(ctx,
+			`INSERT INTO webhook_events (id, user_id, type, envelope, status, expires_at)
+			 VALUES ($1, $2, $3, '{}'::jsonb, 'pending', `+row.expiresAt+`)`,
+			row.id, userID, webhookpub.EventEmailReceived)
+		if err != nil {
+			t.Fatalf("seed %s: %v", row.id, err)
+		}
+	}
+
+	outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
+	deleted, err := outbox.DeleteExpiredWebhookEvents(ctx)
+	if err != nil {
+		t.Fatalf("DeleteExpiredWebhookEvents: %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("deleted = %d; want 1", deleted)
+	}
+
+	var freshCount, expiredCount int
+	pool.QueryRow(ctx, `SELECT count(*) FROM webhook_events WHERE id = $1`, freshID).Scan(&freshCount)
+	pool.QueryRow(ctx, `SELECT count(*) FROM webhook_events WHERE id = $1`, expiredID).Scan(&expiredCount)
+	if freshCount != 1 {
+		t.Errorf("fresh count = %d; want 1", freshCount)
+	}
+	if expiredCount != 0 {
+		t.Errorf("expired count = %d; want 0", expiredCount)
+	}
+}
+
 // TestOutbox_Integration_TxRollback_NoOrphanRow verifies that if the
 // caller rolls back the trigger transaction (e.g. the messages INSERT
 // failed after the outbox INSERT), no webhook_events row is left
