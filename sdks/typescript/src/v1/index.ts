@@ -11,6 +11,8 @@ export { InboundEmail, UnverifiedEmailError } from "./inbound-email.js";
 export type { Attachment, AuthHeaders, WebhookPayload } from "./inbound-email.js";
 export { WSListener, WSStream } from "./ws.js";
 export type { WSListenerOptions, WSListenerEvents, WSNotification } from "./ws.js";
+export { verifyWebhookSignature } from "./webhook-signature.js";
+export type { VerifySignatureOptions } from "./webhook-signature.js";
 
 // Friendly aliases for the most-used response shapes. These mirror the
 // types Python's SDK exports under the same names (MessageList, MessageSummary,

@@ -22,6 +22,7 @@ from e2a.v1.generated import (
     ApprovePendingMessageRequest,
     ApprovePendingMessageResponse,
     ConversationDetail,
+    CreateWebhookRequest,
     DeploymentInfo,
     Domain,
     ForwardMessageRequest,
@@ -30,6 +31,8 @@ from e2a.v1.generated import (
     ListDomainsResponse,
     ListMessagesResponse,
     ListPendingMessagesResponse,
+    ListWebhookDeliveriesResponse,
+    ListWebhooksResponse,
     MessageDetail,
     PendingMessageDetail,
     RegisterAgentRequest,
@@ -38,12 +41,17 @@ from e2a.v1.generated import (
     RejectPendingMessageRequest,
     RejectPendingMessageResponse,
     ReplyToMessageRequest,
+    RotateWebhookSecretResponse,
     SendEmailRequest,
     SendEmailResponse,
+    TestWebhookRequest,
+    TestWebhookResponse,
     UpdateAgentRequest,
     UpdateMessageRequest,
     UpdateMessageResponse,
+    UpdateWebhookRequest,
     VerifyDomainResponse,
+    WebhookResponse,
 )
 
 
@@ -187,6 +195,84 @@ class E2AApi:
     def delete_domain(self, domain: str) -> None:
         resp = self._client.delete(f"/api/v1/domains/{quote(domain, safe='')}")
         _check_response(resp)
+
+    # ── Webhooks (top-level resource) ────────────────────────────────
+
+    def list_webhooks(self) -> ListWebhooksResponse:
+        resp = self._client.get("/api/v1/webhooks")
+        _check_response(resp)
+        return ListWebhooksResponse.model_validate(resp.json())
+
+    def create_webhook(self, body: CreateWebhookRequest) -> WebhookResponse:
+        resp = self._client.post(
+            "/api/v1/webhooks",
+            json=body.model_dump(by_alias=True, exclude_none=True),
+        )
+        _check_response(resp)
+        return WebhookResponse.model_validate(resp.json())
+
+    def get_webhook(self, webhook_id: str) -> WebhookResponse:
+        resp = self._client.get(f"/api/v1/webhooks/{quote(webhook_id, safe='')}")
+        _check_response(resp)
+        return WebhookResponse.model_validate(resp.json())
+
+    def update_webhook(
+        self, webhook_id: str, body: UpdateWebhookRequest
+    ) -> WebhookResponse:
+        resp = self._client.patch(
+            f"/api/v1/webhooks/{quote(webhook_id, safe='')}",
+            json=body.model_dump(by_alias=True, exclude_none=True),
+        )
+        _check_response(resp)
+        return WebhookResponse.model_validate(resp.json())
+
+    def delete_webhook(self, webhook_id: str) -> None:
+        resp = self._client.delete(
+            f"/api/v1/webhooks/{quote(webhook_id, safe='')}"
+        )
+        _check_response(resp)
+
+    def rotate_webhook_secret(
+        self, webhook_id: str
+    ) -> RotateWebhookSecretResponse:
+        resp = self._client.post(
+            f"/api/v1/webhooks/{quote(webhook_id, safe='')}/rotate-secret"
+        )
+        _check_response(resp)
+        return RotateWebhookSecretResponse.model_validate(resp.json())
+
+    def test_webhook(
+        self, webhook_id: str, body: Optional[TestWebhookRequest] = None
+    ) -> TestWebhookResponse:
+        payload = (
+            body.model_dump(by_alias=True, exclude_none=True)
+            if body is not None
+            else {}
+        )
+        resp = self._client.post(
+            f"/api/v1/webhooks/{quote(webhook_id, safe='')}/test",
+            json=payload,
+        )
+        _check_response(resp)
+        return TestWebhookResponse.model_validate(resp.json())
+
+    def list_webhook_deliveries(
+        self,
+        webhook_id: str,
+        limit: Optional[int] = None,
+        status: Optional[str] = None,
+    ) -> ListWebhookDeliveriesResponse:
+        params = {}
+        if limit is not None:
+            params["limit"] = limit
+        if status is not None:
+            params["status"] = status
+        resp = self._client.get(
+            f"/api/v1/webhooks/{quote(webhook_id, safe='')}/deliveries",
+            params=params,
+        )
+        _check_response(resp)
+        return ListWebhookDeliveriesResponse.model_validate(resp.json())
 
     # ── Messages ──────────────────────────────────────────────────────
 

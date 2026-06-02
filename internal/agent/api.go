@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -28,6 +29,8 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/ratelimit"
 	"github.com/Mnexa-AI/e2a/internal/usage"
+	"github.com/Mnexa-AI/e2a/internal/webhook"
+	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"github.com/google/go-github/v72/github"
 	"github.com/gorilla/mux"
 	"github.com/ory/fosite"
@@ -185,6 +188,40 @@ type API struct {
 	usageStore     *usage.Store           // optional; needed by handleGetMyLimits to surface current counts
 	internalAPISecret string              // optional; when empty, /api/internal/* endpoints return 503
 	billingHookURL string                 // optional; when set, handleDeleteUserData POSTs an HMAC-signed user-deleted notice here (sidecar's /api/internal/billing/cancel)
+	// subscriberStore powers the slice-2 webhooks-as-a-resource
+	// /webhooks/{id}/test and /webhooks/{id}/deliveries endpoints.
+	// Optional — when nil, those endpoints return 404 (the rest of
+	// the /webhooks CRUD still works, just without test + history).
+	subscriberStore *webhook.SubscriberStore
+
+	// publisher routes email.sent / email.pending_approval /
+	// email.approved / email.rejected events to the new webhooks
+	// resource. Optional — when nil, the trigger sites silently skip
+	// the publish step (the legacy webhook_url path is unaffected).
+	publisher webhookpub.Publisher
+}
+
+// SetSubscriberStore wires the subscriber-store dependency after
+// NewAPI. Same optional-setter convention as SetEnforcer / etc.
+func (a *API) SetSubscriberStore(s *webhook.SubscriberStore) {
+	a.subscriberStore = s
+}
+
+// SetPublisher wires the webhookpub.Publisher used by handlers to fan
+// outbound + HITL events to webhook subscribers. Safe to leave nil in
+// tests; trigger sites no-op when it is.
+func (a *API) SetPublisher(p webhookpub.Publisher) { a.publisher = p }
+
+// publishAsync fires an event in a fresh goroutine so the handler's
+// response is not blocked by webhook routing. Returns immediately.
+// Uses context.Background() to detach from the request — the publisher
+// is a best-effort post-commit fan-out, not part of the handler's
+// success criteria.
+func (a *API) publishAsync(e webhookpub.Event) {
+	if a.publisher == nil {
+		return
+	}
+	go a.publisher.Publish(context.Background(), e)
 }
 
 // SetApprovalSigner wires in the magic-link signer after construction so
@@ -350,6 +387,16 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	// shared domain and other deployment-specific values without requiring
 	// each user to set them by hand.
 	r.HandleFunc("/api/v1/info", a.handleInfo).Methods("GET")
+
+	// Webhooks-as-a-resource (slice 2)
+	r.HandleFunc("/api/v1/webhooks", a.handleCreateWebhook).Methods("POST")
+	r.HandleFunc("/api/v1/webhooks", a.handleListWebhooks).Methods("GET")
+	r.HandleFunc("/api/v1/webhooks/{id}", a.handleGetWebhook).Methods("GET")
+	r.HandleFunc("/api/v1/webhooks/{id}", a.handleUpdateWebhook).Methods("PATCH")
+	r.HandleFunc("/api/v1/webhooks/{id}", a.handleDeleteWebhook).Methods("DELETE")
+	r.HandleFunc("/api/v1/webhooks/{id}/rotate-secret", a.handleRotateWebhookSecret).Methods("POST")
+	r.HandleFunc("/api/v1/webhooks/{id}/test", a.handleTestWebhook).Methods("POST")
+	r.HandleFunc("/api/v1/webhooks/{id}/deliveries", a.handleListWebhookDeliveries).Methods("GET")
 
 	// --- Non-versioned operational endpoints ---
 	r.HandleFunc("/api/health", a.handleHealth).Methods("GET", "HEAD")
@@ -1489,6 +1536,8 @@ func (a *API) holdForApproval(w http.ResponseWriter, r *http.Request, agent *ide
 	// finalize it even if every notification email bounces.
 	a.notifier.NotifyPendingApprovalAsync(msg, agent)
 
+	a.publishAsync(a.buildPendingApprovalEvent(agent, msg, req, msgType))
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	writeJSON(w, map[string]interface{}{
@@ -1695,6 +1744,8 @@ func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 	if outMsg != nil {
 		log.Printf("[mail:%s] dir=outbound type=send from=%s to=%v slug=%s conv_id=%s subject=%q", outMsg.ID, agent.EmailAddress(), result.To, slug, req.ConversationID, req.Subject)
 	}
+
+	a.publishAsync(a.buildSentEvent(agent, outMsg, result, req, "send"))
 
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, map[string]string{
@@ -2027,6 +2078,8 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[mail:%s] dir=outbound type=reply from=%s to=%v slug=%s conv_id=%s subject=%q in_reply_to=%s", outMsg.ID, agent.EmailAddress(), result.To, slug, req.ConversationID, subject, msgID)
 	}
 
+	a.publishAsync(a.buildSentEvent(agent, outMsg, result, sendReq, "reply"))
+
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, map[string]string{
 		"status":     "sent",
@@ -2225,6 +2278,8 @@ func (a *API) handleForwardMessage(w http.ResponseWriter, r *http.Request) {
 	if outMsg != nil {
 		log.Printf("[mail:%s] dir=outbound type=forward from=%s to=%v slug=%s conv_id=%s subject=%q orig=%s", outMsg.ID, agent.EmailAddress(), result.To, slug, req.ConversationID, subject, msgID)
 	}
+
+	a.publishAsync(a.buildSentEvent(agent, outMsg, result, sendReq, "forward"))
 
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, map[string]string{

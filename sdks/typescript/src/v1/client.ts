@@ -389,6 +389,59 @@ export class E2AClient {
     return this.api.verifyDomain(domain);
   }
 
+  // ── Webhooks (top-level resource) ───────────────────────────────
+
+  async listWebhooks() {
+    return this.api.listWebhooks();
+  }
+
+  async createWebhook(opts: {
+    url: string;
+    events: string[];
+    description?: string;
+    filters?: Schemas["WebhookFilters"];
+  }) {
+    return this.api.createWebhook({
+      url: opts.url,
+      events: opts.events,
+      description: opts.description ?? "",
+      filters: opts.filters,
+    });
+  }
+
+  async getWebhook(id: string) {
+    return this.api.getWebhook(id);
+  }
+
+  async updateWebhook(id: string, patch: Schemas["UpdateWebhookRequest"]) {
+    return this.api.updateWebhook(id, patch);
+  }
+
+  async deleteWebhook(id: string) {
+    return this.api.deleteWebhook(id);
+  }
+
+  async rotateWebhookSecret(id: string) {
+    return this.api.rotateWebhookSecret(id);
+  }
+
+  async testWebhook(
+    id: string,
+    opts?: { event?: string; data?: Record<string, unknown> },
+  ) {
+    return this.api.testWebhook(id, {
+      event: opts?.event ?? "",
+      data: opts?.data,
+    });
+  }
+
+  async listWebhookDeliveries(
+    id: string,
+    opts?: { limit?: number; status?: "pending" | "delivered" | "failed" },
+  ) {
+    return this.api.listWebhookDeliveries(id, opts);
+  }
+
   // ── Send ────────────────────────────────────────────────────────
 
   async send(

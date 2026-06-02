@@ -16,6 +16,7 @@ from e2a.v1.api import E2AApi
 from e2a.v1.generated import (
     ApprovePendingMessageRequest,
     ConversationDetail,
+    CreateWebhookRequest,
     ForwardMessageRequest,
     ListConversationsResponse,
     MessageDetail,
@@ -23,9 +24,12 @@ from e2a.v1.generated import (
     RegisterDomainRequest,
     ReplyToMessageRequest,
     SendEmailRequest,
+    TestWebhookRequest,
     UpdateAgentRequest,
     UpdateMessageRequest,
     UpdateMessageResponse,
+    UpdateWebhookRequest,
+    WebhookFilters,
 )
 from e2a.v1.generated import internal_agent
 from e2a.v1.handler import (
@@ -556,6 +560,80 @@ class E2AClient:
 
     def delete_domain(self, domain: str):
         return self.api.delete_domain(domain)
+
+    # ── Webhooks (top-level resource) ─────────────────────────────────
+
+    def list_webhooks(self):
+        return self.api.list_webhooks()
+
+    def create_webhook(
+        self,
+        url: str,
+        events: list[str],
+        *,
+        description: str = "",
+        filters: Optional[WebhookFilters] = None,
+    ):
+        return self.api.create_webhook(
+            CreateWebhookRequest(
+                url=url,
+                events=events,
+                description=description,
+                filters=filters,
+            )
+        )
+
+    def get_webhook(self, webhook_id: str):
+        return self.api.get_webhook(webhook_id)
+
+    def update_webhook(
+        self,
+        webhook_id: str,
+        *,
+        url: Optional[str] = None,
+        events: Optional[list[str]] = None,
+        filters: Optional[WebhookFilters] = None,
+        description: Optional[str] = None,
+        enabled: Optional[bool] = None,
+    ):
+        return self.api.update_webhook(
+            webhook_id,
+            UpdateWebhookRequest(
+                url=url,
+                events=events,
+                filters=filters,
+                description=description,
+                enabled=enabled,
+            ),
+        )
+
+    def delete_webhook(self, webhook_id: str):
+        return self.api.delete_webhook(webhook_id)
+
+    def rotate_webhook_secret(self, webhook_id: str):
+        return self.api.rotate_webhook_secret(webhook_id)
+
+    def test_webhook(
+        self,
+        webhook_id: str,
+        *,
+        event: str = "",
+        data: Optional[dict] = None,
+    ):
+        return self.api.test_webhook(
+            webhook_id, TestWebhookRequest(event=event, data=data)
+        )
+
+    def list_webhook_deliveries(
+        self,
+        webhook_id: str,
+        *,
+        limit: Optional[int] = None,
+        status: Optional[str] = None,
+    ):
+        return self.api.list_webhook_deliveries(
+            webhook_id, limit=limit, status=status
+        )
 
     # ── Lifecycle ─────────────────────────────────────────────────────
 

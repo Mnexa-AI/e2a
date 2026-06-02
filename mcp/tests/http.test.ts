@@ -270,6 +270,14 @@ describe("HTTP MCP server", () => {
         "get_pending_message",
         "approve_pending_message",
         "reject_pending_message",
+        "list_webhooks",
+        "get_webhook",
+        "create_webhook",
+        "update_webhook",
+        "delete_webhook",
+        "rotate_webhook_secret",
+        "test_webhook",
+        "list_webhook_deliveries",
       ].sort(),
     );
     await transport.close();

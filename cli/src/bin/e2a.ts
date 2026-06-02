@@ -18,6 +18,16 @@ import { config } from "../commands/config.js";
 import { listen } from "../commands/listen.js";
 import { domainsList, domainsRegister, domainsVerify, domainsDelete } from "../commands/domains.js";
 import {
+  webhooksList,
+  webhooksCreate,
+  webhooksGet,
+  webhooksUpdate,
+  webhooksDelete,
+  webhooksRotateSecret,
+  webhooksTest,
+  webhooksDeliveries,
+} from "../commands/webhooks.js";
+import {
   pendingList,
   pendingShow,
   pendingApprove,
@@ -53,6 +63,14 @@ Usage:
   e2a domains register <domain>     Register a custom domain
   e2a domains verify <domain>       Verify domain DNS records
   e2a domains delete <domain>       Delete a domain
+  e2a webhooks list                                          List webhook subscribers
+  e2a webhooks create --url <url> --events <event> [...]     Create a webhook
+  e2a webhooks get <id>                                      Show one webhook
+  e2a webhooks update <id> [--url …] [--events …] [--enable|--disable]
+  e2a webhooks delete <id>                                   Delete a webhook
+  e2a webhooks rotate-secret <id>                            Rotate signing secret
+  e2a webhooks test <id> [--event …]                         Fire a synthetic event
+  e2a webhooks deliveries <id> [--limit N] [--status …]      List recent deliveries
   e2a config [list|get|set]         View or update config
 
 Options:
@@ -309,6 +327,64 @@ async function main() {
         await domainsDelete(args[1]);
       } else {
         process.stderr.write("Usage: e2a domains [list|register|verify|delete]\n");
+        process.exit(1);
+      }
+      break;
+    }
+    case "webhooks": {
+      const sub = args[0];
+      if (sub === "list") {
+        await webhooksList();
+      } else if (sub === "create") {
+        await webhooksCreate({
+          url: getFlag(args, "--url"),
+          events: getFlags(args, "--events"),
+          description: getFlag(args, "--description"),
+          agentId: getFlags(args, "--agent-id"),
+          conversationId: getFlags(args, "--conversation-id"),
+          label: getFlags(args, "--label"),
+        });
+      } else if (sub === "get") {
+        await webhooksGet(args[1]);
+      } else if (sub === "update") {
+        let enabled: boolean | undefined;
+        if (hasFlag(args, "--disable")) enabled = false;
+        else if (hasFlag(args, "--enable")) enabled = true;
+        await webhooksUpdate(args[1], {
+          url: getFlag(args, "--url"),
+          events: getFlags(args, "--events"),
+          description: getFlag(args, "--description"),
+          enabled,
+        });
+      } else if (sub === "delete") {
+        await webhooksDelete(args[1]);
+      } else if (sub === "rotate-secret") {
+        await webhooksRotateSecret(args[1]);
+      } else if (sub === "test") {
+        await webhooksTest(args[1], { event: getFlag(args, "--event") });
+      } else if (sub === "deliveries") {
+        const limitStr = getFlag(args, "--limit");
+        let limit: number | undefined;
+        if (limitStr !== undefined) {
+          const n = parseInt(limitStr, 10);
+          if (!Number.isFinite(n) || n < 1) {
+            process.stderr.write("--limit must be a positive integer\n");
+            process.exit(1);
+          }
+          limit = n;
+        }
+        const statusRaw = getFlag(args, "--status");
+        let status: "pending" | "delivered" | "failed" | undefined;
+        if (statusRaw !== undefined) {
+          if (statusRaw !== "pending" && statusRaw !== "delivered" && statusRaw !== "failed") {
+            process.stderr.write("--status must be one of pending|delivered|failed\n");
+            process.exit(1);
+          }
+          status = statusRaw;
+        }
+        await webhooksDeliveries(args[1], { limit, status });
+      } else {
+        process.stderr.write("Usage: e2a webhooks [list|create|get|update|delete|rotate-secret|test|deliveries]\n");
         process.exit(1);
       }
       break;

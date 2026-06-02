@@ -2163,6 +2163,501 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List webhook subscribers
+         * @description Returns every webhook (enabled + disabled) owned by the caller. signing_secret is omitted.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ListWebhooksResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Rate limited */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Create webhook subscriber
+         * @description Creates a top-level webhook subscriber. The plaintext signing_secret is returned ONCE in this response and never echoed by any later GET. URL must be HTTPS and must resolve to a public IP. Per-user cap defaults to 50.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Webhook spec */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateWebhookRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WebhookResponse"];
+                    };
+                };
+                /** @description validation error or cap reached */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get webhook subscriber */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Webhook ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WebhookResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        /**
+         * Delete webhook subscriber
+         * @description Removes the webhook and cascades pending deliveries.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Webhook ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "*/*": string;
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "*/*": string;
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /**
+         * Update webhook subscriber
+         * @description Partial update. Fields not present are unchanged. url / events / filters are full-replace when present (no array-merge). Re-enable within 5 minutes of auto_disabled_at returns 409.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Webhook ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Patch body */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateWebhookRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WebhookResponse"];
+                    };
+                };
+                /** @description Validation error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Re-enable cooldown */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/webhooks/{id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List recent webhook deliveries
+         * @description Returns the most recent delivery attempts for the webhook (capped at 100). Optional status query restricts to pending|delivered|failed.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Page size (default 20, max 100) */
+                    limit?: number;
+                    /** @description Filter by status: pending|delivered|failed */
+                    status?: string;
+                };
+                header?: never;
+                path: {
+                    /** @description Webhook ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ListWebhookDeliveriesResponse"];
+                    };
+                };
+                /** @description Bad query */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Rate limited */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/{id}/rotate-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate webhook signing secret
+         * @description Generates a new signing secret and moves the current one into a 24h grace window during which the worker dual-signs each delivery.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Webhook ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RotateWebhookSecretResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fire a synthetic webhook event for development
+         * @description Schedules a one-off delivery to the webhook with a synthetic envelope, bypassing filter matching. Returns the delivery_id so the caller can correlate it in /deliveries. Returns 409 when the webhook is disabled.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Webhook ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Synthetic event */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TestWebhookRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TestWebhookResponse"];
+                    };
+                };
+                /** @description Bad request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Webhook disabled */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2282,6 +2777,19 @@ export interface components {
             name?: string;
             secret?: string;
             secret_prefix?: string;
+        };
+        CreateWebhookRequest: {
+            /** @example main inbox handler */
+            description?: string;
+            /**
+             * @example [
+             *       "email.received"
+             *     ]
+             */
+            events?: string[];
+            filters?: components["schemas"]["WebhookFilters"];
+            /** @example https://example.com/e2a/hook */
+            url?: string;
         };
         DNSRecord: {
             /** @example @ */
@@ -2422,6 +2930,12 @@ export interface components {
         };
         ListSigningSecretsResponse: {
             secrets?: components["schemas"]["SigningSecretSummary"][];
+        };
+        ListWebhookDeliveriesResponse: {
+            deliveries?: components["schemas"]["WebhookDeliveryResponse"][];
+        };
+        ListWebhooksResponse: {
+            webhooks?: components["schemas"]["WebhookResponse"][];
         };
         MessageDetail: {
             auth_headers?: {
@@ -2690,6 +3204,10 @@ export interface components {
             /** @example false */
             reply_all?: boolean;
         };
+        RotateWebhookSecretResponse: {
+            previous_secret_expires_at?: string;
+            signing_secret?: string;
+        };
         SendEmailRequest: {
             attachments?: components["schemas"]["internal_agent.Attachment"][];
             /**
@@ -2742,6 +3260,16 @@ export interface components {
             secret?: string;
             secret_prefix?: string;
         };
+        TestWebhookRequest: {
+            data?: {
+                [key: string]: unknown;
+            };
+            /** @example email.received */
+            event?: string;
+        };
+        TestWebhookResponse: {
+            delivery_id?: string;
+        };
         UpdateAgentRequest: {
             /** @enum {string} */
             agent_mode?: "cloud" | "local";
@@ -2773,6 +3301,13 @@ export interface components {
             labels?: string[];
             /** @example msg_abc123 */
             message_id?: string;
+        };
+        UpdateWebhookRequest: {
+            description?: string;
+            enabled?: boolean;
+            events?: string[];
+            filters?: components["schemas"]["WebhookFilters"];
+            url?: string;
         };
         UsageEventEntry: {
             agent_id?: string;
@@ -2830,6 +3365,38 @@ export interface components {
             spf?: "found" | "missing";
             verified?: boolean;
             verified_at?: string;
+        };
+        WebhookDeliveryResponse: {
+            attempts?: number;
+            created_at?: string;
+            event_type?: string;
+            id?: string;
+            last_attempt_at?: string;
+            last_error?: string;
+            last_status_code?: number;
+            next_retry_at?: string;
+            status?: string;
+        };
+        WebhookFilters: {
+            agent_ids?: string[];
+            conversation_ids?: string[];
+            labels?: string[];
+        };
+        WebhookResponse: {
+            auto_disabled_at?: string;
+            created_at?: string;
+            description?: string;
+            enabled?: boolean;
+            events?: string[];
+            filters?: components["schemas"]["WebhookFilters"];
+            /** @example wh_abc123 */
+            id?: string;
+            last_delivered_at?: string;
+            /** @description ONLY on rotate */
+            previous_secret_expires_at?: string;
+            /** @description ONLY on create + rotate */
+            signing_secret?: string;
+            url?: string;
         };
         "github_com_Mnexa-AI_e2a_internal_identity.AgentIdentity": {
             agent_mode?: string;

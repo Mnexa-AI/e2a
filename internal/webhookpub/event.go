@@ -1,0 +1,148 @@
+// Package webhookpub publishes events from the e2a core (relay,
+// outbound sender, HITL flow) to subscribers registered via the new
+// /api/v1/webhooks resource. It runs in-process and post-commit
+// async: trigger code commits its primary DB write, then calls
+// Publisher.Publish in a goroutine. The publisher matches the event
+// against enabled subscribers (event type + filters), inserts one
+// webhook_subscriber_deliveries row per match, and returns; actual
+// HTTP delivery is the retry worker's job.
+//
+// Slice 1 only fires email.received from the relay. Slice 3 extends
+// to email.sent, email.pending_approval, email.approved, email.rejected.
+//
+// The legacy agent_identities.webhook_url path is unaffected by this
+// package — it continues to be served by internal/webhook's existing
+// PersistentDeliverer + retry worker. Both pathways fire side-by-side
+// for back-compat. See the final design at tmp/e2a_webhooks_design.md.
+package webhookpub
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"time"
+)
+
+// Event types. Keeping these as named constants (not arbitrary strings)
+// means typos at trigger sites fail at compile time. The handler-layer
+// allowlist of accepted event names mirrors this list.
+const (
+	EventEmailReceived        = "email.received"
+	EventEmailSent            = "email.sent"
+	EventEmailPendingApproval = "email.pending_approval"
+	EventEmailApproved        = "email.approved"
+	EventEmailRejected        = "email.rejected"
+)
+
+// AllEventTypes is the canonical allowlist of event names. Used by
+// the slice-2 handler validation. Adding a new event type means
+// adding a constant above AND extending this slice.
+var AllEventTypes = []string{
+	EventEmailReceived,
+	EventEmailSent,
+	EventEmailPendingApproval,
+	EventEmailApproved,
+	EventEmailRejected,
+}
+
+// IsValidEventType reports whether name is one of the catalog
+// event types. Convenience wrapper for the handler-layer validator.
+func IsValidEventType(name string) bool {
+	for _, e := range AllEventTypes {
+		if e == name {
+			return true
+		}
+	}
+	return false
+}
+
+// Event is the input to Publisher.Publish. Carries the routing keys
+// (UserID, AgentID, ConversationID, Labels) needed to apply filters
+// plus the Data payload that's serialized into the delivery row's
+// event_payload JSONB.
+//
+// MessageID is optional — set when the event has an originating
+// message row. Persisted on the delivery row with ON DELETE SET NULL
+// so the 30-day messages janitor doesn't orphan the delivery.
+type Event struct {
+	// ID is a unique identifier for this event firing. Stable across
+	// retries — receivers dedup on it.
+	ID string
+
+	// Type is one of the EventEmail* constants.
+	Type string
+
+	// CreatedAt is the time the event was published. Embedded in
+	// the wire envelope so receivers can reason about staleness.
+	CreatedAt time.Time
+
+	// UserID is the owner — used to find matching webhooks. Routing
+	// is strictly bounded to the owning user's subscribers; cross-
+	// user delivery is impossible by construction.
+	UserID string
+
+	// AgentID, ConversationID, Labels are filter-matching keys. Each
+	// is matched against the corresponding key in
+	// WebhookFilters. Empty / nil here means "the event has no value
+	// for this attribute" — see Publisher's null/empty semantics
+	// (filters that REQUIRE a value while the event has none → skip).
+	AgentID        string
+	ConversationID string
+	Labels         []string
+
+	// MessageID is the originating message row, if any. May be empty
+	// for events without a direct message backing (e.g.
+	// email.pending_approval before the held message gets promoted).
+	MessageID string
+
+	// Data is the event-specific payload. Wrapped in the envelope
+	// {event, id, created_at, data} and serialized into the delivery
+	// row's event_payload column.
+	Data any
+}
+
+// NewEvent constructs an Event with a fresh ID and now() timestamp.
+// Trigger sites use this rather than building struct literals so the
+// ID format stays consistent (evt_<32-hex>).
+func NewEvent(eventType, userID string, data any) Event {
+	return Event{
+		ID:        generateEventID(),
+		Type:      eventType,
+		CreatedAt: time.Now().UTC(),
+		UserID:    userID,
+		Data:      data,
+	}
+}
+
+// Envelope is the wire shape sent in the HTTP body to webhook
+// subscribers. Stable across retries — the event_payload JSON column
+// stores the envelope verbatim and the delivery worker POSTs it
+// unchanged.
+type Envelope struct {
+	Event     string    `json:"event"`
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	Data      any       `json:"data"`
+}
+
+// AsEnvelope returns the wire shape for serialization.
+func (e Event) AsEnvelope() Envelope {
+	return Envelope{
+		Event:     e.Type,
+		ID:        e.ID,
+		CreatedAt: e.CreatedAt,
+		Data:      e.Data,
+	}
+}
+
+func generateEventID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand failure means the OS RNG is broken; an
+		// all-zero event ID would collide across firings. Panic so
+		// the caller surfaces a 500 rather than silently emitting
+		// non-unique IDs.
+		panic(fmt.Sprintf("webhookpub: crypto/rand failed: %v", err))
+	}
+	return "evt_" + hex.EncodeToString(b)
+}

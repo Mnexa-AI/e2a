@@ -190,6 +190,23 @@ definitions:
       secret_prefix:
         type: string
     type: object
+  CreateWebhookRequest:
+    properties:
+      description:
+        example: main inbox handler
+        type: string
+      events:
+        example:
+        - email.received
+        items:
+          type: string
+        type: array
+      filters:
+        $ref: '#/definitions/WebhookFilters'
+      url:
+        example: https://example.com/e2a/hook
+        type: string
+    type: object
   DNSRecord:
     properties:
       host:
@@ -403,6 +420,20 @@ definitions:
       secrets:
         items:
           $ref: '#/definitions/SigningSecretSummary'
+        type: array
+    type: object
+  ListWebhookDeliveriesResponse:
+    properties:
+      deliveries:
+        items:
+          $ref: '#/definitions/WebhookDeliveryResponse'
+        type: array
+    type: object
+  ListWebhooksResponse:
+    properties:
+      webhooks:
+        items:
+          $ref: '#/definitions/WebhookResponse'
         type: array
     type: object
   MessageDetail:
@@ -809,6 +840,13 @@ definitions:
         example: false
         type: boolean
     type: object
+  RotateWebhookSecretResponse:
+    properties:
+      previous_secret_expires_at:
+        type: string
+      signing_secret:
+        type: string
+    type: object
   SendEmailRequest:
     properties:
       attachments:
@@ -882,6 +920,20 @@ definitions:
       secret_prefix:
         type: string
     type: object
+  TestWebhookRequest:
+    properties:
+      data:
+        additionalProperties: true
+        type: object
+      event:
+        example: email.received
+        type: string
+    type: object
+  TestWebhookResponse:
+    properties:
+      delivery_id:
+        type: string
+    type: object
   UpdateAgentRequest:
     properties:
       agent_mode:
@@ -930,6 +982,21 @@ definitions:
         type: array
       message_id:
         example: msg_abc123
+        type: string
+    type: object
+  UpdateWebhookRequest:
+    properties:
+      description:
+        type: string
+      enabled:
+        type: boolean
+      events:
+        items:
+          type: string
+        type: array
+      filters:
+        $ref: '#/definitions/WebhookFilters'
+      url:
         type: string
     type: object
   UsageEventEntry:
@@ -1032,6 +1099,72 @@ definitions:
       verified:
         type: boolean
       verified_at:
+        type: string
+    type: object
+  WebhookDeliveryResponse:
+    properties:
+      attempts:
+        type: integer
+      created_at:
+        type: string
+      event_type:
+        type: string
+      id:
+        type: string
+      last_attempt_at:
+        type: string
+      last_error:
+        type: string
+      last_status_code:
+        type: integer
+      next_retry_at:
+        type: string
+      status:
+        type: string
+    type: object
+  WebhookFilters:
+    properties:
+      agent_ids:
+        items:
+          type: string
+        type: array
+      conversation_ids:
+        items:
+          type: string
+        type: array
+      labels:
+        items:
+          type: string
+        type: array
+    type: object
+  WebhookResponse:
+    properties:
+      auto_disabled_at:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      enabled:
+        type: boolean
+      events:
+        items:
+          type: string
+        type: array
+      filters:
+        $ref: '#/definitions/WebhookFilters'
+      id:
+        example: wh_abc123
+        type: string
+      last_delivered_at:
+        type: string
+      previous_secret_expires_at:
+        description: ONLY on rotate
+        type: string
+      signing_secret:
+        description: ONLY on create + rotate
+        type: string
+      url:
         type: string
     type: object
   github_com_Mnexa-AI_e2a_internal_identity.AgentIdentity:
@@ -2617,6 +2750,284 @@ paths:
       summary: Delete a webhook signing secret
       tags:
       - User
+  /webhooks:
+    get:
+      description: Returns every webhook (enabled + disabled) owned by the caller.
+        signing_secret is omitted.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ListWebhooksResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+        "429":
+          description: Rate limited
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: List webhook subscribers
+      tags:
+      - webhooks
+    post:
+      consumes:
+      - application/json
+      description: Creates a top-level webhook subscriber. The plaintext signing_secret
+        is returned ONCE in this response and never echoed by any later GET. URL must
+        be HTTPS and must resolve to a public IP. Per-user cap defaults to 50.
+      parameters:
+      - description: Webhook spec
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/CreateWebhookRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/WebhookResponse'
+        "400":
+          description: validation error or cap reached
+          schema:
+            type: string
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Create webhook subscriber
+      tags:
+      - webhooks
+  /webhooks/{id}:
+    delete:
+      description: Removes the webhook and cascades pending deliveries.
+      parameters:
+      - description: Webhook ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No content
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+        "404":
+          description: Not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Delete webhook subscriber
+      tags:
+      - webhooks
+    get:
+      parameters:
+      - description: Webhook ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/WebhookResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+        "404":
+          description: Not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get webhook subscriber
+      tags:
+      - webhooks
+    patch:
+      consumes:
+      - application/json
+      description: Partial update. Fields not present are unchanged. url / events
+        / filters are full-replace when present (no array-merge). Re-enable within
+        5 minutes of auto_disabled_at returns 409.
+      parameters:
+      - description: Webhook ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Patch body
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/UpdateWebhookRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/WebhookResponse'
+        "400":
+          description: Validation error
+          schema:
+            type: string
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+        "404":
+          description: Not found
+          schema:
+            type: string
+        "409":
+          description: Re-enable cooldown
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Update webhook subscriber
+      tags:
+      - webhooks
+  /webhooks/{id}/deliveries:
+    get:
+      description: Returns the most recent delivery attempts for the webhook (capped
+        at 100). Optional status query restricts to pending|delivered|failed.
+      parameters:
+      - description: Webhook ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Page size (default 20, max 100)
+        in: query
+        name: limit
+        type: integer
+      - description: 'Filter by status: pending|delivered|failed'
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ListWebhookDeliveriesResponse'
+        "400":
+          description: Bad query
+          schema:
+            type: string
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+        "404":
+          description: Not found
+          schema:
+            type: string
+        "429":
+          description: Rate limited
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: List recent webhook deliveries
+      tags:
+      - webhooks
+  /webhooks/{id}/rotate-secret:
+    post:
+      description: Generates a new signing secret and moves the current one into a
+        24h grace window during which the worker dual-signs each delivery.
+      parameters:
+      - description: Webhook ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/RotateWebhookSecretResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+        "404":
+          description: Not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Rotate webhook signing secret
+      tags:
+      - webhooks
+  /webhooks/{id}/test:
+    post:
+      consumes:
+      - application/json
+      description: Schedules a one-off delivery to the webhook with a synthetic envelope,
+        bypassing filter matching. Returns the delivery_id so the caller can correlate
+        it in /deliveries. Returns 409 when the webhook is disabled.
+      parameters:
+      - description: Webhook ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Synthetic event
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/TestWebhookRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/TestWebhookResponse'
+        "400":
+          description: Bad request
+          schema:
+            type: string
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+        "404":
+          description: Not found
+          schema:
+            type: string
+        "409":
+          description: Webhook disabled
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Fire a synthetic webhook event for development
+      tags:
+      - webhooks
 securityDefinitions:
   BearerAuth:
     description: 'API key from the API Keys page (starts with `e2a_`). Format: `Bearer

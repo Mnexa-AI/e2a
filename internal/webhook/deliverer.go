@@ -80,6 +80,15 @@ func (d *Deliverer) DeliverHTTP(ctx context.Context, agent *identity.AgentIdenti
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	// Deprecation header for the legacy agent_identities.webhook_url
+	// path. The top-level /api/v1/webhooks resource is the supported
+	// way forward; this header gives operators a long lead time to
+	// migrate before the legacy field is removed. The date is
+	// intentionally distant — six months ahead of slice 1 — so
+	// short-lived integrations still see the signal but no integration
+	// breaks today.
+	req.Header.Set("X-E2A-Deprecation", "agent_identities.webhook_url is deprecated; use /api/v1/webhooks. Sunset target: 2026-12-01.")
+	req.Header.Set("Sunset", "Tue, 01 Dec 2026 00:00:00 GMT")
 
 	// Forward auth headers
 	for k, v := range p.AuthHeaders {

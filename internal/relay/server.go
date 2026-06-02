@@ -21,6 +21,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
+	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"github.com/Mnexa-AI/e2a/internal/ws"
 	"github.com/emersion/go-smtp"
 )
@@ -30,6 +31,13 @@ type Server struct {
 	store      *identity.Store
 	signer     *headers.Signer
 	deliverer  *webhook.PersistentDeliverer
+	// publisher is the new webhooks-as-a-resource publisher. Fires
+	// email.received events to the subscriber-resource path in
+	// addition to the legacy agent_identities.webhook_url delivery
+	// above. Optional — when nil (e.g. tests that don't exercise
+	// the new path) the relay only fires the legacy path. Wiring is
+	// additive: the legacy delivery flow is unchanged.
+	publisher webhookpub.Publisher
 	hub        *ws.Hub
 	usage      usage.UsageTracker
 	enforcer   limits.Enforcer // optional; when nil, inbound caps are not enforced
@@ -41,6 +49,12 @@ type Server struct {
 	// In-Reply-To lookup so they cannot forge conversation IDs.
 	outboundFromDomain string
 }
+
+// SetPublisher wires the new webhooks-as-a-resource publisher. Same
+// optional-setter pattern as SetEnforcer — keeps NewServer's signature
+// unchanged for the existing call sites and tests that don't care
+// about the new path.
+func (s *Server) SetPublisher(p webhookpub.Publisher) { s.publisher = p }
 
 // SetEnforcer wires in the resource-limits enforcer used to reject
 // inbound recipients whose owner has hit the message-flow or storage
@@ -317,6 +331,30 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	log.Printf("[mail:%s] dir=inbound from=%s to=%s slug=%s conv_id=%s subject=%q mode=%s verified=%t",
 		messageID, displaySender, rcpt, slug, conversationID, s.inboundSubject, agent.AgentMode, domainAuth.DomainAuthenticated())
 
+	// Fire email.received to the new webhooks-as-a-resource path
+	// (alongside the legacy delivery below). Post-commit async per
+	// the design — runs in a goroutine and doesn't block the SMTP
+	// delivery flow. The publisher is optional (nil for tests that
+	// don't exercise the new path).
+	//
+	// For agents where the same user has both a legacy webhook_url
+	// AND a new webhook resource subscribing to email.received, both
+	// fire — back-compat is "both pathways live side by side". Slice 4
+	// will add the X-E2A-Deprecation header on the legacy path once
+	// the user has any new webhook row.
+	if s.relay.publisher != nil {
+		event := webhookpub.NewEvent(webhookpub.EventEmailReceived, agent.UserID, buildEmailReceivedPayload(
+			messageID, conversationID, displaySender, rcpt, s.inboundSubject, s.inboundThreadInfo, body, authHeaders, agent,
+		))
+		event.AgentID = agent.ID
+		event.ConversationID = conversationID
+		event.MessageID = messageID
+		// labels are unset on inbound (the labels feature applies
+		// post-receive); leave Event.Labels empty so label-filtered
+		// subscribers correctly skip (H5 null/empty semantics).
+		go s.relay.publisher.Publish(context.Background(), event)
+	}
+
 	// Local mode: message is stored, try WS notification
 	if agent.AgentMode == "local" {
 		if s.relay.hub != nil && s.relay.hub.IsConnected(agent.ID) {
@@ -346,6 +384,43 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 		log.Printf("[mail:%s] webhook=FAILED slug=%s error=%v", messageID, slug, err)
 	} else {
 		log.Printf("[mail:%s] webhook=OK slug=%s", messageID, slug)
+	}
+}
+
+// buildEmailReceivedPayload assembles the data portion of the
+// email.received envelope sent to webhook subscribers. Mirrors the
+// shape of the legacy webhook.Payload so receivers writing against
+// either model see the same fields — sender, to/cc/reply_to lists,
+// the raw RFC 5322 body (base64-encoded for JSON-safety), and the
+// signed auth headers.
+//
+// The envelope wrapper ({event, id, created_at, data}) is added by
+// the publisher when it marshals the Event; this helper only
+// produces the data subfield.
+func buildEmailReceivedPayload(
+	messageID, conversationID, displaySender, recipient, subject string,
+	threadInfo threadInfo,
+	rawMessage []byte,
+	authHeaders map[string]string,
+	agent *identity.AgentIdentity,
+) map[string]interface{} {
+	return map[string]interface{}{
+		"message_id":      messageID,
+		"conversation_id": conversationID,
+		"agent": map[string]interface{}{
+			"id":     agent.ID,
+			"email":  agent.EmailAddress(),
+			"domain": agent.Domain,
+		},
+		"from":         displaySender,
+		"to":           threadInfo.To,
+		"cc":           threadInfo.CC,
+		"reply_to":     threadInfo.ReplyTo,
+		"recipient":    recipient,
+		"subject":      subject,
+		"raw_message":  rawMessage,
+		"auth_headers": authHeaders,
+		"received_at":  time.Now().UTC().Format(time.RFC3339),
 	}
 }
 

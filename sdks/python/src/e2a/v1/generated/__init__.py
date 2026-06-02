@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -366,6 +366,14 @@ class RejectPendingMessageResponse(BaseModel):
     status: str | None = Field(None, examples=['rejected'])
 
 
+class RotateWebhookSecretResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    previous_secret_expires_at: str | None = None
+    signing_secret: str | None = None
+
+
 class SendEmailResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -386,6 +394,21 @@ class SigningSecretSummary(BaseModel):
     name: str | None = None
     secret: str | None = None
     secret_prefix: str | None = None
+
+
+class TestWebhookRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    data: dict[str, Any] | None = None
+    event: str | None = Field(None, examples=['email.received'])
+
+
+class TestWebhookResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    delivery_id: str | None = None
 
 
 class UpdateAgentRequest(BaseModel):
@@ -468,6 +491,47 @@ class VerifyDomainResponse(BaseModel):
     verified_at: str | None = None
 
 
+class WebhookDeliveryResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    attempts: int | None = None
+    created_at: str | None = None
+    event_type: str | None = None
+    id: str | None = None
+    last_attempt_at: str | None = None
+    last_error: str | None = None
+    last_status_code: int | None = None
+    next_retry_at: str | None = None
+    status: str | None = None
+
+
+class WebhookFilters(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    agent_ids: list[str] | None = None
+    conversation_ids: list[str] | None = None
+    labels: list[str] | None = None
+
+
+class WebhookResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    auto_disabled_at: str | None = None
+    created_at: str | None = None
+    description: str | None = None
+    enabled: bool | None = None
+    events: list[str] | None = None
+    filters: WebhookFilters | None = None
+    id: str | None = Field(None, examples=['wh_abc123'])
+    last_delivered_at: str | None = None
+    previous_secret_expires_at: str | None = Field(None, description='ONLY on rotate')
+    signing_secret: str | None = Field(None, description='ONLY on create + rotate')
+    url: str | None = None
+
+
 class ApprovePendingMessageRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -501,6 +565,16 @@ class ConversationDetail(BaseModel):
     messages: list[MessageSummary] | None = None
     outbound_count: int | None = Field(None, examples=[2])
     participants: list[str] | None = None
+
+
+class CreateWebhookRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    description: str | None = Field(None, examples=['main inbox handler'])
+    events: list[str] | None = Field(None, examples=[['email.received']])
+    filters: WebhookFilters | None = None
+    url: str | None = Field(None, examples=['https://example.com/e2a/hook'])
 
 
 class ForwardMessageRequest(BaseModel):
@@ -546,6 +620,20 @@ class ListSigningSecretsResponse(BaseModel):
         populate_by_name=True,
     )
     secrets: list[SigningSecretSummary] | None = None
+
+
+class ListWebhookDeliveriesResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    deliveries: list[WebhookDeliveryResponse] | None = None
+
+
+class ListWebhooksResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    webhooks: list[WebhookResponse] | None = None
 
 
 class PendingMessageDetail(BaseModel):
@@ -628,6 +716,17 @@ class SendEmailRequest(BaseModel):
     html_body: str | None = Field(None, examples=['<p>Hi Alice</p>'])
     subject: str | None = Field(None, examples=['Hello from my agent'])
     to: list[str] | None = Field(None, examples=[['alice@example.com']])
+
+
+class UpdateWebhookRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    description: str | None = None
+    enabled: bool | None = None
+    events: list[str] | None = None
+    filters: WebhookFilters | None = None
+    url: str | None = None
 
 
 class UserExport(BaseModel):
