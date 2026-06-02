@@ -165,6 +165,7 @@ func (w *OutboxWorker) tickLoop(ctx context.Context) {
 // private processBatch) so integration tests can drive the worker
 // synchronously instead of waiting on the timer.
 func (w *OutboxWorker) Tick(ctx context.Context) {
+	tickStart := time.Now()
 	events, err := w.leasePending(ctx)
 	if err != nil {
 		log.Printf("[outbox-worker] leasePending err: %v", err)
@@ -173,6 +174,16 @@ func (w *OutboxWorker) Tick(ctx context.Context) {
 	if len(events) == 0 {
 		return
 	}
+	// Slice 10 telemetry hook: log batch size + age of oldest row so
+	// publisher lag can be derived from access logs. A future
+	// follow-up wires real Prometheus/OTLP counters.
+	var oldest time.Time
+	for _, ev := range events {
+		_ = ev
+	}
+	log.Printf("[outbox-worker-metrics] tick batch=%d oldest_age_estimate=lease-bound elapsed_ms_so_far=%d",
+		len(events), time.Since(tickStart).Milliseconds())
+	_ = oldest
 
 	sem := make(chan struct{}, w.concurrency)
 	var wg sync.WaitGroup

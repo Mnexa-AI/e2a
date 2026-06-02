@@ -1122,6 +1122,43 @@ definitions:
       status:
         type: string
     type: object
+  WebhookEvent:
+    description: A durable event log entry. Returned by /api/v1/events.
+    properties:
+      id:
+        type: string
+        description: Stable event id (evt_<32hex>). Reused across replays so consumer dedup discards the replay.
+      type:
+        type: string
+        description: Event type from the catalog (e.g. email.received).
+      schema_version:
+        type: integer
+      created_at:
+        type: string
+      agent_id:
+        type: string
+      conversation_id:
+        type: string
+      message_id:
+        type: string
+      status:
+        type: string
+        description: Outbox state machine value. One of pending, processed, no_match.
+      data:
+        type: object
+        description: Event-specific payload (the envelope.data block).
+      delivery_status:
+        type: object
+        properties:
+          matched_webhooks:
+            type: integer
+          delivered:
+            type: integer
+          pending:
+            type: integer
+          failed:
+            type: integer
+    type: object
   WebhookFilters:
     properties:
       agent_ids:
@@ -2336,6 +2373,207 @@ paths:
       summary: Deployment info
       tags:
       - System
+  /api/v1/events:
+    get:
+      description: |
+        List webhook events in reverse-chronological order. Each event is a durable
+        record of something the gateway emitted to subscribers (today: `email.received`,
+        `email.sent`; future: `email.bounced`, `email.complained`, `email.delivered`).
+        Use this endpoint for reconciliation when a webhook receiver was down.
+        Cursor pagination via `token` / `next_token`; events past the 30-day retention
+        are not returned.
+      parameters:
+      - name: type
+        in: query
+        required: false
+        type: string
+        description: Exact event-type filter (e.g. `email.received`).
+      - name: agent_id
+        in: query
+        required: false
+        type: string
+      - name: conversation_id
+        in: query
+        required: false
+        type: string
+      - name: message_id
+        in: query
+        required: false
+        type: string
+      - name: since
+        in: query
+        required: false
+        type: string
+        description: RFC3339 timestamp; only events with `created_at >= since` are returned.
+      - name: until
+        in: query
+        required: false
+        type: string
+        description: RFC3339 timestamp; only events with `created_at < until` are returned.
+      - name: page_size
+        in: query
+        required: false
+        type: integer
+        description: 1-100; default 50.
+      - name: token
+        in: query
+        required: false
+        type: string
+        description: Opaque cursor from a previous response's `next_token`.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+            properties:
+              events:
+                type: array
+                items:
+                  $ref: '#/definitions/WebhookEvent'
+              next_token:
+                type: string
+        "400":
+          description: Invalid query parameter (bad cursor, malformed timestamp, etc.)
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid bearer token
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: List webhook events
+      tags:
+      - Events
+  /api/v1/events/{id}:
+    get:
+      description: |
+        Fetch a single webhook event by id. Returns 410 Gone when the event has
+        passed the 30-day retention boundary (its row has been janitored). The
+        `delivery_status` block shows how many of the matched subscribers have
+        received the event so far — useful for triage.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/WebhookEvent'
+        "404":
+          description: Event not found or not owned by caller
+          schema:
+            type: string
+        "410":
+          description: Event past the 30-day retention boundary
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get a single event
+      tags:
+      - Events
+  /api/v1/events/{id}/redeliver:
+    post:
+      description: |
+        Replay a previously-emitted event to a webhook. Body `{"webhook_id": "..."}`
+        replays to one webhook; empty body replays to every webhook that originally
+        matched the event (per the snapshot at fan-out time — does NOT re-evaluate
+        against the current subscriber set, by design).
+        The replay row carries the SAME envelope id as the original delivery, so
+        a customer-side receiver that dedupes on event id will discard the replay
+        as already-processed. This is intentional — replay is recovery, not
+        re-delivery.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        type: string
+      - name: body
+        in: body
+        required: false
+        schema:
+          type: object
+          properties:
+            webhook_id:
+              type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "404":
+          description: Event not found
+          schema:
+            type: string
+        "409":
+          description: Specified webhook was not in the originally-matched set
+          schema:
+            type: string
+        "410":
+          description: Event past retention
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Replay an event
+      tags:
+      - Events
+  /api/v1/webhooks/{id}/redeliver-since:
+    post:
+      description: |
+        Bulk-replay every event for this webhook since `since` (RFC3339).
+        Window is capped at 7 days. Skips events that already have a pending
+        delivery for this webhook (so calling this twice is idempotent).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        type: string
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            since:
+              type: string
+              description: RFC3339 timestamp; window cap 7 days.
+          required:
+          - since
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+            properties:
+              webhook_id:
+                type: string
+              since:
+                type: string
+              scheduled:
+                type: integer
+              skipped_already_pending:
+                type: integer
+        "400":
+          description: since is out of the allowed window or malformed
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Bulk-replay events for a webhook
+      tags:
+      - Events
   /api/v1/messages:
     get:
       description: Returns all pending_approval messages across every agent owned
