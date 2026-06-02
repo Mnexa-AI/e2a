@@ -160,6 +160,12 @@ func main() {
 	// the runbook.
 	outboxFlag := webhookpub.StaticFlag(os.Getenv("WEBHOOKS_OUTBOX_ENABLED") == "true")
 	webhookOutbox := webhookpub.NewOutbox(pool, outboxFlag)
+	// Slice 2: outbox publisher worker. Drains webhook_events into
+	// webhook_subscriber_deliveries via LISTEN + 1s fallback poll. The
+	// retry worker (existing) takes over from there. When the outbox
+	// flag is off (default v1), webhook_events stays empty and this
+	// worker has nothing to do — costs nothing to leave running.
+	outboxWorker := webhookpub.NewOutboxWorker(pool, store)
 	smtpRelay := outbound.NewSMTPRelay(&cfg.OutboundSMTP)
 	sender := outbound.NewSenderWithDKIM(smtpRelay, cfg.OutboundSMTP.FromDomain, store)
 
@@ -341,6 +347,14 @@ func main() {
 	go func() {
 		defer workerWG.Done()
 		autoDisableWorker.Start(subRetryCtx)
+	}()
+
+	// Slice 2: outbox publisher worker. Shares subRetryCtx so a
+	// single shutdown signal stops the whole webhook-delivery stack.
+	workerWG.Add(1)
+	go func() {
+		defer workerWG.Done()
+		outboxWorker.Start(subRetryCtx)
 	}()
 
 	// HITL expiration worker: transitions pending_approval messages that
