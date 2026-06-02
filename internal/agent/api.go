@@ -34,6 +34,7 @@ import (
 	"github.com/google/go-github/v72/github"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ory/fosite"
 	"golang.org/x/net/idna"
 )
@@ -208,6 +209,9 @@ type API struct {
 	// the legacy `go publisher.Publish` path per the §5.12 design
 	// limitation ("if we have it, keep it").
 	outbox webhookpub.Outbox
+	// eventsPool is the raw pgxpool used by the slice-6 events API.
+	// Optional — when nil, GET/POST /api/v1/events return 404.
+	eventsPool *pgxpool.Pool
 }
 
 // SetSubscriberStore wires the subscriber-store dependency after
@@ -424,6 +428,11 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	// HITL approval endpoints — scoped to the user (not a single agent) so
 	// reviewers can see pending messages across all their agents at once.
 	r.HandleFunc("/api/v1/messages", a.handleListMessages).Methods("GET")
+	// Slice 6 + 7: customer-facing events API.
+	r.HandleFunc("/api/v1/events", a.handleListEvents).Methods("GET")
+	r.HandleFunc("/api/v1/events/{id}", a.handleGetEvent).Methods("GET")
+	r.HandleFunc("/api/v1/events/{id}/redeliver", a.handleRedeliverEvent).Methods("POST")
+	r.HandleFunc("/api/v1/webhooks/{id}/redeliver-since", a.handleRedeliverSince).Methods("POST")
 	r.HandleFunc("/api/v1/messages/{id}", a.handleGetOutboundMessage).Methods("GET")
 	r.HandleFunc("/api/v1/messages/{id}/approve", a.handleApprovePendingMessage).Methods("POST")
 	r.HandleFunc("/api/v1/messages/{id}/reject", a.handleRejectPendingMessage).Methods("POST")

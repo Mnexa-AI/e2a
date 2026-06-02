@@ -264,6 +264,11 @@ func main() {
 	api.SetSubscriberStore(subscriberStore)
 	api.SetPublisher(webhookPublisher)
 	api.SetOutbox(webhookOutbox)
+	// Slices 6 + 7: customer-facing events API needs the raw pool to
+	// query webhook_events and write webhook_subscriber_deliveries on
+	// replay. Kept as a separate setter so a future refactor can route
+	// through a higher-level abstraction.
+	api.SetPoolForEvents(pool)
 
 	api.RegisterRoutes(router)
 
