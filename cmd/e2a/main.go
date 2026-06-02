@@ -145,6 +145,21 @@ func main() {
 	subscriberStore := webhook.NewSubscriberStore(pool)
 	subscriberDeliverer := webhook.NewSubscriberDeliverer(cfg.IsProduction())
 	webhookPublisher := webhookpub.New(store, webhookpub.NewDBInserter(pool), webhookFlag)
+
+	// WEBHOOKS_OUTBOX_ENABLED controls the slice-1+slice-3 transactional
+	// outbox path. Default off in v1 — see design §7.7. When off, the
+	// outbox is wired but PublishTx is a no-op; the relay still wraps
+	// the messages INSERT in a tx (one extra BEGIN/COMMIT overhead, no
+	// outbox row). When on, the messages INSERT + webhook_events INSERT
+	// commit together, closing the at-least-once publish-loss window.
+	// Flip to true permanently in slice 11 after telemetry validates.
+	//
+	// Slice 2 (the worker that drains webhook_events) is not in this
+	// commit; until it ships, enabling the flag in prod would let
+	// events accumulate without delivery. Document for operators in
+	// the runbook.
+	outboxFlag := webhookpub.StaticFlag(os.Getenv("WEBHOOKS_OUTBOX_ENABLED") == "true")
+	webhookOutbox := webhookpub.NewOutbox(pool, outboxFlag)
 	smtpRelay := outbound.NewSMTPRelay(&cfg.OutboundSMTP)
 	sender := outbound.NewSenderWithDKIM(smtpRelay, cfg.OutboundSMTP.FromDomain, store)
 
@@ -260,6 +275,7 @@ func main() {
 	smtpServer := relay.NewServer(cfg, store, signer, persistentDeliverer, usageTracker, wsHub)
 	smtpServer.SetEnforcer(enforcer)
 	smtpServer.SetPublisher(webhookPublisher)
+	smtpServer.SetOutbox(webhookOutbox)
 
 	// Graceful shutdown
 	sigCh := make(chan os.Signal, 1)

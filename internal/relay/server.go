@@ -24,6 +24,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"github.com/Mnexa-AI/e2a/internal/ws"
 	"github.com/emersion/go-smtp"
+	"github.com/jackc/pgx/v5"
 )
 
 type Server struct {
@@ -31,13 +32,26 @@ type Server struct {
 	store      *identity.Store
 	signer     *headers.Signer
 	deliverer  *webhook.PersistentDeliverer
-	// publisher is the new webhooks-as-a-resource publisher. Fires
+	// publisher is the LEGACY in-process fan-out path. Fires
 	// email.received events to the subscriber-resource path in
 	// addition to the legacy agent_identities.webhook_url delivery
 	// above. Optional — when nil (e.g. tests that don't exercise
 	// the new path) the relay only fires the legacy path. Wiring is
 	// additive: the legacy delivery flow is unchanged.
+	//
+	// Per design §7.7, this branch survives until slice 11 deletes
+	// it. When `outbox` is wired AND its FeatureFlag is enabled, the
+	// inbound trigger uses the transactional outbox path instead of
+	// firing this goroutine.
 	publisher webhookpub.Publisher
+	// outbox is the slice-1 transactional publisher. When non-nil,
+	// the inbound trigger writes the messages row and the
+	// webhook_events row in a single transaction (per design §4.2).
+	// When nil (the default), the legacy goroutine path runs
+	// instead — preserves the v1 default-off rollout posture even if
+	// a deployment forgets to wire it. The Outbox's own FeatureFlag
+	// is the secondary gate.
+	outbox webhookpub.Outbox
 	hub        *ws.Hub
 	usage      usage.UsageTracker
 	enforcer   limits.Enforcer // optional; when nil, inbound caps are not enforced
@@ -50,11 +64,18 @@ type Server struct {
 	outboundFromDomain string
 }
 
-// SetPublisher wires the new webhooks-as-a-resource publisher. Same
+// SetPublisher wires the legacy webhooks-as-a-resource publisher. Same
 // optional-setter pattern as SetEnforcer — keeps NewServer's signature
 // unchanged for the existing call sites and tests that don't care
 // about the new path.
 func (s *Server) SetPublisher(p webhookpub.Publisher) { s.publisher = p }
+
+// SetOutbox wires the slice-1 transactional outbox. When set AND its
+// FeatureFlag is enabled, the inbound trigger commits the messages row
+// and the webhook_events outbox row in a single transaction (per design
+// §4.2). The legacy SetPublisher path is preserved for backward compat
+// during the slice 3 → slice 11 rollout window.
+func (s *Server) SetOutbox(o webhookpub.Outbox) { s.outbox = o }
 
 // SetEnforcer wires in the resource-limits enforcer used to reject
 // inbound recipients whose owner has hit the message-flow or storage
@@ -316,11 +337,64 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 		deliveryStatus = "unread"
 	}
 
+	// Build the email.received event up front so its deterministic ID
+	// is computed BEFORE the trigger tx opens. An MTA-retried delivery
+	// produces the same (messageID, eventType) inputs → the same
+	// "evt_<hash>" id → outbox INSERT no-ops on the second attempt via
+	// ON CONFLICT (id) DO NOTHING. Idempotency by construction; see
+	// design §5.1.
+	event := webhookpub.NewEvent(webhookpub.EventEmailReceived, agent.UserID, buildEmailReceivedPayload(
+		messageID, conversationID, displaySender, rcpt, s.inboundSubject, s.inboundThreadInfo, body, authHeaders, agent,
+	))
+	event.AgentID = agent.ID
+	event.ConversationID = conversationID
+	event.MessageID = messageID
+	// labels are unset on inbound (the labels feature applies
+	// post-receive); leave Event.Labels empty so label-filtered
+	// subscribers correctly skip (H5 null/empty semantics).
+	event.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailReceived)
+
 	// Record inbound message with full content. Pass messageID so the
 	// stored row uses the same ID we just bound into the auth headers.
 	// toRecipients/cc come from the parsed To:/Cc: headers and are the
 	// same across every fan-out delivery for this inbound message.
-	inboundMsg, err := s.relay.store.CreateInboundMessage(ctx, messageID, agent.ID, displaySender, rcpt, s.inboundMsgID, s.inboundSubject, conversationID, deliveryStatus, body, authHeaders, s.inboundThreadInfo.To, s.inboundThreadInfo.CC, s.inboundThreadInfo.ReplyTo)
+	//
+	// Two paths:
+	//   (1) Transactional outbox path (slice 3, default-off via the
+	//       Outbox's FeatureFlag in v1): wraps the messages INSERT and
+	//       webhook_events INSERT in one tx so the at-least-once
+	//       publish-loss window is closed. Per §5.1, a COMMIT failure
+	//       means the message wasn't recorded and we return — the
+	//       SMTP MTA retries with the same Message-ID and the
+	//       deterministic event ID makes the retry idempotent.
+	//   (2) Legacy path: messages INSERT outside any tx; the
+	//       in-process publisher.Publish goroutine fires post-commit.
+	//       Preserves pre-design behavior so deployments that haven't
+	//       wired the outbox don't regress.
+	var inboundMsg *identity.Message
+	var err error
+	if s.relay.outbox != nil {
+		err = s.relay.store.WithTx(ctx, func(tx pgx.Tx) error {
+			var txErr error
+			inboundMsg, txErr = s.relay.store.CreateInboundMessageInTx(
+				ctx, tx, messageID, agent.ID, displaySender, rcpt,
+				s.inboundMsgID, s.inboundSubject, conversationID,
+				deliveryStatus, body, authHeaders,
+				s.inboundThreadInfo.To, s.inboundThreadInfo.CC, s.inboundThreadInfo.ReplyTo,
+			)
+			if txErr != nil {
+				return txErr
+			}
+			return s.relay.outbox.PublishTx(ctx, tx, event)
+		})
+	} else {
+		inboundMsg, err = s.relay.store.CreateInboundMessage(
+			ctx, messageID, agent.ID, displaySender, rcpt,
+			s.inboundMsgID, s.inboundSubject, conversationID,
+			deliveryStatus, body, authHeaders,
+			s.inboundThreadInfo.To, s.inboundThreadInfo.CC, s.inboundThreadInfo.ReplyTo,
+		)
+	}
 	if err != nil {
 		log.Printf("[%s] [%s] failed to record inbound message: %v", s.id, senderEmail, err)
 		return
@@ -331,27 +405,16 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	log.Printf("[mail:%s] dir=inbound from=%s to=%s slug=%s conv_id=%s subject=%q mode=%s verified=%t",
 		messageID, displaySender, rcpt, slug, conversationID, s.inboundSubject, agent.AgentMode, domainAuth.DomainAuthenticated())
 
-	// Fire email.received to the new webhooks-as-a-resource path
-	// (alongside the legacy delivery below). Post-commit async per
-	// the design — runs in a goroutine and doesn't block the SMTP
-	// delivery flow. The publisher is optional (nil for tests that
-	// don't exercise the new path).
-	//
-	// For agents where the same user has both a legacy webhook_url
-	// AND a new webhook resource subscribing to email.received, both
-	// fire — back-compat is "both pathways live side by side". Slice 4
-	// will add the X-E2A-Deprecation header on the legacy path once
-	// the user has any new webhook row.
+	// Legacy in-process publisher continues to fan out alongside the
+	// outbox path during the rollout window (slice 3 → slice 11). Per
+	// §7.7, the legacy `go publisher.Publish(...)` is the path that
+	// actually delivers events today; slice 2 will introduce the
+	// outbox-draining worker that takes over. Until then, leaving the
+	// goroutine here is what keeps customers receiving webhooks. When
+	// slice 2 lands, the partial unique index on
+	// webhook_subscriber_deliveries(event_id, webhook_id) is what
+	// prevents double delivery if both paths happen to be active.
 	if s.relay.publisher != nil {
-		event := webhookpub.NewEvent(webhookpub.EventEmailReceived, agent.UserID, buildEmailReceivedPayload(
-			messageID, conversationID, displaySender, rcpt, s.inboundSubject, s.inboundThreadInfo, body, authHeaders, agent,
-		))
-		event.AgentID = agent.ID
-		event.ConversationID = conversationID
-		event.MessageID = messageID
-		// labels are unset on inbound (the labels feature applies
-		// post-receive); leave Event.Labels empty so label-filtered
-		// subscribers correctly skip (H5 null/empty semantics).
 		go s.relay.publisher.Publish(context.Background(), event)
 	}
 

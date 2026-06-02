@@ -778,6 +778,50 @@ func NewMessageID() string {
 // header list when the agent was Bcc'd). replyTo is the parsed Reply-To:
 // header (empty when absent — never silently falls back to sender).
 func (s *Store) CreateInboundMessage(ctx context.Context, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus string, rawMessage []byte, authHeaders map[string]string, toRecipients, cc, replyTo []string) (*Message, error) {
+	return createInboundMessage(ctx, s.pool, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus, rawMessage, authHeaders, toRecipients, cc, replyTo)
+}
+
+// WithTx opens a transaction, runs fn inside it, and commits if fn
+// returns nil (or rolls back if fn returns an error). Used by the
+// slice-3 relay refactor so the messages INSERT and the
+// webhook_events outbox INSERT commit together, closing the
+// at-least-once publish-loss window.
+//
+// The relay handler is the primary v1 caller; future trigger sites
+// (slice 4 outbound + HITL) reuse the same helper. Keeps callers from
+// having to import pgxpool directly.
+func (s *Store) WithTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// CreateInboundMessageInTx writes the messages row inside the caller's
+// transaction. Used by the slice-3 relay refactor (per design §4.2) so
+// the messages INSERT and the webhook_events outbox INSERT commit
+// together, closing the at-least-once publish-loss window.
+//
+// Mirrors the CreateAgentTx pattern at store.go:596-607 — same SQL
+// body, executed against either *pgxpool.Pool or pgx.Tx via the
+// messageExecutor interface below.
+func (s *Store) CreateInboundMessageInTx(ctx context.Context, tx pgx.Tx, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus string, rawMessage []byte, authHeaders map[string]string, toRecipients, cc, replyTo []string) (*Message, error) {
+	return createInboundMessage(ctx, tx, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus, rawMessage, authHeaders, toRecipients, cc, replyTo)
+}
+
+// messageExecutor is the subset of *pgxpool.Pool and pgx.Tx that
+// createInboundMessage needs. Parallel to agentExecutor (which already
+// lives in this file for createAgent) — same shape, different scope.
+type messageExecutor interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
+func createInboundMessage(ctx context.Context, exec messageExecutor, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus string, rawMessage []byte, authHeaders map[string]string, toRecipients, cc, replyTo []string) (*Message, error) {
 	if id == "" {
 		id = NewMessageID()
 	}
@@ -815,7 +859,7 @@ func (s *Store) CreateInboundMessage(ctx context.Context, id, agentID, senderEma
 	if m.DeliveryStatus == "unread" || m.DeliveryStatus == "read" {
 		inboxStatus = &m.DeliveryStatus
 	}
-	_, err := s.pool.Exec(ctx,
+	_, err := exec.Exec(ctx,
 		`INSERT INTO messages (id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, auth_headers, conversation_id, inbox_status, created_at, expires_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
 		m.ID, m.AgentID, m.Direction, m.Sender, m.Recipient, m.ToRecipients, m.CC, m.ReplyTo, m.Subject, m.EmailMessageID, m.RawMessage, authHeadersJSON, m.ConversationID, inboxStatus, m.CreatedAt, m.ExpiresAt,
