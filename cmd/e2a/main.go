@@ -263,6 +263,7 @@ func main() {
 	api.SetBillingHookURL(cfg.Limits.BillingHookURL)
 	api.SetSubscriberStore(subscriberStore)
 	api.SetPublisher(webhookPublisher)
+	api.SetOutbox(webhookOutbox)
 
 	api.RegisterRoutes(router)
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -86,12 +87,18 @@ func (o *outbox) PublishTx(ctx context.Context, tx pgx.Tx, e Event) error {
 }
 
 func (o *outbox) PublishBestEffortTx(ctx context.Context, tx pgx.Tx, e Event) {
-	// Intentionally unimplemented in slice 1. Slice 4 wires the
-	// outbound + HITL-approve trigger sites to this method (where
-	// SES.Send has already happened, so we cannot roll back the
-	// caller's tx on outbox failure). Until then, calling this is a
-	// programming error.
-	panic("webhookpub: PublishBestEffortTx not implemented until slice 4")
+	if !o.flag.Enabled() {
+		return
+	}
+	if err := writeOutboxRow(ctx, tx, e); err != nil {
+		// Best-effort: log and return. The caller's tx commits the
+		// business state regardless because the irreversible action
+		// (SES.Send) already happened — rolling back would orphan a
+		// sent email. A future slice will pipe these failures to a
+		// webhook_publish_failures table; for now the log is the
+		// only signal.
+		log.Printf("[outbox] PublishBestEffortTx err (event=%s type=%s): %v", e.ID, e.Type, err)
+	}
 }
 
 // writeOutboxRow is the SQL body shared by PublishTx and (eventually)

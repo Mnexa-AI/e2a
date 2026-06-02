@@ -174,17 +174,8 @@ func TestOutbox_PublishTx_FlagOffNoOp(t *testing.T) {
 	}
 }
 
-func TestOutbox_PublishBestEffortTx_PanicsUntilSlice4(t *testing.T) {
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatalf("PublishBestEffortTx should panic in slice 1")
-		}
-		msg, _ := r.(string)
-		if !strings.Contains(msg, "slice 4") {
-			t.Errorf("panic should mention slice 4: %v", r)
-		}
-	}()
-	o := &outbox{pool: nil, flag: StaticFlag(true)}
+func TestOutbox_PublishBestEffortTx_FlagOffNoOp(t *testing.T) {
+	// Best-effort: flag off → complete no-op, no panic.
+	o := &outbox{pool: nil, flag: StaticFlag(false)}
 	o.PublishBestEffortTx(context.Background(), nil, Event{})
 }
