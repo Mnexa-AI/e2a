@@ -77,6 +77,37 @@ describe("deriveLifecycleSteps", () => {
     expect(last.caption).toContain("auto-rejected");
   });
 
+  it("hitlEnabled=false → skips the Held step and uses draftedAt as the delivered timestamp", () => {
+    const steps = deriveLifecycleSteps({
+      status: "sent",
+      draftedAt: "2026-05-24T14:18:09Z",
+      hitlEnabled: false,
+    });
+    expect(steps.map((s) => s.label)).toEqual([
+      "Agent drafted reply",
+      "Sent to recipient",
+    ]);
+    const sent = steps[steps.length - 1];
+    expect(sent.caption).toMatch(/delivered$/);
+    // Caption must carry a real timestamp, not the "—" placeholder
+    // that this fix is replacing.
+    expect(sent.caption).not.toMatch(/^—/);
+  });
+
+  it("hitlEnabled=false w/ inbound parent → Inbound + Drafted + Sent, no Held", () => {
+    const steps = deriveLifecycleSteps({
+      status: "sent",
+      draftedAt: "2026-05-24T14:18:09Z",
+      inboundReceivedAt: "2026-05-24T14:05:12Z",
+      hitlEnabled: false,
+    });
+    expect(steps.map((s) => s.label)).toEqual([
+      "Inbound received",
+      "Agent drafted reply",
+      "Sent to recipient",
+    ]);
+  });
+
   it("Held step is always present; status drives current/terminal caption", () => {
     const pending = deriveLifecycleSteps({
       status: "pending_approval",

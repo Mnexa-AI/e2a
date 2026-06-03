@@ -7,7 +7,7 @@ import { render as rawRender } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { mutate } from "swr";
 import AgentMessageFocusPage from "./page";
-import { pendingMessageKey } from "../../../../../../lib/swrKeys";
+import { agentsKey, pendingMessageKey } from "../../../../../../lib/swrKeys";
 
 const mockUseSearchParams = jest.fn();
 const mockRouterPush = jest.fn();
@@ -374,12 +374,21 @@ describe("AgentMessageFocusPage", () => {
   // the textarea would be empty and the assertion would fail.
   it("seeds the textarea from pre-populated SWR cache without firing a fetch (true cache-hit regression)", async () => {
     setSearchParams({ email: "support@acme.io", id: "msg_pending" });
-    // Pre-seed the cache the page is about to subscribe to. The
+    // Pre-seed both caches the page subscribes to. The
     // jest.setup.ts afterEach nukes the module-level cache between
-    // tests, so this seed is isolated to this test.
+    // tests, so these seeds are isolated to this test. The agents
+    // cache is now read by LifecycleSection to decide whether to
+    // render the HITL step — without seeding it the page would
+    // trigger a /api/dashboard/agents fetch and defeat the cache-
+    // hit reproduction below.
     await mutate(
       pendingMessageKey("msg_pending"),
       OUTBOUND_PENDING,
+      { revalidate: false },
+    );
+    await mutate(
+      agentsKey,
+      [{ id: "ag_1", email: "support@acme.io", hitl_enabled: true }],
       { revalidate: false },
     );
     // Fetch must NOT be called: any call indicates the page hit the

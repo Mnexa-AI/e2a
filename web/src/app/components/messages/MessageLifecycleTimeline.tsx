@@ -122,6 +122,11 @@ export type LifecycleInput = {
   reviewedAt?: string | null;
   /** Optional TTL hint for the pending step. */
   ttlHint?: string;
+  /** Whether the owning agent has HITL enabled. When false the held
+   *  step is omitted and the delivered timestamp falls back to
+   *  `draftedAt` (messages go straight from draft → sent). Defaults
+   *  to true to preserve the historical contract. */
+  hitlEnabled?: boolean;
 };
 
 function fmtClock(iso: string): string {
@@ -132,6 +137,7 @@ function fmtClock(iso: string): string {
 
 export function deriveLifecycleSteps(input: LifecycleInput): LifecycleStep[] {
   const steps: LifecycleStep[] = [];
+  const hitlEnabled = input.hitlEnabled ?? true;
 
   if (input.inboundReceivedAt) {
     steps.push({
@@ -153,21 +159,28 @@ export function deriveLifecycleSteps(input: LifecycleInput): LifecycleStep[] {
     input.status === "expired_approved" ||
     input.status === "expired_rejected";
 
-  steps.push({
-    label: "Held for HITL approval",
-    caption: terminal
-      ? input.reviewedAt
-        ? `${fmtClock(input.reviewedAt)} · resolved`
-        : "resolved"
-      : `${input.ttlHint ?? "TTL"} · auto-reject on expiry`,
-    kind: "warn",
-    current: input.status === "pending_approval",
-  });
+  if (hitlEnabled) {
+    steps.push({
+      label: "Held for HITL approval",
+      caption: terminal
+        ? input.reviewedAt
+          ? `${fmtClock(input.reviewedAt)} · resolved`
+          : "resolved"
+        : `${input.ttlHint ?? "TTL"} · auto-reject on expiry`,
+      kind: "warn",
+      current: input.status === "pending_approval",
+    });
+  }
+
+  // When HITL is off the message goes straight from draft → SMTP, so
+  // the draft timestamp is the best signal we have for "delivered."
+  // When HITL is on we still prefer reviewedAt (approval = send-time).
+  const sentAt = input.reviewedAt ?? (hitlEnabled ? null : input.draftedAt);
 
   if (input.status === "sent" || input.status === "expired_approved") {
     steps.push({
       label: "Sent to recipient",
-      caption: `${input.reviewedAt ? fmtClock(input.reviewedAt) : "—"} · ${input.status === "expired_approved" ? "auto-approved" : "delivered"}`,
+      caption: `${sentAt ? fmtClock(sentAt) : "—"} · ${input.status === "expired_approved" ? "auto-approved" : "delivered"}`,
       kind: "success",
     });
   } else if (input.status === "rejected" || input.status === "expired_rejected") {
