@@ -64,7 +64,7 @@ func IsValidEventType(name string) bool {
 //
 // MessageID is optional — set when the event has an originating
 // message row. Persisted on the delivery row with ON DELETE SET NULL
-// so the 30-day messages janitor doesn't orphan the delivery.
+// so the messages janitor (10-day TTL) doesn't orphan the delivery.
 type Event struct {
 	// ID is a unique identifier for this event firing. Stable across
 	// retries — receivers dedup on it.
