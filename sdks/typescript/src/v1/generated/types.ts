@@ -1370,6 +1370,214 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List webhook events
+         * @description Returns webhook events in reverse-chronological order. Cursor-paginated via `token` / `next_token`. Events past the 30-day retention are not returned.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Exact event-type filter (e.g. email.received) */
+                    type?: string;
+                    /** @description Filter to events for a specific agent */
+                    agent_id?: string;
+                    /** @description Filter to events on one conversation */
+                    conversation_id?: string;
+                    /** @description Filter to events on one message */
+                    message_id?: string;
+                    /** @description RFC3339 timestamp; only events with created_at >= since */
+                    since?: string;
+                    /** @description RFC3339 timestamp; only events with created_at < until */
+                    until?: string;
+                    /** @description Page size 1-100; default 50 */
+                    page_size?: number;
+                    /** @description Opaque cursor from a previous response's next_token */
+                    token?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ListEventsResponse"];
+                    };
+                };
+                /** @description Invalid query parameter */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Missing or invalid API key */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a single event
+         * @description Returns the full webhook event including delivery_status counts. 410 Gone when the event is past the 30-day retention boundary.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID (evt_<32hex>) */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WebhookEvent"];
+                    };
+                };
+                /** @description Event not found or not owned by caller */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Event past 30-day retention */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events/{id}/redeliver": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replay a webhook event
+         * @description Replay an event to one webhook (body `{webhook_id}`) or to every originally-matched webhook (empty body). Reuses the original event id so consumer dedup discards the replay if already processed.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description {webhook_id} for targeted replay; empty for fan-out */
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["RedeliverRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RedeliverResponse"];
+                    };
+                };
+                /** @description Event not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Webhook not in originally-matched set */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Event past retention */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/info": {
         parameters: {
             query?: never;
@@ -2163,6 +2371,62 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/webhooks/{id}/redeliver-since": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bulk-replay events for a webhook
+         * @description Re-fires every event the webhook originally matched since `since` (RFC3339). Window capped at 7 days. Skips events that already have a pending delivery for this webhook.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Webhook ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Replay window */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RedeliverSinceRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RedeliverSinceResponse"];
+                    };
+                };
+                /** @description since out of window or malformed */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/webhooks": {
         parameters: {
             query?: never;
@@ -2817,6 +3081,12 @@ export interface components {
             usage_summaries_deleted?: number;
             user_deleted?: boolean;
         };
+        DeliveryStatus: {
+            delivered?: number;
+            failed?: number;
+            matched_webhooks?: number;
+            pending?: number;
+        };
         DeploymentInfo: {
             /**
              * @description PublicURL is the externally visible base URL of the API itself —
@@ -2920,6 +3190,10 @@ export interface components {
         };
         ListDomainsResponse: {
             domains?: components["schemas"]["Domain"][];
+        };
+        ListEventsResponse: {
+            events?: components["schemas"]["WebhookEvent"][];
+            next_token?: string;
         };
         ListMessagesResponse: {
             messages?: components["schemas"]["MessageSummary"][];
@@ -3146,6 +3420,31 @@ export interface components {
              * @enum {string}
              */
             type?: "send" | "reply" | "test" | "forward";
+        };
+        RedeliverDeliveryResult: {
+            delivery_id?: string;
+            reason?: string;
+            status?: string;
+            webhook_id?: string;
+        };
+        RedeliverRequest: {
+            webhook_id?: string;
+        };
+        RedeliverResponse: {
+            deliveries?: components["schemas"]["RedeliverDeliveryResult"][];
+            delivery_id?: string;
+            event_id?: string;
+            status?: string;
+            webhook_id?: string;
+        };
+        RedeliverSinceRequest: {
+            since?: string;
+        };
+        RedeliverSinceResponse: {
+            scheduled?: number;
+            since?: string;
+            skipped_already_pending?: number;
+            webhook_id?: string;
         };
         RegisterAgentRequest: {
             /**
@@ -3376,6 +3675,20 @@ export interface components {
             last_status_code?: number;
             next_retry_at?: string;
             status?: string;
+        };
+        WebhookEvent: {
+            agent_id?: string;
+            conversation_id?: string;
+            created_at?: string;
+            data?: {
+                [key: string]: unknown;
+            };
+            delivery_status?: components["schemas"]["DeliveryStatus"];
+            id?: string;
+            message_id?: string;
+            schema_version?: number;
+            status?: string;
+            type?: string;
         };
         WebhookFilters: {
             agent_ids?: string[];

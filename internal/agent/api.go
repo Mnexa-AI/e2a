@@ -23,6 +23,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/dkim"
 	"github.com/Mnexa-AI/e2a/internal/hitlnotify"
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
+	"github.com/Mnexa-AI/e2a/internal/telemetry"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
@@ -33,6 +34,8 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"github.com/google/go-github/v72/github"
 	"github.com/gorilla/mux"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ory/fosite"
 	"golang.org/x/net/idna"
 )
@@ -199,6 +202,20 @@ type API struct {
 	// resource. Optional — when nil, the trigger sites silently skip
 	// the publish step (the legacy webhook_url path is unaffected).
 	publisher webhookpub.Publisher
+	// outbox is the slice-4 transactional publisher for outbound
+	// events. When wired AND its FeatureFlag is enabled, post-side-
+	// effect events (email.sent, email.approved) fire via
+	// PublishBestEffortTx so the outbox write never rolls back the
+	// already-committed SES.Send. Pre-side-effect HITL events stay on
+	// the legacy `go publisher.Publish` path per the §5.12 design
+	// limitation ("if we have it, keep it").
+	outbox webhookpub.Outbox
+	// eventsPool is the raw pgxpool used by the slice-6 events API.
+	// Optional — when nil, GET/POST /api/v1/events return 404.
+	eventsPool *pgxpool.Pool
+	// metrics is the slice 10 observability surface. Defaulted to
+	// NoOp; production wires telemetry.Log or a real backend.
+	metrics telemetry.Metrics
 }
 
 // SetSubscriberStore wires the subscriber-store dependency after
@@ -207,10 +224,31 @@ func (a *API) SetSubscriberStore(s *webhook.SubscriberStore) {
 	a.subscriberStore = s
 }
 
-// SetPublisher wires the webhookpub.Publisher used by handlers to fan
-// outbound + HITL events to webhook subscribers. Safe to leave nil in
+// SetPublisher wires the LEGACY in-process fan-out publisher. Kept
+// during the slice-4→slice-11 rollout window. Safe to leave nil in
 // tests; trigger sites no-op when it is.
 func (a *API) SetPublisher(p webhookpub.Publisher) { a.publisher = p }
+
+// SetOutbox wires the slice-4 transactional outbox. Used by the
+// outbound /send handler for the email.sent event (post-side-effect:
+// PublishBestEffortTx). Other trigger sites (HITL) continue to use
+// the legacy publisher; they will migrate in a future slice if/when
+// their handlers gain transactional plumbing.
+func (a *API) SetOutbox(o webhookpub.Outbox) { a.outbox = o }
+
+// SetMetrics wires the slice 10 observability backend. Default is
+// telemetry.NoOp; production passes telemetry.NewLog() or a real
+// counter backend.
+func (a *API) SetMetrics(m telemetry.Metrics) { a.metrics = m }
+
+// emit returns the wired metrics backend, defaulting to NoOp so
+// handler-level instrumentation doesn't need nil guards everywhere.
+func (a *API) emit() telemetry.Metrics {
+	if a.metrics == nil {
+		return telemetry.NoOp{}
+	}
+	return a.metrics
+}
 
 // publishAsync fires an event in a fresh goroutine so the handler's
 // response is not blocked by webhook routing. Returns immediately.
@@ -222,6 +260,100 @@ func (a *API) publishAsync(e webhookpub.Event) {
 		return
 	}
 	go a.publisher.Publish(context.Background(), e)
+}
+
+// publishSent fires email.sent via BOTH the legacy publisher (in a
+// goroutine) AND the slice-4 transactional outbox path. The outbox
+// uses PublishBestEffortTx because SES has already accepted the send —
+// the messages row write + outbox write happen in one tx so the
+// outbox commit is durable, but failure to write to the outbox
+// MUST NOT roll back the already-committed messages row (and the
+// already-sent email).
+//
+// During the rollout window (slice 4 → slice 11) both paths fire in
+// parallel; the partial unique index on
+// webhook_subscriber_deliveries(event_id, webhook_id) is what
+// prevents double delivery once slice 2's worker picks up the new
+// path.
+//
+// outMsg may be nil if CreateOutboundMessage failed earlier — when
+// nil we skip the outbox path because there is no message row to
+// transactionally co-commit with. The legacy goroutine still fires.
+func (a *API) publishSent(ctx context.Context, e webhookpub.Event, outMsg *identity.Message) {
+	if a.outbox != nil && outMsg != nil {
+		// Use deterministic ID so MTA retries (no analog here for
+		// /send, but rebill of an idempotency key counts as one)
+		// dedupe through ON CONFLICT (id) DO NOTHING.
+		e.ID = webhookpub.DeterministicEventID(outMsg.ID, e.Type)
+		err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
+			// The messages row is already committed (CreateOutbound-
+			// Message ran outside this tx because SES already
+			// accepted the send and the row should be durable even
+			// if the outbox write fails). So this tx only writes the
+			// outbox row — best-effort by contract.
+			a.outbox.PublishBestEffortTx(ctx, tx, e)
+			return nil
+		})
+		if err != nil {
+			log.Printf("[api] outbox tx for email.sent err: %v", err)
+		}
+	}
+	a.emit().OutboxEventsPublished(e.Type)
+	a.publishAsync(e)
+}
+
+// publishPendingApproval fires email.pending_approval via the outbox
+// (PublishTx — pre-side-effect: the pending row hasn't been sent to
+// SES yet) AND the legacy goroutine. pendingMsgID seeds the
+// deterministic event id so /send retries with the same idempotency
+// key don't fire duplicate events.
+func (a *API) publishPendingApproval(ctx context.Context, e webhookpub.Event, pendingMsgID string) {
+	if a.outbox != nil && pendingMsgID != "" {
+		e.ID = webhookpub.DeterministicEventID(pendingMsgID, e.Type)
+		err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
+			return a.outbox.PublishTx(ctx, tx, e)
+		})
+		if err != nil {
+			log.Printf("[api] outbox tx for email.pending_approval err: %v", err)
+		}
+	}
+	a.emit().OutboxEventsPublished(e.Type)
+	a.publishAsync(e)
+}
+
+// publishApproved fires email.approved via the outbox
+// (PublishBestEffortTx — POST-side-effect: SES has already accepted
+// the approved send) AND the legacy goroutine.
+func (a *API) publishApproved(ctx context.Context, e webhookpub.Event, sentMsg *identity.Message) {
+	if a.outbox != nil && sentMsg != nil {
+		e.ID = webhookpub.DeterministicEventID(sentMsg.ID, e.Type)
+		err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
+			a.outbox.PublishBestEffortTx(ctx, tx, e)
+			return nil
+		})
+		if err != nil {
+			log.Printf("[api] outbox tx for email.approved err: %v", err)
+		}
+	}
+	a.emit().OutboxEventsPublished(e.Type)
+	a.publishAsync(e)
+}
+
+// publishRejected fires email.rejected via the outbox (PublishTx —
+// pre-side-effect: rejection is a row update, no SES involvement) AND
+// the legacy goroutine.
+func (a *API) publishRejected(ctx context.Context, e webhookpub.Event, rejectedMsgID string) {
+	if a.outbox != nil && rejectedMsgID != "" {
+		e.ID = webhookpub.DeterministicEventID(rejectedMsgID, e.Type)
+		err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
+			return a.outbox.PublishTx(ctx, tx, e)
+		})
+		if err != nil {
+			log.Printf("[api] outbox tx for email.rejected err: %v", err)
+		}
+	}
+	a.emit().OutboxEventsPublished(e.Type)
+	a.publishAsync(e)
 }
 
 // SetApprovalSigner wires in the magic-link signer after construction so
@@ -369,6 +501,11 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	// HITL approval endpoints — scoped to the user (not a single agent) so
 	// reviewers can see pending messages across all their agents at once.
 	r.HandleFunc("/api/v1/messages", a.handleListMessages).Methods("GET")
+	// Slice 6 + 7: customer-facing events API.
+	r.HandleFunc("/api/v1/events", a.handleListEvents).Methods("GET")
+	r.HandleFunc("/api/v1/events/{id}", a.handleGetEvent).Methods("GET")
+	r.HandleFunc("/api/v1/events/{id}/redeliver", a.handleRedeliverEvent).Methods("POST")
+	r.HandleFunc("/api/v1/webhooks/{id}/redeliver-since", a.handleRedeliverSince).Methods("POST")
 	r.HandleFunc("/api/v1/messages/{id}", a.handleGetOutboundMessage).Methods("GET")
 	r.HandleFunc("/api/v1/messages/{id}/approve", a.handleApprovePendingMessage).Methods("POST")
 	r.HandleFunc("/api/v1/messages/{id}/reject", a.handleRejectPendingMessage).Methods("POST")
@@ -1536,7 +1673,7 @@ func (a *API) holdForApproval(w http.ResponseWriter, r *http.Request, agent *ide
 	// finalize it even if every notification email bounces.
 	a.notifier.NotifyPendingApprovalAsync(msg, agent)
 
-	a.publishAsync(a.buildPendingApprovalEvent(agent, msg, req, msgType))
+	a.publishPendingApproval(r.Context(), a.buildPendingApprovalEvent(agent, msg, req, msgType), msg.ID)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -1745,7 +1882,7 @@ func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[mail:%s] dir=outbound type=send from=%s to=%v slug=%s conv_id=%s subject=%q", outMsg.ID, agent.EmailAddress(), result.To, slug, req.ConversationID, req.Subject)
 	}
 
-	a.publishAsync(a.buildSentEvent(agent, outMsg, result, req, "send"))
+	a.publishSent(r.Context(), a.buildSentEvent(agent, outMsg, result, req, "send"), outMsg)
 
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, map[string]string{
@@ -2078,7 +2215,7 @@ func (a *API) handleReplyToMessage(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[mail:%s] dir=outbound type=reply from=%s to=%v slug=%s conv_id=%s subject=%q in_reply_to=%s", outMsg.ID, agent.EmailAddress(), result.To, slug, req.ConversationID, subject, msgID)
 	}
 
-	a.publishAsync(a.buildSentEvent(agent, outMsg, result, sendReq, "reply"))
+	a.publishSent(r.Context(), a.buildSentEvent(agent, outMsg, result, sendReq, "reply"), outMsg)
 
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, map[string]string{
@@ -2279,7 +2416,7 @@ func (a *API) handleForwardMessage(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[mail:%s] dir=outbound type=forward from=%s to=%v slug=%s conv_id=%s subject=%q orig=%s", outMsg.ID, agent.EmailAddress(), result.To, slug, req.ConversationID, subject, msgID)
 	}
 
-	a.publishAsync(a.buildSentEvent(agent, outMsg, result, sendReq, "forward"))
+	a.publishSent(r.Context(), a.buildSentEvent(agent, outMsg, result, sendReq, "forward"), outMsg)
 
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, map[string]string{

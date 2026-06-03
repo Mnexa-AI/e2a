@@ -12,6 +12,7 @@ import { read } from "../commands/read.js";
 import { conversationsList, conversationsShow } from "../commands/conversations.js";
 import { forward } from "../commands/forward.js";
 import { labels } from "../commands/labels.js";
+import { listEvents, getEvent, redeliverEvent } from "../commands/events.js";
 import { reply } from "../commands/reply.js";
 import { send } from "../commands/send.js";
 import { config } from "../commands/config.js";
@@ -270,6 +271,40 @@ async function main() {
         from: getFlag(args, "--agent"),
       });
       break;
+    case "events": {
+      const sub = args[0];
+      const rest = args.slice(1);
+      if (sub === "list") {
+        await listEvents({
+          type: getFlag(rest, "--type"),
+          agentId: getFlag(rest, "--agent"),
+          conversationId: getFlag(rest, "--conversation"),
+          messageId: getFlag(rest, "--message"),
+          since: getFlag(rest, "--since"),
+          until: getFlag(rest, "--until"),
+          limit: getFlag(rest, "--limit") ? parseInt(getFlag(rest, "--limit") as string, 10) : undefined,
+          token: getFlag(rest, "--token"),
+        });
+      } else if (sub === "get") {
+        const id = rest[0];
+        if (!id) {
+          process.stderr.write("usage: e2a events get <event-id>\n");
+          process.exit(1);
+        }
+        await getEvent(id);
+      } else if (sub === "redeliver") {
+        const id = rest[0];
+        if (!id) {
+          process.stderr.write("usage: e2a events redeliver <event-id> [--webhook <wh-id>]\n");
+          process.exit(1);
+        }
+        await redeliverEvent(id, { webhookId: getFlag(rest, "--webhook") });
+      } else {
+        process.stderr.write("usage: e2a events {list|get|redeliver} …\n");
+        process.exit(1);
+      }
+      break;
+    }
     case "send":
       await send(
         getFlags(args, "--to"),

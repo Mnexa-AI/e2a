@@ -27,6 +27,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/relay"
 	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
+	"github.com/Mnexa-AI/e2a/internal/telemetry"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"github.com/Mnexa-AI/e2a/internal/ws"
 	"github.com/Mnexa-AI/e2a/migrations"
@@ -145,6 +146,32 @@ func main() {
 	subscriberStore := webhook.NewSubscriberStore(pool)
 	subscriberDeliverer := webhook.NewSubscriberDeliverer(cfg.IsProduction())
 	webhookPublisher := webhookpub.New(store, webhookpub.NewDBInserter(pool), webhookFlag)
+
+	// WEBHOOKS_OUTBOX_ENABLED controls the slice-1+slice-3 transactional
+	// outbox path. Default off in v1 — see design §7.7. When off, the
+	// outbox is wired but PublishTx is a no-op; the relay still wraps
+	// the messages INSERT in a tx (one extra BEGIN/COMMIT overhead, no
+	// outbox row). When on, the messages INSERT + webhook_events INSERT
+	// commit together, closing the at-least-once publish-loss window.
+	// Flip to true permanently in slice 11 after telemetry validates.
+	//
+	// Slice 2 (the worker that drains webhook_events) is not in this
+	// commit; until it ships, enabling the flag in prod would let
+	// events accumulate without delivery. Document for operators in
+	// the runbook.
+	outboxFlag := webhookpub.StaticFlag(os.Getenv("WEBHOOKS_OUTBOX_ENABLED") == "true")
+	webhookOutbox := webhookpub.NewOutbox(pool, outboxFlag)
+	// Slice 2: outbox publisher worker. Drains webhook_events into
+	// webhook_subscriber_deliveries via LISTEN + 1s fallback poll. The
+	// retry worker (existing) takes over from there. When the outbox
+	// flag is off (default v1), webhook_events stays empty and this
+	// worker has nothing to do — costs nothing to leave running.
+	// Slice 10: telemetry backend. Log-based by default — operators
+	// can swap to telemetry.NewPrometheus() (future) by changing this
+	// one line. Every instrumented call site reads through this
+	// interface so the switch is non-invasive.
+	metrics := telemetry.NewLog()
+	outboxWorker := webhookpub.NewOutboxWorker(pool, store).WithMetrics(metrics)
 	smtpRelay := outbound.NewSMTPRelay(&cfg.OutboundSMTP)
 	sender := outbound.NewSenderWithDKIM(smtpRelay, cfg.OutboundSMTP.FromDomain, store)
 
@@ -242,6 +269,13 @@ func main() {
 	api.SetBillingHookURL(cfg.Limits.BillingHookURL)
 	api.SetSubscriberStore(subscriberStore)
 	api.SetPublisher(webhookPublisher)
+	api.SetOutbox(webhookOutbox)
+	// Slices 6 + 7: customer-facing events API needs the raw pool to
+	// query webhook_events and write webhook_subscriber_deliveries on
+	// replay. Kept as a separate setter so a future refactor can route
+	// through a higher-level abstraction.
+	api.SetPoolForEvents(pool)
+	api.SetMetrics(metrics)
 
 	api.RegisterRoutes(router)
 
@@ -260,6 +294,7 @@ func main() {
 	smtpServer := relay.NewServer(cfg, store, signer, persistentDeliverer, usageTracker, wsHub)
 	smtpServer.SetEnforcer(enforcer)
 	smtpServer.SetPublisher(webhookPublisher)
+	smtpServer.SetOutbox(webhookOutbox)
 
 	// Graceful shutdown
 	sigCh := make(chan os.Signal, 1)
@@ -327,6 +362,14 @@ func main() {
 		autoDisableWorker.Start(subRetryCtx)
 	}()
 
+	// Slice 2: outbox publisher worker. Shares subRetryCtx so a
+	// single shutdown signal stops the whole webhook-delivery stack.
+	workerWG.Add(1)
+	go func() {
+		defer workerWG.Done()
+		outboxWorker.Start(subRetryCtx)
+	}()
+
 	// HITL expiration worker: transitions pending_approval messages that
 	// blew past their TTL into expired_approved (auto-send) or
 	// expired_rejected based on the owning agent's hitl_expiration_action.
@@ -358,6 +401,7 @@ func main() {
 					log.Printf("Failed to clean up expired messages: %v", err)
 				} else if deleted > 0 {
 					log.Printf("Cleaned up %d expired message(s)", deleted)
+					metrics.JanitorRowsDeleted("messages", int(deleted))
 				}
 
 				if deleted, err := store.DeleteExpiredUserSessions(cleanupCtx); err != nil {
@@ -376,6 +420,18 @@ func main() {
 					log.Printf("Failed to clean up expired webhook subscriber deliveries: %v", err)
 				} else if deleted > 0 {
 					log.Printf("Cleaned up %d expired webhook subscriber delivery record(s)", deleted)
+					metrics.JanitorRowsDeleted("webhook_subscriber_deliveries", deleted)
+				}
+
+				// Slice 1 prerequisite janitor: webhook_events rows
+				// also have a 30-day TTL (migration 026). Without
+				// this, the table grows monotonically once the
+				// outbox path starts writing events.
+				if deleted, err := webhookOutbox.DeleteExpiredWebhookEvents(cleanupCtx); err != nil {
+					log.Printf("Failed to clean up expired webhook events: %v", err)
+				} else if deleted > 0 {
+					log.Printf("Cleaned up %d expired webhook event(s)", deleted)
+					metrics.JanitorRowsDeleted("webhook_events", deleted)
 				}
 
 				if oauthStorage != nil {

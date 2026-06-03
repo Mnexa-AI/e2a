@@ -29,8 +29,14 @@ from e2a.v1.generated import (
     ListAgentsResponse,
     ListConversationsResponse,
     ListDomainsResponse,
+    ListEventsResponse,
     ListMessagesResponse,
     ListPendingMessagesResponse,
+    RedeliverRequest,
+    RedeliverResponse,
+    RedeliverSinceRequest,
+    RedeliverSinceResponse,
+    WebhookEvent,
     ListWebhookDeliveriesResponse,
     ListWebhooksResponse,
     MessageDetail,
@@ -570,6 +576,90 @@ class E2AApi:
         resp = self._client.get("/api/v1/info")
         _check_response(resp)
         return DeploymentInfo.model_validate(resp.json())
+
+    # ── Events (slice 6/7: customer-facing event log + replay) ────────
+
+    def list_events(
+        self,
+        *,
+        type: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        message_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        page_size: Optional[int] = None,
+        token: Optional[str] = None,
+    ) -> ListEventsResponse:
+        """List webhook events in reverse-chronological order.
+
+        Cursor-paginated via ``token`` / ``next_token``. Events past the
+        30-day retention boundary are not returned.
+        """
+        params: dict[str, str] = {}
+        if type:
+            params["type"] = type
+        if agent_id:
+            params["agent_id"] = agent_id
+        if conversation_id:
+            params["conversation_id"] = conversation_id
+        if message_id:
+            params["message_id"] = message_id
+        if since:
+            params["since"] = since
+        if until:
+            params["until"] = until
+        if page_size is not None:
+            params["page_size"] = str(page_size)
+        if token:
+            params["token"] = token
+        resp = self._client.get("/api/v1/events", params=params)
+        _check_response(resp)
+        return ListEventsResponse.model_validate(resp.json())
+
+    def get_event(self, event_id: str) -> WebhookEvent:
+        """Fetch a single event by id.
+
+        Raises :class:`E2AApiError` with status 410 if the event is past
+        the 30-day retention boundary.
+        """
+        resp = self._client.get(f"/api/v1/events/{quote(event_id, safe='')}")
+        _check_response(resp)
+        return WebhookEvent.model_validate(resp.json())
+
+    def redeliver_event(
+        self, event_id: str, webhook_id: Optional[str] = None
+    ) -> RedeliverResponse:
+        """Replay an event.
+
+        ``webhook_id`` targets one subscriber; omitting it fans out to
+        every originally-matched webhook. Reuses the original event id so
+        customer-side dedup discards the replay if already processed.
+        """
+        body: dict[str, str] = {}
+        if webhook_id:
+            body["webhook_id"] = webhook_id
+        resp = self._client.post(
+            f"/api/v1/events/{quote(event_id, safe='')}/redeliver",
+            json=body,
+        )
+        _check_response(resp)
+        return RedeliverResponse.model_validate(resp.json())
+
+    def redeliver_webhook_since(
+        self, webhook_id: str, since: str
+    ) -> RedeliverSinceResponse:
+        """Bulk-replay every event a webhook matched since ``since`` (RFC3339).
+
+        Window capped at 7 days by the server. Idempotent — events with
+        a pending delivery for this webhook are skipped.
+        """
+        resp = self._client.post(
+            f"/api/v1/webhooks/{quote(webhook_id, safe='')}/redeliver-since",
+            json={"since": since},
+        )
+        _check_response(resp)
+        return RedeliverSinceResponse.model_validate(resp.json())
 
     # ── Lifecycle ─────────────────────────────────────────────────────
 

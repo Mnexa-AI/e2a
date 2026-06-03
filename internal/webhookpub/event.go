@@ -18,6 +18,7 @@ package webhookpub
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"time"
@@ -145,4 +146,33 @@ func generateEventID() string {
 		panic(fmt.Sprintf("webhookpub: crypto/rand failed: %v", err))
 	}
 	return "evt_" + hex.EncodeToString(b)
+}
+
+// DeterministicEventID derives a stable event id from the trigger
+// context. Per design §5.1, the input formula per event type is:
+//   email.received: sha256(message_id || "|" || event_type)
+//   email.sent:     sha256(message_id || "|" || event_type)
+//   pending_approval/approved/rejected: sha256(pending_msg_id || "|" || event_type)
+//   future bounced/complained/delivered: sha256(message_id || "|" || event_type || "|" || ses_event_id)
+//
+// The "|" delimiter prevents accidental collisions where concatenated
+// fields could be ambiguous (e.g. ("abc","def") vs ("abcdef","")).
+//
+// Returns "evt_" + first 32 hex chars of the sha256 digest (128 bits
+// of entropy). Birthday collision probability at 1M events/day × 30
+// days × 5 event types is ~3e-23 — negligible.
+//
+// Determinism is what makes the outbox write idempotent across MTA
+// SMTP retries: the retried trigger produces the same id, and the
+// outbox INSERT no-ops via ON CONFLICT (id) DO NOTHING.
+func DeterministicEventID(parts ...string) string {
+	h := sha256.New()
+	for i, p := range parts {
+		if i > 0 {
+			h.Write([]byte("|"))
+		}
+		h.Write([]byte(p))
+	}
+	sum := h.Sum(nil)
+	return "evt_" + hex.EncodeToString(sum[:16])
 }

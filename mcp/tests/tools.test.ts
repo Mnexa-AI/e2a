@@ -154,6 +154,9 @@ describe("e2a MCP server", () => {
         "rotate_webhook_secret",
         "test_webhook",
         "list_webhook_deliveries",
+        "list_events",
+        "get_event",
+        "redeliver_event",
       ].sort(),
     );
   });

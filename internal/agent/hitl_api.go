@@ -407,7 +407,7 @@ func (a *API) handleApprovePendingMessage(w http.ResponseWriter, r *http.Request
 	log.Printf("[mail:%s] dir=outbound type=%s status=sent from=%s to=%v slug=%s subject=%q edited=%v approved=user:%s",
 		sent.ID, sent.Type, agent.EmailAddress(), sent.ToRecipients, slug, sent.Subject, sent.Edited, user.ID)
 
-	a.publishAsync(a.buildApprovedEvent(agent, sent, user.ID))
+	a.publishApproved(r.Context(), a.buildApprovedEvent(agent, sent, user.ID), sent)
 
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, map[string]interface{}{
@@ -539,7 +539,7 @@ func (a *API) handleRejectPendingMessage(w http.ResponseWriter, r *http.Request)
 	log.Printf("[mail:%s] dir=outbound type=%s status=rejected agent=%s rejected_by=user:%s reason=%q",
 		rejected.ID, rejected.Type, rejected.AgentID, user.ID, req.Reason)
 
-	a.publishAsync(a.buildRejectedEvent(user.ID, rejected, req.Reason))
+	a.publishRejected(r.Context(), a.buildRejectedEvent(user.ID, rejected, req.Reason), rejected.ID)
 
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, map[string]interface{}{
