@@ -22,6 +22,7 @@ import {
   getPendingMessage,
   rejectPendingMessage,
 } from "../../../../../components/onboarding/api";
+import { useAgents } from "../../../../../components/hooks/useAgents";
 import type {
   InboundMessageDetail,
   PendingMessageDetail,
@@ -146,6 +147,12 @@ function FocusContent({
   initialHeadersOpen: boolean;
 }) {
   const router = useRouter();
+
+  // Agent lookup is needed for the lifecycle panel to know whether to
+  // render the "Held for HITL approval" step. Both this and AgentLayout
+  // share the same SWR key so the second consumer hits cache for free.
+  const { agents } = useAgents();
+  const hitlEnabled = agents.find((a) => a.email === email)?.hitl_enabled ?? true;
 
   // Try outbound first (focus is most often a Pending draft from the
   // inbox callout); fall back to inbound only on 404. A 500/401/etc.
@@ -557,7 +564,7 @@ function FocusContent({
               )}
             </>
           )}
-          <LifecycleSection msg={msg} />
+          <LifecycleSection msg={msg} hitlEnabled={hitlEnabled} />
           {isPending && msg.direction === "outbound" && (
             <CliHint messageId={msg.data.id} />
           )}
@@ -1013,7 +1020,7 @@ function ActionCard({
   );
 }
 
-function LifecycleSection({ msg }: { msg: LoadedMessage }) {
+function LifecycleSection({ msg, hitlEnabled }: { msg: LoadedMessage; hitlEnabled: boolean }) {
   // Inbound messages don't go through the HITL lifecycle — show a small
   // "received" summary instead of the timeline.
   if (msg.direction === "inbound") {
@@ -1051,11 +1058,16 @@ function LifecycleSection({ msg }: { msg: LoadedMessage }) {
     ttlHint: d.approval_expires_at
       ? `TTL ${formatExpiresIn(d.approval_expires_at) ?? "—"}`
       : undefined,
+    hitlEnabled,
   });
+  // Collapsible meta tracks the latest meaningful event. For HITL-off
+  // agents the held step doesn't exist, so we summarize sent/created
+  // directly instead of the misleading "resolved" fallback.
+  const sentAt = d.reviewed_at ?? (!hitlEnabled ? d.created_at : null);
   const heldSummary = d.status === "pending_approval"
     ? `held · ${formatExpiresIn(d.approval_expires_at) ?? "—"} left`
-    : d.reviewed_at
-      ? `resolved ${formatRelativeAge(d.reviewed_at)}`
+    : sentAt
+      ? `${hitlEnabled ? "resolved" : "sent"} ${formatRelativeAge(sentAt)}`
       : "resolved";
 
   return (
