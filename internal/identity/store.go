@@ -759,7 +759,20 @@ func (s *Store) DeleteAgent(ctx context.Context, agentID, userID string) error {
 
 // --- Messages ---
 
-const MessageTTL = 30 * 24 * time.Hour // 30 days
+// MessageTTL is the per-row lifetime for `messages`. The janitor at
+// DeleteExpiredMessages drops rows whose expires_at has passed.
+//
+// 10 days is chosen to strictly exceed HITLMaxTTLSeconds (7 days) with
+// a 3-day buffer. The buffer guarantees:
+//   - the HITL worker (60s cadence) always wins the race against the
+//     messages janitor (hourly cadence) on max-HITL pending rows;
+//   - terminal HITL rows retain ≥3 days of post-resolution audit
+//     visibility before the metadata row is dropped;
+//   - reply-composition can load a parent inbound up to 10 days old
+//     for quoting context.
+// If HITLMaxTTLSeconds is ever raised, raise this too — keep
+// MessageTTL > HITLMaxTTLSeconds by at least 1 day.
+const MessageTTL = 10 * 24 * time.Hour // 10 days
 
 // NewMessageID returns a fresh internal message ID. Callers can use this
 // to generate the ID up-front when they need it before storing — for
