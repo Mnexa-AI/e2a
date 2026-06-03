@@ -59,7 +59,7 @@ export function AgentHeader({
       {/* Identity row */}
       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-3">
         <div className="min-w-0 flex-1">
-          <Eyebrow>Agent · {agent.id}</Eyebrow>
+          <Eyebrow>Agent</Eyebrow>
           <div className="flex items-center gap-3 mt-2 mb-1.5 flex-wrap">
             <CounterpartyAvatar email={agent.email} name={agent.name} size={28} />
             <h1

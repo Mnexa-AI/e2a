@@ -95,8 +95,7 @@ export function AgentCard({
               letterSpacing: "0.02em",
             }}
           >
-            agent_{agent.id} · created{" "}
-            {new Date(agent.created_at).toLocaleDateString()}
+            created {new Date(agent.created_at).toLocaleDateString()}
           </p>
 
         </div>
