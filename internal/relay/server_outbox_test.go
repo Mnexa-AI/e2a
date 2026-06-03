@@ -30,6 +30,11 @@ func (f *fakeOutbox) PublishBestEffortTx(ctx context.Context, tx pgx.Tx, e webho
 	f.besteffortN++
 }
 
+// DeleteExpiredWebhookEvents — slice A addition. Returns zero in tests.
+func (f *fakeOutbox) DeleteExpiredWebhookEvents(ctx context.Context) (int, error) {
+	return 0, nil
+}
+
 // fakePublisher records legacy Publish calls.
 type fakePublisher struct {
 	calls []webhookpub.Event
