@@ -686,7 +686,7 @@ def test_get_pending_message_returns_detail(httpx_mock):
 
 def test_approve_message_without_overrides_posts_empty_body(httpx_mock):
     httpx_mock.add_response(
-        url=f"{BASE}/api/v1/messages/msg_x/approve",
+        url=f"{BASE}/api/v1/agents/bot%40example.com/messages/msg_x/approve",
         method="POST",
         json={
             "status": "sent",
@@ -698,7 +698,7 @@ def test_approve_message_without_overrides_posts_empty_body(httpx_mock):
     )
 
     with E2AApi(api_key="k") as api:
-        result = api.approve_message("msg_x")
+        result = api.approve_message("bot@example.com", "msg_x")
 
     assert isinstance(result, ApprovePendingMessageResponse)
     assert result.status == "sent"
@@ -708,14 +708,13 @@ def test_approve_message_without_overrides_posts_empty_body(httpx_mock):
 
 def test_approve_message_with_overrides_forwards_them(httpx_mock):
     httpx_mock.add_response(
-        url=f"{BASE}/api/v1/messages/msg_x/approve",
+        url=f"{BASE}/api/v1/agents/bot%40example.com/messages/msg_x/approve",
         method="POST",
         json={"status": "sent", "message_id": "msg_x", "edited": True},
     )
 
     with E2AApi(api_key="k") as api:
-        api.approve_message(
-            "msg_x",
+        api.approve_message("bot@example.com", "msg_x",
             ApprovePendingMessageRequest(subject="edited", to=["bob@example.com"]),
         )
 
@@ -725,7 +724,7 @@ def test_approve_message_with_overrides_forwards_them(httpx_mock):
 
 def test_reject_message_sends_reason(httpx_mock):
     httpx_mock.add_response(
-        url=f"{BASE}/api/v1/messages/msg_x/reject",
+        url=f"{BASE}/api/v1/agents/bot%40example.com/messages/msg_x/reject",
         method="POST",
         json={
             "status": "rejected",
@@ -735,7 +734,7 @@ def test_reject_message_sends_reason(httpx_mock):
     )
 
     with E2AApi(api_key="k") as api:
-        result = api.reject_message("msg_x", "bad tone")
+        result = api.reject_message("bot@example.com", "msg_x", "bad tone")
 
     assert isinstance(result, RejectPendingMessageResponse)
     assert result.rejection_reason == "bad tone"
@@ -745,13 +744,13 @@ def test_reject_message_sends_reason(httpx_mock):
 
 def test_reject_message_defaults_to_empty_reason(httpx_mock):
     httpx_mock.add_response(
-        url=f"{BASE}/api/v1/messages/msg_x/reject",
+        url=f"{BASE}/api/v1/agents/bot%40example.com/messages/msg_x/reject",
         method="POST",
         json={"status": "rejected", "message_id": "msg_x"},
     )
 
     with E2AApi(api_key="k") as api:
-        api.reject_message("msg_x")
+        api.reject_message("bot@example.com", "msg_x")
 
     body = json.loads(httpx_mock.get_request().content)
     assert body == {"reason": ""}

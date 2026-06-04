@@ -421,6 +421,7 @@ class AsyncE2AApi:
 
     async def approve_message(
         self,
+        agent_email: str,
         message_id: str,
         overrides: Optional[ApprovePendingMessageRequest] = None,
         idempotency_key: Optional[str] = None,
@@ -429,7 +430,7 @@ class AsyncE2AApi:
         closes the SES double-send window — see that method for details."""
         payload = overrides.model_dump(by_alias=True, exclude_none=True) if overrides else {}
         resp = await self._client.post(
-            f"/api/v1/messages/{quote(message_id, safe='')}/approve",
+            f"/api/v1/agents/{quote(agent_email, safe='')}/messages/{quote(message_id, safe='')}/approve",
             json=payload,
             headers=_idempotency_header(idempotency_key),
         )
@@ -438,12 +439,13 @@ class AsyncE2AApi:
 
     async def reject_message(
         self,
+        agent_email: str,
         message_id: str,
         reason: str = "",
     ) -> RejectPendingMessageResponse:
         body = RejectPendingMessageRequest(reason=reason)
         resp = await self._client.post(
-            f"/api/v1/messages/{quote(message_id, safe='')}/reject",
+            f"/api/v1/agents/{quote(agent_email, safe='')}/messages/{quote(message_id, safe='')}/reject",
             json=body.model_dump(by_alias=True, exclude_none=True),
         )
         _check_response(resp)
@@ -856,6 +858,7 @@ class AsyncE2AClient:
 
     async def approve_message(
         self,
+        agent_email: str,
         message_id: str,
         *,
         subject: Optional[str] = None,
@@ -881,10 +884,10 @@ class AsyncE2AClient:
             if any_override
             else None
         )
-        return await self.api.approve_message(message_id, overrides, idempotency_key=idempotency_key)
+        return await self.api.approve_message(agent_email, message_id, overrides, idempotency_key=idempotency_key)
 
-    async def reject_message(self, message_id: str, reason: str = ""):
-        return await self.api.reject_message(message_id, reason)
+    async def reject_message(self, agent_email: str, message_id: str, reason: str = ""):
+        return await self.api.reject_message(agent_email, message_id, reason)
 
     # ── Domain CRUD ───────────────────────────────────────────────
 

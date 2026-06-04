@@ -54,11 +54,17 @@ export function registerHitlTools(server: McpServer, client: E2AClient): void {
     },
     async (args) => {
       const { message_id, idempotency_key, ...overrides } = args;
-      return runTool(() =>
-        idempotency_key !== undefined
-          ? client.approveMessage(message_id, overrides, { idempotencyKey: idempotency_key })
-          : client.approveMessage(message_id, overrides),
-      );
+      // The approve endpoint is agent-scoped; discover the owning
+      // agent via the message detail before calling. One extra GET
+      // gating one side-effectful POST is a fair trade for keeping
+      // the MCP tool surface minimal (caller passes only message_id).
+      return runTool(async () => {
+        const detail = await client.getPendingMessage(message_id);
+        const agentEmail = (detail as { agent_id: string }).agent_id;
+        return idempotency_key !== undefined
+          ? client.approveMessage(agentEmail, message_id, overrides, { idempotencyKey: idempotency_key })
+          : client.approveMessage(agentEmail, message_id, overrides);
+      });
     },
   );
 
@@ -73,6 +79,11 @@ export function registerHitlTools(server: McpServer, client: E2AClient): void {
         reason: z.string().optional(),
       }),
     },
-    async (args) => runTool(() => client.rejectMessage(args.message_id, args.reason)),
+    async (args) =>
+      runTool(async () => {
+        const detail = await client.getPendingMessage(args.message_id);
+        const agentEmail = (detail as { agent_id: string }).agent_id;
+        return client.rejectMessage(agentEmail, args.message_id, args.reason);
+      }),
   );
 }

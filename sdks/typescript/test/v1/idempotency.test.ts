@@ -127,7 +127,7 @@ describe("Idempotency-Key transport behavior", () => {
     globalThis.fetch = spy.mock;
 
     const api = new E2AApi({ apiKey: "e2a_test", baseUrl: BASE });
-    await api.approveMessage("msg_p", { subject: "edit" });
+    await api.approveMessage("bot@example.com", "msg_p", { subject: "edit" });
 
     const key = spy.lastHeaders()["Idempotency-Key"];
     expect(key).toBeDefined();
@@ -139,7 +139,7 @@ describe("Idempotency-Key transport behavior", () => {
     globalThis.fetch = spy.mock;
 
     const api = new E2AApi({ apiKey: "e2a_test", baseUrl: BASE });
-    await api.approveMessage("msg_p", {}, { idempotencyKey: "approve-key-1" });
+    await api.approveMessage("bot@example.com", "msg_p", {}, { idempotencyKey: "approve-key-1" });
 
     expect(spy.lastHeaders()["Idempotency-Key"]).toBe("approve-key-1");
   });
@@ -153,7 +153,7 @@ describe("Idempotency-Key transport behavior", () => {
       baseUrl: BASE,
       agentEmail: "bot@test.dev",
     });
-    await client.approveMessage("msg_p", {}, { idempotencyKey: "high-level-approve-key" });
+    await client.approveMessage("bot@example.com", "msg_p", {}, { idempotencyKey: "high-level-approve-key" });
 
     expect(spy.lastHeaders()["Idempotency-Key"]).toBe("high-level-approve-key");
   });

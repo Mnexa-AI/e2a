@@ -139,13 +139,13 @@ def test_high_level_client_reply_threads_idempotency_key(httpx_mock):
 
 def test_approve_message_auto_generates_idempotency_key(httpx_mock):
     httpx_mock.add_response(
-        url=f"{BASE}/api/v1/messages/msg_p/approve",
+        url=f"{BASE}/api/v1/agents/bot%40example.com/messages/msg_p/approve",
         method="POST",
         json={"status": "sent", "message_id": "msg_p", "method": "smtp", "edited": False},
     )
 
     with E2AApi(api_key="e2a_test") as api:
-        api.approve_message("msg_p")
+        api.approve_message("bot@example.com", "msg_p")
 
     req = httpx_mock.get_request()
     key = req.headers["Idempotency-Key"]
@@ -155,13 +155,13 @@ def test_approve_message_auto_generates_idempotency_key(httpx_mock):
 
 def test_approve_message_honors_caller_supplied_key(httpx_mock):
     httpx_mock.add_response(
-        url=f"{BASE}/api/v1/messages/msg_p/approve",
+        url=f"{BASE}/api/v1/agents/bot%40example.com/messages/msg_p/approve",
         method="POST",
         json={"status": "sent", "message_id": "msg_p", "method": "smtp", "edited": False},
     )
 
     with E2AApi(api_key="e2a_test") as api:
-        api.approve_message("msg_p", idempotency_key="approve-key-1")
+        api.approve_message("bot@example.com", "msg_p", idempotency_key="approve-key-1")
 
     req = httpx_mock.get_request()
     assert req.headers["Idempotency-Key"] == "approve-key-1"
@@ -169,7 +169,7 @@ def test_approve_message_honors_caller_supplied_key(httpx_mock):
 
 def test_high_level_client_approve_threads_idempotency_key(httpx_mock):
     httpx_mock.add_response(
-        url=f"{BASE}/api/v1/messages/msg_p/approve",
+        url=f"{BASE}/api/v1/agents/bot%40example.com/messages/msg_p/approve",
         method="POST",
         json={"status": "sent", "message_id": "msg_p", "method": "smtp", "edited": False},
     )
@@ -177,7 +177,7 @@ def test_high_level_client_approve_threads_idempotency_key(httpx_mock):
     with E2AClient(
         api_key="e2a_test", agent_email="bot@test.dev"
     ) as client:
-        client.approve_message("msg_p", idempotency_key="high-level-approve-key")
+        client.approve_message("bot@example.com", "msg_p", idempotency_key="high-level-approve-key")
 
     req = httpx_mock.get_request()
     assert req.headers["Idempotency-Key"] == "high-level-approve-key"

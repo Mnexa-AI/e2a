@@ -2012,6 +2012,78 @@ paths:
       summary: Update a message (labels)
       tags:
       - Email
+  /api/v1/agents/{email}/messages/{id}/approve:
+    post:
+      consumes:
+      - application/json
+      description: Sends a pending-approval message via the upstream SMTP relay and
+        transitions it to `sent`. The request body is optional — passing any subset
+        of subject / body_text / body_html / to / cc / bcc / attachments overrides
+        the stored draft before send. An empty body approves the draft as-is. On successful
+        send, the server scrubs body columns and records the provider-assigned Message-ID.
+      parameters:
+      - description: Owning agent email
+        example: bot@agents.e2a.dev
+        in: path
+        name: email
+        required: true
+        type: string
+      - description: Message ID
+        example: msg_abc123
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Optional field overrides
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/ApprovePendingMessageRequest'
+      - description: Caller-generated unique key (recommend UUIDv4). Approve fires
+          a real outbound send (SES); on retry with the same key + same body the server
+          replays the original response instead of double-sending. A different body
+          returns 422.
+        in: header
+        name: Idempotency-Key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ApprovePendingMessageResponse'
+        "400":
+          description: Invalid request or SMTP validation error
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "403":
+          description: Agent domain not verified
+          schema:
+            type: string
+        "404":
+          description: Message not found, not owned by this user, or {email} doesn't
+            match the message's owning agent
+          schema:
+            type: string
+        "409":
+          description: Message is no longer pending approval, or another request with
+            this Idempotency-Key is in progress
+          schema:
+            type: string
+        "422":
+          description: Idempotency-Key reused with a different request body
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Approve a held outbound message
+      tags:
+      - HITL
   /api/v1/agents/{email}/messages/{id}/forward:
     post:
       consumes:
@@ -2093,6 +2165,61 @@ paths:
       summary: Forward an inbound email
       tags:
       - Email
+  /api/v1/agents/{email}/messages/{id}/reject:
+    post:
+      consumes:
+      - application/json
+      description: Transitions a pending-approval message to `rejected`; the message
+        is never sent. Body columns are scrubbed. An optional reason is stored for
+        audit purposes. Returns 409 if the message has already been sent, rejected,
+        or expired.
+      parameters:
+      - description: Message ID
+        example: msg_abc123
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Optional rejection reason
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/RejectPendingMessageRequest'
+      - description: Owning agent email
+        example: bot@agents.e2a.dev
+        in: path
+        name: email
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/RejectPendingMessageResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+        "404":
+          description: Message not found, not owned by this user, or {email} doesn't
+            match the message's owning agent
+          schema:
+            type: string
+        "409":
+          description: Message is no longer pending approval
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Reject a held outbound message
+      tags:
+      - HITL
   /api/v1/agents/{email}/messages/{id}/reply:
     post:
       consumes:
@@ -2622,119 +2749,6 @@ paths:
       security:
       - BearerAuth: []
       summary: Fetch a held outbound message
-      tags:
-      - HITL
-  /api/v1/messages/{id}/approve:
-    post:
-      consumes:
-      - application/json
-      description: Sends a pending-approval message via the upstream SMTP relay and
-        transitions it to `sent`. The request body is optional — passing any subset
-        of subject / body_text / body_html / to / cc / bcc / attachments overrides
-        the stored draft before send. An empty body approves the draft as-is. On successful
-        send, the server scrubs body columns and records the provider-assigned Message-ID.
-      parameters:
-      - description: Message ID
-        example: msg_abc123
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Optional field overrides
-        in: body
-        name: request
-        schema:
-          $ref: '#/definitions/ApprovePendingMessageRequest'
-      - description: Caller-generated unique key (recommend UUIDv4). Approve fires
-          a real outbound send (SES); on retry with the same key + same body the server
-          replays the original response instead of double-sending. A different body
-          returns 422.
-        in: header
-        name: Idempotency-Key
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/ApprovePendingMessageResponse'
-        "400":
-          description: Invalid request or SMTP validation error
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "403":
-          description: Agent domain not verified
-          schema:
-            type: string
-        "404":
-          description: Message not found or not owned by this user
-          schema:
-            type: string
-        "409":
-          description: Message is no longer pending approval, or another request with
-            this Idempotency-Key is in progress
-          schema:
-            type: string
-        "422":
-          description: Idempotency-Key reused with a different request body
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Approve a held outbound message
-      tags:
-      - HITL
-  /api/v1/messages/{id}/reject:
-    post:
-      consumes:
-      - application/json
-      description: Transitions a pending-approval message to `rejected`; the message
-        is never sent. Body columns are scrubbed. An optional reason is stored for
-        audit purposes. Returns 409 if the message has already been sent, rejected,
-        or expired.
-      parameters:
-      - description: Message ID
-        example: msg_abc123
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Optional rejection reason
-        in: body
-        name: request
-        schema:
-          $ref: '#/definitions/RejectPendingMessageRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/RejectPendingMessageResponse'
-        "400":
-          description: Invalid request body
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "404":
-          description: Message not found or not owned by this user
-          schema:
-            type: string
-        "409":
-          description: Message is no longer pending approval
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Reject a held outbound message
       tags:
       - HITL
   /api/v1/send:

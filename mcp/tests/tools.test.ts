@@ -95,7 +95,14 @@ function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): E2ACli
       ],
     })),
     listPendingMessages: vi.fn(async () => ({ messages: [] })),
-    getPendingMessage: vi.fn(async (id: string) => ({ id, status: "pending_approval" })),
+    // agent_id is required by the approve/reject tool wrappers, which
+    // do a pre-flight detail fetch to discover the owning agent for
+    // the agent-scoped backend endpoint.
+    getPendingMessage: vi.fn(async (id: string) => ({
+      id,
+      status: "pending_approval",
+      agent_id: "bot@agents.e2a.dev",
+    })),
     approveMessage: vi.fn(async () => ({ message_id: "msg_x", status: "sent" })),
     rejectMessage: vi.fn(async () => ({ message_id: "msg_x", status: "rejected" })),
   };
@@ -557,7 +564,7 @@ describe("e2a MCP server", () => {
         body_text: "edited body",
       },
     });
-    expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", {
+    expect(stub.approveMessage).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_p", {
       subject: "edited subject",
       body_text: "edited body",
     });
@@ -568,28 +575,28 @@ describe("e2a MCP server", () => {
       name: "approve_pending_message",
       arguments: { message_id: "msg_p" },
     });
-    expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", {});
+    expect(stub.approveMessage).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_p", {});
   });
 
   // Regression: when idempotency_key is omitted, the MCP layer must
-  // call approveMessage with exactly TWO args — not three args with
-  // `{ idempotencyKey: undefined }`. Passing the undefined object
-  // sneaks past TypeScript but a callsite that defaults the key
-  // (e.g. an auto-mint helper inside the SDK) would receive
-  // `{ idempotencyKey: undefined }` as "user explicitly set this to
-  // undefined" rather than "user didn't set this" — different
-  // semantics. vitest's toHaveBeenCalledWith does deep-equal on args
-  // and is strict on argument count, so this test fails if a 3rd
-  // arg leaks in. Mirrors the same guard on send / reply tests
+  // call approveMessage with exactly THREE args (agentEmail, id,
+  // overrides) — not four with `{ idempotencyKey: undefined }`.
+  // Passing the undefined object sneaks past TypeScript but a callsite
+  // that defaults the key (e.g. an auto-mint helper inside the SDK)
+  // would receive `{ idempotencyKey: undefined }` as "user explicitly
+  // set this to undefined" rather than "user didn't set this" —
+  // different semantics. vitest's toHaveBeenCalledWith does deep-equal
+  // on args and is strict on argument count, so this test fails if a
+  // 4th arg leaks in. Mirrors the same guard on send / reply tests
   // above (lines 145 / 163).
-  it("approve_pending_message omits 3rd-arg opts when idempotency_key is unset", async () => {
+  it("approve_pending_message omits 4th-arg opts when idempotency_key is unset", async () => {
     await client.callTool({
       name: "approve_pending_message",
       arguments: { message_id: "msg_p", subject: "edited" },
     });
-    expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", { subject: "edited" });
+    expect(stub.approveMessage).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_p", { subject: "edited" });
     const lastCall = (stub.approveMessage as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1);
-    expect(lastCall?.length).toBe(2);
+    expect(lastCall?.length).toBe(3);
   });
 
   // Approve fires SES so an idempotency_key argument has to reach the
@@ -606,6 +613,7 @@ describe("e2a MCP server", () => {
       },
     });
     expect(stub.approveMessage).toHaveBeenCalledWith(
+      "bot@agents.e2a.dev",
       "msg_p",
       { subject: "edited" },
       { idempotencyKey: "approve-key-123" },
@@ -703,7 +711,7 @@ describe("e2a MCP server", () => {
         attachments: [sampleAttachment],
       },
     });
-    expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", {
+    expect(stub.approveMessage).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_p", {
       attachments: [sampleAttachment],
     });
   });
@@ -717,7 +725,7 @@ describe("e2a MCP server", () => {
       name: "approve_pending_message",
       arguments: { message_id: "msg_p", attachments: [] },
     });
-    expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", { attachments: [] });
+    expect(stub.approveMessage).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_p", { attachments: [] });
   });
 
   it("send_email rejects base64 with whitespace (URL-safe or LLM-truncated patterns)", async () => {
@@ -786,7 +794,7 @@ describe("e2a MCP server", () => {
       name: "reject_pending_message",
       arguments: { message_id: "msg_p", reason: "wrong recipient" },
     });
-    expect(stub.rejectMessage).toHaveBeenCalledWith("msg_p", "wrong recipient");
+    expect(stub.rejectMessage).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_p", "wrong recipient");
   });
 
   it("surfaces SDK errors as isError results", async () => {

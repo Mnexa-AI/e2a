@@ -14,6 +14,39 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 )
 
+// verifyURLAgentEmail enforces the agent-scoped path's URL invariant.
+// When the route includes an {email} segment (e.g.
+// /api/v1/agents/{email}/messages/{id}/approve), we require that
+// segment to match the loaded message's owning agent. A mismatch is
+// returned as 404 — the same shape the flat-path handler uses for
+// "not yours" — so the alias can't be used to enumerate other users'
+// messages or to misroute approve/reject by typing the wrong email.
+//
+// Returns true when the URL has no {email} segment (legacy path) OR
+// the segment matches msg's owning agent. Returns false and writes a
+// 404 response on mismatch; the caller must `return` immediately.
+func (a *API) verifyURLAgentEmail(ctx context.Context, w http.ResponseWriter, r *http.Request, agentID string) bool {
+	urlEmail := mux.Vars(r)["email"]
+	if urlEmail == "" {
+		return true
+	}
+	agent, err := a.store.GetAgentByID(ctx, agentID)
+	if err != nil {
+		// If we can't load the agent the message ownership check above
+		// already passed, so the row exists. A miss here is a real
+		// internal error, but we return 404 for caller-facing symmetry
+		// with the legacy flat path.
+		log.Printf("[api] verifyURLAgentEmail: get agent %s: %v", agentID, err)
+		http.Error(w, "message not found", http.StatusNotFound)
+		return false
+	}
+	if agent.Email != urlEmail {
+		http.Error(w, "message not found", http.StatusNotFound)
+		return false
+	}
+	return true
+}
+
 // pendingMessageSummary is the shape returned by GET /api/v1/messages for
 // HITL listing. Body and attachments are omitted — clients fetch detail per
 // message via the ID-scoped endpoint.
@@ -199,6 +232,9 @@ func (a *API) handleGetOutboundMessage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "message not found", http.StatusNotFound)
 		return
 	}
+	if !a.verifyURLAgentEmail(r.Context(), w, r, msg.AgentID) {
+		return
+	}
 
 	// For replies, attach the parent inbound's headers so the review
 	// panel can render the Provenance pane + quoted preview. The lookup
@@ -258,7 +294,7 @@ func (req approveRequest) toEdit() (identity.PendingApprovalEdit, error) {
 	return e, nil
 }
 
-// handleApprovePendingMessage serves POST /api/v1/messages/{id}/approve.
+// handleApprovePendingMessage serves POST /api/v1/agents/{email}/messages/{id}/approve.
 // Applies any overrides from the request body, sends via SES, and
 // transitions the row to 'sent' with body scrubbed.
 // @Summary      Approve a held outbound message
@@ -267,17 +303,18 @@ func (req approveRequest) toEdit() (identity.PendingApprovalEdit, error) {
 // @Accept       json
 // @Produce      json
 // @Security     BearerAuth
+// @Param        email path string true "Owning agent email" example(bot@agents.e2a.dev)
 // @Param        id path string true "Message ID" example(msg_abc123)
 // @Param        request body ApprovePendingMessageRequest false "Optional field overrides"
 // @Success      200 {object} ApprovePendingMessageResponse
 // @Failure      400 {string} string "Invalid request or SMTP validation error"
 // @Failure      401 {string} string "Missing or invalid API key"
 // @Failure      403 {string} string "Agent domain not verified"
-// @Failure      404 {string} string "Message not found or not owned by this user"
+// @Failure      404 {string} string "Message not found, not owned by this user, or {email} doesn't match the message's owning agent"
 // @Failure      409 {string} string "Message is no longer pending approval, or another request with this Idempotency-Key is in progress"
 // @Failure      422 {string} string "Idempotency-Key reused with a different request body"
 // @Param        Idempotency-Key header string false "Caller-generated unique key (recommend UUIDv4). Approve fires a real outbound send (SES); on retry with the same key + same body the server replays the original response instead of double-sending. A different body returns 422."
-// @Router       /api/v1/messages/{id}/approve [post]
+// @Router       /api/v1/agents/{email}/messages/{id}/approve [post]
 func (a *API) handleApprovePendingMessage(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticateUser(r)
 	if err != nil {
@@ -337,6 +374,13 @@ func (a *API) handleApprovePendingMessage(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		log.Printf("[api] approve: get agent %s: %v", preview.AgentID, err)
 		http.Error(w, "agent lookup failed", http.StatusInternalServerError)
+		return
+	}
+	// Agent-scoped path enforces that the {email} URL segment matches
+	// the message's owning agent — done inline here (rather than via
+	// verifyURLAgentEmail) because the agent is already loaded above.
+	if urlEmail := mux.Vars(r)["email"]; urlEmail != "" && agent.Email != urlEmail {
+		http.Error(w, "message not found", http.StatusNotFound)
 		return
 	}
 	if !agent.DomainVerified {
@@ -500,9 +544,10 @@ type rejectRequest struct {
 // @Success      200 {object} RejectPendingMessageResponse
 // @Failure      400 {string} string "Invalid request body"
 // @Failure      401 {string} string "Missing or invalid API key"
-// @Failure      404 {string} string "Message not found or not owned by this user"
+// @Failure      404 {string} string "Message not found, not owned by this user, or {email} doesn't match the message's owning agent"
 // @Failure      409 {string} string "Message is no longer pending approval"
-// @Router       /api/v1/messages/{id}/reject [post]
+// @Param        email path string true "Owning agent email" example(bot@agents.e2a.dev)
+// @Router       /api/v1/agents/{email}/messages/{id}/reject [post]
 func (a *API) handleRejectPendingMessage(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticateUser(r)
 	if err != nil {
@@ -520,6 +565,23 @@ func (a *API) handleRejectPendingMessage(w http.ResponseWriter, r *http.Request)
 	if err := readJSON(w, r, &req, maxRequestBytesSmall); err != nil && !errors.Is(err, io.EOF) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
+	}
+
+	// Agent-scoped path: enforce that the {email} URL segment matches
+	// the message's owning agent. We load the message first (a check
+	// the legacy path skipped — RejectPending does its own ownership
+	// scoping in the WHERE clause) so the URL contract can be validated
+	// before the row transitions. Mismatch returns 404 to match the
+	// flat-path "not yours" semantics.
+	if urlEmail := mux.Vars(r)["email"]; urlEmail != "" {
+		preview, err := a.store.GetOutboundMessageForUser(r.Context(), messageID, user.ID)
+		if err != nil {
+			http.Error(w, "message not found", http.StatusNotFound)
+			return
+		}
+		if !a.verifyURLAgentEmail(r.Context(), w, r, preview.AgentID) {
+			return
+		}
 	}
 
 	rejected, err := a.store.RejectPending(r.Context(), messageID, user.ID, req.Reason)

@@ -684,6 +684,118 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/agents/{email}/messages/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a held outbound message
+         * @description Sends a pending-approval message via the upstream SMTP relay and transitions it to `sent`. The request body is optional — passing any subset of subject / body_text / body_html / to / cc / bcc / attachments overrides the stored draft before send. An empty body approves the draft as-is. On successful send, the server scrubs body columns and records the provider-assigned Message-ID.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: {
+                    /** @description Caller-generated unique key (recommend UUIDv4). Approve fires a real outbound send (SES); on retry with the same key + same body the server replays the original response instead of double-sending. A different body returns 422. */
+                    "Idempotency-Key"?: string;
+                };
+                path: {
+                    /**
+                     * @description Owning agent email
+                     * @example bot@agents.e2a.dev
+                     */
+                    email: string;
+                    /**
+                     * @description Message ID
+                     * @example msg_abc123
+                     */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Optional field overrides */
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["ApprovePendingMessageRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApprovePendingMessageResponse"];
+                    };
+                };
+                /** @description Invalid request or SMTP validation error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Missing or invalid API key */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Agent domain not verified */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Message not found, not owned by this user, or {email} doesn't match the message's owning agent */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Message is no longer pending approval, or another request with this Idempotency-Key is in progress */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Idempotency-Key reused with a different request body */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agents/{email}/messages/{id}/forward": {
         parameters: {
             query?: never;
@@ -799,6 +911,97 @@ export interface paths {
                 };
                 /** @description Rate limit exceeded */
                 429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/{email}/messages/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject a held outbound message
+         * @description Transitions a pending-approval message to `rejected`; the message is never sent. Body columns are scrubbed. An optional reason is stored for audit purposes. Returns 409 if the message has already been sent, rejected, or expired.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /**
+                     * @description Message ID
+                     * @example msg_abc123
+                     */
+                    id: string;
+                    /**
+                     * @description Owning agent email
+                     * @example bot@agents.e2a.dev
+                     */
+                    email: string;
+                };
+                cookie?: never;
+            };
+            /** @description Optional rejection reason */
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["RejectPendingMessageRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RejectPendingMessageResponse"];
+                    };
+                };
+                /** @description Invalid request body */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Missing or invalid API key */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Message not found, not owned by this user, or {email} doesn't match the message's owning agent */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Message is no longer pending approval */
+                409: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -1734,199 +1937,6 @@ export interface paths {
         };
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/messages/{id}/approve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Approve a held outbound message
-         * @description Sends a pending-approval message via the upstream SMTP relay and transitions it to `sent`. The request body is optional — passing any subset of subject / body_text / body_html / to / cc / bcc / attachments overrides the stored draft before send. An empty body approves the draft as-is. On successful send, the server scrubs body columns and records the provider-assigned Message-ID.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: {
-                    /** @description Caller-generated unique key (recommend UUIDv4). Approve fires a real outbound send (SES); on retry with the same key + same body the server replays the original response instead of double-sending. A different body returns 422. */
-                    "Idempotency-Key"?: string;
-                };
-                path: {
-                    /**
-                     * @description Message ID
-                     * @example msg_abc123
-                     */
-                    id: string;
-                };
-                cookie?: never;
-            };
-            /** @description Optional field overrides */
-            requestBody?: {
-                content: {
-                    "application/json": components["schemas"]["ApprovePendingMessageRequest"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApprovePendingMessageResponse"];
-                    };
-                };
-                /** @description Invalid request or SMTP validation error */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": string;
-                    };
-                };
-                /** @description Missing or invalid API key */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": string;
-                    };
-                };
-                /** @description Agent domain not verified */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": string;
-                    };
-                };
-                /** @description Message not found or not owned by this user */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": string;
-                    };
-                };
-                /** @description Message is no longer pending approval, or another request with this Idempotency-Key is in progress */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": string;
-                    };
-                };
-                /** @description Idempotency-Key reused with a different request body */
-                422: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": string;
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/messages/{id}/reject": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Reject a held outbound message
-         * @description Transitions a pending-approval message to `rejected`; the message is never sent. Body columns are scrubbed. An optional reason is stored for audit purposes. Returns 409 if the message has already been sent, rejected, or expired.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    /**
-                     * @description Message ID
-                     * @example msg_abc123
-                     */
-                    id: string;
-                };
-                cookie?: never;
-            };
-            /** @description Optional rejection reason */
-            requestBody?: {
-                content: {
-                    "application/json": components["schemas"]["RejectPendingMessageRequest"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["RejectPendingMessageResponse"];
-                    };
-                };
-                /** @description Invalid request body */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": string;
-                    };
-                };
-                /** @description Missing or invalid API key */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": string;
-                    };
-                };
-                /** @description Message not found or not owned by this user */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": string;
-                    };
-                };
-                /** @description Message is no longer pending approval */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": string;
-                    };
-                };
-            };
-        };
         delete?: never;
         options?: never;
         head?: never;

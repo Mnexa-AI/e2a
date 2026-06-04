@@ -485,7 +485,7 @@ func TestApprovePendingMessageSendsViaSMTP(t *testing.T) {
 
 	// Approve-as-is
 	appResp := authed(t, "POST",
-		server.URL+"/api/v1/messages/"+sendBody.MessageID+"/approve",
+		server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+sendBody.MessageID+"/approve",
 		"", apiKey.PlaintextKey)
 	defer appResp.Body.Close()
 	if appResp.StatusCode != http.StatusOK {
@@ -551,7 +551,7 @@ func TestApprovePendingMessageWithEditsSendsEditedContent(t *testing.T) {
 
 	editPayload := `{"subject":"Edited subject","body_text":"edited body","to":["bob@example.com"]}`
 	appResp := authed(t, "POST",
-		server.URL+"/api/v1/messages/"+sendBody.MessageID+"/approve",
+		server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+sendBody.MessageID+"/approve",
 		editPayload, apiKey.PlaintextKey)
 	defer appResp.Body.Close()
 	if appResp.StatusCode != http.StatusOK {
@@ -599,7 +599,7 @@ func TestApproveAlreadySentReturns409(t *testing.T) {
 		"already sent", "send", "smtp", "<p>", "")
 
 	resp := authed(t, "POST",
-		server.URL+"/api/v1/messages/"+sent.ID+"/approve",
+		server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+sent.ID+"/approve",
 		"", apiKey.PlaintextKey)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusConflict {
@@ -633,7 +633,7 @@ func TestApprovePendingMessageWithChunkedEditsHonorsOverrides(t *testing.T) {
 
 	editPayload := `{"subject":"Edited via chunked","body_text":"chunked body","to":["bob@example.com"]}`
 	appResp := authedChunked(t, "POST",
-		server.URL+"/api/v1/messages/"+sendBody.MessageID+"/approve",
+		server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+sendBody.MessageID+"/approve",
 		editPayload, apiKey.PlaintextKey)
 	defer appResp.Body.Close()
 	if appResp.StatusCode != http.StatusOK {
@@ -687,7 +687,7 @@ func TestRejectPendingMessageWithChunkedReasonRecordsReason(t *testing.T) {
 	json.NewDecoder(sendResp.Body).Decode(&sendBody)
 
 	rejResp := authedChunked(t, "POST",
-		server.URL+"/api/v1/messages/"+sendBody.MessageID+"/reject",
+		server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+sendBody.MessageID+"/reject",
 		`{"reason":"off-topic for this audience"}`, apiKey.PlaintextKey)
 	defer rejResp.Body.Close()
 	if rejResp.StatusCode != http.StatusOK {
@@ -734,7 +734,7 @@ func TestApproveReplyFromHITLUsesStoredReplyTo(t *testing.T) {
 	json.NewDecoder(replyResp.Body).Decode(&replyBody)
 
 	appResp := authed(t, "POST",
-		server.URL+"/api/v1/messages/"+replyBody.MessageID+"/approve",
+		server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+replyBody.MessageID+"/approve",
 		"", apiKey.PlaintextKey)
 	defer appResp.Body.Close()
 	if appResp.StatusCode != http.StatusOK {
@@ -770,7 +770,7 @@ func TestRejectPendingMessageHandler(t *testing.T) {
 	json.NewDecoder(sendResp.Body).Decode(&sendBody)
 
 	rejResp := authed(t, "POST",
-		server.URL+"/api/v1/messages/"+sendBody.MessageID+"/reject",
+		server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+sendBody.MessageID+"/reject",
 		`{"reason":"inappropriate tone"}`, apiKey.PlaintextKey)
 	defer rejResp.Body.Close()
 	if rejResp.StatusCode != http.StatusOK {
@@ -821,7 +821,7 @@ func TestRejectAlreadyRejectedReturns409(t *testing.T) {
 	json.NewDecoder(sendResp.Body).Decode(&sendBody)
 
 	resp1 := authed(t, "POST",
-		server.URL+"/api/v1/messages/"+sendBody.MessageID+"/reject",
+		server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+sendBody.MessageID+"/reject",
 		`{"reason":"first"}`, apiKey.PlaintextKey)
 	resp1.Body.Close()
 	if resp1.StatusCode != http.StatusOK {
@@ -829,7 +829,7 @@ func TestRejectAlreadyRejectedReturns409(t *testing.T) {
 	}
 
 	resp2 := authed(t, "POST",
-		server.URL+"/api/v1/messages/"+sendBody.MessageID+"/reject",
+		server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+sendBody.MessageID+"/reject",
 		`{"reason":"second"}`, apiKey.PlaintextKey)
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusConflict {
@@ -859,7 +859,7 @@ func TestApproveCrossUserReturns404(t *testing.T) {
 	json.NewDecoder(sendResp.Body).Decode(&sendBody)
 
 	appResp := authed(t, "POST",
-		server.URL+"/api/v1/messages/"+sendBody.MessageID+"/approve",
+		server.URL+"/api/v1/agents/"+agentA.Email+"/messages/"+sendBody.MessageID+"/approve",
 		"", keyB.PlaintextKey)
 	defer appResp.Body.Close()
 	if appResp.StatusCode != http.StatusNotFound {

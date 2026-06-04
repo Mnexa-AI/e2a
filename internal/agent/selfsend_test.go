@@ -535,7 +535,7 @@ func TestSelfSend_HITLApprovalDeliversViaLoopback(t *testing.T) {
 	}
 
 	// Step 2: approve via the dashboard endpoint (empty body = approve as-is)
-	approveURL := server.URL + "/api/v1/messages/" + heldMessageID + "/approve"
+	approveURL := server.URL+"/api/v1/agents/"+agentRow.Email+"/messages/"+heldMessageID+"/approve"
 	approveResp := authedPost(t, approveURL, `{}`, apiKeyObj.PlaintextKey)
 	defer approveResp.Body.Close()
 	if approveResp.StatusCode != 200 {

@@ -350,7 +350,7 @@ func TestApprovePending_IdempotencyKey_SenderErrorReleasesKey(t *testing.T) {
 	}
 
 	idemKey := "approve-relay-err-key-001"
-	approveURL := srv.URL + "/api/v1/messages/" + sb.MessageID + "/approve"
+	approveURL := srv.URL+"/api/v1/agents/"+a.Email+"/messages/"+sb.MessageID+"/approve"
 
 	approve := func(label string) (status int, replayed string) {
 		t.Helper()

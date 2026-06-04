@@ -345,6 +345,11 @@ export class E2AApi {
    * approve-as-is. On success the server hands the message to the
    * upstream relay and scrubs body columns.
    *
+   * `agentEmail` must be the message's owning agent email —
+   * available on the listPendingMessages response (`agent_id`) and
+   * on the inbound webhook payload. Mismatching email returns 404
+   * (anti-cross-agent guard).
+   *
    * Approve fires a real SES send, so it accepts an
    * `idempotencyKey` like sendEmail / replyToMessage. Without one,
    * a transient retry after the first success could double-send the
@@ -354,13 +359,14 @@ export class E2AApi {
    * only — does not survive an explicit retry loop).
    */
   async approveMessage(
+    agentEmail: string,
     messageID: string,
     overrides: Schemas["ApprovePendingMessageRequest"] = {},
     opts: SendOptions = {},
   ): Promise<Schemas["ApprovePendingMessageResponse"]> {
     return this.request(
       "POST",
-      `/api/v1/messages/${encodeURIComponent(messageID)}/approve`,
+      `/api/v1/agents/${encodeURIComponent(agentEmail)}/messages/${encodeURIComponent(messageID)}/approve`,
       overrides,
       { extraHeaders: idempotencyHeaders(opts) },
     );
@@ -369,14 +375,16 @@ export class E2AApi {
   /**
    * Reject a held outbound message. The message is not sent; body
    * columns are scrubbed and the optional reason is stored for audit.
+   * `agentEmail` requirements match approveMessage.
    */
   async rejectMessage(
+    agentEmail: string,
     messageID: string,
     reason?: string,
   ): Promise<Schemas["RejectPendingMessageResponse"]> {
     return this.request(
       "POST",
-      `/api/v1/messages/${encodeURIComponent(messageID)}/reject`,
+      `/api/v1/agents/${encodeURIComponent(agentEmail)}/messages/${encodeURIComponent(messageID)}/reject`,
       { reason: reason ?? "" } satisfies Schemas["RejectPendingMessageRequest"],
     );
   }

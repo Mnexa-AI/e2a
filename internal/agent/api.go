@@ -500,15 +500,29 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 
 	// HITL approval endpoints — scoped to the user (not a single agent) so
 	// reviewers can see pending messages across all their agents at once.
+	// `/api/v1/pending` is the canonical name for the cross-agent review
+	// queue going forward; `/api/v1/messages` is preserved as an alias
+	// because removing it would break older SDK pins. The two register
+	// the same handler.
+	r.HandleFunc("/api/v1/pending", a.handleListMessages).Methods("GET")
 	r.HandleFunc("/api/v1/messages", a.handleListMessages).Methods("GET")
 	// Slice 6 + 7: customer-facing events API.
 	r.HandleFunc("/api/v1/events", a.handleListEvents).Methods("GET")
 	r.HandleFunc("/api/v1/events/{id}", a.handleGetEvent).Methods("GET")
 	r.HandleFunc("/api/v1/events/{id}/redeliver", a.handleRedeliverEvent).Methods("POST")
 	r.HandleFunc("/api/v1/webhooks/{id}/redeliver-since", a.handleRedeliverSince).Methods("POST")
+
+	// Per-message HITL operations live under the agent-scoped path to
+	// match the rest of the per-message surface (reply, forward, labels).
+	// The handlers validate that the URL's {email} matches the message's
+	// owning agent so the path can't be used to reach across agents.
+	r.HandleFunc("/api/v1/agents/{email}/messages/{id}/approve", a.handleApprovePendingMessage).Methods("POST")
+	r.HandleFunc("/api/v1/agents/{email}/messages/{id}/reject", a.handleRejectPendingMessage).Methods("POST")
+	// GET /messages/{id} (outbound detail) still lives at the flat path —
+	// unifying it with the inbound GET at /agents/{email}/messages/{id}
+	// is a separate concern (different response shapes) tracked as a
+	// follow-up. Until then the SDK falls back through both paths.
 	r.HandleFunc("/api/v1/messages/{id}", a.handleGetOutboundMessage).Methods("GET")
-	r.HandleFunc("/api/v1/messages/{id}/approve", a.handleApprovePendingMessage).Methods("POST")
-	r.HandleFunc("/api/v1/messages/{id}/reject", a.handleRejectPendingMessage).Methods("POST")
 
 	// Magic-link endpoints. GET renders a token-gated confirmation page
 	// with a POST form; POST executes the action. Splitting this way

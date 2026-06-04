@@ -1,0 +1,255 @@
+package agent_test
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"testing"
+)
+
+// HITL approve/reject/get historically lived only at the flat path
+// `/api/v1/messages/{id}/...`. As of this slice they also live at
+// `/api/v1/agents/{email}/messages/{id}/...` to match the rest of the
+// per-message surface (reply, forward, labels). The flat paths stay
+// registered as legacy aliases. These tests pin three invariants of
+// the dual-route design:
+//
+//   1. The agent-scoped path is equivalent to the legacy path when
+//      the URL's {email} matches the message's owning agent.
+//   2. The agent-scoped path returns 404 when the URL's {email}
+//      doesn't match — without this guard the alias could be used to
+//      enumerate or misroute messages across the user's agents.
+//   3. `/api/v1/pending` is an alias for `/api/v1/messages` (the
+//      cross-agent HITL queue). Same handler, same response shape.
+
+func TestApprovePendingMessage_AgentScopedPath_Succeeds(t *testing.T) {
+	server, store, _, smtpDone := setupAPIWithSMTP(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-as-approve@example.com", "Owner", "google-as-approve")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "as-approve-key", nil)
+	store.ClaimOrCreateDomain(ctx, "as-approve.example.com", user.ID)
+	store.VerifyDomain(ctx, "as-approve.example.com", user.ID)
+	agent, _ := store.CreateAgent(ctx, "bot@as-approve.example.com", "as-approve.example.com", "", "https://example.com/webhook", "", user.ID)
+	enableHITL(t, store, agent.ID, user.ID)
+
+	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
+		`{"to":["alice@example.com"],"subject":"AS path","body":"x"}`,
+		apiKey.PlaintextKey)
+	defer sendResp.Body.Close()
+	var sendBody struct{ MessageID string `json:"message_id"` }
+	json.NewDecoder(sendResp.Body).Decode(&sendBody)
+
+	// Approve via the agent-scoped path: /agents/{email}/messages/{id}/approve
+	url := server.URL + "/api/v1/agents/" + agent.Email + "/messages/" + sendBody.MessageID + "/approve"
+	resp := authed(t, "POST", url, "", apiKey.PlaintextKey)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("agent-scoped approve: status = %d", resp.StatusCode)
+	}
+
+	if msgs := smtpDone(); len(msgs) != 1 {
+		t.Fatalf("expected 1 SMTP message, got %d", len(msgs))
+	}
+}
+
+func TestApprovePendingMessage_AgentScopedPath_EmailMismatch_404(t *testing.T) {
+	server, store, _, smtpDone := setupAPIWithSMTP(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-as-mismatch@example.com", "Owner", "google-as-mismatch")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "as-mismatch-key", nil)
+	store.ClaimOrCreateDomain(ctx, "mismatch-a.example.com", user.ID)
+	store.VerifyDomain(ctx, "mismatch-a.example.com", user.ID)
+	agentA, err := store.CreateAgent(ctx, "agent-a@mismatch-a.example.com", "mismatch-a.example.com", "", "https://example.com/wh", "", user.ID)
+	if err != nil {
+		t.Fatalf("create agentA: %v", err)
+	}
+	enableHITL(t, store, agentA.ID, user.ID)
+	// Second agent under the same user — used to construct a URL
+	// that LOOKS legitimate (the {email} is the user's own agent) but
+	// names the WRONG agent for this message.
+	store.ClaimOrCreateDomain(ctx, "mismatch-b.example.com", user.ID)
+	store.VerifyDomain(ctx, "mismatch-b.example.com", user.ID)
+	agentB, err := store.CreateAgent(ctx, "agent-b@mismatch-b.example.com", "mismatch-b.example.com", "", "https://example.com/wh", "", user.ID)
+	if err != nil {
+		t.Fatalf("create agentB: %v", err)
+	}
+
+	// Create a pending message owned by agentA.
+	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
+		`{"from":"agent-a@mismatch-a.example.com","to":["alice@example.com"],"subject":"x","body":"y"}`,
+		apiKey.PlaintextKey)
+	defer sendResp.Body.Close()
+	var sendBody struct{ MessageID string `json:"message_id"` }
+	json.NewDecoder(sendResp.Body).Decode(&sendBody)
+	if sendBody.MessageID == "" {
+		t.Skip("send did not return a message_id — pre-flight failed on this test fixture; skipping mismatch coverage")
+	}
+
+	// Approve via the OTHER agent's path. Same user, same message id,
+	// but the URL names agent B. Should 404 — not 200, not 403.
+	url := server.URL + "/api/v1/agents/" + agentB.Email + "/messages/" + sendBody.MessageID + "/approve"
+	resp := authed(t, "POST", url, "", apiKey.PlaintextKey)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("agent-scoped approve with wrong email: status = %d, want 404", resp.StatusCode)
+	}
+
+	// SMTP should NOT have been hit — the mismatched-email request
+	// must not double-send.
+	if msgs := smtpDone(); len(msgs) != 0 {
+		t.Fatalf("SMTP should not be hit on mismatched-email approve, got %d", len(msgs))
+	}
+}
+
+func TestRejectPendingMessage_AgentScopedPath_EmailMismatch_404(t *testing.T) {
+	server, store, _, _ := setupAPIWithSMTP(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-as-rej@example.com", "Owner", "google-as-rej")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "as-rej-key", nil)
+	store.ClaimOrCreateDomain(ctx, "rej-a.example.com", user.ID)
+	store.VerifyDomain(ctx, "rej-a.example.com", user.ID)
+	agentA, err := store.CreateAgent(ctx, "agent-a@rej-a.example.com", "rej-a.example.com", "", "https://example.com/wh", "", user.ID)
+	if err != nil {
+		t.Fatalf("create agentA: %v", err)
+	}
+	enableHITL(t, store, agentA.ID, user.ID)
+	store.ClaimOrCreateDomain(ctx, "rej-b.example.com", user.ID)
+	store.VerifyDomain(ctx, "rej-b.example.com", user.ID)
+	agentB, err := store.CreateAgent(ctx, "agent-b@rej-b.example.com", "rej-b.example.com", "", "https://example.com/wh", "", user.ID)
+	if err != nil {
+		t.Fatalf("create agentB: %v", err)
+	}
+
+	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
+		`{"from":"agent-a@rej-a.example.com","to":["alice@example.com"],"subject":"x","body":"y"}`,
+		apiKey.PlaintextKey)
+	defer sendResp.Body.Close()
+	var sendBody struct{ MessageID string `json:"message_id"` }
+	json.NewDecoder(sendResp.Body).Decode(&sendBody)
+	if sendBody.MessageID == "" {
+		t.Skip("send did not return a message_id; skipping")
+	}
+
+	// Reject via the wrong agent path → 404. The legacy path
+	// /api/v1/messages/{id}/reject would have succeeded with the
+	// same payload; the agent-scoped path enforces the URL contract.
+	url := server.URL + "/api/v1/agents/" + agentB.Email + "/messages/" + sendBody.MessageID + "/reject"
+	resp := authed(t, "POST", url, `{"reason":"wrong agent"}`, apiKey.PlaintextKey)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("agent-scoped reject with wrong email: status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestRejectPendingMessage_AgentScopedPath_MatchingEmail_Succeeds(t *testing.T) {
+	server, store, _, _ := setupAPIWithSMTP(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-as-rej-ok@example.com", "Owner", "google-as-rej-ok")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "as-rej-ok-key", nil)
+	store.ClaimOrCreateDomain(ctx, "rej-ok.example.com", user.ID)
+	store.VerifyDomain(ctx, "rej-ok.example.com", user.ID)
+	agent, _ := store.CreateAgent(ctx, "bot@rej-ok.example.com", "rej-ok.example.com", "", "https://example.com/wh", "", user.ID)
+	enableHITL(t, store, agent.ID, user.ID)
+
+	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
+		`{"to":["alice@example.com"],"subject":"x","body":"y"}`,
+		apiKey.PlaintextKey)
+	defer sendResp.Body.Close()
+	var sendBody struct{ MessageID string `json:"message_id"` }
+	json.NewDecoder(sendResp.Body).Decode(&sendBody)
+
+	url := server.URL + "/api/v1/agents/" + agent.Email + "/messages/" + sendBody.MessageID + "/reject"
+	resp := authed(t, "POST", url, `{"reason":"reviewed"}`, apiKey.PlaintextKey)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("agent-scoped reject (matching email): status = %d", resp.StatusCode)
+	}
+}
+
+func TestGetOutboundMessage_AgentScopedPath_EmailMismatch_404(t *testing.T) {
+	server, store, _, _ := setupAPIWithSMTP(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-as-get@example.com", "Owner", "google-as-get")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "as-get-key", nil)
+	store.ClaimOrCreateDomain(ctx, "get-a.example.com", user.ID)
+	store.VerifyDomain(ctx, "get-a.example.com", user.ID)
+	agentA, err := store.CreateAgent(ctx, "agent-a@get-a.example.com", "get-a.example.com", "", "https://example.com/wh", "", user.ID)
+	if err != nil {
+		t.Fatalf("create agentA: %v", err)
+	}
+	enableHITL(t, store, agentA.ID, user.ID)
+	store.ClaimOrCreateDomain(ctx, "get-b.example.com", user.ID)
+	store.VerifyDomain(ctx, "get-b.example.com", user.ID)
+	agentB, err := store.CreateAgent(ctx, "agent-b@get-b.example.com", "get-b.example.com", "", "https://example.com/wh", "", user.ID)
+	if err != nil {
+		t.Fatalf("create agentB: %v", err)
+	}
+
+	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
+		`{"from":"agent-a@get-a.example.com","to":["alice@example.com"],"subject":"x","body":"y"}`,
+		apiKey.PlaintextKey)
+	defer sendResp.Body.Close()
+	var sendBody struct{ MessageID string `json:"message_id"` }
+	json.NewDecoder(sendResp.Body).Decode(&sendBody)
+	if sendBody.MessageID == "" {
+		t.Skip("send did not return a message_id; skipping")
+	}
+
+	// The flat path returns the message detail; the agent-scoped path
+	// MUST 404 when the URL names the wrong agent — otherwise the
+	// alias could be used to confirm a message exists under any of
+	// the user's agents by enumerating emails.
+	url := server.URL + "/api/v1/agents/" + agentB.Email + "/messages/" + sendBody.MessageID
+	resp := authed(t, "GET", url, "", apiKey.PlaintextKey)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("agent-scoped get with wrong email: status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestPendingAlias_MatchesMessagesList(t *testing.T) {
+	server, store, _, _ := setupAPIWithSMTP(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner-pending-alias@example.com", "Owner", "google-pending-alias")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "pending-alias-key", nil)
+	store.ClaimOrCreateDomain(ctx, "pa.example.com", user.ID)
+	store.VerifyDomain(ctx, "pa.example.com", user.ID)
+	agent, _ := store.CreateAgent(ctx, "bot@pa.example.com", "pa.example.com", "", "https://example.com/wh", "", user.ID)
+	enableHITL(t, store, agent.ID, user.ID)
+
+	// Create a pending message so the list has something to return.
+	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
+		`{"to":["alice@example.com"],"subject":"P","body":"q"}`,
+		apiKey.PlaintextKey)
+	defer sendResp.Body.Close()
+
+	// Hit both endpoints and compare the response bodies. Same handler,
+	// so the bytes should be byte-for-byte identical modulo ordering.
+	a := authed(t, "GET", server.URL+"/api/v1/messages", "", apiKey.PlaintextKey)
+	defer a.Body.Close()
+	b := authed(t, "GET", server.URL+"/api/v1/pending", "", apiKey.PlaintextKey)
+	defer b.Body.Close()
+
+	if a.StatusCode != http.StatusOK || b.StatusCode != http.StatusOK {
+		t.Fatalf("status: /messages=%d /pending=%d (both should be 200)", a.StatusCode, b.StatusCode)
+	}
+
+	var aBody, bBody map[string]any
+	json.NewDecoder(a.Body).Decode(&aBody)
+	json.NewDecoder(b.Body).Decode(&bBody)
+
+	if len(aBody) != len(bBody) {
+		t.Errorf("response shape differs: /messages keys=%d, /pending keys=%d", len(aBody), len(bBody))
+	}
+	for k := range aBody {
+		if _, ok := bBody[k]; !ok {
+			t.Errorf("/pending missing key %q present in /messages", k)
+		}
+	}
+}

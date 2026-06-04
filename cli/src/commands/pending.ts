@@ -197,22 +197,30 @@ export async function pendingApprove(
 
   const client = createClient();
 
+  // We need the message's owning agent email to call the agent-scoped
+  // approve endpoint. Fetch the detail unconditionally — even on the
+  // non-edit path — because the alternative (asking the user to pass
+  // --agent) is brittle and easy to typo. The lookup is a single GET
+  // and gates a side-effectful POST, so the extra round trip pays for
+  // itself in fewer 404s.
+  const original = (await client.getPendingMessage(id)) as PendingDetail;
+  if (original.status !== "pending_approval") {
+    process.stderr.write(
+      `Cannot ${opts.edit ? "edit" : "approve"}: message is ${original.status}, not pending.\n`,
+    );
+    process.exit(1);
+  }
+  const agentEmail = original.agent_id;
+
   let overrides: ApproveOverrides = {};
   if (opts.edit) {
-    const original = (await client.getPendingMessage(id)) as PendingDetail;
-    if (original.status !== "pending_approval") {
-      process.stderr.write(
-        `Cannot edit: message is ${original.status}, not pending.\n`,
-      );
-      process.exit(1);
-    }
     const edited = openEditor(editableDocFromMessage(original));
     overrides = diffOverrides(parseEditableDoc(edited), original);
   }
 
   const res = opts.idempotencyKey !== undefined
-    ? await client.approveMessage(id, overrides, { idempotencyKey: opts.idempotencyKey })
-    : await client.approveMessage(id, overrides);
+    ? await client.approveMessage(agentEmail, id, overrides, { idempotencyKey: opts.idempotencyKey })
+    : await client.approveMessage(agentEmail, id, overrides);
   const editedNote = res.edited ? " (with edits)" : "";
   process.stdout.write(
     `Approved: ${res.message_id} → ${res.provider_message_id ?? ""}${editedNote}\n`,
@@ -228,6 +236,8 @@ export async function pendingReject(
     process.exit(1);
   }
   const client = createClient();
-  await client.rejectMessage(id, reason ?? "");
+  // Same agent-email-discovery pattern as approve.
+  const original = (await client.getPendingMessage(id)) as PendingDetail;
+  await client.rejectMessage(original.agent_id, id, reason ?? "");
   process.stdout.write(`Rejected: ${id}\n`);
 }

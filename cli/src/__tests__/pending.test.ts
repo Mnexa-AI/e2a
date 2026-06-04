@@ -140,6 +140,7 @@ describe("pendingApprove", () => {
       throw new Error("process.exit");
     });
     mockApprove.mockReset();
+    mockGetPending.mockReset();
   });
   afterEach(() => {
     stdout.mockRestore();
@@ -153,7 +154,18 @@ describe("pendingApprove", () => {
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining("Usage"));
   });
 
-  it("approve-as-is passes an empty override object to the SDK", async () => {
+  it("approve-as-is fetches the pending detail for agent_id, then approves", async () => {
+    // CLI now always fetches the message first to discover the owning
+    // agent (needed for the agent-scoped /agents/{email}/messages/...
+    // endpoint). Approve-as-is still sends an empty override object.
+    mockGetPending.mockResolvedValueOnce({
+      id: "msg_x",
+      agent_id: "bot@agents.e2a.dev",
+      status: "pending_approval",
+      subject: "hi",
+      type: "send",
+      to: ["alice@example.com"],
+    });
     mockApprove.mockResolvedValueOnce({
       status: "sent",
       message_id: "msg_x",
@@ -164,7 +176,8 @@ describe("pendingApprove", () => {
 
     await pendingApprove("msg_x", {});
 
-    expect(mockApprove).toHaveBeenCalledWith("msg_x", {});
+    expect(mockGetPending).toHaveBeenCalledWith("msg_x");
+    expect(mockApprove).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_x", {});
     const out = stdout.mock.calls.map((c: unknown[]) => String(c[0])).join("");
     expect(out).toContain("Approved: msg_x");
     expect(out).toContain("<ses-id@amazonses.com>");
@@ -172,6 +185,14 @@ describe("pendingApprove", () => {
   });
 
   it('annotates "with edits" when server reports edited', async () => {
+    mockGetPending.mockResolvedValueOnce({
+      id: "msg_x",
+      agent_id: "bot@agents.e2a.dev",
+      status: "pending_approval",
+      subject: "hi",
+      type: "send",
+      to: ["alice@example.com"],
+    });
     mockApprove.mockResolvedValueOnce({
       status: "sent",
       message_id: "msg_x",
@@ -183,6 +204,21 @@ describe("pendingApprove", () => {
     await pendingApprove("msg_x", {});
     const out = stdout.mock.calls.map((c: unknown[]) => String(c[0])).join("");
     expect(out).toContain("(with edits)");
+  });
+
+  it("refuses to approve when the row has already transitioned", async () => {
+    mockGetPending.mockResolvedValueOnce({
+      id: "msg_x",
+      agent_id: "bot@agents.e2a.dev",
+      status: "sent",
+      subject: "hi",
+      type: "send",
+      to: ["alice@example.com"],
+    });
+
+    await expect(pendingApprove("msg_x", {})).rejects.toThrow("process.exit");
+    expect(mockApprove).not.toHaveBeenCalled();
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining("Cannot approve"));
   });
 });
 
@@ -198,6 +234,7 @@ describe("pendingReject", () => {
       throw new Error("process.exit");
     });
     mockReject.mockReset();
+    mockGetPending.mockReset();
   });
   afterEach(() => {
     stdout.mockRestore();
@@ -211,7 +248,15 @@ describe("pendingReject", () => {
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining("Usage"));
   });
 
-  it("forwards the reason to the SDK", async () => {
+  it("looks up the owning agent then forwards the reason to the SDK", async () => {
+    mockGetPending.mockResolvedValueOnce({
+      id: "msg_x",
+      agent_id: "bot@agents.e2a.dev",
+      status: "pending_approval",
+      subject: "hi",
+      type: "send",
+      to: ["alice@example.com"],
+    });
     mockReject.mockResolvedValueOnce({
       status: "rejected",
       message_id: "msg_x",
@@ -219,13 +264,22 @@ describe("pendingReject", () => {
     });
 
     await pendingReject("msg_x", "nope");
-    expect(mockReject).toHaveBeenCalledWith("msg_x", "nope");
+    expect(mockGetPending).toHaveBeenCalledWith("msg_x");
+    expect(mockReject).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_x", "nope");
     expect(stdout).toHaveBeenCalledWith("Rejected: msg_x\n");
   });
 
   it("passes an empty reason when omitted", async () => {
+    mockGetPending.mockResolvedValueOnce({
+      id: "msg_x",
+      agent_id: "bot@agents.e2a.dev",
+      status: "pending_approval",
+      subject: "hi",
+      type: "send",
+      to: ["alice@example.com"],
+    });
     mockReject.mockResolvedValueOnce({ status: "rejected", message_id: "msg_x" });
     await pendingReject("msg_x", undefined);
-    expect(mockReject).toHaveBeenCalledWith("msg_x", "");
+    expect(mockReject).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_x", "");
   });
 });

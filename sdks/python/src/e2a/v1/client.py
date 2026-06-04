@@ -503,6 +503,7 @@ class E2AClient:
 
     def approve_message(
         self,
+        agent_email: str,
         message_id: str,
         *,
         subject: Optional[str] = None,
@@ -514,6 +515,10 @@ class E2AClient:
         idempotency_key: Optional[str] = None,
     ):
         """Approve a held outbound message.
+
+        ``agent_email`` is the message's owning agent — taken from the
+        pending-message listing (``agent_id``) or the webhook payload.
+        Returns 404 if it doesn't match the message's owner.
 
         Pass any subset of overrides to approve with edits; pass none
         to approve as-is.
@@ -540,12 +545,13 @@ class E2AClient:
             if any_override
             else None
         )
-        return self.api.approve_message(message_id, overrides, idempotency_key=idempotency_key)
+        return self.api.approve_message(agent_email, message_id, overrides, idempotency_key=idempotency_key)
 
-    def reject_message(self, message_id: str, reason: str = ""):
+    def reject_message(self, agent_email: str, message_id: str, reason: str = ""):
         """Reject a held outbound message. The optional reason is
-        stored for audit."""
-        return self.api.reject_message(message_id, reason)
+        stored for audit. ``agent_email`` requirements match
+        :meth:`approve_message`."""
+        return self.api.reject_message(agent_email, message_id, reason)
 
     # ── Domain CRUD ───────────────────────────────────────────────────
 

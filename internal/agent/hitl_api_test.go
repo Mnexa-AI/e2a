@@ -386,8 +386,8 @@ func TestSendTestEmailHITLApproveDeliversViaLoopback(t *testing.T) {
 		t.Fatal("hold response missing message_id")
 	}
 
-	// Step 2: approve via the dashboard endpoint.
-	approveReq, _ := http.NewRequest("POST", server.URL+"/api/v1/messages/"+holdBody.MessageID+"/approve", bytes.NewBufferString(`{}`))
+	// Step 2: approve via the dashboard endpoint (agent-scoped path).
+	approveReq, _ := http.NewRequest("POST", server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+holdBody.MessageID+"/approve", bytes.NewBufferString(`{}`))
 	approveReq.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
 	approveReq.Header.Set("Content-Type", "application/json")
 	approveResp, err := http.DefaultClient.Do(approveReq)

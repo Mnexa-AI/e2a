@@ -499,26 +499,32 @@ export class E2AClient {
    * Approve a held outbound message. Pass overrides to approve with
    * edits; omit for approve-as-is.
    *
+   * `agentEmail` is the message's owning agent — taken from the
+   * pending-message listing (`agent_id`) or from the webhook payload.
+   * The server returns 404 if it doesn't match the message's owner.
+   *
    * Approve fires a real SES send, so `idempotencyKey` works the same
    * way as on send / reply — supply a stable key derived from the
    * review event to make retries safe.
    */
   async approveMessage(
+    agentEmail: string,
     messageId: string,
     overrides: Schemas["ApprovePendingMessageRequest"] = {},
     opts?: { idempotencyKey?: string },
   ) {
-    return this.api.approveMessage(messageId, overrides, {
+    return this.api.approveMessage(agentEmail, messageId, overrides, {
       idempotencyKey: opts?.idempotencyKey,
     });
   }
 
   /**
    * Reject a held outbound message. The message is discarded; the
-   * optional reason is stored for audit.
+   * optional reason is stored for audit. `agentEmail` requirements
+   * match approveMessage.
    */
-  async rejectMessage(messageId: string, reason?: string) {
-    return this.api.rejectMessage(messageId, reason);
+  async rejectMessage(agentEmail: string, messageId: string, reason?: string) {
+    return this.api.rejectMessage(agentEmail, messageId, reason);
   }
 
   // ── WebSocket ──────────────────────────────────────────────────

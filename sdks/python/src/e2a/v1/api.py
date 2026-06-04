@@ -523,11 +523,17 @@ class E2AApi:
 
     def approve_message(
         self,
+        agent_email: str,
         message_id: str,
         overrides: Optional[ApprovePendingMessageRequest] = None,
         idempotency_key: Optional[str] = None,
     ) -> ApprovePendingMessageResponse:
         """Approve a held outbound message.
+
+        ``agent_email`` is the message's owning agent — available on
+        the ``list_pending_messages`` response (`agent_id`) and on the
+        inbound webhook payload. The server returns 404 if it doesn't
+        match the message's owner (anti-cross-agent guard).
 
         Pass ``overrides`` to approve with edits (any subset of
         subject / body_text / body_html / to / cc / bcc / attachments).
@@ -543,7 +549,7 @@ class E2AApi:
         """
         payload = overrides.model_dump(by_alias=True, exclude_none=True) if overrides else {}
         resp = self._client.post(
-            f"/api/v1/messages/{quote(message_id, safe='')}/approve",
+            f"/api/v1/agents/{quote(agent_email, safe='')}/messages/{quote(message_id, safe='')}/approve",
             json=payload,
             headers=_idempotency_header(idempotency_key),
         )
@@ -552,14 +558,18 @@ class E2AApi:
 
     def reject_message(
         self,
+        agent_email: str,
         message_id: str,
         reason: str = "",
     ) -> RejectPendingMessageResponse:
         """Reject a held outbound message. The message is discarded and
-        never sent. The optional ``reason`` is stored for audit."""
+        never sent. The optional ``reason`` is stored for audit.
+
+        ``agent_email`` requirements match :meth:`approve_message`.
+        """
         body = RejectPendingMessageRequest(reason=reason)
         resp = self._client.post(
-            f"/api/v1/messages/{quote(message_id, safe='')}/reject",
+            f"/api/v1/agents/{quote(agent_email, safe='')}/messages/{quote(message_id, safe='')}/reject",
             json=body.model_dump(by_alias=True, exclude_none=True),
         )
         _check_response(resp)
