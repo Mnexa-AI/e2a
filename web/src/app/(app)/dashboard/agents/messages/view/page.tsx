@@ -282,7 +282,7 @@ function FocusContent({
       const overrides = editingDraft && draftBody !== (msg.data.body_text ?? "")
         ? { body_text: draftBody }
         : {};
-      await approvePendingMessage(msg.data.id, overrides);
+      await approvePendingMessage(msg.data.agent_id, msg.data.id, overrides);
       await refreshAfterMutation(msg.data.id);
       router.push(convLink);
     } catch (err) {
@@ -296,7 +296,7 @@ function FocusContent({
     setSubmitting(true);
     setSubmitError("");
     try {
-      await rejectPendingMessage(msg.data.id, rejectReason || "rejected by reviewer");
+      await rejectPendingMessage(msg.data.agent_id, msg.data.id, rejectReason || "rejected by reviewer");
       await refreshAfterMutation(msg.data.id);
       router.push(convLink);
     } catch (err) {

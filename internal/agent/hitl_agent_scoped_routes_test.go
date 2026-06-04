@@ -212,12 +212,15 @@ func TestGetOutboundMessage_AgentScopedPath_EmailMismatch_404(t *testing.T) {
 	}
 }
 
-func TestPendingAlias_MatchesMessagesList(t *testing.T) {
+func TestPendingList_LegacyMessagesPathIsGone(t *testing.T) {
+	// The HITL pending list moved from /api/v1/messages to /api/v1/pending.
+	// Pin both endpoints to ensure the legacy path is gone (no silent
+	// alias) and the canonical path returns the documented shape.
 	server, store, _, _ := setupAPIWithSMTP(t)
 	ctx := context.Background()
 
-	user, _ := store.CreateOrGetUser(ctx, "owner-pending-alias@example.com", "Owner", "google-pending-alias")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "pending-alias-key", nil)
+	user, _ := store.CreateOrGetUser(ctx, "owner-pending-list@example.com", "Owner", "google-pending-list")
+	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "pending-list-key", nil)
 	store.ClaimOrCreateDomain(ctx, "pa.example.com", user.ID)
 	store.VerifyDomain(ctx, "pa.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@pa.example.com", "pa.example.com", "", "https://example.com/wh", "", user.ID)
@@ -229,27 +232,22 @@ func TestPendingAlias_MatchesMessagesList(t *testing.T) {
 		apiKey.PlaintextKey)
 	defer sendResp.Body.Close()
 
-	// Hit both endpoints and compare the response bodies. Same handler,
-	// so the bytes should be byte-for-byte identical modulo ordering.
-	a := authed(t, "GET", server.URL+"/api/v1/messages", "", apiKey.PlaintextKey)
-	defer a.Body.Close()
-	b := authed(t, "GET", server.URL+"/api/v1/pending", "", apiKey.PlaintextKey)
-	defer b.Body.Close()
-
-	if a.StatusCode != http.StatusOK || b.StatusCode != http.StatusOK {
-		t.Fatalf("status: /messages=%d /pending=%d (both should be 200)", a.StatusCode, b.StatusCode)
+	// Legacy path must be gone — no registered handler, gorilla/mux 404s.
+	legacy := authed(t, "GET", server.URL+"/api/v1/messages", "", apiKey.PlaintextKey)
+	defer legacy.Body.Close()
+	if legacy.StatusCode != http.StatusNotFound {
+		t.Errorf("/api/v1/messages should 404 after rename, got %d", legacy.StatusCode)
 	}
 
-	var aBody, bBody map[string]any
-	json.NewDecoder(a.Body).Decode(&aBody)
-	json.NewDecoder(b.Body).Decode(&bBody)
-
-	if len(aBody) != len(bBody) {
-		t.Errorf("response shape differs: /messages keys=%d, /pending keys=%d", len(aBody), len(bBody))
+	// Canonical /pending must return the pending row(s).
+	pending := authed(t, "GET", server.URL+"/api/v1/pending", "", apiKey.PlaintextKey)
+	defer pending.Body.Close()
+	if pending.StatusCode != http.StatusOK {
+		t.Fatalf("/api/v1/pending status = %d, want 200", pending.StatusCode)
 	}
-	for k := range aBody {
-		if _, ok := bBody[k]; !ok {
-			t.Errorf("/pending missing key %q present in /messages", k)
-		}
+	var body map[string]any
+	json.NewDecoder(pending.Body).Decode(&body)
+	if _, ok := body["messages"]; !ok {
+		t.Errorf("/api/v1/pending response missing 'messages' key, got %v", body)
 	}
 }

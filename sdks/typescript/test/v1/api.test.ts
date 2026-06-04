@@ -177,14 +177,14 @@ describe("E2AApi", () => {
     });
   });
 
-  it("listPendingMessages GETs /api/v1/messages with the filter", async () => {
+  it("listPendingMessages GETs /api/v1/pending", async () => {
     globalThis.fetch = mockFetch(200, {
       messages: [{ id: "msg_p1", agent_id: "bot@test.dev", subject: "held" }],
     });
     const res = await api.listPendingMessages();
     expect(res.messages).toHaveLength(1);
     const url = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
-    expect(url).toBe(`${BASE}/api/v1/messages?status=pending_approval`);
+    expect(url).toBe(`${BASE}/api/v1/pending`);
   });
 
   it("getPendingMessage encodes the id and returns the detail", async () => {

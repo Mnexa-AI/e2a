@@ -1820,66 +1820,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/messages": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List messages waiting for HITL approval
-         * @description Returns all pending_approval messages across every agent owned by the authenticated user, sorted by expiring-soonest first. Body and attachments are omitted — use the detail endpoint for full content. This is the only status value supported on this endpoint today.
-         */
-        get: {
-            parameters: {
-                query: {
-                    /** @description Filter by status (only pending_approval is supported) */
-                    status: "pending_approval";
-                };
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ListPendingMessagesResponse"];
-                    };
-                };
-                /** @description Unsupported status */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": string;
-                    };
-                };
-                /** @description Missing or invalid API key */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": string;
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/messages/{id}": {
         parameters: {
             query?: never;
@@ -1926,6 +1866,66 @@ export interface paths {
                 };
                 /** @description Message not found or not owned by this user */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List messages waiting for HITL approval
+         * @description Returns all pending_approval messages across every agent owned by the authenticated user, sorted by expiring-soonest first. Body and attachments are omitted — use the detail endpoint for full content. This is the only status value supported on this endpoint today.
+         */
+        get: {
+            parameters: {
+                query: {
+                    /** @description Filter by status (only pending_approval is supported) */
+                    status: "pending_approval";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ListPendingMessagesResponse"];
+                    };
+                };
+                /** @description Unsupported status */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Missing or invalid API key */
+                401: {
                     headers: {
                         [name: string]: unknown;
                     };

@@ -636,7 +636,7 @@ def test_update_agent_puts_the_body(httpx_mock):
 
 def test_list_pending_messages_sends_filter(httpx_mock):
     httpx_mock.add_response(
-        url=f"{BASE}/api/v1/messages?status=pending_approval",
+        url=f"{BASE}/api/v1/pending",
         method="GET",
         json={
             "messages": [

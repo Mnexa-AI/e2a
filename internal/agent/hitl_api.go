@@ -172,7 +172,7 @@ func messageToDetail(m identity.Message, inbound *identity.Message) pendingMessa
 // @Success      200 {object} ListPendingMessagesResponse
 // @Failure      400 {string} string "Unsupported status"
 // @Failure      401 {string} string "Missing or invalid API key"
-// @Router       /api/v1/messages [get]
+// @Router       /api/v1/pending [get]
 func (a *API) handleListMessages(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticateUser(r)
 	if err != nil {
@@ -359,7 +359,11 @@ func (a *API) handleApprovePendingMessage(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Pre-flight load: verify ownership + pending status + resolve the owning agent.
+	// Pre-flight load: verify ownership + pending status + URL agent match
+	// + domain verification. The URL agent-match guard uses the same
+	// verifyURLAgentEmail helper as get/reject so any future change to
+	// that contract (telemetry, logging, status code) ripples through
+	// all three handlers in lockstep.
 	preview, err := a.store.GetOutboundMessageForUser(r.Context(), messageID, user.ID)
 	if err != nil {
 		http.Error(w, "message not found", http.StatusNotFound)
@@ -369,18 +373,20 @@ func (a *API) handleApprovePendingMessage(w http.ResponseWriter, r *http.Request
 		http.Error(w, "message is not pending approval", http.StatusConflict)
 		return
 	}
+	if !a.verifyURLAgentEmail(r.Context(), w, r, preview.AgentID) {
+		return
+	}
 
+	// Approve also needs the agent's DomainVerified flag. verifyURLAgentEmail
+	// has already loaded the agent into the store cache in the typical path,
+	// but the helper doesn't surface the row — load it explicitly here.
+	// (Splitting "ownership check" from "send-readiness check" keeps each
+	// handler's preconditions explicit even though it costs a second
+	// GetAgentByID under the hood.)
 	agent, err := a.store.GetAgentByID(r.Context(), preview.AgentID)
 	if err != nil {
 		log.Printf("[api] approve: get agent %s: %v", preview.AgentID, err)
 		http.Error(w, "agent lookup failed", http.StatusInternalServerError)
-		return
-	}
-	// Agent-scoped path enforces that the {email} URL segment matches
-	// the message's owning agent — done inline here (rather than via
-	// verifyURLAgentEmail) because the agent is already loaded above.
-	if urlEmail := mux.Vars(r)["email"]; urlEmail != "" && agent.Email != urlEmail {
-		http.Error(w, "message not found", http.StatusNotFound)
 		return
 	}
 	if !agent.DomainVerified {

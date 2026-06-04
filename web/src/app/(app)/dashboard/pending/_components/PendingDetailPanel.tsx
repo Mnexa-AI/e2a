@@ -158,7 +158,7 @@ export function PendingDetailPanel({
         cc,
         bcc,
       });
-      await approvePendingMessage(msg.id, overrides);
+      await approvePendingMessage(msg.agent_id, msg.id, overrides);
       onChanged();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Approve failed");
@@ -173,7 +173,7 @@ export function PendingDetailPanel({
     setRejecting(true);
     setActionError("");
     try {
-      await rejectPendingMessage(msg.id, rejectReason);
+      await rejectPendingMessage(msg.agent_id, msg.id, rejectReason);
       onChanged();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Reject failed");

@@ -33,7 +33,7 @@ const baseMessage = {
 function stagePanelFetch(message = baseMessage) {
   mockFetch.mockImplementation(
     (url: string, init?: { method?: string; body?: string }) => {
-      if (url === `/api/v1/messages/${message.id}/approve` && init?.method === "POST") {
+      if (url === `/api/v1/agents/${encodeURIComponent(message.agent_id)}/messages/${message.id}/approve` && init?.method === "POST") {
         return Promise.resolve({
           ok: true,
           json: () =>
@@ -83,7 +83,7 @@ describe("PendingDetailPanel", () => {
     await waitFor(() => {
       const approveCall = mockFetch.mock.calls.find(
         (call) =>
-          call[0] === "/api/v1/messages/msg_abc/approve" &&
+          call[0] === "/api/v1/agents/bot%40acme.io/messages/msg_abc/approve" &&
           call[1]?.method === "POST",
       );
       expect(approveCall).toBeDefined();
@@ -107,7 +107,7 @@ describe("PendingDetailPanel", () => {
     await waitFor(() => {
       const approveCall = mockFetch.mock.calls.find(
         (call) =>
-          call[0] === "/api/v1/messages/msg_abc/approve" &&
+          call[0] === "/api/v1/agents/bot%40acme.io/messages/msg_abc/approve" &&
           call[1]?.method === "POST",
       );
       expect(approveCall).toBeDefined();

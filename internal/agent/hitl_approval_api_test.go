@@ -83,7 +83,7 @@ func TestListPendingMessagesHandler(t *testing.T) {
 		}
 	}
 
-	resp := authed(t, "GET", server.URL+"/api/v1/messages?status=pending_approval", "", apiKey.PlaintextKey)
+	resp := authed(t, "GET", server.URL+"/api/v1/pending", "", apiKey.PlaintextKey)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("list: status = %d", resp.StatusCode)
@@ -124,7 +124,7 @@ func TestListPendingMessagesRejectsOtherStatus(t *testing.T) {
 	user, _ := store.CreateOrGetUser(ctx, "owner-listreject@example.com", "Owner", "google-list-reject")
 	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "list-reject-key", nil)
 
-	resp := authed(t, "GET", server.URL+"/api/v1/messages?status=sent", "", apiKey.PlaintextKey)
+	resp := authed(t, "GET", server.URL+"/api/v1/pending?status=sent", "", apiKey.PlaintextKey)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400 (only pending_approval supported)", resp.StatusCode)

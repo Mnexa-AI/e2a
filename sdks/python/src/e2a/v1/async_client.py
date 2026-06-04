@@ -406,8 +406,7 @@ class AsyncE2AApi:
 
     async def list_pending_messages(self) -> ListPendingMessagesResponse:
         resp = await self._client.get(
-            "/api/v1/messages",
-            params={"status": "pending_approval"},
+            "/api/v1/pending",
         )
         _check_response(resp)
         return ListPendingMessagesResponse.model_validate(resp.json())

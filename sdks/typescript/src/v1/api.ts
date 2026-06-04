@@ -322,7 +322,7 @@ export class E2AApi {
   async listPendingMessages(): Promise<Schemas["ListPendingMessagesResponse"]> {
     return this.request(
       "GET",
-      "/api/v1/messages?status=pending_approval",
+      "/api/v1/pending",
     );
   }
 

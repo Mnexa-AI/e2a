@@ -498,14 +498,12 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/v1/users/me/signing-secrets", a.handleCreateSigningSecret).Methods("POST")
 	r.HandleFunc("/api/v1/users/me/signing-secrets/{id}", a.handleDeleteSigningSecret).Methods("DELETE")
 
-	// HITL approval endpoints — scoped to the user (not a single agent) so
-	// reviewers can see pending messages across all their agents at once.
-	// `/api/v1/pending` is the canonical name for the cross-agent review
-	// queue going forward; `/api/v1/messages` is preserved as an alias
-	// because removing it would break older SDK pins. The two register
-	// the same handler.
+	// HITL pending queue — scoped to the user (not a single agent) so
+	// reviewers can see pending messages across all their agents at
+	// once. The endpoint is user-scoped because the review workflow
+	// is account-level; per-agent filtering lives on
+	// /api/v1/agents/{email}/messages instead.
 	r.HandleFunc("/api/v1/pending", a.handleListMessages).Methods("GET")
-	r.HandleFunc("/api/v1/messages", a.handleListMessages).Methods("GET")
 	// Slice 6 + 7: customer-facing events API.
 	r.HandleFunc("/api/v1/events", a.handleListEvents).Methods("GET")
 	r.HandleFunc("/api/v1/events/{id}", a.handleGetEvent).Methods("GET")

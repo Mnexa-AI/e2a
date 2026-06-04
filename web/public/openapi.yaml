@@ -2683,40 +2683,6 @@ paths:
       summary: Deployment info
       tags:
       - System
-  /api/v1/messages:
-    get:
-      description: Returns all pending_approval messages across every agent owned
-        by the authenticated user, sorted by expiring-soonest first. Body and attachments
-        are omitted — use the detail endpoint for full content. This is the only status
-        value supported on this endpoint today.
-      parameters:
-      - description: Filter by status (only pending_approval is supported)
-        enum:
-        - pending_approval
-        in: query
-        name: status
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/ListPendingMessagesResponse'
-        "400":
-          description: Unsupported status
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: List messages waiting for HITL approval
-      tags:
-      - HITL
   /api/v1/messages/{id}:
     get:
       description: Returns the full pending-approval detail — recipients, subject,
@@ -2749,6 +2715,40 @@ paths:
       security:
       - BearerAuth: []
       summary: Fetch a held outbound message
+      tags:
+      - HITL
+  /api/v1/pending:
+    get:
+      description: Returns all pending_approval messages across every agent owned
+        by the authenticated user, sorted by expiring-soonest first. Body and attachments
+        are omitted — use the detail endpoint for full content. This is the only status
+        value supported on this endpoint today.
+      parameters:
+      - description: Filter by status (only pending_approval is supported)
+        enum:
+        - pending_approval
+        in: query
+        name: status
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ListPendingMessagesResponse'
+        "400":
+          description: Unsupported status
+          schema:
+            type: string
+        "401":
+          description: Missing or invalid API key
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: List messages waiting for HITL approval
       tags:
       - HITL
   /api/v1/send:

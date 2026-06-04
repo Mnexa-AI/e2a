@@ -505,10 +505,10 @@ class E2AApi:
         sorted by soonest-expiring first. Body columns are omitted from
         the summary rows — use :meth:`get_pending_message` for detail.
         """
-        resp = self._client.get(
-            "/api/v1/messages",
-            params={"status": "pending_approval"},
-        )
+        # No query param needed: the server defaults `status` to
+        # pending_approval (and rejects every other value), so the call
+        # stays clean.
+        resp = self._client.get("/api/v1/pending")
         _check_response(resp)
         return ListPendingMessagesResponse.model_validate(resp.json())
 

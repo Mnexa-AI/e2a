@@ -210,6 +210,15 @@ export async function pendingApprove(
     );
     process.exit(1);
   }
+  // PendingMessageDetail.agent_id is `string | undefined` in the
+  // generated OpenAPI types — the field is non-optional on the wire
+  // but swag emits it as optional. The status guard above already
+  // proves the row exists, so a missing agent_id here is a server
+  // bug; bail loudly rather than crashing in the URL builder.
+  if (!original.agent_id) {
+    process.stderr.write(`Server returned a pending message without an agent_id (id=${id}).\n`);
+    process.exit(1);
+  }
   const agentEmail = original.agent_id;
 
   let overrides: ApproveOverrides = {};
@@ -238,6 +247,10 @@ export async function pendingReject(
   const client = createClient();
   // Same agent-email-discovery pattern as approve.
   const original = (await client.getPendingMessage(id)) as PendingDetail;
+  if (!original.agent_id) {
+    process.stderr.write(`Server returned a pending message without an agent_id (id=${id}).\n`);
+    process.exit(1);
+  }
   await client.rejectMessage(original.agent_id, id, reason ?? "");
   process.stdout.write(`Rejected: ${id}\n`);
 }

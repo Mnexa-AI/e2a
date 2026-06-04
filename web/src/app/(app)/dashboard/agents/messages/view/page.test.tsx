@@ -232,7 +232,7 @@ describe("AgentMessageFocusPage", () => {
     });
   });
 
-  it("clicking Approve POSTs to /api/v1/messages/{id}/approve and redirects to the thread", async () => {
+  it("clicking Approve POSTs to /api/v1/agents/{email}/messages/{id}/approve and redirects to the thread", async () => {
     setSearchParams({ email: "support@acme.io", id: "msg_pending" });
     const countCalls = mockApproveSuccess();
     const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });

@@ -209,7 +209,7 @@ export async function updateAgent(
 
 export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
   const data = await request<{ messages: PendingMessageSummary[] }>(
-    "/api/v1/messages?status=pending_approval",
+    "/api/v1/pending",
   );
   return data.messages ?? [];
 }
@@ -230,7 +230,13 @@ export type ApprovePayload = {
   attachments?: PendingAttachment[];
 };
 
+// approvePendingMessage / rejectPendingMessage hit the agent-scoped
+// HITL endpoints. The backend validates that {agentEmail} matches the
+// message's owning agent — pass the message's agent_id directly (no
+// pre-flight lookup needed; the focus page and pending detail panel
+// already have the loaded message in scope).
 export async function approvePendingMessage(
+  agentEmail: string,
   id: string,
   overrides: ApprovePayload = {},
 ): Promise<{
@@ -241,7 +247,11 @@ export async function approvePendingMessage(
   edited?: boolean;
 }> {
   return request(
-    "/api/v1/messages/" + encodeURIComponent(id) + "/approve",
+    "/api/v1/agents/" +
+      encodeURIComponent(agentEmail) +
+      "/messages/" +
+      encodeURIComponent(id) +
+      "/approve",
     {
       method: "POST",
       body: JSON.stringify(overrides),
@@ -250,11 +260,16 @@ export async function approvePendingMessage(
 }
 
 export async function rejectPendingMessage(
+  agentEmail: string,
   id: string,
   reason: string,
 ): Promise<{ status: string; message_id: string; rejection_reason?: string }> {
   return request(
-    "/api/v1/messages/" + encodeURIComponent(id) + "/reject",
+    "/api/v1/agents/" +
+      encodeURIComponent(agentEmail) +
+      "/messages/" +
+      encodeURIComponent(id) +
+      "/reject",
     {
       method: "POST",
       body: JSON.stringify({ reason }),

@@ -134,7 +134,7 @@ TTL is server-capped at 604800 seconds (7 days) so the maximum exposure is bound
 
 Every action is mirrored across the dashboard, CLI, and API. If you want to build your own approval UI:
 
-- `GET /api/v1/messages?status=pending_approval` — list pending across all your agents
+- `GET /api/v1/pending` — list pending across all your agents
 - `GET /api/v1/messages/{id}` — full detail (body included while pending)
 - `POST /api/v1/messages/{id}/approve` — optional body overrides
 - `POST /api/v1/messages/{id}/reject` — optional reason
