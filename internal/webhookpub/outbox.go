@@ -90,20 +90,34 @@ func (o *outbox) PublishTx(ctx context.Context, tx pgx.Tx, e Event) error {
 	return writeOutboxRow(ctx, tx, e)
 }
 
-// DeleteExpiredWebhookEvents removes rows whose expires_at has passed.
-// Migration 026 sets a 30-day TTL on every event row; without this
-// janitor the table grows monotonically and the (user_id, created_at)
-// index degrades. Mirrors webhook.SubscriberStore.DeleteExpiredSubscriberDeliveries
-// for the parallel slice-2 delivery table.
+// DeleteExpiredWebhookEvents removes terminal rows whose expires_at has
+// passed. Migration 026 sets a 30-day TTL on every event row; without
+// this janitor the table grows monotonically and the (user_id,
+// created_at) index degrades. Mirrors
+// webhook.SubscriberStore.DeleteExpiredSubscriberDeliveries for the
+// parallel slice-2 delivery table.
 //
-// Returns the number of rows deleted. Safe to run concurrently with the
-// outbox worker — the WHERE predicate excludes rows the worker would
-// lease (status='pending' AND next_poll_at <= now() implies expires_at
-// is in the future for any row the worker would touch, since the
-// trigger writes both with similar lifetimes).
+// Returns the number of rows deleted.
+//
+// The status guard is load-bearing. The outbox is at-least-once by
+// design — see worker.go's recordFailure docstring: "there is NO
+// terminal 'failed' state on the outbox … we let the row stay pending
+// until human intervention or a successful retry." If we delete
+// pending rows at 30 days the retry-forever guarantee silently breaks,
+// dropping events that never reached any webhook. A row only becomes
+// eligible for the sweep once the worker has marked it terminal
+// (`processed` after a successful fan-out, `no_match` when no enabled
+// webhook subscribed).
+//
+// Trade-off: a row that's broken on the retry path (e.g. a downstream
+// SELECT panics every iteration) will accumulate forever rather than
+// fall out at day 30. That's the "page ops after many attempts" case
+// recordFailure calls out — preferable to silent loss.
 func (o *outbox) DeleteExpiredWebhookEvents(ctx context.Context) (int, error) {
 	tag, err := o.pool.Exec(ctx,
-		`DELETE FROM webhook_events WHERE expires_at <= now()`,
+		`DELETE FROM webhook_events
+		 WHERE expires_at <= now()
+		   AND status <> 'pending'`,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("delete expired webhook_events: %w", err)

@@ -264,8 +264,23 @@ func TestOutbox_Integration_FlagOffNoWrite(t *testing.T) {
 }
 
 // TestOutbox_Integration_JanitorDeletesExpired exercises the slice-A
-// janitor: rows past expires_at are removed; rows within retention
-// stay. Critical for unbounded-growth prevention on the outbox table.
+// janitor on a matrix of (status, expires_at) combinations. The
+// invariant the janitor must preserve:
+//
+//   - Terminal rows (status ∈ {processed, no_match}) past expires_at
+//     are deleted.
+//   - Pending rows past expires_at are NOT deleted, even when they're
+//     overdue. The outbox is at-least-once by design (worker.go's
+//     recordFailure: "no terminal 'failed' state … row stays pending
+//     until human intervention or a successful retry"). Deleting them
+//     at day 30 silently breaks the retry-forever guarantee and drops
+//     events that never reached any webhook.
+//   - Rows within retention are untouched regardless of status.
+//
+// Critical for unbounded-growth prevention on the outbox table AND
+// for the at-least-once delivery guarantee. Before the status guard
+// was added, a row that failed every fan-out attempt would sit
+// pending for 30 days and then be silently destroyed.
 func TestOutbox_Integration_JanitorDeletesExpired(t *testing.T) {
 	pool := testutil.TestDB(t)
 	ctx := context.Background()
@@ -283,21 +298,37 @@ func TestOutbox_Integration_JanitorDeletesExpired(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
 	})
 
-	expiredID := webhookpub.DeterministicEventID("msg_expired_jan", webhookpub.EventEmailReceived)
-	freshID := webhookpub.DeterministicEventID("msg_fresh_jan", webhookpub.EventEmailReceived)
-	for _, row := range []struct {
-		id        string
-		expiresAt string
+	// Seed the full (status × expires_at) matrix. Each row is keyed by
+	// a deterministic ID so the post-sweep assertions can target it
+	// individually.
+	rows := []struct {
+		label       string
+		status      string
+		expiresAt   string
+		shouldKeep  bool
 	}{
-		{expiredID, "now() - interval '1 day'"},
-		{freshID, "now() + interval '1 day'"},
-	} {
+		// Terminal + expired → DELETE.
+		{"processed_expired", "processed", "now() - interval '1 day'", false},
+		{"no_match_expired", "no_match", "now() - interval '1 day'", false},
+		// Pending + expired → KEEP. This is the load-bearing assertion
+		// for the C1 fix. Pre-fix this row would have been silently
+		// destroyed, breaking the at-least-once retry-forever
+		// guarantee.
+		{"pending_expired", "pending", "now() - interval '1 day'", true},
+		// Within-retention rows are untouched regardless of status.
+		{"processed_fresh", "processed", "now() + interval '1 day'", true},
+		{"pending_fresh", "pending", "now() + interval '1 day'", true},
+	}
+	ids := make(map[string]string, len(rows))
+	for _, row := range rows {
+		id := webhookpub.DeterministicEventID("msg_jan_"+row.label, webhookpub.EventEmailReceived)
+		ids[row.label] = id
 		_, err := pool.Exec(ctx,
 			`INSERT INTO webhook_events (id, user_id, type, envelope, status, expires_at)
-			 VALUES ($1, $2, $3, '{}'::jsonb, 'pending', `+row.expiresAt+`)`,
-			row.id, userID, webhookpub.EventEmailReceived)
+			 VALUES ($1, $2, $3, '{}'::jsonb, $4, `+row.expiresAt+`)`,
+			id, userID, webhookpub.EventEmailReceived, row.status)
 		if err != nil {
-			t.Fatalf("seed %s: %v", row.id, err)
+			t.Fatalf("seed %s: %v", row.label, err)
 		}
 	}
 
@@ -306,18 +337,30 @@ func TestOutbox_Integration_JanitorDeletesExpired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeleteExpiredWebhookEvents: %v", err)
 	}
-	if deleted != 1 {
-		t.Errorf("deleted = %d; want 1", deleted)
+	// Exactly two rows match (expires_at <= now() AND status <> 'pending'):
+	// processed_expired and no_match_expired.
+	if deleted != 2 {
+		t.Errorf("deleted = %d; want 2 (processed_expired + no_match_expired)", deleted)
 	}
 
-	var freshCount, expiredCount int
-	pool.QueryRow(ctx, `SELECT count(*) FROM webhook_events WHERE id = $1`, freshID).Scan(&freshCount)
-	pool.QueryRow(ctx, `SELECT count(*) FROM webhook_events WHERE id = $1`, expiredID).Scan(&expiredCount)
-	if freshCount != 1 {
-		t.Errorf("fresh count = %d; want 1", freshCount)
-	}
-	if expiredCount != 0 {
-		t.Errorf("expired count = %d; want 0", expiredCount)
+	for _, row := range rows {
+		var count int
+		if err := pool.QueryRow(ctx,
+			`SELECT count(*) FROM webhook_events WHERE id = $1`, ids[row.label],
+		).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", row.label, err)
+		}
+		wantCount := 0
+		if row.shouldKeep {
+			wantCount = 1
+		}
+		if count != wantCount {
+			verdict := "should have been deleted"
+			if row.shouldKeep {
+				verdict = "should have been kept"
+			}
+			t.Errorf("%s: count = %d, want %d (%s)", row.label, count, wantCount, verdict)
+		}
 	}
 }
 
