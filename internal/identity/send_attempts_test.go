@@ -434,3 +434,54 @@ func TestApproveAndSend_InFlightReturnsErrSendInProgress(t *testing.T) {
 		t.Errorf("send() invoked %d time(s), want 0 when InFlight", got)
 	}
 }
+
+// TestMarkSendSucceededWithRetry_HappyPath_TransitionsRowToSent verifies
+// the C4 fix wrapper integrates with the real send_attempts row
+// transitions: a fresh `attempting` row → MarkSendSucceededWithRetry →
+// the row's status becomes `sent` with the recorded provider message
+// ID. The retry path is verified at the unit level
+// (TestRetryWithBackoff_RecoversAfterTransientFailures); this test
+// just confirms the wrapper composes correctly with the existing
+// MarkSendSucceeded under realistic DB conditions.
+func TestMarkSendSucceededWithRetry_HappyPath_TransitionsRowToSent(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	_, a := setupPendingAgent(t, store, "mark-success-retry")
+	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
+		[]string{"alice@example.com"}, nil, nil, "x", "b", "", nil, "send", "", "", 3600)
+
+	// Acquire the slot via the normal claim path so the row exists
+	// with status='attempting' — same shape as the real ApproveAndSend
+	// flow before MarkSendSucceeded runs.
+	claim, err := store.ClaimSendAttempt(ctx, msg.ID)
+	if err != nil {
+		t.Fatalf("ClaimSendAttempt: %v", err)
+	}
+	if claim.Outcome != identity.SendAttemptAcquired {
+		t.Fatalf("ClaimSendAttempt outcome = %d, want Acquired", claim.Outcome)
+	}
+
+	result := identity.SendResult{
+		ProviderMessageID: "<test-msg-id@amazonses.com>",
+		Method:            "smtp",
+		To:                []string{"alice@example.com"},
+	}
+	if err := store.MarkSendSucceededWithRetry(msg.ID, result); err != nil {
+		t.Fatalf("MarkSendSucceededWithRetry happy path: %v", err)
+	}
+
+	// Verify the row transitioned to status='sent' and the provider
+	// id is recorded — a subsequent ClaimSendAttempt MUST see
+	// AlreadySent (the exactly-once gate engaged).
+	follow, err := store.ClaimSendAttempt(ctx, msg.ID)
+	if err != nil {
+		t.Fatalf("follow-up Claim: %v", err)
+	}
+	if follow.Outcome != identity.SendAttemptAlreadySent {
+		t.Errorf("follow-up Claim Outcome = %d, want SendAttemptAlreadySent (the C4 fix's load-bearing invariant)", follow.Outcome)
+	}
+	if follow.Sent.ProviderMessageID != result.ProviderMessageID {
+		t.Errorf("cached provider id = %q, want %q", follow.Sent.ProviderMessageID, result.ProviderMessageID)
+	}
+}

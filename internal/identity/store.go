@@ -1428,13 +1428,16 @@ func (s *Store) ApproveAndSend(
 			}
 			return nil, err
 		}
-		if markErr := s.MarkSendSucceeded(ctx, messageID, result); markErr != nil {
-			// The upstream send DID succeed; failing to record it
-			// only weakens the exactly-once guarantee for the next
-			// retry (it would re-send). Log loudly and proceed —
-			// the approval tx below still finalizes the message
-			// row from this attempt.
-			log.Printf("[approve] MarkSendSucceeded for %s: %v (next retry may re-send)", messageID, markErr)
+		if markErr := s.MarkSendSucceededWithRetry(messageID, result); markErr != nil {
+			// The upstream send DID succeed but we exhausted the
+			// retry budget recording that fact. Log loudly so ops
+			// can reconcile against the SES Configuration Set
+			// events log; the approval tx below still finalizes
+			// the message row from this attempt so the customer
+			// sees a successful approve. Residual risk: the 10-min
+			// stale takeover could re-invoke send() if the row
+			// stays `attempting` until the worker fires.
+			log.Printf("[approve] MarkSendSucceeded exhausted retries for %s: %v (manual reconciliation may be needed)", messageID, markErr)
 		}
 	case SendAttemptAlreadySent:
 		// A prior approval-tx attempt succeeded at SES but its
@@ -1699,8 +1702,8 @@ func (s *Store) ExpireApproveAndSend(
 			}
 			return nil, err
 		}
-		if markErr := s.MarkSendSucceeded(ctx, messageID, result); markErr != nil {
-			log.Printf("[expire] MarkSendSucceeded for %s: %v (next worker poll may re-send)", messageID, markErr)
+		if markErr := s.MarkSendSucceededWithRetry(messageID, result); markErr != nil {
+			log.Printf("[expire] MarkSendSucceeded exhausted retries for %s: %v (manual reconciliation may be needed)", messageID, markErr)
 		}
 	case SendAttemptAlreadySent:
 		// A prior auto-approve attempt succeeded at SES but its

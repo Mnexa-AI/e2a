@@ -3,10 +3,57 @@ package identity
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 )
+
+// markSucceededBackoffs is the retry schedule for MarkSendSucceededWithRetry.
+// Total wall time (excluding the work itself) ≈ 7.1s, leaving 8s of
+// headroom inside the 15s detached context. Tuned to cover the common
+// transient DB failure modes (pool acquisition retry, brief leader
+// hiccup, statement_timeout on a hot query) without blocking the hot
+// path indefinitely on a real outage.
+var markSucceededBackoffs = []time.Duration{
+	0,
+	100 * time.Millisecond,
+	500 * time.Millisecond,
+	1500 * time.Millisecond,
+	5 * time.Second,
+}
+
+// retryWithBackoff calls fn on the given backoff schedule. Returns nil
+// at the first attempt that returns nil. Returns the last error if all
+// attempts fail or ctx is canceled mid-sleep. The first attempt fires
+// immediately (delay=0); subsequent delays are taken from the slice in
+// order.
+//
+// Extracted so the retry semantics can be unit-tested with a fake fn
+// independently of any DB connectivity. Exported within the package
+// (lowercase) but kept private to identity for now.
+func retryWithBackoff(ctx context.Context, backoffs []time.Duration, fn func(context.Context) error) error {
+	var lastErr error
+	for _, d := range backoffs {
+		if d > 0 {
+			select {
+			case <-ctx.Done():
+				if lastErr != nil {
+					return fmt.Errorf("ctx canceled mid-retry: %w (last attempt: %v)", ctx.Err(), lastErr)
+				}
+				return ctx.Err()
+			case <-time.After(d):
+			}
+		}
+		if err := fn(ctx); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+	}
+	return lastErr
+}
 
 // SendAttemptStaleWindow is how long an 'attempting' send_attempts row
 // stays "owned" by the original worker before the next caller is
@@ -186,6 +233,45 @@ func (s *Store) MarkSendSucceeded(ctx context.Context, messageID string, r SendR
 		  WHERE message_id = $1 AND status = 'attempting'`,
 		messageID, r.ProviderMessageID, r.Method, to, cc, bcc,
 	)
+	return err
+}
+
+// MarkSendSucceededWithRetry calls MarkSendSucceeded with bounded
+// exponential backoff. The retry runs on a fresh detached context
+// (15s budget) so that once SES has accepted the send, request-level
+// cancellation (client disconnect, request timeout) cannot prevent us
+// from durably recording that fact.
+//
+// Closes the C4 audit finding: if MarkSendSucceeded's single attempt
+// failed (transient DB blip — pool exhaustion, statement_timeout,
+// momentary leader failover), the row stayed `attempting` and the
+// 10-minute stale takeover would later re-invoke the upstream send,
+// duplicating the email at the recipient. Most transient DB failures
+// resolve well within the retry budget; the residual risk window
+// shrinks from "any single blip" to "persistent DB failure for >7s
+// during a specific 10-minute window."
+//
+// Returns nil if any attempt succeeded; the last error otherwise.
+// Callers should treat a returned error as a loud signal: the upstream
+// send happened, but we couldn't record it — manual reconciliation
+// against the SES Configuration Set events log may be needed.
+func (s *Store) MarkSendSucceededWithRetry(messageID string, r SendResult) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	attempts := 0
+	err := retryWithBackoff(ctx, markSucceededBackoffs, func(ctx context.Context) error {
+		attempts++
+		err := s.MarkSendSucceeded(ctx, messageID, r)
+		if err != nil {
+			log.Printf("[send-attempts] MarkSendSucceeded attempt %d/%d for %s failed: %v",
+				attempts, len(markSucceededBackoffs), messageID, err)
+		}
+		return err
+	})
+	if err == nil && attempts > 1 {
+		log.Printf("[send-attempts] MarkSendSucceeded recovered for %s after %d attempts", messageID, attempts)
+	}
 	return err
 }
 
