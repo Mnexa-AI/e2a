@@ -197,13 +197,23 @@ func writeOutboxRow(ctx context.Context, exec outboxExecutor, e Event) error {
 	// slice-2 worker's 1s fallback poll catches missed wakeups
 	// (deploy windows, LISTEN reconnect races). Payload is empty
 	// because the worker rescans the table anyway.
-	_, err = exec.Exec(ctx, `SELECT pg_notify('webhook_events_new', '')`)
-	if err != nil {
-		// NOTIFY queue overflow is the only realistic error
-		// (~8GB at default config; unreachable in practice).
-		// Treat as soft failure: log and let the tx commit.
-		// The worker's fallback poll will pick up the row.
-		return fmt.Errorf("webhookpub: pg_notify webhook_events_new: %w", err)
+	//
+	// A pg_notify error here (NOTIFY queue overflow is the realistic
+	// case; max_notify_queue_pages defaults to 1024 × 8KB = 8MB) is a
+	// SOFT failure: we log and return nil so the caller's tx still
+	// commits. The webhook_events row is what matters for at-least-
+	// once delivery; the NOTIFY is only a latency optimization that
+	// the worker's 1s fallback poll covers.
+	//
+	// Returning the error here would propagate out of writeOutboxRow,
+	// out of PublishTx, and out of the caller's WithTx — rolling back
+	// the entire trigger transaction. In the relay path that means
+	// the inbound `messages` row is also lost; SMTP returns a 4xx to
+	// the MTA which retries into the same broken state. (See PR for
+	// C2 in the audit.)
+	if _, nerr := exec.Exec(ctx, `SELECT pg_notify('webhook_events_new', '')`); nerr != nil {
+		log.Printf("[outbox] pg_notify webhook_events_new failed (event=%s, type=%s): %v — worker fallback poll will recover",
+			e.ID, e.Type, nerr)
 	}
 	return nil
 }
