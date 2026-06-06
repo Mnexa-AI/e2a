@@ -8,7 +8,7 @@ require (
 	github.com/emersion/go-smtp v0.24.0
 	github.com/google/go-github/v72 v72.0.0
 	github.com/gorilla/mux v1.8.1
-	github.com/jackc/pgx/v5 v5.9.2
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/joho/godotenv v1.5.1
 	github.com/ory/fosite v0.49.0
 	golang.org/x/crypto v0.52.0
