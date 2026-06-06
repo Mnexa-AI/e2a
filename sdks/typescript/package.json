@@ -53,12 +53,12 @@
   },
   "devDependencies": {
     "@types/mailparser": "^3.4.5",
-    "@types/node": "^25.9.1",
+    "@types/node": "^25.9.2",
     "@types/ws": "^8.18.1",
     "openapi-typescript": "^7.13.0",
     "swagger2openapi": "^7.0.8",
     "typescript": "^5.4",
-    "vitest": "^4.1.7",
+    "vitest": "^4.1.8",
     "yaml": "^2.9.0"
   }
 }

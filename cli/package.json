@@ -29,8 +29,8 @@
     "@e2a/sdk": "^2.4.0"
   },
   "devDependencies": {
-    "@types/node": "^25.9.1",
+    "@types/node": "^25.9.2",
     "typescript": "^5.4",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.8"
   }
 }
