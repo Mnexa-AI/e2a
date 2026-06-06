@@ -44,16 +44,40 @@ type Outbox interface {
 	// logs to webhook_publish_failures (slice 4 will add the table)
 	// and lets the caller's tx commit anyway.
 	//
+	// Returns `wrote=true` iff the row was actually written (flag
+	// enabled AND writeOutboxRow succeeded). Callers use this to
+	// decide whether to fire the legacy publisher.Publish goroutine
+	// as a fallback for at-least-once: when wrote=false, the legacy
+	// path is the safety net so the customer's webhook still gets
+	// the event. Without this signal, an outbox failure under
+	// WEBHOOKS_OUTBOX_ENABLED=true would silently drop the event.
+	//
 	// Used for POST-side-effect triggers (email.sent, email.approved)
 	// where the irreversible action (SES.Send) has already happened
 	// and rolling back the business state would orphan an SES
-	// delivery. v1 panics: no caller in this slice. Slice 4 wires the
-	// outbound + HITL-approve trigger sites to it.
-	PublishBestEffortTx(ctx context.Context, tx pgx.Tx, e Event)
+	// delivery.
+	PublishBestEffortTx(ctx context.Context, tx pgx.Tx, e Event) (wrote bool)
 
 	// DeleteExpiredWebhookEvents drops rows past their 30-day retention.
 	// Called from the hourly cleanup loop in cmd/e2a/main.go.
 	DeleteExpiredWebhookEvents(ctx context.Context) (int, error)
+
+	// Enabled reports whether the outbox is the durable fan-out path
+	// for this deployment. When true, trigger sites (relay + the
+	// publishPendingApproval/publishRejected/publishSent/publishApproved
+	// helpers) MUST skip the legacy `go publisher.Publish(...)`
+	// goroutine — both paths inserting into webhook_subscriber_deliveries
+	// would produce duplicate customer-visible webhook POSTs. When
+	// false, the outbox is a dormant no-op and the legacy goroutine
+	// remains the sole delivery path.
+	//
+	// Closes the C3 audit finding: legacy InsertPending writes rows
+	// with event_id=NULL, falling OUTSIDE the partial unique index
+	// `idx_wsd_event_webhook_uniq` (predicate: WHERE event_id IS NOT
+	// NULL AND replay_id IS NULL). So the index, designed to dedupe
+	// multi-replica outbox workers, cannot dedupe legacy-vs-outbox
+	// rows — they look like distinct deliveries.
+	Enabled() bool
 }
 
 // outboxExecutor is the subset of pgx.Tx and pgxpool.Pool needed by
@@ -88,6 +112,14 @@ func (o *outbox) PublishTx(ctx context.Context, tx pgx.Tx, e Event) error {
 		return nil
 	}
 	return writeOutboxRow(ctx, tx, e)
+}
+
+// Enabled mirrors the flag state. Trigger sites check this to suppress
+// the legacy publisher.Publish goroutine when the outbox is the
+// durable fan-out path; see the Outbox interface docstring for the
+// reasoning.
+func (o *outbox) Enabled() bool {
+	return o.flag.Enabled()
 }
 
 // DeleteExpiredWebhookEvents removes terminal rows whose expires_at has
@@ -125,19 +157,22 @@ func (o *outbox) DeleteExpiredWebhookEvents(ctx context.Context) (int, error) {
 	return int(tag.RowsAffected()), nil
 }
 
-func (o *outbox) PublishBestEffortTx(ctx context.Context, tx pgx.Tx, e Event) {
+func (o *outbox) PublishBestEffortTx(ctx context.Context, tx pgx.Tx, e Event) (wrote bool) {
 	if !o.flag.Enabled() {
-		return
+		return false
 	}
 	if err := writeOutboxRow(ctx, tx, e); err != nil {
-		// Best-effort: log and return. The caller's tx commits the
-		// business state regardless because the irreversible action
-		// (SES.Send) already happened — rolling back would orphan a
-		// sent email. A future slice will pipe these failures to a
-		// webhook_publish_failures table; for now the log is the
-		// only signal.
+		// Best-effort: log and return wrote=false. The caller's tx
+		// commits the business state regardless because the
+		// irreversible action (SES.Send) already happened — rolling
+		// back would orphan a sent email. A future slice will pipe
+		// these failures to a webhook_publish_failures table; for now
+		// the log is the only signal AND the legacy-fallback signal
+		// for the caller.
 		log.Printf("[outbox] PublishBestEffortTx err (event=%s type=%s): %v", e.ID, e.Type, err)
+		return false
 	}
+	return true
 }
 
 // writeOutboxRow is the SQL body shared by PublishTx and (eventually)

@@ -279,7 +279,34 @@ func (a *API) publishAsync(e webhookpub.Event) {
 // outMsg may be nil if CreateOutboundMessage failed earlier — when
 // nil we skip the outbox path because there is no message row to
 // transactionally co-commit with. The legacy goroutine still fires.
+// shouldFireLegacy reports whether the legacy publisher.Publish
+// goroutine MUST fire to deliver this event. Returns true when:
+//
+//   - the outbox is not wired (nil), OR
+//   - the outbox flag is off (legacy is the sole delivery path), OR
+//   - the outbox was the durable path BUT this attempt did not write
+//     (caller passes outboxWrote=false), so legacy is the safety net.
+//
+// Returns false ONLY when the outbox successfully wrote the row —
+// then legacy would produce a duplicate webhook POST that the partial
+// unique index cannot dedupe (legacy writes event_id=NULL).
+//
+// Closes the second half of the C3 audit finding. The first half
+// (suppress on duplicate) was the original concern; the second half
+// surfaced in review: if outbox is enabled and the write FAILED,
+// suppressing legacy too would silently drop the event. The PR
+// description's "treat as ops issue" framing was a hand-wave — for
+// HITL pending/reject events especially, a dropped event means the
+// reviewer's webhook never fires.
+func (a *API) shouldFireLegacy(outboxWrote bool) bool {
+	if a.outbox == nil || !a.outbox.Enabled() {
+		return true // legacy is the sole delivery path
+	}
+	return !outboxWrote // legacy is the fallback when outbox didn't write
+}
+
 func (a *API) publishSent(ctx context.Context, e webhookpub.Event, outMsg *identity.Message) {
+	var outboxWrote bool
 	if a.outbox != nil && outMsg != nil {
 		// Use deterministic ID so MTA retries (no analog here for
 		// /send, but rebill of an idempotency key counts as one)
@@ -291,15 +318,18 @@ func (a *API) publishSent(ctx context.Context, e webhookpub.Event, outMsg *ident
 			// accepted the send and the row should be durable even
 			// if the outbox write fails). So this tx only writes the
 			// outbox row — best-effort by contract.
-			a.outbox.PublishBestEffortTx(ctx, tx, e)
+			outboxWrote = a.outbox.PublishBestEffortTx(ctx, tx, e)
 			return nil
 		})
 		if err != nil {
 			log.Printf("[api] outbox tx for email.sent err: %v", err)
+			outboxWrote = false // tx-level failure also forces fallback
 		}
 	}
 	a.emit().OutboxEventsPublished(e.Type)
-	a.publishAsync(e)
+	if a.shouldFireLegacy(outboxWrote) {
+		a.publishAsync(e)
+	}
 }
 
 // publishPendingApproval fires email.pending_approval via the outbox
@@ -308,6 +338,7 @@ func (a *API) publishSent(ctx context.Context, e webhookpub.Event, outMsg *ident
 // deterministic event id so /send retries with the same idempotency
 // key don't fire duplicate events.
 func (a *API) publishPendingApproval(ctx context.Context, e webhookpub.Event, pendingMsgID string) {
+	var outboxWrote bool
 	if a.outbox != nil && pendingMsgID != "" {
 		e.ID = webhookpub.DeterministicEventID(pendingMsgID, e.Type)
 		err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
@@ -315,34 +346,49 @@ func (a *API) publishPendingApproval(ctx context.Context, e webhookpub.Event, pe
 		})
 		if err != nil {
 			log.Printf("[api] outbox tx for email.pending_approval err: %v", err)
+		} else {
+			// err==nil means the tx committed AND PublishTx returned
+			// nil — both are required for the row to be durably
+			// recorded. (If the flag was off, PublishTx no-op'd and
+			// returned nil; outbox.Enabled() guards that below in
+			// shouldFireLegacy so we don't suppress legacy in that
+			// case either.)
+			outboxWrote = true
 		}
 	}
 	a.emit().OutboxEventsPublished(e.Type)
-	a.publishAsync(e)
+	if a.shouldFireLegacy(outboxWrote) {
+		a.publishAsync(e)
+	}
 }
 
 // publishApproved fires email.approved via the outbox
 // (PublishBestEffortTx — POST-side-effect: SES has already accepted
 // the approved send) AND the legacy goroutine.
 func (a *API) publishApproved(ctx context.Context, e webhookpub.Event, sentMsg *identity.Message) {
+	var outboxWrote bool
 	if a.outbox != nil && sentMsg != nil {
 		e.ID = webhookpub.DeterministicEventID(sentMsg.ID, e.Type)
 		err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
-			a.outbox.PublishBestEffortTx(ctx, tx, e)
+			outboxWrote = a.outbox.PublishBestEffortTx(ctx, tx, e)
 			return nil
 		})
 		if err != nil {
 			log.Printf("[api] outbox tx for email.approved err: %v", err)
+			outboxWrote = false
 		}
 	}
 	a.emit().OutboxEventsPublished(e.Type)
-	a.publishAsync(e)
+	if a.shouldFireLegacy(outboxWrote) {
+		a.publishAsync(e)
+	}
 }
 
 // publishRejected fires email.rejected via the outbox (PublishTx —
 // pre-side-effect: rejection is a row update, no SES involvement) AND
 // the legacy goroutine.
 func (a *API) publishRejected(ctx context.Context, e webhookpub.Event, rejectedMsgID string) {
+	var outboxWrote bool
 	if a.outbox != nil && rejectedMsgID != "" {
 		e.ID = webhookpub.DeterministicEventID(rejectedMsgID, e.Type)
 		err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
@@ -350,10 +396,14 @@ func (a *API) publishRejected(ctx context.Context, e webhookpub.Event, rejectedM
 		})
 		if err != nil {
 			log.Printf("[api] outbox tx for email.rejected err: %v", err)
+		} else {
+			outboxWrote = true
 		}
 	}
 	a.emit().OutboxEventsPublished(e.Type)
-	a.publishAsync(e)
+	if a.shouldFireLegacy(outboxWrote) {
+		a.publishAsync(e)
+	}
 }
 
 // SetApprovalSigner wires in the magic-link signer after construction so

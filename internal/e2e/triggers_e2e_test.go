@@ -56,7 +56,7 @@ func TestTriggers_EmailSent_BestEffortAllowsCallerToProceed(t *testing.T) {
 	// rolled back the tx.
 	committedOK := false
 	_ = fix.store.WithTx(ctx, func(tx pgx.Tx) error {
-		fix.outbox.PublishBestEffortTx(ctx, tx, event)
+		_ = fix.outbox.PublishBestEffortTx(ctx, tx, event)
 		// Doing additional business work in the same tx — the tx
 		// should still be committable. We commit by returning nil.
 		// (Inside a tx context the FK failure would invalidate the
@@ -140,10 +140,11 @@ func TestTriggers_Approved_BestEffortAfterSES(t *testing.T) {
 		t.Fatalf("begin: %v", err)
 	}
 	defer tx.Rollback(ctx)
-	// PublishBestEffortTx is void — no error to assert. The contract
-	// is "doesn't panic, doesn't propagate." If it panicked, the test
-	// would crash.
-	fix.outbox.PublishBestEffortTx(ctx, tx, event)
+	// PublishBestEffortTx returns wrote bool (post-C3) but never an
+	// error. The contract here is "doesn't panic, doesn't propagate."
+	// On a deliberate FK-violating event, wrote=false; the assertion
+	// is implicit (no panic, no error escape).
+	_ = fix.outbox.PublishBestEffortTx(ctx, tx, event)
 }
 
 // TestTriggers_Rejected_StrongGuaranteeReturnsError mirrors the

@@ -9,6 +9,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
+	"github.com/jackc/pgx/v5"
 )
 
 // fakePublisher captures Publish calls so the tests can assert on the
@@ -167,5 +168,129 @@ func TestPublishAsync_DispatchesViaPublisher(t *testing.T) {
 	fp.wait(t, 1)
 	if fp.events[0].Type != webhookpub.EventEmailSent {
 		t.Errorf("Type = %q", fp.events[0].Type)
+	}
+}
+
+// ─── C3 fix: dual-path dedup ──────────────────────────────────────
+//
+// When the outbox flag is on, the API's publish helpers must NOT
+// also fire the legacy publisher.Publish goroutine. Two writes to
+// webhook_subscriber_deliveries — one from the outbox worker (with
+// event_id set) and one from publisher.Publish (with event_id=NULL)
+// — cannot be dedup'd by the partial unique index
+// idx_wsd_event_webhook_uniq because the index excludes NULL
+// event_ids. Customer's webhook fires twice per event. The
+// outboxEnabled() helper is what suppresses the legacy branch.
+
+// fakeAgentOutbox satisfies webhookpub.Outbox enough for the helper-
+// level tests. Records best-effort + PublishTx calls and lets the
+// test toggle Enabled() to exercise the dedup branch.
+type fakeAgentOutbox struct {
+	enabled         bool
+	publishTxN      int
+	publishTxErr    error // simulate PublishTx failure for fallback tests
+	bestEffortN     int
+	bestEffortWrote bool // simulate PublishBestEffortTx wrote=true
+	lastPublishTx   webhookpub.Event
+}
+
+func (f *fakeAgentOutbox) PublishTx(_ context.Context, _ pgx.Tx, e webhookpub.Event) error {
+	f.publishTxN++
+	f.lastPublishTx = e
+	return f.publishTxErr
+}
+
+func (f *fakeAgentOutbox) PublishBestEffortTx(_ context.Context, _ pgx.Tx, _ webhookpub.Event) bool {
+	f.bestEffortN++
+	return f.bestEffortWrote
+}
+
+func (f *fakeAgentOutbox) DeleteExpiredWebhookEvents(_ context.Context) (int, error) { return 0, nil }
+func (f *fakeAgentOutbox) Enabled() bool                                             { return f.enabled }
+
+// The C3 dedup/fallback gating is centralized in shouldFireLegacy.
+// We test that helper directly below (TestShouldFireLegacy_*) — it's
+// what gates the publishAsync call in all four publishX helpers.
+//
+// The publishX wrappers are thin: they run the outbox block (when
+// applicable), record whether the outbox wrote, then call
+// shouldFireLegacy. Exercising them end-to-end would require a real
+// *identity.Store for WithTx, so the per-wrapper integration
+// coverage lives in internal/webhookpub/outbox_integration_test.go.
+//
+// DEFERRED (review follow-up): add DB-backed assertions that the
+// `outboxWrote` plumbing inside each publishX correctly stays false
+// when (a) WithTx itself returns an error before PublishTx runs and
+// (b) PublishTx/PublishBestEffortTx returns a failure. The current
+// unit tests pin shouldFireLegacy(outboxWrote) at every input; the
+// gap is the wire between WithTx's error path and the call site's
+// outboxWrote reassignment. Each helper has the explicit reset
+// (api.go publishSent:326, publishApproved:378) or sets true only
+// inside the else (publishPendingApproval:356, publishRejected:400),
+// so the gating is correct by inspection — a regression test would
+// add belt-and-suspenders.
+//
+// The publisher-fires-when-no-outbox path (deployments that haven't
+// wired SetOutbox) is covered by the test below.
+
+func TestPublishSent_FiresLegacyWhenNoOutbox(t *testing.T) {
+	// Defensive: when outbox is nil entirely (deployments that haven't
+	// wired the slice-3 SetOutbox call), legacy must still fire.
+	fp := &fakePublisher{}
+	a := &API{publisher: fp}
+	a.publishSent(context.Background(), webhookpub.Event{Type: webhookpub.EventEmailSent}, nil)
+	fp.wait(t, 1)
+}
+
+// ─── Fallback semantics: legacy fires when outbox failed ────────
+//
+// These tests are the load-bearing assertions for the *revised* C3
+// fix. The first version suppressed legacy purely on outbox.Enabled()
+// — review caught that as introducing a worse bug: if outbox is
+// enabled and its write fails, no path delivers the event. The
+// revised contract is: legacy fires when (a) outbox is disabled OR
+// (b) outbox is enabled but did not write.
+//
+// To exercise the bug, the tests need the outbox block to actually
+// run (so we need a stub *identity.Store with WithTx). We can't
+// supply that without a DB, so these tests exercise shouldFireLegacy
+// directly — the helper is what gates the publishAsync call.
+
+func TestShouldFireLegacy_NoOutbox_AlwaysTrue(t *testing.T) {
+	a := &API{}
+	if !a.shouldFireLegacy(false) {
+		t.Errorf("shouldFireLegacy(false) with nil outbox = false; want true (legacy is sole path)")
+	}
+	if !a.shouldFireLegacy(true) {
+		t.Errorf("shouldFireLegacy(true) with nil outbox = false; want true (legacy is sole path; outboxWrote is irrelevant)")
+	}
+}
+
+func TestShouldFireLegacy_OutboxDisabled_AlwaysTrue(t *testing.T) {
+	a := &API{outbox: &fakeAgentOutbox{enabled: false}}
+	if !a.shouldFireLegacy(false) {
+		t.Errorf("disabled outbox: shouldFireLegacy(false) = false; want true")
+	}
+	if !a.shouldFireLegacy(true) {
+		t.Errorf("disabled outbox: shouldFireLegacy(true) = false; want true")
+	}
+}
+
+func TestShouldFireLegacy_OutboxEnabledAndWrote_SuppressesLegacy(t *testing.T) {
+	a := &API{outbox: &fakeAgentOutbox{enabled: true}}
+	if a.shouldFireLegacy(true) {
+		t.Errorf("enabled outbox + wrote: shouldFireLegacy(true) = true; want false (this is the C3 dedup)")
+	}
+}
+
+func TestShouldFireLegacy_OutboxEnabledButFailed_FallsBackToLegacy(t *testing.T) {
+	// LOAD-BEARING: revised C3 fix. Pre-revision, this returned false
+	// (legacy suppressed when outbox enabled, regardless of write
+	// outcome) — which silently dropped events when the outbox write
+	// failed. The fallback to legacy when outboxWrote=false is what
+	// prevents that loss.
+	a := &API{outbox: &fakeAgentOutbox{enabled: true}}
+	if !a.shouldFireLegacy(false) {
+		t.Errorf("enabled outbox + did NOT write: shouldFireLegacy(false) = false; want true (legacy is the at-least-once fallback when outbox failed)")
 	}
 }

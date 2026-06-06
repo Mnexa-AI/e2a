@@ -19,6 +19,7 @@ type fakeOutbox struct {
 	calls       []webhookpub.Event
 	publishErr  error
 	besteffortN int
+	enabled     bool // toggled by tests that exercise the C3 dedup branch
 }
 
 func (f *fakeOutbox) PublishTx(ctx context.Context, tx pgx.Tx, e webhookpub.Event) error {
@@ -26,14 +27,21 @@ func (f *fakeOutbox) PublishTx(ctx context.Context, tx pgx.Tx, e webhookpub.Even
 	return f.publishErr
 }
 
-func (f *fakeOutbox) PublishBestEffortTx(ctx context.Context, tx pgx.Tx, e webhookpub.Event) {
+func (f *fakeOutbox) PublishBestEffortTx(ctx context.Context, tx pgx.Tx, e webhookpub.Event) bool {
 	f.besteffortN++
+	// Tests don't simulate failures for BestEffortTx here yet;
+	// mirror Enabled() so disabled flag → wrote=false and enabled flag → wrote=true.
+	return f.enabled
 }
 
 // DeleteExpiredWebhookEvents — slice A addition. Returns zero in tests.
 func (f *fakeOutbox) DeleteExpiredWebhookEvents(ctx context.Context) (int, error) {
 	return 0, nil
 }
+
+// Enabled satisfies the C3 fix: trigger sites read this to decide
+// whether to suppress the legacy publisher.Publish goroutine.
+func (f *fakeOutbox) Enabled() bool { return f.enabled }
 
 // fakePublisher records legacy Publish calls.
 type fakePublisher struct {
@@ -137,6 +145,20 @@ func TestServer_OutboxAndPublisherCoexist(t *testing.T) {
 // Outbox type and the test fake both satisfy the same interface, so a
 // future signature change ripples to both.
 var _ webhookpub.Outbox = (*fakeOutbox)(nil)
+
+func TestServer_FakeOutbox_EnabledTogglesAsConfigured(t *testing.T) {
+	// Pins the C3 fix's interface contract: the fakeOutbox's Enabled()
+	// method must mirror its configured state so per-test setups can
+	// exercise both branches of the legacy-suppression check.
+	off := &fakeOutbox{}
+	if off.Enabled() {
+		t.Errorf("default fakeOutbox should report Enabled()=false")
+	}
+	on := &fakeOutbox{enabled: true}
+	if !on.Enabled() {
+		t.Errorf("fakeOutbox{enabled:true} should report Enabled()=true")
+	}
+}
 
 // Compile-time check: identity.Store.WithTx exists (added by slice 3
 // and needed by the relay's tx branch). If this doesn't compile, the

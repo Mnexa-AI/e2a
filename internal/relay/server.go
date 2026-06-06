@@ -405,16 +405,30 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	log.Printf("[mail:%s] dir=inbound from=%s to=%s slug=%s conv_id=%s subject=%q mode=%s verified=%t",
 		messageID, displaySender, rcpt, slug, conversationID, s.inboundSubject, agent.AgentMode, domainAuth.DomainAuthenticated())
 
-	// Legacy in-process publisher continues to fan out alongside the
-	// outbox path during the rollout window (slice 3 → slice 11). Per
-	// §7.7, the legacy `go publisher.Publish(...)` is the path that
-	// actually delivers events today; slice 2 will introduce the
-	// outbox-draining worker that takes over. Until then, leaving the
-	// goroutine here is what keeps customers receiving webhooks. When
-	// slice 2 lands, the partial unique index on
-	// webhook_subscriber_deliveries(event_id, webhook_id) is what
-	// prevents double delivery if both paths happen to be active.
-	if s.relay.publisher != nil {
+	// Legacy in-process publisher fires ONLY when the outbox is not
+	// the durable fan-out path for this deployment. When outbox is
+	// enabled, the worker draining webhook_events handles fan-out;
+	// firing the legacy goroutine here too would write a SECOND
+	// delivery row (with event_id=NULL, so the partial unique index
+	// idx_wsd_event_webhook_uniq cannot dedupe it against the
+	// outbox-written row that has event_id set). Result pre-C3-fix:
+	// every customer webhook fires twice the moment
+	// WEBHOOKS_OUTBOX_ENABLED flips to true in prod.
+	//
+	// Note on the failure path: when the outbox tx fails, the early
+	// return above means we never reach this block — neither the
+	// outbox worker nor the legacy goroutine fires for that event.
+	// Unlike the agent-side publishX helpers (which fall back to
+	// legacy on outbox failure via shouldFireLegacy), the relay does
+	// NOT compensate. This is a pre-existing silent-drop shape: the
+	// relay's Data() returns nil regardless of per-recipient
+	// delivery errors, so the upstream MTA gets SMTP 250 OK and
+	// will NOT retry. The legacy path has the same shape (a
+	// CreateInboundMessage failure is logged and dropped). Closing
+	// this gap requires propagating the error up to Data() so the
+	// MTA sees 4xx — out of scope for the C3 dedup fix; tracked
+	// separately.
+	if s.relay.publisher != nil && (s.relay.outbox == nil || !s.relay.outbox.Enabled()) {
 		go s.relay.publisher.Publish(context.Background(), event)
 	}
 
