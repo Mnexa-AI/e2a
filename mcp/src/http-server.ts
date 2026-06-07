@@ -262,7 +262,7 @@ async function handleClientRequest(
     return;
   }
   if (!entry) {
-    res.status(400).json(jsonRpcError(req.body, -32000, "no session — send initialize first"));
+    res.status(400).json(jsonRpcError(req.body, -32000, "no session -- send initialize first"));
     return;
   }
 
