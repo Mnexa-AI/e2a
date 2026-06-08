@@ -32,6 +32,17 @@ export interface HttpServerOptions {
    * without changing where the SDK forwards bearer tokens.
    */
   authorizationServerUrl?: string;
+  /**
+   * Express `trust proxy` setting. Controls which hops' `X-Forwarded-*`
+   * headers are honored when computing the externally-visible scheme for
+   * the OAuth discovery URLs (see {@link externalScheme}). Defaults to
+   * `"loopback"`: only a same-host proxy — the prod Caddy front, which
+   * forwards to this server over localhost — is trusted, so an
+   * `X-Forwarded-Proto` spoofed over the public network is ignored.
+   * Accepts any value Express supports: a preset (`"loopback"`,
+   * `"uniquelocal"`), a boolean, a hop count, or a CSV of IPs/subnets.
+   */
+  trustProxy?: boolean | number | string;
   /** Optional shared sessions instance (defaults to a fresh one). */
   sessions?: Sessions;
   /** Session idle timeout. */
@@ -72,6 +83,13 @@ export function buildApp(opts: HttpServerOptions): BuiltApp {
     });
 
   const app = express();
+  // Trust the front proxy so req.protocol reflects X-Forwarded-Proto when
+  // synthesizing the externally-advertised discovery URLs. Default
+  // "loopback" only honors the header from a same-host proxy (the prod
+  // Caddy front, which forwards over localhost); a header arriving over the
+  // public network is from an untrusted hop and is ignored. Must be set
+  // before any route that reads req.protocol.
+  app.set("trust proxy", opts.trustProxy ?? "loopback");
   app.use(express.json({ limit: "1mb" }));
   // CORS open for v0.2; revisit when we have a real allowlist of MCP hosts.
   app.use(cors({ origin: "*", exposedHeaders: ["Mcp-Session-Id"] }));
@@ -121,7 +139,7 @@ export function buildApp(opts: HttpServerOptions): BuiltApp {
     if (!host) return null;
     const bare = host.split(":")[0]!.toLowerCase();
     if (!allowedHosts.has(bare)) return null;
-    return `https://${host}`;
+    return `${externalScheme(req)}://${host}`;
   };
 
   app.get("/.well-known/oauth-protected-resource", (req, res) => {
@@ -153,13 +171,26 @@ export function buildApp(opts: HttpServerOptions): BuiltApp {
   return { app, sessions };
 }
 
+// externalScheme returns the client-facing scheme ("https"/"http") for
+// building the OAuth discovery URLs this server advertises. req.protocol
+// honors X-Forwarded-Proto only for hops trusted via the `trust proxy`
+// setting in buildApp; otherwise it reports the real (plaintext localhost)
+// socket scheme. Behind the prod Caddy front this is the forwarded
+// "https"; for an untrusted/spoofed header it falls back to the actual
+// connection scheme rather than the attacker's claim. Deployments that
+// terminate TLS at a non-loopback proxy set publicUrl or E2A_TRUST_PROXY.
+function externalScheme(req: Request): string {
+  return req.protocol === "https" ? "https" : "http";
+}
+
 // resourceMetadataURL returns the value the `WWW-Authenticate` header
 // should advertise. Honors publicUrl when set (local-dev http), falls
-// back to https+Host otherwise (prod behind Caddy).
+// back to the request's external scheme + Host otherwise (prod behind
+// Caddy resolves to https via X-Forwarded-Proto).
 function resourceMetadataURL(req: Request, opts: HttpServerOptions): string {
   const base = opts.publicUrl
     ? opts.publicUrl.replace(/\/+$/, "")
-    : `https://${req.headers.host}`;
+    : `${externalScheme(req)}://${req.headers.host}`;
   return `${base}/.well-known/oauth-protected-resource`;
 }
 
