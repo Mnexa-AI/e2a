@@ -13,6 +13,26 @@ interface BinConfig {
 
 class ConfigError extends Error {}
 
+type LogSeverity = "INFO" | "WARNING" | "ERROR";
+
+// logJson emits one operational event as a single-line JSON object on
+// stderr. GCE Cloud Logging parses a single-line JSON payload into
+// structured `jsonPayload` fields and honors two special keys: `severity`
+// (sets the entry's log level) and `message` (the human-readable summary
+// shown in the console). Keeping each event on one line also means
+// multi-line content like a stack trace in `error` stays a single log
+// entry instead of being split into several fragmented ones. The result
+// is both human-skimmable (via `message`) and queryable (filter on
+// `severity`, `event`, or any structured field).
+function logJson(
+  severity: LogSeverity,
+  event: string,
+  message: string,
+  fields: Record<string, unknown> = {},
+): void {
+  process.stderr.write(`${JSON.stringify({ severity, event, message, ...fields })}\n`);
+}
+
 function parsePositiveInt(name: string, raw: string, def: number): number {
   if (raw === "") return def;
   const n = Number(raw);
@@ -52,8 +72,10 @@ function resolveBaseUrl(env: NodeJS.ProcessEnv): string {
   if (canonical) return canonical;
   if (legacy) {
     if (!resolveBaseUrl.warned) {
-      process.stderr.write(
-        "[e2a-mcp-http] E2A_BASE_URL is deprecated; rename it to E2A_URL (both names work today).\n",
+      logJson(
+        "WARNING",
+        "e2a_base_url_deprecated",
+        "E2A_BASE_URL is deprecated; rename it to E2A_URL (both names work today).",
       );
       resolveBaseUrl.warned = true;
     }
@@ -75,7 +97,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BinConfig {
   };
 }
 
-export { ConfigError };
+export { ConfigError, logJson };
 
 async function main(): Promise<void> {
   let cfg: BinConfig;
@@ -83,7 +105,7 @@ async function main(): Promise<void> {
     cfg = loadConfig();
   } catch (err) {
     if (err instanceof ConfigError) {
-      process.stderr.write(`e2a-mcp-http config error: ${err.message}\n`);
+      logJson("ERROR", "config_error", `config error: ${err.message}`, { error: err.message });
       process.exit(2);
     }
     throw err;
@@ -97,9 +119,11 @@ async function main(): Promise<void> {
     publicUrl: cfg.publicUrl,
     authorizationServerUrl: cfg.authorizationServerUrl,
   });
-  process.stderr.write(
-    `e2a-mcp-http listening on :${bound} (base ${cfg.baseUrl}, hosts ${cfg.allowedHosts.join(",")})\n`,
-  );
+  logJson("INFO", "listening", `e2a-mcp-http listening on :${bound}`, {
+    port: bound,
+    baseUrl: cfg.baseUrl,
+    allowedHosts: cfg.allowedHosts,
+  });
 
   // Graceful shutdown: stop accepting new connections, drain active
   // sessions, then exit. Hard ceiling at 30s to avoid hanging deploys.
@@ -107,9 +131,9 @@ async function main(): Promise<void> {
   const shutdown = async (signal: NodeJS.Signals) => {
     if (closing) return;
     closing = true;
-    process.stderr.write(`received ${signal}, draining...\n`);
+    logJson("INFO", "draining", `received ${signal}, draining...`, { signal });
     const drainTimeout = setTimeout(() => {
-      process.stderr.write("drain timeout, forcing exit\n");
+      logJson("ERROR", "drain_timeout", "drain timeout, forcing exit");
       process.exit(1);
     }, 30_000);
     drainTimeout.unref();
@@ -120,7 +144,7 @@ async function main(): Promise<void> {
     } catch (err) {
       clearTimeout(drainTimeout);
       const message = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`shutdown error: ${message}\n`);
+      logJson("ERROR", "shutdown_error", `shutdown error: ${message}`, { error: message });
       process.exit(1);
     }
   };
@@ -134,7 +158,7 @@ const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
   main().catch((err) => {
     const message = err instanceof Error ? err.stack ?? err.message : String(err);
-    process.stderr.write(`e2a-mcp-http fatal: ${message}\n`);
+    logJson("ERROR", "fatal", `e2a-mcp-http fatal: ${message}`, { error: message });
     process.exit(1);
   });
 }
