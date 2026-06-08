@@ -132,8 +132,16 @@ export class Sessions {
       }
     }
     if (oldestId) {
-      // Fire-and-forget; the LRU eviction shouldn't block put().
-      void this.delete(oldestId);
+      // Fire-and-forget; the LRU eviction shouldn't block put(). Attach a
+      // catch so a rejecting transport.close() surfaces as a logged warning
+      // rather than an unhandled promise rejection (which can terminate the
+      // process under Node's default unhandledRejection behavior) — the
+      // sibling gc()/shutdown() paths get the same protection via
+      // Promise.allSettled.
+      void this.delete(oldestId).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`session evict close error: ${message}\n`);
+      });
     }
   }
 }
