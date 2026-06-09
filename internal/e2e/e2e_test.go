@@ -48,12 +48,32 @@ func setupDomainAndAgent(t *testing.T, ts *testutil.E2ATestServer, email, domain
 	return user, apiKey, agent
 }
 
+// authHeaderSecrets returns the secrets the relay would use to sign a
+// user's inbound auth headers. The relay signs with the owner's
+// per-user webhook signing secret whenever one exists — and one always
+// does, since CreateOrGetUser auto-provisions a "default" secret. So
+// tests must verify auth-header signatures against these, not the
+// deployment-wide ts.Signer (that signer is only a fallback for
+// secret-less/legacy agents, which owned test agents never are).
+func authHeaderSecrets(t *testing.T, ts *testutil.E2ATestServer, userID string) []string {
+	t.Helper()
+	secs, err := ts.Store.GetUserSigningSecrets(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("GetUserSigningSecrets: %v", err)
+	}
+	out := make([]string, len(secs))
+	for i, s := range secs {
+		out[i] = s.Secret
+	}
+	return out
+}
+
 func TestInboundDelivered(t *testing.T) {
 	pool := testutil.TestDB(t)
 	receiver := testutil.WebhookReceiver(t)
 	ts := testutil.TestServer(t, pool)
 
-	_, _, _ = setupDomainAndAgent(t, ts, "agent@inbound.example.com", "inbound.example.com", receiver.Server.URL, "cloud")
+	user, _, _ := setupDomainAndAgent(t, ts, "agent@inbound.example.com", "inbound.example.com", receiver.Server.URL, "cloud")
 
 	// Send email via SMTP
 	msg := "From: alice@gmail.com\r\nTo: agent@inbound.example.com\r\nSubject: Test\r\n\r\nHello from SMTP!"
@@ -81,8 +101,9 @@ func TestInboundDelivered(t *testing.T) {
 		t.Errorf("Domain-Check = %q, expected spf= and dkim= components", domainCheck)
 	}
 
-	// Verify signature
-	if !ts.Signer.Verify(headers.AuthHeaders(p.Body.AuthHeaders)) {
+	// Verify signature against the owner's per-user signing secret (the
+	// relay signs inbound auth headers with it, not the deployment signer).
+	if !headers.Verify(authHeaderSecrets(t, ts, user.ID), headers.AuthHeaders(p.Body.AuthHeaders)) {
 		t.Error("auth header signature verification failed")
 	}
 }
@@ -159,22 +180,23 @@ func TestReplayProtection(t *testing.T) {
 	receiver := testutil.WebhookReceiver(t)
 	ts := testutil.TestServer(t, pool)
 
-	_, _, _ = setupDomainAndAgent(t, ts, "agent@replay.example.com", "replay.example.com", receiver.Server.URL, "cloud")
+	user, _, _ := setupDomainAndAgent(t, ts, "agent@replay.example.com", "replay.example.com", receiver.Server.URL, "cloud")
 
 	msg := "From: alice@test.com\r\nTo: agent@replay.example.com\r\nSubject: Replay\r\n\r\nTest"
 	smtp.SendMail(ts.SMTPAddr, nil, "alice@test.com", []string{"agent@replay.example.com"}, []byte(msg))
 
 	payloads := receiver.WaitForPayloads(t, 1, 5*time.Second)
 	authHeaders := headers.AuthHeaders(payloads[0].Body.AuthHeaders)
+	secrets := authHeaderSecrets(t, ts, user.ID)
 
 	// Should verify with normal window
-	if !ts.Signer.Verify(authHeaders) {
+	if !headers.Verify(secrets, authHeaders) {
 		t.Error("expected auth headers to verify within normal window")
 	}
 
 	// Should reject with very tight window
 	time.Sleep(5 * time.Millisecond)
-	if ts.Signer.VerifyWithMaxAge(authHeaders, 1*time.Millisecond) {
+	if headers.VerifyWithMaxAge(secrets, authHeaders, 1*time.Millisecond) {
 		t.Error("expected replay protection to reject stale headers")
 	}
 }

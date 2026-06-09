@@ -250,7 +250,7 @@ func TestWebhooksE2E_HITL_PendingApproved(t *testing.T) {
 	// Approve via the API.
 	approveBody := `{}`
 	approveStatus, approveResp := authedJSON(t, "POST",
-		ts.HTTPServer.URL+"/api/v1/messages/"+msgID+"/approve",
+		ts.HTTPServer.URL+"/api/v1/agents/"+agent.EmailAddress()+"/messages/"+msgID+"/approve",
 		key.PlaintextKey, approveBody)
 	if approveStatus != 200 {
 		t.Fatalf("approve status=%d body=%s", approveStatus, string(approveResp))
@@ -304,7 +304,7 @@ func TestWebhooksE2E_HITL_Rejected(t *testing.T) {
 	receiver.Reset()
 
 	rejectStatus, rejectResp := authedJSON(t, "POST",
-		ts.HTTPServer.URL+"/api/v1/messages/"+msgID+"/reject",
+		ts.HTTPServer.URL+"/api/v1/agents/"+agent.EmailAddress()+"/messages/"+msgID+"/reject",
 		key.PlaintextKey, `{"reason":"off-policy"}`)
 	if rejectStatus != 200 {
 		t.Fatalf("reject status=%d body=%s", rejectStatus, string(rejectResp))
