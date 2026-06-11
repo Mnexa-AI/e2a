@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ConfigError, loadConfig } from "../src/bin/http.js";
+import { ConfigError, loadConfig, logJson } from "../src/bin/http.js";
 
 describe("bin/http loadConfig", () => {
   it("returns defaults when env is empty", () => {
@@ -30,10 +30,19 @@ describe("bin/http loadConfig", () => {
     });
   });
 
-  it("falls back to E2A_BASE_URL when E2A_URL is unset", () => {
-    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  it("falls back to E2A_BASE_URL when E2A_URL is unset (structured deprecation log)", () => {
+    const lines: string[] = [];
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      lines.push(String(chunk));
+      return true;
+    });
     const cfg = loadConfig({ E2A_BASE_URL: "https://legacy.example.com" });
     expect(cfg.baseUrl).toBe("https://legacy.example.com");
+    // The deprecation notice is emitted as one structured JSON line that
+    // Cloud Logging can parse — severity + event + a human-readable message.
+    const entry = JSON.parse(lines.at(-1)!);
+    expect(entry).toMatchObject({ severity: "WARNING", event: "e2a_base_url_deprecated" });
+    expect(typeof entry.message).toBe("string");
     warn.mockRestore();
   });
 
@@ -82,5 +91,33 @@ describe("bin/http loadConfig", () => {
   it("allows port 0 (OS-assigned)", () => {
     const cfg = loadConfig({ PORT: "0" });
     expect(cfg.port).toBe(0);
+  });
+});
+
+describe("logJson", () => {
+  it("emits a single-line JSON object with severity, event, message and fields", () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      lines.push(String(chunk));
+      return true;
+    });
+    logJson("INFO", "listening", "e2a-mcp-http listening on :3000", {
+      port: 3000,
+      allowedHosts: ["mcp.e2a.dev"],
+    });
+    spy.mockRestore();
+
+    expect(lines).toHaveLength(1);
+    // Exactly one line: trailing newline, no embedded newlines (so Cloud
+    // Logging treats it as a single structured entry).
+    expect(lines[0].endsWith("\n")).toBe(true);
+    expect(lines[0].trimEnd()).not.toContain("\n");
+    expect(JSON.parse(lines[0])).toEqual({
+      severity: "INFO",
+      event: "listening",
+      message: "e2a-mcp-http listening on :3000",
+      port: 3000,
+      allowedHosts: ["mcp.e2a.dev"],
+    });
   });
 });
