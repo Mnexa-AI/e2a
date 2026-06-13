@@ -251,8 +251,12 @@ The auth methods just differ in how you obtain a scoped credential:
 * **OAuth 2.1 (PKCE + refresh) — new, first-class for hosted MCP.** Connect from
   Claude/ChatGPT with no pasted key; the grant carries `scope=agent` or
   `scope=account`. Mirrors the AgentDrive MCP-OAuth design.
-* **Agent JWT** (`identity_assertion` → short-lived access token) — unchanged;
-  effectively an `agent`-scoped credential.
+* **Agent JWT** — e2a's `identity_assertion` → short-lived `access_token`
+  exchange; this *is* auth.md's jwt-bearer path. **Where any current e2a auth
+  name (endpoint, field, grant, scope, claim) diverges from the auth.md spec,
+  rename it to the spec — no back-compat aliases** (we're breaking freely, §1).
+  The spec is the naming authority; AgentDrive is consulted for implementation
+  experience, not for names.
 * **HITL magic-link tokens** — unchanged, scoped to a single approval.
 
 ### Agent identity & token model (auth.md-aligned)
@@ -265,12 +269,19 @@ also carries an **`act` (actor) claim** (RFC 8693) so every action is
 attributable to "agent X acting for account Y" — the delegation-record idea
 WorkOS tracks as `(iss, sub, aud)`.
 
-**e2a is already ~80% of [WorkOS `auth.md`](https://github.com/workos/auth.md).**
-auth.md is an agent-registration *profile* over OAuth discovery (RFC 8414) +
-JWT-bearer (RFC 7523) + a device-flow-style claim ceremony (RFC 8628). e2a's
-existing `identity_assertion → access_token` **is** auth.md's jwt-bearer path, and
-e2a's provision/claim **is** auth.md's claim ceremony — adopting it is *conforming
-names + discovery + endpoints*, not a re-architecture. The three paths map as:
+**e2a adopts the [`auth.md`](https://github.com/workos/auth.md) protocol
+directly — the spec is the source of truth for these names.** auth.md is an
+agent-registration *profile* over OAuth discovery (RFC 8414) + JWT-bearer
+(RFC 7523) + a device-flow-style claim ceremony (RFC 8628). **AgentDrive
+independently adopted auth.md too** (`docs/auth-md-adoption-design.md` in that
+repo) — **mine it for the implementation experience** (the grant/claim edge
+cases, JWKS handling, revocation, TTLs we already hit once), **but e2a conforms
+to the WorkOS spec for its names and serves them on its own `api.e2a.dev` host;
+it does not reuse AgentDrive's routes, hosts, scopes, or key prefixes.** The good
+news: e2a is already ~80% there — its existing `identity_assertion →
+access_token` exchange **is** auth.md's jwt-bearer path and its provision/claim
+**is** the claim ceremony, so adoption is *conforming to the spec's names +
+discovery + endpoints*, not a re-architecture. The three paths map as:
 
 | Path | auth.md mechanism | e2a today | Who |
 |---|---|---|---|
@@ -283,8 +294,8 @@ accepts a self-signed assertion today accepts a **provider-minted ID-JAG**
 (`urn:ietf:params:oauth:token-type:id-jag`) tomorrow — when Anthropic / OpenAI /
 Cursor attest the agent, audience-bound, verified via the provider's JWKS — with
 **no contract change**. Advertise both via `identity_types_supported:
-["identity_assertion","service_auth","anonymous"]` and `assertion_types_supported:
-["…:id-jag"]`.
+["anonymous","identity_assertion","service_auth"]` and `assertion_types_supported:
+["urn:ietf:params:oauth:token-type:id-jag"]` (spec order/values).
 
 **Gap list to be auth.md-compliant** (extends Slice 5):
 
