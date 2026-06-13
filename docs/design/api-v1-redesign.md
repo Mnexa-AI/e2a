@@ -659,6 +659,80 @@ Break the current `/api/v1` surface directly and move it to
 Each slice is independently shippable; 1–2 deliver most of the "clean and
 consistent" win.
 
+## 9a. Configuration & env-var surface
+
+e2a reads **~34 env vars today** — but that is almost entirely an *operator*
+concern. The guiding split:
+
+> **Separate operator/server config from client config.** A user of the
+> **hosted** service sets **0–1** env vars; everything else is deployment config
+> only a self-hoster touches.
+
+### User-facing (hosted service)
+
+| Access path | Env vars the user sets |
+|---|---|
+| **Hosted MCP via OAuth** (first-class) | **none** — add connector `https://api.e2a.dev/mcp`, OAuth grant, no key |
+| **Local stdio MCP** → hosted backend | **`E2A_API_KEY`** only |
+| **SDK / REST** → hosted | **`E2A_API_KEY`** only |
+
+The redesign removes the rest of the client surface: `E2A_AGENT_EMAIL` /
+`E2A_AGENT_ADDRESS` is gone (no default-agent magic; an `e2a_agt_` key *is* the
+agent — §5/§6a), and `E2A_URL`/`E2A_BASE_URL` are operator-only (default = the
+hosted URL; `E2A_BASE_URL` deleted outright).
+
+### Operator surface — consolidation (~34 → ~20)
+
+**Merge to a DSN.**
+
+| Today (5 vars) | → |
+|---|---|
+| `E2A_OUTBOUND_SMTP_{HOST,PORT,USERNAME,PASSWORD}` + `…_FROM_DOMAIN` | one **`E2A_SMTP_URL`** = `smtp://user:pass@host:port` (the `DATABASE_URL` pattern). `FROM_DOMAIN` largely disappears — custom-domain sender identity (§4 decision 4) makes the From the agent's domain; keep at most one fallback. |
+
+**Collapse URL sprawl to two canonical vars** (everything is same-origin on
+`api.e2a.dev` now, incl. `/mcp` and the OAuth AS):
+
+| Today (7 URL/host vars) | → |
+|---|---|
+| `E2A_PUBLIC_URL`, `E2A_OAUTH_REDIRECT_URL`, `E2A_URL`, `E2A_BASE_URL`, `MCP_PUBLIC_URL`, `MCP_AUTHORIZATION_SERVER_URL`, `E2A_BACKEND` | **`E2A_PUBLIC_URL`** (the one external base — OAuth issuer/redirect, HITL links, MCP public + AS URL, protected-resource metadata all *derive* from it) + **`E2A_BACKEND_URL`** (internal target for the MCP process + Caddy proxy). Delete `E2A_BASE_URL` (deprecated), `E2A_OAUTH_REDIRECT_URL`, `MCP_PUBLIC_URL`, `MCP_AUTHORIZATION_SERVER_URL` (all derivable). |
+
+**Delete flags the redesign obsoletes.**
+
+* `E2A_FEATURE_WEBHOOK_RESOURCE` — webhooks are first-class (decision 2a).
+* `WEBHOOKS_OUTBOX_ENABLED` — the River transactional outbox *is* the design;
+  flip permanently on, drop the flag.
+* `E2A_USAGE_TRACKING` — imply from `E2A_INTERNAL_API_SECRET` being set
+  ("this is the hosted deployment"); drop the separate toggle.
+
+**Derive the web build from the canonical vars.** `NEXT_PUBLIC_SITE_URL` ←
+`E2A_PUBLIC_URL`; `NEXT_PUBLIC_AGENTS_DOMAIN` ← `E2A_SHARED_DOMAIN` (no parallel
+config).
+
+**Rename for consistency (not removal).** MCP knobs `PORT` / `MCP_ALLOWED_HOSTS`
+/ `MCP_SESSION_IDLE_MS` / `MCP_MAX_SESSIONS` → `E2A_MCP_*` (all have sane
+defaults — rarely set). `MCP_ALLOWED_HOSTS` default → `api.e2a.dev` (§6a).
+
+**Keep distinct — do NOT merge.** Secrets stay separate by blast-radius:
+`E2A_HMAC_SECRET` (webhook signing), `E2A_INTERNAL_API_SECRET`, and the **new**
+RS256 JWT signing key the auth.md build adds (§5). Also keep
+`E2A_DATABASE_URL` / `E2A_TEST_DATABASE_URL` (test separation is a safety
+feature), `E2A_SHARED_DOMAIN`, `E2A_MIGRATION_MODE`, Google OAuth client
+id/secret.
+
+**Open:** `GITHUB_FEEDBACK_TOKEN` / `GITHUB_FEEDBACK_REPO` power an in-app
+"feedback → GitHub issue" feature — **remove if unused** (−2). Pending confirmation.
+
+### Minimal hosted boot
+
+A self-host boots with effectively four (rest optional, sane defaults):
+
+```
+E2A_DATABASE_URL
+E2A_PUBLIC_URL
+E2A_HMAC_SECRET
+E2A_SMTP_URL          # only if sending mail
+```
+
 ## 10. Open questions
 
 1. ~~Default domain for bare local-part agents~~ — **resolved:** addresses
