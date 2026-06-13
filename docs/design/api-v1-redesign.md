@@ -228,16 +228,31 @@ modest event volume. The domain-specific parts are already built and low-risk
 
 ## 5. Auth model
 
-* **API key** (`E2A_API_KEY`) — unchanged; the self-host default.
-* **Agent JWT** (`identity_assertion` → short-lived access token) — unchanged.
-* **OAuth 2.1 (PKCE + refresh) — new, first-class for hosted MCP.** Lets a
-  user connect from Claude/ChatGPT with no pasted key and per-agent scoping.
-  Mirrors the AgentDrive MCP-OAuth design. API keys remain supported so
-  self-host isn't forced onto OAuth. **Two scopes drive the MCP tier split
-  (§6a):** `scope=agent` (runtime/inbox tools, bound to one agent) and
-  `scope=admin` (provisioning: agent/domain/webhook/event management). A
-  deployed support agent runs on an `agent`-scoped token; the operator sets it
-  up once with an `admin`-scoped connection. API-key (self-host) gets both.
+**Scope is the unifying concept.** Every credential — API key *or* OAuth token
+— carries one of two scopes, and that scope (not the auth method) determines the
+MCP tier (§6a) and the resources it can reach:
+
+* **`agent` scope** — bound to a single agent; the credential *is* the agent
+  (runtime/inbox tier). What a **deployed agent** holds — including AgentDrive's
+  support bot. No `E2A_AGENT_ADDRESS` needed; `address` comes from the credential.
+* **`account` scope** (a.k.a. admin) — account-wide (admin tier: agent / domain
+  / webhook / event provisioning, multi-agent orchestration). What an operator /
+  CI uses for setup.
+
+The auth methods just differ in how you obtain a scoped credential:
+
+* **API key** (`E2A_API_KEY`) — the self-host default, **now scoped**:
+  **per-agent** keys (bound to one agent) and **account** keys, scope fixed at
+  creation. **Per-agent is recommended for any deployed agent** — least
+  privilege (a leaked support-bot key can't read other inboxes or
+  `delete_domain`), per-agent rotation/revocation, and clean attribution. A
+  visible prefix (`e2a_agt_…` vs `e2a_acct_…`) makes a key's blast radius obvious.
+  (Today's single account-wide key is over-privileged for a one-inbox bot.)
+* **OAuth 2.1 (PKCE + refresh) — new, first-class for hosted MCP.** Connect from
+  Claude/ChatGPT with no pasted key; the grant carries `scope=agent` or
+  `scope=account`. Mirrors the AgentDrive MCP-OAuth design.
+* **Agent JWT** (`identity_assertion` → short-lived access token) — unchanged;
+  effectively an `agent`-scoped credential.
 * **HITL magic-link tokens** — unchanged, scoped to a single approval.
 
 ## 6. Source of truth & drift control
@@ -349,15 +364,16 @@ This is exactly the flow we ran by hand; each step is one or two tool calls.
 
 Paths are relative to `https://api.e2a.dev/v1`. The per-tool `agent_email` arg
 is renamed **`address`** (always a full email) and resolves per call with **no
-auto-magic**: explicit `address` arg → the **token-bound agent** (hosted
-`scope=agent`, where the credential *is* the agent) → `E2A_AGENT_ADDRESS` env (an
-explicit stdio convenience) → otherwise a directive error telling the caller to
+auto-magic**: explicit `address` arg → the **credential-bound agent**
+(`agent`-scoped key or OAuth `scope=agent`, where the credential *is* the agent)
+→ `E2A_AGENT_ADDRESS` env (an explicit stdio convenience) → otherwise a directive
+error telling the caller to
 pass `address` (and to run `list_agents` to see the choices). The old
 *single-agent auto-resolve* ("if you own exactly one agent, silently use it") is
 **removed** — implicit state that breaks the moment a second agent appears.
 
-**Two tiers, scope-gated.** The surface splits by persona, and hosted MCP
-exposes each tier per OAuth scope (§5):
+**Two tiers, scope-gated.** The surface splits by persona, and the MCP server
+exposes each tier per **credential scope** (API-key or OAuth — §5):
 
 * **Runtime / inbox** (`scope=agent`) — what a deployed agent uses every turn:
   `whoami`, `list_agents`, `list_messages`, `get_message`, `get_attachment`,
