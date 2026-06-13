@@ -166,18 +166,35 @@ relative to that base):
    (reply), `forward_of` (forward), `cc`/`bcc`, `attachments`,
    `idempotency_key`, and — new — `from` (defaults to the agent address) and
    `reply_to`. Eliminates the top-level `/send` vs nested `/reply` split.
-4. **Custom-domain sender identity (async).** When the agent's domain is
-   *sending-verified*, outbound `From` = the agent's own address (DKIM
-   already signs the custom domain). Domain verification programmatically
-   registers the SES sending identity via **BYODKIM** (reuse e2a's existing
-   per-domain key). SES verification is **async**, so the domain carries
-   `sending_status ∈ {none,pending,verified,failed}` (+ `sending_error?`,
-   `dns_records`, `last_checked_at?`); the `From` switch gates on
-   `sending_status == verified`. Pending→verified is driven by a
-   **River-scheduled reconciler** polling SES `GetEmailIdentity`;
-   `POST /domains/{domain}/verify` forces an immediate re-check; optionally a
-   `domain.sending_verified` / `domain.sending_failed` **webhook event** lets
-   agents skip polling. `failed` carries an actionable reason + the DNS to fix.
+4. **Custom-domain sender identity (async) — send as your own address.** When
+   the agent's domain is *sending-verified*, outbound `From` = **the agent's own
+   address verbatim** (`"Display Name" <agent@customdomain>`). The current
+   `"… via e2a" <agent@send.e2a.dev>` rewrite is **removed** — that relay-domain
+   `From` is the root cause both of human replies bouncing *and* of DMARC never
+   aligning. Mechanics that make own-address sending actually deliver:
+   * **DKIM-aligned DMARC pass.** Domain verification programmatically registers
+     the SES sending identity via **BYODKIM** (reuse e2a's existing per-domain
+     key) so the DKIM `d=` equals the `From` domain → **DMARC passes on DKIM
+     alignment** (SPF need not align). Customer DNS = the per-domain DKIM records
+     already published during `register`/`verify`; no extra records required.
+   * **e2a-controlled Return-Path (bounce capture).** Envelope `MAIL FROM`
+     stays an **e2a-owned per-domain bounce address** (e.g. VERP on
+     `send.e2a.dev`) so e2a captures bounces/complaints (gap #1) and SPF passes
+     for the relay. DMARC still passes via the aligned DKIM, so the relay
+     Return-Path is invisible to DMARC. (Optional later: a customer
+     custom-`MAIL FROM` subdomain for SPF *alignment* too — needs extra MX+SPF
+     records; not required for v1.)
+   * **`Reply-To`** defaults to the agent's address (already its `From` now), or
+     the caller's explicit `reply_to`.
+   * **Async gating.** SES verification is async, so the domain carries
+     `sending_status ∈ {none,pending,verified,failed}` (+ `sending_error?`,
+     `dns_records`, `last_checked_at?`); the `From` switch gates on
+     `sending_status == verified` (until then, fall back to the relay `From`).
+     Pending→verified is driven by a **River-scheduled reconciler** polling SES
+     `GetEmailIdentity`; `POST /domains/{domain}/verify` forces an immediate
+     re-check; optionally a `domain.sending_verified` / `domain.sending_failed`
+     **webhook event** lets agents skip polling. `failed` carries an actionable
+     reason + the DNS to fix. (Shipped in **Slice 4 — Sender identity**.)
 5. **One HITL transition, prefetch-safe.** Collapse the nested approve/reject
    AND the top-level magic-link into a single `approval` sub-resource
    (`POST …/messages/{id}/approval {decision}`). The human magic link is
@@ -289,13 +306,13 @@ the gaps, ranked:
    and maintain a **suppression list** (drop sends to hard-bounced/complained
    addresses — SES reputation depends on it). `send`'s `"sent"` is explicitly an
    *accepted*, non-terminal status; the terminal outcome arrives async.
-2. **Outbound `From` defeats DMARC (MAJOR; partly = decision 4).** Today
-   `From:` = `…via e2a <agent@send.e2a.dev>` and MAIL FROM = `send.e2a.dev`, so
-   the From-domain never aligns → DMARC can't pass on the agent's domain. §4
-   **decision 4** (custom-domain From when sending-verified) fixes the From side;
-   it must pair with an **e2a-controlled Return-Path** (per-domain bounce
-   address) so bounces from gap #1 are capturable/attributable, and DKIM `d=` =
-   From-domain for alignment.
+2. **Outbound `From` defeats DMARC (MAJOR — fully specified in decision 4).**
+   Today `From:` = `…via e2a <agent@send.e2a.dev>` and MAIL FROM =
+   `send.e2a.dev`, so the From-domain never aligns → DMARC can't pass on the
+   agent's domain. **§4 decision 4** now specifies the full fix: drop the
+   `via e2a` rewrite (From = the agent's own address), DKIM-aligned DMARC pass
+   (`d=` = From-domain via BYODKIM), and an e2a-controlled Return-Path for bounce
+   capture (gap #1). Built in Slice 4.
 3. **No inbound DMARC validation (MAJOR).** SPF + DKIM are checked and exposed,
    but **DMARC is never evaluated** — an agent acting on inbound email gets no
    alignment/policy signal (spoofing risk). **Fix:** evaluate DMARC on inbound
