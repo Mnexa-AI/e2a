@@ -342,8 +342,8 @@ This is exactly the flow we ran by hand; each step is one or two tool calls.
    events:["email.received", …]}` → `POST /webhooks`; persist the returned
    `signing_secret` (shown once).
 8. **Run the loop.** Inbound: `list_messages`/`get_message`. Outbound:
-   `reply_to_message`/`send_message`. HITL on: `list_pending_approvals` →
-   `approve_message`/`reject_message`.
+   `reply_to_message`/`send_message`. HITL on: `list_messages
+   {status:"pending_approval"}` → `approve_message`/`reject_message`.
 
 ### Tool catalogue (target surface, mapped to `/v1`)
 
@@ -362,13 +362,13 @@ exposes each tier per OAuth scope (§5):
 * **Runtime / inbox** (`scope=agent`) — what a deployed agent uses every turn:
   `whoami`, `list_agents`, `list_messages`, `get_message`, `get_attachment`,
   `update_message_labels`, `list_conversations`, `get_conversation`,
-  `send_message`, `reply_to_message`, `forward_message`, `list_pending_approvals`,
-  `approve_message`, `reject_message`.
+  `send_message`, `reply_to_message`, `forward_message`, `approve_message`,
+  `reject_message`.
 * **Admin / setup** (`scope=admin`) — provisioning, done once by the operator
   (the AgentDrive setup journey above): agent create/update/delete, all of
   domains, all of webhooks, all of events.
 
-A runtime-scoped token therefore sees ~14 tools, not ~29 — a smaller decision
+A runtime-scoped token therefore sees ~13 tools, not ~28 — a smaller decision
 space and no way for a support agent to `delete_domain`. Self-host (API key)
 sees both tiers. The drift-gate map records each tool's tier next to its
 `operationId`.
@@ -406,13 +406,15 @@ sees both tiers. The drift-gate map records each tool's tier next to its
 
 | Tool | Key params | → operation | Notes |
 |---|---|---|---|
-| `list_pending_approvals` | `address?` | `GET /agents/{address}/messages?status=pending_approval&direction=outbound` | Curated filter over the messages list. |
 | `approve_message` | `message_id`*, optional overrides (`subject/body/html/to/cc/bcc/attachments`), `idempotency_key?`,`address?` | `POST …/messages/{id}/approval {decision:"approve", …overrides}` | |
 | `reject_message` | `message_id`*,`reason?`,`address?` | `POST …/messages/{id}/approval {decision:"reject"}` | approve+reject → one `approval` operation, two ergonomic tools. |
 
-> Read the draft with `get_message` (a held draft is just a message);
-> `get_pending_message` is **removed**. The human magic-link
-> `GET /approvals/{token}` is a **browser** flow, not a tool (`noMcp`).
+> **No `list_pending_approvals` and no `get_pending_message`** — a held draft is
+> just a message. **List** pending with `list_messages
+> {status:"pending_approval", direction:"outbound"}`; **read** the draft with
+> `get_message`; **transition** with `approve_message`/`reject_message`. (We
+> don't ship a preset that's one filter over an existing tool.) The human
+> magic-link `GET /approvals/{token}` is a **browser** flow, not a tool (`noMcp`).
 
 **Domains** — `list_domains` → `GET /domains`; **`get_domain {domain}`** (new)
 → `GET /domains/{domain}` (surfaces `verified` + `sending_status`/
@@ -440,15 +442,17 @@ sees both tiers. The drift-gate map records each tool's tier next to its
 * Internal-only response fields stay on `intentionallyOmitted` so coverage
   check #4 stays green without exposing plumbing.
 
-### Net change vs. today (~33 → ~30 tools, all coverage-checked)
+### Net change vs. today (~33 → ~28 tools, all coverage-checked)
 
 * **Renames:** `agent_email`→`address` (full email) on every tool;
   `send_email`→`send_message` (match the `message` resource);
   `get_attachment_data`→`get_attachment`; env `E2A_AGENT_EMAIL`→
   `E2A_AGENT_ADDRESS` (legacy name still accepted).
-* **Removed from tools:** `slug`, `agent_mode`, `webhook_url`
-  (create/update_agent); `get_pending_message` (use `get_message`);
-  flat-message addressing.
+* **Removed tools:** `get_pending_message` and `list_pending_approvals` — a held
+  draft is just a message (`get_message` + `list_messages
+  {status:"pending_approval"}`); plus `list_webhook_deliveries` (folded into
+  events). **Removed fields:** `slug`, `agent_mode`, `webhook_url`
+  (create/update_agent); flat-message addressing.
 * **Added:** `from`/`reply_to` on outbound; `get_domain` (sending_status poll);
   dedicated attachment fetch.
 * **Collapsed:** approve/reject → one `approval` operation (two tools);
@@ -463,7 +467,7 @@ The existing surface works but wasn't optimally designed; these are the changes
 worth making while we're reshaping the contract anyway, roughly in priority:
 
 1. **Tier + scope-gate the tools (above).** Highest-leverage change: a deployed
-   agent shouldn't carry ~30 tools or hold delete-domain power. Cuts the runtime
+   agent shouldn't carry ~28 tools or hold delete-domain power. Cuts the runtime
    decision space ~2× and enforces least-privilege at the token.
 2. **Add MCP tool annotations** (`readOnlyHint`, `destructiveHint`,
    `idempotentHint`, `title`) on every tool. Lets clients auto-approve reads,
@@ -496,7 +500,7 @@ worth making while we're reshaping the contract anyway, roughly in priority:
    `forward` was the terser alternative; rejected — under-specified next to
    `get_message`/`list_messages`.)
 
-Applying 1 + 6: a runtime agent sees ~14 tools; the full self-host surface ~29.
+Applying 1 + 6: a runtime agent sees ~13 tools; the full self-host surface ~28.
 
 ## 7. Agent-first docs
 
