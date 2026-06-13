@@ -112,7 +112,7 @@ relative to that base):
 | **domains** | `GET/POST /domains` · `GET/PATCH/DELETE /domains/{domain}` · `POST /domains/{domain}/verify` (ownership + nudges a sending-identity re-check). The domain resource carries two independent statuses: `verified` (inbound/ownership, DNS TXT) and `sending_status ∈ {none,pending,verified,failed}` + `sending_error?` + `dns_records` + `last_checked_at?` (async SES sending identity — see §4 decision 4). `GET /domains/{domain}` is the poll target; no separate status endpoint. |
 | **webhooks** | `GET/POST /webhooks` · `GET/PATCH/DELETE /webhooks/{id}` · `…/deliveries` · `…/test` · `…/rotate-secret` · `…/redeliver-since` |
 | **events** (delivery log) | `GET /events` · `GET /events/{id}` · `POST /events/{id}/redeliver` |
-| **account** | `GET /account` (replaces `/info` + `/users/me/limits`) · `GET /account/export` · `DELETE /account` · signing-secrets CRUD |
+| **account** | `GET /account` (replaces `/info` + `/users/me/limits`) · `GET /account/export` · `DELETE /account`. **API-key + signing-secret CRUD are console-only** (human session), not `/v1` endpoints (§5). |
 
 ### Resource relationships
 
@@ -248,6 +248,16 @@ The auth methods just differ in how you obtain a scoped credential:
   `delete_domain`), per-agent rotation/revocation, and clean attribution. A
   visible prefix (`e2a_agt_…` vs `e2a_acct_…`) makes a key's blast radius obvious.
   (Today's single account-wide key is over-privileged for a one-inbox bot.)
+  **Key lifecycle is a dashboard action, not a public API.** Create / rotate /
+  revoke happen in the console (human session), never via an API-key-authed
+  `/v1` endpoint and never via MCP — (a) bootstrapping: you can't mint your first
+  key from a key-authed route; (b) security: programmatic key-minting is a
+  privilege-escalation/persistence vector. Programmatic credentials come from
+  **OAuth** (humans) or the **auth.md assertion/claim flow** (agents); CI uses a
+  dashboard-minted key stored as a secret (as AgentDrive's feedback loop does).
+  The existing `/api/keys` routes become console-internal (session-authed), not
+  part of the documented contract. A programmatic *mint* endpoint is added only
+  if real headless-fleet provisioning demand appears (YAGNI; auth.md covers it).
 * **OAuth 2.1 (PKCE + refresh) — new, first-class for hosted MCP.** Connect from
   Claude/ChatGPT with no pasted key; the grant carries `scope=agent` or
   `scope=account`. Mirrors the AgentDrive MCP-OAuth design.
@@ -535,9 +545,10 @@ sees both tiers. The drift-gate map records each tool's tier next to its
   poll `list_messages` or subscribe via webhooks. **`noMcp`.**
 * `GET /approvals/{token}` + `POST /approvals/{token}` — human browser
   magic-link; agents use the `approval` transition. **`noMcp`.**
-* `GET /account/export`, `DELETE /account`, account/signing-secret CRUD —
-  console/operator-only, deliberately out of the agent surface. **`noMcp`**
-  (revisit if a managed-operator tool is wanted).
+* `GET /account/export`, `DELETE /account`, and **API-key / signing-secret CRUD**
+  — console/operator-only (human session), deliberately out of the agent surface
+  *and* the public `/v1` contract (§5: key lifecycle is a dashboard action).
+  **`noMcp`** (revisit if a managed-operator tool is wanted).
 * Internal-only response fields stay on `intentionallyOmitted` so coverage
   check #4 stays green without exposing plumbing.
 
