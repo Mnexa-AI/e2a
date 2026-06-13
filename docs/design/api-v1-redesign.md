@@ -193,6 +193,50 @@ relative to that base):
 8. **Idempotency** — `Idempotency-Key` header (or body key) honored on all
    POSTs with side effects (send, create agent, webhook create, redeliver).
 
+### HTTP header conventions (audit + decisions)
+
+An audit of today's headers found a clean custom-header family (`X-E2A-*`) and
+good per-response `Cache-Control`/`Retry-After`, but **no baseline security
+headers, no request-id, and a few naming/legacy snags**. Standardize via **shared
+middleware (one place)**, not per-handler:
+
+* **Auth** — accept `Authorization: Bearer <token>` **only**; drop the legacy
+  bare-token (no-scheme) path (break freely, §1). On 401 emit
+  `WWW-Authenticate: Bearer realm="e2a", error=…, resource_metadata="<AS-url>"`
+  from **both** the REST API and MCP (today only MCP includes `resource_metadata`)
+  — required for OAuth/auth.md discovery; both layers must emit the **same** URL.
+* **Security headers (apply to all responses; today only the magic-link HTML has
+  any):** `X-Content-Type-Options: nosniff` everywhere; `Strict-Transport-Security`
+  at the edge (Caddy). On the HTML confirmation pages — incl. the prefetch-safe
+  approval page (decision 5) — add `Content-Security-Policy: default-src 'none';
+  frame-ancestors 'none'; …` alongside the existing `X-Frame-Options: DENY` /
+  `Referrer-Policy: no-referrer` / `Cache-Control: no-store` / `X-Robots-Tag`.
+* **Observability — add `X-Request-Id`** (today: none): generate per request,
+  return on every response, accept + propagate when the client supplies it, and
+  echo the same id in the error envelope (decision 6). Biggest support lever.
+* **Rate limiting** — keep `Retry-After` on 429; **add the IETF `RateLimit-Limit`
+  / `RateLimit-Remaining` / `RateLimit-Reset`** on rate-limited resources so
+  agents self-throttle instead of hitting 429.
+* **Idempotency replay signal** — **drop the non-standard `Idempotent-Replayed`**
+  (the replayed response is byte-identical anyway); if a signal is wanted, use
+  `Idempotency-Replayed` to match the request-header family. Scope the key
+  namespace per `(principal, route)` so one tenant's key can't collide with
+  another's; keep the max-length cap.
+* **Custom headers** — keep the consistent `X-E2A-*` family
+  (`X-E2A-Signature` per-webhook `t=,v1=`; `X-E2A-Internal-Signature`).
+  **Retire `X-E2A-Deprecation` + `Sunset`** when the legacy per-agent webhook is
+  removed (decision 2).
+* **Content-Type** — JSON stays `application/json` with **no** charset (correct
+  per RFC 8259 — not an inconsistency); HTML keeps `; charset=utf-8`;
+  `Content-Disposition: attachment` on export stays.
+* **Proxy trust** — make client-IP resolution **config-driven (trusted-proxy
+  CIDR)** instead of hard-coded `CF-Connecting-IP`; `X-Forwarded-For` stays
+  untrusted for security unless it arrives from a trusted proxy (ties to §9a).
+* **CORS** — the MCP resource's `Access-Control-Allow-Origin: *` is acceptable
+  **only** because it's bearer-auth with no cookies; **never** pair `*` with
+  `Access-Control-Allow-Credentials: true`. Use an explicit origin allowlist for
+  any cookie-bearing browser endpoint (OAuth authorize/consent).
+
 ### Webhook delivery: build vs. framework (decision)
 
 **Keep delivery hand-rolled — do NOT adopt an external webhook
