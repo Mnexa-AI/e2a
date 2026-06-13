@@ -39,8 +39,8 @@ use confidently. Concretely, observed in the codebase today:
   and SDK READMEs; there's no canonical agent-readable contract doc.
 
 **Context that makes now the right time:** e2a is in beta, has **no external
-API consumers, and makes no stability promise**. The only live consumer is
-AgentDrive's feedback loop (internal, updated in lockstep). So we redesign
+API consumers, and makes no stability promise**. The only live consumer is a
+single internal one (updated in lockstep). So we redesign
 **in place** — break freely, no compatibility shims, no deprecation windows.
 This is the cheapest this change will ever be.
 
@@ -48,8 +48,8 @@ The redesign also **moves the surface to a dedicated host with a clean prefix**:
 
 > **Canonical base URL: `https://api.e2a.dev/v1`**
 
-All API endpoints live on the dedicated `api.e2a.dev` host (mirroring
-AgentDrive's `api.agentdrive.run`). The version goes straight on the path as
+All API endpoints live on the dedicated `api.e2a.dev` host (the common
+`api.<brand>` convention). The version goes straight on the path as
 `/v1` — the host already says "api", so the legacy `/api/v1` double-segment is
 dropped. There is no `/v2`: `/v1` is the in-place namespace we keep reshaping
 while in beta. (Distinct hosts, distinct jobs: `api.e2a.dev` = the REST/MCP
@@ -135,7 +135,7 @@ relative to that base):
 ### Key contract decisions
 
 1. **Agent address is the identifier and is always a full email.** `create`
-   and every path require the full address (`support@agentdrive.run`) — no
+   and every path require the full address (`support@acme.com`) — no
    bare local-part, no `@`-disambiguation, no implicit default domain.
    Explicit and unambiguous. The email's domain MUST be a verified domain the
    caller owns (enforced at create). Path-encode the address. The MCP
@@ -305,8 +305,8 @@ modest event volume. The domain-specific parts are already built and low-risk
 ### Email semantics vs SMTP reality (audit — delivery feedback & DMARC)
 
 An audit against SMTP/RFC 5321-5322/DMARC reality found e2a's contract models
-email **submission** but not delivery **feedback** — the blind spot that caused
-the AgentDrive reply-reopen bounce. Threading (Message-ID/References), MIME
+email **submission** but not delivery **feedback** — the blind spot behind
+silent reply bounces. Threading (Message-ID/References), MIME
 (`multipart/alternative`+`/mixed`, UTF-8), and BCC-envelope-only are all correct;
 the gaps, ranked:
 
@@ -347,8 +347,8 @@ internationalized addresses.
 MCP tier (§6a) and the resources it can reach:
 
 * **`agent` scope** — bound to a single agent; the credential *is* the agent
-  (runtime/inbox tier). What a **deployed agent** holds — including AgentDrive's
-  support bot. No `E2A_AGENT_ADDRESS` needed; `address` comes from the credential.
+  (runtime/inbox tier). What a **deployed agent** holds. No `E2A_AGENT_ADDRESS`
+  needed; `address` comes from the credential.
 * **`account` scope** (a.k.a. admin) — account-wide (admin tier: agent / domain
   / webhook / event provisioning, multi-agent orchestration). What an operator /
   CI uses for setup.
@@ -368,13 +368,13 @@ The auth methods just differ in how you obtain a scoped credential:
   key from a key-authed route; (b) security: programmatic key-minting is a
   privilege-escalation/persistence vector. Programmatic credentials come from
   **OAuth** (humans) or the **auth.md assertion/claim flow** (agents); CI uses a
-  dashboard-minted key stored as a secret (as AgentDrive's feedback loop does).
-  The existing `/api/keys` routes become console-internal (session-authed), not
+  dashboard-minted key stored as a CI secret. The existing `/api/keys` routes
+  become console-internal (session-authed), not
   part of the documented contract. A programmatic *mint* endpoint is added only
   if real headless-fleet provisioning demand appears (YAGNI; auth.md covers it).
 * **OAuth 2.1 (PKCE + refresh) — new, first-class for hosted MCP.** Connect from
   Claude/ChatGPT with no pasted key; the grant carries `scope=agent` or
-  `scope=account`. Mirrors the AgentDrive MCP-OAuth design.
+  `scope=account`.
 * **Agent identity assertion (auth.md jwt-bearer path) — to BUILD.** e2a today
   has **no** JWT identity assertion: OAuth is fosite-issued **opaque** tokens
   (`authorization_code` + `refresh_token` only) and account-wide API keys. The
@@ -382,7 +382,7 @@ The auth methods just differ in how you obtain a scoped credential:
   claim ceremony, jwt-bearer/claim grants, JWKS) is new build (Slice 5).
   **Naming rule: where any current e2a auth name diverges from the auth.md spec,
   rename it to the spec — no back-compat aliases** (we're breaking freely, §1).
-  Spec = naming authority; AgentDrive = implementation-experience reference.
+  The spec is the naming authority.
 * **HITL magic-link tokens** — unchanged, scoped to a single approval.
 
 ### Agent identity & token model (auth.md-aligned)
@@ -398,12 +398,8 @@ WorkOS tracks as `(iss, sub, aud)`.
 **e2a adopts the [`auth.md`](https://github.com/workos/auth.md) protocol
 directly — the spec is the source of truth for these names.** auth.md is an
 agent-registration *profile* over OAuth discovery (RFC 8414) + JWT-bearer
-(RFC 7523) + a device-flow-style claim ceremony (RFC 8628). **AgentDrive
-independently adopted auth.md too** (`docs/auth-md-adoption-design.md` in that
-repo) — **mine it for the implementation experience** (the grant/claim edge
-cases, JWKS handling, revocation, TTLs we already hit once), **but e2a conforms
-to the WorkOS spec for its names and serves them on its own `api.e2a.dev` host;
-it does not reuse AgentDrive's routes, hosts, scopes, or key prefixes.**
+(RFC 7523) + a device-flow-style claim ceremony (RFC 8628). e2a conforms to the
+WorkOS spec for its names and serves them on its own `api.e2a.dev` host.
 **Reality check (per the audit below):** e2a has the **OAuth 2.0 foundation**
 (fosite AS — `authorization_code` + `refresh_token` + PKCE S256, RFC 8414
 discovery, RFC 7009 revoke, RFC 7591 DCR; opaque tokens; a single `mcp` scope)
@@ -413,7 +409,7 @@ renames — more than a rename, but not a re-architecture. The three paths map a
 
 | Path | auth.md mechanism | e2a status | Who |
 |---|---|---|---|
-| **Autonomous** (acts as itself) | `POST /agent/identity {type:"identity_assertion", assertion}` → service `identity_assertion` → `POST /oauth2/token` `grant_type=jwt-bearer` → access_token (no refresh; re-present) | **BUILD** — no JWT assertion, JWKS, or jwt-bearer grant today | AgentDrive support bot |
+| **Autonomous** (acts as itself) | `POST /agent/identity {type:"identity_assertion", assertion}` → service `identity_assertion` → `POST /oauth2/token` `grant_type=jwt-bearer` → access_token (no refresh; re-present) | **BUILD** — no JWT assertion, JWKS, or jwt-bearer grant today | a deployed autonomous agent |
 | **Human-connected** (delegated) | claim ceremony: `POST /agent/identity {type:"service_auth", login_hint}` → `{user_code, verification_uri}` → user signs in → poll `/oauth2/token` `grant_type=…:claim` | **BUILD** the claim path; OAuth `authorization_code`+`refresh` exists (rename `/api/oauth/*`→`/oauth2/*`) | hosted MCP users |
 | **Self-host** | (outside auth.md) | account-wide `e2a_` key today → **add** agent-scoped `e2a_agt_` | CI / self-host |
 
@@ -460,7 +456,7 @@ yet) — the claim ceremony covers that gap today. Assertion-minted tokens get *
 refresh token** (re-present the assertion), which matches a short-lived-token
 design. e2a's OAuth lib is **fosite**, which doesn't ship a jwt-bearer grant —
 adding the agent-identity grants means a custom token-endpoint handler (the
-biggest single build item; AgentDrive's grant code is the reference).
+biggest single build item).
 
 ## 6. Source of truth & drift control
 
@@ -530,7 +526,7 @@ the SDK and raw REST exist for back-end/programmatic use, but the everyday
   allowlists the gate checks against are defined at the end of this section.
 
 **Hosting convention — `https://api.e2a.dev/mcp` (a path on the API host, not a
-`mcp.` subdomain).** This matches AgentDrive (`api.agentdrive.run/mcp`) and the
+`mcp.` subdomain).** This follows the common `api.<host>/mcp` convention and the
 §1 rule that all API surface lives on `api.e2a.dev`, and keeps the MCP endpoint,
 the REST API, and the OAuth authorization server **same-origin** — so
 `/.well-known/oauth-protected-resource` discovery and the resource↔AS
@@ -540,24 +536,24 @@ the public URL. **Config change:** the current `MCP_ALLOWED_HOSTS` /
 `MCP_PUBLIC_URL` defaults point at `mcp.e2a.dev` — retarget them to
 `api.e2a.dev` (DNS-rebinding allow-host) and `https://api.e2a.dev/mcp`.
 
-### The canonical journey — AgentDrive standing up `support@agentdrive.run`
+### The canonical journey — standing up `support@acme.com`
 
-This is exactly the flow we ran by hand; each step is one or two tool calls.
+A worked example of the full flow; each step is one or two tool calls.
 
 1. **Connect.** Add the hosted connector `https://api.e2a.dev/mcp` in Claude →
    OAuth 2.1 grant, no key pasted. (Self-host: stdio server + `E2A_API_KEY`.)
-2. **Bring the domain.** `register_domain {domain:"agentdrive.run"}`
+2. **Bring the domain.** `register_domain {domain:"acme.com"}`
    → `POST /domains`; returns the DNS records (MX/TXT/DKIM) to publish.
-3. **Publish DNS, then verify.** `verify_domain {domain:"agentdrive.run"}`
+3. **Publish DNS, then verify.** `verify_domain {domain:"acme.com"}`
    → `POST /domains/{domain}/verify`. Flips inbound `verified` **and** kicks off
    async SES sending-identity registration (BYODKIM — §4 decision 4).
-4. **Wait for sending-verified.** `get_domain {domain:"agentdrive.run"}`
+4. **Wait for sending-verified.** `get_domain {domain:"acme.com"}`
    → `GET /domains/{domain}`; poll `sending_status` until `verified` (or
    subscribe the `domain.sending_verified` webhook event). Only then is outbound
    `From` the agent's own address instead of the relay.
-5. **Create the agent.** `create_agent {address:"support@agentdrive.run",
-   name:"AgentDrive Support"}` → `POST /agents`. Full email required; its domain
-   must be a verified domain we own. No mode, no forced webhook.
+5. **Create the agent.** `create_agent {address:"support@acme.com",
+   name:"Acme Support"}` → `POST /agents`. Full email required; its domain
+   must be a verified domain the caller owns. No mode, no forced webhook.
 6. **(Optional) gate replies behind a human.** `update_agent {hitl_enabled:true,
    hitl_ttl_seconds:…, hitl_expiration_action:"reject"}` → `PATCH /agents/{address}`.
 7. **(Optional) push instead of poll.** `create_webhook {url,
@@ -588,7 +584,7 @@ exposes each tier per **credential scope** (API-key or OAuth — §5):
   `send_message`, `reply_to_message`, `forward_message`, `approve_message`,
   `reject_message`.
 * **Admin / setup** (`scope=admin`) — provisioning, done once by the operator
-  (the AgentDrive setup journey above): agent create/update/delete, all of
+  (the setup journey above): agent create/update/delete, all of
   domains, all of webhooks, all of events.
 
 A runtime-scoped token therefore sees ~13 tools, not ~28 — a smaller decision
@@ -769,15 +765,15 @@ Break the current `/api/v1` surface directly and move it to
 * **Slice 2 — Resource cleanup.** Unify outbound under
   `POST /agents/{address}/messages` (send/reply/forward); single message
   address; collapse HITL to `approval`; `/account`. Update MCP + SDKs from
-  the spec; update AgentDrive's feedback loop (`feedback_api.sh`/comms is
-  unaffected; the e2a `send`/`reply` calls move).
+  the spec; update the internal consumer in lockstep (the `send`/`reply` calls
+  move).
 * **Slice 3 — Agent model.** `address` unification; drop `agent_mode`;
   optional webhook. Migration drops the column + CHECK.
 * **Slice 4 — Sender identity (provision *and* teardown).** `SenderIdentityProvider`
   (SES BYODKIM) + `sending_verified` + custom-domain `From`/`Reply-To`, **plus
   symmetric deprovisioning** on domain/account delete (River job →
   `DeleteEmailIdentity`, idempotent, orphan-reaper backstop — decision 4).
-  Unblocks customer-reply→reopen for AgentDrive.
+  Unblocks customer-reply→reopen.
 * **Slice 5 — OAuth hosted MCP.** OAuth 2.1 (PKCE + refresh), per-agent
   scope; keep API keys.
 * **Slice 6 — Agent-first docs.** `e2a.md`/`llms.txt`/`setup.md`/`auth.md`,
