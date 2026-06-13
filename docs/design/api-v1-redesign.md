@@ -109,7 +109,7 @@ relative to that base):
 | **conversations** (derived thread view) | `GET /agents/{address}/conversations` · `GET …/conversations/{id}` |
 | **stream** (inbound transport) | `GET /agents/{address}/ws` — WebSocket; first-class + documented (today it's side-registered + mode-gated) |
 | **approvals (HITL)** | `POST /agents/{address}/messages/{id}/approval {decision: approve\|reject}` — the one transition (agents; API-key/OAuth). Held drafts are listed via `GET …/messages?status=pending_approval` and read via the message GET (a held draft is just a message). Human magic link: `GET /approvals/{token}` renders an **HTML confirmation page with NO side effect** (prefetch-safe), whose buttons `POST /approvals/{token} {decision}` into the same transition (token = single-use, short-TTL capability). **Never a mutating GET** — email scanners/prefetchers would auto-trigger it. |
-| **domains** | `GET/POST /domains` · `GET/PATCH/DELETE /domains/{domain}` · `POST /domains/{domain}/verify` (ownership + nudges a sending-identity re-check). The domain resource carries two independent statuses: `verified` (inbound/ownership, DNS TXT) and `sending_status ∈ {none,pending,verified,failed}` + `sending_error?` + `dns_records` + `last_checked_at?` (async SES sending identity — see §4 decision 4). `GET /domains/{domain}` is the poll target; no separate status endpoint. |
+| **domains** | `GET/POST /domains` · `GET/PATCH/DELETE /domains/{domain}` (DELETE also **deprovisions the SES sending identity** — decision 4) · `POST /domains/{domain}/verify` (ownership + nudges a sending-identity re-check). The domain resource carries two independent statuses: `verified` (inbound/ownership, DNS TXT) and `sending_status ∈ {none,pending,verified,failed}` + `sending_error?` + `dns_records` + `last_checked_at?` (async SES sending identity — see §4 decision 4). `GET /domains/{domain}` is the poll target; no separate status endpoint. |
 | **webhooks** | `GET/POST /webhooks` · `GET/PATCH/DELETE /webhooks/{id}` · `…/deliveries` · `…/test` · `…/rotate-secret` · `…/redeliver-since` |
 | **events** (delivery log) | `GET /events` · `GET /events/{id}` · `POST /events/{id}/redeliver` |
 | **account** | `GET /account` (replaces `/info` + `/users/me/limits`) · `GET /account/export` · `DELETE /account`. **API-key + signing-secret CRUD are console-only** (human session), not `/v1` endpoints (§5). |
@@ -195,6 +195,21 @@ relative to that base):
      re-check; optionally a `domain.sending_verified` / `domain.sending_failed`
      **webhook event** lets agents skip polling. `failed` carries an actionable
      reason + the DNS to fix. (Shipped in **Slice 4 — Sender identity**.)
+   * **Teardown (symmetric — deprovision the SES identity on delete).** The
+     sending identity is **per-domain**, so it is torn down on `DELETE /domains/
+     {domain}` (and, cascading, on `DELETE /account` for every domain the
+     account owns) — **never** on `DELETE /agents/{address}` (other agents on the
+     domain keep sending). Teardown is a **remote SES call that can fail**, so
+     it runs through the **same River queue** as provisioning: the delete tx
+     *transactionally enqueues* a `deprovision-sender-identity` job (so it's
+     never lost if the SES call is down), the worker calls SES
+     `DeleteEmailIdentity` with retries/backoff, treats **NotFound as success**
+     (idempotent), and dead-letters with an alert on permanent failure. Also
+     wipe e2a's per-domain DKIM key material. **Backstop:** the create-side
+     reconciler also runs as an **orphan reaper** — it lists SES identities and
+     deletes any with no backing live domain, catching teardowns that slipped
+     (leak/cost/quota defense). Re-registering a deleted domain re-creates the
+     identity cleanly.
 5. **One HITL transition, prefetch-safe.** Collapse the nested approve/reject
    AND the top-level magic-link into a single `approval` sub-resource
    (`POST …/messages/{id}/approval {decision}`). The human magic link is
@@ -758,9 +773,11 @@ Break the current `/api/v1` surface directly and move it to
   unaffected; the e2a `send`/`reply` calls move).
 * **Slice 3 — Agent model.** `address` unification; drop `agent_mode`;
   optional webhook. Migration drops the column + CHECK.
-* **Slice 4 — Sender identity.** `SenderIdentityProvider` (SES BYODKIM) +
-  `sending_verified` + custom-domain `From`/`Reply-To`. Unblocks
-  customer-reply→reopen for AgentDrive.
+* **Slice 4 — Sender identity (provision *and* teardown).** `SenderIdentityProvider`
+  (SES BYODKIM) + `sending_verified` + custom-domain `From`/`Reply-To`, **plus
+  symmetric deprovisioning** on domain/account delete (River job →
+  `DeleteEmailIdentity`, idempotent, orphan-reaper backstop — decision 4).
+  Unblocks customer-reply→reopen for AgentDrive.
 * **Slice 5 — OAuth hosted MCP.** OAuth 2.1 (PKCE + refresh), per-agent
   scope; keep API keys.
 * **Slice 6 — Agent-first docs.** `e2a.md`/`llms.txt`/`setup.md`/`auth.md`,
