@@ -168,6 +168,39 @@ Canonical resources under `/api/v1`:
 8. **Idempotency** — `Idempotency-Key` header (or body key) honored on all
    POSTs with side effects (send, create agent, webhook create, redeliver).
 
+### Webhook delivery: build vs. framework (decision)
+
+**Keep delivery hand-rolled — do NOT adopt an external webhook
+framework/service (Svix/Convoy/Hookdeck) for v1.** A framework relocates
+risk (adds infra + a service in the data path + vendor coupling) rather than
+removing it, and it fights e2a's self-host + provider-agnostic posture for a
+modest event volume. The domain-specific parts are already built and low-risk
+(HMAC signing, subscription filters, the event→delivery model). Decision:
+
+* **Semantics stay hand-rolled and ours:** subscriptions + filters, HMAC
+  signing (+ rotation grace), the event vocabulary, SSRF/URL validation.
+* **Run the delivery *worker* on [River](https://riverqueue.com)** — a Go,
+  Postgres-backed job queue (no Redis, no new service; just tables in the
+  existing DB). It owns the concurrency-heavy, bug-prone mechanics:
+  atomic claim (`FOR UPDATE SKIP LOCKED`), **transactional enqueue** (enqueue
+  the delivery job in the same tx that writes the event — no lost/rolled-back
+  jobs), retries-with-backoff, max-attempts, dead-letter, unique-jobs
+  idempotency. Replaces the hand-rolled poll/lease/`next_retry_at` loop (the
+  part most prone to subtle bugs). e2a keeps the `Work()` body (sign + POST +
+  record outcome) and the auto-disable policy.
+* **Pin correctness with an adversarial test matrix** (the real bug
+  insurance, required regardless):
+  * **at-least-once:** kill the worker mid-send → redelivered, never lost.
+  * **idempotency/dedup:** stable delivery id; same event never double-fires.
+  * **retry/backoff:** schedule matches spec, capped, dead-letters after N.
+  * **signature:** correct HMAC + rotation grace (two valid sigs) + clock-skew window.
+  * **isolation:** one permanently-failing subscriber can't block others or grow unbounded.
+  * **SSRF:** HTTPS-only, no private IPs.
+  * **ordering:** document the guarantee (none — dedup receiver-side) and test to it.
+* **Revisit a self-hostable gateway (Convoy, Go+Postgres) only on a scale
+  trigger** — high fan-out, strict per-subscriber rate limiting, or wanting a
+  prebuilt delivery dashboard. Not a v1 concern.
+
 ## 5. Auth model
 
 * **API key** (`E2A_API_KEY`) — unchanged; the self-host default.
