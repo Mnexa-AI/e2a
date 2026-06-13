@@ -13,7 +13,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /e2a ./cmd/e2a
 
-FROM alpine:3.22
+FROM alpine:3.24
 RUN apk add --no-cache ca-certificates wget \
     && adduser -D -u 1001 -h /home/e2a e2a
 COPY --from=builder /e2a /usr/local/bin/e2a
