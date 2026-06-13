@@ -26,8 +26,9 @@ use confidently. Concretely, observed in the codebase today:
   one state transition.
 * **MCP ↔ API drift.** The MCP tools and the REST API are separate
   codebases (Go API, TS MCP) with no shared contract; gaps have already
-  surfaced (PR #206; `send` lacks `from`/`reply_to`; `create_agent` only
-  makes shared-domain agents).
+  surfaced (PR #206 — the *MCP* `create_agent` zod schema omitted `email`, so
+  custom-domain inboxes were uncreatable via MCP even though the REST handler
+  already accepted them; since patched. Also `send` lacks `from`/`reply_to`).
 * **Redundant state.** `agent_mode ∈ {cloud, local}` is derivable from
   "is a webhook configured?" and forces an onboarding coupling
   (cloud ⇒ webhook required) that dead-ends agent creation.
@@ -102,17 +103,17 @@ relative to that base):
 
 | Resource | Routes (target) |
 |---|---|
-| **agents** | `GET/POST /agents` · `GET/PATCH/DELETE /agents/{address}` · `POST /agents/{address}/test` (top-level, keyed by full email; create enforces caller owns the verified domain) |
+| **agents** | `GET/POST /agents` · `GET/PATCH/DELETE /agents/{address}` · `POST /agents/{address}/test` (top-level, keyed by full email; create enforces caller owns the verified domain). **DELETE semantics:** discards held drafts (`status=pending_approval`), removes the agent from any webhook `agent_ids` filter, revokes its agent-scoped credentials, and purges/retains inbound per the retention policy — but does **not** touch the domain's SES sending identity (per-domain; decision 4). |
 | **domain's agents** (filtered view) | `GET /domains/{domain}/agents` — list agents on a domain (management view; not a separate identity namespace) |
 | **messages** (per agent; inbound + outbound) | `GET /agents/{address}/messages` (filters incl. `direction`, `status`; held outbound drafts = `status=pending_approval`) · `GET …/messages/{id}` · `GET …/messages/{id}/attachments/{index}` · `PATCH …/messages/{id}` (labels/read) |
 | **outbound** (unified) | `POST /agents/{address}/messages` — one endpoint for *new thread, reply, and forward*, disambiguated by body (`in_reply_to` / `forward_of` absent ⇒ new) |
 | **conversations** (derived thread view) | `GET /agents/{address}/conversations` · `GET …/conversations/{id}` |
 | **stream** (inbound transport) | `GET /agents/{address}/ws` — WebSocket; first-class + documented (today it's side-registered + mode-gated) |
 | **approvals (HITL)** | `POST /agents/{address}/messages/{id}/approval {decision: approve\|reject}` — the one transition (agents; API-key/OAuth). Held drafts are listed via `GET …/messages?status=pending_approval` and read via the message GET (a held draft is just a message). Human magic link: `GET /approvals/{token}` renders an **HTML confirmation page with NO side effect** (prefetch-safe), whose buttons `POST /approvals/{token} {decision}` into the same transition (token = single-use, short-TTL capability). **Never a mutating GET** — email scanners/prefetchers would auto-trigger it. |
-| **domains** | `GET/POST /domains` · `GET/PATCH/DELETE /domains/{domain}` (DELETE also **deprovisions the SES sending identity** — decision 4) · `POST /domains/{domain}/verify` (ownership + nudges a sending-identity re-check). The domain resource carries two independent statuses: `verified` (inbound/ownership, DNS TXT) and `sending_status ∈ {none,pending,verified,failed}` + `sending_error?` + `dns_records` + `last_checked_at?` (async SES sending identity — see §4 decision 4). `GET /domains/{domain}` is the poll target; no separate status endpoint. |
-| **webhooks** | `GET/POST /webhooks` · `GET/PATCH/DELETE /webhooks/{id}` · `…/deliveries` · `…/test` · `…/rotate-secret` · `…/redeliver-since` |
+| **domains** | `GET/POST /domains` · `GET/PATCH/DELETE /domains/{domain}` (DELETE also **deprovisions the SES sending identity** — decision 4) · `POST /domains/{domain}/verify` (ownership + nudges a sending-identity re-check). The domain resource carries two independent statuses: `verified` (inbound/ownership, DNS TXT) and `sending_status ∈ {none,pending,verified,failed}` + `sending_error?` + `dns_records` + `last_checked_at?` (async SES sending identity — see §4 decision 4). `GET /domains/{domain}` is the poll target; no separate status endpoint. Inbound `verified` is **re-checkable** — a periodic ownership re-probe (and `POST /verify`) can flip it back to `false` if the DNS TXT/MX later disappears; it is not sticky-once-true. |
+| **webhooks** | `GET/POST /webhooks` · `GET/PATCH/DELETE /webhooks/{id}` · `…/deliveries` (read-only debug view) · `…/test` · `…/rotate-secret`. **Redelivery is event-scoped** (`POST /events/{id}/redeliver`), not a per-webhook endpoint — one canonical place (§3.2). |
 | **events** (delivery log) | `GET /events` · `GET /events/{id}` · `POST /events/{id}/redeliver` |
-| **account** | `GET /account` (replaces `/info` + `/users/me/limits`) · `GET /account/export` · `DELETE /account`. **API-key + signing-secret CRUD are console-only** (human session), not `/v1` endpoints (§5). |
+| **account** | `GET /account` (replaces `/info` + `/users/me/limits`; **scope-filtered** — `scope=agent` sees only its bound agent + limits, §6a) · `GET /account/export` · `DELETE /account`. **API-key + signing-secret CRUD are console-only** (human session), not `/v1` endpoints (§5). |
 
 ### Resource relationships
 
@@ -159,8 +160,16 @@ relative to that base):
    multi-subscriber resource: event-type subscriptions with filters
    (`agent_ids`, `conversation_ids`, `labels`), a per-webhook HMAC secret
    (`X-E2A-Signature: t=…,v1=…`), a deliveries log, retries, `rotate-secret`,
-   `redeliver-since`, `test`, and auto-disable. Keep it as-is in shape;
-   the only change is that it's now the *only* push path (no agent URL field).
+   `test`, and auto-disable. Keep it as-is in shape; changes: it's now the
+   *only* push path (no agent URL field), and **redelivery moves to the
+   event resource** (`POST /events/{id}/redeliver`) rather than a per-webhook
+   endpoint — there is no `redeliver-since` (replay is per-event via `/events`).
+   Delivery is **at-least-once**: redeliveries reuse the stable `evt_` id, so
+   **receivers must dedup on event id** — and since webhook actions often trigger
+   side-effecting LLM work, `e2a.md` (§7) **ships a reference dedup snippet** and
+   states the guarantee explicitly. Secret rotation's 24h dual-sign grace is a
+   convenience, not free: a leaked *old* secret stays valid for that window —
+   document it, keep the window short.
 3. **Outbound is one endpoint.** `POST /agents/{address}/messages` with a
    body carrying `to`, `subject`, `body`/`html`, optional `in_reply_to`
    (reply), `forward_of` (forward), `cc`/`bcc`, `attachments`,
@@ -172,11 +181,20 @@ relative to that base):
    `"… via e2a" <agent@send.e2a.dev>` rewrite is **removed** — that relay-domain
    `From` is the root cause both of human replies bouncing *and* of DMARC never
    aligning. Mechanics that make own-address sending actually deliver:
-   * **DKIM-aligned DMARC pass.** Domain verification programmatically registers
-     the SES sending identity via **BYODKIM** (reuse e2a's existing per-domain
-     key) so the DKIM `d=` equals the `From` domain → **DMARC passes on DKIM
-     alignment** (SPF need not align). Customer DNS = the per-domain DKIM records
+   * **DKIM-aligned DMARC pass (direct delivery).** Domain verification
+     programmatically registers the SES sending identity via **BYODKIM** (reuse
+     e2a's existing per-domain key) so the DKIM `d=` equals the `From` domain →
+     **DMARC passes on DKIM alignment** for direct delivery (SPF need not align;
+     RFC 7489 passes on *either*). Customer DNS = the per-domain DKIM records
      already published during `register`/`verify`; no extra records required.
+     **Limitation — forwarding/lists:** a forwarder/mailing-list that rewrites
+     headers/body breaks the DKIM signature, and since SPF is unaligned by design
+     there's nothing left to align → DMARC `fail` at the final hop. v1 documents
+     this; **ARC sealing** and/or the optional custom-`MAIL FROM` subdomain (below,
+     for SPF alignment) are the mitigations, deferred. Also: the DKIM **selector
+     rotates monthly** (`e2a{YYYYMM}`) — keep the prior selector's DNS record
+     published until in-flight mail signed under it has drained (don't pull it on
+     rotation day).
    * **e2a-controlled Return-Path (bounce capture).** Envelope `MAIL FROM`
      stays an **e2a-owned per-domain bounce address** (e.g. VERP on
      `send.e2a.dev`) so e2a captures bounces/complaints (gap #1) and SPF passes
@@ -186,13 +204,17 @@ relative to that base):
      records; not required for v1.)
    * **`Reply-To`** defaults to the agent's address (already its `From` now), or
      the caller's explicit `reply_to`.
-   * **Async gating.** SES verification is async, so the domain carries
-     `sending_status ∈ {none,pending,verified,failed}` (+ `sending_error?`,
-     `dns_records`, `last_checked_at?`); the `From` switch gates on
-     `sending_status == verified` (until then, fall back to the relay `From`).
-     Pending→verified is driven by a **River-scheduled reconciler** polling SES
-     `GetEmailIdentity`; `POST /domains/{domain}/verify` forces an immediate
-     re-check; optionally a `domain.sending_verified` / `domain.sending_failed`
+   * **Async gating — fail-closed.** SES verification is async, so the domain
+     carries `sending_status ∈ {none,pending,verified,failed}` (+ `sending_error?`,
+     `dns_records`, `last_checked_at?`). The own-address `From` is used **only**
+     when `sending_status == verified`; for `none`/`pending`/`failed` the sender
+     **falls back to the relay `From`** — never the customer address (sending
+     unaligned mail under a customer `p=reject` domain would hard-bounce and burn
+     reputation). This is the §3.4 fail-closed default, applied. Pending→verified
+     is driven by a **River-scheduled reconciler** polling SES `GetEmailIdentity`;
+     a `pending` that exceeds a bounded TTL transitions to `failed` (no infinite
+     poll). `POST /domains/{domain}/verify` forces an immediate re-check;
+     optionally a `domain.sending_verified` / `domain.sending_failed`
      **webhook event** lets agents skip polling. `failed` carries an actionable
      reason + the DNS to fix. (Shipped in **Slice 4 — Sender identity**.)
    * **Teardown (symmetric — deprovision the SES identity on delete).** The
@@ -205,11 +227,17 @@ relative to that base):
      never lost if the SES call is down), the worker calls SES
      `DeleteEmailIdentity` with retries/backoff, treats **NotFound as success**
      (idempotent), and dead-letters with an alert on permanent failure. Also
-     wipe e2a's per-domain DKIM key material. **Backstop:** the create-side
-     reconciler also runs as an **orphan reaper** — it lists SES identities and
-     deletes any with no backing live domain, catching teardowns that slipped
-     (leak/cost/quota defense). Re-registering a deleted domain re-creates the
-     identity cleanly.
+     wipe e2a's per-domain DKIM key material. **Backstop (alert-first, to avoid
+     a TOCTOU delete):** the create-side reconciler also sweeps for SES
+     identities with no backing live domain — but a naïve "list then delete"
+     races a concurrent **re-registration** of the same domain (reaper's stale
+     snapshot deletes the freshly-created identity → silent breakage). So the
+     reaper **alerts by default** and only deletes when it can re-confirm
+     liveness transactionally: take `SELECT … FOR UPDATE` on the domain row and
+     delete the SES identity in the same tx **only if** no live row exists *and*
+     the identity's e2a-owned creation tag/timestamp predates the current
+     reconcile cycle. Re-registering a deleted domain re-creates the identity
+     cleanly and the reaper must not touch it.
 5. **One HITL transition, prefetch-safe.** Collapse the nested approve/reject
    AND the top-level magic-link into a single `approval` sub-resource
    (`POST …/messages/{id}/approval {decision}`). The human magic link is
@@ -224,6 +252,12 @@ relative to that base):
    `{ items: [...], next_cursor: "…"|null }` across all list endpoints.
 8. **Idempotency** — `Idempotency-Key` header (or body key) honored on all
    POSTs with side effects (send, create agent, webhook create, redeliver).
+   Dedup key = `(principal, route, **request-body hash**)` — the body hash is
+   **load-bearing** (it's already how the code works): same key + *different*
+   body ⇒ `422`, not a silent replay. This matters most on the **unified
+   outbound endpoint**, where send/reply/forward share one route — reusing a key
+   across a new send and a later reply must 422, never return the send's cached
+   response and drop the reply.
 
 ### HTTP header conventions (audit + decisions)
 
@@ -251,9 +285,10 @@ middleware (one place)**, not per-handler:
   agents self-throttle instead of hitting 429.
 * **Idempotency replay signal** — **drop the non-standard `Idempotent-Replayed`**
   (the replayed response is byte-identical anyway); if a signal is wanted, use
-  `Idempotency-Replayed` to match the request-header family. Scope the key
-  namespace per `(principal, route)` so one tenant's key can't collide with
-  another's; keep the max-length cap.
+  `Idempotency-Replayed` to match the request-header family. Dedup key =
+  `(principal, route, body-hash)` — **keep the body hash** (the code already
+  does; dropping it would silently replay a different request, see decision 8);
+  keep the max-length cap.
 * **Custom headers** — keep the consistent `X-E2A-*` family
   (`X-E2A-Signature` per-webhook `t=,v1=`; `X-E2A-Internal-Signature`).
   **Retire `X-E2A-Deprecation` + `Sunset`** when the legacy per-agent webhook is
@@ -335,10 +370,13 @@ the gaps, ranked:
    message resource (not just the `X-E2A-Auth-*` header blob).
 
 **Minor:** add `List-Unsubscribe` + `List-Unsubscribe-Post` one-click (now
-required by Gmail/Yahoo bulk-sender rules; the comms lane wants it); pre-send
-size check accounting for base64 inflation (~33%) instead of an opaque relay
-reject; allow a small allowlist of caller headers; negotiate SMTPUTF8 for
-internationalized addresses.
+required by Gmail/Yahoo bulk-sender rules; notification senders want it);
+**pre-send size validation** — enforce a **per-attachment** cap *and* a
+post-base64-decode total (account for ~33% inflation) and return a structured
+`attachment_too_large` error, instead of a 25 MB request body that the relay
+opaquely rejects (and that means ~18 MB of base64 in the model's context — a
+write-side cost the read-side cap already worries about); allow a small allowlist
+of caller headers; negotiate SMTPUTF8 for internationalized addresses.
 
 ## 5. Auth model
 
@@ -384,6 +422,28 @@ The auth methods just differ in how you obtain a scoped credential:
   rename it to the spec — no back-compat aliases** (we're breaking freely, §1).
   The spec is the naming authority.
 * **HITL magic-link tokens** — unchanged, scoped to a single approval.
+
+### Human sign-in: WorkOS AuthKit (pluggable IdP)
+
+For the **human dashboard sign-in** (the developer who manages domains, agents,
+keys), adopt **WorkOS AuthKit** in the hosted deployment, replacing the bespoke
+Google OAuth. It gives social + magic-link + password now and **SSO/SCIM/Directory
+Sync** later for B2B, and AuthKit can also act as the **OAuth 2.1 authorization
+server for hosted MCP** (it implements the MCP auth spec — protected-resource
+metadata, DCR, consent), which offloads much of the OAuth-AS build and directly
+helps enforce the scope-gated consent in §6a / the hardening above. WorkOS also
+authored the `auth.md` spec e2a adopts, so the primitives align. Two boundaries
+keep this from fighting e2a's self-host/provider-agnostic posture:
+
+* **The IdP is pluggable, not mandatory.** A self-hoster must be able to run e2a
+  without a WorkOS account — keep a no-WorkOS fallback (the existing Google OAuth
+  or a local password/magic-link). WorkOS is the *hosted* default, not a hard
+  dependency.
+* **WorkOS handles human + human-delegated identity only.** The **autonomous
+  agent-identity layer** (auth.md jwt-bearer self-assertion / ID-JAG, agent-scoped
+  tokens, the `act` delegation grant) stays **e2a's own** — that's an agent
+  minting its own token, not a human signing in. WorkOS = dashboard login + the
+  AS for human-connected MCP; e2a = the agent-token layer.
 
 ### Agent identity & token model (auth.md-aligned)
 
@@ -458,6 +518,31 @@ design. e2a's OAuth lib is **fosite**, which doesn't ship a jwt-bearer grant —
 adding the agent-identity grants means a custom token-endpoint handler (the
 biggest single build item).
 
+**Trust & abuse hardening (the identity layer is the new attack surface — these
+are fail-closed requirements, not options):**
+
+* **JWKS registration is gated by domain ownership.** Registering an agent's
+  public key (the JWKS the self-signed assertion is verified against) requires an
+  **`account`-scoped credential that owns the verified domain** of the asserted
+  `sub`. Without this, anyone could register a key and self-sign an assertion for
+  `support@victim.com`. The same ownership check that gates `POST /agents`
+  (decision 1) gates JWKS/identity registration.
+* **`act` (delegation) is server-minted, never trusted from the assertion.** The
+  actor/delegation claim is written by e2a from a **stored delegation grant**,
+  not copied from a self-signed JWT — otherwise an autonomous agent could assert
+  "acting for account Y" for any Y. A self-signed assertion can only mint a token
+  for *its own* `sub`.
+* **DCR public clients are capped at `scope=agent`.** Dynamically-registered
+  (RFC 7591) public clients may request **only** `scope=agent`; `scope=account`
+  (admin) requires a pre-registered confidential client or console issuance, and
+  the consent screen must visibly distinguish the two scopes. (Today DCR is
+  public-only and rejects any scope ≠ `mcp`; that guardrail must not be lost when
+  `mcp` → `agent`/`account`.)
+* **Compromised-key kill switch.** A `DELETE`/revoke on a registered JWKS entry
+  (and `assertion_version` bump) immediately invalidates all tokens mintable from
+  that key; emit `agent.credential_revoked`. Required because assertion-minted
+  tokens have no refresh to starve.
+
 ## 6. Source of truth & drift control
 
 * **OpenAPI 3.1 is authoritative and FRAMEWORK-GENERATED — never
@@ -466,9 +551,10 @@ biggest single build item).
   input/output structs, and Huma emits the OpenAPI 3.1 spec *and* validates
   requests from those same definitions — so the handler **is** the contract
   and the spec cannot drift by construction. Pair Huma with **chi** during
-  the rewrite (mux→chi; we're reshaping every route anyway). **Delete the
-  existing swaggo annotations** — swaggo is OpenAPI 2.0 + comment-driven
-  (drift-prone). Rejected alternatives: **ogen** (spec-first = hand-authoring)
+  the rewrite (mux→chi; we're reshaping every route anyway). There is **no
+  generated-spec toolchain today** (a few stray `@Summary` godoc comments
+  aside) — Huma replaces hand-authoring outright; drop any leftover doc-comment
+  annotations. Rejected alternatives: **ogen** (spec-first = hand-authoring)
   and **goa** (heavier all-in design-DSL framework; Huma gives the same
   no-drift guarantee with a lighter footprint).
 * **SDKs are generated** from the spec (OpenAPI Generator) — structurally
@@ -583,11 +669,12 @@ exposes each tier per **credential scope** (API-key or OAuth — §5):
   `update_message_labels`, `list_conversations`, `get_conversation`,
   `send_message`, `reply_to_message`, `forward_message`, `approve_message`,
   `reject_message`.
-* **Admin / setup** (`scope=admin`) — provisioning, done once by the operator
+* **Admin / setup** (`scope=account`) — provisioning, done once by the operator
   (the setup journey above): agent create/update/delete, all of
-  domains, all of webhooks, all of events.
+  domains, all of webhooks, all of events. ("Admin" is prose; the wire scope
+  value is `account` — there is no separate `admin` scope string.)
 
-A runtime-scoped token therefore sees ~13 tools, not ~28 — a smaller decision
+A runtime-scoped token therefore sees ~13 tools, not 31 — a smaller decision
 space and no way for a support agent to `delete_domain`. Self-host (API key)
 sees both tiers. The drift-gate map records each tool's tier next to its
 `operationId`.
@@ -596,7 +683,7 @@ sees both tiers. The drift-gate map records each tool's tier next to its
 
 | Tool | Key params | → operation | Notes |
 |---|---|---|---|
-| `whoami` | — | `GET /account` | **Just the authenticated account/user** (identity, plan, limits/usage). No agent resolution — discover agents with `list_agents` (a `scope=agent` token lists only its bound agent). |
+| `whoami` | — | `GET /account` | The authenticated principal. **`GET /account` is scope-filtered:** under `scope=account` it returns the account (identity, plan, limits); under `scope=agent` it returns a **least-privilege view** — the bound agent + plan/limits only, never other agents/domains. No default-agent resolution; discover agents via `list_agents` (a `scope=agent` token lists only its bound agent). |
 | `list_agents` | — | `GET /agents` | |
 | `create_agent` | `address`*, `name?` | `POST /agents` | **Changed:** drop `slug`/`agent_mode`/`webhook_url`; full email on a verified owned domain. (The #206 coverage target — `address` must be exposed.) |
 | `update_agent` | `address?`, `name?`, `hitl_enabled?`, `hitl_ttl_seconds?`, `hitl_expiration_action?` | `PATCH /agents/{address}` | **Changed:** drop `agent_mode`/`webhook_url`. |
@@ -662,7 +749,14 @@ sees both tiers. The drift-gate map records each tool's tier next to its
 * Internal-only response fields stay on `intentionallyOmitted` so coverage
   check #4 stays green without exposing plumbing.
 
-### Net change vs. today (~33 → ~28 tools, all coverage-checked)
+### Net change vs. today (33 → 31 tools, all coverage-checked)
+
+Arithmetic: **33** today − **3 removed tools** (`list_pending_messages`,
+`get_pending_message`, `list_webhook_deliveries`) + **1 added** (`get_domain`)
+= **31**. Renames (`send_email`→`send_message`, `get_attachment_data`→
+`get_attachment`, the `*_pending_message` approve/reject → `approve_message`/
+`reject_message`) don't change the count. send/reply/forward stay 3 tools (one
+`sendMessage` op); approve/reject stay 2 (one `approval` op).
 
 * **Renames:** `agent_email`→`address` (full email) on every tool;
   `send_email`→`send_message` (match the `message` resource);
@@ -687,7 +781,7 @@ The existing surface works but wasn't optimally designed; these are the changes
 worth making while we're reshaping the contract anyway, roughly in priority:
 
 1. **Tier + scope-gate the tools (above).** Highest-leverage change: a deployed
-   agent shouldn't carry ~28 tools or hold delete-domain power. Cuts the runtime
+   agent shouldn't carry 31 tools or hold delete-domain power. Cuts the runtime
    decision space ~2× and enforces least-privilege at the token.
 2. **Add MCP tool annotations** (`readOnlyHint`, `destructiveHint`,
    `idempotentHint`, `title`) on every tool. Lets clients auto-approve reads,
@@ -720,7 +814,7 @@ worth making while we're reshaping the contract anyway, roughly in priority:
    `forward` was the terser alternative; rejected — under-specified next to
    `get_message`/`list_messages`.)
 
-Applying 1 + 6: a runtime agent sees ~13 tools; the full self-host surface ~28.
+Applying 1 + 6: a runtime agent sees ~13 tools; the full self-host surface 31.
 
 ## 7. Agent-first docs
 
@@ -742,7 +836,7 @@ Applying 1 + 6: a runtime agent sees ~13 tools; the full self-host surface ~28.
 | `POST …/messages/{id}/approve|reject` | **collapse** | same `approval` sub-resource |
 | `GET /info`, `GET /users/me/limits` | **merge** | `GET /account` |
 | `/users/me/*` | **rename** | `/account/*` |
-| `create_agent` (shared-domain only, `agent_mode`) | **change** | `address` field, optional webhook, no mode |
+| `create_agent` (slug path + `agent_mode`; MCP omitted `email` pre-#206) | **change** | full-email `address` only (drop slug), no mode |
 | `POST /send` body | **extend** | add `from`, `reply_to` |
 | `agent_mode` column + CHECK | **drop** | no modes; inbound via poll / `ws` / `/webhooks` |
 | `agent_identities.webhook_url` (legacy per-agent webhook, already `X-E2A-Deprecation`'d) | **remove completely** | `/v1/webhooks` — the single, first-class push mechanism |
@@ -758,10 +852,11 @@ Applying 1 + 6: a runtime agent sees ~13 tools; the full self-host surface ~28.
 Break the current `/api/v1` surface directly and move it to
 `https://api.e2a.dev/v1`; update all consumers in lockstep.
 
-* **Slice 1 — Contract + conventions.** Author the OpenAPI spec for the
-  target surface; standardize the error envelope + cursor pagination +
-  idempotency helpers; add the spec↔server test. (No behavior change yet
-  beyond envelope/pagination.)
+* **Slice 1 — Contract + conventions + host cutover.** Author the OpenAPI spec
+  for the target surface; standardize the error envelope + cursor pagination +
+  idempotency helpers; add the spec↔server test; **perform the host/prefix
+  cutover** (`/api/v1` → `https://api.e2a.dev/v1`, the §8 "host + prefix" row).
+  (No behavior change yet beyond envelope/pagination + the path move.)
 * **Slice 2 — Resource cleanup.** Unify outbound under
   `POST /agents/{address}/messages` (send/reply/forward); single message
   address; collapse HITL to `approval`; `/account`. Update MCP + SDKs from
@@ -784,7 +879,7 @@ consistent" win.
 
 ## 9a. Configuration & env-var surface
 
-e2a reads **~34 env vars today** — but that is almost entirely an *operator*
+e2a reads **~31 env vars today** — but that is almost entirely an *operator*
 concern. The guiding split:
 
 > **Separate operator/server config from client config.** A user of the
@@ -839,16 +934,19 @@ defaults — rarely set). `MCP_ALLOWED_HOSTS` default → `api.e2a.dev` (§6a).
 `E2A_HMAC_SECRET`, `E2A_INTERNAL_API_SECRET`, and the **new** RS256 JWT signing
 key the auth.md build adds (§5). Also keep `E2A_DATABASE_URL` /
 `E2A_TEST_DATABASE_URL` (test separation is a safety feature),
-`E2A_SHARED_DOMAIN`, `E2A_MIGRATION_MODE`, Google OAuth client id/secret.
+`E2A_SHARED_DOMAIN`, `E2A_MIGRATION_MODE`, and the sign-in IdP creds — WorkOS
+in the hosted deployment (§5), with Google OAuth client id/secret as the
+self-host fallback.
 
 **Fix `E2A_HMAC_SECRET`'s key reuse (not a count change).** It is **not** the
 webhook secret — webhook subscriber secrets are **per-webhook**, stored per row
 (returned once, rotate + 24h dual-sign grace, `X-E2A-Signature: t=,v1=`; §4
-decision 2a). `E2A_HMAC_SECRET` is a single server key currently overloaded for
-three cryptographically-distinct jobs: `X-E2A-Auth-*` email-relay header
-signing, HITL approval-token signing, and fosite OAuth-token signing. Reusing one
-key across domains is a separation smell. **Fix: derive per-purpose subkeys via
-HKDF** from the one root (distinct `info` labels) — one env var, separated keys.
+decision 2a). `E2A_HMAC_SECRET` is a single server key used for three
+cryptographically-distinct jobs — but **OAuth-token signing already derives an
+HKDF subkey** (`provider.go`, `info="e2a-oauth-token-signing-v1"`); the
+`X-E2A-Auth-*` email-relay header signing and HITL approval-token signing still
+use the master directly. **Fix: extend the existing HKDF pattern** to those two
+domains (distinct `info` labels) — one env var, separated keys.
 The OAuth-token use retires once access tokens become RS256 JWTs (§5), leaving
 email-headers + approval-tokens.
 
@@ -873,7 +971,7 @@ E2A_SMTP_URL          # only if sending mail
    question.
 2. ~~OpenAPI: generate-from-Go vs hand-author~~ — **resolved:** framework-
    generated via **Huma** (code-as-contract, OpenAPI 3.1 + validation from the
-   typed handlers); no hand-authoring, swaggo annotations removed. SDKs are
+   typed handlers); no hand-authoring (no spec toolchain exists today). SDKs are
    generated (OpenAPI Generator); the **MCP surface is hand-curated and
    contract-locked**, not generated (§6a — tool↔`operationId` map + coverage
    gate). Open sub-point: confirm the py/ts SDK generator config under
