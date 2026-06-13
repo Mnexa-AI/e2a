@@ -295,8 +295,8 @@ the SDK and raw REST exist for back-end/programmatic use, but the everyday
 * **Hosted MCP (OAuth) is first-class, and the tool surface is
   transport-independent.** The *same* tools are exposed whether the server runs
   over **stdio with an `E2A_API_KEY`** (self-host / local) or as the **hosted
-  Streamable-HTTP server authenticated by OAuth 2.1** (`mcp.e2a.dev`; PKCE +
-  refresh, per-agent scope — §5). Auth is a transport/connection concern,
+  Streamable-HTTP server authenticated by OAuth 2.1** (`https://api.e2a.dev/mcp`;
+  PKCE + refresh, per-agent scope — §5). Auth is a transport/connection concern,
   **never a tool argument**: no tool takes a key, and identity is resolved from
   the bearer/OAuth token. A user connecting from Claude/ChatGPT pastes nothing.
 * **Curated for ergonomics, contract-locked to the spec.** Tools stay
@@ -307,11 +307,22 @@ the SDK and raw REST exist for back-end/programmatic use, but the everyday
   validate against its operation's schema. The `noMcp` / `intentionallyOmitted`
   allowlists the gate checks against are defined at the end of this section.
 
+**Hosting convention — `https://api.e2a.dev/mcp` (a path on the API host, not a
+`mcp.` subdomain).** This matches AgentDrive (`api.agentdrive.run/mcp`) and the
+§1 rule that all API surface lives on `api.e2a.dev`, and keeps the MCP endpoint,
+the REST API, and the OAuth authorization server **same-origin** — so
+`/.well-known/oauth-protected-resource` discovery and the resource↔AS
+relationship need no cross-origin hop. The MCP server stays a separate process;
+the ingress path-routes `/mcp` to it, so that deployment detail never leaks into
+the public URL. **Config change:** the current `MCP_ALLOWED_HOSTS` /
+`MCP_PUBLIC_URL` defaults point at `mcp.e2a.dev` — retarget them to
+`api.e2a.dev` (DNS-rebinding allow-host) and `https://api.e2a.dev/mcp`.
+
 ### The canonical journey — AgentDrive standing up `support@agentdrive.run`
 
 This is exactly the flow we ran by hand; each step is one or two tool calls.
 
-1. **Connect.** Add the hosted connector `https://mcp.e2a.dev` in Claude →
+1. **Connect.** Add the hosted connector `https://api.e2a.dev/mcp` in Claude →
    OAuth 2.1 grant, no key pasted. (Self-host: stdio server + `E2A_API_KEY`.)
 2. **Bring the domain.** `register_domain {domain:"agentdrive.run"}`
    → `POST /domains`; returns the DNS records (MX/TXT/DKIM) to publish.
