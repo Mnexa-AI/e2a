@@ -270,6 +270,44 @@ modest event volume. The domain-specific parts are already built and low-risk
   trigger** — high fan-out, strict per-subscriber rate limiting, or wanting a
   prebuilt delivery dashboard. Not a v1 concern.
 
+### Email semantics vs SMTP reality (audit — delivery feedback & DMARC)
+
+An audit against SMTP/RFC 5321-5322/DMARC reality found e2a's contract models
+email **submission** but not delivery **feedback** — the blind spot that caused
+the AgentDrive reply-reopen bounce. Threading (Message-ID/References), MIME
+(`multipart/alternative`+`/mixed`, UTF-8), and BCC-envelope-only are all correct;
+the gaps, ranked:
+
+1. **Delivery is fire-and-forget — no bounce/complaint/delivery model (MAJOR).**
+   `send` returns `"sent"` on the relay's 250 OK (= accepted by SES, *not*
+   delivered). e2a consumes **no** SES bounce/complaint/delivery notifications,
+   has no outbound `delivery_status`, and the event vocab lacks
+   bounced/complained/delivered. **Fix:** consume SES notifications (SNS →
+   handler), add `delivery_status ∈ {queued,sent,delivered,bounced,complained,
+   deferred,failed}` on outbound messages, emit `email.delivered` /
+   `email.bounced` / `email.complained` **webhook events** (decision 2a system),
+   and maintain a **suppression list** (drop sends to hard-bounced/complained
+   addresses — SES reputation depends on it). `send`'s `"sent"` is explicitly an
+   *accepted*, non-terminal status; the terminal outcome arrives async.
+2. **Outbound `From` defeats DMARC (MAJOR; partly = decision 4).** Today
+   `From:` = `…via e2a <agent@send.e2a.dev>` and MAIL FROM = `send.e2a.dev`, so
+   the From-domain never aligns → DMARC can't pass on the agent's domain. §4
+   **decision 4** (custom-domain From when sending-verified) fixes the From side;
+   it must pair with an **e2a-controlled Return-Path** (per-domain bounce
+   address) so bounces from gap #1 are capturable/attributable, and DKIM `d=` =
+   From-domain for alignment.
+3. **No inbound DMARC validation (MAJOR).** SPF + DKIM are checked and exposed,
+   but **DMARC is never evaluated** — an agent acting on inbound email gets no
+   alignment/policy signal (spoofing risk). **Fix:** evaluate DMARC on inbound
+   and expose **structured** `auth: {spf, dkim, dmarc ∈ {pass,fail,none}}` on the
+   message resource (not just the `X-E2A-Auth-*` header blob).
+
+**Minor:** add `List-Unsubscribe` + `List-Unsubscribe-Post` one-click (now
+required by Gmail/Yahoo bulk-sender rules; the comms lane wants it); pre-send
+size check accounting for base64 inflation (~33%) instead of an opaque relay
+reject; allow a small allowlist of caller headers; negotiate SMTPUTF8 for
+internationalized addresses.
+
 ## 5. Auth model
 
 **Scope is the unifying concept.** Every credential — API key *or* OAuth token
