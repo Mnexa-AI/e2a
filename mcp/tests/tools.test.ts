@@ -28,11 +28,14 @@ function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): E2ACli
     getConversation: vi.fn(async () => ({ conversation_id: "conv_1", messages: [] })),
     listMessages: vi.fn(async () => ({ messages: [], next_token: undefined })),
     listAgents: vi.fn(async () => ({ agents: [{ email: "bot@example.com" }] })),
-    registerAgent: vi.fn(async (body: Record<string, unknown>) => ({
-      email: `${body.slug}@agents.example.com`,
-      domain: "agents.example.com",
-      id: `${body.slug}@agents.example.com`,
-    })),
+    registerAgent: vi.fn(async (body: Record<string, unknown>) => {
+      const email = body.email ?? `${body.slug}@agents.example.com`;
+      return {
+        email,
+        domain: String(email).split("@")[1],
+        id: email,
+      };
+    }),
     getAgent: vi.fn(async (email: string) => ({
       id: email,
       email,
@@ -431,6 +434,40 @@ describe("e2a MCP server", () => {
       name: "Cloud Bot",
       webhook_url: "https://example.com/hook",
     });
+  });
+
+  it("create_agent forwards email for a custom-domain inbox", async () => {
+    await client.callTool({
+      name: "create_agent",
+      arguments: { email: "support@yourdomain.com", name: "Support" },
+    });
+    expect(stub.registerAgent).toHaveBeenCalledWith({
+      email: "support@yourdomain.com",
+      agent_mode: "local",
+      name: "Support",
+    });
+  });
+
+  it("create_agent rejects when neither slug nor email is given", async () => {
+    const res = await client.callTool({
+      name: "create_agent",
+      arguments: { name: "Nameless" },
+    });
+    const content = res.content as Array<{ text: string }>;
+    expect(res.isError).toBe(true);
+    expect(content[0]?.text).toMatch(/one of `slug` or `email` is required/);
+    expect(stub.registerAgent).not.toHaveBeenCalled();
+  });
+
+  it("create_agent rejects when both slug and email are given", async () => {
+    const res = await client.callTool({
+      name: "create_agent",
+      arguments: { slug: "support", email: "support@yourdomain.com" },
+    });
+    const content = res.content as Array<{ text: string }>;
+    expect(res.isError).toBe(true);
+    expect(content[0]?.text).toMatch(/exactly one of `slug`.*or `email`.*not both/);
+    expect(stub.registerAgent).not.toHaveBeenCalled();
   });
 
   it("update_agent forwards body fields and uses env email by default", async () => {

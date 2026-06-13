@@ -57,20 +57,31 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
   server.registerTool(
     "create_agent",
     {
-      title: "Create a new agent inbox on the shared domain",
+      title: "Create a new agent inbox (shared or custom domain)",
       description:
-        "Register a new agent using a slug on the deployment's shared domain (e.g. slug 'support-bot' → support-bot@<shared-domain>). Defaults to `local` mode so the agent receives mail via `list_messages` polling — no webhook server required. Pass `agent_mode: 'cloud'` and `webhook_url` for push delivery; in that case the webhook handler MUST HMAC-verify every delivery against the account's webhook signing secret (`E2A_WEBHOOK_SECRET`, shown in the dashboard) — the e2a SDK exposes `parseWebhook(body, secret)` for this. For a custom (non-shared) domain, use `register_domain` to start the verification flow. Slug must be lowercase letters, numbers, and hyphens.",
+        "Register a new agent inbox. Pass EXACTLY ONE of `slug` or `email`:\n" +
+        "• `slug` — a local part on the deployment's shared domain (e.g. slug 'support' → support@<shared-domain>). Instant; no DNS needed. Lowercase letters, numbers, and hyphens.\n" +
+        "• `email` — a full address on a custom domain you have ALREADY registered and verified via `register_domain` + `verify_domain` (e.g. 'support@yourdomain.com'). The API rejects it if the domain isn't verified for your account.\n" +
+        "Defaults to `local` mode so the agent receives mail via `list_messages` polling — no webhook server required. Pass `agent_mode: 'cloud'` and `webhook_url` for push delivery; in that case the webhook handler MUST HMAC-verify every delivery against the account's webhook signing secret (`E2A_WEBHOOK_SECRET`, shown in the dashboard) — the e2a SDK exposes `parseWebhook(body, secret)` for this.",
       inputSchema: strictInputSchema({
         slug: z
           .string()
           .regex(/^[a-z0-9][a-z0-9-]*$/)
+          .optional()
           .describe(
-            "Local part of the new email address. Lowercase letters, numbers, and hyphens; must start with a letter or number.",
+            "Local part of an inbox on the shared domain. Lowercase letters, numbers, and hyphens; must start with a letter or number. Mutually exclusive with `email`.",
+          ),
+        email: z
+          .string()
+          .email()
+          .optional()
+          .describe(
+            "Full address on a custom domain already registered + verified for your account (e.g. 'support@yourdomain.com'). Mutually exclusive with `slug`.",
           ),
         name: z
           .string()
           .optional()
-          .describe("Display name for the agent. Defaults to the slug."),
+          .describe("Display name for the agent. Defaults to the slug / local part."),
         agent_mode: z
           .enum(["local", "cloud"])
           .optional()
@@ -85,14 +96,30 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
       }),
     },
     async (args) =>
-      runTool(() =>
-        client.registerAgent({
-          slug: args.slug,
+      runTool(() => {
+        // The API accepts `slug` XOR `email` (slug → shared domain, email →
+        // custom domain; see RegisterAgentRequest). Enforce exactly-one here
+        // so an ambiguous or empty call fails with a directive message rather
+        // than the API's terser "email is required" / silent slug-precedence.
+        // Every call this lets through behaves identically on the API — we
+        // only reject the ambiguous both/neither case earlier.
+        const hasSlug = args.slug !== undefined;
+        const hasEmail = args.email !== undefined;
+        if (hasSlug === hasEmail) {
+          throw new Error(
+            hasSlug
+              ? "pass exactly one of `slug` (shared domain) or `email` (custom domain), not both"
+              : "one of `slug` or `email` is required: `slug` for an inbox on the shared domain (e.g. 'support'), or `email` for a custom domain you have already registered + verified (e.g. 'support@yourdomain.com')",
+          );
+        }
+        return client.registerAgent({
           agent_mode: args.agent_mode ?? "local",
+          ...(args.slug !== undefined ? { slug: args.slug } : {}),
+          ...(args.email !== undefined ? { email: args.email } : {}),
           ...(args.name !== undefined ? { name: args.name } : {}),
           ...(args.webhook_url !== undefined ? { webhook_url: args.webhook_url } : {}),
-        }),
-      ),
+        });
+      }),
   );
 
   server.registerTool(
