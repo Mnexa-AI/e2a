@@ -87,22 +87,43 @@ Canonical resources under `/api/v1`:
 
 | Resource | Routes (target) |
 |---|---|
-| **agents** | `GET/POST /agents` · `GET/PATCH/DELETE /agents/{address}` · `POST /agents/{address}/test` |
+| **agents** | `GET/POST /agents` · `GET/PATCH/DELETE /agents/{address}` · `POST /agents/{address}/test` (top-level, keyed by full email; create enforces caller owns the verified domain) |
+| **domain's agents** (filtered view) | `GET /domains/{domain}/agents` — list agents on a domain (management view; not a separate identity namespace) |
 | **messages** (per agent, the inbox) | `GET /agents/{address}/messages` · `GET …/messages/{id}` · `PATCH …/messages/{id}` (labels/read) |
 | **outbound** (unified) | `POST /agents/{address}/messages` — one endpoint for *new thread, reply, and forward*, disambiguated by body (`in_reply_to` / `forward_of` absent ⇒ new) |
-| **conversations** | `GET /agents/{address}/conversations` · `GET …/conversations/{id}` |
+| **conversations** (derived thread view) | `GET /agents/{address}/conversations` · `GET …/conversations/{id}` |
 | **approvals (HITL)** | `POST /agents/{address}/messages/{id}/approval {decision: approve|reject}` — the one transition; magic-link `GET /approvals/{token}` stays as a thin human alias that resolves to the same handler |
 | **domains** | `GET/POST /domains` · `GET/PATCH/DELETE /domains/{domain}` · `POST /domains/{domain}/verify` |
 | **webhooks** | `GET/POST /webhooks` · `GET/PATCH/DELETE /webhooks/{id}` · `…/deliveries` · `…/test` · `…/rotate-secret` · `…/redeliver-since` |
 | **events** (delivery log) | `GET /events` · `GET /events/{id}` · `POST /events/{id}/redeliver` |
 | **account** | `GET /account` (replaces `/info` + `/users/me/limits`) · `GET /account/export` · `DELETE /account` · signing-secrets CRUD |
 
+### Resource relationships
+
+* **agent ↔ domain.** An agent *is* a full email; its domain is a property
+  (`agent.domain`), constrained at create-time to a verified domain the
+  caller owns. Agents stay a **top-level** resource (`/agents/{email}`) — the
+  email already encodes the domain, so nesting under `/domains/{domain}/…`
+  would duplicate it in the path and burden every per-agent operation.
+  `/domains/{domain}/agents` exists only as a filtered listing.
+* **conversation ↔ message (1 : N, derived).** A *message* is one email
+  (inbound or outbound). A *conversation* is a thread — the set of messages
+  sharing a `conversation_id`, scoped to an agent. There is **no
+  `conversations` table**; it's a read-only aggregate over
+  `messages.conversation_id` (`store.go`: "thin read layer"). Threading
+  establishes membership: inbound replies join via `In-Reply-To`/`References`;
+  an outbound message with `in_reply_to` joins its thread, otherwise the
+  server assigns a fresh `conversation_id`. Messages are canonical;
+  conversations are the inbox/thread view over them.
+
 ### Key contract decisions
 
-1. **Agent address is the identifier and is forgiving.** `create`/path accept
-   a bare local-part (`support`, on the account's default/ös chosen domain) or
-   a full email (`support@agentdrive.run`); presence of `@` disambiguates.
-   Path-encode the address. This also unifies the MCP `create_agent` field.
+1. **Agent address is the identifier and is always a full email.** `create`
+   and every path require the full address (`support@agentdrive.run`) — no
+   bare local-part, no `@`-disambiguation, no implicit default domain.
+   Explicit and unambiguous. The email's domain MUST be a verified domain the
+   caller owns (enforced at create). Path-encode the address. The MCP
+   `create_agent` field follows the same rule.
 2. **Drop `agent_mode`.** Inbound is always persisted + pollable (`GET
    …/messages`) + streamable (`listen`). A `webhook_url` (or `webhooks[]`)
    is an *optional push target*. `cloud`/`local` cease to exist; behavior is
@@ -206,9 +227,9 @@ consistent" win.
 
 ## 10. Open questions
 
-1. **Default domain for bare local-part agents** — when `address` has no `@`,
-   which domain (account default? shared `agents.e2a.dev`? require one once a
-   custom domain is verified)?
+1. ~~Default domain for bare local-part agents~~ — **resolved:** addresses
+   are always full emails (no bare local-part), so there is no default-domain
+   question.
 2. **OpenAPI: generate-from-Go vs hand-author + validate** — pick the
    mechanism that best fits the Go stack (e.g. `swaggo` annotations already
    present in `api.go`?) vs a hand-authored spec with a conformance test.
