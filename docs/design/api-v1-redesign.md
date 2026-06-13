@@ -255,6 +255,57 @@ The auth methods just differ in how you obtain a scoped credential:
   effectively an `agent`-scoped credential.
 * **HITL magic-link tokens** — unchanged, scoped to a single approval.
 
+### Agent identity & token model (auth.md-aligned)
+
+**Identity ≠ credential.** The agent's **email is its identity** (the token
+`sub`); it is never itself a secret. A *credential* — a key, an OAuth grant, or a
+claim ceremony — is how that identity mints a short-lived, `agent`-scoped access
+token for `aud=api.e2a.dev`. When the agent acts for an account/human, the token
+also carries an **`act` (actor) claim** (RFC 8693) so every action is
+attributable to "agent X acting for account Y" — the delegation-record idea
+WorkOS tracks as `(iss, sub, aud)`.
+
+**e2a is already ~80% of [WorkOS `auth.md`](https://github.com/workos/auth.md).**
+auth.md is an agent-registration *profile* over OAuth discovery (RFC 8414) +
+JWT-bearer (RFC 7523) + a device-flow-style claim ceremony (RFC 8628). e2a's
+existing `identity_assertion → access_token` **is** auth.md's jwt-bearer path, and
+e2a's provision/claim **is** auth.md's claim ceremony — adopting it is *conforming
+names + discovery + endpoints*, not a re-architecture. The three paths map as:
+
+| Path | auth.md mechanism | e2a today | Who |
+|---|---|---|---|
+| **Autonomous** (acts as itself) | `POST /agent/identity {type:"identity_assertion", assertion}` → service `identity_assertion` → `POST /oauth2/token` `grant_type=jwt-bearer` → access_token (no refresh; re-present) | Agent-JWT path — accept a **self-signed** agent assertion (validated vs the agent's registered JWKS) | AgentDrive support bot |
+| **Human-connected** (delegated) | claim ceremony: `POST /agent/identity {type:"service_auth", login_hint}` → `{user_code, verification_uri}` → user signs in → poll `/oauth2/token` `grant_type=…:claim` | provision/claim; *or* OAuth 2.1 PKCE for hosted MCP | hosted MCP users |
+| **Self-host** | (outside auth.md) | agent-scoped API key | CI / self-host |
+
+**Forward-compatibility is the win:** the *same* `/agent/identity` endpoint that
+accepts a self-signed assertion today accepts a **provider-minted ID-JAG**
+(`urn:ietf:params:oauth:token-type:id-jag`) tomorrow — when Anthropic / OpenAI /
+Cursor attest the agent, audience-bound, verified via the provider's JWKS — with
+**no contract change**. Advertise both via `identity_types_supported:
+["identity_assertion","service_auth","anonymous"]` and `assertion_types_supported:
+["…:id-jag"]`.
+
+**Gap list to be auth.md-compliant** (extends Slice 5):
+
+* Serve `/.well-known/oauth-authorization-server` (RFC 8414) with the `agent_auth`
+  profile block (`identity_endpoint`, `claim_endpoint`, `events_endpoint`,
+  `identity_types_supported`, `assertion_types_supported`, `scopes_supported`)
+  alongside the existing `/.well-known/oauth-protected-resource` (RFC 9728); host
+  an `AUTH.md` skill manifest.
+* Add `POST /agent/identity`, `POST /agent/identity/claim` (+ `GET`, `/complete`),
+  `POST /oauth2/token` (jwt-bearer + claim grants), `POST /oauth2/revoke`
+  (RFC 7009), `POST /agent/event/notify`.
+* Map e2a's `assertion_version` revocation onto `/oauth2/revoke` + emit an
+  `agent.credential_revoked` **webhook event** (reuses the §4 event system).
+* Express the `agent`/`account` scopes (and finer `messages.*` / `domains.*`) in
+  `scopes_supported`.
+
+**Caveats:** ID-JAG depends on the agent's provider supporting it (not universal
+yet) — the claim ceremony covers that gap today. Assertion-minted tokens get **no
+refresh token** (re-present the assertion), which matches e2a's short-lived-token
+design.
+
 ## 6. Source of truth & drift control
 
 * **OpenAPI 3.1 is authoritative and FRAMEWORK-GENERATED — never
