@@ -213,9 +213,17 @@ modest event volume. The domain-specific parts are already built and low-risk
 
 ## 6. Source of truth & drift control
 
-* **OpenAPI 3.1 is authoritative.** Either generate it from the Go handlers
-  or hand-author it and add a test asserting every route/param/response
-  matches the running server (schemathesis-style or a snapshot diff).
+* **OpenAPI 3.1 is authoritative and FRAMEWORK-GENERATED — never
+  hand-authored.** Build the HTTP layer on **[Huma](https://huma.rocks)**
+  (`danielgtaylor/huma`): each operation is declared with typed Go
+  input/output structs, and Huma emits the OpenAPI 3.1 spec *and* validates
+  requests from those same definitions — so the handler **is** the contract
+  and the spec cannot drift by construction. Pair Huma with **chi** during
+  the rewrite (mux→chi; we're reshaping every route anyway). **Delete the
+  existing swaggo annotations** — swaggo is OpenAPI 2.0 + comment-driven
+  (drift-prone). Rejected alternatives: **ogen** (spec-first = hand-authoring)
+  and **goa** (heavier all-in design-DSL framework; Huma gives the same
+  no-drift guarantee with a lighter footprint).
 * **MCP generated/validated from the spec.** The TS MCP tools' request
   bodies are validated against the OpenAPI request schemas in CI — the
   cross-language anti-drift test (the `RegisterAgentRequest` parity check
@@ -284,9 +292,11 @@ consistent" win.
 1. ~~Default domain for bare local-part agents~~ — **resolved:** addresses
    are always full emails (no bare local-part), so there is no default-domain
    question.
-2. **OpenAPI: generate-from-Go vs hand-author + validate** — pick the
-   mechanism that best fits the Go stack (e.g. `swaggo` annotations already
-   present in `api.go`?) vs a hand-authored spec with a conformance test.
+2. ~~OpenAPI: generate-from-Go vs hand-author~~ — **resolved:** framework-
+   generated via **Huma** (code-as-contract, OpenAPI 3.1 + validation from the
+   typed handlers); no hand-authoring, swaggo annotations removed. Open
+   sub-point: pick the downstream generators (MCP-tools-from-OpenAPI and the
+   py/ts SDK generator — e.g. openapi-generator / Speakeasy / Fern).
 3. **Magic-link alias shape** — keep `GET /approvals/{token}` returning HTML
    for humans while the JSON transition lives at the `approval` sub-resource?
 4. **SES identity provisioning failure UX** — how to surface async
