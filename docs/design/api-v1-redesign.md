@@ -233,7 +233,11 @@ modest event volume. The domain-specific parts are already built and low-risk
 * **OAuth 2.1 (PKCE + refresh) — new, first-class for hosted MCP.** Lets a
   user connect from Claude/ChatGPT with no pasted key and per-agent scoping.
   Mirrors the AgentDrive MCP-OAuth design. API keys remain supported so
-  self-host isn't forced onto OAuth.
+  self-host isn't forced onto OAuth. **Two scopes drive the MCP tier split
+  (§6a):** `scope=agent` (runtime/inbox tools, bound to one agent) and
+  `scope=admin` (provisioning: agent/domain/webhook/event management). A
+  deployed support agent runs on an `agent`-scoped token; the operator sets it
+  up once with an `admin`-scoped connection. API-key (self-host) gets both.
 * **HITL magic-link tokens** — unchanged, scoped to a single approval.
 
 ## 6. Source of truth & drift control
@@ -337,6 +341,23 @@ explicit `address` arg → `E2A_AGENT_ADDRESS` env (stdio) / token-bound agent
 (OAuth) → single-agent auto-resolve → directive error. The per-tool
 `agent_email` arg is renamed **`address`** (always a full email).
 
+**Two tiers, scope-gated.** The surface splits by persona, and hosted MCP
+exposes each tier per OAuth scope (§5):
+
+* **Runtime / inbox** (`scope=agent`) — what a deployed agent uses every turn:
+  `whoami`, `list_agents`, `list_messages`, `get_message`, `get_attachment`,
+  `update_message_labels`, `list_conversations`, `get_conversation`,
+  `send_email`, `reply_to_message`, `forward_message`, `list_pending_approvals`,
+  `approve_message`, `reject_message`.
+* **Admin / setup** (`scope=admin`) — provisioning, done once by the operator
+  (the AgentDrive setup journey above): agent create/update/delete, all of
+  domains, all of webhooks, all of events.
+
+A runtime-scoped token therefore sees ~14 tools, not ~29 — a smaller decision
+space and no way for a support agent to `delete_domain`. Self-host (API key)
+sees both tiers. The drift-gate map records each tool's tier next to its
+`operationId`.
+
 **Agents**
 
 | Tool | Key params | → operation | Notes |
@@ -416,6 +437,45 @@ explicit `address` arg → `E2A_AGENT_ADDRESS` env (stdio) / token-bound agent
   dedicated attachment fetch.
 * **Collapsed:** approve/reject → one `approval` operation (two tools);
   send/reply/forward → one `sendMessage` operation (three tools).
+
+### Recommended design updates (beyond a 1:1 port)
+
+The existing surface works but wasn't optimally designed; these are the changes
+worth making while we're reshaping the contract anyway, roughly in priority:
+
+1. **Tier + scope-gate the tools (above).** Highest-leverage change: a deployed
+   agent shouldn't carry ~30 tools or hold delete-domain power. Cuts the runtime
+   decision space ~2× and enforces least-privilege at the token.
+2. **Add MCP tool annotations** (`readOnlyHint`, `destructiveHint`,
+   `idempotentHint`, `title`) on every tool. Lets clients auto-approve reads,
+   flag the three `confirm:true` deletes, and de-risk retries — and it's a
+   prerequisite for the Connectors-directory listing. Today none are set.
+3. **One pagination shape everywhere.** Current list tools mix `token`/
+   `next_token`, `page_size`, and bare `limit`. Standardize on `cursor` + `limit`
+   in, `next_cursor` out (mirrors the API's §4.7) — one "get the next page" model.
+4. **Surface the structured error `code`.** Return the API envelope's
+   machine-branchable `code` (e.g. `domain_not_verified`, `message_not_pending`,
+   `sending_not_verified`) in tool errors so agents branch on a code, not on
+   prose. Pairs with the §4.6 envelope.
+5. **Stop round-tripping attachments as base64 through the model.**
+   `get_attachment` should return metadata + a short-lived signed **download
+   URL** by default, with inline base64 only on explicit request for small
+   files — removing the silent 2 MB decode cap (a current footgun) and the token
+   cost of streaming binaries through context. (Send side keeps small inline
+   base64; a presigned **upload** URL is the symmetric future step.)
+6. **Fold delivery debugging into events.** `get_event` already carries the
+   per-webhook `delivery_status`; drop `list_webhook_deliveries` and let
+   `list_events {webhook_id, status}` + `get_event` be the one observability
+   path. `redeliver_event` stays. (Net −1 tool, one mental model for "did my
+   events go out.")
+7. **Idempotency-key on every creating tool**, not just send/approve — add it to
+   `create_agent`, `create_webhook`, `register_domain` for uniform retry-safety.
+8. **(Minor) consistent vocabulary.** `send_email` vs `reply_to_message`/
+   `forward_message` mixes "email" and "message." Either standardize the noun
+   (`message`) or consciously keep `send_email` because it reads best — a
+   deliberate choice, not an accident.
+
+Applying 1 + 6: a runtime agent sees ~14 tools; the full self-host surface ~29.
 
 ## 7. Agent-first docs
 
