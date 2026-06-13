@@ -224,12 +224,38 @@ modest event volume. The domain-specific parts are already built and low-risk
   (drift-prone). Rejected alternatives: **ogen** (spec-first = hand-authoring)
   and **goa** (heavier all-in design-DSL framework; Huma gives the same
   no-drift guarantee with a lighter footprint).
-* **MCP generated/validated from the spec.** The TS MCP tools' request
-  bodies are validated against the OpenAPI request schemas in CI — the
-  cross-language anti-drift test (the `RegisterAgentRequest` parity check
-  generalized to every tool↔endpoint pair).
-* **SDKs (py/ts) generated from the spec** (or contract-tested against it).
-* Result: "MCP consistent with the API" becomes structural, not manual.
+* **SDKs are generated** from the spec (OpenAPI Generator) — structurally
+  cannot drift; CI regenerates and fails on any diff vs. the committed output.
+* **MCP is hand-curated** (for ergonomics) but **contract-locked to the spec**
+  by CI tests (below).
+
+#### Anti-drift CI gate (the durable guard #206 deferred)
+
+`#206` is the canonical drift: the MCP `create_agent` zod schema **omitted
+`email`** — a field the REST contract + SDK already accepted — so custom-domain
+inboxes were uncreatable via MCP. The PR fixed the symptom and explicitly left
+"a contract test asserting MCP request bodies validate against the API schema"
+as the durable fix. We build it as one CI job, **"contract-drift,"** that makes
+this class un-mergeable:
+
+1. **Emit the spec fresh from Huma** in CI (never trust a stale committed
+   snapshot) — this is the source of truth everything else validates against.
+2. **SDK regen-diff** — regenerate the SDKs from the fresh spec; fail if they
+   differ from the committed output (keeps SDKs honest, no drift by construction).
+3. **MCP request-validation** — for each tool, validate a representative
+   emitted request body against the mapped operation's `requestBody` JSON
+   Schema (ajv). Catches extra / renamed / wrong-typed fields.
+4. **MCP coverage (the actual #206-preventer)** — assert every property of each
+   operation's request schema is *either* exposed by its tool *or* on an
+   explicit `intentionallyOmitted` allowlist. When the API gains a field, the
+   build fails until the MCP exposes it or the omission is consciously waived.
+5. **Tool↔operation map enforced** — a declared `tool → operationId` map; fail
+   on a tool mapping to a nonexistent operation, or an operation with no tool
+   that isn't on a `noMcp` allowlist (no orphans, no silently-unexposed
+   endpoints).
+
+Result: "MCP/SDK consistent with the API" is enforced by the build, not by
+review diligence — a #206-style omission can't merge.
 
 ## 7. Agent-first docs
 
