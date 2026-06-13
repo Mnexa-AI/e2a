@@ -41,8 +41,22 @@ use confidently. Concretely, observed in the codebase today:
 **Context that makes now the right time:** e2a is in beta, has **no external
 API consumers, and makes no stability promise**. The only live consumer is
 AgentDrive's feedback loop (internal, updated in lockstep). So we redesign
-**in place under `/api/v1`** — break freely, no `/v2`, no compatibility
-shims, no deprecation windows. This is the cheapest this change will ever be.
+**in place** — break freely, no compatibility shims, no deprecation windows.
+This is the cheapest this change will ever be.
+
+The redesign also **moves the surface to a dedicated host with a clean prefix**:
+
+> **Canonical base URL: `https://api.e2a.dev/v1`**
+
+All API endpoints live on the dedicated `api.e2a.dev` host (mirroring
+AgentDrive's `api.agentdrive.run`). The version goes straight on the path as
+`/v1` — the host already says "api", so the legacy `/api/v1` double-segment is
+dropped. There is no `/v2`: `/v1` is the in-place namespace we keep reshaping
+while in beta. (Distinct hosts, distinct jobs: `api.e2a.dev` = the REST/MCP
+control plane; `send.e2a.dev` = the SMTP relay; `agents.e2a.dev` = the shared
+inbound email domain for agents without a custom domain.) Every *target* path
+below is relative to `https://api.e2a.dev/v1`; the `/api/v1/...` paths in §1
+are the **current** routes being replaced.
 
 ## 2. Goals and non-goals
 
@@ -83,7 +97,8 @@ shims, no deprecation windows. This is the cheapest this change will ever be.
 
 ## 4. Target resource model
 
-Canonical resources under `/api/v1`:
+Canonical resources, all under `https://api.e2a.dev/v1` (paths below are
+relative to that base):
 
 | Resource | Routes (target) |
 |---|---|
@@ -132,7 +147,7 @@ Canonical resources under `/api/v1`:
    * **Stream** — `GET /agents/{address}/ws` (WebSocket; lightweight
      notification → fetch via REST). Promote this from a side-registered,
      mode-gated endpoint to a first-class, documented transport.
-   * **Push** — `/api/v1/webhooks` event subscriptions (see decision 2a).
+   * **Push** — `/v1/webhooks` event subscriptions (see decision 2a).
 
    `agent_identities.webhook_url` is already deprecated in-code
    (`X-E2A-Deprecation` header, sunset 2026-12-01) in favor of `/webhooks`;
@@ -140,7 +155,7 @@ Canonical resources under `/api/v1`:
    `cloud`/`local` has nothing left to distinguish. Removes the create
    dead-end (no forced webhook at creation).
 
-2a. **`/api/v1/webhooks` is the single push mechanism.** It's the existing
+2a. **`/v1/webhooks` is the single push mechanism.** It's the existing
    multi-subscriber resource: event-type subscriptions with filters
    (`agent_ids`, `conversation_ids`, `labels`), a per-webhook HMAC secret
    (`X-E2A-Signature: t=…,v1=…`), a deliveries log, retries, `rotate-secret`,
@@ -282,6 +297,7 @@ review diligence — a #206-style omission can't merge.
 | `POST /agents/{e}/messages/{id}/reply` | **fold** | `POST /agents/{address}/messages` + `in_reply_to` |
 | `POST /agents/{e}/messages/{id}/forward` | **fold** | `POST /agents/{address}/messages` + `forward_of` |
 | `GET /messages/{id}` (flat) | **remove** | use `GET /agents/{address}/messages/{id}` |
+| host + prefix `…/api/v1/*` | **move** | dedicated host `api.e2a.dev`, prefix `/v1` (base `https://api.e2a.dev/v1`) |
 | `GET/POST /approve`, `/reject`, `/pending` | **collapse** | `POST …/messages/{id}/approval` + magic-link GET alias |
 | `POST …/messages/{id}/approve|reject` | **collapse** | same `approval` sub-resource |
 | `GET /info`, `GET /users/me/limits` | **merge** | `GET /account` |
@@ -289,7 +305,7 @@ review diligence — a #206-style omission can't merge.
 | `create_agent` (shared-domain only, `agent_mode`) | **change** | `address` field, optional webhook, no mode |
 | `POST /send` body | **extend** | add `from`, `reply_to` |
 | `agent_mode` column + CHECK | **drop** | no modes; inbound via poll / `ws` / `/webhooks` |
-| `agent_identities.webhook_url` (legacy per-agent webhook, already `X-E2A-Deprecation`'d) | **remove completely** | `/api/v1/webhooks` — the single, first-class push mechanism |
+| `agent_identities.webhook_url` (legacy per-agent webhook, already `X-E2A-Deprecation`'d) | **remove completely** | `/v1/webhooks` — the single, first-class push mechanism |
 | `/api/v1/webhooks` (subscriber resource) | **keep, elevate to first-class** | canonical push: event subscriptions, filters, HMAC, deliveries, retries |
 | `GET /agents/{email}/ws` (side-registered, mode-gated) | **promote** | first-class, documented inbound transport |
 | outbound `From` always relay | **change** | agent address when `sending_verified` |
@@ -299,7 +315,8 @@ review diligence — a #206-style omission can't merge.
 
 ## 9. Rollout (in place, no compat)
 
-Break `/api/v1` directly; update all consumers in lockstep.
+Break the current `/api/v1` surface directly and move it to
+`https://api.e2a.dev/v1`; update all consumers in lockstep.
 
 * **Slice 1 — Contract + conventions.** Author the OpenAPI spec for the
   target surface; standardize the error envelope + cursor pagination +
