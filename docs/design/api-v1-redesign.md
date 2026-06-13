@@ -104,11 +104,11 @@ relative to that base):
 |---|---|
 | **agents** | `GET/POST /agents` · `GET/PATCH/DELETE /agents/{address}` · `POST /agents/{address}/test` (top-level, keyed by full email; create enforces caller owns the verified domain) |
 | **domain's agents** (filtered view) | `GET /domains/{domain}/agents` — list agents on a domain (management view; not a separate identity namespace) |
-| **messages** (per agent, the inbox) | `GET /agents/{address}/messages` · `GET …/messages/{id}` · `PATCH …/messages/{id}` (labels/read) |
+| **messages** (per agent; inbound + outbound) | `GET /agents/{address}/messages` (filters incl. `direction`, `status`; held outbound drafts = `status=pending_approval`) · `GET …/messages/{id}` · `GET …/messages/{id}/attachments/{index}` · `PATCH …/messages/{id}` (labels/read) |
 | **outbound** (unified) | `POST /agents/{address}/messages` — one endpoint for *new thread, reply, and forward*, disambiguated by body (`in_reply_to` / `forward_of` absent ⇒ new) |
 | **conversations** (derived thread view) | `GET /agents/{address}/conversations` · `GET …/conversations/{id}` |
 | **stream** (inbound transport) | `GET /agents/{address}/ws` — WebSocket; first-class + documented (today it's side-registered + mode-gated) |
-| **approvals (HITL)** | `POST /agents/{address}/messages/{id}/approval {decision: approve\|reject}` — the one transition (agents; API-key/OAuth). Human magic link: `GET /approvals/{token}` renders an **HTML confirmation page with NO side effect** (prefetch-safe), whose buttons `POST /approvals/{token} {decision}` into the same transition (token = single-use, short-TTL capability). **Never a mutating GET** — email scanners/prefetchers would auto-trigger it. |
+| **approvals (HITL)** | `POST /agents/{address}/messages/{id}/approval {decision: approve\|reject}` — the one transition (agents; API-key/OAuth). Held drafts are listed via `GET …/messages?status=pending_approval` and read via the message GET (a held draft is just a message). Human magic link: `GET /approvals/{token}` renders an **HTML confirmation page with NO side effect** (prefetch-safe), whose buttons `POST /approvals/{token} {decision}` into the same transition (token = single-use, short-TTL capability). **Never a mutating GET** — email scanners/prefetchers would auto-trigger it. |
 | **domains** | `GET/POST /domains` · `GET/PATCH/DELETE /domains/{domain}` · `POST /domains/{domain}/verify` (ownership + nudges a sending-identity re-check). The domain resource carries two independent statuses: `verified` (inbound/ownership, DNS TXT) and `sending_status ∈ {none,pending,verified,failed}` + `sending_error?` + `dns_records` + `last_checked_at?` (async SES sending identity — see §4 decision 4). `GET /domains/{domain}` is the poll target; no separate status endpoint. |
 | **webhooks** | `GET/POST /webhooks` · `GET/PATCH/DELETE /webhooks/{id}` · `…/deliveries` · `…/test` · `…/rotate-secret` · `…/redeliver-since` |
 | **events** (delivery log) | `GET /events` · `GET /events/{id}` · `POST /events/{id}/redeliver` |
@@ -282,6 +282,141 @@ this class un-mergeable:
 Result: "MCP/SDK consistent with the API" is enforced by the build, not by
 review diligence — a #206-style omission can't merge.
 
+## 6a. MCP tool surface & API correspondence
+
+The MCP server is the **primary** way an agent (and its operator) drives e2a —
+the SDK and raw REST exist for back-end/programmatic use, but the everyday
+"stand up and run a support agent" journey is MCP. Two principles govern it:
+
+* **Hosted MCP (OAuth) is first-class, and the tool surface is
+  transport-independent.** The *same* tools are exposed whether the server runs
+  over **stdio with an `E2A_API_KEY`** (self-host / local) or as the **hosted
+  Streamable-HTTP server authenticated by OAuth 2.1** (`mcp.e2a.dev`; PKCE +
+  refresh, per-agent scope — §5). Auth is a transport/connection concern,
+  **never a tool argument**: no tool takes a key, and identity is resolved from
+  the bearer/OAuth token. A user connecting from Claude/ChatGPT pastes nothing.
+* **Curated for ergonomics, contract-locked to the spec.** Tools stay
+  hand-written (intent-revealing names, forgiving inputs, directive errors) but
+  each maps to a declared `operationId`, and the §6 *contract-drift* gate
+  enforces the mapping + field coverage. Several tools may map to one operation
+  (send/reply/forward; approve/reject), and every tool's request body must
+  validate against its operation's schema. The `noMcp` / `intentionallyOmitted`
+  allowlists the gate checks against are defined at the end of this section.
+
+### The canonical journey — AgentDrive standing up `support@agentdrive.run`
+
+This is exactly the flow we ran by hand; each step is one or two tool calls.
+
+1. **Connect.** Add the hosted connector `https://mcp.e2a.dev` in Claude →
+   OAuth 2.1 grant, no key pasted. (Self-host: stdio server + `E2A_API_KEY`.)
+2. **Bring the domain.** `register_domain {domain:"agentdrive.run"}`
+   → `POST /domains`; returns the DNS records (MX/TXT/DKIM) to publish.
+3. **Publish DNS, then verify.** `verify_domain {domain:"agentdrive.run"}`
+   → `POST /domains/{domain}/verify`. Flips inbound `verified` **and** kicks off
+   async SES sending-identity registration (BYODKIM — §4 decision 4).
+4. **Wait for sending-verified.** `get_domain {domain:"agentdrive.run"}`
+   → `GET /domains/{domain}`; poll `sending_status` until `verified` (or
+   subscribe the `domain.sending_verified` webhook event). Only then is outbound
+   `From` the agent's own address instead of the relay.
+5. **Create the agent.** `create_agent {address:"support@agentdrive.run",
+   name:"AgentDrive Support"}` → `POST /agents`. Full email required; its domain
+   must be a verified domain we own. No mode, no forced webhook.
+6. **(Optional) gate replies behind a human.** `update_agent {hitl_enabled:true,
+   hitl_ttl_seconds:…, hitl_expiration_action:"reject"}` → `PATCH /agents/{address}`.
+7. **(Optional) push instead of poll.** `create_webhook {url,
+   events:["email.received", …]}` → `POST /webhooks`; persist the returned
+   `signing_secret` (shown once).
+8. **Run the loop.** Inbound: `list_messages`/`get_message`. Outbound:
+   `reply_to_message`/`send_email`. HITL on: `list_pending_approvals` →
+   `approve_message`/`reject_message`.
+
+### Tool catalogue (target surface, mapped to `/v1`)
+
+Paths are relative to `https://api.e2a.dev/v1`. `{address}` resolves per call:
+explicit `address` arg → `E2A_AGENT_ADDRESS` env (stdio) / token-bound agent
+(OAuth) → single-agent auto-resolve → directive error. The per-tool
+`agent_email` arg is renamed **`address`** (always a full email).
+
+**Agents**
+
+| Tool | Key params | → operation | Notes |
+|---|---|---|---|
+| `whoami` | — | `GET /account` (+ `GET /agents`) | Caller identity + default agent; directive error on 0/2+ agents with none defaulted. |
+| `list_agents` | — | `GET /agents` | |
+| `create_agent` | `address`*, `name?` | `POST /agents` | **Changed:** drop `slug`/`agent_mode`/`webhook_url`; full email on a verified owned domain. (The #206 coverage target — `address` must be exposed.) |
+| `update_agent` | `address?`, `name?`, `hitl_enabled?`, `hitl_ttl_seconds?`, `hitl_expiration_action?` | `PATCH /agents/{address}` | **Changed:** drop `agent_mode`/`webhook_url`. |
+| `delete_agent` | `address?`, `confirm:true`* | `DELETE /agents/{address}` | Destructive guard kept. |
+
+**Messages (inbound + outbound, one collection)**
+
+| Tool | Key params | → operation | Notes |
+|---|---|---|---|
+| `list_messages` | filters (`status`,`from`,`subject_contains`,`labels`,`since/until`,`conversation_id`,`direction?`), `cursor`,`limit`,`address?` | `GET /agents/{address}/messages` | Cursor pagination (§4.7). |
+| `get_message` | `message_id`*,`address?` | `GET /agents/{address}/messages/{id}` | Flat `GET /messages/{id}` removed — one address. Also reads held outbound drafts. |
+| `get_attachment` | `message_id`*,`index`*,`address?` | `GET /agents/{address}/messages/{id}/attachments/{index}` | **Changed:** dedicated endpoint (was a full-message re-fetch). |
+| `update_message_labels` | `message_id`*,`add_labels?`,`remove_labels?`,`address?` | `PATCH /agents/{address}/messages/{id}` | Labels/read folded into the message PATCH. |
+| `send_email` | `to`*,`subject`*,`body`*,`html?`,`cc/bcc?`,`attachments?`,`from?`,`reply_to?`,`idempotency_key?`,`address?` | `POST /agents/{address}/messages` | New-thread case. **New `from`,`reply_to`** (decision 3 / #206 coverage). |
+| `reply_to_message` | `message_id`*,`body`*,`html?`,`reply_all?`,`cc/bcc?`,`attachments?`,`reply_to?`,`idempotency_key?`,`address?` | `POST /agents/{address}/messages` | Sets `in_reply_to`. |
+| `forward_message` | `message_id`*,`to`*,`body?`,`cc/bcc?`,`attachments?`,`idempotency_key?`,`address?` | `POST /agents/{address}/messages` | Sets `forward_of`. |
+
+> send/reply/forward all map to the single `sendMessage` operation; the body's
+> `in_reply_to`/`forward_of` selects the mode. Kept as three tools for intent
+> clarity — coverage check #4 treats them as jointly covering `sendMessage`.
+
+**Conversations** — `list_conversations` → `GET /agents/{address}/conversations`;
+`get_conversation {conversation_id}` → `GET …/conversations/{id}`.
+
+**Approvals (HITL)**
+
+| Tool | Key params | → operation | Notes |
+|---|---|---|---|
+| `list_pending_approvals` | `address?` | `GET /agents/{address}/messages?status=pending_approval&direction=outbound` | Curated filter over the messages list. |
+| `approve_message` | `message_id`*, optional overrides (`subject/body/html/to/cc/bcc/attachments`), `idempotency_key?`,`address?` | `POST …/messages/{id}/approval {decision:"approve", …overrides}` | |
+| `reject_message` | `message_id`*,`reason?`,`address?` | `POST …/messages/{id}/approval {decision:"reject"}` | approve+reject → one `approval` operation, two ergonomic tools. |
+
+> Read the draft with `get_message` (a held draft is just a message);
+> `get_pending_message` is **removed**. The human magic-link
+> `GET /approvals/{token}` is a **browser** flow, not a tool (`noMcp`).
+
+**Domains** — `list_domains` → `GET /domains`; **`get_domain {domain}`** (new)
+→ `GET /domains/{domain}` (surfaces `verified` + `sending_status`/
+`sending_error`/`dns_records` — the poll target); `register_domain {domain}`
+→ `POST /domains`; `verify_domain {domain}` → `POST /domains/{domain}/verify`
+(ownership + nudges the SES re-check); `delete_domain {domain, confirm:true}`
+→ `DELETE /domains/{domain}`.
+
+**Webhooks & events** — 1:1 with the resources: `list_webhooks` / `get_webhook`
+/ `create_webhook` / `update_webhook` / `delete_webhook(confirm)` /
+`rotate_webhook_secret` / `test_webhook` / `list_webhook_deliveries`, and
+`list_events` / `get_event` / `redeliver_event` → the `…/webhooks…` and
+`/events…` operations. `create_webhook` / `rotate_webhook_secret` return
+`signing_secret` once.
+
+### `noMcp` / `intentionallyOmitted` (what the §6 gate checks against)
+
+* `GET /agents/{address}/ws` — raw inbound transport, not a tool; MCP clients
+  poll `list_messages` or subscribe via webhooks. **`noMcp`.**
+* `GET /approvals/{token}` + `POST /approvals/{token}` — human browser
+  magic-link; agents use the `approval` transition. **`noMcp`.**
+* `GET /account/export`, `DELETE /account`, account/signing-secret CRUD —
+  console/operator-only, deliberately out of the agent surface. **`noMcp`**
+  (revisit if a managed-operator tool is wanted).
+* Internal-only response fields stay on `intentionallyOmitted` so coverage
+  check #4 stays green without exposing plumbing.
+
+### Net change vs. today (~33 → ~30 tools, all coverage-checked)
+
+* **Renames:** `agent_email`→`address` (full email) on every tool;
+  `get_attachment_data`→`get_attachment`; env `E2A_AGENT_EMAIL`→
+  `E2A_AGENT_ADDRESS` (legacy name still accepted).
+* **Removed from tools:** `slug`, `agent_mode`, `webhook_url`
+  (create/update_agent); `get_pending_message` (use `get_message`);
+  flat-message addressing.
+* **Added:** `from`/`reply_to` on outbound; `get_domain` (sending_status poll);
+  dedicated attachment fetch.
+* **Collapsed:** approve/reject → one `approval` operation (two tools);
+  send/reply/forward → one `sendMessage` operation (three tools).
+
 ## 7. Agent-first docs
 
 * Canonical **`e2a.md`** (frontmatter'd skill/contract), **`llms.txt`** at
@@ -310,7 +445,7 @@ review diligence — a #206-style omission can't merge.
 | `GET /agents/{email}/ws` (side-registered, mode-gated) | **promote** | first-class, documented inbound transport |
 | outbound `From` always relay | **change** | agent address when `sending_verified` |
 | error envelopes / pagination (per-handler) | **standardize** | one envelope, cursor pagination |
-| MCP tools (hand-aligned) | **regenerate** | from OpenAPI + drift test |
+| MCP tools (hand-aligned, drifting) | **re-curate + lock** | hand-written but mapped to `operationId` + coverage-checked vs. the spec (§6, §6a) |
 | no OAuth | **add** | OAuth 2.1 hosted MCP |
 
 ## 9. Rollout (in place, no compat)
@@ -347,9 +482,11 @@ consistent" win.
    question.
 2. ~~OpenAPI: generate-from-Go vs hand-author~~ — **resolved:** framework-
    generated via **Huma** (code-as-contract, OpenAPI 3.1 + validation from the
-   typed handlers); no hand-authoring, swaggo annotations removed. Open
-   sub-point: pick the downstream generators (MCP-tools-from-OpenAPI and the
-   py/ts SDK generator — e.g. openapi-generator / Speakeasy / Fern).
+   typed handlers); no hand-authoring, swaggo annotations removed. SDKs are
+   generated (OpenAPI Generator); the **MCP surface is hand-curated and
+   contract-locked**, not generated (§6a — tool↔`operationId` map + coverage
+   gate). Open sub-point: confirm the py/ts SDK generator config under
+   OpenAPI Generator.
 3. ~~Magic-link alias shape~~ — **resolved:** one transition
    (`POST …/messages/{id}/approval {decision}`); the human magic link is
    `GET /approvals/{token}` → HTML confirmation page (no side effect),
