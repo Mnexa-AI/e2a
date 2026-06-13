@@ -724,11 +724,21 @@ config).
 defaults — rarely set). `MCP_ALLOWED_HOSTS` default → `api.e2a.dev` (§6a).
 
 **Keep distinct — do NOT merge.** Secrets stay separate by blast-radius:
-`E2A_HMAC_SECRET` (webhook signing), `E2A_INTERNAL_API_SECRET`, and the **new**
-RS256 JWT signing key the auth.md build adds (§5). Also keep
-`E2A_DATABASE_URL` / `E2A_TEST_DATABASE_URL` (test separation is a safety
-feature), `E2A_SHARED_DOMAIN`, `E2A_MIGRATION_MODE`, Google OAuth client
-id/secret.
+`E2A_HMAC_SECRET`, `E2A_INTERNAL_API_SECRET`, and the **new** RS256 JWT signing
+key the auth.md build adds (§5). Also keep `E2A_DATABASE_URL` /
+`E2A_TEST_DATABASE_URL` (test separation is a safety feature),
+`E2A_SHARED_DOMAIN`, `E2A_MIGRATION_MODE`, Google OAuth client id/secret.
+
+**Fix `E2A_HMAC_SECRET`'s key reuse (not a count change).** It is **not** the
+webhook secret — webhook subscriber secrets are **per-webhook**, stored per row
+(returned once, rotate + 24h dual-sign grace, `X-E2A-Signature: t=,v1=`; §4
+decision 2a). `E2A_HMAC_SECRET` is a single server key currently overloaded for
+three cryptographically-distinct jobs: `X-E2A-Auth-*` email-relay header
+signing, HITL approval-token signing, and fosite OAuth-token signing. Reusing one
+key across domains is a separation smell. **Fix: derive per-purpose subkeys via
+HKDF** from the one root (distinct `info` labels) — one env var, separated keys.
+The OAuth-token use retires once access tokens become RS256 JWTs (§5), leaving
+email-headers + approval-tokens.
 
 **Open:** `GITHUB_FEEDBACK_TOKEN` / `GITHUB_FEEDBACK_REPO` power an in-app
 "feedback → GitHub issue" feature — **remove if unused** (−2). Pending confirmation.
