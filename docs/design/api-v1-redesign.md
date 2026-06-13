@@ -93,8 +93,8 @@ Canonical resources under `/api/v1`:
 | **outbound** (unified) | `POST /agents/{address}/messages` — one endpoint for *new thread, reply, and forward*, disambiguated by body (`in_reply_to` / `forward_of` absent ⇒ new) |
 | **conversations** (derived thread view) | `GET /agents/{address}/conversations` · `GET …/conversations/{id}` |
 | **stream** (inbound transport) | `GET /agents/{address}/ws` — WebSocket; first-class + documented (today it's side-registered + mode-gated) |
-| **approvals (HITL)** | `POST /agents/{address}/messages/{id}/approval {decision: approve|reject}` — the one transition; magic-link `GET /approvals/{token}` stays as a thin human alias that resolves to the same handler |
-| **domains** | `GET/POST /domains` · `GET/PATCH/DELETE /domains/{domain}` · `POST /domains/{domain}/verify` |
+| **approvals (HITL)** | `POST /agents/{address}/messages/{id}/approval {decision: approve\|reject}` — the one transition (agents; API-key/OAuth). Human magic link: `GET /approvals/{token}` renders an **HTML confirmation page with NO side effect** (prefetch-safe), whose buttons `POST /approvals/{token} {decision}` into the same transition (token = single-use, short-TTL capability). **Never a mutating GET** — email scanners/prefetchers would auto-trigger it. |
+| **domains** | `GET/POST /domains` · `GET/PATCH/DELETE /domains/{domain}` · `POST /domains/{domain}/verify` (ownership + nudges a sending-identity re-check). The domain resource carries two independent statuses: `verified` (inbound/ownership, DNS TXT) and `sending_status ∈ {none,pending,verified,failed}` + `sending_error?` + `dns_records` + `last_checked_at?` (async SES sending identity — see §4 decision 4). `GET /domains/{domain}` is the poll target; no separate status endpoint. |
 | **webhooks** | `GET/POST /webhooks` · `GET/PATCH/DELETE /webhooks/{id}` · `…/deliveries` · `…/test` · `…/rotate-secret` · `…/redeliver-since` |
 | **events** (delivery log) | `GET /events` · `GET /events/{id}` · `POST /events/{id}/redeliver` |
 | **account** | `GET /account` (replaces `/info` + `/users/me/limits`) · `GET /account/export` · `DELETE /account` · signing-secrets CRUD |
@@ -151,15 +151,25 @@ Canonical resources under `/api/v1`:
    (reply), `forward_of` (forward), `cc`/`bcc`, `attachments`,
    `idempotency_key`, and — new — `from` (defaults to the agent address) and
    `reply_to`. Eliminates the top-level `/send` vs nested `/reply` split.
-4. **Custom-domain sender identity.** When the agent's domain is
+4. **Custom-domain sender identity (async).** When the agent's domain is
    *sending-verified*, outbound `From` = the agent's own address (DKIM
    already signs the custom domain). Domain verification programmatically
    registers the SES sending identity via **BYODKIM** (reuse e2a's existing
-   per-domain key) and flips a `sending_verified` flag; the `From` switch
-   gates on it. (See §5 of `sender.go`; separate sender-identity slice.)
-5. **One HITL transition.** Collapse the nested approve/reject + the
-   top-level magic-link into a single `approval` sub-resource; the magic
-   link is a convenience GET that calls the same code.
+   per-domain key). SES verification is **async**, so the domain carries
+   `sending_status ∈ {none,pending,verified,failed}` (+ `sending_error?`,
+   `dns_records`, `last_checked_at?`); the `From` switch gates on
+   `sending_status == verified`. Pending→verified is driven by a
+   **River-scheduled reconciler** polling SES `GetEmailIdentity`;
+   `POST /domains/{domain}/verify` forces an immediate re-check; optionally a
+   `domain.sending_verified` / `domain.sending_failed` **webhook event** lets
+   agents skip polling. `failed` carries an actionable reason + the DNS to fix.
+5. **One HITL transition, prefetch-safe.** Collapse the nested approve/reject
+   AND the top-level magic-link into a single `approval` sub-resource
+   (`POST …/messages/{id}/approval {decision}`). The human magic link is
+   `GET /approvals/{token}` rendering an **HTML confirmation page with NO
+   side effect**; its buttons `POST /approvals/{token} {decision}` into the
+   same transition. **Never a mutating GET** — email scanners/link-prefetchers
+   would auto-approve/reject. Token = single-use, short-TTL capability.
 6. **One error envelope** (audit current handlers and standardize):
    `{ "error": { "code": "MACHINE_BRANCHABLE", "message": "human text",
    "details": {…} } }`, with stable `code` values documented in the spec.
@@ -323,8 +333,17 @@ consistent" win.
    typed handlers); no hand-authoring, swaggo annotations removed. Open
    sub-point: pick the downstream generators (MCP-tools-from-OpenAPI and the
    py/ts SDK generator — e.g. openapi-generator / Speakeasy / Fern).
-3. **Magic-link alias shape** — keep `GET /approvals/{token}` returning HTML
-   for humans while the JSON transition lives at the `approval` sub-resource?
-4. **SES identity provisioning failure UX** — how to surface async
-   `sending_verified` pending/failed state to the agent (poll endpoint?
-   field on the domain resource?).
+3. ~~Magic-link alias shape~~ — **resolved:** one transition
+   (`POST …/messages/{id}/approval {decision}`); the human magic link is
+   `GET /approvals/{token}` → HTML confirmation page (no side effect),
+   buttons `POST /approvals/{token}` into the same transition. Never a
+   mutating GET (prefetch-safe). See §4 decision 5 + the approvals row.
+4. ~~SES identity provisioning failure UX~~ — **resolved:** status lives on
+   the domain resource (`sending_status` + `sending_error` + `dns_records` +
+   `last_checked_at`); a River reconciler polls SES, `POST /domains/{domain}/verify`
+   forces a re-check, and optional `domain.sending_verified/_failed` webhook
+   events allow push instead of poll. See §4 decision 4 + the domains row.
+
+All §10 questions are now resolved. Remaining design sub-points (not blockers):
+shared-`agents.e2a.dev` carve-out for the "owns a verified domain" rule;
+exact backoff schedule + signature-rotation grace window for webhooks.
