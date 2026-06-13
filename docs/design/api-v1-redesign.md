@@ -251,12 +251,14 @@ The auth methods just differ in how you obtain a scoped credential:
 * **OAuth 2.1 (PKCE + refresh) — new, first-class for hosted MCP.** Connect from
   Claude/ChatGPT with no pasted key; the grant carries `scope=agent` or
   `scope=account`. Mirrors the AgentDrive MCP-OAuth design.
-* **Agent JWT** — e2a's `identity_assertion` → short-lived `access_token`
-  exchange; this *is* auth.md's jwt-bearer path. **Where any current e2a auth
-  name (endpoint, field, grant, scope, claim) diverges from the auth.md spec,
+* **Agent identity assertion (auth.md jwt-bearer path) — to BUILD.** e2a today
+  has **no** JWT identity assertion: OAuth is fosite-issued **opaque** tokens
+  (`authorization_code` + `refresh_token` only) and account-wide API keys. The
+  auth.md agent-identity layer (JWT `identity_assertion`, `/agent/identity`, the
+  claim ceremony, jwt-bearer/claim grants, JWKS) is new build (Slice 5).
+  **Naming rule: where any current e2a auth name diverges from the auth.md spec,
   rename it to the spec — no back-compat aliases** (we're breaking freely, §1).
-  The spec is the naming authority; AgentDrive is consulted for implementation
-  experience, not for names.
+  Spec = naming authority; AgentDrive = implementation-experience reference.
 * **HITL magic-link tokens** — unchanged, scoped to a single approval.
 
 ### Agent identity & token model (auth.md-aligned)
@@ -277,17 +279,19 @@ independently adopted auth.md too** (`docs/auth-md-adoption-design.md` in that
 repo) — **mine it for the implementation experience** (the grant/claim edge
 cases, JWKS handling, revocation, TTLs we already hit once), **but e2a conforms
 to the WorkOS spec for its names and serves them on its own `api.e2a.dev` host;
-it does not reuse AgentDrive's routes, hosts, scopes, or key prefixes.** The good
-news: e2a is already ~80% there — its existing `identity_assertion →
-access_token` exchange **is** auth.md's jwt-bearer path and its provision/claim
-**is** the claim ceremony, so adoption is *conforming to the spec's names +
-discovery + endpoints*, not a re-architecture. The three paths map as:
+it does not reuse AgentDrive's routes, hosts, scopes, or key prefixes.**
+**Reality check (per the audit below):** e2a has the **OAuth 2.0 foundation**
+(fosite AS — `authorization_code` + `refresh_token` + PKCE S256, RFC 8414
+discovery, RFC 7009 revoke, RFC 7591 DCR; opaque tokens; a single `mcp` scope)
+and account-wide API keys — but **none** of the auth.md agent-identity layer. So
+adoption is mostly **new build on the existing OAuth**, plus a few targeted
+renames — more than a rename, but not a re-architecture. The three paths map as:
 
-| Path | auth.md mechanism | e2a today | Who |
+| Path | auth.md mechanism | e2a status | Who |
 |---|---|---|---|
-| **Autonomous** (acts as itself) | `POST /agent/identity {type:"identity_assertion", assertion}` → service `identity_assertion` → `POST /oauth2/token` `grant_type=jwt-bearer` → access_token (no refresh; re-present) | Agent-JWT path — accept a **self-signed** agent assertion (validated vs the agent's registered JWKS) | AgentDrive support bot |
-| **Human-connected** (delegated) | claim ceremony: `POST /agent/identity {type:"service_auth", login_hint}` → `{user_code, verification_uri}` → user signs in → poll `/oauth2/token` `grant_type=…:claim` | provision/claim; *or* OAuth 2.1 PKCE for hosted MCP | hosted MCP users |
-| **Self-host** | (outside auth.md) | agent-scoped API key | CI / self-host |
+| **Autonomous** (acts as itself) | `POST /agent/identity {type:"identity_assertion", assertion}` → service `identity_assertion` → `POST /oauth2/token` `grant_type=jwt-bearer` → access_token (no refresh; re-present) | **BUILD** — no JWT assertion, JWKS, or jwt-bearer grant today | AgentDrive support bot |
+| **Human-connected** (delegated) | claim ceremony: `POST /agent/identity {type:"service_auth", login_hint}` → `{user_code, verification_uri}` → user signs in → poll `/oauth2/token` `grant_type=…:claim` | **BUILD** the claim path; OAuth `authorization_code`+`refresh` exists (rename `/api/oauth/*`→`/oauth2/*`) | hosted MCP users |
+| **Self-host** | (outside auth.md) | account-wide `e2a_` key today → **add** agent-scoped `e2a_agt_` | CI / self-host |
 
 **Forward-compatibility is the win:** the *same* `/agent/identity` endpoint that
 accepts a self-signed assertion today accepts a **provider-minted ID-JAG**
@@ -297,25 +301,42 @@ Cursor attest the agent, audience-bound, verified via the provider's JWKS — wi
 ["anonymous","identity_assertion","service_auth"]` and `assertion_types_supported:
 ["urn:ietf:params:oauth:token-type:id-jag"]` (spec order/values).
 
-**Gap list to be auth.md-compliant** (extends Slice 5):
+#### Current e2a → auth.md: audit, rename & build (Slice 5)
 
-* Serve `/.well-known/oauth-authorization-server` (RFC 8414) with the `agent_auth`
-  profile block (`identity_endpoint`, `claim_endpoint`, `events_endpoint`,
-  `identity_types_supported`, `assertion_types_supported`, `scopes_supported`)
-  alongside the existing `/.well-known/oauth-protected-resource` (RFC 9728); host
-  an `AUTH.md` skill manifest.
-* Add `POST /agent/identity`, `POST /agent/identity/claim` (+ `GET`, `/complete`),
-  `POST /oauth2/token` (jwt-bearer + claim grants), `POST /oauth2/revoke`
-  (RFC 7009), `POST /agent/event/notify`.
-* Map e2a's `assertion_version` revocation onto `/oauth2/revoke` + emit an
-  `agent.credential_revoked` **webhook event** (reuses the §4 event system).
-* Express the `agent`/`account` scopes (and finer `messages.*` / `domains.*`) in
-  `scopes_supported`.
+**Keep (already spec-aligned):** `/.well-known/oauth-authorization-server`
+(RFC 8414) + `/.well-known/oauth-protected-resource` (RFC 9728); the
+`authorization_code` + `refresh_token` + PKCE-S256 flow; `/oauth2/revoke`
+semantics (RFC 7009); DCR (RFC 7591). Opaque token prefixes `ate2a_`/`rte2a_`/
+`oace_` are format-agnostic to the spec — keep.
+
+**Rename (e2a has it; the name/shape must conform):**
+
+| e2a today | → target (spec / decision) |
+|---|---|
+| OAuth routes `/api/oauth/{authorize,token,consent,revoke,register,clients}` | **root, unversioned** `/oauth2/{authorize,token,consent,revoke,register,clients}` (discovery + identity sit beside `/.well-known`, not under `/v1`) |
+| `scopes_supported: ["mcp"]` (only scope) | `["agent","account"]` (the §6a tiers; finer `messages.*`/`domains.*` optional) — drop the lone `mcp` scope |
+| API key prefix `e2a_` (account-wide only) | `e2a_acct_` (account) **+** new `e2a_agt_` (agent-scoped) |
+| agent `agent_mode` + `webhook_url` | **removed** (decision 2) |
+| served `web/public/auth.md` (roadmap blurb) | the **real** auth.md protocol manifest + an `AUTH.md` skill manifest |
+
+**Build (spec element absent in e2a today):**
+
+| auth.md element | note |
+|---|---|
+| `POST /agent/identity` (`anonymous` \| `identity_assertion`) | registration ceremony — none today |
+| `POST /agent/identity/claim` (+ `GET`, `/complete`) + `claim` grant | email-OTP claim — none today |
+| `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer` at `/oauth2/token` | fosite rejects it today (`unsupported_grant_type`) |
+| JWT `identity_assertion` + `access_token` (`typ`), `assertion_version`, `act` (RFC 8693) | tokens are **opaque HMAC** today — the agent path needs signed JWTs |
+| `/.well-known/jwks.json` (RS256) | no JWKS today |
+| `agent_auth` block in the AS metadata (`identity_endpoint`, `claim_endpoint`, `events_endpoint`, `identity_types_supported`, `assertion_types_supported`) | discovery doc exists; block missing |
+| `POST /agent/event/notify` (revocation events) | optional — can ride e2a's §4 webhook system as `agent.credential_revoked` |
 
 **Caveats:** ID-JAG depends on the agent's provider supporting it (not universal
 yet) — the claim ceremony covers that gap today. Assertion-minted tokens get **no
-refresh token** (re-present the assertion), which matches e2a's short-lived-token
-design.
+refresh token** (re-present the assertion), which matches a short-lived-token
+design. e2a's OAuth lib is **fosite**, which doesn't ship a jwt-bearer grant —
+adding the agent-identity grants means a custom token-endpoint handler (the
+biggest single build item; AgentDrive's grant code is the reference).
 
 ## 6. Source of truth & drift control
 
