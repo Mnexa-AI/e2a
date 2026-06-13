@@ -92,6 +92,7 @@ Canonical resources under `/api/v1`:
 | **messages** (per agent, the inbox) | `GET /agents/{address}/messages` · `GET …/messages/{id}` · `PATCH …/messages/{id}` (labels/read) |
 | **outbound** (unified) | `POST /agents/{address}/messages` — one endpoint for *new thread, reply, and forward*, disambiguated by body (`in_reply_to` / `forward_of` absent ⇒ new) |
 | **conversations** (derived thread view) | `GET /agents/{address}/conversations` · `GET …/conversations/{id}` |
+| **stream** (inbound transport) | `GET /agents/{address}/ws` — WebSocket; first-class + documented (today it's side-registered + mode-gated) |
 | **approvals (HITL)** | `POST /agents/{address}/messages/{id}/approval {decision: approve|reject}` — the one transition; magic-link `GET /approvals/{token}` stays as a thin human alias that resolves to the same handler |
 | **domains** | `GET/POST /domains` · `GET/PATCH/DELETE /domains/{domain}` · `POST /domains/{domain}/verify` |
 | **webhooks** | `GET/POST /webhooks` · `GET/PATCH/DELETE /webhooks/{id}` · `…/deliveries` · `…/test` · `…/rotate-secret` · `…/redeliver-since` |
@@ -124,10 +125,27 @@ Canonical resources under `/api/v1`:
    Explicit and unambiguous. The email's domain MUST be a verified domain the
    caller owns (enforced at create). Path-encode the address. The MCP
    `create_agent` field follows the same rule.
-2. **Drop `agent_mode`.** Inbound is always persisted + pollable (`GET
-   …/messages`) + streamable (`listen`). A `webhook_url` (or `webhooks[]`)
-   is an *optional push target*. `cloud`/`local` cease to exist; behavior is
-   derived from whether a webhook is configured. Removes the create dead-end.
+2. **Drop `agent_mode` AND the per-agent `webhook_url`.** Inbound is always
+   persisted and consumable via three transports over the same store, with no
+   mode to choose:
+   * **Poll** — `GET /agents/{address}/messages` (+ conversations).
+   * **Stream** — `GET /agents/{address}/ws` (WebSocket; lightweight
+     notification → fetch via REST). Promote this from a side-registered,
+     mode-gated endpoint to a first-class, documented transport.
+   * **Push** — `/api/v1/webhooks` event subscriptions (see decision 2a).
+
+   `agent_identities.webhook_url` is already deprecated in-code
+   (`X-E2A-Deprecation` header, sunset 2026-12-01) in favor of `/webhooks`;
+   we **remove it outright**. With both `agent_mode` and `webhook_url` gone,
+   `cloud`/`local` has nothing left to distinguish. Removes the create
+   dead-end (no forced webhook at creation).
+
+2a. **`/api/v1/webhooks` is the single push mechanism.** It's the existing
+   multi-subscriber resource: event-type subscriptions with filters
+   (`agent_ids`, `conversation_ids`, `labels`), a per-webhook HMAC secret
+   (`X-E2A-Signature: t=…,v1=…`), a deliveries log, retries, `rotate-secret`,
+   `redeliver-since`, `test`, and auto-disable. Keep it as-is in shape;
+   the only change is that it's now the *only* push path (no agent URL field).
 3. **Outbound is one endpoint.** `POST /agents/{address}/messages` with a
    body carrying `to`, `subject`, `body`/`html`, optional `in_reply_to`
    (reply), `forward_of` (forward), `cc`/`bcc`, `attachments`,
@@ -193,7 +211,10 @@ Canonical resources under `/api/v1`:
 | `/users/me/*` | **rename** | `/account/*` |
 | `create_agent` (shared-domain only, `agent_mode`) | **change** | `address` field, optional webhook, no mode |
 | `POST /send` body | **extend** | add `from`, `reply_to` |
-| `agent_mode` column + CHECK | **drop** | webhook presence derives behavior |
+| `agent_mode` column + CHECK | **drop** | no modes; inbound via poll / `ws` / `/webhooks` |
+| `agent_identities.webhook_url` (legacy per-agent webhook, already `X-E2A-Deprecation`'d) | **remove completely** | `/api/v1/webhooks` — the single, first-class push mechanism |
+| `/api/v1/webhooks` (subscriber resource) | **keep, elevate to first-class** | canonical push: event subscriptions, filters, HMAC, deliveries, retries |
+| `GET /agents/{email}/ws` (side-registered, mode-gated) | **promote** | first-class, documented inbound transport |
 | outbound `From` always relay | **change** | agent address when `sending_verified` |
 | error envelopes / pagination (per-handler) | **standardize** | one envelope, cursor pagination |
 | MCP tools (hand-aligned) | **regenerate** | from OpenAPI + drift test |
