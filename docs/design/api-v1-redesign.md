@@ -342,15 +342,19 @@ This is exactly the flow we ran by hand; each step is one or two tool calls.
    events:["email.received", …]}` → `POST /webhooks`; persist the returned
    `signing_secret` (shown once).
 8. **Run the loop.** Inbound: `list_messages`/`get_message`. Outbound:
-   `reply_to_message`/`send_email`. HITL on: `list_pending_approvals` →
+   `reply_to_message`/`send_message`. HITL on: `list_pending_approvals` →
    `approve_message`/`reject_message`.
 
 ### Tool catalogue (target surface, mapped to `/v1`)
 
-Paths are relative to `https://api.e2a.dev/v1`. `{address}` resolves per call:
-explicit `address` arg → `E2A_AGENT_ADDRESS` env (stdio) / token-bound agent
-(OAuth) → single-agent auto-resolve → directive error. The per-tool
-`agent_email` arg is renamed **`address`** (always a full email).
+Paths are relative to `https://api.e2a.dev/v1`. The per-tool `agent_email` arg
+is renamed **`address`** (always a full email) and resolves per call with **no
+auto-magic**: explicit `address` arg → the **token-bound agent** (hosted
+`scope=agent`, where the credential *is* the agent) → `E2A_AGENT_ADDRESS` env (an
+explicit stdio convenience) → otherwise a directive error telling the caller to
+pass `address` (and to run `list_agents` to see the choices). The old
+*single-agent auto-resolve* ("if you own exactly one agent, silently use it") is
+**removed** — implicit state that breaks the moment a second agent appears.
 
 **Two tiers, scope-gated.** The surface splits by persona, and hosted MCP
 exposes each tier per OAuth scope (§5):
@@ -358,7 +362,7 @@ exposes each tier per OAuth scope (§5):
 * **Runtime / inbox** (`scope=agent`) — what a deployed agent uses every turn:
   `whoami`, `list_agents`, `list_messages`, `get_message`, `get_attachment`,
   `update_message_labels`, `list_conversations`, `get_conversation`,
-  `send_email`, `reply_to_message`, `forward_message`, `list_pending_approvals`,
+  `send_message`, `reply_to_message`, `forward_message`, `list_pending_approvals`,
   `approve_message`, `reject_message`.
 * **Admin / setup** (`scope=admin`) — provisioning, done once by the operator
   (the AgentDrive setup journey above): agent create/update/delete, all of
@@ -373,7 +377,7 @@ sees both tiers. The drift-gate map records each tool's tier next to its
 
 | Tool | Key params | → operation | Notes |
 |---|---|---|---|
-| `whoami` | — | `GET /account` (+ `GET /agents`) | Caller identity + default agent; directive error on 0/2+ agents with none defaulted. |
+| `whoami` | — | `GET /account` | **Just the authenticated account/user** (identity, plan, limits/usage). No agent resolution — discover agents with `list_agents` (a `scope=agent` token lists only its bound agent). |
 | `list_agents` | — | `GET /agents` | |
 | `create_agent` | `address`*, `name?` | `POST /agents` | **Changed:** drop `slug`/`agent_mode`/`webhook_url`; full email on a verified owned domain. (The #206 coverage target — `address` must be exposed.) |
 | `update_agent` | `address?`, `name?`, `hitl_enabled?`, `hitl_ttl_seconds?`, `hitl_expiration_action?` | `PATCH /agents/{address}` | **Changed:** drop `agent_mode`/`webhook_url`. |
@@ -387,7 +391,7 @@ sees both tiers. The drift-gate map records each tool's tier next to its
 | `get_message` | `message_id`*,`address?` | `GET /agents/{address}/messages/{id}` | Flat `GET /messages/{id}` removed — one address. Also reads held outbound drafts. |
 | `get_attachment` | `message_id`*,`index`*,`address?` | `GET /agents/{address}/messages/{id}/attachments/{index}` | **Changed:** dedicated endpoint (was a full-message re-fetch). |
 | `update_message_labels` | `message_id`*,`add_labels?`,`remove_labels?`,`address?` | `PATCH /agents/{address}/messages/{id}` | Labels/read folded into the message PATCH. |
-| `send_email` | `to`*,`subject`*,`body`*,`html?`,`cc/bcc?`,`attachments?`,`from?`,`reply_to?`,`idempotency_key?`,`address?` | `POST /agents/{address}/messages` | New-thread case. **New `from`,`reply_to`** (decision 3 / #206 coverage). |
+| `send_message` | `to`*,`subject`*,`body`*,`html?`,`cc/bcc?`,`attachments?`,`from?`,`reply_to?`,`idempotency_key?`,`address?` | `POST /agents/{address}/messages` | New-thread case. **Renamed** from `send_email` to match the `message` resource. **New `from`,`reply_to`** (decision 3 / #206 coverage). |
 | `reply_to_message` | `message_id`*,`body`*,`html?`,`reply_all?`,`cc/bcc?`,`attachments?`,`reply_to?`,`idempotency_key?`,`address?` | `POST /agents/{address}/messages` | Sets `in_reply_to`. |
 | `forward_message` | `message_id`*,`to`*,`body?`,`cc/bcc?`,`attachments?`,`idempotency_key?`,`address?` | `POST /agents/{address}/messages` | Sets `forward_of`. |
 
@@ -439,6 +443,7 @@ sees both tiers. The drift-gate map records each tool's tier next to its
 ### Net change vs. today (~33 → ~30 tools, all coverage-checked)
 
 * **Renames:** `agent_email`→`address` (full email) on every tool;
+  `send_email`→`send_message` (match the `message` resource);
   `get_attachment_data`→`get_attachment`; env `E2A_AGENT_EMAIL`→
   `E2A_AGENT_ADDRESS` (legacy name still accepted).
 * **Removed from tools:** `slug`, `agent_mode`, `webhook_url`
@@ -448,6 +453,9 @@ sees both tiers. The drift-gate map records each tool's tier next to its
   dedicated attachment fetch.
 * **Collapsed:** approve/reject → one `approval` operation (two tools);
   send/reply/forward → one `sendMessage` operation (three tools).
+* **Simplified:** `whoami` is now account/user-only; the **default-agent
+  auto-resolve is removed** — `address` comes from the token (`scope=agent`) or
+  is explicit, never guessed.
 
 ### Recommended design updates (beyond a 1:1 port)
 
@@ -481,10 +489,12 @@ worth making while we're reshaping the contract anyway, roughly in priority:
    events go out.")
 7. **Idempotency-key on every creating tool**, not just send/approve — add it to
    `create_agent`, `create_webhook`, `register_domain` for uniform retry-safety.
-8. **(Minor) consistent vocabulary.** `send_email` vs `reply_to_message`/
-   `forward_message` mixes "email" and "message." Either standardize the noun
-   (`message`) or consciously keep `send_email` because it reads best — a
-   deliberate choice, not an accident.
+8. **Consistent vocabulary — resolved.** `send_email` mixed "email" with
+   `reply_to_message`/`forward_message`. Standardize the noun on the API
+   resource (`message`): **`send_email` → `send_message`**, giving
+   `send_message` / `reply_to_message` / `forward_message`. (Bare `send`/`reply`/
+   `forward` was the terser alternative; rejected — under-specified next to
+   `get_message`/`list_messages`.)
 
 Applying 1 + 6: a runtime agent sees ~14 tools; the full self-host surface ~29.
 
