@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/limits"
 )
 
 // sampleAgent is the canonical fixture agent owned by user u_1.
@@ -36,10 +37,14 @@ func testServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	deps := Deps{
 		Authenticator: func(r *http.Request) (*identity.User, error) {
-			if r.Header.Get("Authorization") == "Bearer good" {
+			switch r.Header.Get("Authorization") {
+			case "Bearer good":
 				return &identity.User{ID: "u_1", Email: "owner@acme.com"}, nil
+			case "Bearer overcap":
+				return &identity.User{ID: "u_overcap", Email: "full@acme.com"}, nil
+			default:
+				return nil, errors.New("unauthorized")
 			}
-			return nil, errors.New("unauthorized")
 		},
 		ListAgents: func(ctx context.Context, userID string) ([]identity.AgentIdentity, error) {
 			if userID != "u_1" {
@@ -119,6 +124,28 @@ func testServer(t *testing.T) *httptest.Server {
 				}, nil
 			}
 			return nil, errors.New("not found")
+		},
+		LookupDomain: func(ctx context.Context, domain, userID string) (*identity.Domain, error) {
+			switch domain {
+			case "acme.com":
+				return &identity.Domain{Domain: domain, Verified: true}, nil
+			case "pending.com":
+				return &identity.Domain{Domain: domain, Verified: false}, nil
+			default:
+				return nil, errors.New("not registered")
+			}
+		},
+		CreateAgent: func(ctx context.Context, email, domain, name, webhookURL, agentMode, userID string) (*identity.AgentIdentity, error) {
+			if email == "dupe@acme.com" {
+				return nil, errors.New("duplicate key value")
+			}
+			return &identity.AgentIdentity{ID: email, Domain: domain, Email: email, Name: name, AgentMode: agentMode, UserID: userID}, nil
+		},
+		EnforceAgentCreate: func(ctx context.Context, userID string) error {
+			if userID == "u_overcap" {
+				return &limits.LimitExceededError{Resource: "agents", Limit: 1, Current: 1, Limits: limits.Limits{PlanCode: "free", UpgradeURL: "https://e2a.dev/upgrade"}}
+			}
+			return nil
 		},
 		SharedDomain: "agents.e2a.dev",
 		PublicURL:    "https://api.e2a.dev",

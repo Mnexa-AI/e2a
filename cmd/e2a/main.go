@@ -302,6 +302,10 @@ func main() {
 		ListConversations: store.ListConversationsByAgent,
 		GetConversation:   store.GetConversationByID,
 
+		CreateAgent:        store.CreateAgent,
+		LookupDomain:       store.LookupDomain,
+		EnforceAgentCreate: enforcer.CheckAgentCreate,
+
 		SharedDomain: cfg.SharedDomain,
 		PublicURL:    cfg.HTTP.PublicURL,
 		Legacy:       router,

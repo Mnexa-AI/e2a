@@ -40,6 +40,19 @@ type ConversationLister func(ctx context.Context, filter identity.ConversationLi
 // ConversationGetter mirrors store.GetConversationByID(agentID, conversationID).
 type ConversationGetter func(ctx context.Context, agentID, conversationID string) (*identity.ConversationDetail, error)
 
+// --- write collaborators ---
+
+// AgentCreator mirrors store.CreateAgent.
+type AgentCreator func(ctx context.Context, email, domain, name, webhookURL, agentMode, userID string) (*identity.AgentIdentity, error)
+
+// DomainLookup mirrors store.LookupDomain(domain, userID) — the create-time
+// ownership guard.
+type DomainLookup func(ctx context.Context, domain, userID string) (*identity.Domain, error)
+
+// AgentCreateEnforcer mirrors enforcer.CheckAgentCreate; returns a
+// limits.LimitExceededError when the per-user cap is hit.
+type AgentCreateEnforcer func(ctx context.Context, userID string) error
+
 // Deps are the collaborators the v1 layer needs. Everything is injected so
 // the package has no hidden globals and is straightforward to test.
 type Deps struct {
@@ -51,6 +64,10 @@ type Deps struct {
 
 	ListConversations ConversationLister
 	GetConversation   ConversationGetter
+
+	CreateAgent        AgentCreator
+	LookupDomain       DomainLookup
+	EnforceAgentCreate AgentCreateEnforcer
 
 	// Deployment info surfaced by GET /v1/info (unchanged shape from the
 	// legacy /api/v1/info while we are in the consistency-only slice).
@@ -139,6 +156,7 @@ func (s *Server) registerOperations() {
 	s.registerAgents()
 	s.registerMessages()
 	s.registerConversations()
+	s.registerAgentWrites()
 }
 
 // reqCtxKey carries the raw *http.Request through to Huma handlers so they

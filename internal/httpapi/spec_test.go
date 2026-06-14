@@ -25,6 +25,7 @@ func TestSpecGeneratedFromHandlers(t *testing.T) {
 		"operationId: getInfo",
 		"operationId: listAgents",
 		"operationId: getAgent",
+		"operationId: createAgent",
 		"operationId: getMessage",
 		"operationId: listMessages",
 		"operationId: listConversations",
