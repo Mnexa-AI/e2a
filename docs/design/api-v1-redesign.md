@@ -1077,11 +1077,12 @@ Break the current `/api/v1` surface directly and move it to
   binary-served; `api.md` generated from the spec.
 * **Slice 7 — Inbound trust policy (decision 10), post-parity.** Per-agent
   `inbound_policy` enum (`open`/`allowlist`/`domain`/`verified_only`/`hitl`,
-  composable) + auto MCP scope-downgrade on weak/failed inbound `auth`. Builds on
-  decision 9's verdict + the v1 injection-reduced parsed view (already shipped in
-  Slice 4b's inbound work). **Not a parity gap** — e2a's existing server-side HITL
-  + auth verdicts are already strong here; this packages that latent advantage
-  into a named policy. Defer until 1–6 land.
+  composable) + **trust-gated action authorization** (policy-driven hold of
+  suspicious outbound as `pending_approval`, keyed on the referenced message's
+  server-owned verdict; no new contract surface). Builds on decision 9's verdict
+  + the v1 injection-reduced parsed view (already in Slice 4b). **Not a parity
+  gap** — e2a's server-side HITL + auth verdicts are already strong here; this
+  packages that latent advantage into a named policy. Defer until 1–6 land.
 
 Slices 1–6 are independently shippable; 1–2 deliver most of the "clean and
 consistent" win. Slice 7 is a post-parity enhancement.
