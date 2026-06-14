@@ -326,22 +326,39 @@ relative to that base):
    the message `auth` verdict — not config. It composes e2a's *existing
    server-side* primitives (gateway-**enforced**, not client-side advisory
    guidance an agent author may skip):
-   * `open` (default) — process all inbound.
-   * `allowlist` / `domain` — coarse sender allow (exact address / domain). **This
-     is the actual *trust* gate** (known senders), composed with the action guard.
-   * **`verified_only`** — require `spf=pass` + `dkim=pass` + **DMARC alignment**
-     (decision 9's `auth` verdict); reject/flag the rest. **This is an
-     *anti-spoofing* gate, NOT a trust gate** — it proves the mail genuinely came
-     from the *claimed* domain, not that the domain is friendly (`attacker.com`
-     with valid SPF/DKIM passes). So `verified_only` stops forged-sender injection,
-     not hostile-but-authentic senders; pair it with `allowlist`/`domain` or
-     `hitl` for trust. **Load-bearing new logic:** today's verdict is SPF-*or*-DKIM
-     with **no From-alignment** check — `verified_only` requires building DMARC
-     *alignment* (compare the SPF/DKIM domain to the `From:` header domain), which
-     is the real work, not just "run a DMARC library."
-   * `hitl` — route untrusted inbound through the existing `approval` transition
-     (decision 5) before the agent acts (reuses e2a's server-side HITL — TTL,
-     body-scrubbed, signed approvals).
+   **The policy table (locked):**
+
+   | `inbound_policy` | Ingestion (on arrival) | Action gate (on outbound) |
+   |---|---|---|
+   | `open` *(default)* | accept all | none — hard ceiling only |
+   | `allowlist` / `domain` | accept only listed sender / domain; non-matches **flagged** (`email.flagged`), delivered but not acted on autonomously | none extra |
+   | `verified_only` | accept only `spf=pass` + `dkim=pass` + **DMARC alignment**; non-matches **flagged** | none extra |
+   | `hitl` | accept all | **hold** high-impact outbound as `pending_approval` |
+
+   These **compose** (e.g. `verified_only` + `hitl`). `allowlist`/`domain` are the
+   real *trust* gate (known senders). `verified_only` is an **anti-spoofing** gate,
+   **not** a trust gate — it proves the mail came from the *claimed* domain, not
+   that the domain is friendly (`attacker.com` with valid SPF/DKIM passes); pair it
+   with `allowlist`/`domain` or `hitl` for trust.
+
+   **Pinned predicates (locked):**
+   * **`high-impact`** = a recipient whose domain is **not already a participant
+     of the referenced inbound message**, *or* a forward to a third party.
+     (Destructive/admin never reach this test — the hard ceiling blocks them
+     outright.)
+   * **`weak verdict`** = `dmarc != pass` on the referenced message's server-owned
+     `auth` (decision 9). The `hitl` action gate holds when the outbound is
+     high-impact **and** the referenced message is weak; `hitl` may also be set to
+     hold **all** outbound (the `all`-sub-mode below).
+   * **Ingestion non-matches are `flagged`, never silently dropped** — delivered +
+     `email.flagged` so nothing disappears and operators get a signal.
+   * **`verified_only` is load-bearing new logic:** today's verdict is SPF-*or*-DKIM
+     with **no From-alignment**; `verified_only` requires building DMARC
+     *alignment* (compare the SPF/DKIM domain to the `From:` header domain), not
+     just "run a DMARC library."
+   * **Reconciles the existing `hitl_enabled` boolean:** `hitl_enabled=true`
+     becomes `inbound_policy: hitl` with sub-mode `all` (hold every outbound);
+     the default `hitl` sub-mode is `high_impact` (the predicate above).
 
    Policies **compose** (e.g. `verified_only` + `hitl` for the rest).
 
