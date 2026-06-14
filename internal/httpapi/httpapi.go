@@ -21,11 +21,17 @@ type Authenticator func(r *http.Request) (*identity.User, error)
 // remaining ports will widen this into a resource-scoped store interface.
 type AgentLister func(ctx context.Context, userID string) ([]identity.AgentIdentity, error)
 
+// AgentGetter loads a single agent by its full email address (the
+// identifier). Ownership is checked by the caller against the resolved
+// agent's UserID.
+type AgentGetter func(ctx context.Context, address string) (*identity.AgentIdentity, error)
+
 // Deps are the collaborators the v1 layer needs. Everything is injected so
 // the package has no hidden globals and is straightforward to test.
 type Deps struct {
 	Authenticator Authenticator
 	ListAgents    AgentLister
+	GetAgent      AgentGetter
 
 	// Deployment info surfaced by GET /v1/info (unchanged shape from the
 	// legacy /api/v1/info while we are in the consistency-only slice).

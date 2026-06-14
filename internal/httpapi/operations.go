@@ -85,6 +85,17 @@ type listAgentsOutput struct {
 	}
 }
 
+// AddressParam is the shared path input for per-agent operations. The
+// address is the agent's full email and the resource identifier
+// (api-v1-redesign decision 1); Huma URL-decodes it from the path.
+type AddressParam struct {
+	Address string `path:"address" doc:"The agent's full email address, e.g. support@acme.com."`
+}
+
+type agentOutput struct {
+	Body AgentView
+}
+
 func (s *Server) registerAgents() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "listAgents",
@@ -110,4 +121,40 @@ func (s *Server) registerAgents() {
 		}
 		return out, nil
 	})
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "getAgent",
+		Method:      http.MethodGet,
+		Path:        "/v1/agents/{address}",
+		Summary:     "Get an agent",
+		Description: "Fetch a single agent the authenticated account owns, by full email address.",
+		Tags:        []string{"agents"},
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, func(ctx context.Context, in *AddressParam) (*agentOutput, error) {
+		ag, err := s.resolveOwnedAgent(ctx, in.Address)
+		if err != nil {
+			return nil, err
+		}
+		return &agentOutput{Body: agentViewFromIdentity(ag)}, nil
+	})
+}
+
+// resolveOwnedAgent authenticates the caller, loads the agent by address,
+// and verifies ownership — the shared front half of every per-agent
+// operation. It mirrors the legacy resolveAgentForUser behavior: a missing
+// or non-owned agent is reported as 403 (the legacy surface does not
+// distinguish the two, and preserving that is a Slice-1 non-goal to change).
+func (s *Server) resolveOwnedAgent(ctx context.Context, address string) (*identity.AgentIdentity, error) {
+	user, err := s.requireUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.deps.GetAgent == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "agent lookup unavailable")
+	}
+	ag, err := s.deps.GetAgent(ctx, identity.NormalizeEmail(address))
+	if err != nil || ag == nil || ag.UserID != user.ID {
+		return nil, NewError(http.StatusForbidden, "forbidden", "agent not found")
+	}
+	return ag, nil
 }

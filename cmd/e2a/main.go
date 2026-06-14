@@ -295,6 +295,7 @@ func main() {
 	v1 := httpapi.New(httpapi.Deps{
 		Authenticator: api.AuthenticateUser,
 		ListAgents:    store.ListAgentsByUser,
+		GetAgent:      store.GetAgentByEmail,
 		SharedDomain:  cfg.SharedDomain,
 		PublicURL:     cfg.HTTP.PublicURL,
 		Legacy:        router,
