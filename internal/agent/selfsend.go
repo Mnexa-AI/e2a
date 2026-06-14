@@ -17,6 +17,12 @@ func isSelfSend(req outbound.SendRequest, agentEmail string) bool {
 	return loopback.IsSelfSend(req, agentEmail)
 }
 
+// StripAgentSelfAliases is the exported seam over stripAgentSelfAliases so the
+// v1 httpapi reply/forward builders reuse the same self-alias stripping.
+func StripAgentSelfAliases(addrs []string, agentEmail string) []string {
+	return stripAgentSelfAliases(addrs, agentEmail)
+}
+
 func stripAgentSelfAliases(addrs []string, agentEmail string) []string {
 	return loopback.StripAgentSelfAliases(addrs, agentEmail)
 }

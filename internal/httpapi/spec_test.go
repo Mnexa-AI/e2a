@@ -48,6 +48,8 @@ func TestSpecGeneratedFromHandlers(t *testing.T) {
 		"operationId: redeliverEvent",
 		"operationId: getMyLimits",
 		"operationId: sendMessage",
+		"operationId: replyToMessage",
+		"operationId: forwardMessage",
 		"/v1/send",
 		"/v1/users/me/limits",
 		"/v1/events",

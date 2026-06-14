@@ -53,10 +53,154 @@ func (s *Server) registerOutbound() {
 		Description: "Send a new email from an agent you own. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleSend)
-	// reply/forward are ported next: they need the legacy reply/forward
-	// request-builders (ParseReplyRecipients, References chain, forward-body
-	// composition, self-alias stripping) extracted so /v1 reuses them
-	// verbatim — see docs/design/outbound-v1-extraction.md.
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "replyToMessage", Method: http.MethodPost, Path: "/v1/agents/{address}/messages/{id}/reply",
+		Summary: "Reply to a message", Tags: []string{"messages"},
+		Description: "Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.",
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleReply)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "forwardMessage", Method: http.MethodPost, Path: "/v1/agents/{address}/messages/{id}/forward",
+		Summary: "Forward a message", Tags: []string{"messages"},
+		Description: "Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.",
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleForward)
+}
+
+// ReplyRequest mirrors the legacy reply body.
+type ReplyRequest struct {
+	Body           string                `json:"body,omitempty"`
+	HTMLBody       string                `json:"html_body,omitempty"`
+	ReplyAll       bool                  `json:"reply_all,omitempty"`
+	CC             []string              `json:"cc,omitempty"`
+	BCC            []string              `json:"bcc,omitempty"`
+	ConversationID string                `json:"conversation_id,omitempty"`
+	Attachments    []outbound.Attachment `json:"attachments,omitempty"`
+}
+
+type replyInput struct {
+	Address        string `path:"address"`
+	ID             string `path:"id"`
+	RawBody        []byte
+	IdempotencyKey string `header:"Idempotency-Key"`
+	Body           ReplyRequest
+}
+
+// loadInbound resolves the owned agent + the inbound message (404 if missing
+// or not on this agent).
+func (s *Server) loadInbound(ctx context.Context, address, msgID string) (*identity.AgentIdentity, *identity.Message, *identity.User, error) {
+	ag, err := s.resolveOwnedAgent(ctx, address)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	user, uerr := s.requireUser(ctx)
+	if uerr != nil {
+		return nil, nil, nil, uerr
+	}
+	if s.deps.GetInboundMessage == nil {
+		return nil, nil, nil, NewError(http.StatusInternalServerError, "internal_error", "outbound unavailable")
+	}
+	in, err := s.deps.GetInboundMessage(ctx, msgID)
+	if err != nil || in == nil || in.AgentID != ag.ID {
+		return nil, nil, nil, NewError(http.StatusNotFound, "not_found", "message not found")
+	}
+	return ag, in, user, nil
+}
+
+func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, error) {
+	ag, inbound, user, err := s.loadInbound(ctx, in.Address, in.ID)
+	if err != nil {
+		return nil, err
+	}
+	b := in.Body
+	if b.Body == "" {
+		return nil, NewError(http.StatusBadRequest, "invalid_request", "body is required")
+	}
+	// Validate only the user-supplied CC/BCC; the implicit To comes from the
+	// (already-validated) inbound message — mirrors the legacy handler.
+	if e := agent.ValidateRecipients(b.CC, b.BCC); e != nil {
+		return nil, NewError(http.StatusBadRequest, "invalid_recipient", e.Error())
+	}
+	if e := validateConversationID(b.ConversationID); e != nil {
+		return nil, NewError(http.StatusBadRequest, "invalid_request", e.Error())
+	}
+	// Build the reply request via the same outbound helpers the legacy
+	// handler uses (subject normalization, recipient parsing, References).
+	subject := inbound.Subject
+	if subject != "" && !strings.HasPrefix(strings.ToLower(subject), "re: ") {
+		subject = "Re: " + subject
+	} else if subject == "" {
+		subject = "Re: your message"
+	}
+	rr, e := outbound.ParseReplyRecipients(inbound.RawMessage, b.ReplyAll, b.CC)
+	if e != nil {
+		return nil, NewError(http.StatusBadRequest, "invalid_recipient", e.Error())
+	}
+	replyTo := rr.To
+	if len(replyTo) == 0 {
+		replyTo = []string{inbound.Sender}
+	}
+	req := outbound.SendRequest{
+		To: replyTo, CC: rr.CC, BCC: b.BCC, Subject: subject, Body: b.Body, HTMLBody: b.HTMLBody,
+		ReplyToMessageID: inbound.EmailMessageID,
+		References:       outbound.BuildReferencesChain(inbound.RawMessage, inbound.EmailMessageID),
+		ConversationID:   b.ConversationID, Attachments: b.Attachments,
+	}
+	req.CC = agent.StripAgentSelfAliases(req.CC, ag.EmailAddress())
+	req.BCC = agent.StripAgentSelfAliases(req.BCC, ag.EmailAddress())
+	return s.deliver(ctx, user, ag, req, "reply", inbound.EmailMessageID, "/v1/reply/"+in.ID, in.IdempotencyKey, in.RawBody)
+}
+
+// ForwardRequest mirrors the legacy forward body.
+type ForwardRequest struct {
+	To             []string              `json:"to,omitempty"`
+	CC             []string              `json:"cc,omitempty"`
+	BCC            []string              `json:"bcc,omitempty"`
+	Body           string                `json:"body,omitempty"`
+	HTMLBody       string                `json:"html_body,omitempty"`
+	ConversationID string                `json:"conversation_id,omitempty"`
+	Attachments    []outbound.Attachment `json:"attachments,omitempty"`
+}
+
+type forwardInput struct {
+	Address        string `path:"address"`
+	ID             string `path:"id"`
+	RawBody        []byte
+	IdempotencyKey string `header:"Idempotency-Key"`
+	Body           ForwardRequest
+}
+
+func (s *Server) handleForward(ctx context.Context, in *forwardInput) (*sendOutput, error) {
+	ag, inbound, user, err := s.loadInbound(ctx, in.Address, in.ID)
+	if err != nil {
+		return nil, err
+	}
+	b := in.Body
+	if len(b.To) == 0 && len(b.CC) == 0 {
+		return nil, NewError(http.StatusBadRequest, "invalid_request", "at least one recipient in to or cc is required")
+	}
+	if e := agent.ValidateRecipients(b.To, b.CC, b.BCC); e != nil {
+		return nil, NewError(http.StatusBadRequest, "invalid_recipient", e.Error())
+	}
+	if e := validateConversationID(b.ConversationID); e != nil {
+		return nil, NewError(http.StatusBadRequest, "invalid_request", e.Error())
+	}
+	subject := outbound.BuildForwardSubject(inbound.Subject)
+	fwdCtx := outbound.ExtractForwardContext(inbound.RawMessage)
+	composedBody := outbound.BuildForwardBody(b.Body, fwdCtx)
+	var composedHTML string
+	if b.HTMLBody != "" || fwdCtx.HTML != "" || fwdCtx.Text != "" {
+		composedHTML = outbound.BuildForwardHTMLBody(b.HTMLBody, fwdCtx)
+	}
+	req := outbound.SendRequest{
+		To: b.To, CC: b.CC, BCC: b.BCC, Subject: subject, Body: composedBody, HTMLBody: composedHTML,
+		ConversationID: b.ConversationID, Attachments: b.Attachments,
+	}
+	req.CC = agent.StripAgentSelfAliases(req.CC, ag.EmailAddress())
+	req.BCC = agent.StripAgentSelfAliases(req.BCC, ag.EmailAddress())
+	return s.deliver(ctx, user, ag, req, "forward", inbound.EmailMessageID, "/v1/forward/"+in.ID, in.IdempotencyKey, in.RawBody)
 }
 
 // validateOutboundBody runs the shared pre-send validation.

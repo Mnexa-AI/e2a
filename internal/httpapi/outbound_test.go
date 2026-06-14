@@ -114,3 +114,61 @@ func TestSendUnauthorized(t *testing.T) {
 		t.Fatalf("want 401, got %d", code)
 	}
 }
+
+func TestReplySent(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/reply", "good", map[string]any{"body": "thanks"})
+	if code != 200 || body["status"] != "sent" {
+		t.Fatalf("want 200 sent, got %d %v", code, body)
+	}
+}
+
+func TestReplyBodyRequired(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/reply", "good", map[string]any{"body": ""})
+	if code != 400 || errCode(body) != "invalid_request" {
+		t.Fatalf("want 400 invalid_request, got %d %v", code, body)
+	}
+}
+
+func TestReplyMessageNotFound(t *testing.T) {
+	srv := testServer(t)
+	code, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_missing/reply", "good", map[string]any{"body": "x"})
+	if code != 404 {
+		t.Fatalf("want 404, got %d", code)
+	}
+}
+
+func TestReplyNotOwnedAgent(t *testing.T) {
+	srv := testServer(t)
+	code, _ := postJSON(t, srv.URL+"/v1/agents/other%40acme.com/messages/msg_in1/reply", "good", map[string]any{"body": "x"})
+	if code != 403 {
+		t.Fatalf("want 403, got %d", code)
+	}
+}
+
+func TestForwardSent(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/forward", "good", map[string]any{
+		"to": []string{"bob@x.com"}, "body": "fyi",
+	})
+	if code != 200 || body["status"] != "sent" {
+		t.Fatalf("want 200 sent, got %d %v", code, body)
+	}
+}
+
+func TestForwardNoRecipients(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/forward", "good", map[string]any{"body": "fyi"})
+	if code != 400 {
+		t.Fatalf("want 400 no recipients, got %d %v", code, body)
+	}
+}
+
+func TestForwardMessageNotFound(t *testing.T) {
+	srv := testServer(t)
+	code, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_missing/forward", "good", map[string]any{"to": []string{"bob@x.com"}, "body": "x"})
+	if code != 404 {
+		t.Fatalf("want 404, got %d", code)
+	}
+}
