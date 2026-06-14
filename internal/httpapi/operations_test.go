@@ -79,6 +79,30 @@ func testServer(t *testing.T) *httptest.Server {
 			}
 			return rest, nil
 		},
+		ListConversations: func(ctx context.Context, f identity.ConversationListFilter) ([]identity.ConversationSummary, error) {
+			if f.AgentID != "support@acme.com" {
+				return nil, errors.New("unexpected agent")
+			}
+			return []identity.ConversationSummary{{
+				ID: "conv_1", MessageCount: 2, InboundCount: 1, OutboundCount: 1,
+				HasUnread: true, LatestSubject: "Help", LatestSender: "alice@example.com",
+				LastMessageAt: time.Unix(1700000200, 0).UTC(), FirstMessageAt: time.Unix(1700000100, 0).UTC(),
+			}}, nil
+		},
+		GetConversation: func(ctx context.Context, agentID, convoID string) (*identity.ConversationDetail, error) {
+			if agentID == "support@acme.com" && convoID == "conv_1" {
+				return &identity.ConversationDetail{
+					ConversationSummary: identity.ConversationSummary{
+						ID: "conv_1", MessageCount: 1, LatestSubject: "Help",
+						LastMessageAt: time.Unix(1700000200, 0).UTC(), FirstMessageAt: time.Unix(1700000200, 0).UTC(),
+					},
+					Participants: []string{"alice@example.com", "support@acme.com"},
+					Labels:       []string{"urgent"},
+					Messages:     []identity.Message{{ID: "msg_1", Direction: "inbound", Sender: "alice@example.com", Subject: "Help", InboxStatus: "unread", CreatedAt: time.Unix(1700000200, 0).UTC()}},
+				}, nil
+			}
+			return nil, errors.New("not found")
+		},
 		GetMessage: func(ctx context.Context, messageID, agentID string) (*identity.Message, error) {
 			if agentID == "support@acme.com" && messageID == "msg_1" {
 				return &identity.Message{

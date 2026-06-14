@@ -298,9 +298,13 @@ func main() {
 		GetAgent:      store.GetAgentByEmail,
 		GetMessage:    store.GetMessageWithContent,
 		ListMessages:  store.GetMessagesByAgent,
-		SharedDomain:  cfg.SharedDomain,
-		PublicURL:     cfg.HTTP.PublicURL,
-		Legacy:        router,
+
+		ListConversations: store.ListConversationsByAgent,
+		GetConversation:   store.GetConversationByID,
+
+		SharedDomain: cfg.SharedDomain,
+		PublicURL:    cfg.HTTP.PublicURL,
+		Legacy:       router,
 	})
 
 	httpServer := &http.Server{

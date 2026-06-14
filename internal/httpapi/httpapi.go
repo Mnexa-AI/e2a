@@ -34,6 +34,12 @@ type MessageGetter func(ctx context.Context, messageID, agentID string) (*identi
 // Mirrors store.GetMessagesByAgent(filter).
 type MessageLister func(ctx context.Context, filter identity.MessageListFilter) ([]identity.Message, error)
 
+// ConversationLister mirrors store.ListConversationsByAgent(filter).
+type ConversationLister func(ctx context.Context, filter identity.ConversationListFilter) ([]identity.ConversationSummary, error)
+
+// ConversationGetter mirrors store.GetConversationByID(agentID, conversationID).
+type ConversationGetter func(ctx context.Context, agentID, conversationID string) (*identity.ConversationDetail, error)
+
 // Deps are the collaborators the v1 layer needs. Everything is injected so
 // the package has no hidden globals and is straightforward to test.
 type Deps struct {
@@ -42,6 +48,9 @@ type Deps struct {
 	GetAgent      AgentGetter
 	GetMessage    MessageGetter
 	ListMessages  MessageLister
+
+	ListConversations ConversationLister
+	GetConversation   ConversationGetter
 
 	// Deployment info surfaced by GET /v1/info (unchanged shape from the
 	// legacy /api/v1/info while we are in the consistency-only slice).
@@ -129,6 +138,7 @@ func (s *Server) registerOperations() {
 	s.registerInfo()
 	s.registerAgents()
 	s.registerMessages()
+	s.registerConversations()
 }
 
 // reqCtxKey carries the raw *http.Request through to Huma handlers so they
