@@ -81,6 +81,18 @@ type Deps struct {
 	UpdateAgentHITL    AgentHITLUpdater
 	DeleteAgent        AgentDeleter
 
+	// domains
+	ListDomains         func(ctx context.Context, userID string) ([]identity.Domain, error)
+	ClaimDomain         func(ctx context.Context, domain, userID string) (*identity.Domain, error)
+	EnforceDomainCreate func(ctx context.Context, userID string) error
+	SetDomainPrimary    func(ctx context.Context, domain, userID string) error
+	DeleteDomain        func(ctx context.Context, domain, userID string) error
+	HasAgentsOnDomain   func(ctx context.Context, domain, userID string) (bool, error)
+
+	// SMTPDomain is the relay's MX host, surfaced in the DNS records a
+	// domain must publish (config smtp.domain).
+	SMTPDomain string
+
 	// Deployment info surfaced by GET /v1/info (unchanged shape from the
 	// legacy /api/v1/info while we are in the consistency-only slice).
 	SharedDomain string
@@ -169,6 +181,7 @@ func (s *Server) registerOperations() {
 	s.registerMessages()
 	s.registerConversations()
 	s.registerAgentWrites()
+	s.registerDomains()
 }
 
 // reqCtxKey carries the raw *http.Request through to Huma handlers so they

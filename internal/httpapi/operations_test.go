@@ -128,13 +128,36 @@ func testServer(t *testing.T) *httptest.Server {
 		LookupDomain: func(ctx context.Context, domain, userID string) (*identity.Domain, error) {
 			switch domain {
 			case "acme.com":
-				return &identity.Domain{Domain: domain, Verified: true}, nil
+				return &identity.Domain{Domain: domain, Verified: true, VerificationToken: "e2a-verify=tok", IsPrimary: true}, nil
 			case "pending.com":
 				return &identity.Domain{Domain: domain, Verified: false}, nil
+			case "busy.com":
+				return &identity.Domain{Domain: domain, Verified: true}, nil
 			default:
 				return nil, errors.New("not registered")
 			}
 		},
+		ListDomains: func(ctx context.Context, userID string) ([]identity.Domain, error) {
+			return []identity.Domain{{Domain: "acme.com", Verified: true, VerificationToken: "e2a-verify=tok", IsPrimary: true, AgentCount: 2}}, nil
+		},
+		ClaimDomain: func(ctx context.Context, domain, userID string) (*identity.Domain, error) {
+			return &identity.Domain{Domain: domain, Verified: false, VerificationToken: "e2a-verify=new"}, nil
+		},
+		EnforceDomainCreate: func(ctx context.Context, userID string) error {
+			if userID == "u_overcap" {
+				return &limits.LimitExceededError{Resource: "domains", Limit: 1, Current: 1, Limits: limits.Limits{PlanCode: "free"}}
+			}
+			return nil
+		},
+		SetDomainPrimary: func(ctx context.Context, domain, userID string) error {
+			if domain == "missing.com" {
+				return identity.ErrDomainNotFound
+			}
+			return nil
+		},
+		DeleteDomain:      func(ctx context.Context, domain, userID string) error { return nil },
+		HasAgentsOnDomain: func(ctx context.Context, domain, userID string) (bool, error) { return domain == "busy.com", nil },
+		SMTPDomain:        "mx.e2a.dev",
 		CreateAgent: func(ctx context.Context, email, domain, name, webhookURL, agentMode, userID string) (*identity.AgentIdentity, error) {
 			if email == "dupe@acme.com" {
 				return nil, errors.New("duplicate key value")

@@ -310,6 +310,14 @@ func main() {
 		UpdateAgentHITL:    store.UpdateAgentHITL,
 		DeleteAgent:        store.DeleteAgent,
 
+		ListDomains:         store.ListDomainsByUser,
+		ClaimDomain:         store.ClaimOrCreateDomain,
+		EnforceDomainCreate: enforcer.CheckDomainCreate,
+		SetDomainPrimary:    store.SetDomainPrimary,
+		DeleteDomain:        store.DeleteDomain,
+		HasAgentsOnDomain:   store.HasAgentsOnDomain,
+		SMTPDomain:          cfg.SMTP.Domain,
+
 		SharedDomain: cfg.SharedDomain,
 		PublicURL:    cfg.HTTP.PublicURL,
 		Legacy:       router,

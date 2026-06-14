@@ -3578,6 +3578,14 @@ func validateRecipients(groups ...[]string) error {
 // Returns the ASCII-normalized form on success so callers can persist
 // the canonical wire-format (e.g. "xn--e1afmkfd.xn--p1ai" for
 // "пример.рф") instead of the raw input.
+// ValidateDomain is the exported seam over validateDomain so the v1 httpapi
+// layer reuses the exact IDN/punycode normalization + label-length checks
+// instead of replicating the security-relevant parsing. Returns the
+// normalized (Punycode) form.
+func ValidateDomain(domain string) (string, error) {
+	return validateDomain(domain)
+}
+
 func validateDomain(domain string) (string, error) {
 	if domain == "" {
 		return "", errors.New("domain is required")
