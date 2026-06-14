@@ -181,8 +181,8 @@ jobs:
       - run: npm test --workspace @e2a/mcp-server
       - run: npm run build --workspace @e2a/mcp-server
 
-  swagger:
-    name: Swagger spec freshness
+  spec:
+    name: OpenAPI spec freshness
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -191,16 +191,15 @@ jobs:
         with:
           go-version: "1.26"
           cache: true
-      # swag invokes `go list` internally to walk the dependency tree;
-      # without modules pre-fetched it errors with "cannot find all
-      # dependencies" on a cold cache. Locally the cache is warm, so this
-      # only ever bites in CI.
-      - name: Pre-fetch Go modules for swag
-        run: go mod download
-      - name: Install swag
-        run: go install github.com/swaggo/swag/cmd/swag@v1.16.4
-      - name: Check spec is up to date
-        run: make swagger-check
+      # The /v1 OpenAPI document is emitted from the live Huma handlers and
+      # committed at api/openapi.yaml; this gate fails if it drifts (run
+      # `make spec` to regenerate). This replaces the legacy swag-annotation
+      # freshness check: the swag pipeline (web/public/openapi.yaml + the SDK
+      # codegen that consumes it) is being retired with the SDK /v1 port, so
+      # web/public/openapi.yaml is frozen and no longer swag-freshness-checked
+      # until that follow-up PR flips codegen onto api/openapi.yaml.
+      - name: Check the /v1 spec is up to date
+        run: make spec-check
 
   python-sdk:
     name: Python SDK tests
