@@ -8,6 +8,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/agent"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/limits"
+	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
@@ -100,6 +101,12 @@ type Deps struct {
 	// Idempotency is the retry-safety store for unsafe writes (send/reply/
 	// forward/redeliver). Optional — nil disables the Idempotency-Key path.
 	Idempotency IdemStore
+
+	// outbound (the shared live delivery path extracted from agent.API)
+	DeliverOutbound    func(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string) (*agent.OutboundResult, *agent.OutboundError)
+	EnforceMessageSend func(ctx context.Context, userID string) error
+	// GetInboundMessage loads an inbound message for reply/forward.
+	GetInboundMessage func(ctx context.Context, messageID string) (*identity.Message, error)
 
 	// account
 	GetLimits func(ctx context.Context, userID string) (limits.Limits, error)
@@ -226,6 +233,7 @@ func (s *Server) registerOperations() {
 	s.registerWebhooks()
 	s.registerEvents()
 	s.registerAccount()
+	s.registerOutbound()
 }
 
 // reqCtxKey carries the raw *http.Request through to Huma handlers so they

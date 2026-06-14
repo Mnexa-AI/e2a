@@ -3614,6 +3614,10 @@ func normalizeAndValidateLabelList(raw []string, op string) ([]string, error) {
 // suitable for surfacing to the caller. Empty slices are not an error
 // here — handlers already enforce "at least one recipient" separately
 // with a more specific message.
+// ValidateRecipients is the exported seam over validateRecipients so the v1
+// httpapi layer reuses the same RFC 5322 recipient check.
+func ValidateRecipients(groups ...[]string) error { return validateRecipients(groups...) }
+
 func validateRecipients(groups ...[]string) error {
 	for _, group := range groups {
 		for _, addr := range group {

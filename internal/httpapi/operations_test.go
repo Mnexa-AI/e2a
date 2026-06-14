@@ -14,6 +14,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/agent"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/limits"
+	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
 )
 
@@ -263,6 +264,23 @@ func testServer(t *testing.T) *httptest.Server {
 			return []webhook.SubscriberDelivery{
 				{ID: "whd_1", EventType: "email.received", Status: "delivered", Attempts: 1, NextRetryAt: time.Unix(1700000000, 0).UTC(), CreatedAt: time.Unix(1700000000, 0).UTC()},
 			}, nil
+		},
+		EnforceMessageSend: func(ctx context.Context, userID string) error {
+			if userID == "u_overcap" {
+				return &limits.LimitExceededError{Resource: "messages", Limit: 1, Current: 1, Limits: limits.Limits{PlanCode: "free"}}
+			}
+			return nil
+		},
+		DeliverOutbound: func(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyTo string) (*agent.OutboundResult, *agent.OutboundError) {
+			switch {
+			case strings.Contains(req.Subject, "HOLD"):
+				exp := time.Unix(1700090000, 0).UTC()
+				return &agent.OutboundResult{Held: true, PendingMessageID: "msg_pending_1", ApprovalExpiresAt: &exp}, nil
+			case strings.Contains(req.Subject, "FAIL"):
+				return nil, &agent.OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "send failed"}
+			default:
+				return &agent.OutboundResult{MessageID: "msg_sent_1", Method: "smtp"}, nil
+			}
 		},
 		TouchDomainChecked: func(ctx context.Context, domain, userID string) error { return nil },
 		VerifyDomain:       func(ctx context.Context, domain, userID string) error { return nil },

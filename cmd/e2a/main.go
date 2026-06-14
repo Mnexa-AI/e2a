@@ -318,6 +318,9 @@ func main() {
 		HasAgentsOnDomain:   store.HasAgentsOnDomain,
 		SMTPDomain:          cfg.SMTP.Domain,
 		Idempotency:         idempotencyStore,
+		DeliverOutbound:     api.DeliverOutbound,
+		EnforceMessageSend:  enforcer.CheckMessageSend,
+		GetInboundMessage:   store.GetInboundMessage,
 		GetLimits:           enforcer.Get,
 		GetUsage: func(ctx context.Context, userID string) httpapi.LimitsUsageView {
 			var u httpapi.LimitsUsageView

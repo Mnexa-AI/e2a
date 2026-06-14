@@ -47,6 +47,8 @@ func TestSpecGeneratedFromHandlers(t *testing.T) {
 		"operationId: getEvent",
 		"operationId: redeliverEvent",
 		"operationId: getMyLimits",
+		"operationId: sendMessage",
+		"/v1/send",
 		"/v1/users/me/limits",
 		"/v1/events",
 		"/v1/events/{id}",
