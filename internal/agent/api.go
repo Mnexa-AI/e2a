@@ -1723,20 +1723,29 @@ func (a *API) domainInfoFromRecord(d *identity.Domain) DomainInfo {
 //
 // replyToEmailMessageID is the inbound Message-ID being replied to, or "".
 // msgType is one of "send", "reply", "test", or "forward".
-func (a *API) holdForApproval(w http.ResponseWriter, r *http.Request, agent *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string) {
+// errHoldAttachments is returned by HoldForApprovalCore when the attachments
+// fail to serialize, so callers can map it to the same 500 the legacy handler
+// produced ("failed to serialize attachments") vs the create-failure 500.
+var errHoldAttachments = errors.New("failed to serialize attachments")
+
+// HoldForApprovalCore is the HTTP-free core of the HITL hold: it persists the
+// pending outbound message, fires the async reviewer notification, and
+// publishes the pending-approval event, returning the held message. Both the
+// legacy handler and the v1 httpapi layer call it so there is exactly one
+// hold-and-notify path (api-v1-redesign — outbound extraction).
+func (a *API) HoldForApprovalCore(ctx context.Context, agent *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string) (*identity.Message, error) {
 	var attachmentsJSON []byte
 	if len(req.Attachments) > 0 {
 		b, err := json.Marshal(req.Attachments)
 		if err != nil {
 			log.Printf("[api] hitl: marshal attachments: %v", err)
-			http.Error(w, "failed to serialize attachments", http.StatusInternalServerError)
-			return
+			return nil, errHoldAttachments
 		}
 		attachmentsJSON = b
 	}
 
 	msg, err := a.store.CreatePendingOutboundMessage(
-		r.Context(), agent.ID,
+		ctx, agent.ID,
 		req.To, req.CC, req.BCC,
 		req.Subject, req.Body, req.HTMLBody,
 		attachmentsJSON,
@@ -1745,8 +1754,7 @@ func (a *API) holdForApproval(w http.ResponseWriter, r *http.Request, agent *ide
 	)
 	if err != nil {
 		log.Printf("[api] hitl: create pending message: agent=%s err=%v", agent.ID, err)
-		http.Error(w, "failed to hold message for approval", http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
 	slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
@@ -1754,12 +1762,27 @@ func (a *API) holdForApproval(w http.ResponseWriter, r *http.Request, agent *ide
 		msg.ID, msgType, agent.EmailAddress(), req.To, slug, req.ConversationID, req.Subject, msg.ApprovalExpiresAt.Format(time.RFC3339))
 
 	// Fire the reviewer notification asynchronously. Failures are logged
-	// inside the notifier and must never block the 202 response — the
-	// pending row is already persisted and the expiration worker will
-	// finalize it even if every notification email bounces.
-	a.notifier.NotifyPendingApprovalAsync(msg, agent)
+	// inside the notifier and must never block the response — the pending
+	// row is already persisted and the expiration worker will finalize it
+	// even if every notification email bounces.
+	if a.notifier != nil {
+		a.notifier.NotifyPendingApprovalAsync(msg, agent)
+	}
 
-	a.publishPendingApproval(r.Context(), a.buildPendingApprovalEvent(agent, msg, req, msgType), msg.ID)
+	a.publishPendingApproval(ctx, a.buildPendingApprovalEvent(agent, msg, req, msgType), msg.ID)
+	return msg, nil
+}
+
+func (a *API) holdForApproval(w http.ResponseWriter, r *http.Request, agent *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string) {
+	msg, err := a.HoldForApprovalCore(r.Context(), agent, req, msgType, replyToEmailMessageID)
+	if err != nil {
+		if errors.Is(err, errHoldAttachments) {
+			http.Error(w, "failed to serialize attachments", http.StatusInternalServerError)
+			return
+		}
+		http.Error(w, "failed to hold message for approval", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
