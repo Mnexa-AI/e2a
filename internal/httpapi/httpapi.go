@@ -93,6 +93,12 @@ type Deps struct {
 	// domain must publish (config smtp.domain).
 	SMTPDomain string
 
+	// webhooks
+	CreateWebhook func(ctx context.Context, userID, url, description string, events []string, filters identity.WebhookFilters) (*identity.Webhook, error)
+	ListWebhooks  func(ctx context.Context, userID string) ([]identity.Webhook, error)
+	GetWebhook    func(ctx context.Context, webhookID, userID string) (*identity.Webhook, error)
+	DeleteWebhook func(ctx context.Context, webhookID, userID string) error
+
 	// domain verification
 	TouchDomainChecked func(ctx context.Context, domain, userID string) error
 	VerifyDomain       func(ctx context.Context, domain, userID string) error
@@ -190,6 +196,7 @@ func (s *Server) registerOperations() {
 	s.registerConversations()
 	s.registerAgentWrites()
 	s.registerDomains()
+	s.registerWebhooks()
 }
 
 // reqCtxKey carries the raw *http.Request through to Huma handlers so they

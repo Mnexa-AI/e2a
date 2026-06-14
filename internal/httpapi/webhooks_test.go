@@ -1,0 +1,134 @@
+package httpapi
+
+import (
+	"net/http"
+	"testing"
+)
+
+func TestCreateWebhookReturnsSecret(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/webhooks", "good", map[string]any{
+		"url": "https://example.com/hook", "events": []string{"email.received"},
+	})
+	if code != 201 {
+		t.Fatalf("status %d body %v", code, body)
+	}
+	if body["signing_secret"] != "whsec_xyz" {
+		t.Fatalf("create must return signing_secret, got %v", body)
+	}
+}
+
+func TestCreateWebhookRejectsSSRF(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/webhooks", "good", map[string]any{
+		"url": "http://example.com/hook", "events": []string{"email.received"},
+	})
+	if code != 400 || errCode(body) != "invalid_webhook_url" {
+		t.Fatalf("want 400 invalid_webhook_url, got %d %v", code, body)
+	}
+}
+
+func TestCreateWebhookNoEvents(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/webhooks", "good", map[string]any{
+		"url": "https://example.com/hook", "events": []string{},
+	})
+	if code != 400 {
+		t.Fatalf("want 400, got %d %v", code, body)
+	}
+}
+
+func TestCreateWebhookInvalidEventType(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/webhooks", "good", map[string]any{
+		"url": "https://example.com/hook", "events": []string{"email.invented"},
+	})
+	if code != 400 || errCode(body) != "invalid_event_type" {
+		t.Fatalf("want 400 invalid_event_type, got %d %v", code, body)
+	}
+}
+
+func TestCreateWebhookUnownedAgentFilter(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/webhooks", "good", map[string]any{
+		"url": "https://example.com/hook", "events": []string{"email.received"},
+		"filters": map[string]any{"agent_ids": []string{"someone-else@x.com"}},
+	})
+	if code != 400 {
+		t.Fatalf("want 400 for unowned agent filter, got %d %v", code, body)
+	}
+}
+
+func TestCreateWebhookOwnedAgentFilter(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/webhooks", "good", map[string]any{
+		"url": "https://example.com/hook", "events": []string{"email.received"},
+		"filters": map[string]any{"agent_ids": []string{"support@acme.com"}},
+	})
+	if code != 201 {
+		t.Fatalf("owned agent filter should be accepted, got %d %v", code, body)
+	}
+}
+
+func TestCreateWebhookCapReached(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/webhooks", "good", map[string]any{
+		"url": "https://example.com/capped", "events": []string{"email.received"},
+	})
+	if code != 400 || errCode(body) != "webhook_cap_reached" {
+		t.Fatalf("want 400 webhook_cap_reached, got %d %v", code, body)
+	}
+}
+
+func TestListWebhooksHidesSecret(t *testing.T) {
+	srv := testServer(t)
+	code, body := getJSON(t, srv.URL+"/v1/webhooks", "good")
+	if code != 200 {
+		t.Fatalf("status %d", code)
+	}
+	hooks, _ := body["webhooks"].([]any)
+	if len(hooks) != 1 {
+		t.Fatalf("want 1 webhook, got %d", len(hooks))
+	}
+	if _, present := hooks[0].(map[string]any)["signing_secret"]; present {
+		t.Fatal("list must NOT expose signing_secret")
+	}
+}
+
+func TestGetWebhookHidesSecret(t *testing.T) {
+	srv := testServer(t)
+	code, body := getJSON(t, srv.URL+"/v1/webhooks/wh_1", "good")
+	if code != 200 {
+		t.Fatalf("status %d", code)
+	}
+	if _, present := body["signing_secret"]; present {
+		t.Fatal("get must NOT expose signing_secret")
+	}
+}
+
+func TestGetWebhookNotFound(t *testing.T) {
+	srv := testServer(t)
+	code, _ := getJSON(t, srv.URL+"/v1/webhooks/wh_missing", "good")
+	if code != 404 {
+		t.Fatalf("want 404, got %d", code)
+	}
+}
+
+func TestDeleteWebhook(t *testing.T) {
+	srv := testServer(t)
+	req, _ := http.NewRequest("DELETE", srv.URL+"/v1/webhooks/wh_1", nil)
+	req.Header.Set("Authorization", "Bearer good")
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != 204 {
+		t.Fatalf("want 204, got %d", resp.StatusCode)
+	}
+}
+
+func TestDeleteWebhookNotFound(t *testing.T) {
+	srv := testServer(t)
+	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/webhooks/wh_missing", "good", nil)
+	if code != 404 {
+		t.Fatalf("want 404, got %d", code)
+	}
+}

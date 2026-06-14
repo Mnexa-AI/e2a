@@ -317,8 +317,13 @@ func main() {
 		DeleteDomain:        store.DeleteDomain,
 		HasAgentsOnDomain:   store.HasAgentsOnDomain,
 		SMTPDomain:          cfg.SMTP.Domain,
-		TouchDomainChecked:  store.TouchDomainLastChecked,
-		VerifyDomain:        store.VerifyDomain,
+		CreateWebhook:       store.CreateWebhook,
+		ListWebhooks:        store.ListWebhooksByUser,
+		GetWebhook:          store.GetWebhookByID,
+		DeleteWebhook:       store.DeleteWebhook,
+
+		TouchDomainChecked: store.TouchDomainLastChecked,
+		VerifyDomain:       store.VerifyDomain,
 		VerifyProbe: func(domain, token, dkimSel, dkimKey string) httpapi.DomainCheckResult {
 			c := agent.CheckDomainRecords(domain, cfg.SMTP.Domain, token, dkimSel, dkimKey, cfg.IsProduction())
 			return httpapi.DomainCheckResult{TXTFound: c.TXTFound, MX: c.MX, SPF: c.SPF, DKIM: c.DKIM}

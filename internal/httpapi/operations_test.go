@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -158,9 +159,30 @@ func testServer(t *testing.T) *httptest.Server {
 			}
 			return nil
 		},
-		DeleteDomain:       func(ctx context.Context, domain, userID string) error { return nil },
-		HasAgentsOnDomain:  func(ctx context.Context, domain, userID string) (bool, error) { return domain == "busy.com", nil },
-		SMTPDomain:         "mx.e2a.dev",
+		DeleteDomain:      func(ctx context.Context, domain, userID string) error { return nil },
+		HasAgentsOnDomain: func(ctx context.Context, domain, userID string) (bool, error) { return domain == "busy.com", nil },
+		SMTPDomain:        "mx.e2a.dev",
+		CreateWebhook: func(ctx context.Context, userID, url, description string, events []string, filters identity.WebhookFilters) (*identity.Webhook, error) {
+			if strings.Contains(url, "capped") {
+				return nil, identity.ErrWebhookCapReached
+			}
+			return &identity.Webhook{ID: "wh_1", URL: url, Description: description, Events: events, Filters: filters, SigningSecret: "whsec_xyz", Enabled: true, CreatedAt: time.Unix(1700000000, 0).UTC()}, nil
+		},
+		ListWebhooks: func(ctx context.Context, userID string) ([]identity.Webhook, error) {
+			return []identity.Webhook{{ID: "wh_1", URL: "https://x.com/h", Events: []string{"email.received"}, Enabled: true, SigningSecret: "whsec_should_be_hidden", CreatedAt: time.Unix(1700000000, 0).UTC()}}, nil
+		},
+		GetWebhook: func(ctx context.Context, webhookID, userID string) (*identity.Webhook, error) {
+			if webhookID == "wh_1" {
+				return &identity.Webhook{ID: "wh_1", URL: "https://x.com/h", Events: []string{"email.received"}, Enabled: true, SigningSecret: "whsec_should_be_hidden", CreatedAt: time.Unix(1700000000, 0).UTC()}, nil
+			}
+			return nil, identity.ErrWebhookNotFound
+		},
+		DeleteWebhook: func(ctx context.Context, webhookID, userID string) error {
+			if webhookID == "wh_1" {
+				return nil
+			}
+			return identity.ErrWebhookNotFound
+		},
 		TouchDomainChecked: func(ctx context.Context, domain, userID string) error { return nil },
 		VerifyDomain:       func(ctx context.Context, domain, userID string) error { return nil },
 		VerifyProbe: func(domain, token, dkimSel, dkimKey string) DomainCheckResult {
