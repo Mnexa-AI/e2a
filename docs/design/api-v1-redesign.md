@@ -288,7 +288,13 @@ relative to that base):
      (rides the §4 event system) when inbound fails policy, so operators get a
      signal instead of silence.
 10. **Inbound trust policy — gateway-enforced (Slice 7).** A graded, **named**
-   per-agent `inbound_policy`, composing e2a's *existing server-side* primitives
+   per-agent `inbound_policy`. **It is an agent *property*, not a resource** —
+   set via `PATCH /agents/{address}` / `update_agent`, alongside the existing
+   HITL config (`hitl_enabled`, …); no `/inbound-policies` CRUD (§3.2). The
+   `allowlist`/`domain` values are an agent-config array (`inbound_allowlist`),
+   promoted to a sub-collection only if it ever needs to scale. The auto
+   scope-downgrade (below) is runtime behavior derived from the message `auth`
+   verdict — not config. It composes e2a's *existing server-side* primitives
    (the contrast vs Resend's client-side advisory "5 levels" — see below):
    * `open` (default) — process all inbound.
    * `allowlist` / `domain` — coarse sender allow (exact address / domain).
@@ -743,7 +749,7 @@ sees both tiers. The drift-gate map records each tool's tier next to its
 | `whoami` | — | `GET /account` | The authenticated principal. **`GET /account` is scope-filtered:** under `scope=account` it returns the account (identity, plan, limits); under `scope=agent` it returns a **least-privilege view** — the bound agent + plan/limits only, never other agents/domains. No default-agent resolution; discover agents via `list_agents` (a `scope=agent` token lists only its bound agent). |
 | `list_agents` | — | `GET /agents` | |
 | `create_agent` | `address`*, `name?` | `POST /agents` | **Changed:** drop `slug`/`agent_mode`/`webhook_url`; full email on a verified owned domain. (The #206 coverage target — `address` must be exposed.) |
-| `update_agent` | `address?`, `name?`, `hitl_enabled?`, `hitl_ttl_seconds?`, `hitl_expiration_action?` | `PATCH /agents/{address}` | **Changed:** drop `agent_mode`/`webhook_url`. |
+| `update_agent` | `address?`, `name?`, `hitl_enabled?`, `hitl_ttl_seconds?`, `hitl_expiration_action?`, `inbound_policy?`, `inbound_allowlist?` | `PATCH /agents/{address}` | **Changed:** drop `agent_mode`/`webhook_url`. `inbound_policy`/`inbound_allowlist` are agent config (decision 10), not a resource. |
 | `delete_agent` | `address?`, `confirm:true`* | `DELETE /agents/{address}` | Destructive guard kept. |
 
 **Messages (inbound + outbound, one collection)**
