@@ -116,6 +116,11 @@ func (s *Server) handleRedeliverEvent(ctx context.Context, in *RedeliverEventInp
 	// This is a SERVER-MINTED key — runIdempotentAuto namespaces it apart from
 	// caller-supplied Idempotency-Key headers so a crafted header can't poison
 	// (422) a later genuine redelivery of the same event.
+	//
+	// The key (event + webhook) is the discriminator here; the body hash is
+	// constant by design (synthetic route + nil body), so it does no work for
+	// this endpoint — uniqueness/replay is decided entirely by the key. That's
+	// intentional, not a missing body hash.
 	key := "replay:" + in.ID + ":" + webhookID
 	_, body, err := runIdempotentAuto(s, ctx, user.ID, key, "/v1/events/redeliver", nil, func() (int, RedeliverView, error) {
 		row, lerr := s.deps.LoadReplayEvent(ctx, user.ID, in.ID)
