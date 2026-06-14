@@ -1351,6 +1351,22 @@ type dnsRecordCheck struct {
 //     "{selector}._domainkey.{domain}" and matches the stored public
 //     key. Domains without a stored keypair report "deferred" — these
 //     are pre-migration rows that the next claim would key.
+//
+// DNSRecordCheck is the exported diagnostic from CheckDomainRecords.
+type DNSRecordCheck struct {
+	TXTFound bool
+	MX       string
+	SPF      string
+	DKIM     string
+}
+
+// CheckDomainRecords is the exported seam over checkDomainRecords so the v1
+// httpapi layer reuses the exact DNS-probe logic for domain verification.
+func CheckDomainRecords(domain, smtpDomain, verificationToken, dkimSelector, dkimPublicKey string, production bool) DNSRecordCheck {
+	c := checkDomainRecords(domain, smtpDomain, verificationToken, dkimSelector, dkimPublicKey, production)
+	return DNSRecordCheck{TXTFound: c.TXTFound, MX: c.MX, SPF: c.SPF, DKIM: c.DKIM}
+}
+
 func checkDomainRecords(domain, smtpDomain, verificationToken, dkimSelector, dkimPublicKey string, production bool) dnsRecordCheck {
 	if !production {
 		dkimState := "deferred"

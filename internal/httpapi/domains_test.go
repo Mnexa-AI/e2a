@@ -133,3 +133,38 @@ func TestDeleteDomainNotFound(t *testing.T) {
 		t.Fatalf("want 404, got %d", code)
 	}
 }
+
+func TestVerifyDomainAlreadyVerified(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/domains/acme.com/verify", "good", nil)
+	if code != 200 || body["verified"] != true {
+		t.Fatalf("want 200 verified, got %d %v", code, body)
+	}
+}
+
+func TestVerifyDomainTXTMissing(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/domains/pending.com/verify", "good", nil)
+	if code != 412 || body["verified"] != false {
+		t.Fatalf("want 412 not-verified, got %d %v", code, body)
+	}
+	if body["mx"] != "missing" {
+		t.Fatalf("expected diagnostic in 412 body, got %v", body)
+	}
+}
+
+func TestVerifyDomainSuccess(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/domains/fresh.com/verify", "good", nil)
+	if code != 200 || body["verified"] != true {
+		t.Fatalf("want 200 verified, got %d %v", code, body)
+	}
+}
+
+func TestVerifyDomainNotFound(t *testing.T) {
+	srv := testServer(t)
+	code, _ := postJSON(t, srv.URL+"/v1/domains/unknown.com/verify", "good", nil)
+	if code != 404 {
+		t.Fatalf("want 404, got %d", code)
+	}
+}

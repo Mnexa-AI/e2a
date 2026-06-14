@@ -133,6 +133,9 @@ func testServer(t *testing.T) *httptest.Server {
 				return &identity.Domain{Domain: domain, Verified: false}, nil
 			case "busy.com":
 				return &identity.Domain{Domain: domain, Verified: true}, nil
+			case "fresh.com":
+				// Registered, TXT published, not yet marked verified.
+				return &identity.Domain{Domain: domain, Verified: false, VerificationToken: "e2a-verify=fresh"}, nil
 			default:
 				return nil, errors.New("not registered")
 			}
@@ -155,9 +158,18 @@ func testServer(t *testing.T) *httptest.Server {
 			}
 			return nil
 		},
-		DeleteDomain:      func(ctx context.Context, domain, userID string) error { return nil },
-		HasAgentsOnDomain: func(ctx context.Context, domain, userID string) (bool, error) { return domain == "busy.com", nil },
-		SMTPDomain:        "mx.e2a.dev",
+		DeleteDomain:       func(ctx context.Context, domain, userID string) error { return nil },
+		HasAgentsOnDomain:  func(ctx context.Context, domain, userID string) (bool, error) { return domain == "busy.com", nil },
+		SMTPDomain:         "mx.e2a.dev",
+		TouchDomainChecked: func(ctx context.Context, domain, userID string) error { return nil },
+		VerifyDomain:       func(ctx context.Context, domain, userID string) error { return nil },
+		VerifyProbe: func(domain, token, dkimSel, dkimKey string) DomainCheckResult {
+			// "pending.com" has not published its TXT yet; everything else has.
+			if domain == "pending.com" {
+				return DomainCheckResult{TXTFound: false, MX: "missing", SPF: "missing", DKIM: "missing"}
+			}
+			return DomainCheckResult{TXTFound: true, MX: "found", SPF: "found", DKIM: "found"}
+		},
 		CreateAgent: func(ctx context.Context, email, domain, name, webhookURL, agentMode, userID string) (*identity.AgentIdentity, error) {
 			if email == "dupe@acme.com" {
 				return nil, errors.New("duplicate key value")

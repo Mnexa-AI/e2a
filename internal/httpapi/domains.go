@@ -65,6 +65,24 @@ func (s *Server) domainView(d *identity.Domain) DomainView {
 	}
 }
 
+// DomainCheckResult is the live-DNS diagnostic surfaced by verify.
+type DomainCheckResult struct {
+	TXTFound bool
+	MX       string
+	SPF      string
+	DKIM     string
+}
+
+// VerifyDomainView mirrors the legacy VerifyDomainResponse.
+type VerifyDomainView struct {
+	Domain     string     `json:"domain"`
+	Verified   bool       `json:"verified"`
+	VerifiedAt *time.Time `json:"verified_at,omitempty"`
+	MX         string     `json:"mx,omitempty"`
+	SPF        string     `json:"spf,omitempty"`
+	DKIM       string     `json:"dkim,omitempty"`
+}
+
 type listDomainsOutput struct {
 	Body struct {
 		Domains []DomainView `json:"domains"`
@@ -109,6 +127,64 @@ func (s *Server) registerDomains() {
 		Summary: "Delete a domain", Tags: []string{"domains"},
 		Security: []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
 	}, s.handleDeleteDomain)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "verifyDomain", Method: http.MethodPost, Path: "/v1/domains/{domain}/verify",
+		Summary: "Verify a domain", Tags: []string{"domains"},
+		Description: "Probe the domain's published DNS and, when the verification TXT is present, mark it verified. Returns the per-record diagnostic; a missing TXT yields 412.",
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleVerifyDomain)
+}
+
+// verifyDomainOutput uses Huma's special Status field to switch between 200
+// (verified / already-verified) and 412 (TXT not yet published).
+type verifyDomainOutput struct {
+	Status int
+	Body   VerifyDomainView
+}
+
+func (s *Server) handleVerifyDomain(ctx context.Context, in *DomainParam) (*verifyDomainOutput, error) {
+	user, err := s.requireUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	d, err := s.deps.LookupDomain(ctx, in.Domain, user.ID)
+	if err != nil || d == nil {
+		return nil, NewError(http.StatusNotFound, "not_found", "domain not found")
+	}
+	// Best-effort touch of last_checked_at — the probe runs regardless.
+	if s.deps.TouchDomainChecked != nil {
+		_ = s.deps.TouchDomainChecked(ctx, in.Domain, user.ID)
+	}
+	check := s.deps.VerifyProbe(in.Domain, d.VerificationToken, d.DKIMSelector, d.DKIMPublicKey)
+
+	// Already verified: short-circuit but surface the latest diagnostic.
+	if d.Verified {
+		return &verifyDomainOutput{Status: http.StatusOK, Body: VerifyDomainView{
+			Domain: d.Domain, Verified: true, VerifiedAt: d.VerifiedAt,
+			MX: check.MX, SPF: check.SPF, DKIM: check.DKIM,
+		}}, nil
+	}
+	// Missing TXT: 412 with the diagnostic so callers see what's missing.
+	if !check.TXTFound {
+		return &verifyDomainOutput{Status: http.StatusPreconditionFailed, Body: VerifyDomainView{
+			Domain: d.Domain, Verified: false, MX: check.MX, SPF: check.SPF, DKIM: check.DKIM,
+		}}, nil
+	}
+	if err := s.deps.VerifyDomain(ctx, in.Domain, user.ID); err != nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to verify domain")
+	}
+	// Re-read for verified_at; fall back to the bare success shape.
+	updated, err := s.deps.LookupDomain(ctx, in.Domain, user.ID)
+	if err != nil || updated == nil {
+		return &verifyDomainOutput{Status: http.StatusOK, Body: VerifyDomainView{
+			Domain: in.Domain, Verified: true, MX: check.MX, SPF: check.SPF, DKIM: check.DKIM,
+		}}, nil
+	}
+	return &verifyDomainOutput{Status: http.StatusOK, Body: VerifyDomainView{
+		Domain: updated.Domain, Verified: true, VerifiedAt: updated.VerifiedAt,
+		MX: check.MX, SPF: check.SPF, DKIM: check.DKIM,
+	}}, nil
 }
 
 func (s *Server) handleListDomains(ctx context.Context, _ *struct{}) (*listDomainsOutput, error) {

@@ -93,6 +93,14 @@ type Deps struct {
 	// domain must publish (config smtp.domain).
 	SMTPDomain string
 
+	// domain verification
+	TouchDomainChecked func(ctx context.Context, domain, userID string) error
+	VerifyDomain       func(ctx context.Context, domain, userID string) error
+	// VerifyProbe runs the live DNS check for a domain's published records.
+	// Injected so it is fakeable in tests (the real one wraps
+	// agent.CheckDomainRecords).
+	VerifyProbe func(domain, verificationToken, dkimSelector, dkimPublicKey string) DomainCheckResult
+
 	// Deployment info surfaced by GET /v1/info (unchanged shape from the
 	// legacy /api/v1/info while we are in the consistency-only slice).
 	SharedDomain string

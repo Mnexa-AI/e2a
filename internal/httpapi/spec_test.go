@@ -35,6 +35,8 @@ func TestSpecGeneratedFromHandlers(t *testing.T) {
 		"operationId: listDomains",
 		"operationId: registerDomain",
 		"operationId: deleteDomain",
+		"operationId: verifyDomain",
+		"/v1/domains/{domain}/verify",
 		"/v1/domains",
 		"/v1/domains/{domain}",
 		"/v1/info",
