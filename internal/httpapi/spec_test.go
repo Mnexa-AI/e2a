@@ -43,6 +43,8 @@ func TestSpecGeneratedFromHandlers(t *testing.T) {
 		"operationId: rotateWebhookSecret",
 		"operationId: listEvents",
 		"operationId: getEvent",
+		"operationId: getMyLimits",
+		"/v1/users/me/limits",
 		"/v1/events",
 		"/v1/events/{id}",
 		"/v1/webhooks",

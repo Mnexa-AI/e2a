@@ -7,6 +7,7 @@ import (
 
 	"github.com/Mnexa-AI/e2a/internal/agent"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
@@ -94,6 +95,10 @@ type Deps struct {
 	// SMTPDomain is the relay's MX host, surfaced in the DNS records a
 	// domain must publish (config smtp.domain).
 	SMTPDomain string
+
+	// account
+	GetLimits func(ctx context.Context, userID string) (limits.Limits, error)
+	GetUsage  func(ctx context.Context, userID string) LimitsUsageView
 
 	// events (delivery log). EventQuery carries the filters + cursor
 	// position; the closures bind the events pool in main.
@@ -207,6 +212,7 @@ func (s *Server) registerOperations() {
 	s.registerDomains()
 	s.registerWebhooks()
 	s.registerEvents()
+	s.registerAccount()
 }
 
 // reqCtxKey carries the raw *http.Request through to Huma handlers so they

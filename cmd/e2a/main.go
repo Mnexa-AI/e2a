@@ -317,6 +317,24 @@ func main() {
 		DeleteDomain:        store.DeleteDomain,
 		HasAgentsOnDomain:   store.HasAgentsOnDomain,
 		SMTPDomain:          cfg.SMTP.Domain,
+		GetLimits:           enforcer.Get,
+		GetUsage: func(ctx context.Context, userID string) httpapi.LimitsUsageView {
+			var u httpapi.LimitsUsageView
+			if n, err := usageStore.CountAgentsByUser(ctx, userID); err == nil {
+				u.Agents = n
+			}
+			if n, err := usageStore.CountDomainsByUser(ctx, userID); err == nil {
+				u.Domains = n
+			}
+			if n, err := usageStore.MessagesThisMonth(ctx, userID); err == nil {
+				u.MessagesMonth = n
+			}
+			if n, err := usageStore.GetStorageBytes(ctx, userID); err == nil {
+				u.StorageBytes = n
+			}
+			return u
+		},
+
 		ListEvents: func(ctx context.Context, q httpapi.EventQuery) ([]agent.EventJSON, error) {
 			return agent.ListEventsForUser(ctx, pool, q.UserID, q.Type, q.AgentID, q.ConversationID, q.MessageID, q.Since, q.Until, q.CursorCreatedAt, q.CursorID, q.Limit)
 		},

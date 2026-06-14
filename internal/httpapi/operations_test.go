@@ -163,6 +163,12 @@ func testServer(t *testing.T) *httptest.Server {
 		DeleteDomain:      func(ctx context.Context, domain, userID string) error { return nil },
 		HasAgentsOnDomain: func(ctx context.Context, domain, userID string) (bool, error) { return domain == "busy.com", nil },
 		SMTPDomain:        "mx.e2a.dev",
+		GetLimits: func(ctx context.Context, userID string) (limits.Limits, error) {
+			return limits.Limits{PlanCode: "pro", MaxAgents: 10, MaxDomains: 5, MaxMessagesMonth: 1000, MaxStorageBytes: 1 << 30, UpgradeURL: "https://e2a.dev/upgrade"}, nil
+		},
+		GetUsage: func(ctx context.Context, userID string) LimitsUsageView {
+			return LimitsUsageView{Agents: 2, Domains: 1, MessagesMonth: 42, StorageBytes: 1234}
+		},
 		ListEvents: func(ctx context.Context, q EventQuery) ([]agent.EventJSON, error) {
 			// Two events, honoring Limit + cursor (CursorID) so the
 			// cursor round-trip is exercised.
