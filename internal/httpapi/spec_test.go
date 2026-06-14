@@ -92,7 +92,6 @@ func TestSpecGeneratedFromHandlers(t *testing.T) {
 		"operationId: approveMessage",
 		"operationId: rejectMessage",
 		"operationId: testAgent",
-		"/v1/send",
 		"/v1/users/me/limits",
 		"/v1/events",
 		"/v1/events/{id}",

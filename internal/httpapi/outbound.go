@@ -35,7 +35,8 @@ type SendEmailRequest struct {
 	Attachments    []outbound.Attachment `json:"attachments,omitempty"`
 }
 
-type sendInput struct {
+type createMessageInput struct {
+	Address        string `path:"address"`
 	RawBody        []byte
 	IdempotencyKey string `header:"Idempotency-Key"`
 	Body           SendEmailRequest
@@ -48,11 +49,11 @@ type sendOutput struct {
 
 func (s *Server) registerOutbound() {
 	huma.Register(s.API, huma.Operation{
-		OperationID: "sendMessage", Method: http.MethodPost, Path: "/v1/send",
+		OperationID: "sendMessage", Method: http.MethodPost, Path: "/v1/agents/{address}/messages",
 		Summary: "Send a new email", Tags: []string{"messages"},
-		Description: "Send a new email from an agent you own. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.",
+		Description: "Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.",
 		Security:    []map[string][]string{{"bearer": {}}},
-	}, s.handleSend)
+	}, s.handleCreateMessage)
 
 	huma.Register(s.API, huma.Operation{
 		OperationID: "replyToMessage", Method: http.MethodPost, Path: "/v1/agents/{address}/messages/{id}/reply",
@@ -266,27 +267,6 @@ func (s *Server) validateOutboundBody(subject, body string, to, cc, bcc []string
 	return nil
 }
 
-// resolveSendAgent resolves the sending agent from the explicit `from`
-// address, or auto-selects when the caller owns exactly one agent (legacy
-// behavior preserved for /send in Slice 1).
-func (s *Server) resolveSendAgent(ctx context.Context, user *identity.User, from string) (*identity.AgentIdentity, *ErrorEnvelope) {
-	if from != "" {
-		ag, err := s.deps.GetAgent(ctx, identity.NormalizeEmail(from))
-		if err != nil || ag == nil || ag.UserID != user.ID {
-			return nil, NewError(http.StatusBadRequest, "invalid_from", "invalid from: agent not found")
-		}
-		return ag, nil
-	}
-	agents, err := s.deps.ListAgents(ctx, user.ID)
-	if err != nil || len(agents) == 0 {
-		return nil, NewError(http.StatusBadRequest, "invalid_request", "from field required (no agents found)")
-	}
-	if len(agents) > 1 {
-		return nil, NewError(http.StatusBadRequest, "invalid_request", "from field required when user has multiple agents")
-	}
-	return &agents[0], nil
-}
-
 // deliver runs the domain-verified + enforce-cap checks then DeliverOutbound
 // under the idempotency handshake, mapping the OutboundResult to the wire view.
 func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyTo, route, idemKey string, rawBody []byte) (*sendOutput, error) {
@@ -344,22 +324,33 @@ func (s *Server) checkSendLimit(agentID string) *ErrorEnvelope {
 		WithDetails(map[string]any{"retry_after_seconds": secs})
 }
 
-func (s *Server) handleSend(ctx context.Context, in *sendInput) (*sendOutput, error) {
-	user, err := s.requireUser(ctx)
+func (s *Server) handleCreateMessage(ctx context.Context, in *createMessageInput) (*sendOutput, error) {
+	ag, err := s.resolveOwnedAgent(ctx, in.Address)
 	if err != nil {
 		return nil, err
+	}
+	user, uerr := s.requireUser(ctx)
+	if uerr != nil {
+		return nil, uerr
 	}
 	b := in.Body
 	if env := s.validateOutboundBody(b.Subject, b.Body, b.To, b.CC, b.BCC, b.ConversationID); env != nil {
 		return nil, env
 	}
-	ag, env := s.resolveSendAgent(ctx, user, b.From)
-	if env != nil {
-		return nil, env
+	// The sender is the path agent. A supplied `from` must be the agent's own
+	// address — never a different identity (no spoofing; decision 3: `from`
+	// defaults to the agent address). Custom-domain display From is decision 4.
+	if b.From != "" && identity.NormalizeEmail(b.From) != identity.NormalizeEmail(ag.EmailAddress()) {
+		return nil, NewError(http.StatusBadRequest, "invalid_from", "from must be the agent's own address")
 	}
 	req := outbound.SendRequest{
-		From: b.From, To: b.To, CC: b.CC, BCC: b.BCC, Subject: b.Subject,
+		From: ag.EmailAddress(), To: b.To, CC: b.CC, BCC: b.BCC, Subject: b.Subject,
 		Body: b.Body, HTMLBody: b.HTMLBody, ConversationID: b.ConversationID, Attachments: b.Attachments,
 	}
-	return s.deliver(ctx, user, ag, req, "send", "", "/v1/send", in.IdempotencyKey, in.RawBody)
+	// The agent moved from the body (`from`) to the path, so fold the agent id
+	// into the idempotency route — otherwise two agents owned by the same user
+	// could collide on an identical key+body (the body hash alone no longer
+	// separates them).
+	route := "/v1/agents/" + ag.ID + "/messages"
+	return s.deliver(ctx, user, ag, req, "send", "", route, in.IdempotencyKey, in.RawBody)
 }

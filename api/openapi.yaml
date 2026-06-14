@@ -1809,6 +1809,48 @@ paths:
       summary: List messages
       tags:
         - messages
+    post:
+      description: Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.
+      operationId: sendMessage
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: Idempotency-Key
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendEmailRequest"
+          application/octet-stream:
+            schema:
+              contentMediaType: application/octet-stream
+              format: binary
+              type: string
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResultView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Send a new email
+      tags:
+        - messages
   /v1/agents/{address}/messages/{id}:
     get:
       description: Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.
@@ -2367,44 +2409,6 @@ paths:
       summary: Deployment info
       tags:
         - meta
-  /v1/send:
-    post:
-      description: Send a new email from an agent you own. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.
-      operationId: sendMessage
-      parameters:
-        - in: header
-          name: Idempotency-Key
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SendEmailRequest"
-          application/octet-stream:
-            schema:
-              contentMediaType: application/octet-stream
-              format: binary
-              type: string
-        required: true
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SendResultView"
-          description: OK
-        default:
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
-      security:
-        - bearer: []
-      summary: Send a new email
-      tags:
-        - messages
   /v1/users/me:
     delete:
       description: Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
