@@ -8,6 +8,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/agent"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/limits"
+	"github.com/Mnexa-AI/e2a/internal/webhook"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
@@ -119,6 +120,11 @@ type Deps struct {
 	UpdateWebhook func(ctx context.Context, webhookID, userID string, u identity.WebhookUpdate) (*identity.Webhook, error)
 	DeleteWebhook func(ctx context.Context, webhookID, userID string) error
 	RotateSecret  func(ctx context.Context, webhookID, userID string) (string, time.Time, error)
+	// TestWebhookInsert schedules a synthetic delivery (subscriberStore.
+	// InsertPendingForTest). ListDeliveries reads the per-webhook delivery
+	// log (subscriberStore.ListDeliveriesByWebhook).
+	TestWebhookInsert func(ctx context.Context, webhookID, eventType string, envelope []byte) (string, error)
+	ListDeliveries    func(ctx context.Context, webhookID, status string, limit int) ([]webhook.SubscriberDelivery, error)
 
 	// domain verification
 	TouchDomainChecked func(ctx context.Context, domain, userID string) error

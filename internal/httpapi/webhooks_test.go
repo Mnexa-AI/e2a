@@ -189,3 +189,50 @@ func TestRotateWebhookSecretNotFound(t *testing.T) {
 		t.Fatalf("want 404, got %d", code)
 	}
 }
+
+func TestTestWebhook(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/webhooks/wh_1/test", "good", map[string]any{"event": "email.received"})
+	if code != 200 || body["delivery_id"] != "whd_test_1" {
+		t.Fatalf("want 200 delivery_id, got %d %v", code, body)
+	}
+}
+
+func TestTestWebhookInvalidEvent(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/webhooks/wh_1/test", "good", map[string]any{"event": "email.invented"})
+	if code != 400 || errCode(body) != "invalid_event_type" {
+		t.Fatalf("want 400 invalid_event_type, got %d %v", code, body)
+	}
+}
+
+func TestTestWebhookNotFound(t *testing.T) {
+	srv := testServer(t)
+	code, _ := postJSON(t, srv.URL+"/v1/webhooks/wh_missing/test", "good", map[string]any{})
+	if code != 404 {
+		t.Fatalf("want 404, got %d", code)
+	}
+}
+
+func TestListWebhookDeliveries(t *testing.T) {
+	srv := testServer(t)
+	code, body := getJSON(t, srv.URL+"/v1/webhooks/wh_1/deliveries", "good")
+	if code != 200 {
+		t.Fatalf("status %d body %v", code, body)
+	}
+	items, _ := body["items"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["id"] != "whd_1" {
+		t.Fatalf("unexpected deliveries: %v", body)
+	}
+	if body["next_cursor"] != nil {
+		t.Fatalf("expected null next_cursor, got %v", body["next_cursor"])
+	}
+}
+
+func TestListWebhookDeliveriesNotFound(t *testing.T) {
+	srv := testServer(t)
+	code, _ := getJSON(t, srv.URL+"/v1/webhooks/wh_missing/deliveries", "good")
+	if code != 404 {
+		t.Fatalf("want 404, got %d", code)
+	}
+}

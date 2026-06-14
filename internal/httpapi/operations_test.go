@@ -14,6 +14,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/agent"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/limits"
+	"github.com/Mnexa-AI/e2a/internal/webhook"
 )
 
 // sampleAgent is the canonical fixture agent owned by user u_1.
@@ -254,6 +255,14 @@ func testServer(t *testing.T) *httptest.Server {
 				return "whsec_rotated", time.Unix(1700086400, 0).UTC(), nil
 			}
 			return "", time.Time{}, identity.ErrWebhookNotFound
+		},
+		TestWebhookInsert: func(ctx context.Context, webhookID, eventType string, envelope []byte) (string, error) {
+			return "whd_test_1", nil
+		},
+		ListDeliveries: func(ctx context.Context, webhookID, status string, limit int) ([]webhook.SubscriberDelivery, error) {
+			return []webhook.SubscriberDelivery{
+				{ID: "whd_1", EventType: "email.received", Status: "delivered", Attempts: 1, NextRetryAt: time.Unix(1700000000, 0).UTC(), CreatedAt: time.Unix(1700000000, 0).UTC()},
+			}, nil
 		},
 		TouchDomainChecked: func(ctx context.Context, domain, userID string) error { return nil },
 		VerifyDomain:       func(ctx context.Context, domain, userID string) error { return nil },

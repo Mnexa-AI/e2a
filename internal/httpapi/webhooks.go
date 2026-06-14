@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -225,6 +226,133 @@ func (s *Server) registerWebhooks() {
 		Description: "Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once).",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleRotateWebhookSecret)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "testWebhook", Method: http.MethodPost, Path: "/v1/webhooks/{id}/test",
+		Summary: "Fire a synthetic event", Tags: []string{"webhooks"},
+		Description: "Schedule a one-off synthetic delivery to this webhook for development. Returns the delivery id.",
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleTestWebhook)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "listWebhookDeliveries", Method: http.MethodGet, Path: "/v1/webhooks/{id}/deliveries",
+		Summary: "List webhook deliveries", Tags: []string{"webhooks"},
+		Description: "The per-webhook delivery log (read-only debug view).",
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleListWebhookDeliveries)
+}
+
+// TestWebhookRequest mirrors the legacy body.
+type TestWebhookRequest struct {
+	Event string         `json:"event,omitempty"`
+	Data  map[string]any `json:"data,omitempty"`
+}
+type testWebhookInput struct {
+	ID   string `path:"id"`
+	Body TestWebhookRequest
+}
+type testWebhookOutput struct {
+	Body struct {
+		DeliveryID string `json:"delivery_id"`
+	}
+}
+
+func (s *Server) handleTestWebhook(ctx context.Context, in *testWebhookInput) (*testWebhookOutput, error) {
+	user, err := s.requireUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.deps.TestWebhookInsert == nil {
+		return nil, NewError(http.StatusNotFound, "not_found", "test endpoint not configured")
+	}
+	wh, err := s.deps.GetWebhook(ctx, in.ID, user.ID)
+	if err != nil || wh == nil {
+		return nil, NewError(http.StatusNotFound, "not_found", "webhook not found")
+	}
+	if !wh.Enabled {
+		return nil, NewError(http.StatusConflict, "webhook_disabled", "webhook is disabled")
+	}
+	event := in.Body.Event
+	if event == "" {
+		event = webhookpub.EventEmailReceived
+	}
+	if !webhookpub.IsValidEventType(event) {
+		return nil, NewError(http.StatusBadRequest, "invalid_event_type", fmt.Sprintf("unknown event type %q", event))
+	}
+	data := in.Body.Data
+	if data == nil {
+		data = map[string]any{"test": true}
+	}
+	envelope, err := json.Marshal(webhookpub.NewEvent(event, user.ID, data).AsEnvelope())
+	if err != nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to marshal test event")
+	}
+	deliveryID, err := s.deps.TestWebhookInsert(ctx, wh.ID, event, envelope)
+	if err != nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to schedule test delivery")
+	}
+	out := &testWebhookOutput{}
+	out.Body.DeliveryID = deliveryID
+	return out, nil
+}
+
+// WebhookDeliveryView mirrors the legacy per-delivery wire shape.
+type WebhookDeliveryView struct {
+	ID             string `json:"id"`
+	EventType      string `json:"event_type"`
+	Status         string `json:"status"`
+	Attempts       int    `json:"attempts"`
+	LastError      string `json:"last_error,omitempty"`
+	LastStatusCode *int   `json:"last_status_code,omitempty"`
+	LastAttemptAt  string `json:"last_attempt_at,omitempty"`
+	NextRetryAt    string `json:"next_retry_at"`
+	CreatedAt      string `json:"created_at"`
+}
+
+type ListDeliveriesInput struct {
+	ID     string `path:"id"`
+	Status string `query:"status" enum:"pending,delivered,failed"`
+	Limit  int    `query:"limit" minimum:"1" maximum:"100" default:"50"`
+}
+type listDeliveriesOutput struct {
+	Body Page[WebhookDeliveryView]
+}
+
+func (s *Server) handleListWebhookDeliveries(ctx context.Context, in *ListDeliveriesInput) (*listDeliveriesOutput, error) {
+	user, err := s.requireUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.deps.ListDeliveries == nil {
+		return nil, NewError(http.StatusNotFound, "not_found", "deliveries endpoint not configured")
+	}
+	// Ownership: deliveries are scoped to a webhook the caller owns.
+	if wh, err := s.deps.GetWebhook(ctx, in.ID, user.ID); err != nil || wh == nil {
+		return nil, NewError(http.StatusNotFound, "not_found", "webhook not found")
+	}
+	limit := in.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.deps.ListDeliveries(ctx, in.ID, in.Status, limit)
+	if err != nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list deliveries")
+	}
+	items := make([]WebhookDeliveryView, 0, len(rows))
+	for _, d := range rows {
+		v := WebhookDeliveryView{
+			ID: d.ID, EventType: d.EventType, Status: d.Status, Attempts: d.Attempts,
+			LastError: d.LastError, LastStatusCode: d.LastStatusCode,
+			NextRetryAt: d.NextRetryAt.UTC().Format(time.RFC3339),
+			CreatedAt:   d.CreatedAt.UTC().Format(time.RFC3339),
+		}
+		if d.LastAttemptAt != nil {
+			v.LastAttemptAt = d.LastAttemptAt.UTC().Format(time.RFC3339)
+		}
+		items = append(items, v)
+	}
+	// No cursor continuation in the store (limit only) — next_cursor null.
+	return &listDeliveriesOutput{Body: NewPage(items, "")}, nil
 }
 
 // UpdateWebhookRequest mirrors the legacy PATCH body — pointer fields so

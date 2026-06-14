@@ -349,12 +349,14 @@ func main() {
 			return agent.InsertReplayDelivery(ctx, pool, eventID, webhookID, eventType, messageID, envelope)
 		},
 
-		CreateWebhook: store.CreateWebhook,
-		ListWebhooks:  store.ListWebhooksByUser,
-		GetWebhook:    store.GetWebhookByID,
-		UpdateWebhook: store.UpdateWebhook,
-		DeleteWebhook: store.DeleteWebhook,
-		RotateSecret:  store.RotateSecret,
+		CreateWebhook:     store.CreateWebhook,
+		ListWebhooks:      store.ListWebhooksByUser,
+		GetWebhook:        store.GetWebhookByID,
+		UpdateWebhook:     store.UpdateWebhook,
+		DeleteWebhook:     store.DeleteWebhook,
+		RotateSecret:      store.RotateSecret,
+		TestWebhookInsert: subscriberStore.InsertPendingForTest,
+		ListDeliveries:    subscriberStore.ListDeliveriesByWebhook,
 
 		TouchDomainChecked: store.TouchDomainLastChecked,
 		VerifyDomain:       store.VerifyDomain,
