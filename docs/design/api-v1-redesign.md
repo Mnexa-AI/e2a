@@ -105,14 +105,14 @@ relative to that base):
 |---|---|
 | **agents** | `GET/POST /agents` · `GET/PATCH/DELETE /agents/{address}` · `POST /agents/{address}/test` (top-level, keyed by full email; create enforces caller owns the verified domain). **DELETE semantics:** discards held drafts (`status=pending_approval`), removes the agent from any webhook `agent_ids` filter, revokes its agent-scoped credentials, and purges/retains inbound per the retention policy — but does **not** touch the domain's SES sending identity (per-domain; decision 4). |
 | **domain's agents** (filtered view) | `GET /domains/{domain}/agents` — list agents on a domain (management view; not a separate identity namespace) |
-| **messages** (per agent; inbound + outbound) | `GET /agents/{address}/messages` (filters incl. `direction`, `status`; held outbound drafts = `status=pending_approval`) · `GET …/messages/{id}` · `GET …/messages/{id}/attachments/{index}` · `PATCH …/messages/{id}` (labels/read) |
+| **messages** (per agent; inbound + outbound) | `GET /agents/{address}/messages` (filters incl. `direction`, `status`, `delivery_status`; held outbound drafts = `status=pending_approval`) · `GET …/messages/{id}` · `GET …/messages/{id}/attachments/{index}` · `PATCH …/messages/{id}` (labels/read). Outbound messages carry **`delivery_status ∈ {queued,sent,delivered,bounced,complained,deferred,failed}`** + `delivery_detail?` (decision 9). Inbound messages carry structured `auth: {spf,dkim,dmarc}`. |
 | **outbound** (unified) | `POST /agents/{address}/messages` — one endpoint for *new thread, reply, and forward*, disambiguated by body (`in_reply_to` / `forward_of` absent ⇒ new) |
 | **conversations** (derived thread view) | `GET /agents/{address}/conversations` · `GET …/conversations/{id}` |
 | **stream** (inbound transport) | `GET /agents/{address}/ws` — WebSocket; first-class + documented (today it's side-registered + mode-gated) |
 | **approvals (HITL)** | `POST /agents/{address}/messages/{id}/approval {decision: approve\|reject}` — the one transition (agents; API-key/OAuth). Held drafts are listed via `GET …/messages?status=pending_approval` and read via the message GET (a held draft is just a message). Human magic link: `GET /approvals/{token}` renders an **HTML confirmation page with NO side effect** (prefetch-safe), whose buttons `POST /approvals/{token} {decision}` into the same transition (token = single-use, short-TTL capability). **Never a mutating GET** — email scanners/prefetchers would auto-trigger it. |
 | **domains** | `GET/POST /domains` · `GET/PATCH/DELETE /domains/{domain}` (DELETE also **deprovisions the SES sending identity** — decision 4) · `POST /domains/{domain}/verify` (ownership + nudges a sending-identity re-check). The domain resource carries two independent statuses: `verified` (inbound/ownership, DNS TXT) and `sending_status ∈ {none,pending,verified,failed}` + `sending_error?` + `dns_records` + `last_checked_at?` (async SES sending identity — see §4 decision 4). `GET /domains/{domain}` is the poll target; no separate status endpoint. Inbound `verified` is **re-checkable** — a periodic ownership re-probe (and `POST /verify`) can flip it back to `false` if the DNS TXT/MX later disappears; it is not sticky-once-true. |
 | **webhooks** | `GET/POST /webhooks` · `GET/PATCH/DELETE /webhooks/{id}` · `…/deliveries` (read-only debug view) · `…/test` · `…/rotate-secret`. **Redelivery is event-scoped** (`POST /events/{id}/redeliver`), not a per-webhook endpoint — one canonical place (§3.2). |
-| **events** (delivery log) | `GET /events` · `GET /events/{id}` · `POST /events/{id}/redeliver` |
+| **events** (delivery log) | `GET /events` · `GET /events/{id}` · `POST /events/{id}/redeliver`. Canonical event vocabulary: `email.received` · `email.sent` · **`email.delivered`** · **`email.bounced`** · **`email.complained`** · `email.pending_approval` · `email.approved` · `email.rejected` · `domain.sending_verified` · `domain.sending_failed` · `agent.credential_revoked` (decision 9 adds the delivery-feedback events). |
 | **account** | `GET /account` (replaces `/info` + `/users/me/limits`; **scope-filtered** — `scope=agent` sees only its bound agent + limits, §6a) · `GET /account/export` · `DELETE /account`. **API-key + signing-secret CRUD are console-only** (human session), not `/v1` endpoints (§5). |
 
 ### Resource relationships
@@ -258,6 +258,25 @@ relative to that base):
    outbound endpoint**, where send/reply/forward share one route — reusing a key
    across a new send and a later reply must 422, never return the send's cached
    response and drop the reply.
+9. **Delivery feedback is first-class (table stakes — Resend and AgentMail both
+   have it).** `send` returning `"sent"` means *accepted by the relay*, not
+   delivered; the redesign closes the loop:
+   * **Consume SES notifications** (SNS → handler) for delivery, bounce
+     (hard/soft), and complaint, keyed back to the outbound message via the VERP
+     Return-Path (decision 4).
+   * **`delivery_status` on outbound messages** —
+     `{queued,sent,delivered,bounced,complained,deferred,failed}` (+
+     `delivery_detail?` with the SES reason). `sent` is explicitly non-terminal;
+     the terminal status arrives async.
+   * **Webhook events** `email.delivered` / `email.bounced` / `email.complained`
+     (decision 2a system), so agents react without polling.
+   * **Suppression list** — hard-bounced/complained addresses are suppressed
+     (future sends to them fail fast with a structured `recipient_suppressed`
+     code) to protect SES reputation, with a **console / `account`-scoped
+     read + remove** surface so a fixed address can be un-suppressed (no
+     permanent dead-end).
+   * **Inbound auth, structured** — surface `auth: {spf,dkim,dmarc}` on inbound
+     messages (DMARC newly evaluated), not just the `X-E2A-Auth-*` blob.
 
 ### HTTP header conventions (audit + decisions)
 
@@ -345,17 +364,13 @@ silent reply bounces. Threading (Message-ID/References), MIME
 (`multipart/alternative`+`/mixed`, UTF-8), and BCC-envelope-only are all correct;
 the gaps, ranked:
 
-1. **Delivery is fire-and-forget — no bounce/complaint/delivery model (MAJOR).**
-   `send` returns `"sent"` on the relay's 250 OK (= accepted by SES, *not*
-   delivered). e2a consumes **no** SES bounce/complaint/delivery notifications,
-   has no outbound `delivery_status`, and the event vocab lacks
-   bounced/complained/delivered. **Fix:** consume SES notifications (SNS →
-   handler), add `delivery_status ∈ {queued,sent,delivered,bounced,complained,
-   deferred,failed}` on outbound messages, emit `email.delivered` /
-   `email.bounced` / `email.complained` **webhook events** (decision 2a system),
-   and maintain a **suppression list** (drop sends to hard-bounced/complained
-   addresses — SES reputation depends on it). `send`'s `"sent"` is explicitly an
-   *accepted*, non-terminal status; the terminal outcome arrives async.
+1. **Delivery is fire-and-forget — no bounce/complaint/delivery model (MAJOR —
+   now first-class in decision 9, Slice 4b).** `send` returns `"sent"` on the
+   relay's 250 OK (= accepted by SES, *not* delivered). Today e2a consumes **no**
+   SES notifications, has no outbound `delivery_status`, and the event vocab lacks
+   bounced/complained/delivered. **§4 decision 9** commits the full fix (SNS
+   consumer → `delivery_status` + delivery events + suppression list); this is
+   table-stakes parity with Resend/AgentMail.
 2. **Outbound `From` defeats DMARC (MAJOR — fully specified in decision 4).**
    Today `From:` = `…via e2a <agent@send.e2a.dev>` and MAIL FROM =
    `send.e2a.dev`, so the From-domain never aligns → DMARC can't pass on the
@@ -363,11 +378,12 @@ the gaps, ranked:
    `via e2a` rewrite (From = the agent's own address), DKIM-aligned DMARC pass
    (`d=` = From-domain via BYODKIM), and an e2a-controlled Return-Path for bounce
    capture (gap #1). Built in Slice 4.
-3. **No inbound DMARC validation (MAJOR).** SPF + DKIM are checked and exposed,
-   but **DMARC is never evaluated** — an agent acting on inbound email gets no
-   alignment/policy signal (spoofing risk). **Fix:** evaluate DMARC on inbound
-   and expose **structured** `auth: {spf, dkim, dmarc ∈ {pass,fail,none}}` on the
-   message resource (not just the `X-E2A-Auth-*` header blob).
+3. **No inbound DMARC validation (MAJOR — folded into decision 9, Slice 4b).**
+   SPF + DKIM are checked and exposed, but **DMARC is never evaluated** — an agent
+   acting on inbound email gets no alignment/policy signal (spoofing risk).
+   Decision 9 evaluates DMARC on inbound and exposes **structured**
+   `auth: {spf, dkim, dmarc ∈ {pass,fail,none}}` on the message resource (not just
+   the `X-E2A-Auth-*` header blob).
 
 **Minor:** add `List-Unsubscribe` + `List-Unsubscribe-Post` one-click (now
 required by Gmail/Yahoo bulk-sender rules; notification senders want it);
@@ -843,6 +859,7 @@ Applying 1 + 6: a runtime agent sees ~13 tools; the full self-host surface 31.
 | `/api/v1/webhooks` (subscriber resource) | **keep, elevate to first-class** | canonical push: event subscriptions, filters, HMAC, deliveries, retries |
 | `GET /agents/{email}/ws` (side-registered, mode-gated) | **promote** | first-class, documented inbound transport |
 | outbound `From` always relay | **change** | agent address when `sending_verified` |
+| no delivery feedback (fire-and-forget send) | **add** | `delivery_status` + `email.delivered/bounced/complained` + suppression list + inbound `auth{spf,dkim,dmarc}` (decision 9, Slice 4b) |
 | error envelopes / pagination (per-handler) | **standardize** | one envelope, cursor pagination |
 | MCP tools (hand-aligned, drifting) | **re-curate + lock** | hand-written but mapped to `operationId` + coverage-checked vs. the spec (§6, §6a) |
 | no OAuth | **add** | OAuth 2.1 hosted MCP |
@@ -869,8 +886,12 @@ Break the current `/api/v1` surface directly and move it to
   symmetric deprovisioning** on domain/account delete (River job →
   `DeleteEmailIdentity`, idempotent, orphan-reaper backstop — decision 4).
   Unblocks customer-reply→reopen.
-* **Slice 5 — OAuth hosted MCP.** OAuth 2.1 (PKCE + refresh), per-agent
-  scope; keep API keys.
+* **Slice 4b — Delivery feedback (decision 9).** SES SNS consumer →
+  `delivery_status` lifecycle on outbound messages + `email.delivered`/
+  `bounced`/`complained` events + suppression list (with account/console
+  read+remove) + structured inbound `auth: {spf,dkim,dmarc}` (DMARC eval).
+  Depends on Slice 4's VERP Return-Path. **Table-stakes parity** with Resend /
+  AgentMail — ship alongside Slice 4, not after.
 * **Slice 6 — Agent-first docs.** `e2a.md`/`llms.txt`/`setup.md`/`auth.md`,
   binary-served; `api.md` generated from the spec.
 
