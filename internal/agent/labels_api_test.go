@@ -77,18 +77,6 @@ func TestUpdateMessageLabels_AddRemoveHappyPath(t *testing.T) {
 	if len(body.Labels) != 2 || body.Labels[0] != want[0] || body.Labels[1] != want[1] {
 		t.Errorf("labels = %v, want %v (lowercased + sorted)", body.Labels, want)
 	}
-
-	// GET the message and confirm the labels are persisted.
-	getReq, _ := http.NewRequest("GET", f.serverURL+"/api/v1/agents/"+f.agentEmail+"/messages/"+f.msgID, nil)
-	getReq.Header.Set("Authorization", "Bearer "+f.apiKey)
-	getResp, _ := http.DefaultClient.Do(getReq)
-	defer getResp.Body.Close()
-	var detail map[string]interface{}
-	json.NewDecoder(getResp.Body).Decode(&detail)
-	labels, _ := detail["labels"].([]interface{})
-	if len(labels) != 2 {
-		t.Errorf("detail labels = %v, want 2 entries", labels)
-	}
 }
 
 func TestUpdateMessageLabels_RejectsSystemPrefix(t *testing.T) {
@@ -198,110 +186,6 @@ func TestUpdateMessageLabels_Unauthorized(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 401 {
 		t.Errorf("status = %d, want 401", resp.StatusCode)
-	}
-}
-
-func TestListMessages_LabelsFilterANDMatch(t *testing.T) {
-	server, store, _ := setupAPI(t)
-	ctx := context.Background()
-	user, _ := store.CreateOrGetUser(ctx, "owner-lblfilter-api@example.com", "Owner", "google-lblfilter-api")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "lblfilter-api-key", nil)
-	store.ClaimOrCreateDomain(ctx, "lblfilter-api.example.com", user.ID)
-	store.VerifyDomain(ctx, "lblfilter-api.example.com", user.ID)
-	agentEmail := "bot@lblfilter-api.example.com"
-	agent, _ := store.CreateAgent(ctx, agentEmail, "lblfilter-api.example.com", "", "https://example.com/webhook", "", user.ID)
-
-	m1, _ := store.CreateInboundMessage(ctx, "", agent.ID, "a@gmail.com", agentEmail, "<m1@gmail.com>", "M1-both", "", "", nil, nil, nil, nil, nil)
-	m2, _ := store.CreateInboundMessage(ctx, "", agent.ID, "a@gmail.com", agentEmail, "<m2@gmail.com>", "M2-urgent-only", "", "", nil, nil, nil, nil, nil)
-	store.CreateInboundMessage(ctx, "", agent.ID, "a@gmail.com", agentEmail, "<m3@gmail.com>", "M3-none", "", "", nil, nil, nil, nil, nil)
-
-	store.ModifyMessageLabels(ctx, m1.ID, agent.ID, []string{"urgent", "follow-up"}, nil)
-	store.ModifyMessageLabels(ctx, m2.ID, agent.ID, []string{"urgent"}, nil)
-
-	// Filter labels=urgent&labels=follow-up — only M1 has both.
-	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/"+agentEmail+"/messages?status=all&direction=all&labels=urgent&labels=follow-up", nil)
-	req.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
-	resp, _ := http.DefaultClient.Do(req)
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-	var listResp struct {
-		Messages []struct {
-			Subject string   `json:"subject"`
-			Labels  []string `json:"labels"`
-		} `json:"messages"`
-	}
-	json.NewDecoder(resp.Body).Decode(&listResp)
-	if len(listResp.Messages) != 1 {
-		t.Fatalf("filtered len = %d, want 1 (AND match)", len(listResp.Messages))
-	}
-	if listResp.Messages[0].Subject != "M1-both" {
-		t.Errorf("filtered subject = %q, want M1-both", listResp.Messages[0].Subject)
-	}
-
-	// Regression: every row in a *no-filter* list must include `labels` field
-	// (never null), even rows with no labels set. Contract for SDK consumers.
-	req2, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/"+agentEmail+"/messages?status=all&direction=all", nil)
-	req2.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
-	resp2, _ := http.DefaultClient.Do(req2)
-	defer resp2.Body.Close()
-	raw, _ := decodeRaw(resp2)
-	// Each message row should have a "labels" key (possibly empty array)
-	// — never absent, never null.
-	if want := []byte(`"labels":`); !bytes.Contains(raw, want) {
-		t.Errorf("response missing \"labels\" key in list rows:\n%s", raw)
-	}
-	if bytes.Contains(raw, []byte(`"labels":null`)) {
-		t.Errorf("response contains \"labels\":null somewhere; must be [] for empty")
-	}
-}
-
-func TestListMessages_LabelsFilterCursorRejectsMismatch(t *testing.T) {
-	// Regression: the cursor encodes the labels filter so a token
-	// issued for ?labels=urgent cannot be replayed against
-	// ?labels=urgent&labels=follow-up. The result set isn't stable
-	// across that change, so accepting the token would silently
-	// skip / duplicate rows.
-	server, store, _ := setupAPI(t)
-	ctx := context.Background()
-	user, _ := store.CreateOrGetUser(ctx, "owner-lblcursor@example.com", "Owner", "google-lblcursor")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "lblcursor-key", nil)
-	store.ClaimOrCreateDomain(ctx, "lblcursor.example.com", user.ID)
-	store.VerifyDomain(ctx, "lblcursor.example.com", user.ID)
-	agentEmail := "bot@lblcursor.example.com"
-	agent, _ := store.CreateAgent(ctx, agentEmail, "lblcursor.example.com", "", "https://example.com/webhook", "", user.ID)
-
-	// Two messages both tagged with `urgent` so page 1 returns one and
-	// emits a next_token.
-	m1, _ := store.CreateInboundMessage(ctx, "", agent.ID, "a@gmail.com", agentEmail, "<m1c@gmail.com>", "M1", "", "", nil, nil, nil, nil, nil)
-	m2, _ := store.CreateInboundMessage(ctx, "", agent.ID, "a@gmail.com", agentEmail, "<m2c@gmail.com>", "M2", "", "", nil, nil, nil, nil, nil)
-	store.ModifyMessageLabels(ctx, m1.ID, agent.ID, []string{"urgent"}, nil)
-	store.ModifyMessageLabels(ctx, m2.ID, agent.ID, []string{"urgent"}, nil)
-
-	// Page 1: one row with labels=urgent.
-	req1, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/"+agentEmail+"/messages?status=all&direction=all&page_size=1&labels=urgent", nil)
-	req1.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
-	resp1, _ := http.DefaultClient.Do(req1)
-	defer resp1.Body.Close()
-	if resp1.StatusCode != 200 {
-		t.Fatalf("page 1 status = %d, want 200", resp1.StatusCode)
-	}
-	var page1 struct {
-		NextToken string `json:"next_token"`
-	}
-	json.NewDecoder(resp1.Body).Decode(&page1)
-	if page1.NextToken == "" {
-		t.Fatal("expected next_token on page 1")
-	}
-
-	// Page 2 with a DIFFERENT labels filter — must 400.
-	req2, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/"+agentEmail+"/messages?status=all&direction=all&page_size=1&labels=urgent&labels=follow-up&token="+page1.NextToken, nil)
-	req2.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
-	resp2, _ := http.DefaultClient.Do(req2)
-	defer resp2.Body.Close()
-	if resp2.StatusCode != 400 {
-		t.Errorf("status = %d, want 400 (label-filter mismatch must reject token)", resp2.StatusCode)
 	}
 }
 
@@ -421,31 +305,6 @@ func TestUpdateMessageLabels_EmptyDeltaReturnsCurrentLabels(t *testing.T) {
 	if len(body.Labels) != 1 || body.Labels[0] != "urgent" {
 		t.Errorf("labels = %v, want [urgent] (no-op must preserve state)", body.Labels)
 	}
-}
-
-func TestListMessages_LabelsFilterInvalidChar(t *testing.T) {
-	server, store, _ := setupAPI(t)
-	ctx := context.Background()
-	user, _ := store.CreateOrGetUser(ctx, "owner-lblfilter-invalid@example.com", "Owner", "google-lblfilter-invalid")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "lblfilter-invalid-key", nil)
-	store.ClaimOrCreateDomain(ctx, "lblfilter-invalid.example.com", user.ID)
-	store.VerifyDomain(ctx, "lblfilter-invalid.example.com", user.ID)
-	store.CreateAgent(ctx, "bot@lblfilter-invalid.example.com", "lblfilter-invalid.example.com", "", "https://example.com/webhook", "", user.ID)
-
-	// Space is not in `[a-z0-9:_-]+`.
-	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/bot@lblfilter-invalid.example.com/messages?labels=hello%20world", nil)
-	req.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
-	resp, _ := http.DefaultClient.Do(req)
-	defer resp.Body.Close()
-	if resp.StatusCode != 400 {
-		t.Errorf("status = %d, want 400", resp.StatusCode)
-	}
-}
-
-func decodeRaw(resp *http.Response) ([]byte, error) {
-	var buf bytes.Buffer
-	_, err := buf.ReadFrom(resp.Body)
-	return buf.Bytes(), err
 }
 
 // Silence the linter — identity is imported to give error types stable

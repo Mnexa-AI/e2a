@@ -2,11 +2,9 @@ package agent_test
 
 import (
 	"bytes"
-	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -55,92 +53,6 @@ func setupAPIWithLimits(t *testing.T, internalSecret string) (*httptest.Server, 
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
 	return server, store, pool, enf
-}
-
-func TestGetMyLimits_ReturnsDefaultsForNewUser(t *testing.T) {
-	server, store, _, _ := setupAPIWithLimits(t, "")
-	token := createTestUser(t, store, "limitsread@test.com")
-
-	req, _ := http.NewRequest("GET", server.URL+"/api/v1/users/me/limits", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status = %d, body = %s", resp.StatusCode, string(body))
-	}
-	var info agent.LimitsInfo
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if info.PlanCode != "default" {
-		t.Errorf("PlanCode = %q, want default", info.PlanCode)
-	}
-	if info.Limits.MaxAgents != 100 {
-		t.Errorf("MaxAgents = %d, want 100", info.Limits.MaxAgents)
-	}
-	if info.Usage.Agents != 0 || info.Usage.Domains != 0 || info.Usage.MessagesMonth != 0 || info.Usage.StorageBytes != 0 {
-		t.Errorf("Usage on brand-new user = %+v, want all zeros", info.Usage)
-	}
-	if info.UpgradeURL != "" {
-		t.Errorf("UpgradeURL on default = %q, want empty", info.UpgradeURL)
-	}
-}
-
-func TestGetMyLimits_ReflectsAccountLimitsRow(t *testing.T) {
-	server, store, pool, enf := setupAPIWithLimits(t, "")
-	token := createTestUser(t, store, "rowuser@test.com")
-
-	// CreateOrGetUser with the same email returns the existing user
-	// row (idempotent), which gives us the user_id we need to write
-	// the account_limits FK target.
-	ctx := context.Background()
-	user, err := store.CreateOrGetUser(ctx, "rowuser@test.com", "Test User", "google-rowuser@test.com")
-	if err != nil {
-		t.Fatalf("CreateOrGetUser: %v", err)
-	}
-
-	// Write the row through the same pool the API reads from.
-	ls := limits.NewStore(pool)
-	if err := ls.Upsert(ctx, user.ID, limits.Limits{
-		PlanCode:         "test_pro",
-		MaxAgents:        50,
-		MaxDomains:       10,
-		MaxMessagesMonth: 50_000,
-		MaxStorageBytes:  10 << 30,
-		UpgradeURL:       "https://billing.example/portal",
-	}); err != nil {
-		t.Fatalf("Upsert: %v", err)
-	}
-	// Bust the cache so the API picks up the new row immediately.
-	enf.Invalidate(user.ID)
-
-	req, _ := http.NewRequest("GET", server.URL+"/api/v1/users/me/limits", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, _ := http.DefaultClient.Do(req)
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status = %d, body = %s", resp.StatusCode, string(body))
-	}
-	var info agent.LimitsInfo
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if info.PlanCode != "test_pro" {
-		t.Errorf("PlanCode = %q, want test_pro", info.PlanCode)
-	}
-	if info.UpgradeURL != "https://billing.example/portal" {
-		t.Errorf("UpgradeURL = %q, want billing.example/portal", info.UpgradeURL)
-	}
-	if info.Limits.MaxAgents != 50 {
-		t.Errorf("MaxAgents = %d, want 50", info.Limits.MaxAgents)
-	}
 }
 
 func TestInvalidateLimits_RejectsMissingSignature(t *testing.T) {

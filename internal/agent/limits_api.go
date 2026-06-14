@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 )
 
@@ -38,85 +37,6 @@ type LimitsUsage struct {
 	MessagesMonth int   `json:"messages_month"`
 	StorageBytes  int64 `json:"storage_bytes"`
 } // @name LimitsUsage
-
-// handleGetMyLimits returns the authenticated user's caps + current
-// usage. Read-only; safe to call from the dashboard on every page load.
-//
-// @Summary      Get the current user's limits and usage
-// @Description  Returns the resolved per-user caps (from account_limits or operator defaults) plus the user's current usage. Dashboard uses this to render the upgrade affordance and the "you've used X of Y" surface.
-// @Tags         Users
-// @Produce      json
-// @Security     BearerAuth
-// @Success      200 {object} LimitsInfo
-// @Failure      401 {string} string "Missing or invalid API key"
-// @Failure      503 {string} string "Limits subsystem not configured"
-// @Router       /api/v1/users/me/limits [get]
-func (a *API) handleGetMyLimits(w http.ResponseWriter, r *http.Request) {
-	user, err := a.authenticateUser(r)
-	if err != nil {
-		a.writeAuthError(w, r, err)
-		return
-	}
-	if a.enforcer == nil {
-		// Self-host without limits wired. The dashboard should never
-		// show its limits surface in this case (NEXT_PUBLIC_BILLING_API
-		// is empty), so this is an "operator misconfig" path rather
-		// than a normal one. 503 makes it loud.
-		http.Error(w, "limits subsystem not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	caps, err := a.enforcer.Get(r.Context(), user.ID)
-	if err != nil {
-		log.Printf("[api] limits.Get error: %v", err)
-		http.Error(w, "limits lookup failed", http.StatusInternalServerError)
-		return
-	}
-
-	// Read usage directly from the usage store. Done outside the
-	// enforcer because the enforcer never caches counts (would lie
-	// after a just-created agent or just-sent message). Errors here
-	// are non-fatal — surface 0 with a log so the dashboard still
-	// renders something instead of erroring the whole panel.
-	ctx := r.Context()
-	usageReport := LimitsUsage{}
-	if a.usageStore != nil {
-		if n, err := a.usageStore.CountAgentsByUser(ctx, user.ID); err == nil {
-			usageReport.Agents = n
-		} else {
-			log.Printf("[api] CountAgentsByUser: %v", err)
-		}
-		if n, err := a.usageStore.CountDomainsByUser(ctx, user.ID); err == nil {
-			usageReport.Domains = n
-		} else {
-			log.Printf("[api] CountDomainsByUser: %v", err)
-		}
-		if n, err := a.usageStore.MessagesThisMonth(ctx, user.ID); err == nil {
-			usageReport.MessagesMonth = n
-		} else {
-			log.Printf("[api] MessagesThisMonth: %v", err)
-		}
-		if n, err := a.usageStore.GetStorageBytes(ctx, user.ID); err == nil {
-			usageReport.StorageBytes = n
-		} else {
-			log.Printf("[api] GetStorageBytes: %v", err)
-		}
-	}
-
-	resp := LimitsInfo{
-		PlanCode: caps.PlanCode,
-		Limits: LimitsCaps{
-			MaxAgents:        caps.MaxAgents,
-			MaxDomains:       caps.MaxDomains,
-			MaxMessagesMonth: caps.MaxMessagesMonth,
-			MaxStorageBytes:  caps.MaxStorageBytes,
-		},
-		Usage:      usageReport,
-		UpgradeURL: caps.UpgradeURL,
-	}
-	w.Header().Set("Content-Type", "application/json")
-	writeJSON(w, resp)
-}
 
 // invalidateLimitsRequest is the body of POST /api/internal/limits/invalidate.
 type invalidateLimitsRequest struct {

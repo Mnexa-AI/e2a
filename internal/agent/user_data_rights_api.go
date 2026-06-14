@@ -60,25 +60,6 @@ func (a *API) ExportUserDataCore(ctx context.Context, userID string) (*identity.
 	return dump, nil
 }
 
-func (a *API) handleExportUserData(w http.ResponseWriter, r *http.Request) {
-	user, err := a.authenticateUser(r)
-	if err != nil {
-		http.Error(w, "authentication required", http.StatusUnauthorized)
-		return
-	}
-	dump, err := a.ExportUserDataCore(r.Context(), user.ID)
-	if err != nil {
-		log.Printf("[api] export user data failed: user=%s err=%v", user.ID, err)
-		http.Error(w, "failed to export user data", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Disposition", `attachment; filename="e2a-export-`+user.ID+`.json"`)
-	if err := json.NewEncoder(w).Encode(dump); err != nil {
-		log.Printf("[api] export encode failed: user=%s err=%v", user.ID, err)
-	}
-}
-
 // handleDeleteUserData wipes the authenticated user and every record
 // tied to them, in a single Postgres transaction. Used for the
 // right-of-deletion flow (GDPR Art. 17, CCPA "Do Not Sell or Share").
@@ -130,27 +111,6 @@ func (a *API) DeleteUserDataCore(ctx context.Context, user *identity.User) (*ide
 	res.OAuthRefreshTokensDeleted = oauthCounts.RefreshTokens
 	log.Printf("[api] user deleted: id=%s email=%s removed=%+v", user.ID, user.Email, res)
 	return res, nil
-}
-
-func (a *API) handleDeleteUserData(w http.ResponseWriter, r *http.Request) {
-	user, err := a.authenticateUser(r)
-	if err != nil {
-		http.Error(w, "authentication required", http.StatusUnauthorized)
-		return
-	}
-	// Guardrail: misclicks shouldn't be able to wipe a real account.
-	if r.URL.Query().Get("confirm") != "DELETE" {
-		http.Error(w, `add ?confirm=DELETE to the request to proceed — this is irreversible`, http.StatusBadRequest)
-		return
-	}
-	res, err := a.DeleteUserDataCore(r.Context(), user)
-	if err != nil {
-		log.Printf("[api] delete user data failed: user=%s err=%v", user.ID, err)
-		http.Error(w, "failed to delete user data", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	writeJSON(w, res)
 }
 
 // notifyBillingUserDeleted HMAC-POSTs to the external billing hook so

@@ -2,17 +2,13 @@ package agent
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
-	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -59,100 +55,6 @@ const (
 	maxEventsPageSize     = 100
 	defaultEventsPageSize = 50
 )
-
-// handleListEvents serves GET /api/v1/events.
-// Query params: type, agent_id, conversation_id, message_id, since, until,
-// page_size, token. See design §4.6 for the cursor format.
-// @Summary      List webhook events
-// @Description  Returns webhook events in reverse-chronological order. Cursor-paginated via `token` / `next_token`. Events past the 30-day retention are not returned.
-// @Tags         Events
-// @Produce      json
-// @Security     BearerAuth
-// @Param        type query string false "Exact event-type filter (e.g. email.received)"
-// @Param        agent_id query string false "Filter to events for a specific agent"
-// @Param        conversation_id query string false "Filter to events on one conversation"
-// @Param        message_id query string false "Filter to events on one message"
-// @Param        since query string false "RFC3339 timestamp; only events with created_at >= since"
-// @Param        until query string false "RFC3339 timestamp; only events with created_at < until"
-// @Param        page_size query int false "Page size 1-100; default 50"
-// @Param        token query string false "Opaque cursor from a previous response's next_token"
-// @Success      200 {object} ListEventsResponse
-// @Failure      400 {string} string "Invalid query parameter"
-// @Failure      401 {string} string "Missing or invalid API key"
-// @Router       /api/v1/events [get]
-func (a *API) handleListEvents(w http.ResponseWriter, r *http.Request) {
-	if a.eventsPool == nil {
-		http.Error(w, "events API not configured", http.StatusNotFound)
-		return
-	}
-	user, err := a.authenticateUser(r)
-	if err != nil {
-		a.writeAuthError(w, r, err)
-		return
-	}
-
-	q := r.URL.Query()
-	eventType := q.Get("type")
-	agentID := q.Get("agent_id")
-	conversationID := q.Get("conversation_id")
-	messageID := q.Get("message_id")
-	sinceStr := q.Get("since")
-	untilStr := q.Get("until")
-	pageSize := defaultEventsPageSize
-	if s := q.Get("page_size"); s != "" {
-		n, err := strconv.Atoi(s)
-		if err != nil || n < 1 || n > maxEventsPageSize {
-			http.Error(w, fmt.Sprintf("page_size must be 1-%d", maxEventsPageSize), http.StatusBadRequest)
-			return
-		}
-		pageSize = n
-	}
-	var since, until *time.Time
-	if sinceStr != "" {
-		t, err := time.Parse(time.RFC3339, sinceStr)
-		if err != nil {
-			http.Error(w, "since must be RFC3339", http.StatusBadRequest)
-			return
-		}
-		since = &t
-	}
-	if untilStr != "" {
-		t, err := time.Parse(time.RFC3339, untilStr)
-		if err != nil {
-			http.Error(w, "until must be RFC3339", http.StatusBadRequest)
-			return
-		}
-		until = &t
-	}
-
-	// Cursor: base64(created_at_ns:id). Simple shape (no filter
-	// snapshot encoded) — known limitation; future slice can tighten.
-	cursorCreatedAt, cursorID, err := decodeEventsCursor(q.Get("token"))
-	if err != nil {
-		http.Error(w, "invalid token", http.StatusBadRequest)
-		return
-	}
-
-	events, err := listEvents(r.Context(), a.eventsPool, user.ID, eventType, agentID, conversationID, messageID, since, until, cursorCreatedAt, cursorID, pageSize)
-	if err != nil {
-		log.Printf("[events] list: %v", err)
-		http.Error(w, "failed to list events", http.StatusInternalServerError)
-		return
-	}
-
-	var nextToken string
-	if len(events) == pageSize {
-		last := events[len(events)-1]
-		nextToken = encodeEventsCursor(last.CreatedAt, last.ID)
-	}
-
-	resp := map[string]interface{}{
-		"events":     events,
-		"next_token": nextToken,
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
-}
 
 func listEvents(ctx context.Context, pool *pgxpool.Pool, userID, eventType, agentID, conversationID, messageID string, since, until *time.Time, cursorCreatedAt time.Time, cursorID string, limit int) ([]eventJSON, error) {
 	// Build query. user_id is always the first predicate.
@@ -238,52 +140,6 @@ func listEvents(ctx context.Context, pool *pgxpool.Pool, userID, eventType, agen
 	return out, rows.Err()
 }
 
-// handleGetEvent serves GET /api/v1/events/{id}.
-// @Summary      Get a single event
-// @Description  Returns the full webhook event including delivery_status counts. 410 Gone when the event is past the 30-day retention boundary.
-// @Tags         Events
-// @Produce      json
-// @Security     BearerAuth
-// @Param        id path string true "Event ID (evt_<32hex>)"
-// @Success      200 {object} WebhookEvent
-// @Failure      404 {string} string "Event not found or not owned by caller"
-// @Failure      410 {string} string "Event past 30-day retention"
-// @Router       /api/v1/events/{id} [get]
-func (a *API) handleGetEvent(w http.ResponseWriter, r *http.Request) {
-	if a.eventsPool == nil {
-		http.Error(w, "events API not configured", http.StatusNotFound)
-		return
-	}
-	user, err := a.authenticateUser(r)
-	if err != nil {
-		a.writeAuthError(w, r, err)
-		return
-	}
-	eventID := mux.Vars(r)["id"]
-	if eventID == "" {
-		http.Error(w, "missing event id", http.StatusBadRequest)
-		return
-	}
-
-	ej, err := getEvent(r.Context(), a.eventsPool, user.ID, eventID)
-	if err != nil {
-		if errors.Is(err, errEventNotFound) {
-			http.Error(w, "event not found", http.StatusNotFound)
-			return
-		}
-		if errors.Is(err, errEventExpired) {
-			http.Error(w, "event expired (past 30-day retention)", http.StatusGone)
-			return
-		}
-		log.Printf("[events] get: %v", err)
-		http.Error(w, "failed to fetch event", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(ej)
-}
-
 var (
 	errEventNotFound = errors.New("event not found")
 	errEventExpired  = errors.New("event expired")
@@ -363,41 +219,6 @@ func loadDeliveryStatus(ctx context.Context, pool *pgxpool.Pool, eventID string)
 	}
 	return ds, rows.Err()
 }
-
-// cursor helpers
-func encodeEventsCursor(createdAt time.Time, id string) string {
-	s := fmt.Sprintf("%d|%s", createdAt.UnixNano(), id)
-	return base64.RawURLEncoding.EncodeToString([]byte(s))
-}
-
-func decodeEventsCursor(token string) (time.Time, string, error) {
-	if token == "" {
-		return time.Time{}, "", nil
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil {
-		return time.Time{}, "", err
-	}
-	parts := splitTwo(string(raw), '|')
-	if len(parts) != 2 {
-		return time.Time{}, "", fmt.Errorf("cursor format")
-	}
-	ns, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
-		return time.Time{}, "", err
-	}
-	return time.Unix(0, ns), parts[1], nil
-}
-
-func splitTwo(s string, sep byte) []string {
-	for i := 0; i < len(s); i++ {
-		if s[i] == sep {
-			return []string{s[:i], s[i+1:]}
-		}
-	}
-	return []string{s}
-}
-
 func isNoRows(err error) bool {
 	// pgx's no-rows error embeds the standard sql.ErrNoRows.
 	return err != nil && err.Error() == "no rows in result set"

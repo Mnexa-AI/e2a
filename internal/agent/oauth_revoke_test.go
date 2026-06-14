@@ -20,6 +20,54 @@ func postRevoke(t *testing.T, serverURL string, form url.Values) *http.Response 
 	return resp
 }
 
+// probeBearer reports whether the given bearer is still usable, plus
+// the WWW-Authenticate challenge the API advertises when it isn't. It
+// replaces the removed /api/v1/agents probe the revoke tests used to
+// rely on.
+//
+// Two still-registered endpoints are combined because no single kept
+// route both returns 200 on success AND emits the RFC 6750 §3.1 OAuth
+// challenge on failure:
+//
+//   - GET /api/v1/pending decides the status: 200 for a valid bearer,
+//     401 for a revoked/invalid one (clean 200-vs-401 signal).
+//   - PATCH /api/v1/agents/{email}/messages/{id} routes its 401 through
+//     writeAuthError, which sets `error="invalid_token"` for ate2a_
+//     bearers — so we read the WWW-Authenticate header from there. (A
+//     valid bearer 404s on the nonexistent message, carrying no
+//     challenge header, which is exactly what we want: an empty string
+//     for a still-valid token.)
+func probeBearer(t *testing.T, serverURL, bearer string) (status int, wwwAuth string) {
+	t.Helper()
+
+	req, _ := http.NewRequest("GET", serverURL+"/api/v1/pending", nil)
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status = resp.StatusCode
+	resp.Body.Close()
+
+	// Read the OAuth challenge header from an endpoint that emits it.
+	chReq, _ := http.NewRequest("PATCH",
+		serverURL+"/api/v1/agents/probe@example.com/messages/msg_probe", strings.NewReader("{}"))
+	if bearer != "" {
+		chReq.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	chReq.Header.Set("Content-Type", "application/json")
+	chResp, err := http.DefaultClient.Do(chReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wwwAuth = chResp.Header.Get("WWW-Authenticate")
+	chResp.Body.Close()
+
+	return status, wwwAuth
+}
+
 // TestHTTP_Revoke_AccessToken: revoke a freshly-minted access token,
 // then confirm a subsequent bearer call to /api/v1/agents 401s.
 // End-to-end proof that /revoke actually invalidates the token.
@@ -28,7 +76,7 @@ func TestHTTP_Revoke_AccessToken(t *testing.T) {
 	access, _ := mintTokensForFixture(t, f)
 
 	// Sanity: token works before revoke.
-	if status, _ := callAPIWithBearer(t, f.server.URL, access); status != http.StatusOK {
+	if status, _ := probeBearer(t, f.server.URL, access); status != http.StatusOK {
 		t.Fatalf("pre-revoke bearer call should 200, got %d", status)
 	}
 
@@ -43,7 +91,7 @@ func TestHTTP_Revoke_AccessToken(t *testing.T) {
 	}
 
 	// Token now rejected, with the OAuth challenge header.
-	status, wa := callAPIWithBearer(t, f.server.URL, access)
+	status, wa := probeBearer(t, f.server.URL, access)
 	if status != http.StatusUnauthorized {
 		t.Errorf("post-revoke bearer call: status = %d, want 401", status)
 	}
@@ -71,7 +119,7 @@ func TestHTTP_Revoke_RefreshToken(t *testing.T) {
 	}
 
 	// The paired access token (same request_id) is now revoked too.
-	status, _ := callAPIWithBearer(t, f.server.URL, access)
+	status, _ := probeBearer(t, f.server.URL, access)
 	if status != http.StatusUnauthorized {
 		t.Errorf("refresh-revoke should cascade to access token; got %d", status)
 	}
@@ -135,7 +183,7 @@ func TestHTTP_Revoke_WrongClient(t *testing.T) {
 	// Critical security assertion: the token must remain valid.
 	// fosite's 200 vs not-200 is a UX/spec detail; what matters is
 	// that a hostile client_id can't kill a token it doesn't own.
-	status, _ := callAPIWithBearer(t, f.server.URL, access)
+	status, _ := probeBearer(t, f.server.URL, access)
 	if status != http.StatusOK {
 		t.Errorf("token must remain valid after wrong-client revoke attempt: got %d", status)
 	}

@@ -4,35 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
-	"strings"
 	"testing"
-)
 
-// authedChunked posts a body with Transfer-Encoding: chunked so the
-// server sees ContentLength == -1. Used to regression-test handlers
-// that previously gated body decode on ContentLength > 0 (which
-// silently swallowed bodies on chunked requests).
-func authedChunked(t *testing.T, method, url, body, apiKey string) *http.Response {
-	t.Helper()
-	req, err := http.NewRequest(method, url, io.NopCloser(strings.NewReader(body)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	// Force chunked: Body is an io.Reader of unknown length; clear
-	// ContentLength so net/http's transport doesn't infer a length and
-	// adds Transfer-Encoding: chunked instead.
-	req.ContentLength = -1
-	req.TransferEncoding = []string{"chunked"}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return resp
-}
+	"github.com/Mnexa-AI/e2a/internal/outbound"
+)
 
 // authed does an authenticated request of arbitrary method.
 func authed(t *testing.T, method, url, body, apiKey string) *http.Response {
@@ -70,16 +46,19 @@ func TestListPendingMessagesHandler(t *testing.T) {
 	agent, _ := store.CreateAgent(ctx, "bot@list-h.example.com", "list-h.example.com", "", "https://example.com/webhook", "", user.ID)
 	enableHITL(t, store, agent.ID, user.ID)
 
-	// Submit two sends via the API so pending rows exist.
-	payloads := []string{
-		`{"to":["a@example.com"],"subject":"First","body":"b"}`,
-		`{"to":["b@example.com"],"subject":"Second","body":"b"}`,
+	// Seed two pending rows directly in the store.
+	seeds := []struct {
+		to      string
+		subject string
+	}{
+		{"a@example.com", "First"},
+		{"b@example.com", "Second"},
 	}
-	for _, p := range payloads {
-		resp := authed(t, "POST", server.URL+"/api/v1/send", p, apiKey.PlaintextKey)
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusAccepted {
-			t.Fatalf("send: status = %d, want 202", resp.StatusCode)
+	for _, s := range seeds {
+		if _, err := store.CreatePendingOutboundMessage(ctx, agent.ID,
+			[]string{s.to}, nil, nil, s.subject, "b", "", nil,
+			"send", "", "", 3600); err != nil {
+			t.Fatalf("seed pending: %v", err)
 		}
 	}
 
@@ -143,15 +122,20 @@ func TestGetOutboundMessageHandler(t *testing.T) {
 	agent, _ := store.CreateAgent(ctx, "bot@get-detail.example.com", "get-detail.example.com", "", "https://example.com/webhook", "", user.ID)
 	enableHITL(t, store, agent.ID, user.ID)
 
-	send := `{"to":["alice@example.com"],"subject":"Hello","body":"plain body","html_body":"<p>html</p>","attachments":[{"filename":"f.txt","content_type":"text/plain","data":"aGk="}]}`
-	resp := authed(t, "POST", server.URL+"/api/v1/send", send, apiKey.PlaintextKey)
-	defer resp.Body.Close()
-	var sendResp struct {
-		MessageID string `json:"message_id"`
+	attachmentsJSON, err := json.Marshal([]outbound.Attachment{
+		{Filename: "f.txt", ContentType: "text/plain", Data: "aGk="},
+	})
+	if err != nil {
+		t.Fatalf("marshal attachments: %v", err)
 	}
-	json.NewDecoder(resp.Body).Decode(&sendResp)
+	msg, err := store.CreatePendingOutboundMessage(ctx, agent.ID,
+		[]string{"alice@example.com"}, nil, nil, "Hello", "plain body", "<p>html</p>",
+		attachmentsJSON, "send", "", "", 3600)
+	if err != nil {
+		t.Fatalf("seed pending: %v", err)
+	}
 
-	getResp := authed(t, "GET", server.URL+"/api/v1/messages/"+sendResp.MessageID, "", apiKey.PlaintextKey)
+	getResp := authed(t, "GET", server.URL+"/api/v1/messages/"+msg.ID, "", apiKey.PlaintextKey)
 	defer getResp.Body.Close()
 	if getResp.StatusCode != http.StatusOK {
 		t.Fatalf("get detail: status = %d", getResp.StatusCode)
@@ -183,7 +167,7 @@ func TestGetOutboundMessageCrossUserReturns404(t *testing.T) {
 
 	// User A creates pending
 	userA, _ := store.CreateOrGetUser(ctx, "owner-cross-a@example.com", "A", "google-cross-a")
-	keyA, _ := store.CreateAPIKey(ctx, userA.ID, "a-key", nil)
+	store.CreateAPIKey(ctx, userA.ID, "a-key", nil)
 	store.ClaimOrCreateDomain(ctx, "cross-a.example.com", userA.ID)
 	store.VerifyDomain(ctx, "cross-a.example.com", userA.ID)
 	agentA, _ := store.CreateAgent(ctx, "bot@cross-a.example.com", "cross-a.example.com", "", "https://example.com/webhook", "", userA.ID)
@@ -193,16 +177,15 @@ func TestGetOutboundMessageCrossUserReturns404(t *testing.T) {
 	userB, _ := store.CreateOrGetUser(ctx, "owner-cross-b@example.com", "B", "google-cross-b")
 	keyB, _ := store.CreateAPIKey(ctx, userB.ID, "b-key", nil)
 
-	resp := authed(t, "POST", server.URL+"/api/v1/send",
-		`{"to":["x@example.com"],"subject":"h","body":"b"}`, keyA.PlaintextKey)
-	var sendResp struct {
-		MessageID string `json:"message_id"`
+	msg, err := store.CreatePendingOutboundMessage(ctx, agentA.ID,
+		[]string{"x@example.com"}, nil, nil, "h", "b", "", nil,
+		"send", "", "", 3600)
+	if err != nil {
+		t.Fatalf("seed pending: %v", err)
 	}
-	json.NewDecoder(resp.Body).Decode(&sendResp)
-	resp.Body.Close()
 
 	// User B tries to fetch User A's pending message
-	getResp := authed(t, "GET", server.URL+"/api/v1/messages/"+sendResp.MessageID, "", keyB.PlaintextKey)
+	getResp := authed(t, "GET", server.URL+"/api/v1/messages/"+msg.ID, "", keyB.PlaintextKey)
 	defer getResp.Body.Close()
 	if getResp.StatusCode != http.StatusNotFound {
 		t.Errorf("cross-user GET: status = %d, want 404", getResp.StatusCode)
@@ -233,32 +216,23 @@ func TestGetOutboundMessage_ReplyAttachesInboundContext(t *testing.T) {
 		"dkim":  "pass",
 		"dmarc": "pass",
 	}
-	inbound, err := store.CreateInboundMessage(ctx, "", agent.ID,
+	if _, err := store.CreateInboundMessage(ctx, "", agent.ID,
 		"alice@gmail.com", "bot@inbound-ctx.example.com",
 		"<orig@gmail.com>", "Hello Bot", "", "",
-		nil, authHeaders, nil, nil, nil)
-	if err != nil {
+		nil, authHeaders, nil, nil, nil); err != nil {
 		t.Fatalf("seed inbound: %v", err)
 	}
 
-	// Hold a reply via the API so the outbound row's
-	// email_message_id points at our inbound.
-	replyURL := server.URL + "/api/v1/agents/bot@inbound-ctx.example.com/messages/" + inbound.ID + "/reply"
-	replyResp := authed(t, "POST", replyURL, `{"body":"Thanks!"}`, apiKey.PlaintextKey)
-	defer replyResp.Body.Close()
-	if replyResp.StatusCode != http.StatusAccepted {
-		t.Fatalf("reply hold status = %d, want 202", replyResp.StatusCode)
-	}
-	var holdBody struct {
-		MessageID string `json:"message_id"`
-	}
-	json.NewDecoder(replyResp.Body).Decode(&holdBody)
-	if holdBody.MessageID == "" {
-		t.Fatal("hold response missing message_id")
+	// Seed a pending reply whose email_message_id points at our inbound.
+	hold, err := store.CreatePendingOutboundMessage(ctx, agent.ID,
+		[]string{"alice@gmail.com"}, nil, nil, "Re: Hello Bot", "Thanks!", "", nil,
+		"reply", "", "<orig@gmail.com>", 3600)
+	if err != nil {
+		t.Fatalf("seed pending reply: %v", err)
 	}
 
 	// GET the detail. Inbound context should be present and populated.
-	getResp := authed(t, "GET", server.URL+"/api/v1/messages/"+holdBody.MessageID, "", apiKey.PlaintextKey)
+	getResp := authed(t, "GET", server.URL+"/api/v1/messages/"+hold.ID, "", apiKey.PlaintextKey)
 	defer getResp.Body.Close()
 	if getResp.StatusCode != http.StatusOK {
 		t.Fatalf("get detail status = %d, want 200", getResp.StatusCode)
@@ -309,16 +283,14 @@ func TestGetOutboundMessage_SendHasNoInboundContext(t *testing.T) {
 	agent, _ := store.CreateAgent(ctx, "bot@send-no-ctx.example.com", "send-no-ctx.example.com", "", "https://example.com/webhook", "", user.ID)
 	enableHITL(t, store, agent.ID, user.ID)
 
-	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
-		`{"to":["alice@example.com"],"subject":"Cold outreach","body":"hello"}`,
-		apiKey.PlaintextKey)
-	defer sendResp.Body.Close()
-	var holdBody struct {
-		MessageID string `json:"message_id"`
+	hold, err := store.CreatePendingOutboundMessage(ctx, agent.ID,
+		[]string{"alice@example.com"}, nil, nil, "Cold outreach", "hello", "", nil,
+		"send", "", "", 3600)
+	if err != nil {
+		t.Fatalf("seed pending: %v", err)
 	}
-	json.NewDecoder(sendResp.Body).Decode(&holdBody)
 
-	getResp := authed(t, "GET", server.URL+"/api/v1/messages/"+holdBody.MessageID, "", apiKey.PlaintextKey)
+	getResp := authed(t, "GET", server.URL+"/api/v1/messages/"+hold.ID, "", apiKey.PlaintextKey)
 	defer getResp.Body.Close()
 	var detail map[string]interface{}
 	json.NewDecoder(getResp.Body).Decode(&detail)
@@ -359,13 +331,12 @@ func TestGetOutboundMessage_ReplyWithMissingInboundReturnsNilContext(t *testing.
 		t.Fatalf("seed inbound: %v", err)
 	}
 
-	replyURL := server.URL + "/api/v1/agents/bot@missing-inbound.example.com/messages/" + inbound.ID + "/reply"
-	replyResp := authed(t, "POST", replyURL, `{"body":"reply"}`, apiKey.PlaintextKey)
-	defer replyResp.Body.Close()
-	var holdBody struct {
-		MessageID string `json:"message_id"`
+	hold, err := store.CreatePendingOutboundMessage(ctx, agent.ID,
+		[]string{"alice@gmail.com"}, nil, nil, "Re: Subject that will vanish", "reply", "", nil,
+		"reply", "", "<missing@gmail.com>", 3600)
+	if err != nil {
+		t.Fatalf("seed pending reply: %v", err)
 	}
-	json.NewDecoder(replyResp.Body).Decode(&holdBody)
 
 	// Simulate the inbound aging out of retention by deleting the row
 	// directly. The outbound's email_message_id still points at the
@@ -374,7 +345,7 @@ func TestGetOutboundMessage_ReplyWithMissingInboundReturnsNilContext(t *testing.
 		t.Fatalf("delete parent inbound: %v", err)
 	}
 
-	getResp := authed(t, "GET", server.URL+"/api/v1/messages/"+holdBody.MessageID, "", apiKey.PlaintextKey)
+	getResp := authed(t, "GET", server.URL+"/api/v1/messages/"+hold.ID, "", apiKey.PlaintextKey)
 	defer getResp.Body.Close()
 	if getResp.StatusCode != http.StatusOK {
 		t.Fatalf("get detail status = %d, want 200 (missing inbound is non-fatal)", getResp.StatusCode)
@@ -412,11 +383,10 @@ func TestGetOutboundMessage_InboundContextIsAgentScoped(t *testing.T) {
 	agentA, _ := store.CreateAgent(ctx, "bot@scoped-a.example.com", "scoped-a.example.com", "", "https://example.com/webhook", "", userA.ID)
 	enableHITL(t, store, agentA.ID, userA.ID)
 
-	inboundA, err := store.CreateInboundMessage(ctx, "", agentA.ID,
+	if _, err := store.CreateInboundMessage(ctx, "", agentA.ID,
 		"alice@gmail.com", "bot@scoped-a.example.com",
 		"<shared-id@gmail.com>", "Subject for A", "", "",
-		nil, map[string]string{"spf": "pass"}, nil, nil, nil)
-	if err != nil {
+		nil, map[string]string{"spf": "pass"}, nil, nil, nil); err != nil {
 		t.Fatalf("seed inbound A: %v", err)
 	}
 
@@ -432,16 +402,15 @@ func TestGetOutboundMessage_InboundContextIsAgentScoped(t *testing.T) {
 		t.Fatalf("seed inbound B: %v", err)
 	}
 
-	// Reply on agent A using agent A's inbound.
-	replyURL := server.URL + "/api/v1/agents/bot@scoped-a.example.com/messages/" + inboundA.ID + "/reply"
-	replyResp := authed(t, "POST", replyURL, `{"body":"r"}`, keyA.PlaintextKey)
-	defer replyResp.Body.Close()
-	var holdBody struct {
-		MessageID string `json:"message_id"`
+	// Reply on agent A using agent A's inbound (same shared Message-ID).
+	hold, err := store.CreatePendingOutboundMessage(ctx, agentA.ID,
+		[]string{"alice@gmail.com"}, nil, nil, "Re: Subject for A", "r", "", nil,
+		"reply", "", "<shared-id@gmail.com>", 3600)
+	if err != nil {
+		t.Fatalf("seed pending reply: %v", err)
 	}
-	json.NewDecoder(replyResp.Body).Decode(&holdBody)
 
-	getResp := authed(t, "GET", server.URL+"/api/v1/messages/"+holdBody.MessageID, "", keyA.PlaintextKey)
+	getResp := authed(t, "GET", server.URL+"/api/v1/messages/"+hold.ID, "", keyA.PlaintextKey)
 	defer getResp.Body.Close()
 	var detail map[string]interface{}
 	json.NewDecoder(getResp.Body).Decode(&detail)
@@ -461,408 +430,5 @@ func TestGetOutboundMessage_InboundContextIsAgentScoped(t *testing.T) {
 	ah, _ := inboundCtx["auth_headers"].(map[string]interface{})
 	if ah["spf"] != "pass" {
 		t.Errorf("inbound.auth_headers.spf = %v, want 'pass' (NOT 'fail' from B's row)", ah["spf"])
-	}
-}
-
-func TestApprovePendingMessageSendsViaSMTP(t *testing.T) {
-	server, store, _, smtpDone := setupAPIWithSMTP(t)
-	ctx := context.Background()
-
-	user, _ := store.CreateOrGetUser(ctx, "owner-approve@example.com", "Owner", "google-approve-handler")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "approve-key", nil)
-	store.ClaimOrCreateDomain(ctx, "approve-h.example.com", user.ID)
-	store.VerifyDomain(ctx, "approve-h.example.com", user.ID)
-	agent, _ := store.CreateAgent(ctx, "bot@approve-h.example.com", "approve-h.example.com", "", "https://example.com/webhook", "", user.ID)
-	enableHITL(t, store, agent.ID, user.ID)
-
-	// Create a pending message via the send endpoint
-	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
-		`{"to":["alice@example.com"],"subject":"Hello","body":"plain body","html_body":"<p>HTML</p>"}`,
-		apiKey.PlaintextKey)
-	defer sendResp.Body.Close()
-	var sendBody struct{ MessageID string `json:"message_id"` }
-	json.NewDecoder(sendResp.Body).Decode(&sendBody)
-
-	// Approve-as-is
-	appResp := authed(t, "POST",
-		server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+sendBody.MessageID+"/approve",
-		"", apiKey.PlaintextKey)
-	defer appResp.Body.Close()
-	if appResp.StatusCode != http.StatusOK {
-		t.Fatalf("approve: status = %d", appResp.StatusCode)
-	}
-	var appBody struct {
-		Status            string `json:"status"`
-		MessageID         string `json:"message_id"`
-		ProviderMessageID string `json:"provider_message_id"`
-		Method            string `json:"method"`
-		Edited            bool   `json:"edited"`
-	}
-	json.NewDecoder(appResp.Body).Decode(&appBody)
-	if appBody.Status != "sent" {
-		t.Errorf("response status = %q", appBody.Status)
-	}
-	if appBody.MessageID != sendBody.MessageID {
-		t.Errorf("message_id mismatch: %q vs %q", appBody.MessageID, sendBody.MessageID)
-	}
-	if appBody.ProviderMessageID == "" {
-		t.Error("provider_message_id missing")
-	}
-	if appBody.Method != "smtp" {
-		t.Errorf("method = %q", appBody.Method)
-	}
-	if appBody.Edited {
-		t.Error("edited should be false for approve-as-is")
-	}
-
-	// SMTP server received exactly one message with the expected headers/body.
-	msgs := smtpDone()
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 SMTP message, got %d", len(msgs))
-	}
-	if msgs[0].To != "alice@example.com" {
-		t.Errorf("SMTP To = %q", msgs[0].To)
-	}
-	if !strings.Contains(msgs[0].Data, "plain body") {
-		t.Errorf("SMTP body missing plain text:\n%s", msgs[0].Data)
-	}
-	if !strings.Contains(msgs[0].Data, "Hello") {
-		t.Errorf("SMTP missing subject:\n%s", msgs[0].Data)
-	}
-}
-
-func TestApprovePendingMessageWithEditsSendsEditedContent(t *testing.T) {
-	server, store, _, smtpDone := setupAPIWithSMTP(t)
-	ctx := context.Background()
-
-	user, _ := store.CreateOrGetUser(ctx, "owner-apprv-edit@example.com", "Owner", "google-apprv-edit")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "apprv-edit-key", nil)
-	store.ClaimOrCreateDomain(ctx, "apprv-edit.example.com", user.ID)
-	store.VerifyDomain(ctx, "apprv-edit.example.com", user.ID)
-	agent, _ := store.CreateAgent(ctx, "bot@apprv-edit.example.com", "apprv-edit.example.com", "", "https://example.com/webhook", "", user.ID)
-	enableHITL(t, store, agent.ID, user.ID)
-
-	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
-		`{"to":["alice@example.com"],"subject":"Draft","body":"original"}`,
-		apiKey.PlaintextKey)
-	defer sendResp.Body.Close()
-	var sendBody struct{ MessageID string `json:"message_id"` }
-	json.NewDecoder(sendResp.Body).Decode(&sendBody)
-
-	editPayload := `{"subject":"Edited subject","body_text":"edited body","to":["bob@example.com"]}`
-	appResp := authed(t, "POST",
-		server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+sendBody.MessageID+"/approve",
-		editPayload, apiKey.PlaintextKey)
-	defer appResp.Body.Close()
-	if appResp.StatusCode != http.StatusOK {
-		t.Fatalf("approve with edits: status = %d", appResp.StatusCode)
-	}
-	var appBody struct {
-		Edited bool `json:"edited"`
-	}
-	json.NewDecoder(appResp.Body).Decode(&appBody)
-	if !appBody.Edited {
-		t.Error("response.edited should be true")
-	}
-
-	msgs := smtpDone()
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 SMTP message, got %d", len(msgs))
-	}
-	if msgs[0].To != "bob@example.com" {
-		t.Errorf("SMTP To = %q, want bob@example.com (edited)", msgs[0].To)
-	}
-	if !strings.Contains(msgs[0].Data, "Edited subject") {
-		t.Errorf("SMTP missing edited subject:\n%s", msgs[0].Data)
-	}
-	if !strings.Contains(msgs[0].Data, "edited body") {
-		t.Errorf("SMTP missing edited body:\n%s", msgs[0].Data)
-	}
-	if strings.Contains(msgs[0].Data, "original") {
-		t.Errorf("SMTP should not contain 'original' body text:\n%s", msgs[0].Data)
-	}
-}
-
-func TestApproveAlreadySentReturns409(t *testing.T) {
-	server, store, _, smtpDone := setupAPIWithSMTP(t)
-	defer smtpDone()
-	ctx := context.Background()
-
-	user, _ := store.CreateOrGetUser(ctx, "owner-apprv-409@example.com", "Owner", "google-apprv-409")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "apprv-409-key", nil)
-	store.ClaimOrCreateDomain(ctx, "apprv-409.example.com", user.ID)
-	store.VerifyDomain(ctx, "apprv-409.example.com", user.ID)
-	agent, _ := store.CreateAgent(ctx, "bot@apprv-409.example.com", "apprv-409.example.com", "", "https://example.com/webhook", "", user.ID)
-
-	// HITL off for the send → goes straight to sent
-	sent, _ := store.CreateOutboundMessage(ctx, agent.ID, []string{"a@example.com"}, nil, nil,
-		"already sent", "send", "smtp", "<p>", "")
-
-	resp := authed(t, "POST",
-		server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+sent.ID+"/approve",
-		"", apiKey.PlaintextKey)
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusConflict {
-		t.Errorf("status = %d, want 409", resp.StatusCode)
-	}
-}
-
-// Regression: Transfer-Encoding: chunked yields ContentLength == -1 on
-// the server, and the approve handler used to skip body decode for
-// non-positive ContentLength. That silently dropped the reviewer's
-// overrides (subject/body/to/cc/bcc) and sent the stored draft as-is —
-// a HITL invariant breach. This test posts edits via chunked encoding
-// and asserts the SMTP send reflects them.
-func TestApprovePendingMessageWithChunkedEditsHonorsOverrides(t *testing.T) {
-	server, store, _, smtpDone := setupAPIWithSMTP(t)
-	ctx := context.Background()
-
-	user, _ := store.CreateOrGetUser(ctx, "owner-apprv-chunk@example.com", "Owner", "google-apprv-chunk")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "apprv-chunk-key", nil)
-	store.ClaimOrCreateDomain(ctx, "apprv-chunk.example.com", user.ID)
-	store.VerifyDomain(ctx, "apprv-chunk.example.com", user.ID)
-	agent, _ := store.CreateAgent(ctx, "bot@apprv-chunk.example.com", "apprv-chunk.example.com", "", "https://example.com/webhook", "", user.ID)
-	enableHITL(t, store, agent.ID, user.ID)
-
-	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
-		`{"to":["alice@example.com"],"subject":"Original subject","body":"original body"}`,
-		apiKey.PlaintextKey)
-	defer sendResp.Body.Close()
-	var sendBody struct{ MessageID string `json:"message_id"` }
-	json.NewDecoder(sendResp.Body).Decode(&sendBody)
-
-	editPayload := `{"subject":"Edited via chunked","body_text":"chunked body","to":["bob@example.com"]}`
-	appResp := authedChunked(t, "POST",
-		server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+sendBody.MessageID+"/approve",
-		editPayload, apiKey.PlaintextKey)
-	defer appResp.Body.Close()
-	if appResp.StatusCode != http.StatusOK {
-		t.Fatalf("approve via chunked: status = %d", appResp.StatusCode)
-	}
-	var appBody struct {
-		Edited bool `json:"edited"`
-	}
-	json.NewDecoder(appResp.Body).Decode(&appBody)
-	if !appBody.Edited {
-		t.Error("response.edited should be true — chunked body was decoded")
-	}
-
-	msgs := smtpDone()
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 SMTP message, got %d", len(msgs))
-	}
-	if msgs[0].To != "bob@example.com" {
-		t.Errorf("SMTP To = %q, want bob@example.com (edited)", msgs[0].To)
-	}
-	if !strings.Contains(msgs[0].Data, "Edited via chunked") {
-		t.Errorf("SMTP missing edited subject (chunked body was swallowed):\n%s", msgs[0].Data)
-	}
-	if !strings.Contains(msgs[0].Data, "chunked body") {
-		t.Errorf("SMTP missing edited body:\n%s", msgs[0].Data)
-	}
-	if strings.Contains(msgs[0].Data, "Original subject") {
-		t.Errorf("SMTP contains original subject — overrides were dropped:\n%s", msgs[0].Data)
-	}
-}
-
-// Regression: same chunked-encoding bug on the reject path silently
-// dropped the rejection reason. Assert the reason round-trips through
-// a chunked POST.
-func TestRejectPendingMessageWithChunkedReasonRecordsReason(t *testing.T) {
-	server, store, _ := setupAPI(t)
-	ctx := context.Background()
-
-	user, _ := store.CreateOrGetUser(ctx, "owner-rej-chunk@example.com", "Owner", "google-rej-chunk")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "rej-chunk-key", nil)
-	store.ClaimOrCreateDomain(ctx, "rej-chunk.example.com", user.ID)
-	store.VerifyDomain(ctx, "rej-chunk.example.com", user.ID)
-	agent, _ := store.CreateAgent(ctx, "bot@rej-chunk.example.com", "rej-chunk.example.com", "", "https://example.com/webhook", "", user.ID)
-	enableHITL(t, store, agent.ID, user.ID)
-
-	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
-		`{"to":["alice@example.com"],"subject":"Bad draft","body":"…"}`,
-		apiKey.PlaintextKey)
-	defer sendResp.Body.Close()
-	var sendBody struct{ MessageID string `json:"message_id"` }
-	json.NewDecoder(sendResp.Body).Decode(&sendBody)
-
-	rejResp := authedChunked(t, "POST",
-		server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+sendBody.MessageID+"/reject",
-		`{"reason":"off-topic for this audience"}`, apiKey.PlaintextKey)
-	defer rejResp.Body.Close()
-	if rejResp.StatusCode != http.StatusOK {
-		t.Fatalf("reject via chunked: status = %d", rejResp.StatusCode)
-	}
-
-	// Verify the reason landed via the detail endpoint.
-	detailResp := authed(t, "GET",
-		server.URL+"/api/v1/messages/"+sendBody.MessageID, "", apiKey.PlaintextKey)
-	defer detailResp.Body.Close()
-	var detail struct {
-		Status          string `json:"status"`
-		RejectionReason string `json:"rejection_reason"`
-	}
-	json.NewDecoder(detailResp.Body).Decode(&detail)
-	if detail.Status != "rejected" {
-		t.Errorf("detail.status = %q, want rejected", detail.Status)
-	}
-	if detail.RejectionReason != "off-topic for this audience" {
-		t.Errorf("rejection_reason = %q — chunked body was swallowed", detail.RejectionReason)
-	}
-}
-
-func TestApproveReplyFromHITLUsesStoredReplyTo(t *testing.T) {
-	server, store, _, smtpDone := setupAPIWithSMTP(t)
-	ctx := context.Background()
-
-	user, _ := store.CreateOrGetUser(ctx, "owner-apprv-reply@example.com", "Owner", "google-apprv-reply")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "apprv-reply-key", nil)
-	store.ClaimOrCreateDomain(ctx, "apprv-reply.example.com", user.ID)
-	store.VerifyDomain(ctx, "apprv-reply.example.com", user.ID)
-	agent, _ := store.CreateAgent(ctx, "bot@apprv-reply.example.com", "apprv-reply.example.com", "", "https://example.com/webhook", "", user.ID)
-	enableHITL(t, store, agent.ID, user.ID)
-
-	inbound, _ := store.CreateInboundMessage(ctx, "", agent.ID,
-		"alice@gmail.com", "bot@apprv-reply.example.com",
-		"<orig@gmail.com>", "Hello Bot", "", "", nil, nil, nil, nil, nil)
-
-	replyResp := authed(t, "POST",
-		server.URL+"/api/v1/agents/bot@apprv-reply.example.com/messages/"+inbound.ID+"/reply",
-		`{"body":"Sure!"}`, apiKey.PlaintextKey)
-	defer replyResp.Body.Close()
-	var replyBody struct{ MessageID string `json:"message_id"` }
-	json.NewDecoder(replyResp.Body).Decode(&replyBody)
-
-	appResp := authed(t, "POST",
-		server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+replyBody.MessageID+"/approve",
-		"", apiKey.PlaintextKey)
-	defer appResp.Body.Close()
-	if appResp.StatusCode != http.StatusOK {
-		t.Fatalf("approve reply: status = %d", appResp.StatusCode)
-	}
-
-	msgs := smtpDone()
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 SMTP message, got %d", len(msgs))
-	}
-	// The In-Reply-To header should reference the original inbound Message-ID
-	if !strings.Contains(msgs[0].Data, "In-Reply-To: <orig@gmail.com>") {
-		t.Errorf("approved reply missing In-Reply-To header:\n%s", msgs[0].Data)
-	}
-}
-
-func TestRejectPendingMessageHandler(t *testing.T) {
-	server, store, pool, smtpDone := setupAPIWithSMTP(t)
-	defer smtpDone()
-	ctx := context.Background()
-
-	user, _ := store.CreateOrGetUser(ctx, "owner-reject-h@example.com", "Owner", "google-reject-h")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "reject-h-key", nil)
-	store.ClaimOrCreateDomain(ctx, "reject-h.example.com", user.ID)
-	store.VerifyDomain(ctx, "reject-h.example.com", user.ID)
-	agent, _ := store.CreateAgent(ctx, "bot@reject-h.example.com", "reject-h.example.com", "", "https://example.com/webhook", "", user.ID)
-	enableHITL(t, store, agent.ID, user.ID)
-
-	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
-		`{"to":["a@example.com"],"subject":"h","body":"b"}`, apiKey.PlaintextKey)
-	defer sendResp.Body.Close()
-	var sendBody struct{ MessageID string `json:"message_id"` }
-	json.NewDecoder(sendResp.Body).Decode(&sendBody)
-
-	rejResp := authed(t, "POST",
-		server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+sendBody.MessageID+"/reject",
-		`{"reason":"inappropriate tone"}`, apiKey.PlaintextKey)
-	defer rejResp.Body.Close()
-	if rejResp.StatusCode != http.StatusOK {
-		t.Fatalf("reject: status = %d", rejResp.StatusCode)
-	}
-	var rejBody struct {
-		Status          string `json:"status"`
-		RejectionReason string `json:"rejection_reason"`
-	}
-	json.NewDecoder(rejResp.Body).Decode(&rejBody)
-	if rejBody.Status != "rejected" {
-		t.Errorf("status = %q", rejBody.Status)
-	}
-	if rejBody.RejectionReason != "inappropriate tone" {
-		t.Errorf("reason = %q", rejBody.RejectionReason)
-	}
-
-	// Row scrubbed in DB
-	var bodyText, bodyHTML *string
-	var attachments []byte
-	err := pool.QueryRow(ctx,
-		`SELECT body_text, body_html, attachments_json FROM messages WHERE id = $1`,
-		sendBody.MessageID).Scan(&bodyText, &bodyHTML, &attachments)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bodyText != nil || bodyHTML != nil || attachments != nil {
-		t.Errorf("row not scrubbed after reject")
-	}
-}
-
-func TestRejectAlreadyRejectedReturns409(t *testing.T) {
-	server, store, _, smtpDone := setupAPIWithSMTP(t)
-	defer smtpDone()
-	ctx := context.Background()
-
-	user, _ := store.CreateOrGetUser(ctx, "owner-reject-twice@example.com", "Owner", "google-reject-twice-h")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "reject-twice-key", nil)
-	store.ClaimOrCreateDomain(ctx, "reject-twice.example.com", user.ID)
-	store.VerifyDomain(ctx, "reject-twice.example.com", user.ID)
-	agent, _ := store.CreateAgent(ctx, "bot@reject-twice.example.com", "reject-twice.example.com", "", "https://example.com/webhook", "", user.ID)
-	enableHITL(t, store, agent.ID, user.ID)
-
-	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
-		`{"to":["a@example.com"],"subject":"h","body":"b"}`, apiKey.PlaintextKey)
-	defer sendResp.Body.Close()
-	var sendBody struct{ MessageID string `json:"message_id"` }
-	json.NewDecoder(sendResp.Body).Decode(&sendBody)
-
-	resp1 := authed(t, "POST",
-		server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+sendBody.MessageID+"/reject",
-		`{"reason":"first"}`, apiKey.PlaintextKey)
-	resp1.Body.Close()
-	if resp1.StatusCode != http.StatusOK {
-		t.Fatalf("first reject: status = %d", resp1.StatusCode)
-	}
-
-	resp2 := authed(t, "POST",
-		server.URL+"/api/v1/agents/"+agent.Email+"/messages/"+sendBody.MessageID+"/reject",
-		`{"reason":"second"}`, apiKey.PlaintextKey)
-	defer resp2.Body.Close()
-	if resp2.StatusCode != http.StatusConflict {
-		t.Errorf("second reject: status = %d, want 409", resp2.StatusCode)
-	}
-}
-
-func TestApproveCrossUserReturns404(t *testing.T) {
-	server, store, _, smtpDone := setupAPIWithSMTP(t)
-	defer smtpDone()
-	ctx := context.Background()
-
-	userA, _ := store.CreateOrGetUser(ctx, "a-apprv-cross@example.com", "A", "google-a-cross")
-	keyA, _ := store.CreateAPIKey(ctx, userA.ID, "a-cross-key", nil)
-	store.ClaimOrCreateDomain(ctx, "a-cross.example.com", userA.ID)
-	store.VerifyDomain(ctx, "a-cross.example.com", userA.ID)
-	agentA, _ := store.CreateAgent(ctx, "bot@a-cross.example.com", "a-cross.example.com", "", "https://example.com/webhook", "", userA.ID)
-	enableHITL(t, store, agentA.ID, userA.ID)
-
-	userB, _ := store.CreateOrGetUser(ctx, "b-apprv-cross@example.com", "B", "google-b-cross")
-	keyB, _ := store.CreateAPIKey(ctx, userB.ID, "b-cross-key", nil)
-
-	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
-		`{"to":["x@example.com"],"subject":"h","body":"b"}`, keyA.PlaintextKey)
-	defer sendResp.Body.Close()
-	var sendBody struct{ MessageID string `json:"message_id"` }
-	json.NewDecoder(sendResp.Body).Decode(&sendBody)
-
-	appResp := authed(t, "POST",
-		server.URL+"/api/v1/agents/"+agentA.Email+"/messages/"+sendBody.MessageID+"/approve",
-		"", keyB.PlaintextKey)
-	defer appResp.Body.Close()
-	if appResp.StatusCode != http.StatusNotFound {
-		t.Errorf("cross-user approve: status = %d, want 404", appResp.StatusCode)
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -176,7 +175,10 @@ func messageToDetail(m identity.Message, inbound *identity.Message) pendingMessa
 func (a *API) handleListMessages(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticateUser(r)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		// Emit the RFC 6750 §3 WWW-Authenticate challenge (and the
+		// §3.1 OAuth error params when the failing credential was an
+		// ate2a_ bearer) so Bearer clients know how to retry.
+		a.writeAuthError(w, r, err)
 		return
 	}
 
@@ -401,52 +403,6 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 	return sent, nil
 }
 
-func (a *API) handleApprovePendingMessage(w http.ResponseWriter, r *http.Request) {
-	user, err := a.authenticateUser(r)
-	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	messageID := mux.Vars(r)["id"]
-
-	// Read the body up front so the idempotency guard can hash it. Approve
-	// is side-effectful (triggers an SES send) so a retry without the guard
-	// would double-send.
-	bodyBytes, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBytesSmall))
-	if err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	replayed, captureW, finalize := a.idempotencyGuard(w, r, user.ID, bodyBytes)
-	if replayed {
-		return
-	}
-	defer finalize()
-	w = captureW
-
-	var req approveRequest
-	if len(bodyBytes) > 0 {
-		if err := json.Unmarshal(bodyBytes, &req); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
-	}
-	sent, derr := a.ApprovePendingCore(r.Context(), user.ID, messageID, mux.Vars(r)["email"], req)
-	if derr != nil {
-		http.Error(w, derr.Msg, derr.Status)
-		return
-	}
-	markSideEffectCommitted(w)
-	w.Header().Set("Content-Type", "application/json")
-	writeJSON(w, map[string]interface{}{
-		"status":              sent.Status,
-		"message_id":          sent.ID,
-		"provider_message_id": sent.ProviderMessageID,
-		"method":              sent.Method,
-		"edited":              sent.Edited,
-	})
-}
-
 // attachReferencesChain rebuilds the References chain on a HITL-approved
 // SendRequest by looking up the parent inbound's raw message via
 // email_message_id. Required because the pending-outbound row only
@@ -513,55 +469,6 @@ func buildSendRequestFromMessage(m *identity.Message) (outbound.SendRequest, err
 // rejectRequest is the JSON body accepted by the reject endpoint.
 type rejectRequest struct {
 	Reason string `json:"reason,omitempty"`
-}
-
-// handleRejectPendingMessage serves POST /api/v1/messages/{id}/reject.
-// Transitions the row to 'rejected' and scrubs body columns. No SES call.
-// @Summary      Reject a held outbound message
-// @Description  Transitions a pending-approval message to `rejected`; the message is never sent. Body columns are scrubbed. An optional reason is stored for audit purposes. Returns 409 if the message has already been sent, rejected, or expired.
-// @Tags         HITL
-// @Accept       json
-// @Produce      json
-// @Security     BearerAuth
-// @Param        id path string true "Message ID" example(msg_abc123)
-// @Param        request body RejectPendingMessageRequest false "Optional rejection reason"
-// @Success      200 {object} RejectPendingMessageResponse
-// @Failure      400 {string} string "Invalid request body"
-// @Failure      401 {string} string "Missing or invalid API key"
-// @Failure      404 {string} string "Message not found, not owned by this user, or {email} doesn't match the message's owning agent"
-// @Failure      409 {string} string "Message is no longer pending approval"
-// @Param        email path string true "Owning agent email" example(bot@agents.e2a.dev)
-// @Router       /api/v1/agents/{email}/messages/{id}/reject [post]
-func (a *API) handleRejectPendingMessage(w http.ResponseWriter, r *http.Request) {
-	user, err := a.authenticateUser(r)
-	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	messageID := mux.Vars(r)["id"]
-
-	var req rejectRequest
-	// Empty body is allowed (reject with no reason). Same chunked-encoding
-	// caveat as handleApprovePendingMessage above — gating on
-	// ContentLength > 0 silently drops the rejection reason on chunked
-	// requests.
-	if err := readJSON(w, r, &req, maxRequestBytesSmall); err != nil && !errors.Is(err, io.EOF) {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	rejected, derr := a.RejectPendingCore(r.Context(), user.ID, messageID, mux.Vars(r)["email"], req.Reason)
-	if derr != nil {
-		http.Error(w, derr.Msg, derr.Status)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	writeJSON(w, map[string]interface{}{
-		"status":           rejected.Status,
-		"message_id":       rejected.ID,
-		"rejection_reason": rejected.RejectionReason,
-	})
 }
 
 // RejectPendingCore is the HTTP-free core of HITL reject: optional

@@ -22,37 +22,6 @@ import (
 //   3. `/api/v1/pending` is an alias for `/api/v1/messages` (the
 //      cross-agent HITL queue). Same handler, same response shape.
 
-func TestApprovePendingMessage_AgentScopedPath_Succeeds(t *testing.T) {
-	server, store, _, smtpDone := setupAPIWithSMTP(t)
-	ctx := context.Background()
-
-	user, _ := store.CreateOrGetUser(ctx, "owner-as-approve@example.com", "Owner", "google-as-approve")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "as-approve-key", nil)
-	store.ClaimOrCreateDomain(ctx, "as-approve.example.com", user.ID)
-	store.VerifyDomain(ctx, "as-approve.example.com", user.ID)
-	agent, _ := store.CreateAgent(ctx, "bot@as-approve.example.com", "as-approve.example.com", "", "https://example.com/webhook", "", user.ID)
-	enableHITL(t, store, agent.ID, user.ID)
-
-	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
-		`{"to":["alice@example.com"],"subject":"AS path","body":"x"}`,
-		apiKey.PlaintextKey)
-	defer sendResp.Body.Close()
-	var sendBody struct{ MessageID string `json:"message_id"` }
-	json.NewDecoder(sendResp.Body).Decode(&sendBody)
-
-	// Approve via the agent-scoped path: /agents/{email}/messages/{id}/approve
-	url := server.URL + "/api/v1/agents/" + agent.Email + "/messages/" + sendBody.MessageID + "/approve"
-	resp := authed(t, "POST", url, "", apiKey.PlaintextKey)
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("agent-scoped approve: status = %d", resp.StatusCode)
-	}
-
-	if msgs := smtpDone(); len(msgs) != 1 {
-		t.Fatalf("expected 1 SMTP message, got %d", len(msgs))
-	}
-}
-
 func TestApprovePendingMessage_AgentScopedPath_EmailMismatch_404(t *testing.T) {
 	server, store, _, smtpDone := setupAPIWithSMTP(t)
 	ctx := context.Background()
@@ -141,32 +110,6 @@ func TestRejectPendingMessage_AgentScopedPath_EmailMismatch_404(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("agent-scoped reject with wrong email: status = %d, want 404", resp.StatusCode)
-	}
-}
-
-func TestRejectPendingMessage_AgentScopedPath_MatchingEmail_Succeeds(t *testing.T) {
-	server, store, _, _ := setupAPIWithSMTP(t)
-	ctx := context.Background()
-
-	user, _ := store.CreateOrGetUser(ctx, "owner-as-rej-ok@example.com", "Owner", "google-as-rej-ok")
-	apiKey, _ := store.CreateAPIKey(ctx, user.ID, "as-rej-ok-key", nil)
-	store.ClaimOrCreateDomain(ctx, "rej-ok.example.com", user.ID)
-	store.VerifyDomain(ctx, "rej-ok.example.com", user.ID)
-	agent, _ := store.CreateAgent(ctx, "bot@rej-ok.example.com", "rej-ok.example.com", "", "https://example.com/wh", "", user.ID)
-	enableHITL(t, store, agent.ID, user.ID)
-
-	sendResp := authed(t, "POST", server.URL+"/api/v1/send",
-		`{"to":["alice@example.com"],"subject":"x","body":"y"}`,
-		apiKey.PlaintextKey)
-	defer sendResp.Body.Close()
-	var sendBody struct{ MessageID string `json:"message_id"` }
-	json.NewDecoder(sendResp.Body).Decode(&sendBody)
-
-	url := server.URL + "/api/v1/agents/" + agent.Email + "/messages/" + sendBody.MessageID + "/reject"
-	resp := authed(t, "POST", url, `{"reason":"reviewed"}`, apiKey.PlaintextKey)
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("agent-scoped reject (matching email): status = %d", resp.StatusCode)
 	}
 }
 

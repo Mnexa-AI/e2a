@@ -69,12 +69,14 @@ func mintTokensForFixture(t *testing.T, f *consentFixture) (accessToken, refresh
 	return body.AccessToken, body.RefreshToken
 }
 
-// callAPIWithBearer hits /api/v1/agents with the given Authorization
+// callAPIWithBearer hits /api/v1/pending with the given Authorization
 // value. Returns the status code and the WWW-Authenticate header.
-// /api/v1/agents is the simplest authed endpoint that any user can hit.
+// /api/v1/pending is a simple authed endpoint that returns 200 (an
+// empty pending list) for any valid credential and 401 with the
+// RFC 6750 challenge for an invalid one.
 func callAPIWithBearer(t *testing.T, serverURL, bearer string) (int, string) {
 	t.Helper()
-	req, _ := http.NewRequest("GET", serverURL+"/api/v1/agents", nil)
+	req, _ := http.NewRequest("GET", serverURL+"/api/v1/pending", nil)
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
@@ -193,7 +195,7 @@ func TestBearer_OAuthToken_LowercaseBearer(t *testing.T) {
 	f := newConsentFixture(t)
 	access, _ := mintTokensForFixture(t, f)
 
-	req, _ := http.NewRequest("GET", f.server.URL+"/api/v1/agents", nil)
+	req, _ := http.NewRequest("GET", f.server.URL+"/api/v1/pending", nil)
 	req.Header.Set("Authorization", "bearer "+access) // lowercase scheme
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
