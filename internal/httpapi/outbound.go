@@ -67,6 +67,46 @@ func (s *Server) registerOutbound() {
 		Description: "Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleForward)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "testAgent", Method: http.MethodPost, Path: "/v1/agents/{address}/test",
+		Summary: "Send a test email to the agent's own address", Tags: []string{"agents"},
+		Description: "Send a platform test email to the agent's own address to confirm inbound delivery. 202 when held for HITL.",
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleTestSend)
+}
+
+func (s *Server) handleTestSend(ctx context.Context, in *AddressParam) (*sendOutput, error) {
+	ag, err := s.resolveOwnedAgent(ctx, in.Address)
+	if err != nil {
+		return nil, err
+	}
+	user, uerr := s.requireUser(ctx)
+	if uerr != nil {
+		return nil, uerr
+	}
+	if !ag.DomainVerified {
+		return nil, NewError(http.StatusForbidden, "domain_not_verified", "agent domain must be verified before sending test email")
+	}
+	if s.deps.EnforceMessageSend != nil {
+		if err := s.deps.EnforceMessageSend(ctx, user.ID); err != nil {
+			if env, ok := limitEnvelope(err); ok {
+				return nil, env
+			}
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "limits check failed")
+		}
+	}
+	if s.deps.SendTest == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "test send unavailable")
+	}
+	res, derr := s.deps.SendTest(ctx, ag)
+	if derr != nil {
+		return nil, NewError(derr.Status, derr.Code, derr.Msg)
+	}
+	if res.Held {
+		return &sendOutput{Status: http.StatusAccepted, Body: SendResultView{Status: "pending_approval", MessageID: res.PendingMessageID, ApprovalExpiresAt: res.ApprovalExpiresAt}}, nil
+	}
+	return &sendOutput{Status: http.StatusOK, Body: SendResultView{Status: "sent", MessageID: res.MessageID, Method: res.Method}}, nil
 }
 
 // ReplyRequest mirrors the legacy reply body.

@@ -1871,6 +1871,39 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 	return &OutboundResult{MessageID: result.MessageID, Method: result.Method}, nil
 }
 
+// SendTestCore composes and sends (or HITL-holds) a platform test email to
+// the agent's own address. HTTP-free; shared by the legacy handler and the v1
+// layer. The caller has already authed, resolved + owned the agent,
+// domain-verified, and run the message-send cap.
+func (a *API) SendTestCore(ctx context.Context, agent *identity.AgentIdentity) (*OutboundResult, *OutboundError) {
+	envelopeFrom := fmt.Sprintf("noreply@%s", a.fromDomain)
+	headerFrom := fmt.Sprintf("%q <%s>", "e2a", envelopeFrom)
+	to := []string{agent.EmailAddress()}
+	subject := "Test email from e2a"
+	body := fmt.Sprintf("This is a test email for %s.\n\nYour agent is set up and ready to receive emails.", agent.EmailAddress())
+
+	if agent.HITLEnabled {
+		msg, err := a.HoldForApprovalCore(ctx, agent, outbound.SendRequest{To: to, Subject: subject, Body: body}, "test", "")
+		if err != nil {
+			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to hold message for approval"}
+		}
+		return &OutboundResult{Held: true, PendingMessageID: msg.ID, ApprovalExpiresAt: msg.ApprovalExpiresAt}, nil
+	}
+
+	message, err := outbound.ComposeMessage(headerFrom, to, nil, subject, body, "text/plain", "", nil, a.fromDomain, "", "")
+	if err != nil {
+		log.Printf("[api] compose test email failed: %v", err)
+		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to compose test email"}
+	}
+	messageID, err := a.smtpRelay.Send(envelopeFrom, to, message)
+	if err != nil {
+		log.Printf("[api] send test email failed: %v", err)
+		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", fmt.Sprintf("failed to send test email: %v", err)}
+	}
+	log.Printf("[api] test email sent to %s (message_id=%s)", agent.EmailAddress(), messageID)
+	return &OutboundResult{MessageID: messageID, Method: "smtp"}, nil
+}
+
 // --- Send Email ---
 
 // handleSendEmail sends a new email from the authenticated user's agent.
@@ -2071,41 +2104,25 @@ func (a *API) handleSendTestEmail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	envelopeFrom := fmt.Sprintf("noreply@%s", a.fromDomain)
-	headerFrom := fmt.Sprintf("%q <%s>", "e2a", envelopeFrom)
-	to := []string{agent.EmailAddress()}
-	subject := "Test email from e2a"
-	body := fmt.Sprintf("This is a test email for %s.\n\nYour agent is set up and ready to receive emails.", agent.EmailAddress())
-
-	if agent.HITLEnabled {
-		a.holdForApproval(w, r, agent, outbound.SendRequest{
-			To:      to,
-			Subject: subject,
-			Body:    body,
-		}, "test", "")
+	result, derr := a.SendTestCore(r.Context(), agent)
+	if derr != nil {
+		http.Error(w, derr.Msg, derr.Status)
 		return
 	}
-
-	message, err := outbound.ComposeMessage(headerFrom, to, nil, subject, body, "text/plain", "", nil, a.fromDomain, "", "")
-	if err != nil {
-		log.Printf("[api] compose test email failed: %v", err)
-		http.Error(w, "failed to compose test email", http.StatusInternalServerError)
+	if result.Held {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		writeJSON(w, map[string]interface{}{
+			"status":              "pending_approval",
+			"message_id":          result.PendingMessageID,
+			"approval_expires_at": result.ApprovalExpiresAt,
+		})
 		return
 	}
-
-	messageID, err := a.smtpRelay.Send(envelopeFrom, to, message)
-	if err != nil {
-		log.Printf("[api] send test email failed: %v", err)
-		http.Error(w, fmt.Sprintf("failed to send test email: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	log.Printf("[api] test email sent to %s (message_id=%s)", agent.EmailAddress(), messageID)
-
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, map[string]string{
 		"status":     "sent",
-		"message_id": messageID,
+		"message_id": result.MessageID,
 	})
 }
 

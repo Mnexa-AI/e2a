@@ -319,6 +319,7 @@ func main() {
 		SMTPDomain:          cfg.SMTP.Domain,
 		Idempotency:         idempotencyStore,
 		DeliverOutbound:     api.DeliverOutbound,
+		SendTest:            api.SendTestCore,
 		EnforceMessageSend:  enforcer.CheckMessageSend,
 		GetInboundMessage:   store.GetInboundMessage,
 		GetLimits:           enforcer.Get,

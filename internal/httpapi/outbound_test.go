@@ -172,3 +172,19 @@ func TestForwardMessageNotFound(t *testing.T) {
 		t.Fatalf("want 404, got %d", code)
 	}
 }
+
+func TestTestSendSent(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/test", "good", nil)
+	if code != 200 || body["status"] != "sent" || body["message_id"] != "msg_test_1" {
+		t.Fatalf("want 200 sent, got %d %v", code, body)
+	}
+}
+
+func TestTestSendNotOwned(t *testing.T) {
+	srv := testServer(t)
+	code, _ := postJSON(t, srv.URL+"/v1/agents/other%40acme.com/test", "good", nil)
+	if code != 403 {
+		t.Fatalf("want 403, got %d", code)
+	}
+}

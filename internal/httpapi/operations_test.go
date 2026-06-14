@@ -271,6 +271,9 @@ func testServer(t *testing.T) *httptest.Server {
 			}
 			return nil
 		},
+		SendTest: func(ctx context.Context, ag *identity.AgentIdentity) (*agent.OutboundResult, *agent.OutboundError) {
+			return &agent.OutboundResult{MessageID: "msg_test_1", Method: "smtp"}, nil
+		},
 		GetInboundMessage: func(ctx context.Context, messageID string) (*identity.Message, error) {
 			if messageID == "msg_in1" {
 				return &identity.Message{

@@ -104,6 +104,7 @@ type Deps struct {
 
 	// outbound (the shared live delivery path extracted from agent.API)
 	DeliverOutbound    func(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string) (*agent.OutboundResult, *agent.OutboundError)
+	SendTest           func(ctx context.Context, ag *identity.AgentIdentity) (*agent.OutboundResult, *agent.OutboundError)
 	EnforceMessageSend func(ctx context.Context, userID string) error
 	// GetInboundMessage loads an inbound message for reply/forward.
 	GetInboundMessage func(ctx context.Context, messageID string) (*identity.Message, error)
