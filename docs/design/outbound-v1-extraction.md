@@ -79,7 +79,7 @@ via `runIdempotent`:
 
 | `/v1` route | builds SendRequest | msgType |
 |---|---|---|
-| `POST /v1/send` | from body (`from`/`to`/subject/body/html/cc/bcc/attachments) | `send` |
+| `POST /v1/agents/{address}/messages` | sender = path agent; body (`to`/subject/body/html/cc/bcc/attachments); `from` optional, must equal the agent | `send` |
 | `POST /v1/agents/{address}/messages/{id}/reply` | from inbound + body | `reply` |
 | `POST /v1/agents/{address}/messages/{id}/forward` | from inbound + body | `forward` |
 | `POST /v1/agents/{address}/test` | server-built test message | `test` |
