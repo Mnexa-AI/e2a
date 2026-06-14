@@ -116,6 +116,33 @@ func TestIdempotentInFlight409(t *testing.T) {
 	}
 }
 
+// unmarshalable has a channel field, so json.Marshal always fails — used to
+// prove the post-side-effect marshal-failure path still Completes (locks) the
+// key rather than orphaning it (which would risk a double-send on retry).
+type unmarshalable struct {
+	Ch chan int `json:"ch"`
+}
+
+func TestIdempotentMarshalFailureStillCompletes(t *testing.T) {
+	f := &fakeIdem{claim: idempotency.ClaimResult{Outcome: idempotency.OutcomeAcquired}}
+	s := serverWithIdem(f)
+	status, _, err := runIdempotent(s, context.Background(), "u", "k1", "/v1/x", nil, func() (int, unmarshalable, error) {
+		return 200, unmarshalable{Ch: make(chan int)}, nil // side effect "committed"
+	})
+	if err != nil || status != 200 {
+		t.Fatalf("expected success despite marshal failure: status=%d err=%v", status, err)
+	}
+	if f.completed == nil {
+		t.Fatal("BLOCKER regression: marshal failure must still Complete (lock) the key, never orphan it")
+	}
+	if f.released {
+		t.Fatal("must NOT Release after the side effect committed (would allow a double-send on retry)")
+	}
+	if string(f.completed.Body) != "{}" {
+		t.Fatalf("expected fallback {} body, got %s", f.completed.Body)
+	}
+}
+
 func TestIdempotentFnErrorReleases(t *testing.T) {
 	f := &fakeIdem{claim: idempotency.ClaimResult{Outcome: idempotency.OutcomeAcquired}}
 	s := serverWithIdem(f)

@@ -62,11 +62,18 @@ func runIdempotent[T any](s *Server, ctx context.Context, userID, key, route str
 		_ = s.deps.Idempotency.Release(ctx, userID, key)
 		return 0, zero, ferr
 	}
-	raw, err := json.Marshal(body)
-	if err == nil {
-		_ = s.deps.Idempotency.Complete(ctx, userID, key, idempotency.CachedResponse{
-			StatusCode: status, ContentType: "application/json", Body: raw,
-		})
+	// The side effect has committed. We MUST Complete the key — never leave
+	// it Acquired (orphaned) — so a retry replays the cached response rather
+	// than re-doing the side effect (e.g. re-sending email). Releasing here
+	// would be the wrong move: it would let a retry re-execute. If the body
+	// somehow fails to marshal, cache an empty body (status preserved) — a
+	// replayed empty body is far better than a double-send.
+	raw, marshalErr := json.Marshal(body)
+	if marshalErr != nil {
+		raw = []byte("{}")
 	}
+	_ = s.deps.Idempotency.Complete(ctx, userID, key, idempotency.CachedResponse{
+		StatusCode: status, ContentType: "application/json", Body: raw,
+	})
 	return status, body, nil
 }
