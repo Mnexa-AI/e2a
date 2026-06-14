@@ -105,14 +105,14 @@ relative to that base):
 |---|---|
 | **agents** | `GET/POST /agents` · `GET/PATCH/DELETE /agents/{address}` · `POST /agents/{address}/test` (top-level, keyed by full email; create enforces caller owns the verified domain). **DELETE semantics:** discards held drafts (`status=pending_approval`), removes the agent from any webhook `agent_ids` filter, revokes its agent-scoped credentials, and purges/retains inbound per the retention policy — but does **not** touch the domain's SES sending identity (per-domain; decision 4). |
 | **domain's agents** (filtered view) | `GET /domains/{domain}/agents` — list agents on a domain (management view; not a separate identity namespace) |
-| **messages** (per agent; inbound + outbound) | `GET /agents/{address}/messages` (filters incl. `direction`, `status`, `delivery_status`; held outbound drafts = `status=pending_approval`) · `GET …/messages/{id}` · `GET …/messages/{id}/attachments/{index}` · `PATCH …/messages/{id}` (labels/read). Outbound messages carry **`delivery_status ∈ {queued,sent,delivered,bounced,complained,deferred,failed}`** + `delivery_detail?` (decision 9). Inbound messages carry structured `auth: {spf,dkim,dmarc}`. |
+| **messages** (per agent; inbound + outbound) | `GET /agents/{address}/messages` (filters incl. `direction`, `status`, `delivery_status`; held outbound drafts = `status=pending_approval`) · `GET …/messages/{id}` · `GET …/messages/{id}/attachments/{index}` · `PATCH …/messages/{id}` (labels/read). Outbound messages carry **`delivery_status ∈ {queued,sent,delivered,bounced,complained,deferred,failed}`** + `delivery_detail?` + `sent_as ∈ {own_address,relay}` (decision 9). Inbound messages carry structured `auth: {spf,dkim,dmarc}`. **Note:** today `messages.delivery_status` is an alias for inbox read/unread — that existing column is renamed to `read_status` so the new outbound `delivery_status` is unambiguous (the `events_api` webhook-delivery-count use of the name is also disambiguated). |
 | **outbound** (unified) | `POST /agents/{address}/messages` — one endpoint for *new thread, reply, and forward*, disambiguated by body (`in_reply_to` / `forward_of` absent ⇒ new) |
 | **conversations** (derived thread view) | `GET /agents/{address}/conversations` · `GET …/conversations/{id}` |
 | **stream** (inbound transport) | `GET /agents/{address}/ws` — WebSocket; first-class + documented (today it's side-registered + mode-gated) |
-| **approvals (HITL)** | `POST /agents/{address}/messages/{id}/approval {decision: approve\|reject}` — the one transition (agents; API-key/OAuth). Held drafts are listed via `GET …/messages?status=pending_approval` and read via the message GET (a held draft is just a message). Human magic link: `GET /approvals/{token}` renders an **HTML confirmation page with NO side effect** (prefetch-safe), whose buttons `POST /approvals/{token} {decision}` into the same transition (token = single-use, short-TTL capability). **Never a mutating GET** — email scanners/prefetchers would auto-trigger it. |
+| **approvals (HITL)** | `POST /agents/{address}/messages/{id}/approval {decision: approve\|reject}` — the one transition (agents; API-key/OAuth). Held drafts are listed via `GET …/messages?status=pending_approval` and read via the message GET (a held draft is just a message). Human magic link: `GET /approvals/{token}` renders an **HTML confirmation page with NO side effect** (prefetch-safe), whose buttons `POST /approvals/{token} {decision}` into the same transition (short-TTL capability; **single-use is enforced by the state machine** — the message leaves `pending_approval` on first decision and a second POST 409s — not by the token, which re-verifies within its TTL). **Never a mutating GET** — email scanners/prefetchers would auto-trigger it. |
 | **domains** | `GET/POST /domains` · `GET/PATCH/DELETE /domains/{domain}` (DELETE also **deprovisions the SES sending identity** — decision 4) · `POST /domains/{domain}/verify` (ownership + nudges a sending-identity re-check). The domain resource carries two independent statuses: `verified` (inbound/ownership, DNS TXT) and `sending_status ∈ {none,pending,verified,failed}` + `sending_error?` + `dns_records` + `last_checked_at?` (async SES sending identity — see §4 decision 4). `GET /domains/{domain}` is the poll target; no separate status endpoint. Inbound `verified` is **re-checkable** — a periodic ownership re-probe (and `POST /verify`) can flip it back to `false` if the DNS TXT/MX later disappears; it is not sticky-once-true. |
-| **webhooks** | `GET/POST /webhooks` · `GET/PATCH/DELETE /webhooks/{id}` · `…/deliveries` (read-only debug view) · `…/test` · `…/rotate-secret`. **Redelivery is event-scoped** (`POST /events/{id}/redeliver`), not a per-webhook endpoint — one canonical place (§3.2). |
-| **events** (delivery log) | `GET /events` · `GET /events/{id}` · `POST /events/{id}/redeliver`. Canonical event vocabulary: `email.received` · `email.sent` · **`email.delivered`** · **`email.bounced`** · **`email.complained`** · `email.pending_approval` · `email.approved` · `email.rejected` · `domain.sending_verified` · `domain.sending_failed` · `agent.credential_revoked` (decision 9 adds the delivery-feedback events). |
+| **webhooks** | `GET/POST /webhooks` · `GET/PATCH/DELETE /webhooks/{id}` · `…/deliveries` (read-only debug view) · `…/test` · `…/rotate-secret`. **Redelivery is event-scoped** (`POST /events/{id}/redeliver`), not a per-webhook endpoint — one canonical place (§3 principle 2). |
+| **events** (delivery log) | `GET /events` · `GET /events/{id}` · `POST /events/{id}/redeliver`. Canonical event vocabulary: `email.received` · `email.sent` · **`email.delivered`** · **`email.bounced`** · **`email.complained`** · `email.flagged` (inbound rejected/flagged by policy — decision 9/10) · `email.pending_approval` · `email.approved` · `email.approval_rejected` (renamed from `email.rejected` to avoid collision with inbound-flagged) · `domain.sending_verified` · `domain.sending_failed` · `domain.suppression_added` · `agent.credential_revoked`. (`deferred`/`failed` `delivery_status` have no push event — poll.) |
 | **account** | `GET /account` (replaces `/info` + `/users/me/limits`; **scope-filtered** — `scope=agent` sees only its bound agent + limits, §6a) · `GET /account/export` · `DELETE /account`. **API-key + signing-secret CRUD are console-only** (human session), not `/v1` endpoints (§5). |
 
 ### Resource relationships
@@ -210,7 +210,7 @@ relative to that base):
      when `sending_status == verified`; for `none`/`pending`/`failed` the sender
      **falls back to the relay `From`** — never the customer address (sending
      unaligned mail under a customer `p=reject` domain would hard-bounce and burn
-     reputation). This is the §3.4 fail-closed default, applied. Pending→verified
+     reputation). This is the §3 principle 4 fail-closed default, applied. Pending→verified
      is driven by a **River-scheduled reconciler** polling SES `GetEmailIdentity`;
      a `pending` that exceeds a bounded TTL transitions to `failed` (no infinite
      poll). `POST /domains/{domain}/verify` forces an immediate re-check;
@@ -244,7 +244,9 @@ relative to that base):
    `GET /approvals/{token}` rendering an **HTML confirmation page with NO
    side effect**; its buttons `POST /approvals/{token} {decision}` into the
    same transition. **Never a mutating GET** — email scanners/link-prefetchers
-   would auto-approve/reject. Token = single-use, short-TTL capability.
+   would auto-approve/reject. Short-TTL capability; single-use is enforced by the
+   state machine (message leaves `pending_approval`; second decision 409s), not by
+   the token itself.
 6. **One error envelope** (audit current handlers and standardize):
    `{ "error": { "code": "MACHINE_BRANCHABLE", "message": "human text",
    "details": {…} } }`, with stable `code` values documented in the spec.
@@ -263,18 +265,40 @@ relative to that base):
    delivered; the redesign closes the loop:
    * **Consume SES notifications** (SNS → handler) for delivery, bounce
      (hard/soft), and complaint, keyed back to the outbound message via the VERP
-     Return-Path (decision 4).
+     Return-Path (decision 4). **The SNS endpoint is public, so verifying the
+     SNS message signature is a fail-closed requirement** (like webhook HMAC):
+     validate `Signature`/`SignatureVersion` against the cert at a
+     **host-allowlisted `SigningCertURL`** (`sns.*.amazonaws.com`), confirm the
+     `TopicArn` is ours, HTTPS-only, and only auto-confirm a `SubscriptionConfirmation`
+     for the expected topic. The **VERP token is an HMAC over the message id**
+     (`verp = MAC(secret, message_id)`), verified on the inbound bounce, so a
+     notification can't be mis-attributed to another message by guessing.
    * **`delivery_status` on outbound messages** —
      `{queued,sent,delivered,bounced,complained,deferred,failed}` (+
      `delivery_detail?` with the SES reason). `sent` is explicitly non-terminal;
-     the terminal status arrives async.
+     the terminal status arrives async. **Apply transitions monotonically** by a
+     fixed precedence (`complained > bounced > delivered > deferred > sent >
+     queued`) so out-of-order/duplicate SNS events can't regress a terminal
+     status (a late `delivered` never clobbers a `complained`). `deferred`/`failed`
+     are surfaced on the field but have **no push event** (transient/internal) —
+     poll `delivery_status` for those. Also record **`sent_as ∈ {own_address,
+     relay}`** (decision 4 fallback) so "sent/delivered" is never mis-attributed
+     to the wrong From identity.
    * **Webhook events** `email.delivered` / `email.bounced` / `email.complained`
      (decision 2a system), so agents react without polling.
-   * **Suppression list** — hard-bounced/complained addresses are suppressed
-     (future sends to them fail fast with a structured `recipient_suppressed`
-     code) to protect SES reputation, with a **console / `account`-scoped
-     read + remove** surface so a fixed address can be un-suppressed (no
-     permanent dead-end).
+   * **Suppression list** — keyed **per `(account, address)`** (never global —
+     a complaint from one tenant must not deny delivery for another; if the SES
+     account is shared, e2a maintains its own per-tenant list above SES's
+     account-level one). Suppress only on **a hard bounce or ≥N confirmed
+     bounces / a corroborated complaint** — never a single unverified signal
+     (prevents suppression-as-DoS, where a forged complaint or forced bounce
+     denies a victim recipient). Auto-suppression **emits an event** so the tenant
+     is alerted, not silently cut off. Future sends to a suppressed address fail
+     fast with a structured `recipient_suppressed` code; un-suppress via
+     `DELETE /account/suppressions/{address}` (`account`-scoped; also listable
+     via `GET /account/suppressions`). A retry after un-suppress needs a **fresh
+     idempotency key** (the prior key's cached `recipient_suppressed` error is
+     replayed otherwise — decision 8).
    * **Inbound auth, structured** — surface `auth: {spf,dkim,dmarc}` on inbound
      messages (DMARC newly evaluated), not just the `X-E2A-Auth-*` blob. This
      verdict is the **trust primitive** the inbound policy (decision 10) enforces on.
@@ -282,14 +306,20 @@ relative to that base):
      payload, offer a parsed view the agent feeds to the model by default:
      **strip quoted threads / forwarded headers**, HTML→text, and a configurable
      **body-length cap** (token-stuffing guard). Cheap, provider-agnostic
-     prompt-injection surface reduction, done server-side in the parse path.
+     prompt-injection surface reduction, done server-side in the parse path. It is
+     a **convenience, not a security control** — `raw` is always available, and
+     the **security decision is made on structured metadata** (`auth` verdict +
+     original-sender provenance, which **survive stripping** as fields), never on
+     the stripped text. Stripping must not drop the "came from outside" framing of
+     forwarded mail — provenance is preserved structurally so a forwarded
+     injection can't masquerade as first-party.
    * **Security event** — emit an `email.flagged` / rejected-inbound event
      (rides the §4 event system) when inbound fails policy, so operators get a
      signal instead of silence.
 10. **Inbound trust policy — gateway-enforced (Slice 7).** A graded, **named**
    per-agent `inbound_policy`. **It is an agent *property*, not a resource** —
    set via `PATCH /agents/{address}` / `update_agent`, alongside the existing
-   HITL config (`hitl_enabled`, …); no `/inbound-policies` CRUD (§3.2). The
+   HITL config (`hitl_enabled`, …); no `/inbound-policies` CRUD (§3 principle 2). The
    `allowlist`/`domain` values are an agent-config array (`inbound_allowlist`),
    promoted to a sub-collection only if it ever needs to scale. The auto
    scope-downgrade (below) is runtime behavior derived from the message `auth`
@@ -297,10 +327,18 @@ relative to that base):
    (gateway-**enforced**, not client-side advisory guidance an agent author may
    skip):
    * `open` (default) — process all inbound.
-   * `allowlist` / `domain` — coarse sender allow (exact address / domain).
+   * `allowlist` / `domain` — coarse sender allow (exact address / domain). **This
+     is the actual *trust* gate** (known senders), composed with the action guard.
    * **`verified_only`** — require `spf=pass` + `dkim=pass` + **DMARC alignment**
-     (decision 9's `auth` verdict); reject/flag the rest. Enforced server-side on
-     the real verdict, not an allowlist string-match.
+     (decision 9's `auth` verdict); reject/flag the rest. **This is an
+     *anti-spoofing* gate, NOT a trust gate** — it proves the mail genuinely came
+     from the *claimed* domain, not that the domain is friendly (`attacker.com`
+     with valid SPF/DKIM passes). So `verified_only` stops forged-sender injection,
+     not hostile-but-authentic senders; pair it with `allowlist`/`domain` or
+     `hitl` for trust. **Load-bearing new logic:** today's verdict is SPF-*or*-DKIM
+     with **no From-alignment** check — `verified_only` requires building DMARC
+     *alignment* (compare the SPF/DKIM domain to the `From:` header domain), which
+     is the real work, not just "run a DMARC library."
    * `hitl` — route untrusted inbound through the existing `approval` transition
      (decision 5) before the agent acts (reuses e2a's server-side HITL — TTL,
      body-scrubbed, signed approvals).
@@ -545,6 +583,15 @@ keep this from fighting e2a's self-host/provider-agnostic posture:
   tokens, the `act` delegation grant) stays **e2a's own** — that's an agent
   minting its own token, not a human signing in. WorkOS = dashboard login + the
   AS for human-connected MCP; e2a = the agent-token layer.
+* **Uniform origin + one validation path.** To preserve the same-origin AS
+  (§6a / §9a: discovery + AS on `api.e2a.dev`, derived from `E2A_PUBLIC_URL`),
+  e2a **fronts AuthKit at `api.e2a.dev`** rather than pointing clients at a
+  WorkOS origin — discovery stays uniform. The resource server has **one
+  token-validation path that accepts both issuers** (WorkOS-issued human tokens
+  and e2a-issued agent tokens), keyed on `iss` + the matching JWKS; both mint
+  `aud=api.e2a.dev` access tokens. Self-host with the no-WorkOS fallback weakens
+  only the *human login*, never the agent-token model (which is e2a's own
+  regardless of IdP).
 
 ### Agent identity & token model (auth.md-aligned)
 
@@ -794,7 +841,7 @@ sees both tiers. The drift-gate map records each tool's tier next to its
 
 | Tool | Key params | → operation | Notes |
 |---|---|---|---|
-| `list_messages` | filters (`status`,`from`,`subject_contains`,`labels`,`since/until`,`conversation_id`,`direction?`), `cursor`,`limit`,`address?` | `GET /agents/{address}/messages` | Cursor pagination (§4.7). |
+| `list_messages` | filters (`status`,`from`,`subject_contains`,`labels`,`since/until`,`conversation_id`,`direction?`), `cursor`,`limit`,`address?` | `GET /agents/{address}/messages` | Cursor pagination (§4 decision 7). |
 | `get_message` | `message_id`*,`address?` | `GET /agents/{address}/messages/{id}` | Flat `GET /messages/{id}` removed — one address. Also reads held outbound drafts. |
 | `get_attachment` | `message_id`*,`index`*,`address?` | `GET /agents/{address}/messages/{id}/attachments/{index}` | **Changed:** dedicated endpoint (was a full-message re-fetch). |
 | `update_message_labels` | `message_id`*,`add_labels?`,`remove_labels?`,`address?` | `PATCH /agents/{address}/messages/{id}` | Labels/read folded into the message PATCH. |
@@ -890,11 +937,11 @@ worth making while we're reshaping the contract anyway, roughly in priority:
    prerequisite for the Connectors-directory listing. Today none are set.
 3. **One pagination shape everywhere.** Current list tools mix `token`/
    `next_token`, `page_size`, and bare `limit`. Standardize on `cursor` + `limit`
-   in, `next_cursor` out (mirrors the API's §4.7) — one "get the next page" model.
+   in, `next_cursor` out (mirrors the API's §4 decision 7 (pagination)) — one "get the next page" model.
 4. **Surface the structured error `code`.** Return the API envelope's
    machine-branchable `code` (e.g. `domain_not_verified`, `message_not_pending`,
    `sending_not_verified`) in tool errors so agents branch on a code, not on
-   prose. Pairs with the §4.6 envelope.
+   prose. Pairs with the §4 decision 6 error envelope.
 5. **Stop round-tripping attachments as base64 through the model.**
    `get_attachment` should return metadata + a short-lived signed **download
    URL** by default, with inline base64 only on explicit request for small
@@ -977,6 +1024,14 @@ Break the current `/api/v1` surface directly and move it to
   read+remove) + structured inbound `auth: {spf,dkim,dmarc}` (DMARC eval).
   Depends on Slice 4's VERP Return-Path. **Table stakes** for an email API —
   ship alongside Slice 4, not after.
+* **Slice 5 — Auth: OAuth 2.1 + auth.md agent identity.** OAuth 2.1 hosted-MCP
+  (PKCE + refresh), scoped API keys (`e2a_agt_`/`e2a_acct_`), and the auth.md
+  agent-identity layer (`/agent/identity`, claim ceremony, jwt-bearer/claim
+  grants, JWKS, RS256 access-token JWTs, `act` delegation) per §5 — the custom
+  token-endpoint handler is the biggest single build item. **This slice delivers
+  the scope machinery** (`agent`/`account`) that §6a's tool tiers and decision
+  10's trust-gated guard depend on. Depends only on Slice 1 (contract/envelope +
+  host cutover); independent of 4/4b. Keep API keys throughout.
 * **Slice 6 — Agent-first docs.** `e2a.md`/`llms.txt`/`setup.md`/`auth.md`,
   binary-served; `api.md` generated from the spec.
 * **Slice 7 — Inbound trust policy (decision 10), post-parity.** Per-agent
