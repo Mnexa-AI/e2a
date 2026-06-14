@@ -1,12 +1,49 @@
 package httpapi
 
 import (
+	"bytes"
+	"flag"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
+
+// updateSpec regenerates the committed OpenAPI golden instead of asserting
+// against it: `go test ./internal/httpapi -update-spec` (or `make spec`).
+var updateSpec = flag.Bool("update-spec", false, "regenerate the committed OpenAPI spec at api/openapi.yaml")
+
+// specGoldenPath is the committed source-of-truth /v1 spec, relative to this
+// package dir. It is the artifact SDK codegen + the docs renderer consume; the
+// drift gate below guarantees it always equals what the live handlers emit.
+const specGoldenPath = "../../api/openapi.yaml"
+
+// TestSpecGoldenNoDrift is the contract-drift CI gate (api-v1-redesign §6): the
+// committed spec must byte-for-byte equal the spec rendered from the live
+// handlers, so the file codegen consumes can never lag the server. Regenerate
+// with `make spec` after any handler/annotation change.
+func TestSpecGoldenNoDrift(t *testing.T) {
+	yaml, err := New(Deps{}).OpenAPIYAML()
+	if err != nil {
+		t.Fatalf("render spec: %v", err)
+	}
+	if *updateSpec {
+		if err := os.WriteFile(specGoldenPath, yaml, 0o644); err != nil {
+			t.Fatalf("write golden: %v", err)
+		}
+		t.Logf("regenerated %s (%d bytes)", specGoldenPath, len(yaml))
+		return
+	}
+	want, err := os.ReadFile(specGoldenPath)
+	if err != nil {
+		t.Fatalf("read spec golden (first time? run `make spec`): %v", err)
+	}
+	if !bytes.Equal(bytes.TrimRight(want, "\n"), bytes.TrimRight(yaml, "\n")) {
+		t.Errorf("committed %s is stale vs the live handlers — run `make spec` to regenerate", specGoldenPath)
+	}
+}
 
 // TestSpecGeneratedFromHandlers is the spec↔server check (api-v1-redesign §6):
 // the OpenAPI document is emitted from the live, registered handlers — never

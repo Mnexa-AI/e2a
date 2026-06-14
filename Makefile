@@ -1,4 +1,4 @@
-.PHONY: build run test test-unit test-integration test-e2e clean docker-up docker-down migrate swagger swagger-check generate generate-check generate-sdk generate-sdk-check
+.PHONY: build run test test-unit test-integration test-e2e clean docker-up docker-down migrate swagger swagger-check spec spec-check generate generate-check generate-sdk generate-sdk-check
 
 OPENAPI3_SPEC := /tmp/e2a-openapi3.yaml
 PY_CODEGEN_VENV := sdks/python/.venv-codegen
@@ -16,7 +16,7 @@ test:
 	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -tags integration -p 1 ./...
 
 test-unit:
-	go test -short ./internal/headers/ ./internal/outbound/ ./internal/relay/ ./internal/config/ ./internal/webhook/ ./internal/approvaltoken/ ./internal/limits/
+	go test -short ./internal/headers/ ./internal/outbound/ ./internal/relay/ ./internal/config/ ./internal/webhook/ ./internal/approvaltoken/ ./internal/limits/ ./internal/httpapi/ ./internal/ratelimit/
 
 test-integration:
 	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -p 1 ./internal/identity/ ./internal/agent/ ./internal/hitlworker/ ./internal/hitlnotify/ ./internal/limits/ ./internal/relay/
@@ -46,6 +46,21 @@ swagger:
 swagger-check:
 	swag init --generalInfo cmd/e2a/main.go --parseDependency --parseInternal --output /tmp/swag-check --outputTypes yaml
 	diff -u web/public/openapi.yaml /tmp/swag-check/swagger.yaml
+
+# spec regenerates the /v1 OpenAPI 3.1 document (api/openapi.yaml) directly
+# from the live Huma handlers — the source of truth for SDK codegen + docs.
+# This replaces the legacy swag-annotation pipeline (the `swagger` target
+# above) as resources finish moving onto /v1; the SDK-codegen switchover to
+# this file is tracked separately.
+spec:
+	go test ./internal/httpapi/ -run TestSpecGoldenNoDrift -update-spec -count=1
+	@echo "==> Regenerated api/openapi.yaml from the /v1 handlers"
+
+# spec-check is the contract-drift gate: fails if api/openapi.yaml lags the
+# handlers. Runs in CI as part of the normal test suite (TestSpecGoldenNoDrift);
+# this is the explicit entrypoint.
+spec-check:
+	go test ./internal/httpapi/ -run TestSpecGoldenNoDrift -count=1
 
 generate: swagger generate-sdk
 
