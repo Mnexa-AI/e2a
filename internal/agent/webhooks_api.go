@@ -1,10 +1,6 @@
 package agent
 
 import (
-	"context"
-	"fmt"
-	"net/http"
-	"strings"
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
@@ -19,138 +15,11 @@ import (
 // layer in internal/identity/webhooks.go does the per-row work; this
 // layer applies the public-facing validation rules from the design.
 
-// Per-resource caps. Mirror the design's locked values.
-const (
-	webhookMaxAgentIDs        = 50
-	webhookMaxConversationIDs = 50
-	webhookMaxLabels          = 50
-	webhookMaxFilterValueLen  = 200
-)
-
-// validateCreateUpdateRequest applies every validation rule the design
-// mandates for both POST and PATCH (full-replace fields). Returns a
-// human-readable error string (handler maps to 400) or "" if valid.
-//
-// The caller passes the already-resolved user (for the agent ownership
-// check) and the canonical filter / events slices to validate. URL
-// validation goes through the existing ValidateWebhookURL helper to
-// reuse its SSRF protections.
-func (a *API) validateWebhookFields(user *identity.User, url string, events []string, filters identity.WebhookFilters, description string) (msg string, status int) {
-	if url != "" {
-		if err := ValidateWebhookURL(url); err != nil {
-			return fmt.Sprintf("invalid url: %v", err), http.StatusBadRequest
-		}
-		if len(url) > 2048 {
-			return "url too long (max 2048 chars)", http.StatusBadRequest
-		}
-	}
-	if len(events) == 0 {
-		return "events must be a non-empty array", http.StatusBadRequest
-	}
-	seen := map[string]bool{}
-	for _, e := range events {
-		if !webhookpub.IsValidEventType(e) {
-			return fmt.Sprintf("unknown event type %q (allowed: %s)", e, strings.Join(webhookpub.AllEventTypes, ", ")), http.StatusBadRequest
-		}
-		if seen[e] {
-			continue
-		}
-		seen[e] = true
-	}
-	if len(description) > 200 {
-		return "description too long (max 200 chars)", http.StatusBadRequest
-	}
-	if strings.ContainsAny(description, "\r\n") {
-		return "description must not contain CR or LF", http.StatusBadRequest
-	}
-
-	if len(filters.AgentIDs) > webhookMaxAgentIDs {
-		return fmt.Sprintf("filters.agent_ids exceeds cap of %d", webhookMaxAgentIDs), http.StatusBadRequest
-	}
-	if len(filters.ConversationIDs) > webhookMaxConversationIDs {
-		return fmt.Sprintf("filters.conversation_ids exceeds cap of %d", webhookMaxConversationIDs), http.StatusBadRequest
-	}
-	if len(filters.Labels) > webhookMaxLabels {
-		return fmt.Sprintf("filters.labels exceeds cap of %d", webhookMaxLabels), http.StatusBadRequest
-	}
-
-	for _, agentEmail := range filters.AgentIDs {
-		// agent_ids must reference agents the caller owns. Use the
-		// existing ListAgentsByUser query rather than introducing a
-		// new one; at filter-list size ≤ 50 the cost is negligible.
-		// The check fails on the first unowned id with a clear
-		// "cross-user agent" error message.
-		if agentEmail == "" {
-			return "filters.agent_ids contains empty entry", http.StatusBadRequest
-		}
-		if len(agentEmail) > webhookMaxFilterValueLen {
-			return "filters.agent_ids entry exceeds 200 chars", http.StatusBadRequest
-		}
-	}
-	if msg, status := a.assertAgentsOwnedByUser(user.ID, filters.AgentIDs); msg != "" {
-		return msg, status
-	}
-
-	for _, c := range filters.ConversationIDs {
-		if c == "" || len(c) > webhookMaxFilterValueLen {
-			return "filters.conversation_ids contains empty entry or one over 200 chars", http.StatusBadRequest
-		}
-		// Conversation IDs are case-sensitive, charset
-		// [a-zA-Z0-9_-]+.
-		for _, r := range c {
-			ok := (r >= 'a' && r <= 'z') ||
-				(r >= 'A' && r <= 'Z') ||
-				(r >= '0' && r <= '9') ||
-				r == '-' || r == '_'
-			if !ok {
-				return fmt.Sprintf("filters.conversation_ids[%q]: invalid character", c), http.StatusBadRequest
-			}
-		}
-	}
-	for _, l := range filters.Labels {
-		if l == "" || len(l) > 64 {
-			return "filters.labels contains empty entry or one over 64 chars", http.StatusBadRequest
-		}
-		// Labels charset same as the labels feature: [a-z0-9:_-]+
-		// (lowercased — the storage layer normalizes on writes but
-		// since we don't normalize here, reject case-divergent
-		// values rather than silently bait-and-switch).
-		for _, r := range l {
-			ok := (r >= 'a' && r <= 'z') ||
-				(r >= '0' && r <= '9') ||
-				r == ':' || r == '-' || r == '_'
-			if !ok {
-				return fmt.Sprintf("filters.labels[%q]: invalid character (expected [a-z0-9:_-]+, lowercase)", l), http.StatusBadRequest
-			}
-		}
-	}
-
-	return "", 0
-}
-
-// assertAgentsOwnedByUser verifies that every email in the given slice
-// is one of the user's agents. Returns "" on success. On a non-owned
-// id, returns a clear error referencing the specific id so the caller
-// can fix the filter without guessing.
-func (a *API) assertAgentsOwnedByUser(userID string, agentEmails []string) (msg string, status int) {
-	if len(agentEmails) == 0 {
-		return "", 0
-	}
-	agents, err := a.store.ListAgentsByUser(context.Background(), userID)
-	if err != nil {
-		return "failed to verify agent ownership", http.StatusInternalServerError
-	}
-	owned := map[string]bool{}
-	for _, ag := range agents {
-		owned[ag.ID] = true
-	}
-	for _, email := range agentEmails {
-		if !owned[email] {
-			return fmt.Sprintf("filters.agent_ids[%q]: not owned by this user", email), http.StatusBadRequest
-		}
-	}
-	return "", 0
-}
+// NOTE: webhook create/update validation (URL/SSRF, event types, filter caps,
+// agent-ownership) now lives in the typed /v1 layer (internal/httpapi/
+// webhooks.go) — the legacy copy that lived here was removed in the v1 cutover
+// along with its routes. The event builders below remain (they feed the live
+// publisher, not the removed HTTP handlers).
 
 // --- event builders (slice 3) ---
 //
@@ -292,28 +161,3 @@ func generateEventIDForAgent() string {
 }
 
 // --- helpers ---
-
-// webhookResponseFromIdentity builds the wire response from a stored
-// row. When includeSecret is true, the signing_secret plaintext is
-// included (POST + rotate). Every other endpoint omits it.
-func webhookResponseFromIdentity(wh *identity.Webhook, includeSecret bool) map[string]interface{} {
-	out := map[string]interface{}{
-		"id":          wh.ID,
-		"url":         wh.URL,
-		"description": wh.Description,
-		"events":      wh.Events,
-		"filters":     wh.Filters,
-		"enabled":     wh.Enabled,
-		"created_at":  wh.CreatedAt.UTC().Format(time.RFC3339),
-	}
-	if includeSecret {
-		out["signing_secret"] = wh.SigningSecret
-	}
-	if wh.AutoDisabledAt != nil {
-		out["auto_disabled_at"] = wh.AutoDisabledAt.UTC().Format(time.RFC3339)
-	}
-	if wh.LastDeliveredAt != nil {
-		out["last_delivered_at"] = wh.LastDeliveredAt.UTC().Format(time.RFC3339)
-	}
-	return out
-}

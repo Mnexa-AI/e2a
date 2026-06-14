@@ -37,8 +37,8 @@ func TestPollRateLimited(t *testing.T) {
 			}
 			return nil, errors.New("no")
 		},
-		ListAgents: func(ctx context.Context, userID string) ([]identity.AgentIdentity, error) {
-			t.Error("ListAgents must NOT be reached when poll-limited")
+		ListWebhooks: func(ctx context.Context, userID string) ([]identity.Webhook, error) {
+			t.Error("ListWebhooks must NOT be reached when poll-limited")
 			return nil, nil
 		},
 		// blocked: 3s retry-after, quota 60, 0 remaining, resets in 12s.
@@ -51,7 +51,7 @@ func TestPollRateLimited(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	resp := getRaw(t, srv.URL+"/v1/agents", "good")
+	resp := getRaw(t, srv.URL+"/v1/webhooks", "good")
 	defer resp.Body.Close()
 	if resp.StatusCode != 429 {
 		t.Fatalf("want 429, got %d", resp.StatusCode)
@@ -77,9 +77,9 @@ func TestPollRateHeadersOnAllowed(t *testing.T) {
 		Authenticator: func(r *http.Request) (*identity.User, error) {
 			return &identity.User{ID: "u_1"}, nil
 		},
-		ListAgents: func(ctx context.Context, userID string) ([]identity.AgentIdentity, error) {
+		ListWebhooks: func(ctx context.Context, userID string) ([]identity.Webhook, error) {
 			reached = true
-			return []identity.AgentIdentity{}, nil
+			return []identity.Webhook{}, nil
 		},
 		PollLimit: func(key string) (bool, time.Duration, int, int, int) {
 			return true, 0, 60, 59, 60
@@ -87,13 +87,13 @@ func TestPollRateHeadersOnAllowed(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	resp := getRaw(t, srv.URL+"/v1/agents", "good")
+	resp := getRaw(t, srv.URL+"/v1/webhooks", "good")
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("want 200, got %d", resp.StatusCode)
 	}
 	if !reached {
-		t.Error("ListAgents should be reached when allowed")
+		t.Error("ListWebhooks should be reached when allowed")
 	}
 	if got := resp.Header.Get("RateLimit-Remaining"); got != "59" {
 		t.Errorf("RateLimit-Remaining = %q, want 59", got)
@@ -104,6 +104,41 @@ func TestPollRateHeadersOnAllowed(t *testing.T) {
 	// Retry-After must NOT be present on a successful response.
 	if got := resp.Header.Get("Retry-After"); got != "" {
 		t.Errorf("Retry-After should be absent on 200, got %q", got)
+	}
+}
+
+// TestNonPollLimitedReadNotThrottled guards the parity fix: reads the legacy
+// surface never poll-limited (listAgents/getAgent/domains/events/limits/export)
+// must NOT be throttled on /v1 either — even with a PollLimit that always
+// blocks, listAgents (absent from pollLimitedOps) is reached and returns 200.
+func TestNonPollLimitedReadNotThrottled(t *testing.T) {
+	reached := false
+	srv := httptest.NewServer(New(Deps{
+		Authenticator: func(r *http.Request) (*identity.User, error) {
+			return &identity.User{ID: "u_1"}, nil
+		},
+		ListAgents: func(ctx context.Context, userID string) ([]identity.AgentIdentity, error) {
+			reached = true
+			return []identity.AgentIdentity{}, nil
+		},
+		// Would block every request IF it were consulted — it must not be.
+		PollLimit: func(key string) (bool, time.Duration, int, int, int) {
+			t.Error("PollLimit must NOT be consulted for listAgents (not a poll-limited op)")
+			return false, time.Second, 60, 0, 60
+		},
+	}))
+	t.Cleanup(srv.Close)
+
+	resp := getRaw(t, srv.URL+"/v1/agents", "good")
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("want 200 (listAgents not poll-limited), got %d", resp.StatusCode)
+	}
+	if !reached {
+		t.Error("ListAgents should be reached")
+	}
+	if resp.Header.Get("RateLimit-Limit") != "" {
+		t.Errorf("non-poll-limited read should carry no RateLimit-Limit header, got %q", resp.Header.Get("RateLimit-Limit"))
 	}
 }
 

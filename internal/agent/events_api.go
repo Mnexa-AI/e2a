@@ -51,11 +51,6 @@ type deliveryStatusJSON struct {
 	Failed          int `json:"failed"`
 }
 
-const (
-	maxEventsPageSize     = 100
-	defaultEventsPageSize = 50
-)
-
 func listEvents(ctx context.Context, pool *pgxpool.Pool, userID, eventType, agentID, conversationID, messageID string, since, until *time.Time, cursorCreatedAt time.Time, cursorID string, limit int) ([]eventJSON, error) {
 	// Build query. user_id is always the first predicate.
 	args := []any{userID}

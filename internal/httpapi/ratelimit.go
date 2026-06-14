@@ -21,17 +21,19 @@ import (
 type RateSnapshot func(key string) (ok bool, retryAfter time.Duration, limit, remaining, resetSeconds int)
 
 // pollLimitedOps are the authenticated read operations governed by the
-// per-user poll limiter (parity with the legacy pollLimit applied to every
-// GET list/get path). getInfo is intentionally absent: it is public, so there
-// is no principal to key on.
+// per-user poll limiter. This mirrors EXACTLY the set the legacy gorilla/mux
+// surface poll-limited (verified against origin/main: handleGetMessages,
+// handleGetMessage, handleListConversations, handleGetConversation,
+// handleListWebhooks, handleGetWebhook, handleListWebhookDeliveries — the
+// label PATCH stays legacy-only). The legacy surface deliberately did NOT
+// poll-limit agents/domains/events/limits/export reads, so neither do we:
+// notably the events API is built for reconciliation polling and must not
+// compete for the shared 60/min message-read budget. getInfo is public (no
+// principal to key on).
 var pollLimitedOps = map[string]bool{
-	"listAgents": true, "getAgent": true,
 	"listMessages": true, "getMessage": true,
 	"listConversations": true, "getConversation": true,
-	"listDomains": true, "getDomain": true,
 	"listWebhooks": true, "getWebhook": true, "listWebhookDeliveries": true,
-	"listEvents": true, "getEvent": true,
-	"getMyLimits": true, "exportUserData": true,
 }
 
 // rateLimit is the Huma middleware that enforces the per-user poll limiter on

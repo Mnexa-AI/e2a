@@ -89,13 +89,6 @@ func writeTooManyRequests(w http.ResponseWriter, retryAfter time.Duration, msg s
 const (
 	maxRequestBytesSmall = 64 * 1024        // 64 KB — domain/agent CRUD, HITL approve
 	maxRequestBytesSend  = 25 * 1024 * 1024 // 25 MB — outbound /send + reply (matches typical SMTP attachment limits)
-
-	// maxFilterStr bounds free-form query-string filters (from /
-	// subject_contains / conversation_id) and any equivalent path
-	// param such as /conversations/{id}. 200 covers human-typed
-	// substrings and msg-style IDs without making slow-query logs
-	// noisy on bad input.
-	maxFilterStr = 200
 )
 
 // ValidateWebhookImageURL — see ValidateWebhookURL.
@@ -771,17 +764,7 @@ func (a *API) resolveAgentForUser(r *http.Request, email string, user *identity.
 	return agent, nil
 }
 
-
-
-
-
-
-
-
-
 // --- Domain Management ---
-
-
 
 // dnsRecordCheck holds the per-record probe results for the verify
 // endpoint. Values are "found" / "missing" — DKIM additionally supports
@@ -885,11 +868,6 @@ func checkDomainRecords(domain, smtpDomain, verificationToken, dkimSelector, dki
 	return check
 }
 
-
-
-
-
-
 // holdForApproval persists a fully composed outbound SendRequest as a
 // pending_approval message and writes a 202 response. It is the shared
 // branch taken by handleSendEmail, handleReplyToMessage, and
@@ -946,7 +924,6 @@ func (a *API) HoldForApprovalCore(ctx context.Context, agent *identity.AgentIden
 	a.publishPendingApproval(ctx, a.buildPendingApprovalEvent(agent, msg, req, msgType), msg.ID)
 	return msg, nil
 }
-
 
 // OutboundResult is the HTTP-free outcome of DeliverOutbound.
 type OutboundResult struct {
@@ -1061,10 +1038,6 @@ func (a *API) SendTestCore(ctx context.Context, agent *identity.AgentIdentity) (
 
 // --- Send Email ---
 
-
-
-
-
 // ForwardRequest is the JSON body for /api/v1/agents/{email}/messages/{id}/forward.
 type ForwardRequest struct {
 	To             []string              `json:"to"`
@@ -1076,16 +1049,7 @@ type ForwardRequest struct {
 	Attachments    []outbound.Attachment `json:"attachments,omitempty"`
 }
 
-
 // --- Polling API ---
-
-
-
-
-
-
-
-
 
 // updateMessageRequest is the JSON body for
 // PATCH /api/v1/agents/{email}/messages/{id}. The only supported
@@ -1194,7 +1158,6 @@ func (a *API) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, map[string]string{"status": "ok"})
 }
-
 
 func (a *API) handleFeedback(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)

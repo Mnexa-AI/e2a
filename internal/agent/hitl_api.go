@@ -466,11 +466,6 @@ func buildSendRequestFromMessage(m *identity.Message) (outbound.SendRequest, err
 	}, nil
 }
 
-// rejectRequest is the JSON body accepted by the reject endpoint.
-type rejectRequest struct {
-	Reason string `json:"reason,omitempty"`
-}
-
 // RejectPendingCore is the HTTP-free core of HITL reject: optional
 // expected-agent-email match (mirrors the legacy URL guard), then
 // RejectPending + publish. Shared by the legacy handler and the v1 layer.
