@@ -147,6 +147,19 @@ func testServer(t *testing.T) *httptest.Server {
 			}
 			return nil
 		},
+		UpdateAgentMode: func(ctx context.Context, agentID, userID, mode, webhook string) error { return nil },
+		UpdateAgentWebhook: func(ctx context.Context, agentID, userID, webhook string) error {
+			return nil
+		},
+		UpdateAgentHITL: func(ctx context.Context, agentID, userID string, enabled bool, ttl int, action string) error {
+			return nil
+		},
+		DeleteAgent: func(ctx context.Context, agentID, userID string) error {
+			if userID != "u_1" {
+				return errors.New("unexpected user")
+			}
+			return nil
+		},
 		SharedDomain: "agents.e2a.dev",
 		PublicURL:    "https://api.e2a.dev",
 		Legacy: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

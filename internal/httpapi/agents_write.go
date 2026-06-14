@@ -84,6 +84,136 @@ func (s *Server) registerAgentWrites() {
 		Security:      []map[string][]string{{"bearer": {}}},
 		DefaultStatus: http.StatusCreated,
 	}, s.handleCreateAgent)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "updateAgent",
+		Method:      http.MethodPatch,
+		Path:        "/v1/agents/{address}",
+		Summary:     "Update an agent",
+		Description: "Patch an agent's webhook/mode and HITL settings. Returns the post-update agent.",
+		Tags:        []string{"agents"},
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleUpdateAgent)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "deleteAgent",
+		Method:      http.MethodDelete,
+		Path:        "/v1/agents/{address}",
+		Summary:     "Delete an agent",
+		Description: "Delete an agent the caller owns.",
+		Tags:        []string{"agents"},
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleDeleteAgent)
+}
+
+// UpdateAgentRequest mirrors the legacy PATCH body — pointer fields so
+// absent != zero. webhook_url/agent_mode are legacy (dropped in the
+// agent-model slice); HITL settings stay.
+type UpdateAgentRequest struct {
+	WebhookURL           *string `json:"webhook_url,omitempty"`
+	AgentMode            *string `json:"agent_mode,omitempty"`
+	HITLEnabled          *bool   `json:"hitl_enabled,omitempty"`
+	HITLTTLSeconds       *int    `json:"hitl_ttl_seconds,omitempty"`
+	HITLExpirationAction *string `json:"hitl_expiration_action,omitempty"`
+}
+
+type updateAgentInput struct {
+	Address string `path:"address"`
+	Body    UpdateAgentRequest
+}
+
+func (s *Server) handleUpdateAgent(ctx context.Context, in *updateAgentInput) (*agentOutput, error) {
+	ag, err := s.resolveOwnedAgent(ctx, in.Address)
+	if err != nil {
+		return nil, err
+	}
+	req := in.Body
+	touched := false
+
+	switch {
+	case req.AgentMode != nil:
+		mode := *req.AgentMode
+		if mode != "cloud" && mode != "local" {
+			return nil, NewError(http.StatusBadRequest, "invalid_request", "agent_mode must be 'cloud' or 'local'")
+		}
+		webhook := ""
+		if req.WebhookURL != nil {
+			webhook = *req.WebhookURL
+		}
+		if mode == "cloud" && webhook == "" {
+			return nil, NewError(http.StatusBadRequest, "invalid_request", "webhook_url is required when switching to cloud mode")
+		}
+		if s.deps.UpdateAgentMode == nil {
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "update unavailable")
+		}
+		if err := s.deps.UpdateAgentMode(ctx, ag.ID, ag.UserID, mode, webhook); err != nil {
+			return nil, NewError(http.StatusForbidden, "forbidden", err.Error())
+		}
+		touched = true
+	case req.WebhookURL != nil:
+		if s.deps.UpdateAgentWebhook == nil {
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "update unavailable")
+		}
+		if err := s.deps.UpdateAgentWebhook(ctx, ag.ID, ag.UserID, *req.WebhookURL); err != nil {
+			return nil, NewError(http.StatusForbidden, "forbidden", err.Error())
+		}
+		touched = true
+	}
+
+	if req.HITLEnabled != nil || req.HITLTTLSeconds != nil || req.HITLExpirationAction != nil {
+		enabled := ag.HITLEnabled
+		if req.HITLEnabled != nil {
+			enabled = *req.HITLEnabled
+		}
+		ttl := ag.HITLTTLSeconds
+		if req.HITLTTLSeconds != nil {
+			ttl = *req.HITLTTLSeconds
+		}
+		action := ag.HITLExpirationAction
+		if req.HITLExpirationAction != nil {
+			action = *req.HITLExpirationAction
+		}
+		if s.deps.UpdateAgentHITL == nil {
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "update unavailable")
+		}
+		if err := s.deps.UpdateAgentHITL(ctx, ag.ID, ag.UserID, enabled, ttl, action); err != nil {
+			return nil, NewError(http.StatusBadRequest, "invalid_request", err.Error())
+		}
+		touched = true
+	}
+
+	if !touched {
+		return nil, NewError(http.StatusBadRequest, "invalid_request", "no recognized fields in request")
+	}
+
+	// Re-read for the authoritative post-update state (ag.ID is the email).
+	updated, err := s.deps.GetAgent(ctx, ag.ID)
+	if err != nil || updated == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to reload agent")
+	}
+	return &agentOutput{Body: agentViewFromIdentity(updated)}, nil
+}
+
+type deleteAgentOutput struct {
+	Body struct {
+		Status string `json:"status"`
+	}
+}
+
+func (s *Server) handleDeleteAgent(ctx context.Context, in *AddressParam) (*deleteAgentOutput, error) {
+	ag, err := s.resolveOwnedAgent(ctx, in.Address)
+	if err != nil {
+		return nil, err
+	}
+	if s.deps.DeleteAgent == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "delete unavailable")
+	}
+	if err := s.deps.DeleteAgent(ctx, ag.ID, ag.UserID); err != nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to delete agent")
+	}
+	out := &deleteAgentOutput{}
+	out.Body.Status = "deleted"
+	return out, nil
 }
 
 func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*createAgentOutput, error) {

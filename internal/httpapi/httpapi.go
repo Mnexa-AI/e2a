@@ -53,6 +53,14 @@ type DomainLookup func(ctx context.Context, domain, userID string) (*identity.Do
 // limits.LimitExceededError when the per-user cap is hit.
 type AgentCreateEnforcer func(ctx context.Context, userID string) error
 
+// Agent mutation funcs mirror the like-named store methods.
+type (
+	AgentModeUpdater    func(ctx context.Context, agentID, userID, agentMode, webhookURL string) error
+	AgentWebhookUpdater func(ctx context.Context, agentID, userID, webhookURL string) error
+	AgentHITLUpdater    func(ctx context.Context, agentID, userID string, enabled bool, ttlSeconds int, expirationAction string) error
+	AgentDeleter        func(ctx context.Context, agentID, userID string) error
+)
+
 // Deps are the collaborators the v1 layer needs. Everything is injected so
 // the package has no hidden globals and is straightforward to test.
 type Deps struct {
@@ -68,6 +76,10 @@ type Deps struct {
 	CreateAgent        AgentCreator
 	LookupDomain       DomainLookup
 	EnforceAgentCreate AgentCreateEnforcer
+	UpdateAgentMode    AgentModeUpdater
+	UpdateAgentWebhook AgentWebhookUpdater
+	UpdateAgentHITL    AgentHITLUpdater
+	DeleteAgent        AgentDeleter
 
 	// Deployment info surfaced by GET /v1/info (unchanged shape from the
 	// legacy /api/v1/info while we are in the consistency-only slice).

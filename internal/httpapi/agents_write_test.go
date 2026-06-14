@@ -7,6 +7,92 @@ import (
 	"testing"
 )
 
+func sendJSON(t *testing.T, method, url, bearer string, body any) (int, map[string]any) {
+	t.Helper()
+	b, _ := json.Marshal(body)
+	req, _ := http.NewRequest(method, url, bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out
+}
+
+func TestUpdateAgentHITL(t *testing.T) {
+	srv := testServer(t)
+	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/agents/support%40acme.com", "good", map[string]any{
+		"hitl_enabled": true, "hitl_ttl_seconds": 3600, "hitl_expiration_action": "reject",
+	})
+	if code != 200 {
+		t.Fatalf("status %d body %v", code, body)
+	}
+	// Returns the reloaded agent.
+	if body["email"] != "support@acme.com" {
+		t.Fatalf("expected reloaded agent, got %v", body)
+	}
+}
+
+func TestUpdateAgentInvalidMode(t *testing.T) {
+	srv := testServer(t)
+	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/agents/support%40acme.com", "good", map[string]any{
+		"agent_mode": "bogus",
+	})
+	if code != 400 || errCode(body) != "invalid_request" {
+		t.Fatalf("want 400 invalid_request, got %d %v", code, body)
+	}
+}
+
+func TestUpdateAgentCloudRequiresWebhook(t *testing.T) {
+	srv := testServer(t)
+	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/agents/support%40acme.com", "good", map[string]any{
+		"agent_mode": "cloud",
+	})
+	if code != 400 || errCode(body) != "invalid_request" {
+		t.Fatalf("want 400 invalid_request, got %d %v", code, body)
+	}
+}
+
+func TestUpdateAgentNoFields(t *testing.T) {
+	srv := testServer(t)
+	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/agents/support%40acme.com", "good", map[string]any{})
+	if code != 400 || errCode(body) != "invalid_request" {
+		t.Fatalf("want 400 invalid_request, got %d %v", code, body)
+	}
+}
+
+func TestUpdateAgentNotOwned(t *testing.T) {
+	srv := testServer(t)
+	code, _ := sendJSON(t, "PATCH", srv.URL+"/v1/agents/other%40acme.com", "good", map[string]any{
+		"hitl_enabled": true,
+	})
+	if code != 403 {
+		t.Fatalf("want 403, got %d", code)
+	}
+}
+
+func TestDeleteAgent(t *testing.T) {
+	srv := testServer(t)
+	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com", "good", nil)
+	if code != 200 || body["status"] != "deleted" {
+		t.Fatalf("want 200 deleted, got %d %v", code, body)
+	}
+}
+
+func TestDeleteAgentNotOwned(t *testing.T) {
+	srv := testServer(t)
+	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/agents/other%40acme.com", "good", nil)
+	if code != 403 {
+		t.Fatalf("want 403, got %d", code)
+	}
+}
+
 func postJSON(t *testing.T, url, bearer string, body any) (int, map[string]any) {
 	t.Helper()
 	b, _ := json.Marshal(body)

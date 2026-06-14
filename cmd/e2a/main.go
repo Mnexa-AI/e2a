@@ -305,6 +305,10 @@ func main() {
 		CreateAgent:        store.CreateAgent,
 		LookupDomain:       store.LookupDomain,
 		EnforceAgentCreate: enforcer.CheckAgentCreate,
+		UpdateAgentMode:    store.UpdateAgentMode,
+		UpdateAgentWebhook: store.UpdateAgentWebhook,
+		UpdateAgentHITL:    store.UpdateAgentHITL,
+		DeleteAgent:        store.DeleteAgent,
 
 		SharedDomain: cfg.SharedDomain,
 		PublicURL:    cfg.HTTP.PublicURL,
