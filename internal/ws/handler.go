@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/gorilla/mux"
 	"nhooyr.io/websocket"
 )
 
@@ -31,7 +31,20 @@ func NewHandler(hub *Hub, store HandlerStore) *Handler {
 
 // Handle is the HTTP handler for WebSocket upgrade requests.
 // Route: GET /api/v1/agents/{email}/ws?token={api_key}
+// Handle reads the agent email from the gorilla/mux route var (legacy
+// /api/v1/agents/{email}/ws).
 func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
+	h.serve(w, r, mux.Vars(r)["email"])
+}
+
+// ServeWithEmail handles the WebSocket upgrade for an explicitly-provided
+// agent email, so non-mux routers (chi at /v1/agents/{address}/ws) can host
+// the same transport.
+func (h *Handler) ServeWithEmail(w http.ResponseWriter, r *http.Request, rawEmail string) {
+	h.serve(w, r, rawEmail)
+}
+
+func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string) {
 	// Authenticate via query param (WebSocket clients can't set headers during upgrade)
 	token := r.URL.Query().Get("token")
 	if token == "" {
@@ -48,7 +61,7 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 	// Resolve agent and verify ownership. Canonicalize the email so that
 	// `ws://.../UPPER@x.dev/ws?token=…` resolves identically to the
 	// lower-case form — matches the REST API's `normalizeEmail` policy.
-	email := identity.NormalizeEmail(mux.Vars(r)["email"])
+	email := identity.NormalizeEmail(rawEmail)
 	agent, err := h.store.GetAgentByEmail(r.Context(), email)
 	if err != nil {
 		http.Error(w, "agent not found", http.StatusNotFound)
