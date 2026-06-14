@@ -112,6 +112,12 @@ type Deps struct {
 	// SendLimit is the per-agent outbound rate limiter (mirrors
 	// sendLimit.AllowWithRetryAfter; key = agent id). Optional.
 	SendLimit func(key string) (ok bool, retryAfter time.Duration)
+	// PollLimit is the per-user read limiter (key = user id) and RegLimit is
+	// the per-IP agent-registration limiter (key = client ip). Both return
+	// the IETF RateLimit snapshot so the middleware can set the headers.
+	// Optional — nil disables that limiter on the /v1 surface.
+	PollLimit RateSnapshot
+	RegLimit  RateSnapshot
 	// GetInboundMessage loads an inbound message for reply/forward.
 	GetInboundMessage func(ctx context.Context, messageID string) (*identity.Message, error)
 
@@ -213,6 +219,10 @@ func New(deps Deps) *Server {
 	api := humachi.New(root, config)
 
 	s := &Server{Router: root, API: api, deps: deps}
+	// Rate limiting runs as Huma middleware so it can stamp the IETF
+	// RateLimit-* headers on the response and short-circuit a 429 before the
+	// handler. Registered once; applies to every operation.
+	api.UseMiddleware(s.rateLimit)
 	s.registerOperations()
 
 	// WebSocket transport — registered directly on chi (not Huma; it's a raw
@@ -285,6 +295,11 @@ func RequestFromContext(ctx context.Context) *http.Request {
 // requireUser authenticates the caller or returns a 401 envelope carrying
 // the machine-branchable "unauthorized" code.
 func (s *Server) requireUser(ctx context.Context) (*identity.User, error) {
+	// The rate-limit middleware may have already authenticated this request
+	// on the read path; reuse that principal instead of hitting auth twice.
+	if u := userFromContext(ctx); u != nil {
+		return u, nil
+	}
 	r := RequestFromContext(ctx)
 	if r == nil || s.deps.Authenticator == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "authentication unavailable")

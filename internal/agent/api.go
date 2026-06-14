@@ -452,6 +452,19 @@ func (a *API) SendLimitAllow(key string) (bool, time.Duration) {
 	return a.sendLimit.AllowWithRetryAfter(key)
 }
 
+// PollLimitAllow exposes the per-user read limiter (key = user id) and
+// RegLimitAllow the per-IP registration limiter (key = client ip), each
+// returning the IETF RateLimit snapshot so the v1 httpapi middleware can
+// stamp RateLimit-Limit/Remaining/Reset. Both share the SAME buckets as the
+// legacy handlers, so a caller is counted once across either surface.
+func (a *API) PollLimitAllow(key string) (bool, time.Duration, int, int, int) {
+	return a.pollLimit.AllowSnapshot(key)
+}
+
+func (a *API) RegLimitAllow(key string) (bool, time.Duration, int, int, int) {
+	return a.regLimit.AllowSnapshot(key)
+}
+
 // SetUsageStore wires in the usage store used by handleGetMyLimits to
 // surface the user's current counts (agents, domains, messages this
 // month, storage bytes) alongside the resolved caps. Separate from the

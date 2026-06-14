@@ -322,6 +322,8 @@ func main() {
 		SendTest:            api.SendTestCore,
 		ApprovePending:      api.ApprovePendingCore,
 		SendLimit:           api.SendLimitAllow,
+		PollLimit:           api.PollLimitAllow,
+		RegLimit:            api.RegLimitAllow,
 		RejectPending:       api.RejectPendingCore,
 		EnforceMessageSend:  enforcer.CheckMessageSend,
 		GetInboundMessage:   store.GetInboundMessage,

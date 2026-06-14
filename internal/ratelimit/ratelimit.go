@@ -71,6 +71,30 @@ func (l *Limiter) AllowWithRetryAfter(key string) (bool, time.Duration) {
 	return true, 0
 }
 
+// AllowSnapshot behaves like AllowWithRetryAfter but also returns the IETF
+// RateLimit header values: the window quota (limit), the remaining quota after
+// this request, and the seconds until the window resets (when the oldest
+// in-window hit ages out). resetSeconds is >= 1 whenever any hits are recorded.
+func (l *Limiter) AllowSnapshot(key string) (ok bool, retryAfter time.Duration, limit, remaining, resetSeconds int) {
+	ok, retryAfter = l.AllowWithRetryAfter(key)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	limit = l.max
+	used := len(l.buckets[key])
+	remaining = limit - used
+	if remaining < 0 {
+		remaining = 0
+	}
+	if used > 0 {
+		reset := l.buckets[key][0].Add(l.window).Sub(time.Now())
+		resetSeconds = int(reset.Round(time.Second).Seconds())
+		if resetSeconds < 1 {
+			resetSeconds = 1
+		}
+	}
+	return ok, retryAfter, limit, remaining, resetSeconds
+}
+
 func (l *Limiter) cleanupLoop() {
 	ticker := time.NewTicker(l.window)
 	defer ticker.Stop()

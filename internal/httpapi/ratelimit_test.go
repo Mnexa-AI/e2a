@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,122 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 )
+
+// getRaw issues a GET and returns the full response so header assertions are
+// possible (getJSON discards headers).
+func getRaw(t *testing.T, url, bearer string) *http.Response {
+	t.Helper()
+	req, _ := http.NewRequest("GET", url, nil)
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func TestPollRateLimited(t *testing.T) {
+	srv := httptest.NewServer(New(Deps{
+		Authenticator: func(r *http.Request) (*identity.User, error) {
+			if r.Header.Get("Authorization") == "Bearer good" {
+				return &identity.User{ID: "u_1"}, nil
+			}
+			return nil, errors.New("no")
+		},
+		ListAgents: func(ctx context.Context, userID string) ([]identity.AgentIdentity, error) {
+			t.Error("ListAgents must NOT be reached when poll-limited")
+			return nil, nil
+		},
+		// blocked: 3s retry-after, quota 60, 0 remaining, resets in 12s.
+		PollLimit: func(key string) (bool, time.Duration, int, int, int) {
+			if key != "u_1" {
+				t.Errorf("poll key = %q, want u_1", key)
+			}
+			return false, 3 * time.Second, 60, 0, 12
+		},
+	}))
+	t.Cleanup(srv.Close)
+
+	resp := getRaw(t, srv.URL+"/v1/agents", "good")
+	defer resp.Body.Close()
+	if resp.StatusCode != 429 {
+		t.Fatalf("want 429, got %d", resp.StatusCode)
+	}
+	for h, want := range map[string]string{
+		"Retry-After": "3", "RateLimit-Limit": "60",
+		"RateLimit-Remaining": "0", "RateLimit-Reset": "12",
+	} {
+		if got := resp.Header.Get(h); got != want {
+			t.Errorf("header %s = %q, want %q", h, got, want)
+		}
+	}
+	var body map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&body)
+	if errCode(body) != "rate_limited" {
+		t.Fatalf("want rate_limited, got %v", body)
+	}
+}
+
+func TestPollRateHeadersOnAllowed(t *testing.T) {
+	reached := false
+	srv := httptest.NewServer(New(Deps{
+		Authenticator: func(r *http.Request) (*identity.User, error) {
+			return &identity.User{ID: "u_1"}, nil
+		},
+		ListAgents: func(ctx context.Context, userID string) ([]identity.AgentIdentity, error) {
+			reached = true
+			return []identity.AgentIdentity{}, nil
+		},
+		PollLimit: func(key string) (bool, time.Duration, int, int, int) {
+			return true, 0, 60, 59, 60
+		},
+	}))
+	t.Cleanup(srv.Close)
+
+	resp := getRaw(t, srv.URL+"/v1/agents", "good")
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	if !reached {
+		t.Error("ListAgents should be reached when allowed")
+	}
+	if got := resp.Header.Get("RateLimit-Remaining"); got != "59" {
+		t.Errorf("RateLimit-Remaining = %q, want 59", got)
+	}
+	if got := resp.Header.Get("RateLimit-Limit"); got != "60" {
+		t.Errorf("RateLimit-Limit = %q, want 60", got)
+	}
+	// Retry-After must NOT be present on a successful response.
+	if got := resp.Header.Get("Retry-After"); got != "" {
+		t.Errorf("Retry-After should be absent on 200, got %q", got)
+	}
+}
+
+func TestRegRateLimited(t *testing.T) {
+	srv := httptest.NewServer(New(Deps{
+		Authenticator: func(r *http.Request) (*identity.User, error) {
+			return &identity.User{ID: "u_1"}, nil
+		},
+		CreateAgent: func(ctx context.Context, email, domain, name, webhookURL, agentMode, userID string) (*identity.AgentIdentity, error) {
+			t.Error("CreateAgent must NOT be reached when reg-limited")
+			return nil, nil
+		},
+		RegLimit: func(key string) (bool, time.Duration, int, int, int) {
+			return false, 30 * time.Second, 200, 0, 3600
+		},
+	}))
+	t.Cleanup(srv.Close)
+
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"slug": "bot", "agent_mode": "local",
+	})
+	if code != 429 || errCode(body) != "rate_limited" {
+		t.Fatalf("want 429 rate_limited, got %d %v", code, body)
+	}
+}
 
 // serverWithSendLimit builds a minimal server whose SendLimit always blocks,
 // to assert the 429 path on the outbound chokepoint.
