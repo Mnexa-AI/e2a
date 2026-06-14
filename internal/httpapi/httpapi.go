@@ -108,6 +108,9 @@ type Deps struct {
 	// position; the closures bind the events pool in main.
 	ListEvents func(ctx context.Context, q EventQuery) ([]agent.EventJSON, error)
 	GetEvent2  func(ctx context.Context, userID, eventID string) (*agent.EventJSON, error)
+	// redeliver
+	LoadReplayEvent      func(ctx context.Context, userID, eventID string) (*agent.ReplayEvent, error)
+	InsertReplayDelivery func(ctx context.Context, eventID, webhookID, eventType string, messageID *string, envelope []byte) (string, error)
 
 	// webhooks
 	CreateWebhook func(ctx context.Context, userID, url, description string, events []string, filters identity.WebhookFilters) (*identity.Webhook, error)

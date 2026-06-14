@@ -33,3 +33,31 @@ func ListEventsForUser(ctx context.Context, pool *pgxpool.Pool, userID, eventTyp
 func GetEventForUser(ctx context.Context, pool *pgxpool.Pool, userID, eventID string) (*EventJSON, error) {
 	return getEvent(ctx, pool, userID, eventID)
 }
+
+// ReplayEvent is the exported snapshot used to schedule a redelivery.
+type ReplayEvent struct {
+	EventType         string
+	MessageID         *string
+	Envelope          []byte
+	MatchedWebhookIDs []string
+}
+
+// LoadReplayEvent wraps loadEventForReplay (ownership-scoped). Returns
+// ErrEventNotFound / ErrEventExpired for the respective cases.
+func LoadReplayEvent(ctx context.Context, pool *pgxpool.Pool, userID, eventID string) (*ReplayEvent, error) {
+	row, err := loadEventForReplay(ctx, pool, userID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	return &ReplayEvent{
+		EventType:         row.eventType,
+		MessageID:         row.messageID,
+		Envelope:          row.envelope,
+		MatchedWebhookIDs: row.matchedWebhookIDs,
+	}, nil
+}
+
+// InsertReplayDelivery wraps insertReplayDelivery, scheduling one redelivery.
+func InsertReplayDelivery(ctx context.Context, pool *pgxpool.Pool, eventID, webhookID, eventType string, messageID *string, envelope []byte) (string, error) {
+	return insertReplayDelivery(ctx, pool, eventID, webhookID, eventType, messageID, envelope)
+}

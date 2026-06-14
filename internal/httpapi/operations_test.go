@@ -201,6 +201,19 @@ func testServer(t *testing.T) *httptest.Server {
 				return nil, agent.ErrEventNotFound
 			}
 		},
+		LoadReplayEvent: func(ctx context.Context, userID, eventID string) (*agent.ReplayEvent, error) {
+			switch eventID {
+			case "evt_a":
+				return &agent.ReplayEvent{EventType: "email.received", MatchedWebhookIDs: []string{"wh_1", "wh_2"}}, nil
+			case "evt_expired":
+				return nil, agent.ErrEventExpired
+			default:
+				return nil, agent.ErrEventNotFound
+			}
+		},
+		InsertReplayDelivery: func(ctx context.Context, eventID, webhookID, eventType string, messageID *string, envelope []byte) (string, error) {
+			return "whd_" + webhookID, nil
+		},
 		CreateWebhook: func(ctx context.Context, userID, url, description string, events []string, filters identity.WebhookFilters) (*identity.Webhook, error) {
 			if strings.Contains(url, "capped") {
 				return nil, identity.ErrWebhookCapReached

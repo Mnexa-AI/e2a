@@ -342,6 +342,12 @@ func main() {
 		GetEvent2: func(ctx context.Context, userID, eventID string) (*agent.EventJSON, error) {
 			return agent.GetEventForUser(ctx, pool, userID, eventID)
 		},
+		LoadReplayEvent: func(ctx context.Context, userID, eventID string) (*agent.ReplayEvent, error) {
+			return agent.LoadReplayEvent(ctx, pool, userID, eventID)
+		},
+		InsertReplayDelivery: func(ctx context.Context, eventID, webhookID, eventType string, messageID *string, envelope []byte) (string, error) {
+			return agent.InsertReplayDelivery(ctx, pool, eventID, webhookID, eventType, messageID, envelope)
+		},
 
 		CreateWebhook: store.CreateWebhook,
 		ListWebhooks:  store.ListWebhooksByUser,

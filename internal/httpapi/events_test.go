@@ -64,3 +64,39 @@ func TestGetEventExpiredGone(t *testing.T) {
 		t.Fatalf("want 410 gone, got %d %v", code, body)
 	}
 }
+
+func TestRedeliverEventTargeted(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/events/evt_a/redeliver", "good", map[string]any{"webhook_id": "wh_1"})
+	if code != 200 || body["delivery_id"] != "whd_wh_1" || body["status"] != "pending" {
+		t.Fatalf("targeted redeliver: %d %v", code, body)
+	}
+}
+
+func TestRedeliverEventFanout(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/events/evt_a/redeliver", "good", map[string]any{})
+	if code != 200 || body["status"] != "scheduled" {
+		t.Fatalf("fanout redeliver: %d %v", code, body)
+	}
+	dels, _ := body["deliveries"].([]any)
+	if len(dels) != 2 {
+		t.Fatalf("want 2 fanout deliveries, got %d", len(dels))
+	}
+}
+
+func TestRedeliverEventUnmatchedWebhook(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/events/evt_a/redeliver", "good", map[string]any{"webhook_id": "wh_other"})
+	if code != 409 || errCode(body) != "conflict" {
+		t.Fatalf("want 409 conflict, got %d %v", code, body)
+	}
+}
+
+func TestRedeliverEventNotFound(t *testing.T) {
+	srv := testServer(t)
+	code, _ := postJSON(t, srv.URL+"/v1/events/evt_missing/redeliver", "good", map[string]any{})
+	if code != 404 {
+		t.Fatalf("want 404, got %d", code)
+	}
+}
