@@ -30,6 +30,10 @@ type AgentGetter func(ctx context.Context, address string) (*identity.AgentIdent
 // Mirrors store.GetMessageWithContent(messageID, agentID).
 type MessageGetter func(ctx context.Context, messageID, agentID string) (*identity.Message, error)
 
+// MessageLister returns a filtered page of message summaries for an agent.
+// Mirrors store.GetMessagesByAgent(filter).
+type MessageLister func(ctx context.Context, filter identity.MessageListFilter) ([]identity.Message, error)
+
 // Deps are the collaborators the v1 layer needs. Everything is injected so
 // the package has no hidden globals and is straightforward to test.
 type Deps struct {
@@ -37,6 +41,7 @@ type Deps struct {
 	ListAgents    AgentLister
 	GetAgent      AgentGetter
 	GetMessage    MessageGetter
+	ListMessages  MessageLister
 
 	// Deployment info surfaced by GET /v1/info (unchanged shape from the
 	// legacy /api/v1/info while we are in the consistency-only slice).

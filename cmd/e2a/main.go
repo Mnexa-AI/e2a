@@ -297,6 +297,7 @@ func main() {
 		ListAgents:    store.ListAgentsByUser,
 		GetAgent:      store.GetAgentByEmail,
 		GetMessage:    store.GetMessageWithContent,
+		ListMessages:  store.GetMessagesByAgent,
 		SharedDomain:  cfg.SharedDomain,
 		PublicURL:     cfg.HTTP.PublicURL,
 		Legacy:        router,

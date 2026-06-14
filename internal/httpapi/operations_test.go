@@ -54,6 +54,31 @@ func testServer(t *testing.T) *httptest.Server {
 			}
 			return nil, errors.New("not found")
 		},
+		ListMessages: func(ctx context.Context, f identity.MessageListFilter) ([]identity.Message, error) {
+			if f.AgentID != "support@acme.com" {
+				return nil, errors.New("unexpected agent")
+			}
+			// Two messages, newest-first; honor Limit + AfterID so the
+			// cursor round-trip is exercised end to end.
+			all := []identity.Message{
+				{ID: "msg_b", Direction: "inbound", Sender: "b@x.com", Recipient: "support@acme.com", Subject: "B", InboxStatus: "unread", CreatedAt: time.Unix(1700000200, 0).UTC()},
+				{ID: "msg_a", Direction: "inbound", Sender: "a@x.com", Recipient: "support@acme.com", Subject: "A", InboxStatus: "unread", CreatedAt: time.Unix(1700000100, 0).UTC()},
+			}
+			start := 0
+			if f.AfterID != "" {
+				for i, m := range all {
+					if m.ID == f.AfterID {
+						start = i + 1
+						break
+					}
+				}
+			}
+			rest := all[start:]
+			if f.Limit > 0 && len(rest) > f.Limit {
+				rest = rest[:f.Limit]
+			}
+			return rest, nil
+		},
 		GetMessage: func(ctx context.Context, messageID, agentID string) (*identity.Message, error) {
 			if agentID == "support@acme.com" && messageID == "msg_1" {
 				return &identity.Message{

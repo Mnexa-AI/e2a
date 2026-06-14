@@ -2,7 +2,10 @@ package httpapi
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
@@ -59,7 +62,107 @@ type messageOutput struct {
 	Body MessageView
 }
 
+// MessageSummaryView is the lightweight list representation. It mirrors the
+// legacy messageSummary json shape field-for-field (Slice 1 keeps the item
+// shape; only the *pagination envelope* changes to the standardized
+// items/next_cursor — §4 decision 7). Replicated here rather than imported
+// from the legacy agent package so the new layer carries no backwards
+// dependency on the surface it replaces; it moves home when legacy is
+// deleted at the 1Z cutover.
+type MessageSummaryView struct {
+	ID             string   `json:"message_id"`
+	Direction      string   `json:"direction"`
+	From           string   `json:"from"`
+	To             []string `json:"to"`
+	CC             []string `json:"cc,omitempty"`
+	ReplyTo        []string `json:"reply_to,omitempty"`
+	Recipient      string   `json:"recipient"`
+	Subject        string   `json:"subject"`
+	ConversationID string   `json:"conversation_id,omitempty"`
+	Status         string   `json:"status"`
+	HITLStatus     string   `json:"hitl_status,omitempty"`
+	WebhookStatus  string   `json:"webhook_status,omitempty"`
+	WebhookError   string   `json:"webhook_error,omitempty"`
+	SizeBytes      int      `json:"size_bytes,omitempty"`
+	Labels         []string `json:"labels"`
+	CreatedAt      string   `json:"created_at"`
+}
+
+func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
+	s := MessageSummaryView{
+		ID:             m.ID,
+		Direction:      m.Direction,
+		From:           m.Sender,
+		To:             orEmptyStrings(m.ToRecipients),
+		CC:             m.CC,
+		ReplyTo:        m.ReplyTo,
+		Recipient:      m.Recipient,
+		Subject:        m.Subject,
+		ConversationID: m.ConversationID,
+		Status:         m.InboxStatus,
+		SizeBytes:      m.SizeBytes,
+		Labels:         orEmptyStrings(m.Labels),
+		CreatedAt:      m.CreatedAt.UTC().Format(time.RFC3339),
+	}
+	if m.Direction == "outbound" {
+		s.HITLStatus = m.Status
+		s.WebhookStatus = m.WebhookStatus
+		s.WebhookError = m.WebhookError
+	}
+	return s
+}
+
+// ListMessagesInput is the typed query surface for the message list. Cursor
+// pagination (cursor/limit) replaces the legacy page_size/token (§4
+// decision 7); the filters preserve legacy semantics.
+type ListMessagesInput struct {
+	Address         string   `path:"address"`
+	Direction       string   `query:"direction" enum:"inbound,outbound,all" doc:"Defaults to inbound."`
+	Status          string   `query:"status" enum:"unread,read,all" doc:"Inbound only. Defaults to unread for inbound, all otherwise."`
+	Sort            string   `query:"sort" enum:"asc,desc" doc:"Defaults to desc (newest first)."`
+	From            string   `query:"from" doc:"Case-insensitive substring match on sender."`
+	SubjectContains string   `query:"subject_contains" doc:"Case-insensitive substring match on subject."`
+	ConversationID  string   `query:"conversation_id"`
+	Labels          []string `query:"labels" doc:"Repeatable; AND-matched."`
+	Since           string   `query:"since" doc:"RFC3339; created_at >= since."`
+	Until           string   `query:"until" doc:"RFC3339; created_at < until."`
+	Cursor          string   `query:"cursor"`
+	Limit           int      `query:"limit" minimum:"1" maximum:"100" default:"50"`
+}
+
+type listMessagesOutput struct {
+	Body Page[MessageSummaryView]
+}
+
+// messagesCursor is the opaque continuation payload. It captures the last
+// row's position plus the full filter identity so a continuation request
+// can't silently change the result set under the cursor.
+type messagesCursor struct {
+	CreatedAt       time.Time `json:"c"`
+	ID              string    `json:"i"`
+	Status          string    `json:"s"`
+	Direction       string    `json:"d"`
+	AgentID         string    `json:"a"`
+	Sort            string    `json:"so"`
+	From            string    `json:"f,omitempty"`
+	SubjectContains string    `json:"sc,omitempty"`
+	ConversationID  string    `json:"cv,omitempty"`
+	Since           string    `json:"sn,omitempty"`
+	Until           string    `json:"un,omitempty"`
+	Labels          []string  `json:"lb,omitempty"`
+}
+
 func (s *Server) registerMessages() {
+	huma.Register(s.API, huma.Operation{
+		OperationID: "listMessages",
+		Method:      http.MethodGet,
+		Path:        "/v1/agents/{address}/messages",
+		Summary:     "List messages",
+		Description: "List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.",
+		Tags:        []string{"messages"},
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleListMessages)
+
 	huma.Register(s.API, huma.Operation{
 		OperationID: "getMessage",
 		Method:      http.MethodGet,
@@ -82,6 +185,255 @@ func (s *Server) registerMessages() {
 		}
 		return &messageOutput{Body: messageViewFromIdentity(msg)}, nil
 	})
+}
+
+// handleListMessages ports the legacy list handler: same filter semantics
+// and defaults, but the standardized cursor envelope. Validation failures
+// return the machine-branchable error envelope.
+func (s *Server) handleListMessages(ctx context.Context, in *ListMessagesInput) (*listMessagesOutput, error) {
+	ag, err := s.resolveOwnedAgent(ctx, in.Address)
+	if err != nil {
+		return nil, err
+	}
+	if s.deps.ListMessages == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "message list unavailable")
+	}
+
+	// Direction (default inbound for SDK back-compat).
+	direction := in.Direction
+	if direction == "" {
+		direction = "inbound"
+	}
+
+	// Status default depends on direction; only meaningful for inbound.
+	status := in.Status
+	if status == "" {
+		if direction == "inbound" {
+			status = "unread"
+		} else {
+			status = "all"
+		}
+	}
+	if direction == "outbound" && status != "all" {
+		return nil, NewError(http.StatusBadRequest, "invalid_filter",
+			"status filter only applies to inbound messages — pass status=all when direction=outbound")
+	}
+
+	// Bounded substring filters.
+	if len(in.From) > maxFilterStr {
+		return nil, NewError(http.StatusBadRequest, "invalid_filter", "from filter too long (max 200 chars)")
+	}
+	if len(in.SubjectContains) > maxFilterStr {
+		return nil, NewError(http.StatusBadRequest, "invalid_filter", "subject_contains filter too long (max 200 chars)")
+	}
+	if len(in.ConversationID) > maxFilterStr {
+		return nil, NewError(http.StatusBadRequest, "invalid_filter", "conversation_id too long (max 200 chars)")
+	}
+	if err := validateConversationID(in.ConversationID); err != nil {
+		return nil, NewError(http.StatusBadRequest, "invalid_filter", err.Error())
+	}
+
+	// Labels filter: validate + dedup (read access allows the e2a: system
+	// namespace, matching legacy allowSystemPrefix=true).
+	labelsFilter, err := normalizeLabelFilter(in.Labels)
+	if err != nil {
+		return nil, NewError(http.StatusBadRequest, "invalid_filter", err.Error())
+	}
+
+	// Time range.
+	since, err := parseRFC3339Filter(in.Since, "since")
+	if err != nil {
+		return nil, err
+	}
+	until, err := parseRFC3339Filter(in.Until, "until")
+	if err != nil {
+		return nil, err
+	}
+	if !since.IsZero() && !until.IsZero() && !since.Before(until) {
+		return nil, NewError(http.StatusBadRequest, "invalid_filter", "since must be earlier than until")
+	}
+
+	// Effective sort (default newest-first).
+	sort := in.Sort
+	if sort == "" {
+		sort = "desc"
+	}
+
+	// Decode + validate the cursor against the current filter identity.
+	var afterTime time.Time
+	var afterID string
+	if in.Cursor != "" {
+		var cur messagesCursor
+		if err := DecodeCursor(in.Cursor, &cur); err != nil {
+			return nil, NewError(http.StatusBadRequest, "invalid_cursor", "invalid pagination cursor")
+		}
+		if cur.AgentID != ag.ID || cur.Status != status || cur.Direction != direction || cur.Sort != sort ||
+			cur.From != in.From || cur.SubjectContains != in.SubjectContains ||
+			cur.ConversationID != in.ConversationID ||
+			cur.Since != rfc3339OrEmpty(since) || cur.Until != rfc3339OrEmpty(until) ||
+			!stringSlicesEqual(cur.Labels, labelsFilter) {
+			return nil, NewError(http.StatusBadRequest, "invalid_cursor",
+				"cursor was created with different filters — start a new query without a cursor")
+		}
+		afterTime = cur.CreatedAt
+		afterID = cur.ID
+	}
+
+	limit := in.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+
+	// Fetch limit+1 to detect a further page.
+	msgs, err := s.deps.ListMessages(ctx, identity.MessageListFilter{
+		AgentID:         ag.ID,
+		Status:          status,
+		Direction:       direction,
+		Descending:      sort == "desc",
+		Limit:           limit + 1,
+		AfterTime:       afterTime,
+		AfterID:         afterID,
+		From:            in.From,
+		SubjectContains: in.SubjectContains,
+		ConversationID:  in.ConversationID,
+		Since:           since,
+		Until:           until,
+		Labels:          labelsFilter,
+	})
+	if err != nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to fetch messages")
+	}
+
+	hasMore := len(msgs) > limit
+	if hasMore {
+		msgs = msgs[:limit]
+	}
+	items := make([]MessageSummaryView, len(msgs))
+	for i, m := range msgs {
+		items[i] = messageSummaryFromIdentity(m)
+	}
+
+	var nextCursor string
+	if hasMore {
+		last := msgs[len(msgs)-1]
+		nextCursor, err = EncodeCursor(messagesCursor{
+			CreatedAt: last.CreatedAt, ID: last.ID,
+			Status: status, Direction: direction, AgentID: ag.ID, Sort: sort,
+			From: in.From, SubjectContains: in.SubjectContains, ConversationID: in.ConversationID,
+			Since: rfc3339OrEmpty(since), Until: rfc3339OrEmpty(until), Labels: labelsFilter,
+		})
+		if err != nil {
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to build pagination cursor")
+		}
+	}
+
+	return &listMessagesOutput{Body: NewPage(items, nextCursor)}, nil
+}
+
+// --- replicated, contract-stable validation helpers (see MessageSummaryView
+// doc for why these live here rather than importing the legacy package) ---
+
+// maxFilterStr bounds free-form query filters (mirrors the legacy cap).
+const maxFilterStr = 200
+
+// maxLabelLength / maxLabelsPerOp / labelSystemPrefix mirror the legacy
+// label invariants verbatim so /v1 filter validation can't drift from the
+// write-side charset rule that guards the GIN index.
+const (
+	maxLabelLength    = 64
+	maxLabelsPerOp    = 50
+	labelSystemPrefix = "e2a:"
+)
+
+func validateConversationID(id string) error {
+	if strings.ContainsAny(id, "\r\n") {
+		return errors.New("conversation_id must not contain CR or LF")
+	}
+	return nil
+}
+
+// normalizeLabel canonicalizes a single label (lowercase, charset
+// [a-z0-9:_-], 1..maxLabelLength). allowSystem mirrors the read-side
+// allowSystemPrefix=true: filtering by an e2a: system label is permitted.
+func normalizeLabel(raw string, allowSystem bool) (string, error) {
+	l := strings.ToLower(strings.TrimSpace(raw))
+	if l == "" {
+		return "", errors.New("label must not be empty")
+	}
+	if len(l) > maxLabelLength {
+		return "", fmt.Errorf("label too long (max %d chars)", maxLabelLength)
+	}
+	for _, r := range l {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= '0' && r <= '9':
+		case r == '-' || r == '_' || r == ':':
+		default:
+			return "", fmt.Errorf("label %q has invalid character; allowed: a-z 0-9 : - _", l)
+		}
+	}
+	if !allowSystem && strings.HasPrefix(l, labelSystemPrefix) {
+		return "", fmt.Errorf("labels starting with %q are reserved for system use", labelSystemPrefix)
+	}
+	return l, nil
+}
+
+// normalizeLabelFilter validates + dedups a labels= filter list.
+func normalizeLabelFilter(raw []string) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	if len(raw) > maxLabelsPerOp {
+		return nil, fmt.Errorf("labels filter exceeds cap of %d", maxLabelsPerOp)
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(raw))
+	for _, r := range raw {
+		l, err := normalizeLabel(r, true)
+		if err != nil {
+			return nil, fmt.Errorf("labels filter: %w", err)
+		}
+		if _, dup := seen[l]; dup {
+			continue
+		}
+		seen[l] = struct{}{}
+		out = append(out, l)
+	}
+	return out, nil
+}
+
+// parseRFC3339Filter parses an optional RFC3339 timestamp query param into
+// a time, returning a 400 envelope on a malformed value.
+func parseRFC3339Filter(raw, name string) (time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return time.Time{}, NewError(http.StatusBadRequest, "invalid_filter",
+			name+" must be RFC3339 (e.g. 2026-05-25T00:00:00Z)")
+	}
+	return t, nil
+}
+
+func rfc3339OrEmpty(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339Nano)
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // orEmptyStrings normalizes a nil slice to a non-nil empty slice so the
