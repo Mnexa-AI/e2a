@@ -26,12 +26,17 @@ type AgentLister func(ctx context.Context, userID string) ([]identity.AgentIdent
 // agent's UserID.
 type AgentGetter func(ctx context.Context, address string) (*identity.AgentIdentity, error)
 
+// MessageGetter loads a single message (with content) scoped to an agent.
+// Mirrors store.GetMessageWithContent(messageID, agentID).
+type MessageGetter func(ctx context.Context, messageID, agentID string) (*identity.Message, error)
+
 // Deps are the collaborators the v1 layer needs. Everything is injected so
 // the package has no hidden globals and is straightforward to test.
 type Deps struct {
 	Authenticator Authenticator
 	ListAgents    AgentLister
 	GetAgent      AgentGetter
+	GetMessage    MessageGetter
 
 	// Deployment info surfaced by GET /v1/info (unchanged shape from the
 	// legacy /api/v1/info while we are in the consistency-only slice).
@@ -118,6 +123,7 @@ func (s *Server) OpenAPIYAML() ([]byte, error) {
 func (s *Server) registerOperations() {
 	s.registerInfo()
 	s.registerAgents()
+	s.registerMessages()
 }
 
 // reqCtxKey carries the raw *http.Request through to Huma handlers so they

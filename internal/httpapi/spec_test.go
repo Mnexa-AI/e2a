@@ -25,9 +25,11 @@ func TestSpecGeneratedFromHandlers(t *testing.T) {
 		"operationId: getInfo",
 		"operationId: listAgents",
 		"operationId: getAgent",
+		"operationId: getMessage",
 		"/v1/info",
 		"/v1/agents",
 		"/v1/agents/{address}",
+		"/v1/agents/{address}/messages/{id}",
 		// The single Bearer security scheme is declared.
 		"securitySchemes",
 		"bearer",

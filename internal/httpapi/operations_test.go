@@ -54,6 +54,23 @@ func testServer(t *testing.T) *httptest.Server {
 			}
 			return nil, errors.New("not found")
 		},
+		GetMessage: func(ctx context.Context, messageID, agentID string) (*identity.Message, error) {
+			if agentID == "support@acme.com" && messageID == "msg_1" {
+				return &identity.Message{
+					ID:             "msg_1",
+					Sender:         "alice@example.com",
+					ToRecipients:   []string{"support@acme.com"},
+					Recipient:      "support@acme.com",
+					Subject:        "Help",
+					ConversationID: "conv_1",
+					DeliveryStatus: "unread",
+					CreatedAt:      time.Unix(1700000000, 0).UTC(),
+					AuthHeaders:    map[string]string{"spf": "pass"},
+					RawMessage:     []byte("raw"),
+				}, nil
+			}
+			return nil, errors.New("not found")
+		},
 		SharedDomain: "agents.e2a.dev",
 		PublicURL:    "https://api.e2a.dev",
 		Legacy: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -164,6 +181,53 @@ func TestGetAgentForbiddenWhenUnknown(t *testing.T) {
 	_ = json.NewDecoder(resp.Body).Decode(&env)
 	if env.Error.Code != "forbidden" {
 		t.Fatalf("want code forbidden, got %q", env.Error.Code)
+	}
+}
+
+func TestGetMessageOwned(t *testing.T) {
+	srv := testServer(t)
+	req, _ := http.NewRequest("GET", srv.URL+"/v1/agents/support%40acme.com/messages/msg_1", nil)
+	req.Header.Set("Authorization", "Bearer good")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status: %d body=%s", resp.StatusCode, b)
+	}
+	// Decode into a map to assert the legacy keys are all present
+	// (including unconditional cc/reply_to/auth_headers/raw_message).
+	var m map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"message_id", "from", "to", "cc", "reply_to", "recipient", "subject", "conversation_id", "status", "labels", "created_at", "auth_headers", "raw_message"} {
+		if _, ok := m[k]; !ok {
+			t.Errorf("missing key %q in message view", k)
+		}
+	}
+	if m["message_id"] != "msg_1" || m["status"] != "unread" {
+		t.Fatalf("unexpected message: %+v", m)
+	}
+	// raw_message is []byte -> base64 string ("raw" -> "cmF3").
+	if m["raw_message"] != "cmF3" {
+		t.Fatalf("raw_message not base64-encoded: %v", m["raw_message"])
+	}
+}
+
+func TestGetMessageNotFound(t *testing.T) {
+	srv := testServer(t)
+	req, _ := http.NewRequest("GET", srv.URL+"/v1/agents/support%40acme.com/messages/msg_missing", nil)
+	req.Header.Set("Authorization", "Bearer good")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 404 {
+		t.Fatalf("status: %d", resp.StatusCode)
 	}
 }
 

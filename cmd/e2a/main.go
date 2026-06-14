@@ -296,6 +296,7 @@ func main() {
 		Authenticator: api.AuthenticateUser,
 		ListAgents:    store.ListAgentsByUser,
 		GetAgent:      store.GetAgentByEmail,
+		GetMessage:    store.GetMessageWithContent,
 		SharedDomain:  cfg.SharedDomain,
 		PublicURL:     cfg.HTTP.PublicURL,
 		Legacy:        router,
