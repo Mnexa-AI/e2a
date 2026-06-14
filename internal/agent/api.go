@@ -23,12 +23,12 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/dkim"
 	"github.com/Mnexa-AI/e2a/internal/hitlnotify"
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
-	"github.com/Mnexa-AI/e2a/internal/telemetry"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/ratelimit"
+	"github.com/Mnexa-AI/e2a/internal/telemetry"
 	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
@@ -161,36 +161,36 @@ func validateSlug(slug string) error {
 }
 
 type API struct {
-	store          *identity.Store
-	sender         *outbound.Sender
-	smtpRelay      *outbound.SMTPRelay
-	userAuth       *auth.UserAuth
-	usage          usage.UsageTracker
-	smtpDomain     string
-	fromDomain     string
+	store      *identity.Store
+	sender     *outbound.Sender
+	smtpRelay  *outbound.SMTPRelay
+	userAuth   *auth.UserAuth
+	usage      usage.UsageTracker
+	smtpDomain string
+	fromDomain string
 	// sharedDomain enables slug-based agent registration when non-empty.
 	// See config.Config.SharedDomain for the rationale.
-	sharedDomain   string
+	sharedDomain string
 	// publicURL is the externally visible base URL of the API. Surfaced
 	// via GET /api/v1/info so CLI/SDK clients can populate absolute
 	// links without each user configuring it. Empty when the operator
 	// hasn't set http.public_url.
-	publicURL      string
-	production     bool
-	sendLimit      *ratelimit.Limiter
-	regLimit       *ratelimit.Limiter
-	pollLimit      *ratelimit.Limiter
-	feedbackLimit  *ratelimit.Limiter
-	dcrLimit       *ratelimit.Limiter // OAuth Dynamic Client Registration — anonymous endpoint, per-IP
-	approvalSigner *approvaltoken.Signer  // optional; if nil, magic-link endpoints return 404
-	notifier       *hitlnotify.Notifier   // optional; if nil, holdForApproval doesn't send notification email
-	oauthProvider  fosite.OAuth2Provider  // optional; if nil, /api/oauth/* endpoints return 404
-	oauthStorage   *oauth.Storage         // optional; consent handler needs Pool() for cross-package tx
-	idempotency    *idempotency.Store     // optional; when nil, Idempotency-Key header is ignored
-	enforcer       limits.Enforcer        // optional; when nil, all limit checks are skipped (effectively unlimited)
-	usageStore     *usage.Store           // optional; needed by handleGetMyLimits to surface current counts
-	internalAPISecret string              // optional; when empty, /api/internal/* endpoints return 503
-	billingHookURL string                 // optional; when set, handleDeleteUserData POSTs an HMAC-signed user-deleted notice here (sidecar's /api/internal/billing/cancel)
+	publicURL         string
+	production        bool
+	sendLimit         *ratelimit.Limiter
+	regLimit          *ratelimit.Limiter
+	pollLimit         *ratelimit.Limiter
+	feedbackLimit     *ratelimit.Limiter
+	dcrLimit          *ratelimit.Limiter    // OAuth Dynamic Client Registration — anonymous endpoint, per-IP
+	approvalSigner    *approvaltoken.Signer // optional; if nil, magic-link endpoints return 404
+	notifier          *hitlnotify.Notifier  // optional; if nil, holdForApproval doesn't send notification email
+	oauthProvider     fosite.OAuth2Provider // optional; if nil, /api/oauth/* endpoints return 404
+	oauthStorage      *oauth.Storage        // optional; consent handler needs Pool() for cross-package tx
+	idempotency       *idempotency.Store    // optional; when nil, Idempotency-Key header is ignored
+	enforcer          limits.Enforcer       // optional; when nil, all limit checks are skipped (effectively unlimited)
+	usageStore        *usage.Store          // optional; needed by handleGetMyLimits to surface current counts
+	internalAPISecret string                // optional; when empty, /api/internal/* endpoints return 503
+	billingHookURL    string                // optional; when set, handleDeleteUserData POSTs an HMAC-signed user-deleted notice here (sidecar's /api/internal/billing/cancel)
 	// subscriberStore powers the slice-2 webhooks-as-a-resource
 	// /webhooks/{id}/test and /webhooks/{id}/deliveries endpoints.
 	// Optional — when nil, those endpoints return 404 (the rest of
@@ -672,6 +672,14 @@ func stripBearerScheme(h string) string {
 //
 // If no Authorization header is present, falls back to the session
 // cookie used by the web dashboard.
+// AuthenticateUser is the exported seam over authenticateUser so the v1
+// httpapi layer (internal/httpapi) reuses the exact same credential-
+// resolution path (API key, OAuth bearer, session cookie) instead of
+// forking a second one. There is one place credentials are checked.
+func (a *API) AuthenticateUser(r *http.Request) (*identity.User, error) {
+	return a.authenticateUser(r)
+}
+
 func (a *API) authenticateUser(r *http.Request) (*identity.User, error) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader != "" {
@@ -3312,9 +3320,9 @@ func (a *API) handleHealth(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleInfo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, DeploymentInfo{
-		SharedDomain:             a.sharedDomain,
-		SlugRegistrationEnabled:  a.sharedDomain != "",
-		PublicURL:                a.publicURL,
+		SharedDomain:            a.sharedDomain,
+		SlugRegistrationEnabled: a.sharedDomain != "",
+		PublicURL:               a.publicURL,
 	})
 }
 

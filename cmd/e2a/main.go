@@ -19,15 +19,16 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/headers"
 	"github.com/Mnexa-AI/e2a/internal/hitlnotify"
 	"github.com/Mnexa-AI/e2a/internal/hitlworker"
+	"github.com/Mnexa-AI/e2a/internal/httpapi"
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/relay"
+	"github.com/Mnexa-AI/e2a/internal/telemetry"
 	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
-	"github.com/Mnexa-AI/e2a/internal/telemetry"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"github.com/Mnexa-AI/e2a/internal/ws"
 	"github.com/Mnexa-AI/e2a/migrations"
@@ -285,9 +286,23 @@ func main() {
 	wsHandler := ws.NewHandler(wsHub, store)
 	api.RegisterWSRoute(router, wsHandler.Handle)
 
+	// v1 contract layer (api-v1-redesign Slice 1). The new chi + Huma surface
+	// owns the `/v1` prefix (OpenAPI-as-source-of-truth, standardized error
+	// envelope + cursor pagination + X-Request-Id), and falls back to the
+	// legacy gorilla/mux handlers for every route not yet ported (the
+	// strangler). Legacy `/api/v1` routes are deleted as each resource lands
+	// on Huma, within this same PR. The chi root is the process HTTP handler.
+	v1 := httpapi.New(httpapi.Deps{
+		Authenticator: api.AuthenticateUser,
+		ListAgents:    store.ListAgentsByUser,
+		SharedDomain:  cfg.SharedDomain,
+		PublicURL:     cfg.HTTP.PublicURL,
+		Legacy:        router,
+	})
+
 	httpServer := &http.Server{
 		Addr:    cfg.HTTP.ListenAddr,
-		Handler: router,
+		Handler: v1,
 	}
 
 	// SMTP Relay
