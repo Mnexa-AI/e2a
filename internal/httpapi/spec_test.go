@@ -52,6 +52,8 @@ func TestSpecGeneratedFromHandlers(t *testing.T) {
 		"operationId: sendMessage",
 		"operationId: replyToMessage",
 		"operationId: forwardMessage",
+		"operationId: approveMessage",
+		"operationId: rejectMessage",
 		"operationId: testAgent",
 		"/v1/send",
 		"/v1/users/me/limits",

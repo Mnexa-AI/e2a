@@ -103,8 +103,11 @@ type Deps struct {
 	Idempotency IdemStore
 
 	// outbound (the shared live delivery path extracted from agent.API)
-	DeliverOutbound    func(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string) (*agent.OutboundResult, *agent.OutboundError)
-	SendTest           func(ctx context.Context, ag *identity.AgentIdentity) (*agent.OutboundResult, *agent.OutboundError)
+	DeliverOutbound func(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string) (*agent.OutboundResult, *agent.OutboundError)
+	SendTest        func(ctx context.Context, ag *identity.AgentIdentity) (*agent.OutboundResult, *agent.OutboundError)
+	// HITL approve/reject (the held-draft decision)
+	ApprovePending     func(ctx context.Context, userID, messageID, expectedAgentEmail string, ovr agent.ApproveOverrides) (*identity.Message, *agent.OutboundError)
+	RejectPending      func(ctx context.Context, userID, messageID, expectedAgentEmail, reason string) (*identity.Message, *agent.OutboundError)
 	EnforceMessageSend func(ctx context.Context, userID string) error
 	// GetInboundMessage loads an inbound message for reply/forward.
 	GetInboundMessage func(ctx context.Context, messageID string) (*identity.Message, error)
@@ -237,6 +240,7 @@ func (s *Server) registerOperations() {
 	s.registerEvents()
 	s.registerAccount()
 	s.registerOutbound()
+	s.registerHITL()
 }
 
 // reqCtxKey carries the raw *http.Request through to Huma handlers so they
