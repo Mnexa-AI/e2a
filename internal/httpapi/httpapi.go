@@ -96,6 +96,10 @@ type Deps struct {
 	// domain must publish (config smtp.domain).
 	SMTPDomain string
 
+	// Idempotency is the retry-safety store for unsafe writes (send/reply/
+	// forward/redeliver). Optional — nil disables the Idempotency-Key path.
+	Idempotency IdemStore
+
 	// account
 	GetLimits func(ctx context.Context, userID string) (limits.Limits, error)
 	GetUsage  func(ctx context.Context, userID string) LimitsUsageView

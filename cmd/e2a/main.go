@@ -317,6 +317,7 @@ func main() {
 		DeleteDomain:        store.DeleteDomain,
 		HasAgentsOnDomain:   store.HasAgentsOnDomain,
 		SMTPDomain:          cfg.SMTP.Domain,
+		Idempotency:         idempotencyStore,
 		GetLimits:           enforcer.Get,
 		GetUsage: func(ctx context.Context, userID string) httpapi.LimitsUsageView {
 			var u httpapi.LimitsUsageView

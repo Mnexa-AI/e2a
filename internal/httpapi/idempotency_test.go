@@ -1,0 +1,135 @@
+package httpapi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"testing"
+
+	"github.com/Mnexa-AI/e2a/internal/idempotency"
+)
+
+// fakeIdem is a programmable in-memory IdemStore for unit tests.
+type fakeIdem struct {
+	claim     idempotency.ClaimResult
+	claimErr  error
+	completed *idempotency.CachedResponse
+	released  bool
+}
+
+func (f *fakeIdem) Claim(ctx context.Context, userID, key, path, bodyHash string) (idempotency.ClaimResult, error) {
+	return f.claim, f.claimErr
+}
+func (f *fakeIdem) Complete(ctx context.Context, userID, key string, resp idempotency.CachedResponse) error {
+	f.completed = &resp
+	return nil
+}
+func (f *fakeIdem) Release(ctx context.Context, userID, key string) error {
+	f.released = true
+	return nil
+}
+
+type sendBody struct {
+	Status    string `json:"status"`
+	MessageID string `json:"message_id"`
+}
+
+func serverWithIdem(f IdemStore) *Server {
+	return New(Deps{Idempotency: f})
+}
+
+func TestIdempotentNoKeyRunsFn(t *testing.T) {
+	s := serverWithIdem(&fakeIdem{})
+	called := false
+	status, body, err := runIdempotent(s, context.Background(), "u", "", "/v1/x", nil, func() (int, sendBody, error) {
+		called = true
+		return 201, sendBody{Status: "sent", MessageID: "m1"}, nil
+	})
+	if err != nil || !called || status != 201 || body.MessageID != "m1" {
+		t.Fatalf("no-key should run fn directly: status=%d body=%+v called=%v err=%v", status, body, called, err)
+	}
+}
+
+func TestIdempotentAcquiredCaches(t *testing.T) {
+	f := &fakeIdem{claim: idempotency.ClaimResult{Outcome: idempotency.OutcomeAcquired}}
+	s := serverWithIdem(f)
+	status, body, err := runIdempotent(s, context.Background(), "u", "k1", "/v1/x", []byte(`{"a":1}`), func() (int, sendBody, error) {
+		return 201, sendBody{Status: "sent", MessageID: "m1"}, nil
+	})
+	if err != nil || status != 201 || body.MessageID != "m1" {
+		t.Fatalf("acquired path: status=%d body=%+v err=%v", status, body, err)
+	}
+	if f.completed == nil || f.completed.StatusCode != 201 {
+		t.Fatal("acquired success must Complete (cache) the response")
+	}
+	var cached sendBody
+	_ = json.Unmarshal(f.completed.Body, &cached)
+	if cached.MessageID != "m1" {
+		t.Fatalf("cached body wrong: %s", f.completed.Body)
+	}
+	if f.released {
+		t.Fatal("success must not Release")
+	}
+}
+
+func TestIdempotentReplayReturnsCached(t *testing.T) {
+	cachedJSON, _ := json.Marshal(sendBody{Status: "sent", MessageID: "cached_m"})
+	f := &fakeIdem{claim: idempotency.ClaimResult{
+		Outcome: idempotency.OutcomeReplay,
+		Cached:  idempotency.CachedResponse{StatusCode: 201, ContentType: "application/json", Body: cachedJSON},
+	}}
+	s := serverWithIdem(f)
+	called := false
+	status, body, err := runIdempotent(s, context.Background(), "u", "k1", "/v1/x", []byte(`{"a":1}`), func() (int, sendBody, error) {
+		called = true
+		return 500, sendBody{}, errors.New("should not run")
+	})
+	if err != nil || called {
+		t.Fatalf("replay must NOT run fn: called=%v err=%v", called, err)
+	}
+	if status != 201 || body.MessageID != "cached_m" {
+		t.Fatalf("replay should return cached: status=%d body=%+v", status, body)
+	}
+}
+
+func TestIdempotentMismatch422(t *testing.T) {
+	f := &fakeIdem{claim: idempotency.ClaimResult{Outcome: idempotency.OutcomeMismatch}}
+	s := serverWithIdem(f)
+	_, _, err := runIdempotent(s, context.Background(), "u", "k1", "/v1/x", []byte(`{"a":2}`), func() (int, sendBody, error) {
+		return 201, sendBody{}, nil
+	})
+	env, ok := err.(*ErrorEnvelope)
+	if !ok || env.GetStatus() != 422 || env.Code() != "idempotency_key_reuse" {
+		t.Fatalf("mismatch should be 422 idempotency_key_reuse, got %v", err)
+	}
+}
+
+func TestIdempotentInFlight409(t *testing.T) {
+	f := &fakeIdem{claim: idempotency.ClaimResult{Outcome: idempotency.OutcomeInFlight}}
+	s := serverWithIdem(f)
+	_, _, err := runIdempotent(s, context.Background(), "u", "k1", "/v1/x", nil, func() (int, sendBody, error) {
+		return 201, sendBody{}, nil
+	})
+	env, ok := err.(*ErrorEnvelope)
+	if !ok || env.GetStatus() != 409 {
+		t.Fatalf("in-flight should be 409, got %v", err)
+	}
+}
+
+func TestIdempotentFnErrorReleases(t *testing.T) {
+	f := &fakeIdem{claim: idempotency.ClaimResult{Outcome: idempotency.OutcomeAcquired}}
+	s := serverWithIdem(f)
+	sentinel := NewError(400, "bad", "nope")
+	_, _, err := runIdempotent(s, context.Background(), "u", "k1", "/v1/x", nil, func() (int, sendBody, error) {
+		return 0, sendBody{}, sentinel
+	})
+	if err != sentinel {
+		t.Fatalf("fn error should propagate, got %v", err)
+	}
+	if !f.released {
+		t.Fatal("pre-side-effect failure must Release the key")
+	}
+	if f.completed != nil {
+		t.Fatal("failure must not Complete (cache)")
+	}
+}
