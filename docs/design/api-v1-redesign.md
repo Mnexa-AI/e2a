@@ -321,11 +321,11 @@ relative to that base):
    set via `PATCH /agents/{address}` / `update_agent`, alongside the existing
    HITL config (`hitl_enabled`, …); no `/inbound-policies` CRUD (§3 principle 2). The
    `allowlist`/`domain` values are an agent-config array (`inbound_allowlist`),
-   promoted to a sub-collection only if it ever needs to scale. The auto
-   scope-downgrade (below) is runtime behavior derived from the message `auth`
-   verdict — not config. It composes e2a's *existing server-side* primitives
-   (gateway-**enforced**, not client-side advisory guidance an agent author may
-   skip):
+   promoted to a sub-collection only if it ever needs to scale. The
+   **trust-gated action authorization** (below) is runtime behavior derived from
+   the message `auth` verdict — not config. It composes e2a's *existing
+   server-side* primitives (gateway-**enforced**, not client-side advisory
+   guidance an agent author may skip):
    * `open` (default) — process all inbound.
    * `allowlist` / `domain` — coarse sender allow (exact address / domain). **This
      is the actual *trust* gate** (known senders), composed with the action guard.
@@ -343,13 +343,46 @@ relative to that base):
      (decision 5) before the agent acts (reuses e2a's server-side HITL — TTL,
      body-scrubbed, signed approvals).
 
-   Policies **compose** (e.g. `verified_only` + `hitl` for the rest). Plus a
-   structural primitive grounded in the real verdict: **auto scope-downgrade on
-   weak/failed inbound auth** — while acting on a thread whose inbound message
-   failed/lacked auth, the MCP scope set narrows (reply-only; no new-recipient
-   send, no destructive/admin ops). Trust comes from the real `auth` verdict, not
-   an allowlist, so this is enforced at the token/gateway layer, not advised in a
-   prompt.
+   Policies **compose** (e.g. `verified_only` + `hitl` for the rest).
+
+   **Trust-gated action authorization (the re-spec — replaces "scope-downgrade").**
+   The defense is *not* a dynamic narrowing of the static token scope (which can't
+   express "reply yes / new-send no" and can't change mid-session). It's a
+   **server-side authorization check on the outbound action**, evaluated at the
+   `POST /agents/{address}/messages` (and destructive) call, in **two layers**:
+
+   * **Hard ceiling (static, always-on, the real guarantee).** An `agent`-scoped
+     credential can **never** do admin / destructive / cross-agent / domain ops —
+     enforced by the scope model (§5), `403 insufficient_scope`, injection or not.
+     This is unforgeable because it's static, and it's what the prompt-injection
+     model leans on as the actual promise.
+   * **Action gate (dynamic, → `pending_approval`) — driven by the policy, not
+     always-on.** The configured `inbound_policy` defines what counts as
+     *suspicious*; a suspicious outbound is **held as `pending_approval`** (reuses
+     decision 5's HITL) with `pending_reason: "policy_gate"` instead of sending.
+     Under **`open` (default) there is NO action gate** — the agent acts freely
+     within the hard ceiling. For the gating postures, the gate keys on the
+     **server-owned `auth` verdict of the referenced inbound message** (the agent
+     can't forge it; it only chose which real `message_id` to name) — evaluated
+     **per referenced message, never "any message in the thread,"** so a forged
+     unauthenticated reply injected into a trusted thread can't trip it. The
+     recommended predicate for the non-`open` postures: *weak/failed verdict on the
+     referenced message + high-impact action* (recipients outside that message's
+     participants, or a forward to a third party) → hold; `hitl` holds all untrusted
+     outbound.
+
+   **Honest residual limits** (we contain, we don't claim to fully prevent):
+   * An **un-parented `send_message`** (new thread, no referenced inbound) has no
+     verdict to gate on — contained only by `inbound_policy: hitl` (which holds
+     the untrusted inbound at *ingestion*, so the agent never acts on it
+     unsupervised) or a stricter posture, not by the action gate.
+   * **Reply-to-sender exfiltration** isn't caught by the high-impact predicate
+     (the sender isn't a "new" recipient) — only `hitl` closes it. We do **not**
+     market "reply-only is safe"; reply-only is dropped as a tier.
+   * **Capability-passing** (forcing every send to carry a server-minted
+     per-inbound capability) would close the un-parented bypass but is a
+     **non-goal** for v1 — too heavy; the hard ceiling + action gate + `hitl`
+     posture is the model.
 
    **Explicitly skipped** (low value): regex content filters (evadable,
    locale-fragile — a model classifier later if ever); in-memory per-sender rate
@@ -386,14 +419,22 @@ Defense-in-depth, each layer mapping to a decision above:
 3. **Gateway-enforced inbound policy** (Slice 7, decision 10) — `verified_only`
    rejects/flags failing-auth mail before the agent processes it; `hitl` routes
    untrusted mail through approval first.
-4. **Capability/scope downgrade — the structural defense** (Slice 7, decision 10)
-   — even if injected content reaches and fools the model, the MCP scope while
-   acting on an untrusted/unauthenticated thread is auto-narrowed (reply-only; no
-   new-recipient send, no destructive/admin/domain ops), so a successful
-   injection can't reach dangerous tools. Enforced at the token/gateway layer.
-5. **HITL catch-all** (existing, decision 5) — for untrusted inbound the agent
-   only *proposes*; a human approves via the prefetch-safe signed-token flow
-   before anything executes.
+4. **Hard scope ceiling — the structural guarantee** (decision 10 / §5) — an
+   `agent`-scoped credential can **never** reach admin / destructive /
+   cross-agent / domain tools, injection or not (`403 insufficient_scope`). This
+   is static and unforgeable; it's the actual promise.
+5. **Trust-gated action authorization** (Slice 7, decision 10) — when the agent
+   tries a **high-impact** outbound (new recipients / forward to a third party)
+   in `reply`/`forward` to a message whose **server-owned `auth` verdict is
+   weak**, the server **holds it as `pending_approval`** (reuses layer 6) rather
+   than sending. Server-side, keyed on the referenced message's verdict, evaluated
+   per-message. *Honest limits:* an un-parented `send_message` under default `open`
+   isn't gated (contained only by `hitl`/stricter posture), and reply-to-sender
+   exfiltration isn't caught (only `hitl` closes it). We don't claim "reply-only
+   is safe."
+6. **HITL catch-all** (existing, decision 5) — for untrusted inbound, or any
+   policy-gated outbound, the action is held; a human approves via the
+   prefetch-safe signed-token flow before anything executes.
 
 **Explicitly NOT relied on:** regex/keyword content filtering (evadable,
 locale-fragile — a model classifier is the only future content-level option);
