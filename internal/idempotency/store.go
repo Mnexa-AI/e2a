@@ -135,11 +135,14 @@ func HashRequest(path string, body []byte) string {
 //   - OutcomeMismatch → respond 422.
 //   - OutcomeInFlight → respond 409.
 //
-// path is the request route (e.g. "/api/v1/send") and is stored only
-// for diagnostics; it is NOT part of the dedup key, so the same
-// idempotency key cannot be reused across different routes (Stripe
-// documents the same behavior — surfaces caller bugs faster than a
-// silent allow).
+// path (the request_path column) is stored for diagnostics ONLY — it is
+// not part of the unique (user_id, key) constraint. Cross-route separation
+// is therefore NOT enforced by the store; it comes from callers folding the
+// route into bodyHash via HashRequest (so the same key on a different route
+// yields a different hash → OutcomeMismatch/422). A caller that passes a raw
+// HashBody instead of HashRequest would silently replay across routes — pass
+// HashRequest. (Stripe likewise 422s key reuse with a different request,
+// surfacing caller bugs faster than a silent allow.)
 //
 // Concurrency: the claim is decided in a single UPSERT with
 // RETURNING. Two concurrent callers can never both observe

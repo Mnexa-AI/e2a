@@ -113,8 +113,11 @@ func (s *Server) handleRedeliverEvent(ctx context.Context, in *RedeliverEventInp
 
 	// Auto-idempotency keyed on (event, webhook): the same redeliver within
 	// the window replays the cached schedule rather than double-enqueueing.
+	// This is a SERVER-MINTED key — runIdempotentAuto namespaces it apart from
+	// caller-supplied Idempotency-Key headers so a crafted header can't poison
+	// (422) a later genuine redelivery of the same event.
 	key := "replay:" + in.ID + ":" + webhookID
-	_, body, err := runIdempotent(s, ctx, user.ID, key, "/v1/events/redeliver", nil, func() (int, RedeliverView, error) {
+	_, body, err := runIdempotentAuto(s, ctx, user.ID, key, "/v1/events/redeliver", nil, func() (int, RedeliverView, error) {
 		row, lerr := s.deps.LoadReplayEvent(ctx, user.ID, in.ID)
 		if lerr != nil {
 			switch {

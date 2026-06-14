@@ -105,7 +105,7 @@ relative to that base):
 |---|---|
 | **agents** | `GET/POST /agents` · `GET/PATCH/DELETE /agents/{address}` · `POST /agents/{address}/test` (top-level, keyed by full email; create enforces caller owns the verified domain). **DELETE semantics:** discards held drafts (`status=pending_approval`), removes the agent from any webhook `agent_ids` filter, revokes its agent-scoped credentials, and purges/retains inbound per the retention policy — but does **not** touch the domain's SES sending identity (per-domain; decision 4). |
 | **domain's agents** (filtered view) | `GET /domains/{domain}/agents` — list agents on a domain (management view; not a separate identity namespace) |
-| **messages** (per agent; inbound + outbound) | `GET /agents/{address}/messages` (filters incl. `direction`, `status`, `delivery_status`; held outbound drafts = `status=pending_approval`) · `GET …/messages/{id}` · `GET …/messages/{id}/attachments/{index}` · `PATCH …/messages/{id}` (labels/read). Outbound messages carry **`delivery_status ∈ {queued,sent,delivered,bounced,complained,deferred,failed}`** + `delivery_detail?` + `sent_as ∈ {own_address,relay}` (decision 9). Inbound messages carry structured `auth: {spf,dkim,dmarc}`. **Note:** today `messages.delivery_status` is an alias for inbox read/unread — that existing column is renamed to `read_status` so the new outbound `delivery_status` is unambiguous (the `events_api` webhook-delivery-count use of the name is also disambiguated). |
+| **messages** (per agent; inbound + outbound) | `GET /agents/{address}/messages` (filters incl. `direction`, `status`, `delivery_status`; held outbound drafts = `status=pending_approval`) · `GET …/messages/{id}` · `GET …/messages/{id}/attachments/{index}` · `PATCH …/messages/{id}` (labels/read). Outbound messages carry **`delivery_status ∈ {queued,sent,delivered,bounced,complained,deferred,failed}`** + `delivery_detail?` + `sent_as ∈ {own_address,relay}` (decision 9). Inbound messages carry structured `auth: {spf,dkim,dmarc}`. **Note:** there is **no** `messages.delivery_status` column today — the inbox read/unread column is `inbox_status` (`migrations/001_init.sql`), so the new outbound `delivery_status` collides with nothing and is **added fresh** (no rename needed). `delivery_status` currently exists only as a JSON *response* field name (webhook-delivery state in `events_api`); that is a distinct concept and stays. (Optionally rename `inbox_status` → `read_status` purely for clarity, but that is taste, not a collision fix.) |
 | **outbound** (unified) | `POST /agents/{address}/messages` — one endpoint for *new thread, reply, and forward*, disambiguated by body (`in_reply_to` / `forward_of` absent ⇒ new) |
 | **conversations** (derived thread view) | `GET /agents/{address}/conversations` · `GET …/conversations/{id}` |
 | **stream** (inbound transport) | `GET /agents/{address}/ws` — WebSocket; first-class + documented (today it's side-registered + mode-gated) |
@@ -259,7 +259,13 @@ relative to that base):
    body ⇒ `422`, not a silent replay. This matters most on the **unified
    outbound endpoint**, where send/reply/forward share one route — reusing a key
    across a new send and a later reply must 422, never return the send's cached
-   response and drop the reply.
+   response and drop the reply. **Canonicalization (pinned):** the hash is over
+   the **raw request bytes** (`route + "\n" + body`, `idempotency.HashRequest`),
+   **not** canonicalized JSON — so a legitimate retry MUST resend byte-identical
+   JSON (stable key order/whitespace) or it 422s. SDKs that auto-retry must
+   serialize once and replay the exact bytes. (Keys are namespaced by origin —
+   caller `Idempotency-Key` headers vs. server-minted automatic keys live in
+   disjoint key spaces — so a crafted header can't collide with an internal key.)
 9. **Delivery feedback is first-class (table stakes for any email API).**
    `send` returning `"sent"` means *accepted by the relay*, not
    delivered; the redesign closes the loop:
@@ -283,7 +289,17 @@ relative to that base):
      are surfaced on the field but have **no push event** (transient/internal) —
      poll `delivery_status` for those. Also record **`sent_as ∈ {own_address,
      relay}`** (decision 4 fallback) so "sent/delivered" is never mis-attributed
-     to the wrong From identity.
+     to the wrong From identity. **Multi-recipient (pinned modeling):** a single
+     message to N recipients can deliver to one and bounce/complain to another —
+     every major provider (SES/SendGrid/Postmark/Mailgun) models feedback
+     **per-recipient**, and SES emits delivery *and* bounce for the same message.
+     So the single `delivery_status` is a **convenience rollup** (worst status by
+     the precedence above) and MUST be backed by a **per-recipient breakdown**
+     (`recipients[]` of `{address, status, detail?}`) keyed to the same VERP
+     token — the rollup alone loses *which* address failed, the datum suppression
+     and remediation need. Collapsing to one status is acceptable **only** if a
+     message is strictly single-recipient; since e2a allows `cc`/`bcc`, surface
+     the breakdown.
    * **Webhook events** `email.delivered` / `email.bounced` / `email.complained`
      (decision 2a system), so agents react without polling.
    * **Suppression list** — keyed **per `(account, address)`** (never global —
@@ -296,9 +312,14 @@ relative to that base):
      is alerted, not silently cut off. Future sends to a suppressed address fail
      fast with a structured `recipient_suppressed` code; un-suppress via
      `DELETE /account/suppressions/{address}` (`account`-scoped; also listable
-     via `GET /account/suppressions`). A retry after un-suppress needs a **fresh
-     idempotency key** (the prior key's cached `recipient_suppressed` error is
-     replayed otherwise — decision 8).
+     via `GET /account/suppressions`). **`recipient_suppressed` is NOT cached
+     under the idempotency key** — suppression is a *clearable* state, and
+     caching a transient/state-dependent rejection is the textbook idempotency
+     footgun (Stripe's `is_transient` rule: cache permanent outcomes, release
+     transient ones). It is released like every other error (decision 8: errors
+     are not cached), so a same-key retry simply succeeds once the address is
+     un-suppressed — **no fresh key needed**. Suppression is enforced fresh at
+     send time on every attempt, never frozen into the idempotency cache.
    * **Inbound auth, structured** — surface `auth: {spf,dkim,dmarc}` on inbound
      messages (DMARC newly evaluated), not just the `X-E2A-Auth-*` blob. This
      verdict is the **trust primitive** the inbound policy (decision 10) enforces on.
@@ -1222,6 +1243,16 @@ exact backoff schedule + signature-rotation grace window for webhooks.
 
 Reconciles this design to what shipped on the `feat/api-v1-cutover` branch.
 
+**Scope, stated plainly:** the shipped `/v1` is the **contract + host/strangler
+cutover** (≈ Slice 1) — it ports the **legacy request/response shapes** onto the
+new host + envelope + pagination + idempotency + rate-limit. The §4
+resource-model changes are **NOT built yet:** outbound is still **three routes**
+(`/v1/send`, `…/reply`, `…/forward`), not the unified `POST …/messages`
+(decision 3); HITL is still **two routes** (`…/approve`, `…/reject`), not the
+single `approval` transition (decision 5); and decisions 4 (sender identity),
+9 (delivery feedback / structured inbound `auth`), and 10 (inbound policy) are
+unbuilt. Read decisions 3/4/5/9/10 as **target spec, not shipped behavior**.
+
 **Implemented as designed:** the full additive `/v1` Huma surface (34 ops:
 agents/messages/conversations/domains/webhooks/events/account/HITL/info);
 canonical error envelope `{error:{code,message,details,request_id}}`; cursor
@@ -1251,6 +1282,13 @@ approve/reject and the WebSocket upgrade served under `/v1`.
 - *Re-homed coverage*: self-send loopback + billing-hook-on-delete tests, which
   drove through the removed `/api/v1` routes, now drive the surviving cores
   (`DeliverOutbound`, `DeleteUserDataCore`) directly.
+- *Idempotency hardening (review fixes).* Keys are **origin-namespaced** —
+  caller `Idempotency-Key` headers (`u:`) vs. server-minted automatic keys
+  (`s:`, e.g. event redeliver) occupy disjoint key spaces, so a crafted header
+  can't poison an internal key (`runIdempotent` / `runIdempotentAuto`).
+  `runIdempotent` now **releases the key on a panic** (not just an error) so a
+  panic can't 409-lock retries for the stale window; the guarantee is documented
+  as at-least-once across a crash/panic straddling the side effect.
 
 **Cross-repo:** the AgentDrive consumer (e2e harness only) moved to `/v1`
 (AgentDrive PR #204) — deploy `/v1` before merging it.
@@ -1261,3 +1299,14 @@ approve/reject and the WebSocket upgrade served under `/v1`.
    then the published SDKs still describe the legacy shapes.
 2. **Host/config cutover** — canonical public host `api.e2a.dev/v1`; DNS +
    deploy + SDK/CLI default base-URL bump are an ops-coordinated step.
+3. **Contract-drift CI gate (§6)** — the #206-class guard (SDK regen-diff, MCP
+   request-validation, MCP field-coverage, tool↔`operationId` map) is **not yet
+   enforced in CI**: today the `mcp` job tests tools against hand-written stubs,
+   not `api/openapi.yaml`, so a drifted MCP tool can still merge. This is the
+   single highest-value follow-up — it is the reason the redesign exists.
+4. **Per-agent send rate-limit on idempotent replays** — `checkSendLimit` runs
+   *before* the idempotency handshake, so a cached replay still consumes a token
+   (and the send-path 429 still omits the IETF `RateLimit-*` headers the
+   poll/registration paths set). Both are minor; left as a tracked follow-up
+   because moving the limit past `EnforceMessageSend` on the hot send path
+   warrants its own change.

@@ -160,3 +160,68 @@ func TestIdempotentFnErrorReleases(t *testing.T) {
 		t.Fatal("failure must not Complete (cache)")
 	}
 }
+
+// keyRecordingIdem captures the key string passed to Claim so tests can assert
+// the namespace the helper applied.
+type keyRecordingIdem struct {
+	fakeIdem
+	claimedKey string
+}
+
+func (f *keyRecordingIdem) Claim(ctx context.Context, userID, key, path, bodyHash string) (idempotency.ClaimResult, error) {
+	f.claimedKey = key
+	return f.fakeIdem.Claim(ctx, userID, key, path, bodyHash)
+}
+
+// TestIdempotentNamespaceSeparation locks in the fix for the (user_id, key)
+// collision: a caller-supplied Idempotency-Key header and a server-minted
+// automatic key with the SAME raw string must land in disjoint namespaces, so
+// a crafted header (e.g. "replay:evt_x:") cannot poison a later server-minted
+// redelivery key of the same string.
+func TestIdempotentNamespaceSeparation(t *testing.T) {
+	raw := "replay:evt_x:"
+
+	fUser := &keyRecordingIdem{fakeIdem: fakeIdem{claim: idempotency.ClaimResult{Outcome: idempotency.OutcomeAcquired}}}
+	sUser := serverWithIdem(fUser)
+	_, _, _ = runIdempotent(sUser, context.Background(), "u", raw, "/v1/send", nil, func() (int, sendBody, error) {
+		return 200, sendBody{}, nil
+	})
+
+	fAuto := &keyRecordingIdem{fakeIdem: fakeIdem{claim: idempotency.ClaimResult{Outcome: idempotency.OutcomeAcquired}}}
+	sAuto := serverWithIdem(fAuto)
+	_, _, _ = runIdempotentAuto(sAuto, context.Background(), "u", raw, "/v1/events/redeliver", nil, func() (int, sendBody, error) {
+		return 200, sendBody{}, nil
+	})
+
+	if fUser.claimedKey == fAuto.claimedKey {
+		t.Fatalf("header and server-minted keys must not collide; both claimed %q", fUser.claimedKey)
+	}
+	if fUser.claimedKey != idemUserNS+raw {
+		t.Fatalf("header key namespace: got %q want %q", fUser.claimedKey, idemUserNS+raw)
+	}
+	if fAuto.claimedKey != idemAutoNS+raw {
+		t.Fatalf("auto key namespace: got %q want %q", fAuto.claimedKey, idemAutoNS+raw)
+	}
+}
+
+// TestIdempotentPanicReleases proves a panic in fn releases the key (so retries
+// aren't 409-locked for the stale window) and re-raises.
+func TestIdempotentPanicReleases(t *testing.T) {
+	f := &fakeIdem{claim: idempotency.ClaimResult{Outcome: idempotency.OutcomeAcquired}}
+	s := serverWithIdem(f)
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("panic must propagate after release")
+		}
+		if !f.released {
+			t.Fatal("panic between claim and completion must Release the key")
+		}
+		if f.completed != nil {
+			t.Fatal("panic must not Complete (cache) the key")
+		}
+	}()
+	_, _, _ = runIdempotent(s, context.Background(), "u", "k1", "/v1/x", nil, func() (int, sendBody, error) {
+		panic("boom")
+	})
+}
