@@ -1217,3 +1217,47 @@ E2A_SMTP_URL          # only if sending mail
 All §10 questions are now resolved. Remaining design sub-points (not blockers):
 shared-`agents.e2a.dev` carve-out for the "owns a verified domain" rule;
 exact backoff schedule + signature-rotation grace window for webhooks.
+
+## 11. Cutover — as built (2026-06)
+
+Reconciles this design to what shipped on the `feat/api-v1-cutover` branch.
+
+**Implemented as designed:** the full additive `/v1` Huma surface (34 ops:
+agents/messages/conversations/domains/webhooks/events/account/HITL/info);
+canonical error envelope `{error:{code,message,details,request_id}}`; cursor
+pagination `{items,next_cursor}`; `X-Request-Id`; `nosniff`; Idempotency-Key on
+unsafe writes; per-agent **send** + per-user **poll** + per-IP **registration**
+rate limits sharing the legacy buckets, now also emitting IETF
+`RateLimit-Limit/Remaining/Reset` + `Retry-After` via a Huma middleware; HITL
+approve/reject and the WebSocket upgrade served under `/v1`.
+
+**Deviations / decisions made during build:**
+- *Strangler residue kept on `/api/v1`.* Routes with no `/v1` port yet are NOT
+  removed (removing them would drop functionality with no replacement): PATCH
+  `…/messages/{id}` (label update), GET `/messages/{id}` (outbound detail, flat
+  path), GET `/pending` (account-wide HITL queue), POST
+  `/webhooks/{id}/redeliver-since`, signing-secrets CRUD, and the magic-link
+  `/approve`·`/reject` HTML pages. These remain on the legacy mux behind the chi
+  fallback until separately ported. All operational/oauth/auth/dashboard/keys
+  routes also stay.
+- *Spec source of truth* is the Huma-generated OpenAPI 3.1 at `api/openapi.yaml`,
+  committed and guarded by a byte-equality drift gate (`TestSpecGoldenNoDrift`,
+  `make spec` / `make spec-check`). The legacy swag pipeline
+  (`make swagger` → `web/public/openapi.yaml`) and the existing SDK codegen are
+  left intact until the SDK regen (below) switches codegen to the new file.
+- *Shared handler builder* (`internal/apiserver`): the production binary and the
+  contract-test harness construct the same `/v1`+legacy handler from one
+  `Deps` mapping, so the harness exercises the real `/v1` and cannot drift.
+- *Re-homed coverage*: self-send loopback + billing-hook-on-delete tests, which
+  drove through the removed `/api/v1` routes, now drive the surviving cores
+  (`DeliverOutbound`, `DeleteUserDataCore`) directly.
+
+**Cross-repo:** the AgentDrive consumer (e2e harness only) moved to `/v1`
+(AgentDrive PR #204) — deploy `/v1` before merging it.
+
+**Deferred (tracked, not in this branch):**
+1. **SDK regen** — switch TS/Python codegen to consume `api/openapi.yaml` and
+   regenerate `sdks/*/generated`; needs the external codegen toolchain. Until
+   then the published SDKs still describe the legacy shapes.
+2. **Host/config cutover** — canonical public host `api.e2a.dev/v1`; DNS +
+   deploy + SDK/CLI default base-URL bump are an ops-coordinated step.

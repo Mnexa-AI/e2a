@@ -81,7 +81,16 @@ The main server (`cmd/e2a/main.go`) runs an SMTP relay and HTTP API. Key interna
 
 Inbound flow: SMTP → emailauth (SPF/DKIM) → agent lookup → headers signing → webhook or WebSocket delivery.
 
-### SDK type generation pipeline
+### OpenAPI spec source of truth
+
+The `/v1` surface (`internal/httpapi`, Huma) emits its OpenAPI 3.1 document from
+the typed handlers. `make spec` regenerates the committed copy at
+`api/openapi.yaml`; `make spec-check` (and `TestSpecGoldenNoDrift`, which runs in
+`make test-unit`) is the drift gate — the committed spec must byte-equal what the
+live handlers emit, so it can never lag the server. Regenerate + commit
+`api/openapi.yaml` after any `/v1` handler change.
+
+### SDK type generation pipeline (legacy — being migrated to `api/openapi.yaml`)
 
 ```
 Go annotations → swag → web/public/openapi.yaml (Swagger 2.0)
@@ -89,6 +98,10 @@ Go annotations → swag → web/public/openapi.yaml (Swagger 2.0)
   → openapi-typescript → sdks/typescript/src/v1/generated/types.ts
   → datamodel-codegen  → sdks/python/src/e2a/v1/generated/
 ```
+
+This swag-annotation pipeline still feeds the SDK codegen. Switching codegen to
+consume the Huma-generated `api/openapi.yaml` (and retiring the swag step) is a
+tracked follow-up; until then, regenerate SDKs via `make generate-sdk` as before.
 
 ### TypeScript SDK (`sdks/typescript/`)
 
