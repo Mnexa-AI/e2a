@@ -110,8 +110,10 @@ type Deps struct {
 	GetInboundMessage func(ctx context.Context, messageID string) (*identity.Message, error)
 
 	// account
-	GetLimits func(ctx context.Context, userID string) (limits.Limits, error)
-	GetUsage  func(ctx context.Context, userID string) LimitsUsageView
+	GetLimits      func(ctx context.Context, userID string) (limits.Limits, error)
+	GetUsage       func(ctx context.Context, userID string) LimitsUsageView
+	ExportUserData func(ctx context.Context, userID string) (*identity.UserExport, error)
+	DeleteUserData func(ctx context.Context, user *identity.User) (*identity.DeleteUserDataResult, error)
 
 	// events (delivery log). EventQuery carries the filters + cursor
 	// position; the closures bind the events pool in main.

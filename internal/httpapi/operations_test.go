@@ -171,6 +171,12 @@ func testServer(t *testing.T) *httptest.Server {
 		GetUsage: func(ctx context.Context, userID string) LimitsUsageView {
 			return LimitsUsageView{Agents: 2, Domains: 1, MessagesMonth: 42, StorageBytes: 1234}
 		},
+		ExportUserData: func(ctx context.Context, userID string) (*identity.UserExport, error) {
+			return &identity.UserExport{}, nil
+		},
+		DeleteUserData: func(ctx context.Context, user *identity.User) (*identity.DeleteUserDataResult, error) {
+			return &identity.DeleteUserDataResult{}, nil
+		},
 		ListEvents: func(ctx context.Context, q EventQuery) ([]agent.EventJSON, error) {
 			// Two events, honoring Limit + cursor (CursorID) so the
 			// cursor round-trip is exercised.

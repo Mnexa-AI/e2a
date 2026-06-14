@@ -323,6 +323,8 @@ func main() {
 		EnforceMessageSend:  enforcer.CheckMessageSend,
 		GetInboundMessage:   store.GetInboundMessage,
 		GetLimits:           enforcer.Get,
+		ExportUserData:      api.ExportUserDataCore,
+		DeleteUserData:      api.DeleteUserDataCore,
 		GetUsage: func(ctx context.Context, userID string) httpapi.LimitsUsageView {
 			var u httpapi.LimitsUsageView
 			if n, err := usageStore.CountAgentsByUser(ctx, userID); err == nil {

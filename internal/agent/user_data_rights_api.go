@@ -29,29 +29,19 @@ import (
 // @Success      200 {object} UserExport
 // @Failure      401 {string} string "Missing or invalid API key"
 // @Router       /api/v1/users/me/export [get]
-func (a *API) handleExportUserData(w http.ResponseWriter, r *http.Request) {
-	user, err := a.authenticateUser(r)
+// ExportUserDataCore assembles the full user-data export (store export +
+// OAuth connections). HTTP-free; shared by the legacy handler and the v1 layer.
+func (a *API) ExportUserDataCore(ctx context.Context, userID string) (*identity.UserExport, error) {
+	dump, err := a.store.ExportUserData(ctx, userID)
 	if err != nil {
-		http.Error(w, "authentication required", http.StatusUnauthorized)
-		return
+		return nil, err
 	}
-
-	dump, err := a.store.ExportUserData(r.Context(), user.ID)
-	if err != nil {
-		log.Printf("[api] export user data failed: user=%s err=%v", user.ID, err)
-		http.Error(w, "failed to export user data", http.StatusInternalServerError)
-		return
-	}
-
-	// Append OAuth connections, if OAuth is wired on this deployment.
-	// Done as a side-call (not inside ExportUserData) so the identity
-	// package doesn't need an oauth dependency. Failure here is logged
-	// but does not abort the export — the rest of the data is still
-	// useful to the user.
+	// Append OAuth connections, if OAuth is wired. Side-call so the identity
+	// package needs no oauth dependency; failure is logged, not fatal.
 	if a.oauthStorage != nil {
-		conns, err := a.oauthStorage.ExportConnectionsForUser(r.Context(), user.ID)
+		conns, err := a.oauthStorage.ExportConnectionsForUser(ctx, userID)
 		if err != nil {
-			log.Printf("[api] export oauth connections failed: user=%s err=%v", user.ID, err)
+			log.Printf("[api] export oauth connections failed: user=%s err=%v", userID, err)
 		} else {
 			dump.OAuthConnections = make([]identity.OAuthConnectionEntry, len(conns))
 			for i, c := range conns {
@@ -67,12 +57,24 @@ func (a *API) handleExportUserData(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	return dump, nil
+}
 
+func (a *API) handleExportUserData(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticateUser(r)
+	if err != nil {
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return
+	}
+	dump, err := a.ExportUserDataCore(r.Context(), user.ID)
+	if err != nil {
+		log.Printf("[api] export user data failed: user=%s err=%v", user.ID, err)
+		http.Error(w, "failed to export user data", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	// Filename hint for browser/CLI clients that download the response.
 	w.Header().Set("Content-Disposition", `attachment; filename="e2a-export-`+user.ID+`.json"`)
 	if err := json.NewEncoder(w).Encode(dump); err != nil {
-		// Already streaming — no point trying to write a status code.
 		log.Printf("[api] export encode failed: user=%s err=%v", user.ID, err)
 	}
 }
@@ -96,67 +98,57 @@ func (a *API) handleExportUserData(w http.ResponseWriter, r *http.Request) {
 // @Failure      400 {string} string "Missing or invalid confirm parameter"
 // @Failure      401 {string} string "Missing or invalid API key"
 // @Router       /api/v1/users/me [delete]
+// DeleteUserDataCore counts OAuth rows for the audit line, best-effort
+// notifies the external billing hook, then runs the cascading delete and
+// merges the counts. HTTP-free; shared by the legacy handler and the v1 layer.
+func (a *API) DeleteUserDataCore(ctx context.Context, user *identity.User) (*identity.DeleteUserDataResult, error) {
+	// Count OAuth token rows BEFORE the DELETE so the audit report is correct
+	// (small benign race vs CASCADE accepted, per the original handler).
+	var oauthCounts struct {
+		AuthCodes, AccessTokens, RefreshTokens int64
+	}
+	if a.oauthStorage != nil {
+		if c, err := a.oauthStorage.CountUserOAuthRows(ctx, user.ID); err == nil {
+			oauthCounts.AuthCodes = c.AuthCodes
+			oauthCounts.AccessTokens = c.AccessTokens
+			oauthCounts.RefreshTokens = c.RefreshTokens
+		}
+	}
+	// Best-effort billing-hook notify BEFORE the cascade — never blocks the
+	// delete; a reconciler catches any orphan.
+	if a.billingHookURL != "" {
+		if err := a.notifyBillingUserDeleted(ctx, user.ID); err != nil {
+			log.Printf("[api] billing-hook user-delete failed (continuing): user=%s err=%v", user.ID, err)
+		}
+	}
+	res, err := a.store.DeleteUserData(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	res.OAuthAuthCodesDeleted = oauthCounts.AuthCodes
+	res.OAuthAccessTokensDeleted = oauthCounts.AccessTokens
+	res.OAuthRefreshTokensDeleted = oauthCounts.RefreshTokens
+	log.Printf("[api] user deleted: id=%s email=%s removed=%+v", user.ID, user.Email, res)
+	return res, nil
+}
+
 func (a *API) handleDeleteUserData(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticateUser(r)
 	if err != nil {
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return
 	}
-
 	// Guardrail: misclicks shouldn't be able to wipe a real account.
-	// The CLI/SDK should hide this behind a `--yes` flag; the dashboard
-	// behind a typed-in confirmation. The server-side check is just a
-	// last line of defense.
 	if r.URL.Query().Get("confirm") != "DELETE" {
 		http.Error(w, `add ?confirm=DELETE to the request to proceed — this is irreversible`, http.StatusBadRequest)
 		return
 	}
-
-	// If OAuth is wired, count token rows BEFORE the DELETE so the
-	// audit log carries the correct "what got cascaded" report. The
-	// counts must be taken under the same SERIALIZABLE isolation level
-	// the DeleteUserData transaction uses; here we accept a small race
-	// (a token issued between count and delete won't appear in the
-	// count but will still be removed by CASCADE) — acceptable for an
-	// operator audit line.
-	var oauthCounts struct {
-		AuthCodes, AccessTokens, RefreshTokens int64
-	}
-	if a.oauthStorage != nil {
-		if c, err := a.oauthStorage.CountUserOAuthRows(r.Context(), user.ID); err == nil {
-			oauthCounts.AuthCodes = c.AuthCodes
-			oauthCounts.AccessTokens = c.AccessTokens
-			oauthCounts.RefreshTokens = c.RefreshTokens
-		}
-	}
-
-	// Best-effort notify of the external billing hook (sidecar) BEFORE
-	// the cascade. The hook is responsible for canceling the user's
-	// Stripe subscription so they stop being billed. We do NOT block
-	// account deletion on this — if the hook is unreachable or the
-	// underlying Stripe call fails, log loud and proceed. A reconciler
-	// (post-launch follow-up) catches the orphan.
-	//
-	// Self-host operators who don't run a billing service leave
-	// billingHookURL empty; the call is then a no-op.
-	if a.billingHookURL != "" {
-		if err := a.notifyBillingUserDeleted(r.Context(), user.ID); err != nil {
-			log.Printf("[api] billing-hook user-delete failed (continuing): user=%s err=%v", user.ID, err)
-		}
-	}
-
-	res, err := a.store.DeleteUserData(r.Context(), user.ID)
+	res, err := a.DeleteUserDataCore(r.Context(), user)
 	if err != nil {
 		log.Printf("[api] delete user data failed: user=%s err=%v", user.ID, err)
 		http.Error(w, "failed to delete user data", http.StatusInternalServerError)
 		return
 	}
-	res.OAuthAuthCodesDeleted = oauthCounts.AuthCodes
-	res.OAuthAccessTokensDeleted = oauthCounts.AccessTokens
-	res.OAuthRefreshTokensDeleted = oauthCounts.RefreshTokens
-
-	log.Printf("[api] user deleted: id=%s email=%s removed=%+v", user.ID, user.Email, res)
-
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, res)
 }

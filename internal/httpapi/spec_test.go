@@ -47,6 +47,8 @@ func TestSpecGeneratedFromHandlers(t *testing.T) {
 		"operationId: getEvent",
 		"operationId: redeliverEvent",
 		"operationId: getMyLimits",
+		"operationId: exportUserData",
+		"operationId: deleteAccount",
 		"operationId: sendMessage",
 		"operationId: replyToMessage",
 		"operationId: forwardMessage",
