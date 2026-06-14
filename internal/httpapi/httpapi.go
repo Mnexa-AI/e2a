@@ -152,6 +152,11 @@ type Deps struct {
 	SharedDomain string
 	PublicURL    string
 
+	// WSHandle serves the WebSocket upgrade for an agent address (the real-
+	// time inbound transport). Injected so httpapi need not depend on the ws
+	// package; the real one is ws.Handler.ServeWithEmail.
+	WSHandle func(w http.ResponseWriter, r *http.Request, address string)
+
 	// Legacy is the existing gorilla/mux handler. The chi root falls back
 	// to it for every route not yet ported onto Huma (the strangler), so
 	// the service stays fully functional through the multi-sub-slice port.
@@ -206,6 +211,14 @@ func New(deps Deps) *Server {
 
 	s := &Server{Router: root, API: api, deps: deps}
 	s.registerOperations()
+
+	// WebSocket transport — registered directly on chi (not Huma; it's a raw
+	// upgrade, not a JSON operation). First-class /v1 inbound transport.
+	if deps.WSHandle != nil {
+		root.Get("/v1/agents/{address}/ws", func(w http.ResponseWriter, r *http.Request) {
+			deps.WSHandle(w, r, chi.URLParam(r, "address"))
+		})
+	}
 
 	if deps.Legacy != nil {
 		root.NotFound(deps.Legacy.ServeHTTP)
