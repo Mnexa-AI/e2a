@@ -320,7 +320,9 @@ func main() {
 		CreateWebhook:       store.CreateWebhook,
 		ListWebhooks:        store.ListWebhooksByUser,
 		GetWebhook:          store.GetWebhookByID,
+		UpdateWebhook:       store.UpdateWebhook,
 		DeleteWebhook:       store.DeleteWebhook,
+		RotateSecret:        store.RotateSecret,
 
 		TouchDomainChecked: store.TouchDomainLastChecked,
 		VerifyDomain:       store.VerifyDomain,

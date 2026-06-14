@@ -172,16 +172,36 @@ func testServer(t *testing.T) *httptest.Server {
 			return []identity.Webhook{{ID: "wh_1", URL: "https://x.com/h", Events: []string{"email.received"}, Enabled: true, SigningSecret: "whsec_should_be_hidden", CreatedAt: time.Unix(1700000000, 0).UTC()}}, nil
 		},
 		GetWebhook: func(ctx context.Context, webhookID, userID string) (*identity.Webhook, error) {
-			if webhookID == "wh_1" {
-				return &identity.Webhook{ID: "wh_1", URL: "https://x.com/h", Events: []string{"email.received"}, Enabled: true, SigningSecret: "whsec_should_be_hidden", CreatedAt: time.Unix(1700000000, 0).UTC()}, nil
+			if webhookID == "wh_1" || webhookID == "wh_cooldown" {
+				return &identity.Webhook{ID: webhookID, URL: "https://x.com/h", Events: []string{"email.received"}, Enabled: true, SigningSecret: "whsec_should_be_hidden", CreatedAt: time.Unix(1700000000, 0).UTC()}, nil
 			}
 			return nil, identity.ErrWebhookNotFound
+		},
+		UpdateWebhook: func(ctx context.Context, webhookID, userID string, u identity.WebhookUpdate) (*identity.Webhook, error) {
+			switch webhookID {
+			case "wh_cooldown":
+				return nil, identity.ErrWebhookCooldown
+			case "wh_1":
+				wh := &identity.Webhook{ID: "wh_1", URL: "https://x.com/h", Events: []string{"email.received"}, Enabled: true, CreatedAt: time.Unix(1700000000, 0).UTC()}
+				if u.Description != nil {
+					wh.Description = *u.Description
+				}
+				return wh, nil
+			default:
+				return nil, identity.ErrWebhookNotFound
+			}
 		},
 		DeleteWebhook: func(ctx context.Context, webhookID, userID string) error {
 			if webhookID == "wh_1" {
 				return nil
 			}
 			return identity.ErrWebhookNotFound
+		},
+		RotateSecret: func(ctx context.Context, webhookID, userID string) (string, time.Time, error) {
+			if webhookID == "wh_1" {
+				return "whsec_rotated", time.Unix(1700086400, 0).UTC(), nil
+			}
+			return "", time.Time{}, identity.ErrWebhookNotFound
 		},
 		TouchDomainChecked: func(ctx context.Context, domain, userID string) error { return nil },
 		VerifyDomain:       func(ctx context.Context, domain, userID string) error { return nil },

@@ -132,3 +132,57 @@ func TestDeleteWebhookNotFound(t *testing.T) {
 		t.Fatalf("want 404, got %d", code)
 	}
 }
+
+func TestUpdateWebhookDescription(t *testing.T) {
+	srv := testServer(t)
+	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/webhooks/wh_1", "good", map[string]any{"description": "new desc"})
+	if code != 200 || body["description"] != "new desc" {
+		t.Fatalf("want 200 updated, got %d %v", code, body)
+	}
+	if _, present := body["signing_secret"]; present {
+		t.Fatal("update must NOT expose signing_secret")
+	}
+}
+
+func TestUpdateWebhookEmptyEventsRejected(t *testing.T) {
+	srv := testServer(t)
+	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/webhooks/wh_1", "good", map[string]any{"events": []string{}})
+	if code != 400 {
+		t.Fatalf("want 400, got %d %v", code, body)
+	}
+}
+
+func TestUpdateWebhookCooldown(t *testing.T) {
+	srv := testServer(t)
+	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/webhooks/wh_cooldown", "good", map[string]any{"enabled": true})
+	if code != 409 || errCode(body) != "webhook_cooldown" {
+		t.Fatalf("want 409 webhook_cooldown, got %d %v", code, body)
+	}
+}
+
+func TestUpdateWebhookNotFound(t *testing.T) {
+	srv := testServer(t)
+	code, _ := sendJSON(t, "PATCH", srv.URL+"/v1/webhooks/wh_missing", "good", map[string]any{"description": "x"})
+	if code != 404 {
+		t.Fatalf("want 404, got %d", code)
+	}
+}
+
+func TestRotateWebhookSecret(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/webhooks/wh_1/rotate-secret", "good", nil)
+	if code != 200 || body["signing_secret"] != "whsec_rotated" {
+		t.Fatalf("want 200 rotated secret, got %d %v", code, body)
+	}
+	if body["previous_secret_expires_at"] == "" {
+		t.Fatal("rotate must return previous_secret_expires_at")
+	}
+}
+
+func TestRotateWebhookSecretNotFound(t *testing.T) {
+	srv := testServer(t)
+	code, _ := postJSON(t, srv.URL+"/v1/webhooks/wh_missing/rotate-secret", "good", nil)
+	if code != 404 {
+		t.Fatalf("want 404, got %d", code)
+	}
+}

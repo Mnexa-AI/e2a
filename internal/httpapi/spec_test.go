@@ -39,6 +39,8 @@ func TestSpecGeneratedFromHandlers(t *testing.T) {
 		"operationId: createWebhook",
 		"operationId: listWebhooks",
 		"operationId: deleteWebhook",
+		"operationId: updateWebhook",
+		"operationId: rotateWebhookSecret",
 		"/v1/webhooks",
 		"/v1/webhooks/{id}",
 		"/v1/domains/{domain}/verify",

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/danielgtaylor/huma/v2"
@@ -97,7 +98,9 @@ type Deps struct {
 	CreateWebhook func(ctx context.Context, userID, url, description string, events []string, filters identity.WebhookFilters) (*identity.Webhook, error)
 	ListWebhooks  func(ctx context.Context, userID string) ([]identity.Webhook, error)
 	GetWebhook    func(ctx context.Context, webhookID, userID string) (*identity.Webhook, error)
+	UpdateWebhook func(ctx context.Context, webhookID, userID string, u identity.WebhookUpdate) (*identity.Webhook, error)
 	DeleteWebhook func(ctx context.Context, webhookID, userID string) error
+	RotateSecret  func(ctx context.Context, webhookID, userID string) (string, time.Time, error)
 
 	// domain verification
 	TouchDomainChecked func(ctx context.Context, domain, userID string) error

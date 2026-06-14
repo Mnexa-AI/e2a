@@ -211,6 +211,117 @@ func (s *Server) registerWebhooks() {
 		Summary: "Delete a webhook", Tags: []string{"webhooks"},
 		Security: []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
 	}, s.handleDeleteWebhook)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "updateWebhook", Method: http.MethodPatch, Path: "/v1/webhooks/{id}",
+		Summary: "Update a webhook", Tags: []string{"webhooks"},
+		Description: "Partial update. url/events/filters are full-replace when present. Re-enabling within the auto-disable cooldown returns 409.",
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleUpdateWebhook)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "rotateWebhookSecret", Method: http.MethodPost, Path: "/v1/webhooks/{id}/rotate-secret",
+		Summary: "Rotate a webhook signing secret", Tags: []string{"webhooks"},
+		Description: "Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once).",
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleRotateWebhookSecret)
+}
+
+// UpdateWebhookRequest mirrors the legacy PATCH body — pointer fields so
+// absent != zero; url/events/filters are full-replace when present.
+type UpdateWebhookRequest struct {
+	URL         *string             `json:"url,omitempty"`
+	Events      *[]string           `json:"events,omitempty"`
+	Filters     *WebhookFiltersView `json:"filters,omitempty"`
+	Description *string             `json:"description,omitempty"`
+	Enabled     *bool               `json:"enabled,omitempty"`
+}
+type updateWebhookInput struct {
+	ID   string `path:"id"`
+	Body UpdateWebhookRequest
+}
+
+func (s *Server) handleUpdateWebhook(ctx context.Context, in *updateWebhookInput) (*webhookOutput, error) {
+	user, err := s.requireUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	req := in.Body
+	// A webhook with no events or no URL is a broken state — reject the
+	// clearing patch (DELETE the webhook to remove it).
+	if req.Events != nil && len(*req.Events) == 0 {
+		return nil, NewError(http.StatusBadRequest, "invalid_request", "events must not be empty (DELETE the webhook to remove it)")
+	}
+	if req.URL != nil && *req.URL == "" {
+		return nil, NewError(http.StatusBadRequest, "invalid_request", "url must not be empty")
+	}
+	// Validate the effective post-patch state against the create-time rules.
+	current, err := s.deps.GetWebhook(ctx, in.ID, user.ID)
+	if err != nil || current == nil {
+		return nil, NewError(http.StatusNotFound, "not_found", "webhook not found")
+	}
+	effURL := current.URL
+	if req.URL != nil {
+		effURL = *req.URL
+	}
+	effEvents := current.Events
+	if req.Events != nil {
+		effEvents = *req.Events
+	}
+	effFilters := WebhookFiltersView{AgentIDs: current.Filters.AgentIDs, ConversationIDs: current.Filters.ConversationIDs, Labels: current.Filters.Labels}
+	if req.Filters != nil {
+		effFilters = *req.Filters
+	}
+	effDesc := current.Description
+	if req.Description != nil {
+		effDesc = *req.Description
+	}
+	if env := s.validateWebhookFields(ctx, user.ID, effURL, effEvents, effFilters, effDesc); env != nil {
+		return nil, env
+	}
+	var idFilters *identity.WebhookFilters
+	if req.Filters != nil {
+		idFilters = &identity.WebhookFilters{AgentIDs: req.Filters.AgentIDs, ConversationIDs: req.Filters.ConversationIDs, Labels: req.Filters.Labels}
+	}
+	wh, err := s.deps.UpdateWebhook(ctx, in.ID, user.ID, identity.WebhookUpdate{
+		URL: req.URL, Events: req.Events, Filters: idFilters, Description: req.Description, Enabled: req.Enabled,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, identity.ErrWebhookNotFound):
+			return nil, NewError(http.StatusNotFound, "not_found", "webhook not found")
+		case errors.Is(err, identity.ErrWebhookCooldown):
+			return nil, NewError(http.StatusConflict, "webhook_cooldown", err.Error())
+		default:
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to update webhook")
+		}
+	}
+	return &webhookOutput{Body: webhookView(wh, false)}, nil
+}
+
+type rotateSecretOutput struct {
+	Body struct {
+		SigningSecret           string `json:"signing_secret"`
+		PreviousSecretExpiresAt string `json:"previous_secret_expires_at"`
+	}
+}
+
+func (s *Server) handleRotateWebhookSecret(ctx context.Context, in *WebhookIDParam) (*rotateSecretOutput, error) {
+	user, err := s.requireUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	secret, prevExpires, err := s.deps.RotateSecret(ctx, in.ID, user.ID)
+	if err != nil {
+		if errors.Is(err, identity.ErrWebhookNotFound) {
+			return nil, NewError(http.StatusNotFound, "not_found", "webhook not found")
+		}
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to rotate webhook secret")
+	}
+	out := &rotateSecretOutput{}
+	out.Body.SigningSecret = secret
+	out.Body.PreviousSecretExpiresAt = prevExpires.UTC().Format(time.RFC3339)
+	return out, nil
 }
 
 func (s *Server) handleCreateWebhook(ctx context.Context, in *createWebhookInput) (*webhookCreateOutput, error) {
