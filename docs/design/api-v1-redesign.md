@@ -276,7 +276,48 @@ relative to that base):
      read + remove** surface so a fixed address can be un-suppressed (no
      permanent dead-end).
    * **Inbound auth, structured** — surface `auth: {spf,dkim,dmarc}` on inbound
-     messages (DMARC newly evaluated), not just the `X-E2A-Auth-*` blob.
+     messages (DMARC newly evaluated), not just the `X-E2A-Auth-*` blob. This
+     verdict is the **trust primitive** the inbound policy (decision 10) enforces on.
+   * **Injection-reduced parsed view (v1 hygiene win).** Alongside the `raw`
+     payload, offer a parsed view the agent feeds to the model by default:
+     **strip quoted threads / forwarded headers**, HTML→text, and a configurable
+     **body-length cap** (token-stuffing guard). Cheap, provider-agnostic
+     prompt-injection surface reduction; the one concrete idea worth borrowing
+     from Resend's skill (which does this client-side).
+   * **Security event** — emit an `email.flagged` / rejected-inbound event
+     (rides the §4 event system) when inbound fails policy, so operators get a
+     signal instead of silence.
+10. **Inbound trust policy — gateway-enforced (Slice 7).** A graded, **named**
+   per-agent `inbound_policy`, composing e2a's *existing server-side* primitives
+   (the contrast vs Resend's client-side advisory "5 levels" — see below):
+   * `open` (default) — process all inbound.
+   * `allowlist` / `domain` — coarse sender allow (exact address / domain).
+   * **`verified_only`** — require `spf=pass` + `dkim=pass` + **DMARC alignment**
+     (decision 9's `auth` verdict); reject/flag the rest. *e2a can enforce this
+     server-side; Resend's skill can't (it never reads the verdict).*
+   * `hitl` — route untrusted inbound through the existing `approval` transition
+     (decision 5) before the agent acts. (Reuses e2a's HITL — superior to
+     Resend's: server-side, TTL, body-scrubbed, signed approvals — **don't**
+     re-import Resend's client-side model.)
+
+   Policies **compose** (e.g. `verified_only` + `hitl` for the rest). Plus a
+   structural primitive Resend can't match: **auto scope-downgrade on weak/failed
+   inbound auth** — while acting on a thread whose inbound message failed/lacked
+   auth, the MCP scope set narrows (reply-only; no new-recipient send, no
+   destructive/admin ops). Trust is grounded in the real `auth` verdict, not an
+   allowlist, so this is enforced at the token/gateway layer, not advised in a
+   prompt.
+
+   **Explicitly skipped** (low value / inferior to e2a's primitives): Resend's
+   regex `SAFETY_PATTERNS` content filter (evadable, locale-fragile — use a model
+   classifier later if ever); importing Resend's HITL; in-memory per-sender rate
+   limits (if added, server-side keyed on the *verified* sender).
+
+   **Positioning (accurate):** "e2a **enforces** inbound trust at the gateway;
+   Resend ships a skill that **advises** it client-side." e2a's edge is
+   *surfacing the verdict + enforcing policy on it* — **not** "we uniquely
+   validate inbound" (Resend validates inbound too; it filters internally and
+   doesn't expose a per-message verdict).
 
 ### HTTP header conventions (audit + decisions)
 
@@ -894,9 +935,16 @@ Break the current `/api/v1` surface directly and move it to
   AgentMail — ship alongside Slice 4, not after.
 * **Slice 6 — Agent-first docs.** `e2a.md`/`llms.txt`/`setup.md`/`auth.md`,
   binary-served; `api.md` generated from the spec.
+* **Slice 7 — Inbound trust policy (decision 10), post-parity.** Per-agent
+  `inbound_policy` enum (`open`/`allowlist`/`domain`/`verified_only`/`hitl`,
+  composable) + auto MCP scope-downgrade on weak/failed inbound `auth`. Builds on
+  decision 9's verdict + the v1 injection-reduced parsed view (already shipped in
+  Slice 4b's inbound work). **Not a parity gap** — e2a's existing server-side HITL
+  + auth verdicts already meet/beat Resend (advisory) and AgentMail (none); this
+  packages the latent advantage. Defer until 1–6 land.
 
-Each slice is independently shippable; 1–2 deliver most of the "clean and
-consistent" win.
+Slices 1–6 are independently shippable; 1–2 deliver most of the "clean and
+consistent" win. Slice 7 is a post-parity enhancement.
 
 ## 9a. Configuration & env-var surface
 
