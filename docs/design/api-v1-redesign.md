@@ -258,8 +258,8 @@ relative to that base):
    outbound endpoint**, where send/reply/forward share one route — reusing a key
    across a new send and a later reply must 422, never return the send's cached
    response and drop the reply.
-9. **Delivery feedback is first-class (table stakes — Resend and AgentMail both
-   have it).** `send` returning `"sent"` means *accepted by the relay*, not
+9. **Delivery feedback is first-class (table stakes for any email API).**
+   `send` returning `"sent"` means *accepted by the relay*, not
    delivered; the redesign closes the loop:
    * **Consume SES notifications** (SNS → handler) for delivery, bounce
      (hard/soft), and complaint, keyed back to the outbound message via the VERP
@@ -282,8 +282,7 @@ relative to that base):
      payload, offer a parsed view the agent feeds to the model by default:
      **strip quoted threads / forwarded headers**, HTML→text, and a configurable
      **body-length cap** (token-stuffing guard). Cheap, provider-agnostic
-     prompt-injection surface reduction; the one concrete idea worth borrowing
-     from Resend's skill (which does this client-side).
+     prompt-injection surface reduction, done server-side in the parse path.
    * **Security event** — emit an `email.flagged` / rejected-inbound event
      (rides the §4 event system) when inbound fails policy, so operators get a
      signal instead of silence.
@@ -295,35 +294,34 @@ relative to that base):
    promoted to a sub-collection only if it ever needs to scale. The auto
    scope-downgrade (below) is runtime behavior derived from the message `auth`
    verdict — not config. It composes e2a's *existing server-side* primitives
-   (the contrast vs Resend's client-side advisory "5 levels" — see below):
+   (gateway-**enforced**, not client-side advisory guidance an agent author may
+   skip):
    * `open` (default) — process all inbound.
    * `allowlist` / `domain` — coarse sender allow (exact address / domain).
    * **`verified_only`** — require `spf=pass` + `dkim=pass` + **DMARC alignment**
-     (decision 9's `auth` verdict); reject/flag the rest. *e2a can enforce this
-     server-side; Resend's skill can't (it never reads the verdict).*
+     (decision 9's `auth` verdict); reject/flag the rest. Enforced server-side on
+     the real verdict, not an allowlist string-match.
    * `hitl` — route untrusted inbound through the existing `approval` transition
-     (decision 5) before the agent acts. (Reuses e2a's HITL — superior to
-     Resend's: server-side, TTL, body-scrubbed, signed approvals — **don't**
-     re-import Resend's client-side model.)
+     (decision 5) before the agent acts (reuses e2a's server-side HITL — TTL,
+     body-scrubbed, signed approvals).
 
    Policies **compose** (e.g. `verified_only` + `hitl` for the rest). Plus a
-   structural primitive Resend can't match: **auto scope-downgrade on weak/failed
-   inbound auth** — while acting on a thread whose inbound message failed/lacked
-   auth, the MCP scope set narrows (reply-only; no new-recipient send, no
-   destructive/admin ops). Trust is grounded in the real `auth` verdict, not an
-   allowlist, so this is enforced at the token/gateway layer, not advised in a
+   structural primitive grounded in the real verdict: **auto scope-downgrade on
+   weak/failed inbound auth** — while acting on a thread whose inbound message
+   failed/lacked auth, the MCP scope set narrows (reply-only; no new-recipient
+   send, no destructive/admin ops). Trust comes from the real `auth` verdict, not
+   an allowlist, so this is enforced at the token/gateway layer, not advised in a
    prompt.
 
-   **Explicitly skipped** (low value / inferior to e2a's primitives): Resend's
-   regex `SAFETY_PATTERNS` content filter (evadable, locale-fragile — use a model
-   classifier later if ever); importing Resend's HITL; in-memory per-sender rate
+   **Explicitly skipped** (low value): regex content filters (evadable,
+   locale-fragile — a model classifier later if ever); in-memory per-sender rate
    limits (if added, server-side keyed on the *verified* sender).
 
-   **Positioning (accurate):** "e2a **enforces** inbound trust at the gateway;
-   Resend ships a skill that **advises** it client-side." e2a's edge is
-   *surfacing the verdict + enforcing policy on it* — **not** "we uniquely
-   validate inbound" (Resend validates inbound too; it filters internally and
-   doesn't expose a per-message verdict).
+   **Positioning (accurate):** e2a **enforces** inbound trust at the gateway,
+   rather than as client-side advisory guidance an agent author may skip. The
+   edge is *surfacing the per-message verdict + enforcing policy on it* — **not**
+   "we uniquely validate inbound" (inbound validation is common; exposing the
+   verdict and enforcing policy on it is the differentiator).
 
 ### HTTP header conventions (audit + decisions)
 
@@ -417,7 +415,7 @@ the gaps, ranked:
    SES notifications, has no outbound `delivery_status`, and the event vocab lacks
    bounced/complained/delivered. **§4 decision 9** commits the full fix (SNS
    consumer → `delivery_status` + delivery events + suppression list); this is
-   table-stakes parity with Resend/AgentMail.
+   table stakes for any email API.
 2. **Outbound `From` defeats DMARC (MAJOR — fully specified in decision 4).**
    Today `From:` = `…via e2a <agent@send.e2a.dev>` and MAIL FROM =
    `send.e2a.dev`, so the From-domain never aligns → DMARC can't pass on the
@@ -937,8 +935,8 @@ Break the current `/api/v1` surface directly and move it to
   `delivery_status` lifecycle on outbound messages + `email.delivered`/
   `bounced`/`complained` events + suppression list (with account/console
   read+remove) + structured inbound `auth: {spf,dkim,dmarc}` (DMARC eval).
-  Depends on Slice 4's VERP Return-Path. **Table-stakes parity** with Resend /
-  AgentMail — ship alongside Slice 4, not after.
+  Depends on Slice 4's VERP Return-Path. **Table stakes** for an email API —
+  ship alongside Slice 4, not after.
 * **Slice 6 — Agent-first docs.** `e2a.md`/`llms.txt`/`setup.md`/`auth.md`,
   binary-served; `api.md` generated from the spec.
 * **Slice 7 — Inbound trust policy (decision 10), post-parity.** Per-agent
@@ -946,8 +944,8 @@ Break the current `/api/v1` surface directly and move it to
   composable) + auto MCP scope-downgrade on weak/failed inbound `auth`. Builds on
   decision 9's verdict + the v1 injection-reduced parsed view (already shipped in
   Slice 4b's inbound work). **Not a parity gap** — e2a's existing server-side HITL
-  + auth verdicts already meet/beat Resend (advisory) and AgentMail (none); this
-  packages the latent advantage. Defer until 1–6 land.
+  + auth verdicts are already strong here; this packages that latent advantage
+  into a named policy. Defer until 1–6 land.
 
 Slices 1–6 are independently shippable; 1–2 deliver most of the "clean and
 consistent" win. Slice 7 is a post-parity enhancement.
