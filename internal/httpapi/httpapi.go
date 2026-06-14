@@ -109,6 +109,9 @@ type Deps struct {
 	ApprovePending     func(ctx context.Context, userID, messageID, expectedAgentEmail string, ovr agent.ApproveOverrides) (*identity.Message, *agent.OutboundError)
 	RejectPending      func(ctx context.Context, userID, messageID, expectedAgentEmail, reason string) (*identity.Message, *agent.OutboundError)
 	EnforceMessageSend func(ctx context.Context, userID string) error
+	// SendLimit is the per-agent outbound rate limiter (mirrors
+	// sendLimit.AllowWithRetryAfter; key = agent id). Optional.
+	SendLimit func(key string) (ok bool, retryAfter time.Duration)
 	// GetInboundMessage loads an inbound message for reply/forward.
 	GetInboundMessage func(ctx context.Context, messageID string) (*identity.Message, error)
 

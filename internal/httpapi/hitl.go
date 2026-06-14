@@ -73,6 +73,9 @@ func (s *Server) handleApprove(ctx context.Context, in *approveInput) (*approveO
 	if uerr != nil {
 		return nil, uerr
 	}
+	if env := s.checkSendLimit(ag.ID); env != nil {
+		return nil, env
+	}
 	if s.deps.ApprovePending == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "approve unavailable")
 	}

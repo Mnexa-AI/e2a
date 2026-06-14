@@ -85,6 +85,9 @@ func (s *Server) handleTestSend(ctx context.Context, in *AddressParam) (*sendOut
 	if uerr != nil {
 		return nil, uerr
 	}
+	if env := s.checkSendLimit(ag.ID); env != nil {
+		return nil, env
+	}
 	if !ag.DomainVerified {
 		return nil, NewError(http.StatusForbidden, "domain_not_verified", "agent domain must be verified before sending test email")
 	}
@@ -287,6 +290,9 @@ func (s *Server) resolveSendAgent(ctx context.Context, user *identity.User, from
 // deliver runs the domain-verified + enforce-cap checks then DeliverOutbound
 // under the idempotency handshake, mapping the OutboundResult to the wire view.
 func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyTo, route, idemKey string, rawBody []byte) (*sendOutput, error) {
+	if env := s.checkSendLimit(ag.ID); env != nil {
+		return nil, env
+	}
 	if !ag.DomainVerified {
 		return nil, NewError(http.StatusForbidden, "domain_not_verified", "agent domain must be verified before sending")
 	}
@@ -315,6 +321,27 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 		return nil, err
 	}
 	return &sendOutput{Status: status, Body: view}, nil
+}
+
+// checkSendLimit applies the per-agent outbound rate limit (mirrors the
+// legacy sendLimit). On block it returns a 429 envelope carrying the
+// retry-after seconds; the IETF RateLimit-* response headers are a tracked
+// follow-up (Huma error responses can't set headers directly).
+func (s *Server) checkSendLimit(agentID string) *ErrorEnvelope {
+	if s.deps.SendLimit == nil {
+		return nil
+	}
+	ok, retryAfter := s.deps.SendLimit(agentID)
+	if ok {
+		return nil
+	}
+	secs := int(retryAfter.Round(time.Second).Seconds())
+	if secs < 1 {
+		secs = 1
+	}
+	return NewError(http.StatusTooManyRequests, "rate_limited",
+		"rate limit exceeded — max 60 sends per minute per agent").
+		WithDetails(map[string]any{"retry_after_seconds": secs})
 }
 
 func (s *Server) handleSend(ctx context.Context, in *sendInput) (*sendOutput, error) {

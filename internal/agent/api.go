@@ -445,6 +445,13 @@ func (a *API) SetIdempotencyStore(s *idempotency.Store) { a.idempotency = s }
 // don't care about limits omit it and continue to work as before.
 func (a *API) SetEnforcer(e limits.Enforcer) { a.enforcer = e }
 
+// SendLimitAllow exposes the per-agent outbound rate limiter so the v1 httpapi
+// layer shares the *same* token bucket as the legacy handlers (a caller hitting
+// the limit via either path is counted once). key = agent id.
+func (a *API) SendLimitAllow(key string) (bool, time.Duration) {
+	return a.sendLimit.AllowWithRetryAfter(key)
+}
+
 // SetUsageStore wires in the usage store used by handleGetMyLimits to
 // surface the user's current counts (agents, domains, messages this
 // month, storage bytes) alongside the resolved caps. Separate from the

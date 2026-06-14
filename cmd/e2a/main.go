@@ -321,6 +321,7 @@ func main() {
 		DeliverOutbound:     api.DeliverOutbound,
 		SendTest:            api.SendTestCore,
 		ApprovePending:      api.ApprovePendingCore,
+		SendLimit:           api.SendLimitAllow,
 		RejectPending:       api.RejectPendingCore,
 		EnforceMessageSend:  enforcer.CheckMessageSend,
 		GetInboundMessage:   store.GetInboundMessage,
