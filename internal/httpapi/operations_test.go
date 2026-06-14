@@ -280,6 +280,22 @@ func testServer(t *testing.T) *httptest.Server {
 		SendTest: func(ctx context.Context, ag *identity.AgentIdentity) (*agent.OutboundResult, *agent.OutboundError) {
 			return &agent.OutboundResult{MessageID: "msg_test_1", Method: "smtp"}, nil
 		},
+		ApprovePending: func(ctx context.Context, userID, messageID, expectedAgentEmail string, ovr agent.ApproveOverrides) (*identity.Message, *agent.OutboundError) {
+			switch messageID {
+			case "msg_pending":
+				return &identity.Message{ID: "msg_pending", Status: "sent", ProviderMessageID: "<prov@ses>", Method: "smtp"}, nil
+			case "msg_notpending":
+				return nil, &agent.OutboundError{Status: http.StatusConflict, Code: "message_not_pending", Msg: "message is not pending approval"}
+			default:
+				return nil, &agent.OutboundError{Status: http.StatusNotFound, Code: "not_found", Msg: "message not found"}
+			}
+		},
+		RejectPending: func(ctx context.Context, userID, messageID, expectedAgentEmail, reason string) (*identity.Message, *agent.OutboundError) {
+			if messageID == "msg_pending" {
+				return &identity.Message{ID: "msg_pending", Status: "rejected", RejectionReason: reason}, nil
+			}
+			return nil, &agent.OutboundError{Status: http.StatusNotFound, Code: "not_found", Msg: "message not found"}
+		},
 		GetInboundMessage: func(ctx context.Context, messageID string) (*identity.Message, error) {
 			if messageID == "msg_in1" {
 				return &identity.Message{

@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gorilla/mux"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
+	"github.com/gorilla/mux"
 )
 
 // verifyURLAgentEmail enforces the agent-scoped path's URL invariant.
@@ -315,99 +315,53 @@ func (req approveRequest) toEdit() (identity.PendingApprovalEdit, error) {
 // @Failure      422 {string} string "Idempotency-Key reused with a different request body"
 // @Param        Idempotency-Key header string false "Caller-generated unique key (recommend UUIDv4). Approve fires a real outbound send (SES); on retry with the same key + same body the server replays the original response instead of double-sending. A different body returns 422."
 // @Router       /api/v1/agents/{email}/messages/{id}/approve [post]
-func (a *API) handleApprovePendingMessage(w http.ResponseWriter, r *http.Request) {
-	user, err := a.authenticateUser(r)
+// ApproveOverrides are the optional reviewer edits applied on approve
+// (exported alias of the internal body type so the v1 httpapi layer can build
+// them).
+type ApproveOverrides = approveRequest
+
+// ApprovePendingCore is the HTTP-free core of the HITL approve→send: it
+// verifies the held message (ownership-scoped + pending + optional
+// expected-agent-email match + domain-verified), then runs ApproveAndSend
+// with the shared send callback (self-send loopback / SES), records usage,
+// and publishes the approved event. Both the legacy handler and the v1 layer
+// call it. expectedAgentEmail (when non-empty) must equal the message's
+// agent's email — mirrors the legacy verifyURLAgentEmail URL guard.
+// On a nil-error return the SES send has committed; the idempotency key must
+// be Completed (cached), never Released.
+func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expectedAgentEmail string, ovr ApproveOverrides) (*identity.Message, *OutboundError) {
+	edits, err := ovr.toEdit()
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
+		return nil, &OutboundError{http.StatusBadRequest, "invalid_request", "invalid attachments"}
 	}
-
-	messageID := mux.Vars(r)["id"]
-
-	// Read the body up front so the idempotency guard can hash it. Approve
-	// is side-effectful (it triggers an SES send) so a retry without the
-	// guard would double-send; symmetric with handleSendEmail /
-	// handleReplyToMessage.
-	bodyBytes, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBytesSmall))
+	preview, err := a.store.GetOutboundMessageForUser(ctx, messageID, userID)
 	if err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	replayed, captureW, finalize := a.idempotencyGuard(w, r, user.ID, bodyBytes)
-	if replayed {
-		return
-	}
-	defer finalize()
-	w = captureW
-
-	var req approveRequest
-	// Empty body is allowed (approve-as-is). Only error if body is present
-	// but malformed. We deliberately do NOT gate on r.ContentLength > 0
-	// because Transfer-Encoding: chunked yields ContentLength == -1; that
-	// would silently drop the reviewer's overrides (subject/body/to/cc/bcc/
-	// attachment edits) and send the stored draft as-is.
-	if len(bodyBytes) > 0 {
-		if err := json.Unmarshal(bodyBytes, &req); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
-	}
-	edits, err := req.toEdit()
-	if err != nil {
-		http.Error(w, "invalid attachments", http.StatusBadRequest)
-		return
-	}
-
-	// Pre-flight load: verify ownership + pending status + URL agent match
-	// + domain verification. The URL agent-match guard uses the same
-	// verifyURLAgentEmail helper as get/reject so any future change to
-	// that contract (telemetry, logging, status code) ripples through
-	// all three handlers in lockstep.
-	preview, err := a.store.GetOutboundMessageForUser(r.Context(), messageID, user.ID)
-	if err != nil {
-		http.Error(w, "message not found", http.StatusNotFound)
-		return
+		return nil, &OutboundError{http.StatusNotFound, "not_found", "message not found"}
 	}
 	if preview.Status != identity.MessageStatusPendingApproval {
-		http.Error(w, "message is not pending approval", http.StatusConflict)
-		return
+		return nil, &OutboundError{http.StatusConflict, "message_not_pending", "message is not pending approval"}
 	}
-	if !a.verifyURLAgentEmail(r.Context(), w, r, preview.AgentID) {
-		return
-	}
-
-	// Approve also needs the agent's DomainVerified flag. verifyURLAgentEmail
-	// has already loaded the agent into the store cache in the typical path,
-	// but the helper doesn't surface the row — load it explicitly here.
-	// (Splitting "ownership check" from "send-readiness check" keeps each
-	// handler's preconditions explicit even though it costs a second
-	// GetAgentByID under the hood.)
-	agent, err := a.store.GetAgentByID(r.Context(), preview.AgentID)
+	agent, err := a.store.GetAgentByID(ctx, preview.AgentID)
 	if err != nil {
 		log.Printf("[api] approve: get agent %s: %v", preview.AgentID, err)
-		http.Error(w, "agent lookup failed", http.StatusInternalServerError)
-		return
+		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "agent lookup failed"}
+	}
+	if expectedAgentEmail != "" && agent.Email != expectedAgentEmail {
+		return nil, &OutboundError{http.StatusNotFound, "not_found", "message not found"}
 	}
 	if !agent.DomainVerified {
-		http.Error(w, "agent domain must be verified before sending", http.StatusForbidden)
-		return
+		return nil, &OutboundError{http.StatusForbidden, "domain_not_verified", "agent domain must be verified before sending"}
 	}
 
-	sent, err := a.store.ApproveAndSend(r.Context(), messageID, user.ID, edits,
+	sent, err := a.store.ApproveAndSend(ctx, messageID, userID, edits,
 		func(locked *identity.Message) (identity.SendResult, error) {
 			sendReq, err := buildSendRequestFromMessage(locked)
 			if err != nil {
 				return identity.SendResult{}, err
 			}
-			attachReferencesChain(r.Context(), a.store, agent.ID, &sendReq)
-			// Self-sends bypass the SMTP relay — outbound.Sender would
-			// strip the agent's own address from the recipient list and
-			// error "no valid recipients". Loopback writes the inbound
-			// row directly and reports method=loopback on the now-sent
-			// outbound row, matching the non-HITL self-send shape.
+			attachReferencesChain(ctx, a.store, agent.ID, &sendReq)
 			if isSelfSend(sendReq, agent.EmailAddress()) {
-				return a.selfSendApprovalDelivery(r.Context(), agent, sendReq)
+				return a.selfSendApprovalDelivery(ctx, agent, sendReq)
 			}
 			result, err := a.sender.Send(agent, sendReq)
 			if err != nil {
@@ -424,48 +378,72 @@ func (a *API) handleApprovePendingMessage(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		switch {
 		case errors.Is(err, identity.ErrMessageNotFound):
-			http.Error(w, "message not found", http.StatusNotFound)
+			return nil, &OutboundError{http.StatusNotFound, "not_found", "message not found"}
 		case errors.Is(err, identity.ErrNotPendingApproval):
-			http.Error(w, "message is not pending approval", http.StatusConflict)
+			return nil, &OutboundError{http.StatusConflict, "message_not_pending", "message is not pending approval"}
 		default:
 			var ve *outbound.ValidationError
 			if errors.As(err, &ve) {
-				http.Error(w, ve.Error(), http.StatusBadRequest)
-				return
+				return nil, &OutboundError{http.StatusBadRequest, "invalid_request", ve.Error()}
 			}
 			log.Printf("[api] approve-send failed: agent=%s msg=%s err=%v", agent.ID, messageID, err)
-			http.Error(w, "send failed", http.StatusInternalServerError)
+			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "send failed"}
 		}
-		return
 	}
-	// SES has accepted the send and the outbound row has transitioned
-	// to 'sent' with body scrubbed. Past this point any handler-side
-	// failure (usage recording, log write, response flush) must NOT
-	// release the idempotency key — a retry would either re-fire SES
-	// or short-circuit via send_attempts and return a 200 with a
-	// different body than the first call's 5xx. Mirrors the
-	// markSideEffectCommitted call at internal/agent/api.go:1413,1440
-	// for send and 1713,1737 for reply.
-	markSideEffectCommitted(w)
 
-	// Record usage only after the message actually leaves the gateway.
-	if _, err := a.usage.RecordAndCheck(r.Context(), user.ID, agent.ID, agent.Domain, "outbound"); err != nil {
+	if _, err := a.usage.RecordAndCheck(ctx, userID, agent.ID, agent.Domain, "outbound"); err != nil {
 		log.Printf("[api] usage recording error: %v", err)
 	}
-
 	slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
 	log.Printf("[mail:%s] dir=outbound type=%s status=sent from=%s to=%v slug=%s subject=%q edited=%v approved=user:%s",
-		sent.ID, sent.Type, agent.EmailAddress(), sent.ToRecipients, slug, sent.Subject, sent.Edited, user.ID)
+		sent.ID, sent.Type, agent.EmailAddress(), sent.ToRecipients, slug, sent.Subject, sent.Edited, userID)
+	a.publishApproved(ctx, a.buildApprovedEvent(agent, sent, userID), sent)
+	return sent, nil
+}
 
-	a.publishApproved(r.Context(), a.buildApprovedEvent(agent, sent, user.ID), sent)
+func (a *API) handleApprovePendingMessage(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticateUser(r)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	messageID := mux.Vars(r)["id"]
 
+	// Read the body up front so the idempotency guard can hash it. Approve
+	// is side-effectful (triggers an SES send) so a retry without the guard
+	// would double-send.
+	bodyBytes, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBytesSmall))
+	if err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	replayed, captureW, finalize := a.idempotencyGuard(w, r, user.ID, bodyBytes)
+	if replayed {
+		return
+	}
+	defer finalize()
+	w = captureW
+
+	var req approveRequest
+	if len(bodyBytes) > 0 {
+		if err := json.Unmarshal(bodyBytes, &req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+	}
+	sent, derr := a.ApprovePendingCore(r.Context(), user.ID, messageID, mux.Vars(r)["email"], req)
+	if derr != nil {
+		http.Error(w, derr.Msg, derr.Status)
+		return
+	}
+	markSideEffectCommitted(w)
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, map[string]interface{}{
-		"status":     sent.Status,
-		"message_id": sent.ID,
+		"status":              sent.Status,
+		"message_id":          sent.ID,
 		"provider_message_id": sent.ProviderMessageID,
-		"method":     sent.Method,
-		"edited":     sent.Edited,
+		"method":              sent.Method,
+		"edited":              sent.Edited,
 	})
 }
 
@@ -573,46 +551,47 @@ func (a *API) handleRejectPendingMessage(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Agent-scoped path: enforce that the {email} URL segment matches
-	// the message's owning agent. We load the message first (a check
-	// the legacy path skipped — RejectPending does its own ownership
-	// scoping in the WHERE clause) so the URL contract can be validated
-	// before the row transitions. Mismatch returns 404 to match the
-	// flat-path "not yours" semantics.
-	if urlEmail := mux.Vars(r)["email"]; urlEmail != "" {
-		preview, err := a.store.GetOutboundMessageForUser(r.Context(), messageID, user.ID)
-		if err != nil {
-			http.Error(w, "message not found", http.StatusNotFound)
-			return
-		}
-		if !a.verifyURLAgentEmail(r.Context(), w, r, preview.AgentID) {
-			return
-		}
-	}
-
-	rejected, err := a.store.RejectPending(r.Context(), messageID, user.ID, req.Reason)
-	if err != nil {
-		switch {
-		case errors.Is(err, identity.ErrMessageNotFound):
-			http.Error(w, "message not found", http.StatusNotFound)
-		case errors.Is(err, identity.ErrNotPendingApproval):
-			http.Error(w, "message is not pending approval", http.StatusConflict)
-		default:
-			log.Printf("[api] reject: %v", err)
-			http.Error(w, "failed to reject message", http.StatusInternalServerError)
-		}
+	rejected, derr := a.RejectPendingCore(r.Context(), user.ID, messageID, mux.Vars(r)["email"], req.Reason)
+	if derr != nil {
+		http.Error(w, derr.Msg, derr.Status)
 		return
 	}
-
-	log.Printf("[mail:%s] dir=outbound type=%s status=rejected agent=%s rejected_by=user:%s reason=%q",
-		rejected.ID, rejected.Type, rejected.AgentID, user.ID, req.Reason)
-
-	a.publishRejected(r.Context(), a.buildRejectedEvent(user.ID, rejected, req.Reason), rejected.ID)
-
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, map[string]interface{}{
 		"status":           rejected.Status,
 		"message_id":       rejected.ID,
 		"rejection_reason": rejected.RejectionReason,
 	})
+}
+
+// RejectPendingCore is the HTTP-free core of HITL reject: optional
+// expected-agent-email match (mirrors the legacy URL guard), then
+// RejectPending + publish. Shared by the legacy handler and the v1 layer.
+func (a *API) RejectPendingCore(ctx context.Context, userID, messageID, expectedAgentEmail, reason string) (*identity.Message, *OutboundError) {
+	if expectedAgentEmail != "" {
+		preview, err := a.store.GetOutboundMessageForUser(ctx, messageID, userID)
+		if err != nil {
+			return nil, &OutboundError{http.StatusNotFound, "not_found", "message not found"}
+		}
+		agent, err := a.store.GetAgentByID(ctx, preview.AgentID)
+		if err != nil || agent.Email != expectedAgentEmail {
+			return nil, &OutboundError{http.StatusNotFound, "not_found", "message not found"}
+		}
+	}
+	rejected, err := a.store.RejectPending(ctx, messageID, userID, reason)
+	if err != nil {
+		switch {
+		case errors.Is(err, identity.ErrMessageNotFound):
+			return nil, &OutboundError{http.StatusNotFound, "not_found", "message not found"}
+		case errors.Is(err, identity.ErrNotPendingApproval):
+			return nil, &OutboundError{http.StatusConflict, "message_not_pending", "message is not pending approval"}
+		default:
+			log.Printf("[api] reject: %v", err)
+			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to reject message"}
+		}
+	}
+	log.Printf("[mail:%s] dir=outbound type=%s status=rejected agent=%s rejected_by=user:%s reason=%q",
+		rejected.ID, rejected.Type, rejected.AgentID, userID, reason)
+	a.publishRejected(ctx, a.buildRejectedEvent(userID, rejected, reason), rejected.ID)
+	return rejected, nil
 }

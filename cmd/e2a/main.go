@@ -320,6 +320,8 @@ func main() {
 		Idempotency:         idempotencyStore,
 		DeliverOutbound:     api.DeliverOutbound,
 		SendTest:            api.SendTestCore,
+		ApprovePending:      api.ApprovePendingCore,
+		RejectPending:       api.RejectPendingCore,
 		EnforceMessageSend:  enforcer.CheckMessageSend,
 		GetInboundMessage:   store.GetInboundMessage,
 		GetLimits:           enforcer.Get,
