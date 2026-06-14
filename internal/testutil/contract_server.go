@@ -7,10 +7,12 @@ import (
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/agent"
+	"github.com/Mnexa-AI/e2a/internal/apiserver"
 	"github.com/Mnexa-AI/e2a/internal/config"
 	"github.com/Mnexa-AI/e2a/internal/headers"
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/relay"
 	"github.com/Mnexa-AI/e2a/internal/usage"
@@ -49,14 +51,39 @@ func StartContractServer(ctx context.Context, dbURL string) (*ContractServer, er
 	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
 	noopUsage := usage.NewNoopUsageTracker()
 
+	// Limits/usage/webhook components the /v1 Deps bind to. Caps are set
+	// generously so contract scenarios exercise contract shape, not quota
+	// enforcement (the 402 limit paths have dedicated httpapi unit tests).
+	usageStore := usage.NewStore(pool)
+	enforcer := limits.NewEnforcer(limits.NewStore(pool), usageStore, limits.Defaults{
+		PlanCode: "contract_test", MaxAgents: 100000, MaxDomains: 100000,
+		MaxMessagesMonth: 100000, MaxStorageBytes: 1 << 40,
+	}, time.Minute)
+	subscriberStore := webhook.NewSubscriberStore(pool)
+	idempotencyStore := idempotency.NewStore(pool)
+
 	router := mux.NewRouter()
 	api := agent.NewAPI(store, sender, smtpRelay, nil, noopUsage, "e2a.dev", "test.e2a.dev", "agents.e2a.dev", "", false)
-	api.SetIdempotencyStore(idempotency.NewStore(pool))
+	api.SetIdempotencyStore(idempotencyStore)
+	api.SetEnforcer(enforcer)
+	api.SetUsageStore(usageStore)
+	api.SetSubscriberStore(subscriberStore)
 	api.RegisterRoutes(router)
 
 	wsHub := ws.NewHub()
 	wsHandler := ws.NewHandler(wsHub, store)
 	api.RegisterWSRoute(router, wsHandler.Handle)
+
+	// Wrap the legacy mux with the typed /v1 surface using the SAME builder
+	// the production binary uses, so contract scenarios hit the real /v1
+	// handler (and a dep prod wires but the harness forgets fails loudly here).
+	v1 := apiserver.New(apiserver.Params{
+		API: api, Store: store, Enforcer: enforcer, UsageStore: usageStore,
+		SubscriberStore: subscriberStore, Idempotency: idempotencyStore, Pool: pool,
+		SMTPDomain: "test.e2a.dev", SharedDomain: "agents.e2a.dev",
+		PublicURL: "http://127.0.0.1", Production: false,
+		Legacy: router, WSHandle: wsHandler.ServeWithEmail,
+	})
 
 	httpLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -66,7 +93,7 @@ func StartContractServer(ctx context.Context, dbURL string) (*ContractServer, er
 	}
 
 	httpServer := &http.Server{
-		Handler:           router,
+		Handler:           v1,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

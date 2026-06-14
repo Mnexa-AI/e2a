@@ -13,13 +13,13 @@ import (
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/agent"
+	"github.com/Mnexa-AI/e2a/internal/apiserver"
 	"github.com/Mnexa-AI/e2a/internal/approvaltoken"
 	"github.com/Mnexa-AI/e2a/internal/auth"
 	"github.com/Mnexa-AI/e2a/internal/config"
 	"github.com/Mnexa-AI/e2a/internal/headers"
 	"github.com/Mnexa-AI/e2a/internal/hitlnotify"
 	"github.com/Mnexa-AI/e2a/internal/hitlworker"
-	"github.com/Mnexa-AI/e2a/internal/httpapi"
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/limits"
@@ -292,93 +292,20 @@ func main() {
 	// legacy gorilla/mux handlers for every route not yet ported (the
 	// strangler). Legacy `/api/v1` routes are deleted as each resource lands
 	// on Huma, within this same PR. The chi root is the process HTTP handler.
-	v1 := httpapi.New(httpapi.Deps{
-		Authenticator: api.AuthenticateUser,
-		ListAgents:    store.ListAgentsByUser,
-		GetAgent:      store.GetAgentByEmail,
-		GetMessage:    store.GetMessageWithContent,
-		ListMessages:  store.GetMessagesByAgent,
-
-		ListConversations: store.ListConversationsByAgent,
-		GetConversation:   store.GetConversationByID,
-
-		CreateAgent:        store.CreateAgent,
-		LookupDomain:       store.LookupDomain,
-		EnforceAgentCreate: enforcer.CheckAgentCreate,
-		UpdateAgentMode:    store.UpdateAgentMode,
-		UpdateAgentWebhook: store.UpdateAgentWebhook,
-		UpdateAgentHITL:    store.UpdateAgentHITL,
-		DeleteAgent:        store.DeleteAgent,
-
-		ListDomains:         store.ListDomainsByUser,
-		ClaimDomain:         store.ClaimOrCreateDomain,
-		EnforceDomainCreate: enforcer.CheckDomainCreate,
-		SetDomainPrimary:    store.SetDomainPrimary,
-		DeleteDomain:        store.DeleteDomain,
-		HasAgentsOnDomain:   store.HasAgentsOnDomain,
-		SMTPDomain:          cfg.SMTP.Domain,
-		Idempotency:         idempotencyStore,
-		DeliverOutbound:     api.DeliverOutbound,
-		SendTest:            api.SendTestCore,
-		ApprovePending:      api.ApprovePendingCore,
-		SendLimit:           api.SendLimitAllow,
-		PollLimit:           api.PollLimitAllow,
-		RegLimit:            api.RegLimitAllow,
-		RejectPending:       api.RejectPendingCore,
-		EnforceMessageSend:  enforcer.CheckMessageSend,
-		GetInboundMessage:   store.GetInboundMessage,
-		GetLimits:           enforcer.Get,
-		ExportUserData:      api.ExportUserDataCore,
-		DeleteUserData:      api.DeleteUserDataCore,
-		GetUsage: func(ctx context.Context, userID string) httpapi.LimitsUsageView {
-			var u httpapi.LimitsUsageView
-			if n, err := usageStore.CountAgentsByUser(ctx, userID); err == nil {
-				u.Agents = n
-			}
-			if n, err := usageStore.CountDomainsByUser(ctx, userID); err == nil {
-				u.Domains = n
-			}
-			if n, err := usageStore.MessagesThisMonth(ctx, userID); err == nil {
-				u.MessagesMonth = n
-			}
-			if n, err := usageStore.GetStorageBytes(ctx, userID); err == nil {
-				u.StorageBytes = n
-			}
-			return u
-		},
-
-		ListEvents: func(ctx context.Context, q httpapi.EventQuery) ([]agent.EventJSON, error) {
-			return agent.ListEventsForUser(ctx, pool, q.UserID, q.Type, q.AgentID, q.ConversationID, q.MessageID, q.Since, q.Until, q.CursorCreatedAt, q.CursorID, q.Limit)
-		},
-		GetEvent2: func(ctx context.Context, userID, eventID string) (*agent.EventJSON, error) {
-			return agent.GetEventForUser(ctx, pool, userID, eventID)
-		},
-		LoadReplayEvent: func(ctx context.Context, userID, eventID string) (*agent.ReplayEvent, error) {
-			return agent.LoadReplayEvent(ctx, pool, userID, eventID)
-		},
-		InsertReplayDelivery: func(ctx context.Context, eventID, webhookID, eventType string, messageID *string, envelope []byte) (string, error) {
-			return agent.InsertReplayDelivery(ctx, pool, eventID, webhookID, eventType, messageID, envelope)
-		},
-
-		CreateWebhook:     store.CreateWebhook,
-		ListWebhooks:      store.ListWebhooksByUser,
-		GetWebhook:        store.GetWebhookByID,
-		UpdateWebhook:     store.UpdateWebhook,
-		DeleteWebhook:     store.DeleteWebhook,
-		RotateSecret:      store.RotateSecret,
-		TestWebhookInsert: subscriberStore.InsertPendingForTest,
-		ListDeliveries:    subscriberStore.ListDeliveriesByWebhook,
-
-		TouchDomainChecked: store.TouchDomainLastChecked,
-		VerifyDomain:       store.VerifyDomain,
-		VerifyProbe: func(domain, token, dkimSel, dkimKey string) httpapi.DomainCheckResult {
-			c := agent.CheckDomainRecords(domain, cfg.SMTP.Domain, token, dkimSel, dkimKey, cfg.IsProduction())
-			return httpapi.DomainCheckResult{TXTFound: c.TXTFound, MX: c.MX, SPF: c.SPF, DKIM: c.DKIM}
-		},
-
-		SharedDomain: cfg.SharedDomain,
-		PublicURL:    cfg.HTTP.PublicURL,
-		Legacy:       router,
+	v1 := apiserver.New(apiserver.Params{
+		API:             api,
+		Store:           store,
+		Enforcer:        enforcer,
+		UsageStore:      usageStore,
+		SubscriberStore: subscriberStore,
+		Idempotency:     idempotencyStore,
+		Pool:            pool,
+		SMTPDomain:      cfg.SMTP.Domain,
+		SharedDomain:    cfg.SharedDomain,
+		PublicURL:       cfg.HTTP.PublicURL,
+		Production:      cfg.IsProduction(),
+		Legacy:          router,
+		WSHandle:        wsHandler.ServeWithEmail,
 	})
 
 	httpServer := &http.Server{

@@ -1,4 +1,4 @@
-// Package contract contains behavioral contract tests for the public /api/v1 API.
+// Package contract contains behavioral contract tests for the public /v1 API.
 //
 // These tests verify that the Go API server behaves as documented: correct
 // response shapes, read-state transitions, auth enforcement, domain verification
@@ -106,25 +106,24 @@ type testEnv struct {
 
 func setupEnv(t *testing.T) *testEnv {
 	t.Helper()
-	pool := testutil.TestDB(t)
-	ts := testutil.TestServer(t, pool)
-
 	ctx := context.Background()
-	user, err := ts.Store.CreateOrGetUser(ctx, "contract@test.dev", "Contract Tester", "google-contract")
+
+	// Use the /v1-wrapped contract harness (chi root owning /v1 with the
+	// legacy mux as fallback) so scenarios exercise the real typed /v1
+	// surface — the same handler the production binary serves. It owns its
+	// own DB pool + user + API key; Close truncates and tears everything down.
+	cs, err := testutil.StartContractServer(ctx, testutil.TestDBURL())
 	if err != nil {
-		t.Fatalf("create user: %v", err)
+		t.Skipf("contract server not available: %v", err)
 	}
-	key, err := ts.Store.CreateAPIKey(ctx, user.ID, "contract-key", nil)
-	if err != nil {
-		t.Fatalf("create api key: %v", err)
-	}
+	t.Cleanup(func() { _ = cs.Close(context.Background()) })
 
 	return &testEnv{
-		baseURL: ts.HTTPServer.URL,
-		store:   ts.Store,
-		wsHub:   ts.WSHub,
-		apiKey:  key.PlaintextKey,
-		userID:  user.ID,
+		baseURL: cs.BaseURL,
+		store:   cs.Store,
+		wsHub:   cs.WSHub,
+		apiKey:  cs.APIKey,
+		userID:  cs.UserID,
 	}
 }
 
@@ -275,7 +274,7 @@ func (r *runner) setupRegisterAgent(t *testing.T, a *agentSetup) {
 		"email":      email,
 		"agent_mode": agentMode,
 	})
-	req, _ := http.NewRequest("POST", r.env.baseURL+"/api/v1/agents", bytes.NewReader(body))
+	req, _ := http.NewRequest("POST", r.env.baseURL+"/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+r.env.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
@@ -418,7 +417,7 @@ func (r *runner) execWSConnect(t *testing.T, s *step) {
 
 	path := r.resolve(s.Path)
 
-	// Extract agent email from WS path (e.g., /api/v1/agents/bot@ws.test.dev/ws)
+	// Extract agent email from WS path (e.g., /v1/agents/bot@ws.test.dev/ws)
 	agentEmail := extractEmailFromWSPath(path)
 	ag, err := r.env.store.GetAgentByEmail(context.Background(), agentEmail)
 	if err != nil {
@@ -585,9 +584,9 @@ func valuesEqual(jsonVal, yamlVal interface{}) bool {
 }
 
 // extractEmailFromWSPath extracts the agent email from a WS path like
-// /api/v1/agents/bot@ws.test.dev/ws
+// /v1/agents/bot@ws.test.dev/ws
 func extractEmailFromWSPath(path string) string {
-	// Path format: /api/v1/agents/{email}/ws or /api/agents/{email}/ws
+	// Path format: /v1/agents/{email}/ws (legacy /api/v1/... also parses).
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	for i, p := range parts {
 		if p == "agents" && i+1 < len(parts) {

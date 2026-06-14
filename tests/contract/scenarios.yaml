@@ -1,4 +1,11 @@
-# Shared behavioral contract scenarios for the /api/v1 public API.
+# Shared behavioral contract scenarios for the /v1 public API.
+#
+# The typed Huma /v1 surface (internal/httpapi) is the source of truth. A few
+# endpoints have not been ported off the legacy gorilla/mux surface yet and
+# are still served at /api/v1 via the chi root's legacy fallback; those are
+# called out inline where they appear (account-wide HITL queue at
+# /api/v1/pending, flat outbound detail at /api/v1/messages/{id}, signing
+# secrets under /api/v1/users/me/signing-secrets).
 #
 # Each scenario is a sequence of steps executed against a live test server.
 # The Go runner (contract_test.go) consumes this file directly. TypeScript
@@ -36,7 +43,7 @@ scenarios:
       - id: register
         action: request
         method: POST
-        path: /api/v1/agents
+        path: /v1/agents
         body:
           email: bot@crud.test.dev
           agent_mode: local
@@ -51,7 +58,7 @@ scenarios:
       - id: list
         action: request
         method: GET
-        path: /api/v1/agents
+        path: /v1/agents
         expect:
           status: 200
           body_contains:
@@ -63,7 +70,7 @@ scenarios:
       - id: get
         action: request
         method: GET
-        path: /api/v1/agents/bot@crud.test.dev
+        path: /v1/agents/bot@crud.test.dev
         expect:
           status: 200
           body_contains:
@@ -77,14 +84,16 @@ scenarios:
       - id: delete
         action: request
         method: DELETE
-        path: /api/v1/agents/bot@crud.test.dev
+        path: /v1/agents/bot@crud.test.dev
+        # /v1 deleteAgent returns 200 with {"status":"deleted"} (non-empty
+        # body, so Huma's default success status is 200, not 204).
         expect:
           status: 200
 
       - id: list_after_delete
         action: request
         method: GET
-        path: /api/v1/agents
+        path: /v1/agents
         expect:
           status: 200
           body_match:
@@ -96,7 +105,7 @@ scenarios:
       - id: register
         action: request
         method: POST
-        path: /api/v1/domains
+        path: /v1/domains
         body:
           domain: domain-crud.test.dev
         expect:
@@ -116,7 +125,7 @@ scenarios:
       - id: list
         action: request
         method: GET
-        path: /api/v1/domains
+        path: /v1/domains
         expect:
           status: 200
           body_match:
@@ -125,7 +134,10 @@ scenarios:
       - id: verify
         action: request
         method: POST
-        path: /api/v1/domains/domain-crud.test.dev/verify
+        path: /v1/domains/domain-crud.test.dev/verify
+        # In the dev/test harness (Production=false) the DNS probe short-
+        # circuits TXTFound=true, so /v1 marks the domain verified and
+        # returns 200 + verified=true.
         expect:
           status: 200
           body_match:
@@ -134,7 +146,8 @@ scenarios:
       - id: delete
         action: request
         method: DELETE
-        path: /api/v1/domains/domain-crud.test.dev
+        path: /v1/domains/domain-crud.test.dev
+        # /v1 deleteDomain declares DefaultStatus 204 (empty body).
         expect:
           status: 204
 
@@ -154,17 +167,19 @@ scenarios:
       - id: list_unread
         action: request
         method: GET
-        path: /api/v1/agents/{agent_email}/messages?status=unread
+        path: /v1/agents/{agent_email}/messages?status=unread
+        # /v1 listMessages returns the standardized cursor page
+        # {"items":[...],"next_cursor":...} (not the legacy {"messages":[...]}).
         expect:
           status: 200
           body_match:
-            "messages.length": 1
-            "messages[0].status": unread
+            "items.length": 1
+            "items[0].status": unread
 
       - id: get_detail
         action: request
         method: GET
-        path: /api/v1/agents/{agent_email}/messages/{injected_message_id}
+        path: /v1/agents/{agent_email}/messages/{injected_message_id}
         expect:
           status: 200
           body_contains:
@@ -175,21 +190,21 @@ scenarios:
       - id: list_unread_after
         action: request
         method: GET
-        path: /api/v1/agents/{agent_email}/messages?status=unread
+        path: /v1/agents/{agent_email}/messages?status=unread
         expect:
           status: 200
           body_match:
-            "messages.length": 0
+            "items.length": 0
 
       - id: list_read
         action: request
         method: GET
-        path: /api/v1/agents/{agent_email}/messages?status=read
+        path: /v1/agents/{agent_email}/messages?status=read
         expect:
           status: 200
           body_match:
-            "messages.length": 1
-            "messages[0].status": read
+            "items.length": 1
+            "items[0].status": read
 
   - name: placeholder_resolution
     description: Placeholders resolve in request bodies and expected values
@@ -203,7 +218,7 @@ scenarios:
       - id: duplicate_register_with_placeholder
         action: request
         method: POST
-        path: /api/v1/agents
+        path: /v1/agents
         body:
           email: "{agent_email}"
           agent_mode: local
@@ -213,7 +228,7 @@ scenarios:
       - id: list_agents_matches_placeholder
         action: request
         method: GET
-        path: /api/v1/agents
+        path: /v1/agents
         expect:
           status: 200
           body_match:
@@ -226,32 +241,42 @@ scenarios:
       - id: no_auth_list_agents
         action: request
         method: GET
-        path: /api/v1/agents
+        path: /v1/agents
+        # /v1 errors use the envelope {"error":{"code","message","request_id"}};
+        # an unauthenticated call carries code=unauthorized.
         expect:
           status: 401
+          body_match:
+            "error.code": unauthorized
 
       - id: no_auth_create_agent
         action: request
         method: POST
-        path: /api/v1/agents
+        path: /v1/agents
         body: {}
         expect:
           status: 401
+          body_match:
+            "error.code": unauthorized
 
       - id: no_auth_list_domains
         action: request
         method: GET
-        path: /api/v1/domains
+        path: /v1/domains
         expect:
           status: 401
+          body_match:
+            "error.code": unauthorized
 
       - id: no_auth_send
         action: request
         method: POST
-        path: /api/v1/send
+        path: /v1/send
         body: {}
         expect:
           status: 401
+          body_match:
+            "error.code": unauthorized
 
   - name: auth_rejection_invalid_key
     description: Invalid API key gets 401 across all endpoints
@@ -260,32 +285,40 @@ scenarios:
       - id: invalid_key_list_agents
         action: request
         method: GET
-        path: /api/v1/agents
+        path: /v1/agents
         expect:
           status: 401
+          body_match:
+            "error.code": unauthorized
 
       - id: invalid_key_create_agent
         action: request
         method: POST
-        path: /api/v1/agents
+        path: /v1/agents
         body: {}
         expect:
           status: 401
+          body_match:
+            "error.code": unauthorized
 
       - id: invalid_key_list_domains
         action: request
         method: GET
-        path: /api/v1/domains
+        path: /v1/domains
         expect:
           status: 401
+          body_match:
+            "error.code": unauthorized
 
       - id: invalid_key_send
         action: request
         method: POST
-        path: /api/v1/send
+        path: /v1/send
         body: {}
         expect:
           status: 401
+          body_match:
+            "error.code": unauthorized
 
   - name: domain_verification_enforced
     description: Agent registration blocked on unverified domain
@@ -295,18 +328,22 @@ scenarios:
       - id: register_on_unverified
         action: request
         method: POST
-        path: /api/v1/agents
+        path: /v1/agents
         body:
           email: bot@unverified.test.dev
           agent_mode: local
+        # /v1 createAgent rejects an unverified (but claimed) domain with a
+        # 400 envelope carrying code=domain_not_verified.
         expect:
           status: 400
+          body_match:
+            "error.code": domain_not_verified
 
       - id: verify_then_register
         action: verify_and_retry
         verify_domain: unverified.test.dev
         method: POST
-        path: /api/v1/agents
+        path: /v1/agents
         body:
           email: bot@unverified.test.dev
           agent_mode: local
@@ -327,7 +364,7 @@ scenarios:
     steps:
       - id: connect
         action: ws_connect
-        path: /api/v1/agents/{agent_email}/ws
+        path: /v1/agents/{agent_email}/ws
 
       - id: inject
         action: inject_message
@@ -337,7 +374,7 @@ scenarios:
 
       - id: reconnect
         action: ws_reconnect
-        path: /api/v1/agents/{agent_email}/ws
+        path: /v1/agents/{agent_email}/ws
 
       - id: read_notification
         action: ws_read
@@ -382,9 +419,10 @@ scenarios:
           agent_mode: local
     steps:
       - id: enable_hitl
+        # /v1 agent updates use PATCH (the legacy PUT was dropped).
         action: request
-        method: PUT
-        path: /api/v1/agents/{agent_email}
+        method: PATCH
+        path: /v1/agents/{agent_email}
         body:
           hitl_enabled: true
         expect:
@@ -395,7 +433,7 @@ scenarios:
       - id: send_held
         action: request
         method: POST
-        path: /api/v1/send
+        path: /v1/send
         body:
           from: "{agent_email}"
           to:
@@ -412,9 +450,13 @@ scenarios:
             status: pending_approval
 
       - id: list_pending
+        # The account-wide HITL queue is NOT yet ported to /v1; it is still
+        # served by the legacy fallback at /api/v1/pending and returns the
+        # legacy {"messages":[...]} envelope (items keyed by `id`, with
+        # `direction`/`status`/`subject`).
         action: request
         method: GET
-        path: /api/v1/messages?status=pending_approval
+        path: /api/v1/pending?status=pending_approval
         expect:
           status: 200
           body_match:
@@ -437,8 +479,8 @@ scenarios:
     steps:
       - id: enable_hitl
         action: request
-        method: PUT
-        path: /api/v1/agents/{agent_email}
+        method: PATCH
+        path: /v1/agents/{agent_email}
         body:
           hitl_enabled: true
         expect:
@@ -447,7 +489,7 @@ scenarios:
       - id: send_held
         action: request
         method: POST
-        path: /api/v1/send
+        path: /v1/send
         body:
           from: "{agent_email}"
           to:
@@ -462,9 +504,12 @@ scenarios:
           held_id: message_id
 
       - id: reject
+        # The flat /api/v1/messages/{id}/reject route was dropped; reject is
+        # now the per-agent /v1 operation. RejectResultView surfaces
+        # {status, message_id, rejection_reason}.
         action: request
         method: POST
-        path: /api/v1/messages/{held_id}/reject
+        path: /v1/agents/{agent_email}/messages/{held_id}/reject
         body:
           reason: off-topic for this audience
         expect:
@@ -474,6 +519,9 @@ scenarios:
             rejection_reason: off-topic for this audience
 
       - id: detail_round_trip
+        # Flat outbound-message detail is NOT yet ported to /v1; still served
+        # by the legacy fallback at /api/v1/messages/{id}. Confirms the
+        # rejection reason persisted (the chunked-body regression guard).
         action: request
         method: GET
         path: /api/v1/messages/{held_id}
@@ -503,8 +551,8 @@ scenarios:
     steps:
       - id: enable_hitl
         action: request
-        method: PUT
-        path: /api/v1/agents/{agent_email}
+        method: PATCH
+        path: /v1/agents/{agent_email}
         body:
           hitl_enabled: true
         expect:
@@ -513,7 +561,7 @@ scenarios:
       - id: outbound_held
         action: request
         method: POST
-        path: /api/v1/send
+        path: /v1/send
         body:
           from: "{agent_email}"
           to:
@@ -524,20 +572,23 @@ scenarios:
           status: 202
 
       - id: list_mixed
+        # /v1 listMessages: cursor page envelope ({"items":[...]}), page-size
+        # param is `limit` (not legacy `page_size`). MessageSummaryView keeps
+        # the per-row `direction`; outbound rows carry `hitl_status`.
         action: request
         method: GET
-        path: /api/v1/agents/{agent_email}/messages?direction=all&page_size=10
+        path: /v1/agents/{agent_email}/messages?direction=all&limit=10
         expect:
           status: 200
           body_contains:
-            - messages
+            - items
           # Two rows — the order is most-recent-first so the outbound
           # held row lands at index 0.
           body_match:
-            "messages.length": 2
-            "messages[0].direction": outbound
-            "messages[0].hitl_status": pending_approval
-            "messages[1].direction": inbound
+            "items.length": 2
+            "items[0].direction": outbound
+            "items[0].hitl_status": pending_approval
+            "items[1].direction": inbound
 
   - name: signing_secrets_crud_cap
     description: >
@@ -621,15 +672,15 @@ scenarios:
 
   - name: info_unauthenticated_shape
     description: >
-      GET /api/v1/info is the deployment-discovery endpoint — works
+      GET /v1/info is the deployment-discovery endpoint — works
       without auth and surfaces shared_domain / slug_registration_enabled
-      / public_url. Catches drift in the DeploymentInfo struct.
+      / public_url. Catches drift in the DeploymentInfoView struct.
     auth_override: none
     steps:
       - id: info
         action: request
         method: GET
-        path: /api/v1/info
+        path: /v1/info
         expect:
           status: 200
           body_contains:
@@ -638,10 +689,11 @@ scenarios:
 
   - name: pending_messages_status_filter_strict
     description: >
-      /api/v1/messages only accepts status=pending_approval. Any other
-      status value (or "all") returns 400. Pins the documented
-      behavior so the docs/api.md "filterable by status" claim is
-      either fixed or the handler is broadened.
+      The account-wide HITL queue (legacy fallback at /api/v1/pending,
+      not yet ported to /v1) only accepts status=pending_approval. Any
+      other status value (or "all") returns 400. Pins the documented
+      behavior so the "filterable by status" claim is either fixed or the
+      handler is broadened.
     setup:
       - register_domain: pstatus.test.dev
       - verify_domain: pstatus.test.dev
@@ -649,28 +701,28 @@ scenarios:
       - id: default_is_pending
         action: request
         method: GET
-        path: /api/v1/messages
+        path: /api/v1/pending
         expect:
           status: 200
 
       - id: explicit_pending_ok
         action: request
         method: GET
-        path: /api/v1/messages?status=pending_approval
+        path: /api/v1/pending?status=pending_approval
         expect:
           status: 200
 
       - id: sent_filter_rejected
         action: request
         method: GET
-        path: /api/v1/messages?status=sent
+        path: /api/v1/pending?status=sent
         expect:
           status: 400
 
       - id: all_filter_rejected
         action: request
         method: GET
-        path: /api/v1/messages?status=all
+        path: /api/v1/pending?status=all
         expect:
           status: 400
 
@@ -686,13 +738,13 @@ scenarios:
       - id: no_token
         action: request
         method: GET
-        path: /api/v1/agents/bot@wsauth.test.dev/ws
+        path: /v1/agents/bot@wsauth.test.dev/ws
         expect:
           status: 401
 
       - id: invalid_token
         action: request
         method: GET
-        path: /api/v1/agents/bot@wsauth.test.dev/ws?token=invalid_key_12345
+        path: /v1/agents/bot@wsauth.test.dev/ws?token=invalid_key_12345
         expect:
           status: 401
