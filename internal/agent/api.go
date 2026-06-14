@@ -1793,6 +1793,84 @@ func (a *API) holdForApproval(w http.ResponseWriter, r *http.Request, agent *ide
 	})
 }
 
+// OutboundResult is the HTTP-free outcome of DeliverOutbound.
+type OutboundResult struct {
+	Held              bool
+	PendingMessageID  string
+	ApprovalExpiresAt *time.Time
+	MessageID         string // provider/loopback id when sent
+	Method            string // "smtp" | "loopback"
+}
+
+// OutboundError carries an HTTP status + message so both the legacy handler
+// (http.Error) and the v1 httpapi layer (error envelope) render it
+// consistently. Code is the machine-branchable code the v1 layer uses.
+type OutboundError struct {
+	Status int
+	Code   string
+	Msg    string
+}
+
+func (e *OutboundError) Error() string { return e.Msg }
+
+// DeliverOutbound is the shared send/reply/forward delivery tail, HTTP-free:
+// HITL hold (HoldForApprovalCore), else self-send loopback, else SES send +
+// record outbound + publish sent event. The caller has already authed,
+// resolved + ownership-checked the agent, rate-limited, domain-verified, run
+// the message-send cap, and built the SendRequest with its final Subject /
+// ConversationID. Both the legacy handlers and the v1 layer call this so the
+// live delivery path exists exactly once (api-v1-redesign — outbound
+// extraction). On a nil-error return the side effect has committed, so the
+// idempotency key must be Completed (cached), never Released.
+func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string) (*OutboundResult, *OutboundError) {
+	if agent.HITLEnabled {
+		msg, err := a.HoldForApprovalCore(ctx, agent, req, msgType, replyToEmailMessageID)
+		if err != nil {
+			if errors.Is(err, errHoldAttachments) {
+				return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to serialize attachments"}
+			}
+			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to hold message for approval"}
+		}
+		return &OutboundResult{Held: true, PendingMessageID: msg.ID, ApprovalExpiresAt: msg.ApprovalExpiresAt}, nil
+	}
+
+	// Record usage (side-effect only — never block on quota; the cap
+	// pre-check is the gate).
+	if _, err := a.usage.RecordAndCheck(ctx, user.ID, agent.ID, agent.Domain, "outbound"); err != nil {
+		log.Printf("[api] usage recording error: %v", err)
+	}
+
+	if isSelfSend(req, agent.EmailAddress()) {
+		providerID, err := a.performSelfSend(ctx, agent, req, msgType)
+		if err != nil {
+			log.Printf("[api] self-send failed: agent=%s error=%v", agent.EmailAddress(), err)
+			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "self-send failed"}
+		}
+		slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
+		log.Printf("[mail] dir=outbound type=%s method=loopback from=%s to=%s slug=%s conv_id=%s subject=%q provider_id=%s", msgType, agent.EmailAddress(), agent.EmailAddress(), slug, req.ConversationID, req.Subject, providerID)
+		return &OutboundResult{MessageID: providerID, Method: "loopback"}, nil
+	}
+
+	result, err := a.sender.Send(agent, req)
+	if err != nil {
+		if outbound.IsValidationError(err) {
+			return nil, &OutboundError{http.StatusBadRequest, "invalid_request", err.Error()}
+		}
+		log.Printf("[api] send failed: agent=%s to=%v error=%v", agent.Domain, req.To, err)
+		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", fmt.Sprintf("send failed: %v", err)}
+	}
+	outMsg, err := a.store.CreateOutboundMessage(ctx, agent.ID, result.To, result.CC, result.BCC, req.Subject, msgType, result.Method, result.MessageID, req.ConversationID)
+	if err != nil {
+		log.Printf("[api] failed to record outbound message: %v", err)
+	}
+	slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
+	if outMsg != nil {
+		log.Printf("[mail:%s] dir=outbound type=%s from=%s to=%v slug=%s conv_id=%s subject=%q", outMsg.ID, msgType, agent.EmailAddress(), result.To, slug, req.ConversationID, req.Subject)
+	}
+	a.publishSent(ctx, a.buildSentEvent(agent, outMsg, result, req, msgType), outMsg)
+	return &OutboundResult{MessageID: result.MessageID, Method: result.Method}, nil
+}
+
 // --- Send Email ---
 
 // handleSendEmail sends a new email from the authenticated user's agent.
@@ -1918,81 +1996,26 @@ func (a *API) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	selfSend := isSelfSend(req, agent.EmailAddress())
-
-	// HITL applies to self-sends too — the gate is "did a human
-	// review this outbound message" regardless of recipient. The
-	// approval-finalize path (see hitl_api.go / hitl_magic_api.go)
-	// detects the self-send shape on the held message and routes
-	// the delivery through the loopback short-circuit instead of
-	// outbound.Sender, which would otherwise strip the agent's own
-	// address from the recipient list and error.
-	if agent.HITLEnabled {
-		a.holdForApproval(w, r, agent, req, "send", "")
+	// Deliver via the shared HTTP-free core (HITL hold / self-send / SES).
+	result, derr := a.DeliverOutbound(r.Context(), user, agent, req, "send", "")
+	if derr != nil {
+		http.Error(w, derr.Msg, derr.Status)
 		return
 	}
-
-	// Record usage (side-effect only — never block on quota; the
-	// pre-check above is the gate. RecordAndCheck stays "record" because
-	// it also fires from background workers (hitlworker, magic-link
-	// approval) where a pre-check has already happened upstream.)
-	if _, err := a.usage.RecordAndCheck(r.Context(), user.ID, agent.ID, agent.Domain, "outbound"); err != nil {
-		log.Printf("[api] usage recording error: %v", err)
-	}
-
-	if selfSend {
-		providerID, err := a.performSelfSend(r.Context(), agent, req, "send")
-		if err != nil {
-			log.Printf("[api] self-send failed: agent=%s error=%v", agent.EmailAddress(), err)
-			http.Error(w, "self-send failed", http.StatusInternalServerError)
-			return
-		}
-		// Loopback row writes are irreversible from the caller's
-		// perspective (the inbox row is now visible). Lock the
-		// idempotency key in so a late 5xx from logging / response
-		// flushing doesn't release it and let a retry double-write.
-		markSideEffectCommitted(w)
-		slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
-		log.Printf("[mail] dir=outbound type=send method=loopback from=%s to=%s slug=%s conv_id=%s subject=%q provider_id=%s", agent.EmailAddress(), agent.EmailAddress(), slug, req.ConversationID, req.Subject, providerID)
+	if result.Held {
 		w.Header().Set("Content-Type", "application/json")
-		writeJSON(w, map[string]string{
-			"status":     "sent",
-			"message_id": providerID,
-			"method":     "loopback",
+		w.WriteHeader(http.StatusAccepted)
+		writeJSON(w, map[string]interface{}{
+			"status":              "pending_approval",
+			"message_id":          result.PendingMessageID,
+			"approval_expires_at": result.ApprovalExpiresAt,
 		})
 		return
 	}
-
-	result, err := a.sender.Send(agent, req)
-	if err != nil {
-		if outbound.IsValidationError(err) {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		log.Printf("[api] send failed: agent=%s to=%v error=%v", agent.Domain, req.To, err)
-		http.Error(w, fmt.Sprintf("send failed: %v", err), http.StatusInternalServerError)
-		return
-	}
-	// Upstream send accepted — past this point, any handler-side
-	// failure must NOT release the idempotency key (retrying would
-	// double-send to SES). markSideEffectCommitted flips finalize's
-	// policy to "cache the response no matter what status code we
-	// end up writing".
+	// Side effect committed (loopback row / SES handoff) — lock the
+	// idempotency key so a late 5xx can't release it and let a retry
+	// double-write.
 	markSideEffectCommitted(w)
-
-	// Record outbound message with canonicalized recipients from result
-	outMsg, err := a.store.CreateOutboundMessage(r.Context(), agent.ID, result.To, result.CC, result.BCC, req.Subject, "send", result.Method, result.MessageID, req.ConversationID)
-	if err != nil {
-		log.Printf("[api] failed to record outbound message: %v", err)
-	}
-
-	slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
-	if outMsg != nil {
-		log.Printf("[mail:%s] dir=outbound type=send from=%s to=%v slug=%s conv_id=%s subject=%q", outMsg.ID, agent.EmailAddress(), result.To, slug, req.ConversationID, req.Subject)
-	}
-
-	a.publishSent(r.Context(), a.buildSentEvent(agent, outMsg, result, req, "send"), outMsg)
-
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, map[string]string{
 		"status":     "sent",
