@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/agent"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/limits"
 )
@@ -162,6 +163,38 @@ func testServer(t *testing.T) *httptest.Server {
 		DeleteDomain:      func(ctx context.Context, domain, userID string) error { return nil },
 		HasAgentsOnDomain: func(ctx context.Context, domain, userID string) (bool, error) { return domain == "busy.com", nil },
 		SMTPDomain:        "mx.e2a.dev",
+		ListEvents: func(ctx context.Context, q EventQuery) ([]agent.EventJSON, error) {
+			// Two events, honoring Limit + cursor (CursorID) so the
+			// cursor round-trip is exercised.
+			all := []agent.EventJSON{
+				{ID: "evt_b", Type: "email.received", Status: "delivered", CreatedAt: time.Unix(1700000200, 0).UTC()},
+				{ID: "evt_a", Type: "email.sent", Status: "delivered", CreatedAt: time.Unix(1700000100, 0).UTC()},
+			}
+			start := 0
+			if q.CursorID != "" {
+				for i, e := range all {
+					if e.ID == q.CursorID {
+						start = i + 1
+						break
+					}
+				}
+			}
+			rest := all[start:]
+			if q.Limit > 0 && len(rest) > q.Limit {
+				rest = rest[:q.Limit]
+			}
+			return rest, nil
+		},
+		GetEvent2: func(ctx context.Context, userID, eventID string) (*agent.EventJSON, error) {
+			switch eventID {
+			case "evt_a":
+				return &agent.EventJSON{ID: "evt_a", Type: "email.sent", Status: "delivered", CreatedAt: time.Unix(1700000100, 0).UTC()}, nil
+			case "evt_expired":
+				return nil, agent.ErrEventExpired
+			default:
+				return nil, agent.ErrEventNotFound
+			}
+		},
 		CreateWebhook: func(ctx context.Context, userID, url, description string, events []string, filters identity.WebhookFilters) (*identity.Webhook, error) {
 			if strings.Contains(url, "capped") {
 				return nil, identity.ErrWebhookCapReached

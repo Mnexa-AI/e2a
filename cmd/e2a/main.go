@@ -317,12 +317,19 @@ func main() {
 		DeleteDomain:        store.DeleteDomain,
 		HasAgentsOnDomain:   store.HasAgentsOnDomain,
 		SMTPDomain:          cfg.SMTP.Domain,
-		CreateWebhook:       store.CreateWebhook,
-		ListWebhooks:        store.ListWebhooksByUser,
-		GetWebhook:          store.GetWebhookByID,
-		UpdateWebhook:       store.UpdateWebhook,
-		DeleteWebhook:       store.DeleteWebhook,
-		RotateSecret:        store.RotateSecret,
+		ListEvents: func(ctx context.Context, q httpapi.EventQuery) ([]agent.EventJSON, error) {
+			return agent.ListEventsForUser(ctx, pool, q.UserID, q.Type, q.AgentID, q.ConversationID, q.MessageID, q.Since, q.Until, q.CursorCreatedAt, q.CursorID, q.Limit)
+		},
+		GetEvent2: func(ctx context.Context, userID, eventID string) (*agent.EventJSON, error) {
+			return agent.GetEventForUser(ctx, pool, userID, eventID)
+		},
+
+		CreateWebhook: store.CreateWebhook,
+		ListWebhooks:  store.ListWebhooksByUser,
+		GetWebhook:    store.GetWebhookByID,
+		UpdateWebhook: store.UpdateWebhook,
+		DeleteWebhook: store.DeleteWebhook,
+		RotateSecret:  store.RotateSecret,
 
 		TouchDomainChecked: store.TouchDomainLastChecked,
 		VerifyDomain:       store.VerifyDomain,

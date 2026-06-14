@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/agent"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
@@ -93,6 +94,11 @@ type Deps struct {
 	// SMTPDomain is the relay's MX host, surfaced in the DNS records a
 	// domain must publish (config smtp.domain).
 	SMTPDomain string
+
+	// events (delivery log). EventQuery carries the filters + cursor
+	// position; the closures bind the events pool in main.
+	ListEvents func(ctx context.Context, q EventQuery) ([]agent.EventJSON, error)
+	GetEvent2  func(ctx context.Context, userID, eventID string) (*agent.EventJSON, error)
 
 	// webhooks
 	CreateWebhook func(ctx context.Context, userID, url, description string, events []string, filters identity.WebhookFilters) (*identity.Webhook, error)
@@ -200,6 +206,7 @@ func (s *Server) registerOperations() {
 	s.registerAgentWrites()
 	s.registerDomains()
 	s.registerWebhooks()
+	s.registerEvents()
 }
 
 // reqCtxKey carries the raw *http.Request through to Huma handlers so they
