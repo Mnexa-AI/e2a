@@ -45,6 +45,10 @@ const (
 	EventEmailBounced           = "email.bounced"
 	EventEmailComplained        = "email.complained"
 	EventDomainSuppressionAdded = "domain.suppression_added"
+	// Inbound trust policy (decision 10 / Slice 7): an inbound message did not
+	// match the agent's ingestion policy (allowlist/domain/verified_only). It is
+	// delivered but flagged — operators get a signal, nothing is dropped.
+	EventEmailFlagged = "email.flagged"
 )
 
 // AllEventTypes is the canonical allowlist of event names. Used by
@@ -62,6 +66,7 @@ var AllEventTypes = []string{
 	EventEmailBounced,
 	EventEmailComplained,
 	EventDomainSuppressionAdded,
+	EventEmailFlagged,
 }
 
 // IsValidEventType reports whether name is one of the catalog

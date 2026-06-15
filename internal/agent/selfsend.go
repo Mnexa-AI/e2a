@@ -92,6 +92,8 @@ func (a *API) performSelfSend(
 		rawMessage,
 		nil,
 		nil,
+		false,
+		"",
 		[]string{email},
 		nil,
 		nil,

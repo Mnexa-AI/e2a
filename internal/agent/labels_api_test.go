@@ -33,7 +33,7 @@ func setupLabelsFixture(t *testing.T, prefix string) labelsFixture {
 	store.VerifyDomain(ctx, domain, user.ID)
 	agentEmail := "bot@" + domain
 	agent, _ := store.CreateAgent(ctx, agentEmail, domain, "", "https://example.com/webhook", "", user.ID)
-	msg, _ := store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", agentEmail, "<orig-"+prefix+"@gmail.com>", "Hi", "", "", nil, nil, nil, nil, nil, nil)
+	msg, _ := store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", agentEmail, "<orig-"+prefix+"@gmail.com>", "Hi", "", "", nil, nil, nil, false, "", nil, nil, nil)
 	return labelsFixture{
 		server:     http.DefaultClient,
 		serverURL:  server.URL,
@@ -160,7 +160,7 @@ func TestUpdateMessageLabels_CrossAgentReturns404(t *testing.T) {
 	store.ClaimOrCreateDomain(ctx, "lblxa.example.com", userA.ID)
 	store.VerifyDomain(ctx, "lblxa.example.com", userA.ID)
 	agentA, _ := store.CreateAgent(ctx, "bot@lblxa.example.com", "lblxa.example.com", "", "https://example.com/webhook", "", userA.ID)
-	msgA, _ := store.CreateInboundMessage(ctx, "", agentA.ID, "alice@gmail.com", "bot@lblxa.example.com", "<x@gmail.com>", "Hi", "", "", nil, nil, nil, nil, nil, nil)
+	msgA, _ := store.CreateInboundMessage(ctx, "", agentA.ID, "alice@gmail.com", "bot@lblxa.example.com", "<x@gmail.com>", "Hi", "", "", nil, nil, nil, false, "", nil, nil, nil)
 
 	userB, _ := store.CreateOrGetUser(ctx, "owner-lblxB@example.com", "OwnerB", "google-lblxB")
 	apiKeyB, _ := store.CreateAPIKey(ctx, userB.ID, "lblxB-key", nil)

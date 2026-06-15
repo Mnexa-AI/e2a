@@ -15,6 +15,7 @@ import (
 
 	"github.com/Mnexa-AI/e2a/internal/dkim"
 	"github.com/Mnexa-AI/e2a/internal/emailauth"
+	"github.com/Mnexa-AI/e2a/internal/inboundpolicy"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -98,6 +99,13 @@ type AgentIdentity struct {
 	// in the last 24h. Defaults to true for agents with no deliveries
 	// yet — avoids painting fresh agents red.
 	WebhookHealthy bool `json:"webhook_healthy"`
+	// InboundPolicy is the per-agent inbound ingestion gate (migration 033 /
+	// Slice 7): one of inboundpolicy.{Open,Allowlist,Domain,VerifiedOnly}.
+	// Defaults to 'open' (the column default). InboundAllowlist holds the
+	// exact addresses (allowlist policy) or domains (domain policy) the gate
+	// trusts; empty for open/verified_only.
+	InboundPolicy    string   `json:"inbound_policy"`
+	InboundAllowlist []string `json:"inbound_allowlist,omitempty"`
 }
 
 // HITL constants mirror the CHECK constraints in migration 003_hitl.sql.
@@ -248,6 +256,13 @@ type Message struct {
 	BodyText        string          `json:"body_text,omitempty"`
 	BodyHTML        string          `json:"body_html,omitempty"`
 	AttachmentsJSON json.RawMessage `json:"attachments,omitempty"`
+
+	// Flagged + FlagReason carry the inbound ingestion verdict (migration 033 /
+	// Slice 7): true when the agent's inbound_policy gate flagged this message
+	// on arrival (still delivered, never dropped). FlagReason is the
+	// human-readable reason. Inbound-relevant; outbound rows read false/''.
+	Flagged    bool   `json:"flagged,omitempty"`
+	FlagReason string `json:"flag_reason,omitempty"`
 }
 
 // Message status values mirror the CHECK constraint in migration 003_hitl.sql.
@@ -713,12 +728,14 @@ func (s *Store) GetAgentByID(ctx context.Context, id string) (*AgentIdentity, er
 	err := s.pool.QueryRow(ctx,
 		`SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at,
 		        a.hitl_enabled, a.hitl_ttl_seconds, a.hitl_expiration_action,
+		        COALESCE(a.inbound_policy, 'open'), a.inbound_allowlist,
 		        d.verified as domain_verified
 		 FROM agent_identities a
 		 JOIN domains d ON a.domain = d.domain
 		 WHERE a.id = $1`, id,
 	).Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt,
 		&a.HITLEnabled, &a.HITLTTLSeconds, &a.HITLExpirationAction,
+		&a.InboundPolicy, &a.InboundAllowlist,
 		&a.DomainVerified)
 	if err != nil {
 		return nil, err
@@ -810,6 +827,32 @@ func (s *Store) UpdateAgentHITL(ctx context.Context, agentID, userID string, ena
 	return nil
 }
 
+// UpdateAgentInboundPolicy sets the inbound ingestion gate (migration 033 /
+// Slice 7) on an agent owned by userID. The policy is validated against
+// inboundpolicy.Valid so callers get a clean error rather than a raw CHECK
+// violation. allowlist may be empty (the gate then flags everything for the
+// gating postures — fail-closed). Returns an error if the agent isn't found
+// or isn't owned by the user.
+func (s *Store) UpdateAgentInboundPolicy(ctx context.Context, agentID, userID, policy string, allowlist []string) error {
+	if !inboundpolicy.Valid(policy) {
+		return fmt.Errorf("invalid inbound_policy %q", policy)
+	}
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE agent_identities
+		    SET inbound_policy = $3,
+		        inbound_allowlist = $4
+		  WHERE id = $1 AND user_id = $2`,
+		agentID, userID, policy, allowlist,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("agent not found or not owned by user")
+	}
+	return nil
+}
+
 // ListAgentsByUser returns all agents owned by the user, joined with
 // domain verification AND enriched with per-agent stats for the
 // dashboard. Five correlated subqueries compute
@@ -821,6 +864,7 @@ func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIde
 	rows, err := s.pool.Query(ctx,
 		`SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at,
 		        a.hitl_enabled, a.hitl_ttl_seconds, a.hitl_expiration_action,
+		        COALESCE(a.inbound_policy, 'open'), a.inbound_allowlist,
 		        d.verified as domain_verified,
 		        (SELECT count(*) FROM messages m
 		           WHERE m.agent_id = a.id AND m.direction = 'inbound'
@@ -856,6 +900,7 @@ func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIde
 		var lastDeliveryAt *time.Time
 		if err := rows.Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt,
 			&a.HITLEnabled, &a.HITLTTLSeconds, &a.HITLExpirationAction,
+			&a.InboundPolicy, &a.InboundAllowlist,
 			&a.DomainVerified,
 			&a.Inbound7d, &a.Outbound7d, &a.PendingCount,
 			&lastDeliveryAt, &a.WebhookHealthy); err != nil {
@@ -915,8 +960,8 @@ func NewMessageID() string {
 // for this row (may be one of the To: addresses, or absent from the
 // header list when the agent was Bcc'd). replyTo is the parsed Reply-To:
 // header (empty when absent — never silently falls back to sender).
-func (s *Store) CreateInboundMessage(ctx context.Context, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus string, rawMessage []byte, authHeaders map[string]string, authVerdict []byte, toRecipients, cc, replyTo []string) (*Message, error) {
-	return createInboundMessage(ctx, s.pool, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus, rawMessage, authHeaders, authVerdict, toRecipients, cc, replyTo)
+func (s *Store) CreateInboundMessage(ctx context.Context, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus string, rawMessage []byte, authHeaders map[string]string, authVerdict []byte, flagged bool, flagReason string, toRecipients, cc, replyTo []string) (*Message, error) {
+	return createInboundMessage(ctx, s.pool, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus, rawMessage, authHeaders, authVerdict, flagged, flagReason, toRecipients, cc, replyTo)
 }
 
 // WithTx opens a transaction, runs fn inside it, and commits if fn
@@ -948,8 +993,8 @@ func (s *Store) WithTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
 // Mirrors the CreateAgentTx pattern at store.go:596-607 — same SQL
 // body, executed against either *pgxpool.Pool or pgx.Tx via the
 // messageExecutor interface below.
-func (s *Store) CreateInboundMessageInTx(ctx context.Context, tx pgx.Tx, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus string, rawMessage []byte, authHeaders map[string]string, authVerdict []byte, toRecipients, cc, replyTo []string) (*Message, error) {
-	return createInboundMessage(ctx, tx, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus, rawMessage, authHeaders, authVerdict, toRecipients, cc, replyTo)
+func (s *Store) CreateInboundMessageInTx(ctx context.Context, tx pgx.Tx, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus string, rawMessage []byte, authHeaders map[string]string, authVerdict []byte, flagged bool, flagReason string, toRecipients, cc, replyTo []string) (*Message, error) {
+	return createInboundMessage(ctx, tx, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus, rawMessage, authHeaders, authVerdict, flagged, flagReason, toRecipients, cc, replyTo)
 }
 
 // messageExecutor is the subset of *pgxpool.Pool and pgx.Tx that
@@ -959,7 +1004,7 @@ type messageExecutor interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
 
-func createInboundMessage(ctx context.Context, exec messageExecutor, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus string, rawMessage []byte, authHeaders map[string]string, authVerdict []byte, toRecipients, cc, replyTo []string) (*Message, error) {
+func createInboundMessage(ctx context.Context, exec messageExecutor, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus string, rawMessage []byte, authHeaders map[string]string, authVerdict []byte, flagged bool, flagReason string, toRecipients, cc, replyTo []string) (*Message, error) {
 	if id == "" {
 		id = NewMessageID()
 	}
@@ -989,6 +1034,8 @@ func createInboundMessage(ctx context.Context, exec messageExecutor, id, agentID
 		AuthHeaders:    authHeaders,
 		ConversationID: conversationID,
 		DeliveryStatus: deliveryStatus,
+		Flagged:        flagged,
+		FlagReason:     flagReason,
 		CreatedAt:      now,
 		ExpiresAt:      now.Add(MessageTTL),
 	}
@@ -998,9 +1045,9 @@ func createInboundMessage(ctx context.Context, exec messageExecutor, id, agentID
 		inboxStatus = &m.DeliveryStatus
 	}
 	_, err := exec.Exec(ctx,
-		`INSERT INTO messages (id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, auth_headers, auth_verdict, conversation_id, inbox_status, created_at, expires_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
-		m.ID, m.AgentID, m.Direction, m.Sender, m.Recipient, m.ToRecipients, m.CC, m.ReplyTo, m.Subject, m.EmailMessageID, m.RawMessage, authHeadersJSON, nullIfEmptyBytes(authVerdict), m.ConversationID, inboxStatus, m.CreatedAt, m.ExpiresAt,
+		`INSERT INTO messages (id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, auth_headers, auth_verdict, flagged, flag_reason, conversation_id, inbox_status, created_at, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+		m.ID, m.AgentID, m.Direction, m.Sender, m.Recipient, m.ToRecipients, m.CC, m.ReplyTo, m.Subject, m.EmailMessageID, m.RawMessage, authHeadersJSON, nullIfEmptyBytes(authVerdict), m.Flagged, nullIfEmptyString(m.FlagReason), m.ConversationID, inboxStatus, m.CreatedAt, m.ExpiresAt,
 	)
 	if err != nil {
 		return nil, err
@@ -1012,9 +1059,9 @@ func (s *Store) GetInboundMessage(ctx context.Context, id string) (*Message, err
 	m := &Message{}
 	var authVerdict []byte
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, auth_verdict, created_at, expires_at
+		`SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, auth_verdict, COALESCE(flagged, false), COALESCE(flag_reason, ''), created_at, expires_at
 		 FROM messages WHERE id = $1 AND direction = 'inbound' AND expires_at > now()`, id,
-	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.RawMessage, &authVerdict, &m.CreatedAt, &m.ExpiresAt)
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.RawMessage, &authVerdict, &m.Flagged, &m.FlagReason, &m.CreatedAt, &m.ExpiresAt)
 	if err != nil {
 		return nil, err
 	}
@@ -2023,7 +2070,8 @@ func (s *Store) ListActivityByAgent(ctx context.Context, agentID string, limit i
 		        m.to_recipients, m.cc, m.bcc,
 		        COALESCE(m.conversation_id, ''), COALESCE(octet_length(m.raw_message), 0),
 		        m.labels,
-		        COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, ''), m.auth_verdict
+		        COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, ''), m.auth_verdict,
+		        COALESCE(m.flagged, false), COALESCE(m.flag_reason, '')
 		 FROM messages m
 		 LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
 		 WHERE m.agent_id = $1 AND m.expires_at > now()
@@ -2040,7 +2088,7 @@ func (s *Store) ListActivityByAgent(ctx context.Context, agentID string, limit i
 		var m Message
 		var inboxStatus, outboundDeliveryStatus string
 		var authVerdict []byte
-		if err := rows.Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject, &m.EmailMessageID, &m.Method, &m.Type, &inboxStatus, &m.CreatedAt, &m.ExpiresAt, &m.WebhookStatus, &m.WebhookError, &m.WebhookAttempts, &m.ToRecipients, &m.CC, &m.BCC, &m.ConversationID, &m.SizeBytes, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &authVerdict); err != nil {
+		if err := rows.Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject, &m.EmailMessageID, &m.Method, &m.Type, &inboxStatus, &m.CreatedAt, &m.ExpiresAt, &m.WebhookStatus, &m.WebhookError, &m.WebhookAttempts, &m.ToRecipients, &m.CC, &m.BCC, &m.ConversationID, &m.SizeBytes, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &authVerdict, &m.Flagged, &m.FlagReason); err != nil {
 			return nil, err
 		}
 		if err := unmarshalAuthVerdict(authVerdict, &m); err != nil {
@@ -2124,7 +2172,7 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]
 	var query string
 	var args []interface{}
 
-	baseSelect := `SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.to_recipients, m.cc, m.reply_to, m.subject, m.email_message_id, m.conversation_id, COALESCE(m.inbox_status, ''), COALESCE(m.status, ''), COALESCE(wd.status, ''), COALESCE(wd.last_error, ''), COALESCE(octet_length(m.raw_message), 0), m.created_at, m.labels, COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, ''), m.auth_verdict
+	baseSelect := `SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.to_recipients, m.cc, m.reply_to, m.subject, m.email_message_id, m.conversation_id, COALESCE(m.inbox_status, ''), COALESCE(m.status, ''), COALESCE(wd.status, ''), COALESCE(wd.last_error, ''), COALESCE(octet_length(m.raw_message), 0), m.created_at, m.labels, COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, ''), m.auth_verdict, COALESCE(m.flagged, false), COALESCE(m.flag_reason, '')
 		 FROM messages m
 		 LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
 		 WHERE m.agent_id = $1 AND m.expires_at > now()`
@@ -2231,7 +2279,7 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]
 			&m.Subject, &m.EmailMessageID, &m.ConversationID,
 			&m.InboxStatus, &m.Status, &m.WebhookStatus, &m.WebhookError, &m.SizeBytes,
 			&m.CreatedAt, &m.Labels,
-			&outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &authVerdict,
+			&outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &authVerdict, &m.Flagged, &m.FlagReason,
 		); err != nil {
 			return nil, err
 		}
@@ -2262,9 +2310,9 @@ func (s *Store) GetMessageWithContent(ctx context.Context, messageID, agentID st
 	err := s.pool.QueryRow(ctx,
 		`UPDATE messages SET inbox_status = CASE WHEN inbox_status = 'unread' THEN 'read' ELSE inbox_status END
 		 WHERE id = $1 AND agent_id = $2 AND expires_at > now()
-		 RETURNING id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, conversation_id, COALESCE(inbox_status, ''), raw_message, auth_headers, auth_verdict, created_at, expires_at, labels, COALESCE(delivery_status, ''), COALESCE(delivery_detail, ''), COALESCE(sent_as, ''), COALESCE(body_text, ''), COALESCE(body_html, '')`,
+		 RETURNING id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, conversation_id, COALESCE(inbox_status, ''), raw_message, auth_headers, auth_verdict, COALESCE(flagged, false), COALESCE(flag_reason, ''), created_at, expires_at, labels, COALESCE(delivery_status, ''), COALESCE(delivery_detail, ''), COALESCE(sent_as, ''), COALESCE(body_text, ''), COALESCE(body_html, '')`,
 		messageID, agentID,
-	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.InboxStatus, &m.RawMessage, &authHeadersJSON, &authVerdict, &m.CreatedAt, &m.ExpiresAt, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &m.BodyText, &m.BodyHTML)
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.InboxStatus, &m.RawMessage, &authHeadersJSON, &authVerdict, &m.Flagged, &m.FlagReason, &m.CreatedAt, &m.ExpiresAt, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &m.BodyText, &m.BodyHTML)
 	if err != nil {
 		return nil, err
 	}
@@ -2579,7 +2627,8 @@ func (s *Store) GetConversationByID(ctx context.Context, agentID, conversationID
 		        COALESCE(m.status, ''),
 		        m.created_at, m.expires_at,
 		        m.labels,
-		        COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, ''), m.auth_verdict
+		        COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, ''), m.auth_verdict,
+		        COALESCE(m.flagged, false), COALESCE(m.flag_reason, '')
 		 FROM messages m
 		 WHERE m.agent_id = $1
 		   AND m.conversation_id = $2
@@ -2610,6 +2659,7 @@ func (s *Store) GetConversationByID(ctx context.Context, agentID, conversationID
 			&m.CreatedAt, &m.ExpiresAt,
 			&m.Labels,
 			&outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &authVerdict,
+			&m.Flagged, &m.FlagReason,
 		); err != nil {
 			return nil, err
 		}

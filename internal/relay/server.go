@@ -19,6 +19,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/emailauth"
 	"github.com/Mnexa-AI/e2a/internal/headers"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/inboundpolicy"
 	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
@@ -323,6 +324,14 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 		displaySender = s.inboundThreadInfo.ReplyTo[0]
 	}
 
+	// Inbound trust policy ingestion gate (decision 10 / Slice 7a). Evaluate the
+	// agent's policy against the AUTHENTICATED From identity (senderEmail — what
+	// SPF/DKIM/DMARC pertain to), NOT displaySender (Reply-To is attacker-
+	// controllable). A non-match is FLAGGED — still delivered (never dropped),
+	// marked on the row, and emits email.flagged so operators get a signal.
+	dmarcPass := domainAuth.DMARC.Status == emailauth.StatusPass
+	policyDecision := inboundpolicy.EvaluateIngestion(agent.InboundPolicy, agent.InboundAllowlist, senderEmail, dmarcPass)
+
 	// Record inbound usage (fail-open — never block inbound email)
 	if agent.UserID != "" {
 		s.relay.usage.RecordAndCheck(ctx, agent.UserID, agent.ID, agent.Domain, "inbound")
@@ -354,6 +363,28 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// post-receive); leave Event.Labels empty so label-filtered
 	// subscribers correctly skip (H5 null/empty semantics).
 	event.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailReceived)
+
+	// email.flagged (decision 10): fired in addition to email.received when the
+	// ingestion policy didn't match, so operators get a signal that this message
+	// is untrusted. Deterministic id keeps MTA retries idempotent.
+	var flaggedEvent *webhookpub.Event
+	if policyDecision.Flagged {
+		fe := webhookpub.NewEvent(webhookpub.EventEmailFlagged, agent.UserID, map[string]interface{}{
+			"message_id":      messageID,
+			"conversation_id": conversationID,
+			"agent":           map[string]interface{}{"id": agent.ID, "email": agent.EmailAddress(), "domain": agent.Domain},
+			"from":            displaySender,
+			"recipient":       rcpt,
+			"subject":         s.inboundSubject,
+			"policy":          agent.InboundPolicy,
+			"reason":          policyDecision.Reason,
+		})
+		fe.AgentID = agent.ID
+		fe.ConversationID = conversationID
+		fe.MessageID = messageID
+		fe.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailFlagged)
+		flaggedEvent = &fe
+	}
 
 	// Record inbound message with full content. Pass messageID so the
 	// stored row uses the same ID we just bound into the auth headers.
@@ -388,18 +419,26 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 				ctx, tx, messageID, agent.ID, displaySender, rcpt,
 				s.inboundMsgID, s.inboundSubject, conversationID,
 				deliveryStatus, body, authHeaders, authVerdictJSON,
+				policyDecision.Flagged, policyDecision.Reason,
 				s.inboundThreadInfo.To, s.inboundThreadInfo.CC, s.inboundThreadInfo.ReplyTo,
 			)
 			if txErr != nil {
 				return txErr
 			}
-			return s.relay.outbox.PublishTx(ctx, tx, event)
+			if txErr = s.relay.outbox.PublishTx(ctx, tx, event); txErr != nil {
+				return txErr
+			}
+			if flaggedEvent != nil {
+				return s.relay.outbox.PublishTx(ctx, tx, *flaggedEvent)
+			}
+			return nil
 		})
 	} else {
 		inboundMsg, err = s.relay.store.CreateInboundMessage(
 			ctx, messageID, agent.ID, displaySender, rcpt,
 			s.inboundMsgID, s.inboundSubject, conversationID,
 			deliveryStatus, body, authHeaders, authVerdictJSON,
+			policyDecision.Flagged, policyDecision.Reason,
 			s.inboundThreadInfo.To, s.inboundThreadInfo.CC, s.inboundThreadInfo.ReplyTo,
 		)
 	}
@@ -438,6 +477,9 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// separately.
 	if s.relay.publisher != nil && (s.relay.outbox == nil || !s.relay.outbox.Enabled()) {
 		go s.relay.publisher.Publish(context.Background(), event)
+		if flaggedEvent != nil {
+			go s.relay.publisher.Publish(context.Background(), *flaggedEvent)
+		}
 	}
 
 	// Best-effort WebSocket notification for any connected agent. The

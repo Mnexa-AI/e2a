@@ -39,7 +39,12 @@ type MessageView struct {
 	DeliveryDetail string `json:"delivery_detail,omitempty"`
 	// SentAs is the From identity actually used at relay accept time.
 	// Outbound-only; omitted on inbound messages.
-	SentAs      string            `json:"sent_as,omitempty"`
+	SentAs string `json:"sent_as,omitempty"`
+	// Flagged + FlagReason carry the inbound ingestion verdict (migration 033 /
+	// Slice 7): true when the agent's inbound_policy gate flagged this message
+	// on arrival (still delivered). Inbound-relevant; omitted on unflagged rows.
+	Flagged     bool              `json:"flagged,omitempty"`
+	FlagReason  string            `json:"flag_reason,omitempty"`
 	Labels      []string          `json:"labels"`
 	CreatedAt   string            `json:"created_at"`
 	AuthHeaders map[string]string `json:"auth_headers"`
@@ -90,6 +95,8 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		AuthHeaders:    m.AuthHeaders,
 		Auth:           m.Auth,
 		RawMessage:     m.RawMessage,
+		Flagged:        m.Flagged,
+		FlagReason:     m.FlagReason,
 	}
 	// Outbound delivery feedback (migration 031). On outbound rows
 	// identity.Message.DeliveryStatus carries the delivery rollup; on
@@ -147,12 +154,17 @@ type MessageSummaryView struct {
 	WebhookError   string   `json:"webhook_error,omitempty"`
 	// DeliveryStatus / DeliveryDetail / SentAs are the outbound delivery
 	// rollup (migration 031). Outbound-only; omitted on inbound rows.
-	DeliveryStatus string   `json:"delivery_status,omitempty"`
-	DeliveryDetail string   `json:"delivery_detail,omitempty"`
-	SentAs         string   `json:"sent_as,omitempty"`
-	SizeBytes      int      `json:"size_bytes,omitempty"`
-	Labels         []string `json:"labels"`
-	CreatedAt      string   `json:"created_at"`
+	DeliveryStatus string `json:"delivery_status,omitempty"`
+	DeliveryDetail string `json:"delivery_detail,omitempty"`
+	SentAs         string `json:"sent_as,omitempty"`
+	// Flagged + FlagReason are the inbound ingestion verdict (migration 033 /
+	// Slice 7). Surfaced in list views so flagged mail is visible without a
+	// per-message drill-down. Inbound-relevant; omitted on unflagged rows.
+	Flagged    bool     `json:"flagged,omitempty"`
+	FlagReason string   `json:"flag_reason,omitempty"`
+	SizeBytes  int      `json:"size_bytes,omitempty"`
+	Labels     []string `json:"labels"`
+	CreatedAt  string   `json:"created_at"`
 	// Auth is the structured inbound authentication verdict (migration 032).
 	// Inbound-only; omitted on outbound rows.
 	Auth *emailauth.Result `json:"auth,omitempty"`
@@ -174,6 +186,8 @@ func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
 		Labels:         orEmptyStrings(m.Labels),
 		CreatedAt:      m.CreatedAt.UTC().Format(time.RFC3339),
 		Auth:           m.Auth,
+		Flagged:        m.Flagged,
+		FlagReason:     m.FlagReason,
 	}
 	if m.Direction == "outbound" {
 		s.HITLStatus = m.Status

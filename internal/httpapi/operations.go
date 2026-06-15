@@ -56,6 +56,12 @@ type AgentView struct {
 	HITLEnabled          bool      `json:"hitl_enabled"`
 	HITLTTLSeconds       int       `json:"hitl_ttl_seconds"`
 	HITLExpirationAction string    `json:"hitl_expiration_action"`
+	// InboundPolicy is the per-agent inbound ingestion gate (migration 033 /
+	// Slice 7): one of open, allowlist, domain, verified_only. InboundAllowlist
+	// holds the trusted addresses (allowlist) or domains (domain); omitted when
+	// empty.
+	InboundPolicy    string   `json:"inbound_policy"`
+	InboundAllowlist []string `json:"inbound_allowlist,omitempty"`
 }
 
 // agentViewFromIdentity maps the storage record to the public view.
@@ -70,6 +76,8 @@ func agentViewFromIdentity(ag *identity.AgentIdentity) AgentView {
 		HITLEnabled:          ag.HITLEnabled,
 		HITLTTLSeconds:       ag.HITLTTLSeconds,
 		HITLExpirationAction: ag.HITLExpirationAction,
+		InboundPolicy:        ag.InboundPolicy,
+		InboundAllowlist:     ag.InboundAllowlist,
 	}
 }
 

@@ -1247,10 +1247,10 @@ Break the current `/api/v1` surface directly and move it to
     flat `/api/v1/messages/{id}` route rides the consumer-port slice (the TS +
     Python SDKs still call it; deleting now breaks them before they repoint to
     `/v1`).
-  * **Still deferred:** the `email.flagged` security event (it fires on a
-    policy decision → Slice 7); the ≥N-soft-bounce
+  * **Still deferred:** the ≥N-soft-bounce
     suppression threshold; the `_dmarc` policy (`p=`/strict-alignment) fetch;
     and the SNS flow's real-AWS e2e (CI uses crafted SNS payloads + fake cert).
+    (The `email.flagged` security event shipped in **Slice 7a** below.)
 * **Slice 5 — Auth: OAuth 2.1 + auth.md agent identity.** OAuth 2.1 hosted-MCP
   (PKCE + refresh), scoped API keys (`e2a_agt_`/`e2a_acct_`), and the auth.md
   agent-identity layer (`/agent/identity`, claim ceremony, jwt-bearer/claim
@@ -1261,14 +1261,39 @@ Break the current `/api/v1` surface directly and move it to
   host cutover); independent of 4/4b. Keep API keys throughout.
 * **Slice 6 — Agent-first docs.** `e2a.md`/`llms.txt`/`setup.md`/`auth.md`,
   binary-served; `api.md` generated from the spec.
-* **Slice 7 — Inbound trust policy (decision 10), post-parity.** Per-agent
-  `inbound_policy` enum (`open`/`allowlist`/`domain`/`verified_only`/`hitl`,
-  composable) + **trust-gated action authorization** (policy-driven hold of
-  suspicious outbound as `pending_approval`, keyed on the referenced message's
-  server-owned verdict; no new contract surface). Builds on decision 9's verdict
-  + the v1 injection-reduced parsed view (already in Slice 4b). **Not a parity
-  gap** — e2a's server-side HITL + auth verdicts are already strong here; this
-  packages that latent advantage into a named policy. Defer until 1–6 land.
+* **Slice 7 — Inbound trust policy (decision 10), post-parity.** Builds on
+  decision 9's verdict + the v1 injection-reduced parsed view (already in Slice
+  4b). **Not a parity gap** — e2a's server-side HITL + auth verdicts are already
+  strong here; this packages that latent advantage into a named policy.
+
+  **Reconciled to two orthogonal axes (build note).** Decision 10 says the
+  postures "compose" (e.g. `verified_only` + `hitl`), which a *single* enum
+  can't express — `hitl` is an action gate, the others are ingestion gates. So
+  the implementation models them as two independent fields rather than one enum:
+    * `inbound_policy ∈ {open, allowlist, domain, verified_only}` — the
+      **ingestion** axis (Slice 7a, shipped below).
+    * the existing `hitl_enabled` flag + sub-mode — the **action-gate** axis
+      (Slice 7b, deferred). Decision 10's "`inbound_policy: hitl`" reconciles to
+      this flag, so no enum value `hitl` exists on `inbound_policy`.
+
+  * **Slice 7a — Inbound ingestion gate.** *(Shipped.)* Per-agent
+    `inbound_policy` (`open`/`allowlist`/`domain`/`verified_only`) +
+    `inbound_allowlist[]` on `agent_identities` (migration 033, default `open`,
+    CHECK-constrained). The relay evaluates the policy on arrival against the
+    **authenticated From identity** (not the attacker-controllable Reply-To);
+    `verified_only` gates on decision 9's persisted `dmarc=pass` alignment. A
+    non-match is **flagged, never dropped** — `messages.flagged`/`flag_reason`
+    set, `email.received` still fires, and `email.flagged` additionally emits so
+    operators get a signal. Evaluator is a stdlib leaf (`internal/inboundpolicy`);
+    surfaced as `inbound_policy`/`inbound_allowlist` on `AgentView` (settable via
+    `update_agent`) and `flagged`/`flag_reason` on message reads.
+  * **Slice 7b — Trust-gated action authorization.** *(Deferred.)* Policy-driven
+    hold of suspicious outbound as `pending_approval`, keyed on the referenced
+    message's server-owned verdict (high-impact predicate: recipient domain not a
+    participant of the referenced inbound OR forward to a third party; weak
+    verdict: `dmarc != pass`). No new contract surface. Depends on the **hard
+    scope ceiling** (decision 10 / §5), which lands with **Slice 5**'s scope
+    machinery — so 7b follows 5.
 
 Slices 1–6 are independently shippable; 1–2 deliver most of the "clean and
 consistent" win. Slice 7 is a post-parity enhancement.

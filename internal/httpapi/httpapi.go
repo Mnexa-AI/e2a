@@ -82,7 +82,11 @@ type Deps struct {
 	LookupDomain       DomainLookup
 	EnforceAgentCreate AgentCreateEnforcer
 	UpdateAgentHITL    AgentHITLUpdater
-	DeleteAgent        AgentDeleter
+	// UpdateAgentInboundPolicy sets the per-agent inbound ingestion gate
+	// (migration 033 / Slice 7). Returns a validation error for an unknown
+	// policy, which the handler maps to 400 invalid_request.
+	UpdateAgentInboundPolicy func(ctx context.Context, agentID, userID, policy string, allowlist []string) error
+	DeleteAgent              AgentDeleter
 
 	// domains
 	ListDomains         func(ctx context.Context, userID string) ([]identity.Domain, error)
