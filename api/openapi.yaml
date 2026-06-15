@@ -832,6 +832,25 @@ components:
         - created_at
         - expires_at
       type: object
+    MessageBodyView:
+      additionalProperties: false
+      properties:
+        html:
+          type: string
+        text:
+          type: string
+      type: object
+    MessageParsedView:
+      additionalProperties: false
+      properties:
+        text:
+          type: string
+        truncated:
+          type: boolean
+      required:
+        - text
+        - truncated
+      type: object
     MessageSummaryView:
       additionalProperties: false
       properties:
@@ -912,6 +931,8 @@ components:
           additionalProperties:
             type: string
           type: object
+        body:
+          $ref: "#/components/schemas/MessageBodyView"
         cc:
           items:
             type: string
@@ -936,6 +957,8 @@ components:
             - "null"
         message_id:
           type: string
+        parsed:
+          $ref: "#/components/schemas/MessageParsedView"
         raw_message:
           contentEncoding: base64
           type: string
