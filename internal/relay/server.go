@@ -60,17 +60,18 @@ type Server struct {
 	outboundFromDomain string
 }
 
-// SetPublisher wires the legacy webhooks-as-a-resource publisher. Same
+// SetPublisher wires the webhooks-as-a-resource publisher — the sole
+// push path since the per-agent webhook was removed in slice 3. Same
 // optional-setter pattern as SetEnforcer — keeps NewServer's signature
 // unchanged for the existing call sites and tests that don't care
-// about the new path.
+// about the push path.
 func (s *Server) SetPublisher(p webhookpub.Publisher) { s.publisher = p }
 
 // SetOutbox wires the slice-1 transactional outbox. When set AND its
 // FeatureFlag is enabled, the inbound trigger commits the messages row
 // and the webhook_events outbox row in a single transaction (per design
-// §4.2). The legacy SetPublisher path is preserved for backward compat
-// during the slice 3 → slice 11 rollout window.
+// §4.2). The non-transactional SetPublisher path remains the default
+// until the outbox FeatureFlag flips on during the rollout window.
 func (s *Server) SetOutbox(o webhookpub.Outbox) { s.outbox = o }
 
 // SetEnforcer wires in the resource-limits enforcer used to reject

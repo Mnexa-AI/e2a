@@ -1157,8 +1157,25 @@ Break the current `/api/v1` surface directly and move it to
   read to expose both the held-draft `body_text`/`body_html` and the sent/inbound
   `raw_message`, which is the message-read shape decision 9 designs (don't build
   it twice). MCP + SDK regen from the spec is the separate consumer port.
-* **Slice 3 — Agent model.** `address` unification; drop `agent_mode`;
-  optional webhook. Migration drops the column + CHECK.
+* **Slice 3 — Agent model.** *(Shipped, PR #212.)* Drop `agent_mode` AND the
+  per-agent `webhook_url`: the `/v1/webhooks` subscriber resource is the sole
+  push path and WebSocket is open to every agent. Migration 029 drops the CHECK
+  + both columns. The legacy `webhook.Deliverer`/`PersistentDeliverer` chain is
+  removed; inbound is always persisted to the pollable inbox (`unread`) and
+  published to subscribers, with best-effort WS-notify for any connected agent.
+  * **No `webhook_url`→subscription backfill.** This is the launch cutover with
+    no real users (the reason 3b — full removal — was chosen over a deprecation
+    window). A deployment that *did* have live cloud agents would need a backfill
+    of `agent_identities.webhook_url` into `webhooks` rows before this migration;
+    not written because there is nothing to migrate.
+  * **Client coupling is a follow-up slice (must land before launch).** The web
+    dashboard (`AgentModeSwitcher`/`WebhookEditor`/`AgentCard`/onboarding forms)
+    still speaks the removed mode/webhook contract over the legacy
+    `/api/dashboard/*` routes, and MCP/SDK/CLI still send `agent_mode`/
+    `webhook_url` (→ Huma 422 once they target `/v1`). Removing those controls +
+    regenerating the consumers is the **consumer port** (same follow-up as the
+    SDK/codegen cutover); sequence the web + backend deploys together since the
+    dashboard agent-settings UI 400s against this backend until then.
 * **Slice 4 — Sender identity (provision *and* teardown).** `SenderIdentityProvider`
   (SES BYODKIM) + `sending_verified` + custom-domain `From`/`Reply-To`, **plus
   symmetric deprovisioning** on domain/account delete (River job →

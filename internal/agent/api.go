@@ -606,7 +606,7 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	}
 }
 
-// RegisterWSRoute registers the WebSocket endpoint for local-mode agents.
+// RegisterWSRoute registers the WebSocket live-tail endpoint, open to any agent.
 func (a *API) RegisterWSRoute(r *mux.Router, handle http.HandlerFunc) {
 	r.HandleFunc("/api/v1/agents/{email}/ws", handle)
 }

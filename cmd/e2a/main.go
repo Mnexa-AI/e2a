@@ -282,7 +282,7 @@ func main() {
 
 	api.RegisterRoutes(router)
 
-	// WebSocket route for local-mode agents
+	// WebSocket live-tail route, open to any agent
 	wsHub := ws.NewHub()
 	defer wsHub.Close()
 	wsHandler := ws.NewHandler(wsHub, store)

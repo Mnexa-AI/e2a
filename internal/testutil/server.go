@@ -122,7 +122,7 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 	api.SetUsageStore(usageStore)
 	api.RegisterRoutes(router)
 
-	// WebSocket route for local-mode agents
+	// WebSocket live-tail route, open to any agent
 	wsHub := ws.NewHub()
 	wsHandler := ws.NewHandler(wsHub, store)
 	api.RegisterWSRoute(router, wsHandler.Handle)

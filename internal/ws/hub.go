@@ -8,7 +8,9 @@ import (
 	"nhooyr.io/websocket"
 )
 
-// Hub manages WebSocket connections for local-mode agents.
+// Hub manages WebSocket connections for agents that live-tail inbound
+// mail. Any agent may connect — WS is an opportunistic push on top of
+// the durable pollable inbox + webhook subscriptions.
 // One connection per agent; new connections replace old ones.
 type Hub struct {
 	mu    sync.RWMutex
