@@ -278,7 +278,26 @@ relative to that base):
    `{ "error": { "code": "MACHINE_BRANCHABLE", "message": "human text",
    "details": {…} } }`, with stable `code` values documented in the spec.
 7. **One pagination scheme** — opaque cursor (`?cursor=…&limit=…`) returning
-   `{ items: [...], next_cursor: "…"|null }` across all list endpoints.
+   `{ items: [...], next_cursor: "…"|null }` across all paginated list endpoints.
+
+   **Why cursor, not offset/`page_size`.** The dominant collection here is an
+   **inbox** — high insert rate, agents scanning forward. Offset pagination
+   (`page`/`page_size`) is *unstable under concurrent writes*: a message arriving
+   mid-scan shifts every row, so the client silently skips or double-reads items;
+   it also degrades on deep pages (`OFFSET n` scans-and-discards). A cursor
+   anchored to `(created_at, id)` is stable across inserts and uses the index
+   at any depth. The trade — no jump-to-page and no cheap total count — is one
+   agents don't need (they stream "the next batch," they don't ask for "page 7").
+
+   **Naming.** `limit` (not `page_size`) because `page_size` is page-number
+   vocabulary that would mis-signal pages that don't exist under a cursor.
+   `items` (not a per-resource key like `messages`) so one generic paginator
+   walks **any** list. **Known inconsistency to resolve:** only the genuinely
+   cursor-paginated lists (messages, conversations, events) use `{items,
+   next_cursor}`; the small fixed lists (`listAgents`/`listDomains`/
+   `listWebhooks`) currently return named keys (`{agents}`/…) and aren't
+   paginated — so a generic `items` paginator works on the former, not the
+   latter. Either paginate those too (→ `items`) or accept the documented split.
 8. **Idempotency** — `Idempotency-Key` header (or body key) honored on all
    POSTs with side effects (send, create agent, webhook create, redeliver).
    Dedup key = `(principal, route, **request-body hash**)` — the body hash is
