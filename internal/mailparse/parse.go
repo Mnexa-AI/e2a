@@ -30,6 +30,14 @@ import (
 // small enough to blunt token-stuffing. Callers may override.
 const DefaultMaxBytes = 16 * 1024
 
+// maxMIMEDepth bounds multipart-nesting recursion. mime/multipart re-scans
+// buffered data at each level, so an attacker-nested message is O(depth²) — a
+// ~2MB email (under the 10MB inbound cap) could otherwise pin a request
+// goroutine for minutes, and the parsed view is computed synchronously on every
+// read. Real mail nests a handful of levels; past this we bail to best-effort
+// (empty), consistent with the package's "over-stripping is acceptable" stance.
+const maxMIMEDepth = 32
+
 // ParsedBody extracts the best human-readable text from a raw RFC 5322 message,
 // strips quoted reply/forward chains, and truncates to maxBytes. truncated is
 // true when the cap cut content. maxBytes <= 0 uses DefaultMaxBytes.
@@ -61,7 +69,7 @@ func extractText(raw []byte) string {
 	if err != nil {
 		return string(raw)
 	}
-	plain, htmlText := walkParts(msg.Header.Get("Content-Type"), msg.Header.Get("Content-Transfer-Encoding"), msg.Body)
+	plain, htmlText := walkParts(msg.Header.Get("Content-Type"), msg.Header.Get("Content-Transfer-Encoding"), msg.Body, 0)
 	if plain != "" {
 		return plain
 	}
@@ -75,7 +83,7 @@ func extractText(raw []byte) string {
 
 // walkParts returns the first text/plain and first text/html-as-text found
 // anywhere in the (possibly nested multipart) body.
-func walkParts(contentType, cte string, body io.Reader) (plain, htmlText string) {
+func walkParts(contentType, cte string, body io.Reader, depth int) (plain, htmlText string) {
 	mediaType, params, err := mime.ParseMediaType(contentType)
 	if err != nil {
 		// No/!invalid Content-Type → treat as text/plain.
@@ -83,6 +91,9 @@ func walkParts(contentType, cte string, body io.Reader) (plain, htmlText string)
 	}
 	switch {
 	case strings.HasPrefix(mediaType, "multipart/"):
+		if depth >= maxMIMEDepth {
+			return "", "" // bail on pathological nesting (see maxMIMEDepth)
+		}
 		boundary := params["boundary"]
 		if boundary == "" {
 			return "", ""
@@ -93,7 +104,7 @@ func walkParts(contentType, cte string, body io.Reader) (plain, htmlText string)
 			if err != nil {
 				break
 			}
-			p, h := walkParts(part.Header.Get("Content-Type"), part.Header.Get("Content-Transfer-Encoding"), part)
+			p, h := walkParts(part.Header.Get("Content-Type"), part.Header.Get("Content-Transfer-Encoding"), part, depth+1)
 			if plain == "" && p != "" {
 				plain = p
 			}

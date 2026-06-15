@@ -105,8 +105,10 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		v.Parsed = &MessageParsedView{Text: text, Truncated: truncated}
 	}
 	// Held-draft body (decision 9 unification): the second representation a
-	// pending_approval outbound message carries instead of raw_message.
-	if m.BodyText != "" || m.BodyHTML != "" {
+	// pending_approval outbound message carries instead of raw_message. Gated on
+	// outbound direction so it can never surface on an inbound row even if a
+	// future load path populates the body columns.
+	if m.Direction == "outbound" && (m.BodyText != "" || m.BodyHTML != "") {
 		v.Body = &MessageBodyView{Text: m.BodyText, HTML: m.BodyHTML}
 	}
 	return v

@@ -1,8 +1,10 @@
 package mailparse
 
-import "strings"
-
-import "testing"
+import (
+	"strings"
+	"testing"
+	"time"
+)
 
 func TestParsedBody(t *testing.T) {
 	t.Run("plain text passes through", func(t *testing.T) {
@@ -73,4 +75,45 @@ func TestParsedBody(t *testing.T) {
 			t.Fatal("expected best-effort text, got empty")
 		}
 	})
+}
+
+// TestDeepNestingBounded pins the adversarial DoS fix: a deeply nested
+// multipart message must parse quickly (depth-capped), not blow up O(depth²).
+func TestDeepNestingBounded(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteString("From: a@x.com\r\nContent-Type: multipart/mixed; boundary=b0\r\n\r\n")
+	for i := 0; i < 5000; i++ {
+		sb.WriteString("--b0\r\nContent-Type: multipart/mixed; boundary=b0\r\n\r\n")
+	}
+	sb.WriteString("--b0\r\nContent-Type: text/plain\r\n\r\ndeep\r\n")
+	done := make(chan struct{})
+	go func() { _, _ = ParsedBody([]byte(sb.String()), 0); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("ParsedBody did not return within 3s on deeply nested multipart (DoS guard missing)")
+	}
+}
+
+// TestNestedMultipartRecoversInnerText: mixed wrapping alternative → inner plain.
+func TestNestedMultipartRecoversInnerText(t *testing.T) {
+	raw := "From: a@x.com\r\nContent-Type: multipart/mixed; boundary=OUT\r\n\r\n" +
+		"--OUT\r\nContent-Type: multipart/alternative; boundary=IN\r\n\r\n" +
+		"--IN\r\nContent-Type: text/plain\r\n\r\ninner plain\r\n" +
+		"--IN\r\nContent-Type: text/html\r\n\r\n<p>inner html</p>\r\n--IN--\r\n" +
+		"--OUT--\r\n"
+	got, _ := ParsedBody([]byte(raw), 0)
+	if got != "inner plain" {
+		t.Fatalf("nested multipart: got %q, want %q", got, "inner plain")
+	}
+}
+
+// TestBase64Decoded: a base64 text/plain part is decoded.
+func TestBase64Decoded(t *testing.T) {
+	// "Hello base64" base64 = SGVsbG8gYmFzZTY0
+	raw := "From: a@x.com\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: base64\r\n\r\nSGVsbG8gYmFzZTY0\r\n"
+	got, _ := ParsedBody([]byte(raw), 0)
+	if got != "Hello base64" {
+		t.Fatalf("base64 decode: got %q", got)
+	}
 }
