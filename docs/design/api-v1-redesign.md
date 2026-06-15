@@ -1117,7 +1117,7 @@ Applying 1 + 6: a runtime agent sees ~13 tools; the full self-host surface 31.
 | `POST /send` | **move** | `POST /agents/{address}/messages` (new-thread case — nest under the agent) |
 | `POST /agents/{e}/messages/{id}/reply` | **keep (re-place)** | `POST /agents/{address}/messages/{id}/reply` — explicit reply op (target in path), not folded into the send body |
 | `POST /agents/{e}/messages/{id}/forward` | **keep (re-place)** | `POST /agents/{address}/messages/{id}/forward` — explicit forward op (target in path) |
-| `GET /messages/{id}` (flat) | **remove** | use `GET /agents/{address}/messages/{id}` |
+| `GET /messages/{id}` (flat) | **remove (deferred → Slice 4b)** | use `GET /agents/{address}/messages/{id}`. Held drafts store the body as `body_text`/`body_html` columns (mutable, reviewable, scrubbed on terminal transition), while sent/inbound carry `raw_message` — so the unified read must expose BOTH representations. That message-read shape is decision 9 / Slice 4b territory (the parsed view); removing the flat path before then would design the shape twice. Until 4b, the flat `/api/v1/messages/{id}` stays as strangler residue. |
 | host + prefix `…/api/v1/*` | **move** | dedicated host `api.e2a.dev`, prefix `/v1` (base `https://api.e2a.dev/v1`) |
 | `GET/POST /approve`, `/reject`, `/pending` | **collapse** | `POST …/messages/{id}/approval` + magic-link GET alias |
 | `POST …/messages/{id}/approve|reject` | **collapse** | same `approval` sub-resource |
@@ -1150,11 +1150,13 @@ Break the current `/api/v1` surface directly and move it to
   agent** (`POST /agents/{address}/messages`) and retire top-level `/v1/send`,
   keeping reply/forward as **explicit sub-resources** (`…/messages/{id}/reply`,
   `…/messages/{id}/forward`) — decision 3 (explicit operations, not body
-  discriminators). Then single message address; collapse HITL to `approval`;
-  `/account`. Update MCP + SDKs from the spec; update the internal consumer in
-  lockstep (the `send` path moves). (The shipped `/v1` already has reply/forward
-  nested, so this slice is mostly: relocate `send`, retire `/v1/send`, and the
-  HITL/`/account` consolidation.)
+  discriminators). **Done.** `/account` rename (`/users/me/*` → `/account`,
+  `/info` stays public). **Done.** HITL stays two explicit transitions
+  (decision 5 revised) — **done-as-shipped**. **Single message address —
+  deferred to Slice 4b:** removing the flat `/messages/{id}` needs the unified
+  read to expose both the held-draft `body_text`/`body_html` and the sent/inbound
+  `raw_message`, which is the message-read shape decision 9 designs (don't build
+  it twice). MCP + SDK regen from the spec is the separate consumer port.
 * **Slice 3 — Agent model.** `address` unification; drop `agent_mode`;
   optional webhook. Migration drops the column + CHECK.
 * **Slice 4 — Sender identity (provision *and* teardown).** `SenderIdentityProvider`
