@@ -14,11 +14,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// freshRiver applies River's schema and clears the job table. The shared
-// e2a_test DB is NOT truncated of River tables between runs by testutil, so a
-// prior run's COMPLETED jobs would otherwise dedup new ByArgs enqueues
-// (same domain) into no-ops — making these tests pass alone but hang in the
-// full suite. Truncating river_job per test restores isolation.
+// freshRiver applies River's schema and clears the job table. testutil does
+// not truncate River's tables between runs, so leftover jobs from a prior run
+// could otherwise execute against this test's domains; truncating river_job
+// per test keeps each run isolated.
 func freshRiver(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
@@ -202,4 +201,42 @@ func TestDeprovisionTeardown(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatal("Deprovision was not called within timeout")
+}
+
+// TestReprovisionAfterFailed pins the review fix: after a domain reaches a
+// terminal `failed` (leaving COMPLETED provision/reconcile jobs in river_job),
+// the user fixing DNS and re-hitting POST /verify must re-provision — the
+// completed jobs must NOT unique-dedup the new enqueue (ByState excludes
+// completed). The domain must graduate to verified. NOTE: no truncate between
+// the two enqueues — that is the whole point.
+func TestReprovisionAfterFailed(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+
+	freshRiver(t, pool)
+	_, domain := setupVerifiedDomain(t, store, "sireprov")
+
+	fake := senderidentity.NewFakeProvider()
+	fake.SetStatus(domain, senderidentity.Result{Status: senderidentity.StatusFailed, Error: "dns not ready"})
+	mgr, err := senderidentity.NewManager(pool, senderidentity.NewStoreAdapter(store), fake, nil, senderidentity.Config{})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if err := mgr.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer mgr.Stop(context.Background())
+
+	if err := mgr.EnqueueProvision(ctx, domain); err != nil {
+		t.Fatalf("EnqueueProvision: %v", err)
+	}
+	waitForStatus(t, store, domain, "failed", 15*time.Second)
+
+	// User fixes DNS, forces a re-check. The completed jobs must not block this.
+	fake.SetStatus(domain, senderidentity.Result{Status: senderidentity.StatusVerified})
+	if err := mgr.EnqueueProvision(ctx, domain); err != nil {
+		t.Fatalf("re-EnqueueProvision: %v", err)
+	}
+	waitForStatus(t, store, domain, "verified", 15*time.Second)
 }

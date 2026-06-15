@@ -25,6 +25,9 @@ type FakeProvider struct {
 	deprovisionErr error
 	// notFoundOnStatus makes Status return ErrIdentityNotFound for a domain.
 	notFoundOnStatus map[string]bool
+	// statusErr makes Status return an arbitrary (transient) error for a
+	// domain — distinct from ErrIdentityNotFound.
+	statusErr map[string]error
 
 	// identities is the set of domains the fake "has" at the provider,
 	// for List/reaper tests. Provision adds; Deprovision removes.
@@ -41,8 +44,17 @@ func NewFakeProvider() *FakeProvider {
 		statusByDomain:   map[string]Result{},
 		statusSeq:        map[string][]Result{},
 		notFoundOnStatus: map[string]bool{},
+		statusErr:        map[string]error{},
 		identities:       map[string]bool{},
 	}
+}
+
+// SetStatusErr makes Status return err (a transient error, not NotFound) for
+// domain.
+func (f *FakeProvider) SetStatusErr(domain string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.statusErr[domain] = err
 }
 
 // SeedIdentity marks domain as having a provider identity (for List/reaper
@@ -107,6 +119,9 @@ func (f *FakeProvider) Status(ctx context.Context, domain string) (Result, error
 	f.StatusCalls = append(f.StatusCalls, domain)
 	if f.notFoundOnStatus[domain] {
 		return Result{}, ErrIdentityNotFound
+	}
+	if err := f.statusErr[domain]; err != nil {
+		return Result{}, err
 	}
 	if seq, ok := f.statusSeq[domain]; ok && len(seq) > 0 {
 		r := seq[0]

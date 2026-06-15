@@ -84,6 +84,16 @@ type ProvisionWorker struct {
 
 func (w *ProvisionWorker) Work(ctx context.Context, job *river.Job[ProvisionArgs]) error {
 	domain := job.Args.Domain
+	// Idempotency guard: POST /domains/{domain}/verify re-enqueues provisioning
+	// even for an already-verified domain (forced re-check). Re-running
+	// provider.Provision there returns AlreadyExists→pending, which would
+	// otherwise flap a live verified domain back to pending (dropping
+	// own-address From). Skip when already verified — there is nothing to do.
+	if st, serr := w.store.GetSendingStatus(ctx, domain); serr == nil && st == StatusVerified {
+		return nil
+	} else if errors.Is(serr, pgx.ErrNoRows) {
+		return nil // domain deleted mid-flight
+	}
 	selector, privKey, ok, err := w.store.SendingProvisionInputs(ctx, domain)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -120,9 +130,11 @@ func (w *ProvisionWorker) Work(ctx context.Context, job *river.Job[ProvisionArgs
 		if cerr != nil || client == nil {
 			return nil
 		}
+		// Not unique (see Manager.EnqueueProvision): a completed reconcile from
+		// a prior cycle must not block a fresh poller. ReconcileWorker is
+		// idempotent — it no-ops unless the domain is still pending.
 		_, err := client.Insert(ctx, ReconcileArgs{Domain: domain}, &river.InsertOpts{
 			MaxAttempts: maxAttempts(w.maxReconcileAttempt),
-			UniqueOpts:  river.UniqueOpts{ByArgs: true},
 		})
 		return err
 	}
@@ -162,7 +174,15 @@ func (w *ReconcileWorker) Work(ctx context.Context, job *river.Job[ReconcileArgs
 		return nil
 	}
 	if err != nil {
-		return err // transient — retry (consumes an attempt)
+		// Transient SES/network error. Retry — UNLESS this was the last
+		// attempt, in which case returning err would let River discard the
+		// job and strand the domain in `pending` forever. Mark failed so the
+		// TTL is absolute even when the final poll errors.
+		if job.Attempt >= job.MaxAttempts {
+			setFailedFire(ctx, w.store, w.fire, domain, "verification timed out")
+			return nil
+		}
+		return err // retry (consumes an attempt)
 	}
 
 	switch res.Status {

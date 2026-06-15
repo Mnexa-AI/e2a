@@ -73,7 +73,11 @@ func NewManager(pool *pgxpool.Pool, store Store, provider Provider, fire EventFi
 		river.NewPeriodicJob(
 			river.PeriodicInterval(reaperInterval),
 			func() (river.JobArgs, *river.InsertOpts) {
-				return ReapArgs{}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true}}
+				// No UniqueOpts: River's periodic scheduler already inserts at
+				// most one per interval, and a completed reap must not dedup-
+				// block the next scheduled run (River can't drop `completed`
+				// from a unique state set). The reaper is idempotent anyway.
+				return ReapArgs{}, nil
 			},
 			&river.PeriodicJobOpts{RunOnStart: false},
 		),
@@ -98,11 +102,17 @@ func (m *Manager) Stop(ctx context.Context) error { return m.client.Stop(ctx) }
 
 // EnqueueProvision schedules sending-identity provisioning for a domain
 // (called when a domain becomes verified, or on a forced re-check via
-// POST /domains/{domain}/verify). Unique-by-args dedups concurrent enqueues.
+// POST /domains/{domain}/verify).
+//
+// Intentionally NOT unique: River's job uniqueness can't drop `completed` from
+// its state set (only `retryable` is safely removable), so a completed job
+// would block a legitimate re-provision — e.g. POST /verify retrying a `failed`
+// domain — for the ~24h completed-job retention window. Instead we always
+// enqueue and rely on the worker being idempotent: ProvisionWorker no-ops when
+// the domain is already verified, and SES CreateEmailIdentity treats an
+// existing identity as success. Concurrent duplicate enqueues are harmless.
 func (m *Manager) EnqueueProvision(ctx context.Context, domain string) error {
-	_, err := m.client.Insert(ctx, ProvisionArgs{Domain: domain}, &river.InsertOpts{
-		UniqueOpts: river.UniqueOpts{ByArgs: true},
-	})
+	_, err := m.client.Insert(ctx, ProvisionArgs{Domain: domain}, nil)
 	return err
 }
 

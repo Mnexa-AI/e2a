@@ -14,21 +14,15 @@ import (
 )
 
 // workCtxWithClient returns a context carrying a real (but DB-less) River
-// client, shaped like the one River hands a live Work() call. This is required
-// for the ProvisionWorker pending branch: river.ClientFromContext PANICS unless
-// a NON-NIL client is present in the context (it treats a nil client the same
-// as "not present" — see river.ClientFromContextSafely). The returned cleanup
-// closes the pool.
+// client, shaped like the one River hands a live Work() call. The
+// ProvisionWorker pending branch needs a client in context to enqueue the
+// reconcile job. The returned cleanup closes the pool.
 //
-// NOTE on the production code: worker.go's pending branch does
-//
-//	client := river.ClientFromContext[pgx.Tx](ctx)
-//	if client == nil { return nil }
-//
-// With River v0.39.0 that nil-guard is UNREACHABLE — ClientFromContext panics
-// rather than returning nil when no client is in context, so the documented
-// "no client in ctx (shouldn't happen in prod); leave pending" fallback can
-// never run. See TestProvisionWorker_NilClientFallbackIsUnreachable.
+// The production pending branch uses river.ClientFromContextSafely (NOT
+// ClientFromContext, which PANICS when no client is present): a missing client
+// falls back to a clean no-enqueue pass — exercised by the
+// "client-less ctx falls back cleanly" subtest below, which passes a bare
+// context.Background().
 func workCtxWithClient(t *testing.T) context.Context {
 	t.Helper()
 	// An unreachable DSN: we never connect, we only need a constructed client
@@ -417,4 +411,57 @@ func TestProvisionWorker_Work(t *testing.T) {
 			t.Fatalf("nothing should happen for a deleted domain")
 		}
 	})
+}
+
+// TestProvisionWorker_AlreadyVerifiedNoOp pins the review fix: re-running
+// provisioning for an already-verified domain (POST /verify forced re-check
+// after the unique-dedup window) must NOT call the provider or demote the
+// domain back to pending.
+func TestProvisionWorker_AlreadyVerifiedNoOp(t *testing.T) {
+	store := newFakeStore()
+	store.setStatus("acme.com", StatusVerified)
+	store.setProvisionInputs("sel", []byte("der"), true)
+	prov := NewFakeProvider()
+	w := &ProvisionWorker{store: store, provider: prov}
+
+	if err := w.Work(context.Background(), provisionJob("acme.com")); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if len(prov.ProvisionCalls) != 0 {
+		t.Errorf("Provision must not run for an already-verified domain, got %d calls", len(prov.ProvisionCalls))
+	}
+	if got, _ := store.GetSendingStatus(context.Background(), "acme.com"); got != StatusVerified {
+		t.Errorf("status = %q, want verified (no demotion)", got)
+	}
+}
+
+// TestReconcileWorker_LastAttemptTransientErrorFails pins the review fix: a
+// transient provider error on the FINAL attempt must mark the domain failed
+// (absolute TTL) rather than return an error that River discards, stranding
+// the domain in pending forever. A non-last attempt still retries.
+func TestReconcileWorker_LastAttemptTransientErrorFails(t *testing.T) {
+	store := newFakeStore()
+	store.setStatus("acme.com", StatusPending)
+	store.setOwner("acme.com", "u1")
+	prov := NewFakeProvider()
+	prov.SetStatusErr("acme.com", errors.New("ses throttled"))
+	firer := &recordingFirer{}
+	w := &ReconcileWorker{store: store, provider: prov, fire: firer.fire()}
+
+	// Final attempt: must NOT return an error and must set failed.
+	if err := w.Work(context.Background(), reconcileJob("acme.com", 5, 5)); err != nil {
+		t.Fatalf("Work on last attempt returned err (would strand pending): %v", err)
+	}
+	if got, _ := store.GetSendingStatus(context.Background(), "acme.com"); got != StatusFailed {
+		t.Errorf("status = %q, want failed after last-attempt transient error", got)
+	}
+	if firer.count() == 0 {
+		t.Error("expected domain.sending_failed to fire on TTL timeout")
+	}
+
+	// Non-final attempt: must return the error to trigger a retry.
+	store.setStatus("acme.com", StatusPending)
+	if err := w.Work(context.Background(), reconcileJob("acme.com", 1, 5)); err == nil {
+		t.Error("expected retry error on a non-final transient error")
+	}
 }
