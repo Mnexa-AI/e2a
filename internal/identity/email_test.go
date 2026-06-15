@@ -1,6 +1,20 @@
 package identity
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
+
+// TestUpdateAgentInboundPolicyInvalid verifies the policy is validated before
+// any DB access (the inboundpolicy.Valid short-circuit), so a bogus policy
+// returns an error without a pool. Mirrors the gate the API maps to 400.
+func TestUpdateAgentInboundPolicyInvalid(t *testing.T) {
+	s := &Store{} // nil pool: invalid policy must return before touching it
+	err := s.UpdateAgentInboundPolicy(context.Background(), "bot@acme.com", "u_1", "bogus", nil)
+	if err == nil {
+		t.Fatal("expected error for invalid inbound_policy, got nil")
+	}
+}
 
 func TestNormalizeEmail(t *testing.T) {
 	tests := []struct {

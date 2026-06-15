@@ -48,6 +48,14 @@ components:
         inbound_7d:
           format: int64
           type: integer
+        inbound_allowlist:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        inbound_policy:
+          type: string
         last_delivery_at:
           format: date-time
           type: string
@@ -81,6 +89,7 @@ components:
         - outbound_7d
         - pending_count
         - webhook_healthy
+        - inbound_policy
       type: object
     AgentView:
       additionalProperties: false
@@ -103,6 +112,14 @@ components:
           type: integer
         id:
           type: string
+        inbound_allowlist:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        inbound_policy:
+          type: string
         name:
           type: string
       required:
@@ -115,6 +132,7 @@ components:
         - hitl_enabled
         - hitl_ttl_seconds
         - hitl_expiration_action
+        - inbound_policy
       type: object
     ApproveRequest:
       additionalProperties: false
@@ -762,6 +780,10 @@ components:
         expires_at:
           format: date-time
           type: string
+        flag_reason:
+          type: string
+        flagged:
+          type: boolean
         id:
           type: string
         inbox_status:
@@ -872,6 +894,10 @@ components:
           type: string
         direction:
           type: string
+        flag_reason:
+          type: string
+        flagged:
+          type: boolean
         from:
           type: string
         hitl_status:
@@ -947,6 +973,10 @@ components:
           type: string
         delivery_status:
           type: string
+        flag_reason:
+          type: string
+        flagged:
+          type: boolean
         from:
           type: string
         labels:
@@ -1340,6 +1370,12 @@ components:
         hitl_ttl_seconds:
           format: int64
           type: integer
+        inbound_allowlist:
+          items:
+            type: string
+          type: array
+        inbound_policy:
+          type: string
       type: object
     UpdateDomainRequest:
       additionalProperties: false

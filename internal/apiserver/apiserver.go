@@ -75,11 +75,12 @@ func BuildDeps(p Params) httpapi.Deps {
 		ListConversations: p.Store.ListConversationsByAgent,
 		GetConversation:   p.Store.GetConversationByID,
 
-		CreateAgent:        p.Store.CreateAgent,
-		LookupDomain:       p.Store.LookupDomain,
-		EnforceAgentCreate: p.Enforcer.CheckAgentCreate,
-		UpdateAgentHITL:    p.Store.UpdateAgentHITL,
-		DeleteAgent:        p.Store.DeleteAgent,
+		CreateAgent:              p.Store.CreateAgent,
+		LookupDomain:             p.Store.LookupDomain,
+		EnforceAgentCreate:       p.Enforcer.CheckAgentCreate,
+		UpdateAgentHITL:          p.Store.UpdateAgentHITL,
+		UpdateAgentInboundPolicy: p.Store.UpdateAgentInboundPolicy,
+		DeleteAgent:              p.Store.DeleteAgent,
 
 		ListDomains:         p.Store.ListDomainsByUser,
 		ClaimDomain:         p.Store.ClaimOrCreateDomain,

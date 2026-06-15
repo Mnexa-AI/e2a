@@ -47,6 +47,7 @@ func seedUserData(t *testing.T, store *identity.Store, ctx context.Context, labe
 		[]byte("From: alice@gmail.com\r\nSubject: Hi\r\n\r\nbody"),
 		map[string]string{"X-E2A-Auth-Verified": "true"},
 		nil,
+		false, "",
 		nil, nil, []string{"real-alice@example.com"},
 	); err != nil {
 		t.Fatalf("seed: CreateInboundMessage: %v", err)

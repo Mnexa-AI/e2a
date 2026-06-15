@@ -79,6 +79,7 @@ func TestOutbox_Integration_RelayTxShape(t *testing.T) {
 				[]byte("Subject: Test\r\n\r\nhello"),
 				map[string]string{"From": "sender@example.com"},
 				nil,
+				false, "",
 				[]string{agentEmail}, nil, nil,
 			)
 			if err != nil {
@@ -148,7 +149,7 @@ func TestOutbox_Integration_RelayTxShape(t *testing.T) {
 			_, err := store.CreateInboundMessageInTx(ctx, tx,
 				retryMessageID, agentEmail, "sender@example.com", agentEmail,
 				"<retry-1@sender.example>", "Retry", "", "unread",
-				[]byte("hello"), nil, nil, []string{agentEmail}, nil, nil,
+				[]byte("hello"), nil, nil, false, "", []string{agentEmail}, nil, nil,
 			)
 			if err != nil {
 				return err
@@ -175,7 +176,7 @@ func TestOutbox_Integration_RelayTxShape(t *testing.T) {
 			_, err := store.CreateInboundMessageInTx(ctx, tx,
 				retryMessageID, agentEmail, "sender@example.com", agentEmail,
 				"<retry-2@sender.example>", "Retry 2", "", "unread",
-				[]byte("hello again"), nil, nil, []string{agentEmail}, nil, nil,
+				[]byte("hello again"), nil, nil, false, "", []string{agentEmail}, nil, nil,
 			)
 			if err != nil {
 				return err
@@ -207,7 +208,7 @@ func TestOutbox_Integration_RelayTxShape(t *testing.T) {
 			if _, err := store.CreateInboundMessageInTx(ctx, tx,
 				failMsgID, agentEmail, "sender@example.com", agentEmail,
 				"<fail@sender.example>", "Will Fail", "", "unread",
-				[]byte("hello"), nil, nil, []string{agentEmail}, nil, nil,
+				[]byte("hello"), nil, nil, false, "", []string{agentEmail}, nil, nil,
 			); err != nil {
 				return err
 			}

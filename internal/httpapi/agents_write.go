@@ -110,6 +110,10 @@ type UpdateAgentRequest struct {
 	HITLEnabled          *bool   `json:"hitl_enabled,omitempty"`
 	HITLTTLSeconds       *int    `json:"hitl_ttl_seconds,omitempty"`
 	HITLExpirationAction *string `json:"hitl_expiration_action,omitempty"`
+	// InboundPolicy / InboundAllowlist set the per-agent inbound ingestion gate
+	// (migration 033 / Slice 7). Pointers so absent != zero.
+	InboundPolicy    *string   `json:"inbound_policy,omitempty"`
+	InboundAllowlist *[]string `json:"inbound_allowlist,omitempty"`
 }
 
 type updateAgentInput struct {
@@ -142,6 +146,24 @@ func (s *Server) handleUpdateAgent(ctx context.Context, in *updateAgentInput) (*
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "update unavailable")
 		}
 		if err := s.deps.UpdateAgentHITL(ctx, ag.ID, ag.UserID, enabled, ttl, action); err != nil {
+			return nil, NewError(http.StatusBadRequest, "invalid_request", err.Error())
+		}
+		touched = true
+	}
+
+	if req.InboundPolicy != nil || req.InboundAllowlist != nil {
+		policy := ag.InboundPolicy
+		if req.InboundPolicy != nil {
+			policy = *req.InboundPolicy
+		}
+		allowlist := ag.InboundAllowlist
+		if req.InboundAllowlist != nil {
+			allowlist = *req.InboundAllowlist
+		}
+		if s.deps.UpdateAgentInboundPolicy == nil {
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "update unavailable")
+		}
+		if err := s.deps.UpdateAgentInboundPolicy(ctx, ag.ID, ag.UserID, policy, allowlist); err != nil {
 			return nil, NewError(http.StatusBadRequest, "invalid_request", err.Error())
 		}
 		touched = true

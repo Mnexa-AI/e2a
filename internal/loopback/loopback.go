@@ -182,7 +182,7 @@ func ComposeMIME(agent *identity.AgentIdentity, req outbound.SendRequest, provid
 // InboundWriter is the subset of *identity.Store DeliverInbound uses.
 // Lets tests swap in fakes; production code passes the real store.
 type InboundWriter interface {
-	CreateInboundMessage(ctx context.Context, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus string, rawMessage []byte, authHeaders map[string]string, authVerdict []byte, toRecipients, cc, replyTo []string) (*identity.Message, error)
+	CreateInboundMessage(ctx context.Context, id, agentID, senderEmail, recipient, emailMessageID, subject, conversationID, deliveryStatus string, rawMessage []byte, authHeaders map[string]string, authVerdict []byte, flagged bool, flagReason string, toRecipients, cc, replyTo []string) (*identity.Message, error)
 }
 
 // DeliverInbound writes the recipient-side row for a loopback self-send
@@ -231,8 +231,10 @@ func DeliverInbound(ctx context.Context, store InboundWriter, agent *identity.Ag
 		req.ConversationID,
 		"unread",
 		rawMessage,
-		nil, // no DKIM/SPF auth headers on a synthetic loopback
-		nil, // no auth verdict on a synthetic loopback
+		nil,   // no DKIM/SPF auth headers on a synthetic loopback
+		nil,   // no auth verdict on a synthetic loopback
+		false, // not flagged: loopback self-send bypasses the inbound policy gate
+		"",    // no flag reason
 		[]string{email},
 		nil, // cc
 		nil, // reply_to
