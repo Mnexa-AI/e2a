@@ -26,6 +26,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/relay"
+	"github.com/Mnexa-AI/e2a/internal/senderidentity"
 	"github.com/Mnexa-AI/e2a/internal/telemetry"
 	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
@@ -69,6 +70,24 @@ import (
 // @in header
 // @name Authorization
 // @description API key from the API Keys page (starts with `e2a_`). Format: `Bearer e2a_your_key`
+// senderIdentityEventFirer adapts the webhooks publisher to the
+// senderidentity.EventFirer hook: it publishes domain.sending_verified /
+// domain.sending_failed to the owning user's webhook subscribers when a
+// domain's sending identity reaches a terminal state (decision 4 / Slice 4).
+func senderIdentityEventFirer(pub webhookpub.Publisher) senderidentity.EventFirer {
+	return func(ctx context.Context, domain, userID string, status senderidentity.Status, errMsg string) {
+		eventType := webhookpub.EventDomainSendingVerified
+		data := map[string]any{"domain": domain, "sending_status": string(status)}
+		if status == senderidentity.StatusFailed {
+			eventType = webhookpub.EventDomainSendingFailed
+			if errMsg != "" {
+				data["error"] = errMsg
+			}
+		}
+		pub.Publish(ctx, webhookpub.NewEvent(eventType, userID, data))
+	}
+}
+
 func main() {
 	// Load .env file if present (development convenience, not required)
 	godotenv.Load()
@@ -105,6 +124,12 @@ func main() {
 	}
 	if err := identity.RunMigrations(ctx, pool, migrations.FS, migrationMode); err != nil {
 		log.Fatalf("Schema migration failed: %v", err)
+	}
+	// River's own schema (job queue) for the sender-identity workers
+	// (decision 4 / Slice 4). Tracked in River's river_migration table,
+	// separate from e2a's schema_migrations; idempotent.
+	if err := senderidentity.Migrate(ctx, pool); err != nil {
+		log.Fatalf("River schema migration failed: %v", err)
 	}
 
 	// Bootstrap mode: create a user + API key and exit. Used by self-host
@@ -177,6 +202,39 @@ func main() {
 	outboxWorker := webhookpub.NewOutboxWorker(pool, store).WithMetrics(metrics)
 	smtpRelay := outbound.NewSMTPRelay(&cfg.OutboundSMTP)
 	sender := outbound.NewSenderWithDKIM(smtpRelay, cfg.OutboundSMTP.FromDomain, store)
+	// Own-address From gating (decision 4 / Slice 4): the sender consults the
+	// domain's sending_status and uses the agent's own address as From only
+	// when "verified" (fail-closed; a missing/none/pending/failed status keeps
+	// the relay From). Wiring this is behavior-neutral until a domain verifies.
+	sender.SetSendingStatusLookup(store)
+
+	// Sender-identity manager (decision 4 / Slice 4). Only wired when SES is
+	// configured: domain verify enqueues a BYODKIM provision job + reconciler;
+	// domain delete enqueues a teardown job in the delete tx. Without SES the
+	// interface stays a true nil (sending_status never leaves "none").
+	var senderEnqueuer apiserver.SenderIdentityEnqueuer
+	if region := cfg.SenderIdentity.SESRegion; region != "" {
+		provider, perr := senderidentity.NewSESProviderFromConfig(ctx, region)
+		if perr != nil {
+			log.Fatalf("sender identity: build SES provider: %v", perr)
+		}
+		senderMgr, merr := senderidentity.NewManager(
+			pool,
+			senderidentity.NewStoreAdapter(store),
+			provider,
+			senderIdentityEventFirer(webhookPublisher),
+			senderidentity.Config{},
+		)
+		if merr != nil {
+			log.Fatalf("sender identity: build manager: %v", merr)
+		}
+		if serr := senderMgr.Start(ctx); serr != nil {
+			log.Fatalf("sender identity: start manager: %v", serr)
+		}
+		defer senderMgr.Stop(context.Background())
+		senderEnqueuer = senderMgr
+		log.Printf("[sender-identity] SES provisioning enabled (region=%s)", region)
+	}
 
 	// User auth (Google OAuth for agent developers)
 	userAuth := auth.NewUserAuth(&cfg.OAuth, store, cfg.IsProduction())
@@ -271,6 +329,12 @@ func main() {
 	api.SetInternalAPISecret(cfg.Limits.InternalAPISecret)
 	api.SetBillingHookURL(cfg.Limits.BillingHookURL)
 	api.SetSubscriberStore(subscriberStore)
+	// Account-delete cascade (decision 4 / Slice 4): when SES is configured,
+	// DELETE /account enqueues an SES teardown job for every owned domain in
+	// the delete tx. Per-domain DELETE teardown is wired in apiserver.
+	if senderEnqueuer != nil {
+		api.SetDomainTeardownHook(senderEnqueuer.EnqueueDeprovisionTx)
+	}
 	api.SetPublisher(webhookPublisher)
 	api.SetOutbox(webhookOutbox)
 	// Slices 6 + 7: customer-facing events API needs the raw pool to
@@ -308,6 +372,7 @@ func main() {
 		Production:      cfg.IsProduction(),
 		Legacy:          router,
 		WSHandle:        wsHandler.ServeWithEmail,
+		SenderIdentity:  senderEnqueuer,
 	})
 
 	httpServer := &http.Server{

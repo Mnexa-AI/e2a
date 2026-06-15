@@ -1,0 +1,205 @@
+//go:build integration
+
+package senderidentity_test
+
+import (
+	"context"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/senderidentity"
+	"github.com/Mnexa-AI/e2a/internal/testutil"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// freshRiver applies River's schema and clears the job table. The shared
+// e2a_test DB is NOT truncated of River tables between runs by testutil, so a
+// prior run's COMPLETED jobs would otherwise dedup new ByArgs enqueues
+// (same domain) into no-ops — making these tests pass alone but hang in the
+// full suite. Truncating river_job per test restores isolation.
+func freshRiver(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	ctx := context.Background()
+	if err := senderidentity.Migrate(ctx, pool); err != nil {
+		t.Fatalf("river migrate: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "TRUNCATE river_job"); err != nil {
+		t.Fatalf("truncate river_job: %v", err)
+	}
+}
+
+// recordingFire captures fired sender-identity events.
+type recordingFire struct {
+	mu     sync.Mutex
+	events []firedEvent
+}
+type firedEvent struct {
+	domain string
+	userID string
+	status senderidentity.Status
+}
+
+func (r *recordingFire) firer() senderidentity.EventFirer {
+	return func(ctx context.Context, domain, userID string, status senderidentity.Status, errMsg string) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.events = append(r.events, firedEvent{domain, userID, status})
+	}
+}
+
+func (r *recordingFire) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.events)
+}
+
+// setupVerifiedDomain creates a user + a verified domain (with DKIM key
+// material, which ClaimOrCreateDomain generates) and returns the domain.
+func setupVerifiedDomain(t *testing.T, store *identity.Store, prefix string) (userID, domain string) {
+	t.Helper()
+	ctx := context.Background()
+	user, err := store.CreateOrGetUser(ctx, "owner-"+prefix+"@example.com", "Owner", "google-"+prefix)
+	if err != nil {
+		t.Fatalf("CreateOrGetUser: %v", err)
+	}
+	domain = prefix + ".example.com"
+	if _, err := store.ClaimOrCreateDomain(ctx, domain, user.ID); err != nil {
+		t.Fatalf("ClaimOrCreateDomain: %v", err)
+	}
+	if err := store.VerifyDomain(ctx, domain, user.ID); err != nil {
+		t.Fatalf("VerifyDomain: %v", err)
+	}
+	return user.ID, domain
+}
+
+func waitForStatus(t *testing.T, store *identity.Store, domain string, want string, timeout time.Duration) {
+	t.Helper()
+	ctx := context.Background()
+	deadline := time.Now().Add(timeout)
+	var last string
+	for time.Now().Before(deadline) {
+		got, err := store.GetSendingStatus(ctx, domain)
+		if err != nil {
+			t.Fatalf("GetSendingStatus: %v", err)
+		}
+		last = got
+		if got == want {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("sending_status for %s = %q, want %q within %s", domain, last, want, timeout)
+}
+
+// TestProvisionToVerified drives the full River-backed flow against a real DB
+// with a FakeProvider: EnqueueProvision → ProvisionWorker (pending) → enqueued
+// ReconcileWorker → FakeProvider reports verified → domain.sending_status
+// becomes "verified" and domain.sending_verified fires.
+func TestProvisionToVerified(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+
+	freshRiver(t, pool)
+	_, domain := setupVerifiedDomain(t, store, "siprov")
+
+	fake := senderidentity.NewFakeProvider()
+	// First reconcile poll already reports verified → no backoff wait.
+	fake.SetStatus(domain, senderidentity.Result{Status: senderidentity.StatusVerified})
+
+	rec := &recordingFire{}
+	mgr, err := senderidentity.NewManager(pool, senderidentity.NewStoreAdapter(store), fake, rec.firer(), senderidentity.Config{})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if err := mgr.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer mgr.Stop(context.Background())
+
+	if err := mgr.EnqueueProvision(ctx, domain); err != nil {
+		t.Fatalf("EnqueueProvision: %v", err)
+	}
+
+	waitForStatus(t, store, domain, "verified", 15*time.Second)
+
+	if len(fake.ProvisionCalls) == 0 {
+		t.Error("expected Provision to be called")
+	}
+	if rec.count() == 0 {
+		t.Error("expected domain.sending_verified to fire")
+	}
+}
+
+// TestProvisionFailsClosed drives a provider that reports the verification
+// failed: status must end at "failed" (relay From, fail-closed) with the
+// reason persisted.
+func TestProvisionFailsClosed(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+
+	freshRiver(t, pool)
+	_, domain := setupVerifiedDomain(t, store, "sifail")
+
+	fake := senderidentity.NewFakeProvider()
+	fake.SetStatus(domain, senderidentity.Result{Status: senderidentity.StatusFailed, Error: "dkim mismatch"})
+
+	mgr, err := senderidentity.NewManager(pool, senderidentity.NewStoreAdapter(store), fake, nil, senderidentity.Config{})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if err := mgr.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer mgr.Stop(context.Background())
+
+	if err := mgr.EnqueueProvision(ctx, domain); err != nil {
+		t.Fatalf("EnqueueProvision: %v", err)
+	}
+	waitForStatus(t, store, domain, "failed", 15*time.Second)
+}
+
+// TestDeprovisionTeardown enqueues a deprovision job (as DeleteDomainTx would)
+// and asserts the FakeProvider's Deprovision is called for the domain.
+func TestDeprovisionTeardown(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+
+	freshRiver(t, pool)
+
+	fake := senderidentity.NewFakeProvider()
+	fake.SeedIdentity("teardown.example.com")
+	mgr, err := senderidentity.NewManager(pool, senderidentity.NewStoreAdapter(store), fake, nil, senderidentity.Config{})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if err := mgr.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer mgr.Stop(context.Background())
+
+	// EnqueueDeprovisionTx requires a tx; use the pool's own.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	if err := mgr.EnqueueDeprovisionTx(ctx, tx, "teardown.example.com"); err != nil {
+		t.Fatalf("EnqueueDeprovisionTx: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(fake.DeprovisionCalls) > 0 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("Deprovision was not called within timeout")
+}

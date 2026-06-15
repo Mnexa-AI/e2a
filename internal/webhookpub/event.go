@@ -33,6 +33,11 @@ const (
 	EventEmailPendingApproval = "email.pending_approval"
 	EventEmailApproved        = "email.approved"
 	EventEmailRejected        = "email.rejected"
+	// Sender identity (decision 4 / Slice 4): the async SES sending identity
+	// for a domain reached a terminal state. Lets agents skip polling
+	// GET /domains/{domain} for sending_status.
+	EventDomainSendingVerified = "domain.sending_verified"
+	EventDomainSendingFailed   = "domain.sending_failed"
 )
 
 // AllEventTypes is the canonical allowlist of event names. Used by
@@ -44,6 +49,8 @@ var AllEventTypes = []string{
 	EventEmailPendingApproval,
 	EventEmailApproved,
 	EventEmailRejected,
+	EventDomainSendingVerified,
+	EventDomainSendingFailed,
 }
 
 // IsValidEventType reports whether name is one of the catalog
@@ -150,10 +157,11 @@ func generateEventID() string {
 
 // DeterministicEventID derives a stable event id from the trigger
 // context. Per design §5.1, the input formula per event type is:
-//   email.received: sha256(message_id || "|" || event_type)
-//   email.sent:     sha256(message_id || "|" || event_type)
-//   pending_approval/approved/rejected: sha256(pending_msg_id || "|" || event_type)
-//   future bounced/complained/delivered: sha256(message_id || "|" || event_type || "|" || ses_event_id)
+//
+//	email.received: sha256(message_id || "|" || event_type)
+//	email.sent:     sha256(message_id || "|" || event_type)
+//	pending_approval/approved/rejected: sha256(pending_msg_id || "|" || event_type)
+//	future bounced/complained/delivered: sha256(message_id || "|" || event_type || "|" || ses_event_id)
 //
 // The "|" delimiter prevents accidental collisions where concatenated
 // fields could be ambiguous (e.g. ("abc","def") vs ("abcdef","")).

@@ -60,6 +60,16 @@ type Domain struct {
 	// keep all three NULL until the next ClaimOrCreate or backfill.
 	DKIMSelector  string `json:"dkim_selector,omitempty"`
 	DKIMPublicKey string `json:"dkim_public_key,omitempty"`
+	// Sender identity (decision 4 / Slice 4). Independent of `Verified`
+	// (inbound ownership): SendingStatus tracks the async SES sending
+	// identity that lets outbound use the agent's own address as From.
+	// SendingStatus ∈ {none,pending,verified,failed}; own-address From is
+	// used ONLY when "verified" (fail-closed). SendingDNSRecordsJSON is the
+	// raw JSONB (nil when unset) — the API layer unmarshals it for display.
+	SendingStatus         string     `json:"sending_status"`
+	SendingError          string     `json:"sending_error,omitempty"`
+	SendingDNSRecordsJSON []byte     `json:"-"`
+	SendingLastCheckedAt  *time.Time `json:"sending_last_checked_at,omitempty"`
 }
 
 type AgentIdentity struct {
@@ -318,9 +328,9 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 		 ON CONFLICT (domain) DO UPDATE
 		 SET user_id = domains.user_id
 		 WHERE domains.verified = false AND domains.user_id = $2
-		 RETURNING domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, '')`,
+		 RETURNING domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at`,
 		domain, userID, verificationToken, nullIfEmpty(dkimSelector), nullIfEmpty(dkimPubKey), nullIfEmptyBytes(dkimPrivKey),
-	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey)
+	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.SendingStatus, &d.SendingError, &d.SendingDNSRecordsJSON, &d.SendingLastCheckedAt)
 
 	if err == nil {
 		return d, nil
@@ -332,9 +342,9 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 	// it" and "different user → not available".
 	existing := &Domain{}
 	err = s.pool.QueryRow(ctx,
-		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, '')
+		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at
 		 FROM domains WHERE domain = $1`, domain,
-	).Scan(&existing.Domain, &existing.UserID, &existing.Verified, &existing.VerificationToken, &existing.CreatedAt, &existing.VerifiedAt, &existing.IsPrimary, &existing.LastCheckedAt, &existing.DKIMSelector, &existing.DKIMPublicKey)
+	).Scan(&existing.Domain, &existing.UserID, &existing.Verified, &existing.VerificationToken, &existing.CreatedAt, &existing.VerifiedAt, &existing.IsPrimary, &existing.LastCheckedAt, &existing.DKIMSelector, &existing.DKIMPublicKey, &existing.SendingStatus, &existing.SendingError, &existing.SendingDNSRecordsJSON, &existing.SendingLastCheckedAt)
 	if err != nil {
 		return nil, fmt.Errorf("domain lookup failed: %w", err)
 	}
@@ -393,14 +403,113 @@ func (s *Store) GetDKIMKeyInternal(ctx context.Context, domain string) (string, 
 	return selector, privKey, nil
 }
 
+// --- Sender identity (decision 4 / Slice 4) ---
+//
+// These primitive accessors back the senderidentity.RawStore interface
+// (string status, JSON dns records) so the core store stays decoupled from
+// the senderidentity package (and its River + AWS SDK deps). The adapter in
+// senderidentity converts to its typed Status/DNSRecord.
+
+// SendingProvisionInputs returns the per-domain DKIM selector + private key
+// for BYODKIM provisioning. ok=false means no usable key material. Like
+// GetDKIMKeyInternal this is unscoped — call only with a server-resolved
+// domain.
+func (s *Store) SendingProvisionInputs(ctx context.Context, domain string) (selector string, privateKeyDER []byte, ok bool, err error) {
+	err = s.pool.QueryRow(ctx,
+		`SELECT COALESCE(dkim_selector, ''), dkim_private_key FROM domains WHERE domain = $1`,
+		normalizeDomain(domain),
+	).Scan(&selector, &privateKeyDER)
+	if err != nil {
+		return "", nil, false, err // includes pgx.ErrNoRows (domain gone)
+	}
+	if selector == "" || len(privateKeyDER) == 0 {
+		return "", nil, false, nil
+	}
+	return selector, privateKeyDER, true, nil
+}
+
+// SetSendingStatus writes the sending lifecycle state for a domain and stamps
+// sending_last_checked_at. recordsJSON may be nil (cleared).
+func (s *Store) SetSendingStatus(ctx context.Context, domain, status, errMsg string, recordsJSON []byte) error {
+	var errPtr *string
+	if errMsg != "" {
+		errPtr = &errMsg
+	}
+	_, err := s.pool.Exec(ctx,
+		`UPDATE domains
+		    SET sending_status = $2,
+		        sending_error = $3,
+		        sending_dns_records = $4,
+		        sending_last_checked_at = now()
+		  WHERE domain = $1`,
+		normalizeDomain(domain), status, errPtr, recordsJSON,
+	)
+	return err
+}
+
+// TouchSendingChecked stamps sending_last_checked_at without changing status
+// (a still-pending poll).
+func (s *Store) TouchSendingChecked(ctx context.Context, domain string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE domains SET sending_last_checked_at = now() WHERE domain = $1`,
+		normalizeDomain(domain),
+	)
+	return err
+}
+
+// GetSendingStatus returns the domain's sending_status. Propagates
+// pgx.ErrNoRows when the domain row is gone.
+func (s *Store) GetSendingStatus(ctx context.Context, domain string) (string, error) {
+	var status string
+	err := s.pool.QueryRow(ctx,
+		`SELECT sending_status FROM domains WHERE domain = $1`,
+		normalizeDomain(domain),
+	).Scan(&status)
+	if err != nil {
+		return "", err
+	}
+	return status, nil
+}
+
+// DomainOwner returns the user_id owning a domain, or "" for an unowned
+// (system) domain. pgx.ErrNoRows → ("", nil) so the caller treats a missing
+// domain as "no owner, no event".
+func (s *Store) DomainOwner(ctx context.Context, domain string) (string, error) {
+	var owner *string
+	err := s.pool.QueryRow(ctx,
+		`SELECT user_id FROM domains WHERE domain = $1`,
+		normalizeDomain(domain),
+	).Scan(&owner)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if owner == nil {
+		return "", nil
+	}
+	return *owner, nil
+}
+
+// DomainExists reports whether a live domain row exists (orphan reaper).
+func (s *Store) DomainExists(ctx context.Context, domain string) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM domains WHERE domain = $1)`,
+		normalizeDomain(domain),
+	).Scan(&exists)
+	return exists, err
+}
+
 // LookupDomain returns a domain if it exists and is owned by the given user.
 func (s *Store) LookupDomain(ctx context.Context, domain, userID string) (*Domain, error) {
 	d := &Domain{}
 	err := s.pool.QueryRow(ctx,
-		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, '')
+		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at
 		 FROM domains WHERE domain = $1 AND user_id = $2`,
 		normalizeDomain(domain), userID,
-	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey)
+	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.SendingStatus, &d.SendingError, &d.SendingDNSRecordsJSON, &d.SendingLastCheckedAt)
 	if err != nil {
 		return nil, fmt.Errorf("domain not found")
 	}
@@ -433,6 +542,7 @@ func (s *Store) ListDomainsByUser(ctx context.Context, userID string) ([]Domain,
 		`SELECT d.domain, d.user_id, d.verified, d.verification_token, d.created_at, d.verified_at,
 		        d.is_primary, d.last_checked_at,
 		        COALESCE(d.dkim_selector, ''), COALESCE(d.dkim_public_key, ''),
+		        d.sending_status, COALESCE(d.sending_error, ''), d.sending_dns_records, d.sending_last_checked_at,
 		        (SELECT count(*) FROM agent_identities a WHERE a.domain = d.domain AND a.user_id = d.user_id) AS agent_count
 		 FROM domains d
 		 WHERE d.user_id = $1
@@ -446,7 +556,7 @@ func (s *Store) ListDomainsByUser(ctx context.Context, userID string) ([]Domain,
 	var domains []Domain
 	for rows.Next() {
 		var d Domain
-		if err := rows.Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.AgentCount); err != nil {
+		if err := rows.Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.SendingStatus, &d.SendingError, &d.SendingDNSRecordsJSON, &d.SendingLastCheckedAt, &d.AgentCount); err != nil {
 			return nil, err
 		}
 		domains = append(domains, d)
@@ -536,7 +646,25 @@ var ErrDomainNotFound = fmt.Errorf("domain not found or not owned by user")
 // DeleteDomain deletes a domain only if owned by the user.
 // The handler should check for existing agents first.
 func (s *Store) DeleteDomain(ctx context.Context, domain, userID string) error {
-	tag, err := s.pool.Exec(ctx,
+	return s.DeleteDomainTx(ctx, domain, userID, nil)
+}
+
+// DeleteDomainTx deletes a domain and, before committing, runs inTx within
+// the SAME transaction. The hook is how sender-identity teardown is enqueued
+// transactionally (decision 4): the River deprovision job is committed
+// atomically with the domain-row delete, so it can never be lost if SES is
+// unreachable at delete time. A nil hook is a plain delete (dev / no SES).
+//
+// inTx runs only after the DELETE affected a row (the domain existed and was
+// owned by userID); it never runs for a not-found / FK-blocked delete.
+func (s *Store) DeleteDomainTx(ctx context.Context, domain, userID string, inTx func(ctx context.Context, tx pgx.Tx) error) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx,
 		`DELETE FROM domains WHERE domain = $1 AND user_id = $2`,
 		normalizeDomain(domain), userID,
 	)
@@ -549,7 +677,12 @@ func (s *Store) DeleteDomain(ctx context.Context, domain, userID string) error {
 	if tag.RowsAffected() == 0 {
 		return ErrDomainNotFound
 	}
-	return nil
+	if inTx != nil {
+		if err := inTx(ctx, tx); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 // --- Agent CRUD ---

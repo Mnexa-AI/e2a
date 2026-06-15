@@ -92,6 +92,40 @@ type Sender struct {
 	// signing entirely — the relay falls back to whatever
 	// deployment-level signing it has always done.
 	dkimLookup DKIMKeyLookup
+	// sendingStatus is optional (decision 4 / Slice 4). When set AND the
+	// agent's verified custom domain has sending_status == "verified", the
+	// From header uses the agent's OWN address instead of the relay
+	// "… via e2a" rewrite. nil, an unverified domain, a lookup error, or any
+	// non-verified status all fall back to the relay From (fail-closed): we
+	// never send unaligned mail under a customer domain.
+	sendingStatus SendingStatusLookup
+}
+
+// SendingStatusLookup returns a domain's sending_status string
+// ("none"|"pending"|"verified"|"failed"). *identity.Store satisfies it.
+// Kept as a string interface so outbound does not import senderidentity
+// (and its River + AWS SDK deps).
+type SendingStatusLookup interface {
+	GetSendingStatus(ctx context.Context, domain string) (string, error)
+}
+
+// SetSendingStatusLookup enables own-address From for sending-verified
+// domains. Optional-setter pattern (cf. relay.SetPublisher) so existing
+// NewSender/NewSenderWithDKIM call sites and tests are unaffected.
+func (s *Sender) SetSendingStatusLookup(l SendingStatusLookup) { s.sendingStatus = l }
+
+// useOwnAddressFrom reports whether outbound for this agent may use its own
+// address as the From header. Fail-closed: every uncertain path returns false.
+func (s *Sender) useOwnAddressFrom(agent *identity.AgentIdentity) bool {
+	if s.sendingStatus == nil || agent == nil || !agent.DomainVerified || agent.Domain == "" {
+		return false
+	}
+	// "verified" mirrors senderidentity.StatusVerified (not imported here).
+	status, err := s.sendingStatus.GetSendingStatus(context.Background(), agent.Domain)
+	if err != nil {
+		return false
+	}
+	return status == "verified"
 }
 
 func NewSender(smtpRelay *SMTPRelay, fromDomain string) *Sender {
@@ -167,8 +201,20 @@ func (s *Sender) Send(agent *identity.AgentIdentity, req SendRequest) (*SendResu
 	if displayName == "" {
 		displayName = agent.EmailAddress()
 	}
+	// Envelope MAIL FROM stays an e2a-owned relay address regardless of the
+	// header From: it is the Return-Path, so e2a captures bounces/complaints
+	// and SPF passes for the relay (decision 4). DMARC still passes via the
+	// DKIM signature, which is aligned to the agent's custom domain below.
 	envelopeFrom := fmt.Sprintf("agent@%s", s.fromDomain)
-	headerFrom := fmt.Sprintf("%q <%s>", displayName+" via e2a", envelopeFrom)
+	// Header From: the agent's OWN address once the domain is sending-verified
+	// (DKIM-aligned → DMARC passes, replies reach the agent directly); else
+	// the relay "… via e2a" rewrite (fail-closed default).
+	var headerFrom string
+	if s.useOwnAddressFrom(agent) {
+		headerFrom = fmt.Sprintf("%q <%s>", displayName, agent.EmailAddress())
+	} else {
+		headerFrom = fmt.Sprintf("%q <%s>", displayName+" via e2a", envelopeFrom)
+	}
 	replyTo := agent.EmailAddress()
 
 	var message []byte

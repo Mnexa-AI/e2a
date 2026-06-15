@@ -1176,11 +1176,32 @@ Break the current `/api/v1` surface directly and move it to
     regenerating the consumers is the **consumer port** (same follow-up as the
     SDK/codegen cutover); sequence the web + backend deploys together since the
     dashboard agent-settings UI 400s against this backend until then.
-* **Slice 4 — Sender identity (provision *and* teardown).** `SenderIdentityProvider`
-  (SES BYODKIM) + `sending_verified` + custom-domain `From`/`Reply-To`, **plus
-  symmetric deprovisioning** on domain/account delete (River job →
-  `DeleteEmailIdentity`, idempotent, orphan-reaper backstop — decision 4).
-  Unblocks customer-reply→reopen.
+* **Slice 4 — Sender identity (provision *and* teardown).** *(Shipped.)*
+  `internal/senderidentity.Provider` (SES BYODKIM via `sesv2`) + the
+  `domains.sending_status` lifecycle (none→pending→verified→failed, migration
+  030) + own-address `From` gated fail-closed on `verified` (the relay
+  "… via e2a" rewrite is dropped only for verified domains) + `Reply-To` =
+  agent address. Symmetric deprovisioning on domain delete (River
+  `InsertTx` in the delete tx) **and** account delete (per-owned-domain
+  enqueue in the `DeleteUserData` tx), idempotent (`DeleteEmailIdentity`,
+  NotFound=success), with the orphan reaper backstop. Events
+  `domain.sending_verified`/`domain.sending_failed`. Unblocks
+  customer-reply→reopen.
+  * **River adopted** (the repo previously used ticker-goroutine workers): the
+    provision/reconcile/deprovision/reap jobs run on a River client; River's
+    own schema is migrated at startup (`senderidentity.Migrate`) alongside
+    e2a's. The reconciler is a per-domain River job whose `MaxAttempts` bounds
+    the pending→failed TTL (no infinite poll).
+  * **Deviations from the decision-4 text, deferred:** (1) the orphan reaper is
+    **alert-only** — it logs SES identities with no live domain rather than
+    deleting them; the TOCTOU-safe conditional delete (`SELECT … FOR UPDATE`
+    liveness re-confirm) is a follow-up, and the transactional teardown on
+    delete makes orphans rare. (2) The real `sesv2` provider is **not e2e-tested
+    against AWS** here — CI/tests use the in-memory `FakeProvider`; the BYODKIM
+    key handed to SES is converted PKCS#1→PKCS#8 base64, to validate against
+    live SES before enabling `sender_identity.ses_region` in prod. (3) The
+    optional custom `MAIL FROM` subdomain (SPF alignment) and ARC sealing remain
+    deferred per decision 4.
 * **Slice 4b — Delivery feedback (decision 9).** SES SNS consumer →
   `delivery_status` lifecycle on outbound messages + `email.delivered`/
   `bounced`/`complained` events + suppression list (with account/console

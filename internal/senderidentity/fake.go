@@ -1,0 +1,143 @@
+package senderidentity
+
+import (
+	"context"
+	"sync"
+)
+
+// FakeProvider is an in-memory Provider for tests. It is concurrency-safe
+// (the workers call it from River goroutines). Configure per-domain
+// behavior with the setters; inspect calls with the recorded slices.
+//
+// Default behavior with no configuration: Provision returns StatusPending,
+// Status returns StatusPending forever, Deprovision succeeds. Tests that
+// want a domain to verify call SetStatusSequence or SetStatus.
+type FakeProvider struct {
+	mu sync.Mutex
+
+	// provisionResult / provisionErr override Provision's return per call.
+	provisionErr error
+	// statusByDomain returns a fixed Status result for a domain's polls.
+	statusByDomain map[string]Result
+	// statusSeq pops one result per Status call (then holds the last).
+	statusSeq map[string][]Result
+	// deprovisionErr forces Deprovision to fail (e.g. to exercise retry).
+	deprovisionErr error
+	// notFoundOnStatus makes Status return ErrIdentityNotFound for a domain.
+	notFoundOnStatus map[string]bool
+
+	// identities is the set of domains the fake "has" at the provider,
+	// for List/reaper tests. Provision adds; Deprovision removes.
+	identities map[string]bool
+
+	ProvisionCalls   []string
+	StatusCalls      []string
+	DeprovisionCalls []string
+}
+
+// NewFakeProvider returns a ready FakeProvider with default behavior.
+func NewFakeProvider() *FakeProvider {
+	return &FakeProvider{
+		statusByDomain:   map[string]Result{},
+		statusSeq:        map[string][]Result{},
+		notFoundOnStatus: map[string]bool{},
+		identities:       map[string]bool{},
+	}
+}
+
+// SeedIdentity marks domain as having a provider identity (for List/reaper
+// tests) without going through Provision.
+func (f *FakeProvider) SeedIdentity(domain string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.identities[domain] = true
+}
+
+// SetProvisionErr makes the next Provision calls return err.
+func (f *FakeProvider) SetProvisionErr(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.provisionErr = err
+}
+
+// SetStatus fixes the Result returned by Status for domain.
+func (f *FakeProvider) SetStatus(domain string, r Result) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.statusByDomain[domain] = r
+}
+
+// SetStatusSequence queues results consumed one-per-Status-call for domain;
+// the last result repeats once the sequence drains. Lets a test drive
+// pending → pending → verified.
+func (f *FakeProvider) SetStatusSequence(domain string, seq ...Result) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.statusSeq[domain] = seq
+}
+
+// SetStatusNotFound makes Status return ErrIdentityNotFound for domain.
+func (f *FakeProvider) SetStatusNotFound(domain string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.notFoundOnStatus[domain] = true
+}
+
+// SetDeprovisionErr forces Deprovision to fail.
+func (f *FakeProvider) SetDeprovisionErr(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deprovisionErr = err
+}
+
+func (f *FakeProvider) Provision(ctx context.Context, domain, dkimSelector string, dkimPrivateKeyDER []byte) (Result, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ProvisionCalls = append(f.ProvisionCalls, domain)
+	if f.provisionErr != nil {
+		return Result{}, f.provisionErr
+	}
+	f.identities[domain] = true
+	return Result{Status: StatusPending}, nil
+}
+
+func (f *FakeProvider) Status(ctx context.Context, domain string) (Result, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.StatusCalls = append(f.StatusCalls, domain)
+	if f.notFoundOnStatus[domain] {
+		return Result{}, ErrIdentityNotFound
+	}
+	if seq, ok := f.statusSeq[domain]; ok && len(seq) > 0 {
+		r := seq[0]
+		if len(seq) > 1 {
+			f.statusSeq[domain] = seq[1:]
+		}
+		return r, nil
+	}
+	if r, ok := f.statusByDomain[domain]; ok {
+		return r, nil
+	}
+	return Result{Status: StatusPending}, nil
+}
+
+func (f *FakeProvider) Deprovision(ctx context.Context, domain string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.DeprovisionCalls = append(f.DeprovisionCalls, domain)
+	if f.deprovisionErr != nil {
+		return f.deprovisionErr
+	}
+	delete(f.identities, domain)
+	return nil
+}
+
+func (f *FakeProvider) List(ctx context.Context) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]string, 0, len(f.identities))
+	for d := range f.identities {
+		out = append(out, d)
+	}
+	return out, nil
+}

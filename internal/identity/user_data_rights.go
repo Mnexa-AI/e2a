@@ -173,6 +173,17 @@ type DeleteUserDataResult struct {
 // Per-table counts are returned to the caller so an operator can attest
 // to what was removed in audit / compliance contexts.
 func (s *Store) DeleteUserData(ctx context.Context, userID string) (*DeleteUserDataResult, error) {
+	return s.DeleteUserDataTx(ctx, userID, nil)
+}
+
+// DeleteUserDataTx is DeleteUserData with an optional per-domain in-tx hook
+// run for every domain the user owns, BEFORE the cascade deletes them. It is
+// how sender-identity teardown is enqueued for an account delete (decision 4):
+// each owned domain's SES deprovision job commits atomically with the user
+// delete. A nil hook is a plain account delete (dev / no SES). The DB FK
+// cascade still removes the domain rows; the hook only schedules the remote
+// SES cleanup that the cascade cannot do.
+func (s *Store) DeleteUserDataTx(ctx context.Context, userID string, perDomainInTx func(ctx context.Context, tx pgx.Tx, domain string) error) (*DeleteUserDataResult, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return nil, fmt.Errorf("delete: begin tx: %w", err)
@@ -205,6 +216,22 @@ func (s *Store) DeleteUserData(ctx context.Context, userID string) (*DeleteUserD
 	// Override the SET NULL behavior on usage_events for a complete wipe.
 	if _, err := tx.Exec(ctx, `DELETE FROM usage_events WHERE user_id = $1`, userID); err != nil {
 		return nil, fmt.Errorf("delete: usage_events: %w", err)
+	}
+
+	// Sender-identity teardown: enqueue an SES deprovision job for every
+	// owned domain in this same tx, before the cascade removes the domain
+	// rows. The orphan reaper is the backstop, but doing it transactionally
+	// here means a normal account delete never leaves a dangling SES identity.
+	if perDomainInTx != nil {
+		domains, derr := scanDomainsForUser(ctx, tx, userID)
+		if derr != nil {
+			return nil, fmt.Errorf("delete: load domains for teardown: %w", derr)
+		}
+		for _, d := range domains {
+			if err := perDomainInTx(ctx, tx, d.Domain); err != nil {
+				return nil, fmt.Errorf("delete: enqueue sender teardown for %s: %w", d.Domain, err)
+			}
+		}
 	}
 
 	// Cascade does the rest: user_sessions, domains, agent_identities

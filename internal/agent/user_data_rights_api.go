@@ -102,7 +102,7 @@ func (a *API) DeleteUserDataCore(ctx context.Context, user *identity.User) (*ide
 			log.Printf("[api] billing-hook user-delete failed (continuing): user=%s err=%v", user.ID, err)
 		}
 	}
-	res, err := a.store.DeleteUserData(ctx, user.ID)
+	res, err := a.store.DeleteUserDataTx(ctx, user.ID, a.domainTeardownHook)
 	if err != nil {
 		return nil, err
 	}

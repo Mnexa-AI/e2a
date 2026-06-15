@@ -149,6 +149,12 @@ type Deps struct {
 	// domain verification
 	TouchDomainChecked func(ctx context.Context, domain, userID string) error
 	VerifyDomain       func(ctx context.Context, domain, userID string) error
+	// EnqueueSenderProvision (decision 4 / Slice 4) schedules SES sending-
+	// identity provisioning for a verified domain. Called on every successful
+	// verify check (newly OR already verified), so POST /domains/{domain}/verify
+	// doubles as the forced sending re-check. Optional — nil when SES is not
+	// configured (dev/self-host), leaving sending_status at none (relay From).
+	EnqueueSenderProvision func(ctx context.Context, domain string)
 	// VerifyProbe runs the live DNS check for a domain's published records.
 	// Injected so it is fakeable in tests (the real one wraps
 	// agent.CheckDomainRecords).

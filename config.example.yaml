@@ -52,6 +52,20 @@ outbound_smtp:
   password: ""
   from_domain: "relay.example.com"
 
+# Custom-domain sender identity (decision 4 / Slice 4). When ses_region is set,
+# verifying a domain registers an AWS SES sending identity via BYODKIM (reusing
+# the per-domain DKIM key e2a already generates), and once SES confirms it,
+# outbound mail from agents on that domain uses the agent's OWN address as the
+# From header (DKIM-aligned → DMARC passes; replies reach the agent directly).
+# Leave empty (the default) to disable: every domain's sending_status stays
+# "none" and outbound keeps the relay "… via e2a" From — the fail-closed
+# default for dev/self-host without SES. Needs AWS credentials in the ambient
+# environment (env vars / instance role) with ses:CreateEmailIdentity,
+# GetEmailIdentity, DeleteEmailIdentity, ListEmailIdentities.
+# Override with E2A_SENDER_IDENTITY_SES_REGION.
+sender_identity:
+  ses_region: ""  # e.g. "us-east-1"
+
 # Per-user resource caps applied when a user has no row in the
 # account_limits table. Hosted-service deployments overwrite these per
 # user via an external provisioner (the e2a-billing sidecar, an admin

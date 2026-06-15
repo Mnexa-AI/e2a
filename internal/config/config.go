@@ -21,14 +21,15 @@ const placeholderHMACSecret = "change-me-in-production"
 const minHMACSecretBytes = 32
 
 type Config struct {
-	SMTP         SMTPConfig         `yaml:"smtp"`
-	HTTP         HTTPConfig         `yaml:"http"`
-	Database     DatabaseConfig     `yaml:"database"`
-	OAuth        OAuthConfig        `yaml:"oauth"`
-	Signing      SigningConfig      `yaml:"signing"`
-	OutboundSMTP OutboundSMTPConfig `yaml:"outbound_smtp"`
-	Limits       LimitsConfig       `yaml:"limits"`
-	Env          string             `yaml:"env"` // "development" or "production"
+	SMTP           SMTPConfig           `yaml:"smtp"`
+	HTTP           HTTPConfig           `yaml:"http"`
+	Database       DatabaseConfig       `yaml:"database"`
+	OAuth          OAuthConfig          `yaml:"oauth"`
+	Signing        SigningConfig        `yaml:"signing"`
+	OutboundSMTP   OutboundSMTPConfig   `yaml:"outbound_smtp"`
+	SenderIdentity SenderIdentityConfig `yaml:"sender_identity"`
+	Limits         LimitsConfig         `yaml:"limits"`
+	Env            string               `yaml:"env"` // "development" or "production"
 	// SharedDomain enables slug-based agent registration. When set
 	// (e.g. "agents.example.com"), users can register agents with just a
 	// slug and get `<slug>@<shared_domain>` provisioned without DNS
@@ -78,6 +79,17 @@ type OutboundSMTPConfig struct {
 	Username   string `yaml:"username"`
 	Password   string `yaml:"password"`
 	FromDomain string `yaml:"from_domain"`
+}
+
+// SenderIdentityConfig controls custom-domain sender identity (decision 4 /
+// Slice 4). When SESRegion is set (e.g. "us-east-1"), domain verification
+// registers an SES BYODKIM sending identity and, once verified, outbound mail
+// uses the agent's own address as From. Empty (the default) disables it:
+// sending_status stays "none" and outbound uses the relay From — the
+// fail-closed default for dev/self-host without SES. Override SESRegion with
+// E2A_SENDER_IDENTITY_SES_REGION.
+type SenderIdentityConfig struct {
+	SESRegion string `yaml:"ses_region"`
 }
 
 // LimitsConfig is the operator-configured fallback applied to any user
@@ -190,6 +202,9 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("E2A_SHARED_DOMAIN"); v != "" {
 		cfg.SharedDomain = v
+	}
+	if v := os.Getenv("E2A_SENDER_IDENTITY_SES_REGION"); v != "" {
+		cfg.SenderIdentity.SESRegion = v
 	}
 
 	if err := cfg.Validate(); err != nil {

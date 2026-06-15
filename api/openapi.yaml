@@ -445,6 +445,13 @@ components:
         last_checked_at:
           format: date-time
           type: string
+        sending_error:
+          type: string
+        sending_last_checked_at:
+          format: date-time
+          type: string
+        sending_status:
+          type: string
         user_id:
           type: string
         verification_token:
@@ -461,6 +468,7 @@ components:
         - created_at
         - is_primary
         - agent_count
+        - sending_status
       type: object
     DomainView:
       additionalProperties: false
@@ -480,6 +488,19 @@ components:
         last_checked_at:
           format: date-time
           type: string
+        sending_dns_records:
+          items:
+            $ref: "#/components/schemas/SendingDNSRecordView"
+          type:
+            - array
+            - "null"
+        sending_error:
+          type: string
+        sending_last_checked_at:
+          format: date-time
+          type: string
+        sending_status:
+          type: string
         verification_token:
           type: string
         verified:
@@ -495,6 +516,7 @@ components:
         - created_at
         - is_primary
         - agent_count
+        - sending_status
       type: object
     ErrorBody:
       additionalProperties: false
@@ -1176,6 +1198,20 @@ components:
       required:
         - status
         - message_id
+      type: object
+    SendingDNSRecordView:
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        value:
+          type: string
+      required:
+        - type
+        - name
+        - value
       type: object
     TestWebhookOutputBody:
       additionalProperties: false

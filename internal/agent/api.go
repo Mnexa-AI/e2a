@@ -188,6 +188,12 @@ type API struct {
 	// the /webhooks CRUD still works, just without test + history).
 	subscriberStore *webhook.SubscriberStore
 
+	// domainTeardownHook (decision 4 / Slice 4) is run, within the account-
+	// delete transaction, for every domain the user owns — it enqueues the
+	// SES sending-identity deprovision job. Optional; nil when SES is not
+	// configured (the orphan reaper is the backstop either way).
+	domainTeardownHook func(ctx context.Context, tx pgx.Tx, domain string) error
+
 	// publisher routes email.sent / email.pending_approval /
 	// email.approved / email.rejected events to the webhooks
 	// resource — the sole push path since the legacy per-agent
@@ -478,6 +484,12 @@ func (a *API) SetInternalAPISecret(s string) { a.internalAPISecret = s }
 // without a billing service. The same internal_api_secret is reused
 // for the signature.
 func (a *API) SetBillingHookURL(s string) { a.billingHookURL = s }
+
+// SetDomainTeardownHook wires the per-domain SES deprovision enqueue run in the
+// account-delete transaction (decision 4 / Slice 4). Optional.
+func (a *API) SetDomainTeardownHook(h func(ctx context.Context, tx pgx.Tx, domain string) error) {
+	a.domainTeardownHook = h
+}
 
 func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.SMTPRelay, userAuth *auth.UserAuth, usage usage.UsageTracker, smtpDomain, fromDomain, sharedDomain, publicURL string, production bool) *API {
 	return &API{
