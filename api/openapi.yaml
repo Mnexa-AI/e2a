@@ -737,6 +737,8 @@ components:
         created_at:
           format: date-time
           type: string
+        delivery_detail:
+          type: string
         delivery_status:
           type: string
         direction:
@@ -784,6 +786,8 @@ components:
           type: string
         sender:
           type: string
+        sent_as:
+          type: string
         size_bytes:
           format: int64
           type: integer
@@ -829,6 +833,10 @@ components:
           type: string
         created_at:
           type: string
+        delivery_detail:
+          type: string
+        delivery_status:
+          type: string
         direction:
           type: string
         from:
@@ -851,6 +859,8 @@ components:
           type:
             - array
             - "null"
+        sent_as:
+          type: string
         size_bytes:
           format: int64
           type: integer
@@ -896,6 +906,10 @@ components:
           type: string
         created_at:
           type: string
+        delivery_detail:
+          type: string
+        delivery_status:
+          type: string
         from:
           type: string
         labels:
@@ -917,6 +931,8 @@ components:
           type:
             - array
             - "null"
+        sent_as:
+          type: string
         status:
           type: string
         subject:
@@ -1212,6 +1228,37 @@ components:
         - type
         - name
         - value
+      type: object
+    Suppression:
+      additionalProperties: false
+      properties:
+        address:
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        reason:
+          type: string
+        source:
+          type: string
+        source_message_id:
+          type: string
+      required:
+        - address
+        - source
+        - created_at
+      type: object
+    SuppressionsOutputBody:
+      additionalProperties: false
+      properties:
+        suppressions:
+          items:
+            $ref: "#/components/schemas/Suppression"
+          type:
+            - array
+            - "null"
+      required:
+        - suppressions
       type: object
     TestWebhookOutputBody:
       additionalProperties: false
@@ -1557,6 +1604,52 @@ paths:
       security:
         - bearer: []
       summary: Export your data (GDPR right-of-access)
+      tags:
+        - account
+  /v1/account/suppressions:
+    get:
+      description: Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.
+      operationId: listSuppressions
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuppressionsOutputBody"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: List suppressed recipient addresses
+      tags:
+        - account
+  /v1/account/suppressions/{address}:
+    delete:
+      description: Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed).
+      operationId: deleteSuppression
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Remove an address from the suppression list
       tags:
         - account
   /v1/agents:

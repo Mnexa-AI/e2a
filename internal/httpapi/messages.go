@@ -19,23 +19,33 @@ import (
 // absent cc/reply_to/auth_headers/raw_message. `status` carries the legacy
 // delivery_status alias verbatim (the read_status rename is a later slice).
 type MessageView struct {
-	MessageID      string            `json:"message_id"`
-	From           string            `json:"from"`
-	To             []string          `json:"to"`
-	CC             []string          `json:"cc"`
-	ReplyTo        []string          `json:"reply_to"`
-	Recipient      string            `json:"recipient"`
-	Subject        string            `json:"subject"`
-	ConversationID string            `json:"conversation_id"`
-	Status         string            `json:"status"`
-	Labels         []string          `json:"labels"`
-	CreatedAt      string            `json:"created_at"`
-	AuthHeaders    map[string]string `json:"auth_headers"`
-	RawMessage     []byte            `json:"raw_message"`
+	MessageID      string   `json:"message_id"`
+	From           string   `json:"from"`
+	To             []string `json:"to"`
+	CC             []string `json:"cc"`
+	ReplyTo        []string `json:"reply_to"`
+	Recipient      string   `json:"recipient"`
+	Subject        string   `json:"subject"`
+	ConversationID string   `json:"conversation_id"`
+	Status         string   `json:"status"`
+	// DeliveryStatus is the outbound delivery rollup (migration 031:
+	// 'sent', 'delivered', 'bounced', …) — the worst recipient status by
+	// precedence. Outbound-only; omitted on inbound messages.
+	DeliveryStatus string `json:"delivery_status,omitempty"`
+	// DeliveryDetail is the human-readable diagnostic for the delivery
+	// rollup (e.g. bounce sub-type / SMTP response). Outbound-only.
+	DeliveryDetail string `json:"delivery_detail,omitempty"`
+	// SentAs is the From identity actually used at relay accept time.
+	// Outbound-only; omitted on inbound messages.
+	SentAs      string            `json:"sent_as,omitempty"`
+	Labels      []string          `json:"labels"`
+	CreatedAt   string            `json:"created_at"`
+	AuthHeaders map[string]string `json:"auth_headers"`
+	RawMessage  []byte            `json:"raw_message"`
 }
 
 func messageViewFromIdentity(m *identity.Message) MessageView {
-	return MessageView{
+	v := MessageView{
 		MessageID:      m.ID,
 		From:           m.Sender,
 		To:             orEmptyStrings(m.ToRecipients),
@@ -50,6 +60,15 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		AuthHeaders:    m.AuthHeaders,
 		RawMessage:     m.RawMessage,
 	}
+	// Outbound delivery feedback (migration 031). On outbound rows
+	// identity.Message.DeliveryStatus carries the delivery rollup; on
+	// inbound rows it carries inbox_status, so these stay empty there.
+	if m.Direction == "outbound" {
+		v.DeliveryStatus = m.DeliveryStatus
+		v.DeliveryDetail = m.DeliveryDetail
+		v.SentAs = m.SentAs
+	}
+	return v
 }
 
 // MessageIDParam is the path input for single-message operations.
@@ -83,6 +102,11 @@ type MessageSummaryView struct {
 	HITLStatus     string   `json:"hitl_status,omitempty"`
 	WebhookStatus  string   `json:"webhook_status,omitempty"`
 	WebhookError   string   `json:"webhook_error,omitempty"`
+	// DeliveryStatus / DeliveryDetail / SentAs are the outbound delivery
+	// rollup (migration 031). Outbound-only; omitted on inbound rows.
+	DeliveryStatus string   `json:"delivery_status,omitempty"`
+	DeliveryDetail string   `json:"delivery_detail,omitempty"`
+	SentAs         string   `json:"sent_as,omitempty"`
 	SizeBytes      int      `json:"size_bytes,omitempty"`
 	Labels         []string `json:"labels"`
 	CreatedAt      string   `json:"created_at"`
@@ -108,6 +132,12 @@ func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
 		s.HITLStatus = m.Status
 		s.WebhookStatus = m.WebhookStatus
 		s.WebhookError = m.WebhookError
+		// On outbound rows identity.Message.DeliveryStatus carries the
+		// delivery rollup (migration 031); inbound rows carry inbox_status,
+		// already surfaced as Status above.
+		s.DeliveryStatus = m.DeliveryStatus
+		s.DeliveryDetail = m.DeliveryDetail
+		s.SentAs = m.SentAs
 	}
 	return s
 }

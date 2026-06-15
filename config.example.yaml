@@ -66,6 +66,23 @@ outbound_smtp:
 sender_identity:
   ses_region: ""  # e.g. "us-east-1"
 
+# Outbound delivery feedback (decision 9 / Slice 4b). When ses_configuration_set
+# is set, outbound mail is tagged with X-SES-CONFIGURATION-SET so SES publishes
+# delivery/bounce/complaint events to an SNS topic; e2a's public endpoint
+# POST /api/internal/ses/notifications consumes them (SNS signature verified,
+# fail-closed) to drive messages.delivery_status, fire
+# email.delivered/bounced/complained, and auto-suppress hard-bounced/complained
+# recipients. sns_topic_arns is the allow-list of SNS topics that endpoint
+# accepts — EMPTY = reject everything (so the endpoint is inert until ops wires
+# the topic). Both empty (the default) disables delivery feedback entirely.
+# Override with E2A_DELIVERY_SES_CONFIGURATION_SET and E2A_DELIVERY_SNS_TOPIC_ARNS
+# (comma-separated). Setup: create an SES configuration set with an SNS event
+# destination (delivery+bounce+complaint), then subscribe e2a's endpoint to that
+# topic and list its ARN here.
+delivery_feedback:
+  ses_configuration_set: ""   # e.g. "e2a-delivery"
+  sns_topic_arns: []          # e.g. ["arn:aws:sns:us-east-2:123456789012:e2a-ses-events"]
+
 # Per-user resource caps applied when a user has no row in the
 # account_limits table. Hosted-service deployments overwrite these per
 # user via an external provisioner (the e2a-billing sidecar, an admin

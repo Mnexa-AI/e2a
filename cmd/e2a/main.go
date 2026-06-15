@@ -17,6 +17,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/approvaltoken"
 	"github.com/Mnexa-AI/e2a/internal/auth"
 	"github.com/Mnexa-AI/e2a/internal/config"
+	"github.com/Mnexa-AI/e2a/internal/delivery"
 	"github.com/Mnexa-AI/e2a/internal/headers"
 	"github.com/Mnexa-AI/e2a/internal/hitlnotify"
 	"github.com/Mnexa-AI/e2a/internal/hitlworker"
@@ -74,6 +75,24 @@ import (
 // senderidentity.EventFirer hook: it publishes domain.sending_verified /
 // domain.sending_failed to the owning user's webhook subscribers when a
 // domain's sending identity reaches a terminal state (decision 4 / Slice 4).
+// deliveryEventFirer adapts the webhooks publisher to delivery.Firer: it
+// publishes email.delivered/bounced/complained + domain.suppression_added to
+// the owning user's subscribers (decision 9 / Slice 4b). The event id is
+// derived deterministically from dedupKey so duplicate SNS notifications
+// produce the same id — receivers dedup on it (at-least-once delivery).
+func deliveryEventFirer(pub webhookpub.Publisher) delivery.Firer {
+	return func(ctx context.Context, userID, agentID, eventType string, data map[string]any, dedupKey string) {
+		pub.Publish(ctx, webhookpub.Event{
+			ID:        webhookpub.DeterministicEventID(dedupKey),
+			Type:      eventType,
+			CreatedAt: time.Now().UTC(),
+			UserID:    userID,
+			AgentID:   agentID,
+			Data:      data,
+		})
+	}
+}
+
 func senderIdentityEventFirer(pub webhookpub.Publisher) senderidentity.EventFirer {
 	return func(ctx context.Context, domain, userID string, status senderidentity.Status, errMsg string) {
 		eventType := webhookpub.EventDomainSendingVerified
@@ -207,6 +226,10 @@ func main() {
 	// when "verified" (fail-closed; a missing/none/pending/failed status keeps
 	// the relay From). Wiring this is behavior-neutral until a domain verifies.
 	sender.SetSendingStatusLookup(store)
+	// Delivery feedback (decision 9 / Slice 4b): tag outbound with the SES
+	// configuration set so SES publishes delivery/bounce/complaint events.
+	// Empty = off (no header, no events).
+	sender.SetSESConfigurationSet(cfg.DeliveryFeedback.SESConfigurationSet)
 
 	// Sender-identity manager (decision 4 / Slice 4). Only wired when SES is
 	// configured: domain verify enqueues a BYODKIM provision job + reconciler;
@@ -345,6 +368,14 @@ func main() {
 	api.SetMetrics(metrics)
 
 	api.RegisterRoutes(router)
+
+	// Public SES-over-SNS delivery notifications endpoint (decision 9 / Slice
+	// 4b). Fail-closed: the SNS signature is verified and the TopicArn must be
+	// in the configured allow-list (empty allow-list → every message is
+	// rejected, so this is inert until ops wires the topic).
+	deliveryConsumer := delivery.NewConsumer(store, deliveryEventFirer(webhookPublisher))
+	deliveryVerifier := delivery.NewVerifier(cfg.DeliveryFeedback.SNSTopicARNs, delivery.HTTPCertFetcher)
+	router.HandleFunc("/api/internal/ses/notifications", delivery.Handler(deliveryVerifier, deliveryConsumer)).Methods(http.MethodPost)
 
 	// WebSocket live-tail route, open to any agent
 	wsHub := ws.NewHub()

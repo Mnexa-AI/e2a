@@ -101,6 +101,8 @@ func BuildDeps(p Params) httpapi.Deps {
 		GetLimits:           p.Enforcer.Get,
 		ExportUserData:      p.API.ExportUserDataCore,
 		DeleteUserData:      p.API.DeleteUserDataCore,
+		ListSuppressions:    p.Store.ListSuppressions,
+		RemoveSuppression:   p.Store.RemoveSuppression,
 		GetUsage: func(ctx context.Context, userID string) httpapi.LimitsUsageView {
 			var u httpapi.LimitsUsageView
 			if n, err := p.UsageStore.CountAgentsByUser(ctx, userID); err == nil {

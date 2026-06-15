@@ -958,6 +958,32 @@ type OutboundError struct {
 
 func (e *OutboundError) Error() string { return e.Msg }
 
+// checkSuppression rejects a send when any recipient (To/CC/BCC) is on the
+// tenant's suppression list (decision 9). Returns a structured
+// recipient_suppressed 422. Fails OPEN on a store error — a suppression-DB
+// hiccup must not block legitimate mail; the list is protective, not a hard
+// gate, and the storage trigger / SES account-level list backstop it.
+func (a *API) checkSuppression(ctx context.Context, userID string, req outbound.SendRequest) *OutboundError {
+	addrs := make([]string, 0, len(req.To)+len(req.CC)+len(req.BCC))
+	addrs = append(addrs, req.To...)
+	addrs = append(addrs, req.CC...)
+	addrs = append(addrs, req.BCC...)
+	if len(addrs) == 0 {
+		return nil
+	}
+	suppressed, err := a.store.SuppressedAddresses(ctx, userID, addrs)
+	if err != nil {
+		log.Printf("[api] suppression check failed (allowing send): %v", err)
+		return nil
+	}
+	if len(suppressed) > 0 {
+		return &OutboundError{http.StatusUnprocessableEntity, "recipient_suppressed",
+			"recipient(s) on the suppression list: " + strings.Join(suppressed, ", ") +
+				" — remove via DELETE /v1/account/suppressions/{address}"}
+	}
+	return nil
+}
+
 // DeliverOutbound is the shared send/reply/forward delivery tail, HTTP-free:
 // HITL hold (HoldForApprovalCore), else self-send loopback, else SES send +
 // record outbound + publish sent event. The caller has already authed,
@@ -968,6 +994,14 @@ func (e *OutboundError) Error() string { return e.Msg }
 // extraction). On a nil-error return the side effect has committed, so the
 // idempotency key must be Completed (cached), never Released.
 func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string) (*OutboundResult, *OutboundError) {
+	// Suppression enforcement (decision 9 / Slice 4b): fail fast if any
+	// recipient is on this tenant's suppression list. Enforced fresh on every
+	// attempt and NOT cached under the idempotency key (it's a clearable state,
+	// released like every other error).
+	if supErr := a.checkSuppression(ctx, user.ID, req); supErr != nil {
+		return nil, supErr
+	}
+
 	if agent.HITLEnabled {
 		msg, err := a.HoldForApprovalCore(ctx, agent, req, msgType, replyToEmailMessageID)
 		if err != nil {
@@ -1010,6 +1044,12 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 	}
 	slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
 	if outMsg != nil {
+		// Record the delivery lifecycle (decision 9): delivery_status='sent',
+		// which From identity was used, and the per-recipient breakdown the SES
+		// notifications consumer transitions as feedback arrives.
+		if err := a.store.MarkMessageSent(ctx, outMsg.ID, result.SentAs, result.To, result.CC, result.BCC); err != nil {
+			log.Printf("[api] mark sent (delivery_status): %v", err)
+		}
 		log.Printf("[mail:%s] dir=outbound type=%s from=%s to=%v slug=%s conv_id=%s subject=%q", outMsg.ID, msgType, agent.EmailAddress(), result.To, slug, req.ConversationID, req.Subject)
 	}
 	a.publishSent(ctx, a.buildSentEvent(agent, outMsg, result, req, msgType), outMsg)

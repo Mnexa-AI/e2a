@@ -123,7 +123,12 @@ type Deps struct {
 	GetLimits      func(ctx context.Context, userID string) (limits.Limits, error)
 	GetUsage       func(ctx context.Context, userID string) LimitsUsageView
 	ExportUserData func(ctx context.Context, userID string) (*identity.UserExport, error)
-	DeleteUserData func(ctx context.Context, user *identity.User) (*identity.DeleteUserDataResult, error)
+
+	// Suppression list (decision 9 / Slice 4b). Optional — nil deployments
+	// return 501 from the /v1/account/suppressions endpoints.
+	ListSuppressions  func(ctx context.Context, userID string) ([]identity.Suppression, error)
+	RemoveSuppression func(ctx context.Context, userID, address string) (bool, error)
+	DeleteUserData    func(ctx context.Context, user *identity.User) (*identity.DeleteUserDataResult, error)
 
 	// events (delivery log). EventQuery carries the filters + cursor
 	// position; the closures bind the events pool in main.

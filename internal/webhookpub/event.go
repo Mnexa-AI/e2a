@@ -38,6 +38,13 @@ const (
 	// GET /domains/{domain} for sending_status.
 	EventDomainSendingVerified = "domain.sending_verified"
 	EventDomainSendingFailed   = "domain.sending_failed"
+	// Delivery feedback (decision 9 / Slice 4b): async outcome of an outbound
+	// message, per recipient. domain.suppression_added is account-scoped
+	// (despite the prefix) — fired when an address is auto-suppressed.
+	EventEmailDelivered         = "email.delivered"
+	EventEmailBounced           = "email.bounced"
+	EventEmailComplained        = "email.complained"
+	EventDomainSuppressionAdded = "domain.suppression_added"
 )
 
 // AllEventTypes is the canonical allowlist of event names. Used by
@@ -51,6 +58,10 @@ var AllEventTypes = []string{
 	EventEmailRejected,
 	EventDomainSendingVerified,
 	EventDomainSendingFailed,
+	EventEmailDelivered,
+	EventEmailBounced,
+	EventEmailComplained,
+	EventDomainSuppressionAdded,
 }
 
 // IsValidEventType reports whether name is one of the catalog

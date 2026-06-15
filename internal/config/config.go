@@ -5,9 +5,22 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+// splitAndTrim splits a comma-separated env value into a clean slice (trimmed,
+// no empties). Used for list-valued overrides like SNS topic ARNs.
+func splitAndTrim(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
 
 // placeholderHMACSecret is the example value shipped in config.example.yaml.
 // It must be overridden in any production deployment — the server refuses
@@ -21,15 +34,16 @@ const placeholderHMACSecret = "change-me-in-production"
 const minHMACSecretBytes = 32
 
 type Config struct {
-	SMTP           SMTPConfig           `yaml:"smtp"`
-	HTTP           HTTPConfig           `yaml:"http"`
-	Database       DatabaseConfig       `yaml:"database"`
-	OAuth          OAuthConfig          `yaml:"oauth"`
-	Signing        SigningConfig        `yaml:"signing"`
-	OutboundSMTP   OutboundSMTPConfig   `yaml:"outbound_smtp"`
-	SenderIdentity SenderIdentityConfig `yaml:"sender_identity"`
-	Limits         LimitsConfig         `yaml:"limits"`
-	Env            string               `yaml:"env"` // "development" or "production"
+	SMTP             SMTPConfig             `yaml:"smtp"`
+	HTTP             HTTPConfig             `yaml:"http"`
+	Database         DatabaseConfig         `yaml:"database"`
+	OAuth            OAuthConfig            `yaml:"oauth"`
+	Signing          SigningConfig          `yaml:"signing"`
+	OutboundSMTP     OutboundSMTPConfig     `yaml:"outbound_smtp"`
+	SenderIdentity   SenderIdentityConfig   `yaml:"sender_identity"`
+	DeliveryFeedback DeliveryFeedbackConfig `yaml:"delivery_feedback"`
+	Limits           LimitsConfig           `yaml:"limits"`
+	Env              string                 `yaml:"env"` // "development" or "production"
 	// SharedDomain enables slug-based agent registration. When set
 	// (e.g. "agents.example.com"), users can register agents with just a
 	// slug and get `<slug>@<shared_domain>` provisioned without DNS
@@ -79,6 +93,18 @@ type OutboundSMTPConfig struct {
 	Username   string `yaml:"username"`
 	Password   string `yaml:"password"`
 	FromDomain string `yaml:"from_domain"`
+}
+
+// DeliveryFeedbackConfig controls outbound delivery feedback (decision 9 /
+// Slice 4b). When SESConfigurationSet is set, outbound mail is tagged so SES
+// publishes delivery/bounce/complaint events; SNSTopicARNs is the fail-closed
+// allow-list of SNS topics the public notifications endpoint accepts (empty =
+// reject all). Both empty (the default) disables the feature: no event header,
+// the endpoint rejects everything. Override with
+// E2A_DELIVERY_SES_CONFIGURATION_SET and E2A_DELIVERY_SNS_TOPIC_ARNS (comma-separated).
+type DeliveryFeedbackConfig struct {
+	SESConfigurationSet string   `yaml:"ses_configuration_set"`
+	SNSTopicARNs        []string `yaml:"sns_topic_arns"`
 }
 
 // SenderIdentityConfig controls custom-domain sender identity (decision 4 /
@@ -205,6 +231,12 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("E2A_SENDER_IDENTITY_SES_REGION"); v != "" {
 		cfg.SenderIdentity.SESRegion = v
+	}
+	if v := os.Getenv("E2A_DELIVERY_SES_CONFIGURATION_SET"); v != "" {
+		cfg.DeliveryFeedback.SESConfigurationSet = v
+	}
+	if v := os.Getenv("E2A_DELIVERY_SNS_TOPIC_ARNS"); v != "" {
+		cfg.DeliveryFeedback.SNSTopicARNs = splitAndTrim(v)
 	}
 
 	if err := cfg.Validate(); err != nil {

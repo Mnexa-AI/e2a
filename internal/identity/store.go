@@ -166,12 +166,26 @@ type Message struct {
 	RawMessage        []byte            `json:"raw_message,omitempty"`
 	AuthHeaders       map[string]string `json:"auth_headers,omitempty"`
 	ConversationID    string            `json:"conversation_id,omitempty"`
-	DeliveryStatus    string            `json:"delivery_status,omitempty"`
-	CreatedAt         time.Time         `json:"created_at"`
-	ExpiresAt         time.Time         `json:"expires_at"`
-	WebhookStatus     string            `json:"webhook_status,omitempty"`
-	WebhookError      string            `json:"webhook_error,omitempty"`
-	WebhookAttempts   int               `json:"webhook_attempts,omitempty"`
+	// DeliveryStatus is overloaded by direction. On inbound rows it carries
+	// the inbox read/unread status (messages.inbox_status) under this legacy
+	// JSON key. On outbound rows it carries the outbound delivery rollup
+	// (messages.delivery_status from migration 031: 'sent', 'delivered',
+	// 'bounced', …) — the worst recipient status by precedence. A message is
+	// either inbound or outbound, so the two sources never collide per-row.
+	DeliveryStatus string `json:"delivery_status,omitempty"`
+	// DeliveryDetail is the human-readable diagnostic for the outbound
+	// delivery rollup (e.g. an SES bounce sub-type / SMTP response).
+	// Outbound-only; empty on inbound rows. Source: messages.delivery_detail.
+	DeliveryDetail string `json:"delivery_detail,omitempty"`
+	// SentAs is the From identity actually used when the outbound message was
+	// accepted by the relay. Outbound-only; empty on inbound rows. Source:
+	// messages.sent_as.
+	SentAs          string    `json:"sent_as,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	ExpiresAt       time.Time `json:"expires_at"`
+	WebhookStatus   string    `json:"webhook_status,omitempty"`
+	WebhookError    string    `json:"webhook_error,omitempty"`
+	WebhookAttempts int       `json:"webhook_attempts,omitempty"`
 	// SizeBytes is the byte length of raw_message. Populated by load paths
 	// that compute it (e.g. GetMessagesByAgent for the dashboard inbox).
 	// Zero on load paths that don't — the inbox renders "—" in that case.
@@ -1274,7 +1288,8 @@ func (s *Store) GetOutboundMessageForUser(ctx context.Context, messageID, userID
 		        m.status, m.approval_expires_at, m.reviewed_at,
 		        m.rejection_reason, m.edited,
 		        m.body_text, m.body_html, m.attachments_json,
-		        m.reviewed_by_user_id, r.name
+		        m.reviewed_by_user_id, r.name,
+		        COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, '')
 		 FROM messages m
 		 JOIN agent_identities a ON a.id = m.agent_id
 		 LEFT JOIN users r ON r.id = m.reviewed_by_user_id
@@ -1290,6 +1305,7 @@ func (s *Store) GetOutboundMessageForUser(ctx context.Context, messageID, userID
 		&rejectionReason, &m.Edited,
 		&bodyText, &bodyHTML, &attachments,
 		&reviewedByID, &reviewedByName,
+		&m.DeliveryStatus, &m.DeliveryDetail, &m.SentAs,
 	)
 	if err != nil {
 		return nil, ErrMessageNotFound
@@ -1336,7 +1352,8 @@ func (s *Store) ListPendingOutboundForUser(ctx context.Context, userID string, l
 		        COALESCE(m.message_type, ''),
 		        m.conversation_id, m.created_at,
 		        m.to_recipients, m.cc, m.bcc,
-		        m.status, m.approval_expires_at
+		        m.status, m.approval_expires_at,
+		        COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, '')
 		 FROM messages m
 		 JOIN agent_identities a ON a.id = m.agent_id
 		 WHERE a.user_id = $1 AND m.status = 'pending_approval'
@@ -1358,6 +1375,7 @@ func (s *Store) ListPendingOutboundForUser(ctx context.Context, userID string, l
 			&m.ConversationID, &m.CreatedAt,
 			&m.ToRecipients, &m.CC, &m.BCC,
 			&m.Status, &approvalExpires,
+			&m.DeliveryStatus, &m.DeliveryDetail, &m.SentAs,
 		); err != nil {
 			return nil, err
 		}
@@ -1979,7 +1997,8 @@ func (s *Store) ListActivityByAgent(ctx context.Context, agentID string, limit i
 		        COALESCE(wd.status, ''), COALESCE(wd.last_error, ''), COALESCE(wd.attempts, 0),
 		        m.to_recipients, m.cc, m.bcc,
 		        COALESCE(m.conversation_id, ''), COALESCE(octet_length(m.raw_message), 0),
-		        m.labels
+		        m.labels,
+		        COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, '')
 		 FROM messages m
 		 LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
 		 WHERE m.agent_id = $1 AND m.expires_at > now()
@@ -1994,8 +2013,17 @@ func (s *Store) ListActivityByAgent(ctx context.Context, agentID string, limit i
 	var messages []Message
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject, &m.EmailMessageID, &m.Method, &m.Type, &m.DeliveryStatus, &m.CreatedAt, &m.ExpiresAt, &m.WebhookStatus, &m.WebhookError, &m.WebhookAttempts, &m.ToRecipients, &m.CC, &m.BCC, &m.ConversationID, &m.SizeBytes, &m.Labels); err != nil {
+		var inboxStatus, outboundDeliveryStatus string
+		if err := rows.Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject, &m.EmailMessageID, &m.Method, &m.Type, &inboxStatus, &m.CreatedAt, &m.ExpiresAt, &m.WebhookStatus, &m.WebhookError, &m.WebhookAttempts, &m.ToRecipients, &m.CC, &m.BCC, &m.ConversationID, &m.SizeBytes, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs); err != nil {
 			return nil, err
+		}
+		// DeliveryStatus is overloaded by direction (see Message.DeliveryStatus):
+		// inbound carries inbox_status, outbound carries the delivery rollup.
+		m.InboxStatus = inboxStatus
+		if m.Direction == "outbound" {
+			m.DeliveryStatus = outboundDeliveryStatus
+		} else {
+			m.DeliveryStatus = inboxStatus
 		}
 		messages = append(messages, m)
 	}
@@ -2067,7 +2095,7 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]
 	var query string
 	var args []interface{}
 
-	baseSelect := `SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.to_recipients, m.cc, m.reply_to, m.subject, m.email_message_id, m.conversation_id, COALESCE(m.inbox_status, ''), COALESCE(m.status, ''), COALESCE(wd.status, ''), COALESCE(wd.last_error, ''), COALESCE(octet_length(m.raw_message), 0), m.created_at, m.labels
+	baseSelect := `SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.to_recipients, m.cc, m.reply_to, m.subject, m.email_message_id, m.conversation_id, COALESCE(m.inbox_status, ''), COALESCE(m.status, ''), COALESCE(wd.status, ''), COALESCE(wd.last_error, ''), COALESCE(octet_length(m.raw_message), 0), m.created_at, m.labels, COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, '')
 		 FROM messages m
 		 LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
 		 WHERE m.agent_id = $1 AND m.expires_at > now()`
@@ -2167,17 +2195,25 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]
 	var messages []Message
 	for rows.Next() {
 		var m Message
+		var outboundDeliveryStatus string
 		if err := rows.Scan(
 			&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo,
 			&m.Subject, &m.EmailMessageID, &m.ConversationID,
 			&m.InboxStatus, &m.Status, &m.WebhookStatus, &m.WebhookError, &m.SizeBytes,
 			&m.CreatedAt, &m.Labels,
+			&outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs,
 		); err != nil {
 			return nil, err
 		}
-		// Keep DeliveryStatus populated for back-compat — the polling SDK
-		// path scans it under the old JSON key.
-		m.DeliveryStatus = m.InboxStatus
+		// DeliveryStatus is overloaded by direction: inbound rows carry the
+		// inbox read/unread status under the legacy JSON key (the polling SDK
+		// reads it there); outbound rows carry the messages.delivery_status
+		// rollup. A row is one direction, so the sources never collide.
+		if m.Direction == "outbound" {
+			m.DeliveryStatus = outboundDeliveryStatus
+		} else {
+			m.DeliveryStatus = m.InboxStatus
+		}
 		messages = append(messages, m)
 	}
 	return messages, rows.Err()
@@ -2188,14 +2224,22 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]
 func (s *Store) GetMessageWithContent(ctx context.Context, messageID, agentID string) (*Message, error) {
 	m := &Message{}
 	var authHeadersJSON []byte
+	var outboundDeliveryStatus string
 	err := s.pool.QueryRow(ctx,
 		`UPDATE messages SET inbox_status = CASE WHEN inbox_status = 'unread' THEN 'read' ELSE inbox_status END
 		 WHERE id = $1 AND agent_id = $2 AND expires_at > now()
-		 RETURNING id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, conversation_id, COALESCE(inbox_status, ''), raw_message, auth_headers, created_at, expires_at, labels`,
+		 RETURNING id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, conversation_id, COALESCE(inbox_status, ''), raw_message, auth_headers, created_at, expires_at, labels, COALESCE(delivery_status, ''), COALESCE(delivery_detail, ''), COALESCE(sent_as, '')`,
 		messageID, agentID,
-	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.DeliveryStatus, &m.RawMessage, &authHeadersJSON, &m.CreatedAt, &m.ExpiresAt, &m.Labels)
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.InboxStatus, &m.RawMessage, &authHeadersJSON, &m.CreatedAt, &m.ExpiresAt, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs)
 	if err != nil {
 		return nil, err
+	}
+	// DeliveryStatus is overloaded by direction (see Message.DeliveryStatus):
+	// inbound carries inbox_status, outbound carries the delivery rollup.
+	if m.Direction == "outbound" {
+		m.DeliveryStatus = outboundDeliveryStatus
+	} else {
+		m.DeliveryStatus = m.InboxStatus
 	}
 	if authHeadersJSON != nil {
 		if err := json.Unmarshal(authHeadersJSON, &m.AuthHeaders); err != nil {
@@ -2497,7 +2541,8 @@ func (s *Store) GetConversationByID(ctx context.Context, agentID, conversationID
 		        m.conversation_id, COALESCE(m.inbox_status, ''),
 		        COALESCE(m.status, ''),
 		        m.created_at, m.expires_at,
-		        m.labels
+		        m.labels,
+		        COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, '')
 		 FROM messages m
 		 WHERE m.agent_id = $1
 		   AND m.conversation_id = $2
@@ -2516,6 +2561,7 @@ func (s *Store) GetConversationByID(ctx context.Context, agentID, conversationID
 
 	for rows.Next() {
 		var m Message
+		var outboundDeliveryStatus string
 		if err := rows.Scan(
 			&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient,
 			&m.ToRecipients, &m.CC, &m.BCC, &m.ReplyTo,
@@ -2525,10 +2571,17 @@ func (s *Store) GetConversationByID(ctx context.Context, agentID, conversationID
 			&m.Status,
 			&m.CreatedAt, &m.ExpiresAt,
 			&m.Labels,
+			&outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs,
 		); err != nil {
 			return nil, err
 		}
-		m.DeliveryStatus = m.InboxStatus
+		// DeliveryStatus is overloaded by direction (see Message.DeliveryStatus):
+		// inbound carries inbox_status, outbound carries the delivery rollup.
+		if m.Direction == "outbound" {
+			m.DeliveryStatus = outboundDeliveryStatus
+		} else {
+			m.DeliveryStatus = m.InboxStatus
+		}
 		d.Messages = append(d.Messages, m)
 
 		// Accumulate aggregates as we go — cheaper than a second

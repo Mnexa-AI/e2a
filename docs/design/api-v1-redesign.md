@@ -1202,12 +1202,35 @@ Break the current `/api/v1` surface directly and move it to
     live SES before enabling `sender_identity.ses_region` in prod. (3) The
     optional custom `MAIL FROM` subdomain (SPF alignment) and ARC sealing remain
     deferred per decision 4.
-* **Slice 4b — Delivery feedback (decision 9).** SES SNS consumer →
-  `delivery_status` lifecycle on outbound messages + `email.delivered`/
-  `bounced`/`complained` events + suppression list (with account/console
-  read+remove) + structured inbound `auth: {spf,dkim,dmarc}` (DMARC eval).
-  Depends on Slice 4's VERP Return-Path. **Table stakes** for an email API —
-  ship alongside Slice 4, not after.
+* **Slice 4b — Delivery feedback (decision 9).** *(Delivery-feedback core
+  shipped; the rest split into follow-ups.)* `internal/delivery`: an SES-over-SNS
+  consumer at `POST /api/internal/ses/notifications` (fail-closed SNS signature
+  verification — host-allow-listed `SigningCertURL`, TopicArn allow-list, SHA1/256
+  PKCS1v15, auto-confirm `SubscriptionConfirmation`) drives the
+  `messages.delivery_status` lifecycle (`{queued,sent,delivered,bounced,
+  complained,deferred,failed}`, migration 031) with **monotonic** precedence
+  (`complained>bounced>delivered>deferred>sent>queued`) so out-of-order/duplicate
+  events can't regress a terminal status, a **per-recipient breakdown**
+  (`message_recipients`) with the message field as the worst-status rollup, and
+  `sent_as ∈ {own_address,relay}`. Fires `email.delivered`/`bounced`/`complained`
+  + `domain.suppression_added`. **Suppression list** per `(account,address)`
+  (`suppressions`), auto-added on a hard (Permanent) bounce or a complaint —
+  never a soft/transient bounce (DoS guard) — enforced fresh at send time
+  (`recipient_suppressed`, never idempotency-cached), with `GET /v1/account/
+  suppressions` + `DELETE /v1/account/suppressions/{address}`.
+  * **Correlation by `provider_message_id`** (the SES message id captured at
+    send), not the VERP token — SNS notifications carry the real SES id and are
+    signature-verified, so the VERP HMAC is unnecessary for the SNS path (kept as
+    deferred hardening for an inbound-relay bounce path).
+  * **`messages.delivery_status` reuses the existing `delivery_status` JSON key**,
+    overloaded by direction: inbound rows carry `inbox_status` (legacy polling
+    SDK) under it, outbound rows carry the new lifecycle. A row is inbound XOR
+    outbound, so they never collide per-row.
+  * **Deferred to follow-up slices (4b-2/4b-3):** structured inbound
+    `auth: {spf,dkim,dmarc}` (DMARC eval) + the `email.flagged` security event;
+    the injection-reduced **parsed view** + the unified `GET /messages/{id}`
+    (flat-path removal); the ≥N-soft-bounce suppression threshold; and the SNS
+    flow's real-AWS e2e (CI uses crafted SNS payloads + a fake cert fetcher).
 * **Slice 5 — Auth: OAuth 2.1 + auth.md agent identity.** OAuth 2.1 hosted-MCP
   (PKCE + refresh), scoped API keys (`e2a_agt_`/`e2a_acct_`), and the auth.md
   agent-identity layer (`/agent/identity`, claim ceremony, jwt-bearer/claim

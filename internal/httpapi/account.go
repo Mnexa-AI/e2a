@@ -54,6 +54,67 @@ func (s *Server) registerAccount() {
 		Description: "Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleDeleteAccount)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "listSuppressions", Method: http.MethodGet, Path: "/v1/account/suppressions",
+		Summary: "List suppressed recipient addresses", Tags: []string{"account"},
+		Description: "Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.",
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleListSuppressions)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "deleteSuppression", Method: http.MethodDelete, Path: "/v1/account/suppressions/{address}",
+		Summary: "Remove an address from the suppression list", Tags: []string{"account"},
+		Description: "Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed).",
+		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
+	}, s.handleDeleteSuppression)
+}
+
+type suppressionsOutput struct {
+	Body struct {
+		Suppressions []identity.Suppression `json:"suppressions"`
+	}
+}
+
+func (s *Server) handleListSuppressions(ctx context.Context, _ *struct{}) (*suppressionsOutput, error) {
+	user, err := s.requireUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.deps.ListSuppressions == nil {
+		return nil, NewError(http.StatusNotImplemented, "not_implemented", "suppressions are not available on this deployment")
+	}
+	list, err := s.deps.ListSuppressions(ctx, user.ID)
+	if err != nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list suppressions")
+	}
+	out := &suppressionsOutput{}
+	out.Body.Suppressions = make([]identity.Suppression, 0, len(list))
+	out.Body.Suppressions = append(out.Body.Suppressions, list...)
+	return out, nil
+}
+
+type deleteSuppressionInput struct {
+	Address string `path:"address"`
+}
+type deleteSuppressionOutput struct{ Status int }
+
+func (s *Server) handleDeleteSuppression(ctx context.Context, in *deleteSuppressionInput) (*deleteSuppressionOutput, error) {
+	user, err := s.requireUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.deps.RemoveSuppression == nil {
+		return nil, NewError(http.StatusNotImplemented, "not_implemented", "suppressions are not available on this deployment")
+	}
+	found, err := s.deps.RemoveSuppression(ctx, user.ID, in.Address)
+	if err != nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to remove suppression")
+	}
+	if !found {
+		return nil, NewError(http.StatusNotFound, "not_found", "address not on the suppression list")
+	}
+	return &deleteSuppressionOutput{Status: http.StatusNoContent}, nil
 }
 
 type exportOutput struct {

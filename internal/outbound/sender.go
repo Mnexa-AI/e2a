@@ -62,10 +62,11 @@ type SendRequest struct {
 // canonicalized recipient lists for persistence.
 type SendResult struct {
 	MessageID string   `json:"message_id"`
-	Method    string   `json:"method"` // "smtp"
-	To        []string `json:"-"`      // canonicalized To recipients
-	CC        []string `json:"-"`      // canonicalized CC recipients
-	BCC       []string `json:"-"`      // canonicalized BCC recipients
+	Method    string   `json:"method"`  // "smtp"
+	SentAs    string   `json:"sent_as"` // "own_address" | "relay" (decision 4 fallback)
+	To        []string `json:"-"`       // canonicalized To recipients
+	CC        []string `json:"-"`       // canonicalized CC recipients
+	BCC       []string `json:"-"`       // canonicalized BCC recipients
 }
 
 // ValidationError indicates a caller error (invalid addresses, no visible recipients).
@@ -99,7 +100,16 @@ type Sender struct {
 	// non-verified status all fall back to the relay From (fail-closed): we
 	// never send unaligned mail under a customer domain.
 	sendingStatus SendingStatusLookup
+	// sesConfigSet, when set, is added as the X-SES-CONFIGURATION-SET header so
+	// SES publishes delivery/bounce/complaint events (decision 9 / Slice 4b).
+	// Empty (the default) = no header, no events — dev/self-host without SES.
+	sesConfigSet string
 }
+
+// SetSESConfigurationSet enables SES event publishing for outbound mail by
+// tagging each message with the given configuration set. Optional-setter
+// pattern; empty leaves event publishing off.
+func (s *Sender) SetSESConfigurationSet(name string) { s.sesConfigSet = name }
 
 // SendingStatusLookup returns a domain's sending_status string
 // ("none"|"pending"|"verified"|"failed"). *identity.Store satisfies it.
@@ -210,8 +220,10 @@ func (s *Sender) Send(agent *identity.AgentIdentity, req SendRequest) (*SendResu
 	// (DKIM-aligned → DMARC passes, replies reach the agent directly); else
 	// the relay "… via e2a" rewrite (fail-closed default).
 	var headerFrom string
+	sentAs := "relay"
 	if s.useOwnAddressFrom(agent) {
 		headerFrom = fmt.Sprintf("%q <%s>", displayName, agent.EmailAddress())
+		sentAs = "own_address"
 	} else {
 		headerFrom = fmt.Sprintf("%q <%s>", displayName+" via e2a", envelopeFrom)
 	}
@@ -245,6 +257,15 @@ func (s *Sender) Send(agent *identity.AgentIdentity, req SendRequest) (*SendResu
 		}
 	}
 
+	// Attach the SES configuration-set header (decision 9 / Slice 4b) so SES
+	// publishes delivery/bounce/complaint events for this message. Prepended
+	// AFTER DKIM signing so it is never in the signed header set (SES strips it
+	// before delivery; signing it would break the signature). Empty when SES
+	// event publishing is not configured (dev/self-host) — no header, no events.
+	if s.sesConfigSet != "" {
+		message = append([]byte("X-SES-CONFIGURATION-SET: "+s.sesConfigSet+"\r\n"), message...)
+	}
+
 	sesMessageID, err := s.smtpRelay.Send(envelopeFrom, envelope, message)
 	if err != nil {
 		return nil, fmt.Errorf("smtp relay: %w", err)
@@ -253,6 +274,7 @@ func (s *Sender) Send(agent *identity.AgentIdentity, req SendRequest) (*SendResu
 	return &SendResult{
 		MessageID: sesMessageID,
 		Method:    "smtp",
+		SentAs:    sentAs,
 		To:        to,
 		CC:        cc,
 		BCC:       bcc,
