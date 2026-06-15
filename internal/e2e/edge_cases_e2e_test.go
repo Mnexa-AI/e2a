@@ -70,7 +70,7 @@ func TestEdge_RedeliverEmptyMatched_NoCrash(t *testing.T) {
 
 	// Replay with empty body: should return a deliveries array of
 	// length 0 without crashing.
-	resp := fix.httpPost("/api/v1/events/"+eventID+"/redeliver", apiKey, []byte(`{}`))
+	resp := fix.httpPost("/v1/events/"+eventID+"/redeliver", apiKey, []byte(`{}`))
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(resp.Body)
@@ -123,7 +123,7 @@ func TestEdge_410BoundaryExactlyAtExpiresAt(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	resp := fix.httpGet("/api/v1/events/"+expiringNow, apiKey)
+	resp := fix.httpGet("/v1/events/"+expiringNow, apiKey)
 	if resp.StatusCode != 410 {
 		t.Errorf("expired-just-now → %d; want 410", resp.StatusCode)
 	}
@@ -149,7 +149,7 @@ func TestEdge_LargeEventPayloadRoundTrip(t *testing.T) {
 		Data: map[string]any{"body": bigString, "subject": "large"},
 	})
 
-	resp := fix.httpGet("/api/v1/events/"+eventID, apiKey)
+	resp := fix.httpGet("/v1/events/"+eventID, apiKey)
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("large get → %d", resp.StatusCode)
@@ -192,7 +192,7 @@ func TestEdge_RedeliverIdempotency_FiveMinWindow(t *testing.T) {
 
 	// First replay.
 	body := fmt.Sprintf(`{"webhook_id":"%s"}`, webhookID)
-	resp1 := fix.httpPost("/api/v1/events/"+eventID+"/redeliver", apiKey, []byte(body))
+	resp1 := fix.httpPost("/v1/events/"+eventID+"/redeliver", apiKey, []byte(body))
 	if resp1.StatusCode != 200 {
 		raw, _ := io.ReadAll(resp1.Body)
 		t.Fatalf("first replay → %d (%s)", resp1.StatusCode, raw)
@@ -206,7 +206,7 @@ func TestEdge_RedeliverIdempotency_FiveMinWindow(t *testing.T) {
 	afterFirst := receiver.Count()
 
 	// Second replay within the window.
-	resp2 := fix.httpPost("/api/v1/events/"+eventID+"/redeliver", apiKey, []byte(body))
+	resp2 := fix.httpPost("/v1/events/"+eventID+"/redeliver", apiKey, []byte(body))
 	if resp2.StatusCode != 200 {
 		raw, _ := io.ReadAll(resp2.Body)
 		t.Fatalf("second replay → %d (%s)", resp2.StatusCode, raw)
@@ -299,7 +299,7 @@ func TestEdge_ReplayUsesCurrentSecret(t *testing.T) {
 	// secret, not the previous one — even though prev is still in the
 	// rotation-grace window.
 	body := fmt.Sprintf(`{"webhook_id":"%s"}`, webhookID)
-	resp := fix.httpPost("/api/v1/events/"+eventID+"/redeliver", apiKey, []byte(body))
+	resp := fix.httpPost("/v1/events/"+eventID+"/redeliver", apiKey, []byte(body))
 	resp.Body.Close()
 	fix.drainBoth(ctx)
 
@@ -372,10 +372,10 @@ func TestEdge_InvalidCursorReturns400(t *testing.T) {
 	user := fix.seedUser("edge_cursor")
 	apiKey := fix.issueAPIKey(user)
 
-	// Malformed base64.
-	resp := fix.httpGet("/api/v1/events?token=NOT_VALID_BASE64!!!", apiKey)
+	// Malformed base64 cursor → 400 invalid_cursor.
+	resp := fix.httpGet("/v1/events?cursor=NOT_VALID_BASE64!!!", apiKey)
 	if resp.StatusCode != 400 {
-		t.Errorf("bad token → %d; want 400", resp.StatusCode)
+		t.Errorf("bad cursor → %d; want 400", resp.StatusCode)
 	}
 	resp.Body.Close()
 }

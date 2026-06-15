@@ -354,66 +354,67 @@ func TestEventsE2E_ListAPI_FilterAndCursor(t *testing.T) {
 		})
 	}
 
-	// Unfiltered
-	resp := fix.httpGet("/api/v1/events?page_size=10", apiKey)
+	// Unfiltered. /v1 cursor page: {items:[...], next_cursor:...}; page-size
+	// param is `limit`.
+	resp := fix.httpGet("/v1/events?limit=10", apiKey)
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status %d: %s", resp.StatusCode, body)
 	}
 	var listResp struct {
-		Events    []map[string]interface{} `json:"events"`
-		NextToken string                   `json:"next_token"`
+		Items      []map[string]interface{} `json:"items"`
+		NextCursor *string                  `json:"next_cursor"`
 	}
 	json.NewDecoder(resp.Body).Decode(&listResp)
-	if len(listResp.Events) != 5 {
-		t.Errorf("got %d events; want 5", len(listResp.Events))
+	if len(listResp.Items) != 5 {
+		t.Errorf("got %d events; want 5", len(listResp.Items))
 	}
 
 	// type=email.sent filter
-	resp2 := fix.httpGet("/api/v1/events?type=email.sent", apiKey)
+	resp2 := fix.httpGet("/v1/events?type=email.sent", apiKey)
 	defer resp2.Body.Close()
 	var typedResp struct {
-		Events []map[string]interface{} `json:"events"`
+		Items []map[string]interface{} `json:"items"`
 	}
 	json.NewDecoder(resp2.Body).Decode(&typedResp)
-	if len(typedResp.Events) != 2 {
-		t.Errorf("type filter returned %d; want 2", len(typedResp.Events))
+	if len(typedResp.Items) != 2 {
+		t.Errorf("type filter returned %d; want 2", len(typedResp.Items))
 	}
-	for _, e := range typedResp.Events {
+	for _, e := range typedResp.Items {
 		if e["type"] != "email.sent" {
 			t.Errorf("filter leaked: type=%v", e["type"])
 		}
 	}
 
-	// Cursor pagination: page_size=2, walk 3 pages.
+	// Cursor pagination: limit=2, walk pages via next_cursor.
 	seen := map[string]bool{}
-	token := ""
+	cursor := ""
 	pages := 0
 	for {
-		url := "/api/v1/events?page_size=2"
-		if token != "" {
-			url += "&token=" + token
+		url := "/v1/events?limit=2"
+		if cursor != "" {
+			url += "&cursor=" + cursor
 		}
 		r := fix.httpGet(url, apiKey)
 		var page struct {
-			Events    []map[string]interface{} `json:"events"`
-			NextToken string                   `json:"next_token"`
+			Items      []map[string]interface{} `json:"items"`
+			NextCursor *string                  `json:"next_cursor"`
 		}
 		json.NewDecoder(r.Body).Decode(&page)
 		r.Body.Close()
 		pages++
-		for _, e := range page.Events {
+		for _, e := range page.Items {
 			id := e["id"].(string)
 			if seen[id] {
 				t.Errorf("cursor duplicated event %s", id)
 			}
 			seen[id] = true
 		}
-		if page.NextToken == "" {
+		if page.NextCursor == nil || *page.NextCursor == "" {
 			break
 		}
-		token = page.NextToken
+		cursor = *page.NextCursor
 		if pages > 10 {
 			t.Fatal("cursor loop did not terminate")
 		}
@@ -429,7 +430,7 @@ func TestEventsE2E_GetReturns404And410(t *testing.T) {
 	user := fix.seedUser("e2e_get")
 	apiKey := fix.issueAPIKey(user)
 
-	resp := fix.httpGet("/api/v1/events/evt_does_not_exist", apiKey)
+	resp := fix.httpGet("/v1/events/evt_does_not_exist", apiKey)
 	if resp.StatusCode != 404 {
 		t.Errorf("missing event → %d; want 404", resp.StatusCode)
 	}
@@ -437,7 +438,7 @@ func TestEventsE2E_GetReturns404And410(t *testing.T) {
 
 	expiredID := webhookpub.DeterministicEventID("msg_expired_e2e", webhookpub.EventEmailReceived)
 	fix.seedExpiredEvent(user, expiredID, webhookpub.EventEmailReceived)
-	resp2 := fix.httpGet("/api/v1/events/"+expiredID, apiKey)
+	resp2 := fix.httpGet("/v1/events/"+expiredID, apiKey)
 	if resp2.StatusCode != 410 {
 		t.Errorf("expired event → %d; want 410", resp2.StatusCode)
 	}
@@ -473,7 +474,7 @@ func TestEventsE2E_RedeliverFanOut(t *testing.T) {
 		t.Fatalf("original delivery counts: A=%d B=%d", rcvA.Count(), rcvB.Count())
 	}
 
-	resp := fix.httpPost("/api/v1/events/"+eventID+"/redeliver", apiKey, []byte(`{}`))
+	resp := fix.httpPost("/v1/events/"+eventID+"/redeliver", apiKey, []byte(`{}`))
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("redeliver status %d: %s", resp.StatusCode, body)
@@ -572,19 +573,19 @@ func TestEventsE2E_AuthBoundaries(t *testing.T) {
 		UserID: userA, AgentID: agentA, MessageID: "msg_a_only", Data: map[string]any{},
 	})
 
-	resp := fix.httpGet("/api/v1/events", apiKeyA)
+	resp := fix.httpGet("/v1/events", apiKeyA)
 	defer resp.Body.Close()
 	var listResp struct {
-		Events []map[string]interface{} `json:"events"`
+		Items []map[string]interface{} `json:"items"`
 	}
 	json.NewDecoder(resp.Body).Decode(&listResp)
-	for _, e := range listResp.Events {
+	for _, e := range listResp.Items {
 		if e["id"] == bEventID {
 			t.Errorf("user A saw user B's event — auth boundary violated")
 		}
 	}
 
-	directResp := fix.httpGet("/api/v1/events/"+bEventID, apiKeyA)
+	directResp := fix.httpGet("/v1/events/"+bEventID, apiKeyA)
 	if directResp.StatusCode != 404 {
 		t.Errorf("cross-user GET → %d; want 404", directResp.StatusCode)
 	}
@@ -594,7 +595,7 @@ func TestEventsE2E_AuthBoundaries(t *testing.T) {
 func TestEventsE2E_MissingBearer(t *testing.T) {
 	fix := newEventsFixture(t)
 	defer fix.Close()
-	resp := fix.httpGet("/api/v1/events", "")
+	resp := fix.httpGet("/v1/events", "")
 	if resp.StatusCode != 401 {
 		t.Errorf("no bearer → %d; want 401", resp.StatusCode)
 	}
@@ -723,13 +724,13 @@ func TestEventsE2E_ConcurrentReadsConsistent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			r := fix.httpGet("/api/v1/events?page_size=100", apiKey)
+			r := fix.httpGet("/v1/events?limit=100", apiKey)
 			defer r.Body.Close()
 			var page struct {
-				Events []map[string]interface{} `json:"events"`
+				Items []map[string]interface{} `json:"items"`
 			}
 			json.NewDecoder(r.Body).Decode(&page)
-			if len(page.Events) != expected {
+			if len(page.Items) != expected {
 				mismatches.Add(1)
 			}
 		}()

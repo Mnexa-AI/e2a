@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/smtp"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -21,6 +22,13 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
 )
+
+// sendURL builds the /v1 send endpoint for an agent. Send was relocated
+// (Slice 2): POST /v1/agents/{URL-encoded agent email}/messages, with the
+// sender taken from the path (the body no longer carries `from`).
+func sendURL(base, agentEmail string) string {
+	return base + "/v1/agents/" + url.PathEscape(agentEmail) + "/messages"
+}
 
 // Tests in this file exercise the webhooks-as-a-resource path end-to-end.
 // Distinct from e2e_test.go which covers the legacy
@@ -36,7 +44,7 @@ import (
 //
 // Two design decisions worth re-stating:
 //   1) Webhooks are provisioned via Store.CreateWebhook directly (NOT
-//      POST /api/v1/webhooks). The public API rejects 127.0.0.1 URLs
+//      POST /v1/webhooks). The public API rejects 127.0.0.1 URLs
 //      (SSRF guard); the only way to test the worker hitting a local
 //      receiver is to bypass the handler-side validator. The handler
 //      itself has unit-test coverage at internal/agent/webhooks_api_test.go.
@@ -186,8 +194,8 @@ func TestWebhooksE2E_EmailSent(t *testing.T) {
 
 	// Trigger /send through the real HTTP API so publishAsync fires
 	// from the actual handler, not a hand-crafted publisher call.
-	body := fmt.Sprintf(`{"from":%q,"to":["alice@example.com"],"subject":"hi","body":"hello"}`, agent.EmailAddress())
-	status, _ := authedJSON(t, "POST", ts.HTTPServer.URL+"/api/v1/send", key.PlaintextKey, body)
+	body := `{"to":["alice@example.com"],"subject":"hi","body":"hello"}`
+	status, _ := authedJSON(t, "POST", sendURL(ts.HTTPServer.URL, agent.EmailAddress()), key.PlaintextKey, body)
 	if status != 200 {
 		t.Fatalf("send status=%d", status)
 	}
@@ -220,9 +228,9 @@ func TestWebhooksE2E_HITL_PendingApproved(t *testing.T) {
 	approvedHook := registerWebhook(t, ts, agent.UserID, receiver.Server.URL+"/approved",
 		[]string{"email.approved"}, identity.WebhookFilters{})
 
-	// /send → held for approval, returns 202 + message_id.
-	body := fmt.Sprintf(`{"from":%q,"to":["alice@example.com"],"subject":"draft","body":"please review"}`, agent.EmailAddress())
-	status, respBytes := authedJSON(t, "POST", ts.HTTPServer.URL+"/api/v1/send", key.PlaintextKey, body)
+	// send → held for approval, returns 202 + message_id.
+	body := `{"to":["alice@example.com"],"subject":"draft","body":"please review"}`
+	status, respBytes := authedJSON(t, "POST", sendURL(ts.HTTPServer.URL, agent.EmailAddress()), key.PlaintextKey, body)
 	if status != 202 {
 		t.Fatalf("send status=%d body=%s want 202 (HITL hold)", status, string(respBytes))
 	}
@@ -250,7 +258,7 @@ func TestWebhooksE2E_HITL_PendingApproved(t *testing.T) {
 	// Approve via the API.
 	approveBody := `{}`
 	approveStatus, approveResp := authedJSON(t, "POST",
-		ts.HTTPServer.URL+"/api/v1/agents/"+agent.EmailAddress()+"/messages/"+msgID+"/approve",
+		ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape(agent.EmailAddress())+"/messages/"+msgID+"/approve",
 		key.PlaintextKey, approveBody)
 	if approveStatus != 200 {
 		t.Fatalf("approve status=%d body=%s", approveStatus, string(approveResp))
@@ -288,8 +296,8 @@ func TestWebhooksE2E_HITL_Rejected(t *testing.T) {
 	rejectedHook := registerWebhook(t, ts, agent.UserID, receiver.Server.URL+"/rejected",
 		[]string{"email.rejected"}, identity.WebhookFilters{})
 
-	body := fmt.Sprintf(`{"from":%q,"to":["alice@example.com"],"subject":"nope","body":"please reject"}`, agent.EmailAddress())
-	status, respBytes := authedJSON(t, "POST", ts.HTTPServer.URL+"/api/v1/send", key.PlaintextKey, body)
+	body := `{"to":["alice@example.com"],"subject":"nope","body":"please reject"}`
+	status, respBytes := authedJSON(t, "POST", sendURL(ts.HTTPServer.URL, agent.EmailAddress()), key.PlaintextKey, body)
 	if status != 202 {
 		t.Fatalf("send status=%d", status)
 	}
@@ -304,7 +312,7 @@ func TestWebhooksE2E_HITL_Rejected(t *testing.T) {
 	receiver.Reset()
 
 	rejectStatus, rejectResp := authedJSON(t, "POST",
-		ts.HTTPServer.URL+"/api/v1/agents/"+agent.EmailAddress()+"/messages/"+msgID+"/reject",
+		ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape(agent.EmailAddress())+"/messages/"+msgID+"/reject",
 		key.PlaintextKey, `{"reason":"off-policy"}`)
 	if rejectStatus != 200 {
 		t.Fatalf("reject status=%d body=%s", rejectStatus, string(rejectResp))
@@ -399,8 +407,8 @@ func TestWebhooksE2E_FilterByAgentID(t *testing.T) {
 		[]string{"email.sent"}, identity.WebhookFilters{AgentIDs: []string{agentB.ID}})
 
 	// Send through agent A → only /a fires.
-	body := fmt.Sprintf(`{"from":%q,"to":["alice@example.com"],"subject":"from A","body":"x"}`, agentA.EmailAddress())
-	status, _ := authedJSON(t, "POST", ts.HTTPServer.URL+"/api/v1/send", keyA.PlaintextKey, body)
+	body := `{"to":["alice@example.com"],"subject":"from A","body":"x"}`
+	status, _ := authedJSON(t, "POST", sendURL(ts.HTTPServer.URL, agentA.EmailAddress()), keyA.PlaintextKey, body)
 	if status != 200 {
 		t.Fatalf("send-A status=%d", status)
 	}
@@ -416,8 +424,8 @@ func TestWebhooksE2E_FilterByAgentID(t *testing.T) {
 
 	// Send through agent B → only /b fires.
 	receiver.Reset()
-	bodyB := fmt.Sprintf(`{"from":%q,"to":["bob@example.com"],"subject":"from B","body":"x"}`, agentB.EmailAddress())
-	status, _ = authedJSON(t, "POST", ts.HTTPServer.URL+"/api/v1/send", keyA.PlaintextKey, bodyB)
+	bodyB := `{"to":["bob@example.com"],"subject":"from B","body":"x"}`
+	status, _ = authedJSON(t, "POST", sendURL(ts.HTTPServer.URL, agentB.EmailAddress()), keyA.PlaintextKey, bodyB)
 	if status != 200 {
 		t.Fatalf("send-B status=%d", status)
 	}
@@ -443,8 +451,8 @@ func TestWebhooksE2E_FilterByConversationID(t *testing.T) {
 
 	// Send WITHOUT conversation_id — should NOT match (H5 rule:
 	// filter requires X but event has none).
-	body := fmt.Sprintf(`{"from":%q,"to":["alice@example.com"],"subject":"no conv","body":"x"}`, agent.EmailAddress())
-	status, _ := authedJSON(t, "POST", ts.HTTPServer.URL+"/api/v1/send", key.PlaintextKey, body)
+	body := `{"to":["alice@example.com"],"subject":"no conv","body":"x"}`
+	status, _ := authedJSON(t, "POST", sendURL(ts.HTTPServer.URL, agent.EmailAddress()), key.PlaintextKey, body)
 	if status != 200 {
 		t.Fatalf("send-noconv status=%d", status)
 	}
@@ -457,8 +465,8 @@ func TestWebhooksE2E_FilterByConversationID(t *testing.T) {
 	}
 
 	// Send WITH the matching conversation_id → fires.
-	body = fmt.Sprintf(`{"from":%q,"to":["alice@example.com"],"subject":"yes conv","body":"x","conversation_id":"conv-match"}`, agent.EmailAddress())
-	status, _ = authedJSON(t, "POST", ts.HTTPServer.URL+"/api/v1/send", key.PlaintextKey, body)
+	body = `{"to":["alice@example.com"],"subject":"yes conv","body":"x","conversation_id":"conv-match"}`
+	status, _ = authedJSON(t, "POST", sendURL(ts.HTTPServer.URL, agent.EmailAddress()), key.PlaintextKey, body)
 	if status != 200 {
 		t.Fatalf("send-conv status=%d", status)
 	}
@@ -484,8 +492,8 @@ func TestWebhooksE2E_FilterByLabelsH5(t *testing.T) {
 	registerWebhook(t, ts, agent.UserID, receiver.Server.URL+"/labelled",
 		[]string{"email.sent"}, identity.WebhookFilters{Labels: []string{"urgent"}})
 
-	body := fmt.Sprintf(`{"from":%q,"to":["alice@example.com"],"subject":"unlabelled","body":"x"}`, agent.EmailAddress())
-	if status, _ := authedJSON(t, "POST", ts.HTTPServer.URL+"/api/v1/send", key.PlaintextKey, body); status != 200 {
+	body := `{"to":["alice@example.com"],"subject":"unlabelled","body":"x"}`
+	if status, _ := authedJSON(t, "POST", sendURL(ts.HTTPServer.URL, agent.EmailAddress()), key.PlaintextKey, body); status != 200 {
 		t.Fatalf("send status=%d", status)
 	}
 	tick(t, ts)
@@ -519,8 +527,8 @@ func TestWebhooksE2E_RotationGrace_DualSig(t *testing.T) {
 		t.Fatalf("rotation returned same secret")
 	}
 
-	body := fmt.Sprintf(`{"from":%q,"to":["alice@example.com"],"subject":"rotated","body":"x"}`, agent.EmailAddress())
-	if status, _ := authedJSON(t, "POST", ts.HTTPServer.URL+"/api/v1/send", key.PlaintextKey, body); status != 200 {
+	body := `{"to":["alice@example.com"],"subject":"rotated","body":"x"}`
+	if status, _ := authedJSON(t, "POST", sendURL(ts.HTTPServer.URL, agent.EmailAddress()), key.PlaintextKey, body); status != 200 {
 		t.Fatalf("send status=%d", status)
 	}
 	tick(t, ts)
@@ -562,8 +570,8 @@ func TestWebhooksE2E_DisabledWebhookNoFire(t *testing.T) {
 		t.Fatalf("UpdateWebhook disable: %v", err)
 	}
 
-	body := fmt.Sprintf(`{"from":%q,"to":["alice@example.com"],"subject":"x","body":"x"}`, agent.EmailAddress())
-	if status, _ := authedJSON(t, "POST", ts.HTTPServer.URL+"/api/v1/send", key.PlaintextKey, body); status != 200 {
+	body := `{"to":["alice@example.com"],"subject":"x","body":"x"}`
+	if status, _ := authedJSON(t, "POST", sendURL(ts.HTTPServer.URL, agent.EmailAddress()), key.PlaintextKey, body); status != 200 {
 		t.Fatalf("send status=%d", status)
 	}
 	tick(t, ts)

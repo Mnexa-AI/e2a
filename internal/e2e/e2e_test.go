@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/smtp"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -136,11 +137,11 @@ func TestOutboundAgentToAgent(t *testing.T) {
 	receiver := testutil.WebhookReceiver(t)
 	ts := testutil.TestServer(t, pool)
 
-	_, apiKey, _ := setupDomainAndAgent(t, ts, "agent@out-a.example.com", "out-a.example.com", "https://example.com/webhook", "cloud")
+	_, apiKey, senderAgent := setupDomainAndAgent(t, ts, "agent@out-a.example.com", "out-a.example.com", "https://example.com/webhook", "cloud")
 	_, _, _ = setupDomainAndAgent(t, ts, "agent@out-b.example.com", "out-b.example.com", receiver.Server.URL, "cloud")
 
 	sendPayload := `{"to":["agent@out-b.example.com"],"subject":"A2A","body":"Hello from A"}`
-	req, _ := http.NewRequest("POST", ts.HTTPServer.URL+"/api/v1/send", bytes.NewBufferString(sendPayload))
+	req, _ := http.NewRequest("POST", ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape(senderAgent.EmailAddress())+"/messages", bytes.NewBufferString(sendPayload))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
 	resp, _ := http.DefaultClient.Do(req)
@@ -164,8 +165,11 @@ func TestOutboundRequiresAuth(t *testing.T) {
 	pool := testutil.TestDB(t)
 	ts := testutil.TestServer(t, pool)
 
+	// Send relocated (Slice 2): POST /v1/agents/{email}/messages. With no
+	// bearer the typed handler authenticates first and 401s before it ever
+	// resolves the path agent.
 	sendPayload := `{"to":["someone@test.com"],"subject":"Hi","body":"Hello"}`
-	req, _ := http.NewRequest("POST", ts.HTTPServer.URL+"/api/v1/send", bytes.NewBufferString(sendPayload))
+	req, _ := http.NewRequest("POST", ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape("agent@noauth.example.com")+"/messages", bytes.NewBufferString(sendPayload))
 	req.Header.Set("Content-Type", "application/json")
 	resp, _ := http.DefaultClient.Do(req)
 	defer resp.Body.Close()
@@ -207,11 +211,11 @@ func TestOutboundResponseFormat(t *testing.T) {
 	receiver := testutil.WebhookReceiver(t)
 	ts := testutil.TestServer(t, pool)
 
-	_, apiKey, _ := setupDomainAndAgent(t, ts, "agent@resp-a.example.com", "resp-a.example.com", "https://example.com/w", "cloud")
+	_, apiKey, senderAgent := setupDomainAndAgent(t, ts, "agent@resp-a.example.com", "resp-a.example.com", "https://example.com/w", "cloud")
 	_, _, _ = setupDomainAndAgent(t, ts, "agent@resp-b.example.com", "resp-b.example.com", receiver.Server.URL, "cloud")
 
 	sendPayload := `{"to":["agent@resp-b.example.com"],"subject":"Test","body":"Hello"}`
-	req, _ := http.NewRequest("POST", ts.HTTPServer.URL+"/api/v1/send", bytes.NewBufferString(sendPayload))
+	req, _ := http.NewRequest("POST", ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape(senderAgent.EmailAddress())+"/messages", bytes.NewBufferString(sendPayload))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
 	resp, _ := http.DefaultClient.Do(req)
@@ -252,49 +256,50 @@ func TestPollMode_E2E(t *testing.T) {
 	// Wait a moment for processing
 	time.Sleep(500 * time.Millisecond)
 
-	// GET /api/v1/agents/{email}/messages should return the unread message
-	req, _ := http.NewRequest("GET", ts.HTTPServer.URL+"/api/v1/agents/agent@poll.example.com/messages", nil)
+	// GET /v1/agents/{email}/messages should return the unread message.
+	// /v1 cursor page: {items:[...], next_cursor:...}.
+	req, _ := http.NewRequest("GET", ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape("agent@poll.example.com")+"/messages", nil)
 	req.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
 	resp, _ := http.DefaultClient.Do(req)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		t.Fatalf("GET /api/v1/agents/{email}/messages status = %d, want 200", resp.StatusCode)
+		t.Fatalf("GET /v1/agents/{email}/messages status = %d, want 200", resp.StatusCode)
 	}
 
 	var listResp struct {
-		Messages []struct {
+		Items []struct {
 			MessageID      string   `json:"message_id"`
 			From           string   `json:"from"`
 			To             []string `json:"to"`
 			Subject        string   `json:"subject"`
 			Status         string   `json:"status"`
 			ConversationID string   `json:"conversation_id"`
-		} `json:"messages"`
-		HasMore bool `json:"has_more"`
+		} `json:"items"`
+		NextCursor *string `json:"next_cursor"`
 	}
 	json.NewDecoder(resp.Body).Decode(&listResp)
 
-	if len(listResp.Messages) != 1 {
-		t.Fatalf("expected 1 message, got %d", len(listResp.Messages))
+	if len(listResp.Items) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(listResp.Items))
 	}
-	if listResp.Messages[0].From != "alice-poll@gmail.com" {
-		t.Errorf("From = %q", listResp.Messages[0].From)
+	if listResp.Items[0].From != "alice-poll@gmail.com" {
+		t.Errorf("From = %q", listResp.Items[0].From)
 	}
-	if listResp.Messages[0].Status != "unread" {
-		t.Errorf("Status = %q, want unread", listResp.Messages[0].Status)
+	if listResp.Items[0].Status != "unread" {
+		t.Errorf("Status = %q, want unread", listResp.Items[0].Status)
 	}
 
-	msgID := listResp.Messages[0].MessageID
+	msgID := listResp.Items[0].MessageID
 
-	// GET /api/v1/agents/{email}/messages/{id} should return full content and mark as read
-	req2, _ := http.NewRequest("GET", ts.HTTPServer.URL+"/api/v1/agents/agent@poll.example.com/messages/"+msgID, nil)
+	// GET /v1/agents/{email}/messages/{id} should return full content and mark as read.
+	req2, _ := http.NewRequest("GET", ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape("agent@poll.example.com")+"/messages/"+msgID, nil)
 	req2.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
 	resp2, _ := http.DefaultClient.Do(req2)
 	defer resp2.Body.Close()
 
 	if resp2.StatusCode != 200 {
-		t.Fatalf("GET /api/v1/agents/{email}/messages/%s status = %d, want 200", msgID, resp2.StatusCode)
+		t.Fatalf("GET /v1/agents/{email}/messages/%s status = %d, want 200", msgID, resp2.StatusCode)
 	}
 
 	var msgResp struct {
@@ -319,22 +324,22 @@ func TestPollMode_E2E(t *testing.T) {
 	}
 
 	// Subsequent GET should show no unread messages
-	req3, _ := http.NewRequest("GET", ts.HTTPServer.URL+"/api/v1/agents/agent@poll.example.com/messages?status=unread", nil)
+	req3, _ := http.NewRequest("GET", ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape("agent@poll.example.com")+"/messages?status=unread", nil)
 	req3.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
 	resp3, _ := http.DefaultClient.Do(req3)
 	defer resp3.Body.Close()
 
 	var emptyResp struct {
-		Messages []interface{} `json:"messages"`
+		Items []interface{} `json:"items"`
 	}
 	json.NewDecoder(resp3.Body).Decode(&emptyResp)
-	if len(emptyResp.Messages) != 0 {
-		t.Errorf("expected 0 unread messages after read, got %d", len(emptyResp.Messages))
+	if len(emptyResp.Items) != 0 {
+		t.Errorf("expected 0 unread messages after read, got %d", len(emptyResp.Items))
 	}
 
-	// Reply via API should work
+	// Reply via API should work (reply path is unchanged, only de-prefixed).
 	replyPayload := `{"body":"Got your message!"}`
-	req4, _ := http.NewRequest("POST", ts.HTTPServer.URL+"/api/v1/agents/agent@poll.example.com/messages/"+msgID+"/reply", bytes.NewBufferString(replyPayload))
+	req4, _ := http.NewRequest("POST", ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape("agent@poll.example.com")+"/messages/"+msgID+"/reply", bytes.NewBufferString(replyPayload))
 	req4.Header.Set("Content-Type", "application/json")
 	req4.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
 	resp4, _ := http.DefaultClient.Do(req4)
@@ -371,25 +376,25 @@ func TestPushToLocalSwitch_E2E(t *testing.T) {
 		t.Errorf("expected 0 webhook deliveries after switch to local, got %d", len(payloads))
 	}
 
-	// API should show the message
-	req, _ := http.NewRequest("GET", ts.HTTPServer.URL+"/api/v1/agents/agent@switch.example.com/messages", nil)
+	// API should show the message. /v1 cursor page: {items:[...]}.
+	req, _ := http.NewRequest("GET", ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape("agent@switch.example.com")+"/messages", nil)
 	req.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
 	resp, _ := http.DefaultClient.Do(req)
 	defer resp.Body.Close()
 
 	var listResp struct {
-		Messages []struct {
+		Items []struct {
 			MessageID string `json:"message_id"`
 			Status    string `json:"status"`
-		} `json:"messages"`
+		} `json:"items"`
 	}
 	json.NewDecoder(resp.Body).Decode(&listResp)
 
-	if len(listResp.Messages) != 1 {
-		t.Fatalf("expected 1 message, got %d", len(listResp.Messages))
+	if len(listResp.Items) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(listResp.Items))
 	}
-	if listResp.Messages[0].Status != "unread" {
-		t.Errorf("Status = %q, want unread", listResp.Messages[0].Status)
+	if listResp.Items[0].Status != "unread" {
+		t.Errorf("Status = %q, want unread", listResp.Items[0].Status)
 	}
 }
 
