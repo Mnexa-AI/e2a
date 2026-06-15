@@ -113,7 +113,7 @@ relative to that base):
 | **domains** | `GET/POST /domains` · `GET/PATCH/DELETE /domains/{domain}` (DELETE also **deprovisions the SES sending identity** — decision 4) · `POST /domains/{domain}/verify` (ownership + nudges a sending-identity re-check). The domain resource carries two independent statuses: `verified` (inbound/ownership, DNS TXT) and `sending_status ∈ {none,pending,verified,failed}` + `sending_error?` + `dns_records` + `last_checked_at?` (async SES sending identity — see §4 decision 4). `GET /domains/{domain}` is the poll target; no separate status endpoint. Inbound `verified` is **re-checkable** — a periodic ownership re-probe (and `POST /verify`) can flip it back to `false` if the DNS TXT/MX later disappears; it is not sticky-once-true. |
 | **webhooks** | `GET/POST /webhooks` · `GET/PATCH/DELETE /webhooks/{id}` · `…/deliveries` (read-only debug view) · `…/test` · `…/rotate-secret`. **Redelivery is event-scoped** (`POST /events/{id}/redeliver`), not a per-webhook endpoint — one canonical place (§3 principle 2). |
 | **events** (delivery log) | `GET /events` · `GET /events/{id}` · `POST /events/{id}/redeliver`. Canonical event vocabulary: `email.received` · `email.sent` · **`email.delivered`** · **`email.bounced`** · **`email.complained`** · `email.flagged` (inbound rejected/flagged by policy — decision 9/10) · `email.pending_approval` · `email.approved` · `email.approval_rejected` (renamed from `email.rejected` to avoid collision with inbound-flagged) · `domain.sending_verified` · `domain.sending_failed` · `domain.suppression_added` · `agent.credential_revoked`. (`deferred`/`failed` `delivery_status` have no push event — poll.) |
-| **account** | `GET /account` (replaces `/info` + `/users/me/limits`; **scope-filtered** — `scope=agent` sees only its bound agent + limits, §6a) · `GET /account/export` · `DELETE /account`. **API-key + signing-secret CRUD are console-only** (human session), not `/v1` endpoints (§5). |
+| **account** | `GET /account` (replaces `/users/me/limits` — the authenticated identity + plan + limits + usage; **scope-filtered** — `scope=agent` sees only its bound agent + limits, §6a) · `GET /account/export` · `DELETE /account`. **`GET /info` is NOT folded in** — it stays a **separate, public (unauthenticated)** deployment-discovery endpoint (shared domain, slug-registration-enabled, public URL) that clients read *pre-auth* to learn how to onboard; account data is authenticated and per-principal, deployment metadata is neither, so they can't share a route. **API-key + signing-secret CRUD are console-only** (human session), not `/v1` endpoints (§5). |
 
 ### Resource relationships
 
@@ -265,15 +265,26 @@ relative to that base):
      the identity's e2a-owned creation tag/timestamp predates the current
      reconcile cycle. Re-registering a deleted domain re-creates the identity
      cleanly and the reaper must not touch it.
-5. **One HITL transition, prefetch-safe.** Collapse the nested approve/reject
-   AND the top-level magic-link into a single `approval` sub-resource
-   (`POST …/messages/{id}/approval {decision}`). The human magic link is
-   `GET /approvals/{token}` rendering an **HTML confirmation page with NO
-   side effect**; its buttons `POST /approvals/{token} {decision}` into the
-   same transition. **Never a mutating GET** — email scanners/link-prefetchers
-   would auto-approve/reject. Short-TTL capability; single-use is enforced by the
-   state machine (message leaves `pending_approval`; second decision 409s), not by
-   the token itself.
+5. **HITL: two explicit transitions, prefetch-safe.** A held draft
+   (`status=pending_approval`) is resolved by a human reviewer via **two
+   explicit sub-resources** — `POST …/messages/{id}/approve` and
+   `POST …/messages/{id}/reject`. **(Revised from the earlier "single
+   `approval {decision}`" plan — same reasoning as decision 3: the decision is
+   the whole point of the call, and two explicit operations make
+   approve-vs-reject a route/tool choice, not a body field an LLM could set
+   wrong. The footgun is weaker here than for send/reply/forward because the
+   primary consumer is a *human* clicking a button, but explicit is still the
+   safer, already-shipped shape.)** Held drafts are listed via
+   `GET …/messages?status=pending_approval` and read via the message GET (a held
+   draft is just a message). **Human magic link:** `GET /approvals/{token}`
+   renders an **HTML confirmation page with NO side effect** (prefetch-safe);
+   its two buttons `POST` into the same two transitions. **Never a mutating
+   GET** — email scanners/link-prefetchers would auto-approve/reject. Short-TTL
+   capability; **single-use is enforced by the state machine** (the message
+   leaves `pending_approval` on the first decision; a second 409s), not by the
+   token. **Status: the nested `approve`/`reject` ship on `/v1` today; the
+   magic-link pages + the account-wide `pending` list remain on legacy `/api/v1`
+   pending a separate port (they are human-facing HTML / a list, not agent JSON).**
 6. **One error envelope** (audit current handlers and standardize):
    `{ "error": { "code": "MACHINE_BRANCHABLE", "message": "human text",
    "details": {…} } }`, with stable `code` values documented in the spec.
@@ -1110,8 +1121,9 @@ Applying 1 + 6: a runtime agent sees ~13 tools; the full self-host surface 31.
 | host + prefix `…/api/v1/*` | **move** | dedicated host `api.e2a.dev`, prefix `/v1` (base `https://api.e2a.dev/v1`) |
 | `GET/POST /approve`, `/reject`, `/pending` | **collapse** | `POST …/messages/{id}/approval` + magic-link GET alias |
 | `POST …/messages/{id}/approve|reject` | **collapse** | same `approval` sub-resource |
-| `GET /info`, `GET /users/me/limits` | **merge** | `GET /account` |
-| `/users/me/*` | **rename** | `/account/*` |
+| `GET /users/me/limits` | **rename** | `GET /account` (identity + plan + limits + usage) |
+| `GET /info` | **keep** | stays a separate **public** deployment-discovery endpoint — NOT folded into `/account` |
+| `/users/me/*` | **rename** | `/account/*` (`/account/export`, `DELETE /account`) |
 | `create_agent` (slug path + `agent_mode`; MCP omitted `email` pre-#206) | **change** | full-email `address` only (drop slug), no mode |
 | `POST /send` body | **extend** | add `from`, `reply_to` |
 | `agent_mode` column + CHECK | **drop** | no modes; inbound via poll / `ws` / `/webhooks` |
