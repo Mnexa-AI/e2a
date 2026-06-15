@@ -1466,6 +1466,83 @@ info:
   version: 1.0.0
 openapi: 3.1.0
 paths:
+  /v1/account:
+    delete:
+      description: Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
+      operationId: deleteAccount
+      parameters:
+        - description: Must be DELETE — this is irreversible.
+          explode: false
+          in: query
+          name: confirm
+          schema:
+            description: Must be DELETE — this is irreversible.
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteUserDataResult"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Delete your account + all data (irreversible)
+      tags:
+        - account
+    get:
+      description: The authenticated account's plan caps and current usage. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+      operationId: getAccount
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LimitsView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: "Get account: plan limits + usage"
+      tags:
+        - account
+  /v1/account/export:
+    get:
+      description: A JSON dump of every record the authenticated account owns.
+      operationId: exportAccount
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserExport"
+          description: OK
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Export your data (GDPR right-of-access)
+      tags:
+        - account
   /v1/agents:
     get:
       description: List the agents owned by the authenticated account.
@@ -2409,84 +2486,6 @@ paths:
       summary: Deployment info
       tags:
         - meta
-  /v1/users/me:
-    delete:
-      description: Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
-      operationId: deleteAccount
-      parameters:
-        - description: Must be DELETE — this is irreversible.
-          explode: false
-          in: query
-          name: confirm
-          schema:
-            description: Must be DELETE — this is irreversible.
-            type: string
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DeleteUserDataResult"
-          description: OK
-        default:
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
-      security:
-        - bearer: []
-      summary: Delete your account + all data (irreversible)
-      tags:
-        - account
-  /v1/users/me/export:
-    get:
-      description: A JSON dump of every record the authenticated account owns.
-      operationId: exportUserData
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/UserExport"
-          description: OK
-          headers:
-            Content-Disposition:
-              schema:
-                type: string
-        default:
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
-      security:
-        - bearer: []
-      summary: Export your data (GDPR right-of-access)
-      tags:
-        - account
-  /v1/users/me/limits:
-    get:
-      description: The authenticated account's plan caps and current usage.
-      operationId: getMyLimits
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LimitsView"
-          description: OK
-        default:
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
-      security:
-        - bearer: []
-      summary: Get plan limits + usage
-      tags:
-        - account
   /v1/webhooks:
     get:
       operationId: listWebhooks

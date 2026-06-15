@@ -35,21 +35,21 @@ type limitsOutput struct{ Body LimitsView }
 
 func (s *Server) registerAccount() {
 	huma.Register(s.API, huma.Operation{
-		OperationID: "getMyLimits", Method: http.MethodGet, Path: "/v1/users/me/limits",
-		Summary: "Get plan limits + usage", Tags: []string{"account"},
-		Description: "The authenticated account's plan caps and current usage.",
+		OperationID: "getAccount", Method: http.MethodGet, Path: "/v1/account",
+		Summary: "Get account: plan limits + usage", Tags: []string{"account"},
+		Description: "The authenticated account's plan caps and current usage. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleGetMyLimits)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "exportUserData", Method: http.MethodGet, Path: "/v1/users/me/export",
+		OperationID: "exportAccount", Method: http.MethodGet, Path: "/v1/account/export",
 		Summary: "Export your data (GDPR right-of-access)", Tags: []string{"account"},
 		Description: "A JSON dump of every record the authenticated account owns.",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleExportUserData)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "deleteAccount", Method: http.MethodDelete, Path: "/v1/users/me",
+		OperationID: "deleteAccount", Method: http.MethodDelete, Path: "/v1/account",
 		Summary: "Delete your account + all data (irreversible)", Tags: []string{"account"},
 		Description: "Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.",
 		Security:    []map[string][]string{{"bearer": {}}},
