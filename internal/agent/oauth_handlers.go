@@ -514,20 +514,20 @@ func (a *API) handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
 	}
 	base := strings.TrimRight(a.publicURL, "/")
 	meta := OAuthMetadata{
-		Issuer:                                 base,
-		AuthorizationEndpoint:                  base + "/api/oauth/authorize",
-		TokenEndpoint:                          base + "/api/oauth/token",
-		RegistrationEndpoint:                   base + "/api/oauth/register",
-		RevocationEndpoint:                     base + "/api/oauth/revoke",
-		ResponseTypesSupported:                 []string{"code"},
+		Issuer:                 base,
+		AuthorizationEndpoint:  base + "/api/oauth/authorize",
+		TokenEndpoint:          base + "/api/oauth/token",
+		RegistrationEndpoint:   base + "/api/oauth/register",
+		RevocationEndpoint:     base + "/api/oauth/revoke",
+		ResponseTypesSupported: []string{"code"},
 		// response_mode=query is the only mode we emit at the redirect
 		// URI; explicit so strict MCP clients don't try "fragment".
-		ResponseModesSupported:                 []string{"query"},
-		GrantTypesSupported:                    []string{"authorization_code", "refresh_token"},
-		CodeChallengeMethodsSupported:          []string{"S256"},
-		TokenEndpointAuthMethodsSupported:      []string{"none"},
-		RevocationEndpointAuthMethodsSupported: []string{"none"},
-		ScopesSupported:                        []string{"mcp"},
+		ResponseModesSupported:                     []string{"query"},
+		GrantTypesSupported:                        []string{"authorization_code", "refresh_token"},
+		CodeChallengeMethodsSupported:              []string{"S256"},
+		TokenEndpointAuthMethodsSupported:          []string{"none"},
+		RevocationEndpointAuthMethodsSupported:     []string{"none"},
+		ScopesSupported:                            []string{"mcp"},
 		AuthorizationResponseIssParameterSupported: true,
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -808,7 +808,7 @@ func (a *API) issueOAuthCodeWithNewAgent(ctx context.Context, w http.ResponseWri
 	txCtx := oauth.WithTx(ctx, tx)
 
 	// Agent insert via the identity package — same tx, same context.
-	if _, err := a.store.CreateAgentTx(txCtx, tx, agentEmail, a.sharedDomain, "", "", "local", userID); err != nil {
+	if _, err := a.store.CreateAgentTx(txCtx, tx, agentEmail, a.sharedDomain, "", "", "", userID); err != nil {
 		if isUniqueViolation(err) {
 			http.Error(w, "that slug is already taken; pick another", http.StatusConflict)
 			return nil

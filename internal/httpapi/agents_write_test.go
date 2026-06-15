@@ -39,26 +39,6 @@ func TestUpdateAgentHITL(t *testing.T) {
 	}
 }
 
-func TestUpdateAgentInvalidMode(t *testing.T) {
-	srv := testServer(t)
-	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/agents/support%40acme.com", "good", map[string]any{
-		"agent_mode": "bogus",
-	})
-	if code != 400 || errCode(body) != "invalid_request" {
-		t.Fatalf("want 400 invalid_request, got %d %v", code, body)
-	}
-}
-
-func TestUpdateAgentCloudRequiresWebhook(t *testing.T) {
-	srv := testServer(t)
-	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/agents/support%40acme.com", "good", map[string]any{
-		"agent_mode": "cloud",
-	})
-	if code != 400 || errCode(body) != "invalid_request" {
-		t.Fatalf("want 400 invalid_request, got %d %v", code, body)
-	}
-}
-
 func TestUpdateAgentNoFields(t *testing.T) {
 	srv := testServer(t)
 	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/agents/support%40acme.com", "good", map[string]any{})
@@ -123,7 +103,7 @@ func errCode(body map[string]any) string {
 func TestCreateAgentHappyPath(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
-		"email": "bot@acme.com", "name": "Bot", "agent_mode": "local",
+		"email": "bot@acme.com", "name": "Bot",
 	})
 	if code != 201 {
 		t.Fatalf("status %d body %v", code, body)
@@ -136,7 +116,7 @@ func TestCreateAgentHappyPath(t *testing.T) {
 func TestCreateAgentUnverifiedDomain(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
-		"email": "bot@pending.com", "agent_mode": "local",
+		"email": "bot@pending.com",
 	})
 	if code != 400 || errCode(body) != "domain_not_verified" {
 		t.Fatalf("want 400 domain_not_verified, got %d %v", code, body)
@@ -148,46 +128,17 @@ func TestCreateAgentUnregisteredDomain(t *testing.T) {
 	// The security-critical guard: an agent cannot be created on a domain
 	// the caller has not registered + verified.
 	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
-		"email": "bot@someone-elses.com", "agent_mode": "local",
+		"email": "bot@someone-elses.com",
 	})
 	if code != 400 || errCode(body) != "domain_not_registered" {
 		t.Fatalf("want 400 domain_not_registered, got %d %v", code, body)
 	}
 }
 
-func TestCreateAgentMissingMode(t *testing.T) {
-	srv := testServer(t)
-	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{"email": "bot@acme.com"})
-	if code != 400 || errCode(body) != "invalid_request" {
-		t.Fatalf("want 400 invalid_request, got %d %v", code, body)
-	}
-}
-
-func TestCreateAgentCloudRequiresWebhook(t *testing.T) {
-	srv := testServer(t)
-	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
-		"email": "bot@acme.com", "agent_mode": "cloud",
-	})
-	if code != 400 || errCode(body) != "invalid_request" {
-		t.Fatalf("want 400 invalid_request, got %d %v", code, body)
-	}
-}
-
-func TestCreateAgentRejectsSSRFWebhook(t *testing.T) {
-	srv := testServer(t)
-	// http (not https) must be rejected by the reused SSRF validator.
-	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
-		"email": "bot@acme.com", "agent_mode": "cloud", "webhook_url": "http://example.com/hook",
-	})
-	if code != 400 || errCode(body) != "invalid_webhook_url" {
-		t.Fatalf("want 400 invalid_webhook_url, got %d %v", code, body)
-	}
-}
-
 func TestCreateAgentDuplicate(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
-		"email": "dupe@acme.com", "agent_mode": "local",
+		"email": "dupe@acme.com",
 	})
 	if code != 409 || errCode(body) != "conflict" {
 		t.Fatalf("want 409 conflict, got %d %v", code, body)
@@ -197,7 +148,7 @@ func TestCreateAgentDuplicate(t *testing.T) {
 func TestCreateAgentLimitExceeded(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/agents", "overcap", map[string]any{
-		"email": "bot@acme.com", "agent_mode": "local",
+		"email": "bot@acme.com",
 	})
 	if code != 402 || errCode(body) != "limit_exceeded" {
 		t.Fatalf("want 402 limit_exceeded, got %d %v", code, body)
@@ -213,7 +164,7 @@ func TestCreateAgentLimitExceeded(t *testing.T) {
 func TestCreateAgentUnauthorized(t *testing.T) {
 	srv := testServer(t)
 	code, _ := postJSON(t, srv.URL+"/v1/agents", "", map[string]any{
-		"email": "bot@acme.com", "agent_mode": "local",
+		"email": "bot@acme.com",
 	})
 	if code != 401 {
 		t.Fatalf("want 401, got %d", code)

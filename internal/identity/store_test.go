@@ -341,47 +341,6 @@ func TestAPIKey_ExpiredKeyRejectedAtAuth(t *testing.T) {
 	}
 }
 
-func TestUpdateAgentWebhook(t *testing.T) {
-	pool := testutil.TestDB(t)
-	store := identity.NewStore(pool)
-	ctx := context.Background()
-
-	user, err := store.CreateOrGetUser(ctx, "owner@example.com", "Owner", "google-update-wh")
-	if err != nil {
-		t.Fatalf("CreateOrGetUser: %v", err)
-	}
-
-	store.ClaimOrCreateDomain(ctx, "update-wh.example.com", user.ID)
-	a, err := store.CreateAgent(ctx, "agent@update-wh.example.com", "update-wh.example.com", "", "https://example.com/old", "", user.ID)
-	if err != nil {
-		t.Fatalf("CreateAgent: %v", err)
-	}
-
-	if err := store.UpdateAgentWebhook(ctx, a.ID, user.ID, "https://example.com/new"); err != nil {
-		t.Fatalf("UpdateAgentWebhook: %v", err)
-	}
-
-	got, _ := store.GetAgentByEmail(ctx, "agent@update-wh.example.com")
-	if got.WebhookURL != "https://example.com/new" {
-		t.Errorf("WebhookURL = %q, want %q", got.WebhookURL, "https://example.com/new")
-	}
-}
-
-func TestUpdateAgentWebhookNotOwned(t *testing.T) {
-	pool := testutil.TestDB(t)
-	store := identity.NewStore(pool)
-	ctx := context.Background()
-
-	user, _ := store.CreateOrGetUser(ctx, "owner@example.com", "Owner", "google-update-wh-notown")
-	store.ClaimOrCreateDomain(ctx, "notown-wh.example.com", user.ID)
-	a, _ := store.CreateAgent(ctx, "agent@notown-wh.example.com", "notown-wh.example.com", "", "https://example.com/webhook", "", user.ID)
-
-	err := store.UpdateAgentWebhook(ctx, a.ID, "other-user", "https://evil.com")
-	if err == nil {
-		t.Error("expected error when updating agent not owned by user")
-	}
-}
-
 func TestCreateAndGetInboundMessage(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
@@ -685,9 +644,9 @@ func TestCreateAgentSharedDomain(t *testing.T) {
 
 // TestLookupConversationID_EmailThread simulates the production scenario:
 //
-//	1. Human sends first email → inbound stored with email_message_id, no conversation_id
-//	2. Agent replies → outbound stored with provider_message_id (bare SES ID) and conversation_id
-//	3. Human replies again → In-Reply-To references the SES Message-ID with @region suffix
+//  1. Human sends first email → inbound stored with email_message_id, no conversation_id
+//  2. Agent replies → outbound stored with provider_message_id (bare SES ID) and conversation_id
+//  3. Human replies again → In-Reply-To references the SES Message-ID with @region suffix
 //
 // The lookup must match the second inbound's In-Reply-To against the outbound's
 // provider_message_id using prefix matching, and return the conversation_id.

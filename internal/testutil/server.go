@@ -68,8 +68,8 @@ type E2ATestServer struct {
 	// email.received). SubscriberStore + Worker let tests insert /
 	// inspect delivery rows and force a drain without waiting on the
 	// 30s production tick.
-	Publisher       webhookpub.Publisher
-	SubscriberStore *webhook.SubscriberStore
+	Publisher        webhookpub.Publisher
+	SubscriberStore  *webhook.SubscriberStore
 	SubscriberWorker *webhook.SubscriberRetryWorker
 }
 
@@ -82,9 +82,6 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 
 	store := identity.NewStore(pool)
 	signer := headers.NewSigner(TestHMACSecret)
-	deliverer := webhook.NewDeliverer(false) // no HTTPS requirement in tests
-	deliveryStore := webhook.NewDeliveryStore(pool)
-	persistentDeliverer := webhook.NewPersistentDeliverer(deliverer, deliveryStore)
 	outboundCfg := &config.OutboundSMTPConfig{
 		Host: o.outboundSMTPHost,
 		Port: o.outboundSMTPPort,
@@ -158,7 +155,7 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 		},
 		Env: "development",
 	}
-	smtpServer := relay.NewServer(cfg, store, signer, persistentDeliverer, noopUsage, wsHub)
+	smtpServer := relay.NewServer(cfg, store, signer, noopUsage, wsHub)
 	smtpServer.SetPublisher(publisher)
 
 	go func() {

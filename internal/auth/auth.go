@@ -656,11 +656,8 @@ func (ua *UserAuth) HandleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 
 	// Use pointer fields so we can distinguish "not present in request"
 	// from "explicitly set to zero value". Clients PATCH individual
-	// subsets: mode change, webhook change, or HITL settings — each may
-	// appear alone or combined in a single PUT.
+	// HITL settings — each may appear alone or combined in a single PUT.
 	var req struct {
-		WebhookURL           *string `json:"webhook_url"`
-		AgentMode            *string `json:"agent_mode"`
 		HITLEnabled          *bool   `json:"hitl_enabled"`
 		HITLTTLSeconds       *int    `json:"hitl_ttl_seconds"`
 		HITLExpirationAction *string `json:"hitl_expiration_action"`
@@ -679,34 +676,6 @@ func (ua *UserAuth) HandleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	// Track whether the body carried any understood field. An empty PUT
 	// is treated as a 400 so mistakes don't silently no-op.
 	touched := false
-
-	// Mode / webhook update — mode change takes the combined form.
-	if req.AgentMode != nil {
-		mode := *req.AgentMode
-		if mode != "cloud" && mode != "local" {
-			http.Error(w, "agent_mode must be 'cloud' or 'local'", http.StatusBadRequest)
-			return
-		}
-		webhook := ""
-		if req.WebhookURL != nil {
-			webhook = *req.WebhookURL
-		}
-		if mode == "cloud" && webhook == "" {
-			http.Error(w, "webhook_url is required when switching to cloud mode", http.StatusBadRequest)
-			return
-		}
-		if err := ua.store.UpdateAgentMode(r.Context(), agnt.ID, user.ID, mode, webhook); err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
-		touched = true
-	} else if req.WebhookURL != nil {
-		if err := ua.store.UpdateAgentWebhook(r.Context(), agnt.ID, user.ID, *req.WebhookURL); err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
-		touched = true
-	}
 
 	// HITL settings update. Individual fields may be present; missing
 	// fields keep their current value.

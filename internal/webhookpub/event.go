@@ -10,10 +10,10 @@
 // Slice 1 only fires email.received from the relay. Slice 3 extends
 // to email.sent, email.pending_approval, email.approved, email.rejected.
 //
-// The legacy agent_identities.webhook_url path is unaffected by this
-// package — it continues to be served by internal/webhook's existing
-// PersistentDeliverer + retry worker. Both pathways fire side-by-side
-// for back-compat. See the final design at tmp/e2a_webhooks_design.md.
+// This is the sole push path: the legacy per-agent
+// agent_identities.webhook_url + agent_mode columns (and the
+// PersistentDeliverer that served them) were removed in slice 3
+// (migration 029). See the final design at tmp/e2a_webhooks_design.md.
 package webhookpub
 
 import (

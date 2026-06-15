@@ -44,9 +44,6 @@ func StartContractServer(ctx context.Context, dbURL string) (*ContractServer, er
 
 	store := identity.NewStore(pool)
 	signer := headers.NewSigner(TestHMACSecret)
-	deliverer := webhook.NewDeliverer(false)
-	deliveryStore := webhook.NewDeliveryStore(pool)
-	persistentDeliverer := webhook.NewPersistentDeliverer(deliverer, deliveryStore)
 	smtpRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{})
 	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
 	noopUsage := usage.NewNoopUsageTracker()
@@ -119,7 +116,7 @@ func StartContractServer(ctx context.Context, dbURL string) (*ContractServer, er
 		},
 		Env: "development",
 	}
-	smtpServer := relay.NewServer(cfg, store, signer, persistentDeliverer, noopUsage, wsHub)
+	smtpServer := relay.NewServer(cfg, store, signer, noopUsage, wsHub)
 	go func() {
 		_ = smtpServer.ListenAndServe()
 	}()

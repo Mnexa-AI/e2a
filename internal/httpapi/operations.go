@@ -43,16 +43,14 @@ func (s *Server) registerInfo() {
 
 // --- GET /v1/agents ---------------------------------------------------------
 
-// AgentView is the public representation of an agent. It mirrors the legacy
-// AgentInfo json shape exactly for Slice 1; field removals (webhook_url,
-// agent_mode — decisions 2/3) happen in the agent-model slice, not here.
+// AgentView is the public representation of an agent. The legacy webhook_url
+// and agent_mode fields were dropped (migration 029): push is delivered solely
+// via the /v1/webhooks subscriber resource and WebSocket is open to all agents.
 type AgentView struct {
 	ID                   string    `json:"id"`
 	Domain               string    `json:"domain"`
 	Email                string    `json:"email"`
 	Name                 string    `json:"name"`
-	WebhookURL           string    `json:"webhook_url"`
-	AgentMode            string    `json:"agent_mode"`
 	DomainVerified       bool      `json:"domain_verified"`
 	CreatedAt            time.Time `json:"created_at"`
 	HITLEnabled          bool      `json:"hitl_enabled"`
@@ -60,17 +58,13 @@ type AgentView struct {
 	HITLExpirationAction string    `json:"hitl_expiration_action"`
 }
 
-// agentViewFromIdentity maps the storage record to the public view. Kept in
-// lockstep with the legacy agentInfoFromIdentity so both surfaces emit an
-// identical agent shape during the transition.
+// agentViewFromIdentity maps the storage record to the public view.
 func agentViewFromIdentity(ag *identity.AgentIdentity) AgentView {
 	return AgentView{
 		ID:                   ag.ID,
 		Domain:               ag.Domain,
 		Email:                ag.EmailAddress(),
 		Name:                 ag.Name,
-		WebhookURL:           ag.WebhookURL,
-		AgentMode:            ag.AgentMode,
 		DomainVerified:       ag.DomainVerified,
 		CreatedAt:            ag.CreatedAt,
 		HITLEnabled:          ag.HITLEnabled,

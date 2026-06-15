@@ -24,7 +24,6 @@ func sampleAgent() identity.AgentIdentity {
 		ID:                   "support@acme.com",
 		Domain:               "acme.com",
 		Name:                 "Acme Support",
-		AgentMode:            "cloud",
 		DomainVerified:       true,
 		UserID:               "u_1",
 		CreatedAt:            time.Unix(1700000000, 0).UTC(),
@@ -330,16 +329,12 @@ func testServer(t *testing.T) *httptest.Server {
 			if email == "dupe@acme.com" {
 				return nil, errors.New("duplicate key value")
 			}
-			return &identity.AgentIdentity{ID: email, Domain: domain, Email: email, Name: name, AgentMode: agentMode, UserID: userID}, nil
+			return &identity.AgentIdentity{ID: email, Domain: domain, Email: email, Name: name, UserID: userID}, nil
 		},
 		EnforceAgentCreate: func(ctx context.Context, userID string) error {
 			if userID == "u_overcap" {
 				return &limits.LimitExceededError{Resource: "agents", Limit: 1, Current: 1, Limits: limits.Limits{PlanCode: "free", UpgradeURL: "https://e2a.dev/upgrade"}}
 			}
-			return nil
-		},
-		UpdateAgentMode: func(ctx context.Context, agentID, userID, mode, webhook string) error { return nil },
-		UpdateAgentWebhook: func(ctx context.Context, agentID, userID, webhook string) error {
 			return nil
 		},
 		UpdateAgentHITL: func(ctx context.Context, agentID, userID string, enabled bool, ttl int, action string) error {
@@ -411,7 +406,7 @@ func TestListAgentsAuthorized(t *testing.T) {
 		t.Fatalf("want 1 agent, got %d", len(body.Agents))
 	}
 	a := body.Agents[0]
-	if a.Email != "support@acme.com" || a.Domain != "acme.com" || a.AgentMode != "cloud" || !a.DomainVerified {
+	if a.Email != "support@acme.com" || a.Domain != "acme.com" || !a.DomainVerified {
 		t.Fatalf("unexpected agent view: %+v", a)
 	}
 }

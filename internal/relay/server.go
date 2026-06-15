@@ -20,7 +20,6 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/usage"
-	"github.com/Mnexa-AI/e2a/internal/webhook"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"github.com/Mnexa-AI/e2a/internal/ws"
 	"github.com/emersion/go-smtp"
@@ -31,16 +30,13 @@ type Server struct {
 	smtpServer *smtp.Server
 	store      *identity.Store
 	signer     *headers.Signer
-	deliverer  *webhook.PersistentDeliverer
-	// publisher is the LEGACY in-process fan-out path. Fires
-	// email.received events to the subscriber-resource path in
-	// addition to the legacy agent_identities.webhook_url delivery
-	// above. Optional — when nil (e.g. tests that don't exercise
-	// the new path) the relay only fires the legacy path. Wiring is
-	// additive: the legacy delivery flow is unchanged.
+	// publisher is the in-process fan-out path for the /v1/webhooks
+	// subscriber resource. Fires email.received events to subscribed
+	// endpoints. Optional — when nil (e.g. tests that don't exercise
+	// the subscriber path) the relay only stores the message and
+	// best-effort WS-notifies any connected agent.
 	//
-	// Per design §7.7, this branch survives until slice 11 deletes
-	// it. When `outbox` is wired AND its FeatureFlag is enabled, the
+	// When `outbox` is wired AND its FeatureFlag is enabled, the
 	// inbound trigger uses the transactional outbox path instead of
 	// firing this goroutine.
 	publisher webhookpub.Publisher
@@ -51,7 +47,7 @@ type Server struct {
 	// instead — preserves the v1 default-off rollout posture even if
 	// a deployment forgets to wire it. The Outbox's own FeatureFlag
 	// is the secondary gate.
-	outbox webhookpub.Outbox
+	outbox     webhookpub.Outbox
 	hub        *ws.Hub
 	usage      usage.UsageTracker
 	enforcer   limits.Enforcer // optional; when nil, inbound caps are not enforced
@@ -85,11 +81,10 @@ func (s *Server) SetOutbox(o webhookpub.Outbox) { s.outbox = o }
 // sets it.
 func (s *Server) SetEnforcer(e limits.Enforcer) { s.enforcer = e }
 
-func NewServer(cfg *config.Config, store *identity.Store, signer *headers.Signer, deliverer *webhook.PersistentDeliverer, usage usage.UsageTracker, hub *ws.Hub) *Server {
+func NewServer(cfg *config.Config, store *identity.Store, signer *headers.Signer, usage usage.UsageTracker, hub *ws.Hub) *Server {
 	s := &Server{
 		store:              store,
 		signer:             signer,
-		deliverer:          deliverer,
 		hub:                hub,
 		usage:              usage,
 		smtpDomain:         cfg.SMTP.Domain,
@@ -331,11 +326,10 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	}
 	conversationID := resolveConversationID(ctx, s.inboundThreadInfo, s.envelopeFromTrusted(), lookup)
 
-	// Determine delivery status based on agent mode
-	deliveryStatus := "pending"
-	if agent.AgentMode == "local" {
-		deliveryStatus = "unread"
-	}
+	// All inbound is persisted to the pollable inbox. There is no per-agent
+	// webhook delivery anymore (push is via /v1/webhooks subscriptions), so
+	// nothing is "pending delivery" — every received message starts unread.
+	deliveryStatus := "unread"
 
 	// Build the email.received event up front so its deterministic ID
 	// is computed BEFORE the trigger tx opens. An MTA-retried delivery
@@ -402,8 +396,8 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	_ = inboundMsg
 	slug, _, _ := strings.Cut(rcpt, "@")
 
-	log.Printf("[mail:%s] dir=inbound from=%s to=%s slug=%s conv_id=%s subject=%q mode=%s verified=%t",
-		messageID, displaySender, rcpt, slug, conversationID, s.inboundSubject, agent.AgentMode, domainAuth.DomainAuthenticated())
+	log.Printf("[mail:%s] dir=inbound from=%s to=%s slug=%s conv_id=%s subject=%q verified=%t",
+		messageID, displaySender, rcpt, slug, conversationID, s.inboundSubject, domainAuth.DomainAuthenticated())
 
 	// Legacy in-process publisher fires ONLY when the outbox is not
 	// the durable fan-out path for this deployment. When outbox is
@@ -432,35 +426,15 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 		go s.relay.publisher.Publish(context.Background(), event)
 	}
 
-	// Local mode: message is stored, try WS notification
-	if agent.AgentMode == "local" {
-		if s.relay.hub != nil && s.relay.hub.IsConnected(agent.ID) {
-			notification := buildWSNotification(inboundMsg)
-			if s.relay.hub.Send(agent.ID, notification) {
-				log.Printf("[mail:%s] ws_notify=sent slug=%s", messageID, slug)
-			}
+	// Best-effort WebSocket notification for any connected agent. The
+	// /v1/webhooks subscriber resource (driven by the publisher above)
+	// is the durable push path; WS is an opportunistic live-tail on top
+	// of it, available to every agent regardless of how it's configured.
+	if s.relay.hub != nil && s.relay.hub.IsConnected(agent.ID) {
+		notification := buildWSNotification(inboundMsg)
+		if s.relay.hub.Send(agent.ID, notification) {
+			log.Printf("[mail:%s] ws_notify=sent slug=%s", messageID, slug)
 		}
-		return
-	}
-
-	// Cloud mode: deliver via webhook
-	log.Printf("[mail:%s] webhook=delivering slug=%s url=%s", messageID, slug, agent.WebhookURL)
-	err = s.relay.deliverer.Deliver(ctx, agent, webhook.Payload{
-		MessageID:      messageID,
-		ConversationID: conversationID,
-		From:           displaySender,
-		To:             s.inboundThreadInfo.To,
-		CC:             s.inboundThreadInfo.CC,
-		ReplyTo:        s.inboundThreadInfo.ReplyTo,
-		Recipient:      rcpt,
-		RawMessage:     body,
-		AuthHeaders:    authHeaders,
-		ReceivedAt:     time.Now(),
-	})
-	if err != nil {
-		log.Printf("[mail:%s] webhook=FAILED slug=%s error=%v", messageID, slug, err)
-	} else {
-		log.Printf("[mail:%s] webhook=OK slug=%s", messageID, slug)
 	}
 }
 
@@ -611,11 +585,11 @@ func extractThreadInfo(body []byte) threadInfo {
 		fromHeader = addr.Address
 	}
 	return threadInfo{
-		MessageID:      msg.Header.Get("Message-Id"),
-		Subject:        decodeMIMEHeader(msg.Header.Get("Subject")),
-		InReplyTo:      msg.Header.Get("In-Reply-To"),
-		References:     refs,
-		From:           fromHeader,
+		MessageID:  msg.Header.Get("Message-Id"),
+		Subject:    decodeMIMEHeader(msg.Header.Get("Subject")),
+		InReplyTo:  msg.Header.Get("In-Reply-To"),
+		References: refs,
+		From:       fromHeader,
 		// RFC 5322 § 3.6.2 allows multiple addresses in Reply-To. Mirror
 		// the same parser used for To/Cc so display names get stripped
 		// the same way and the field shape is uniform across consumers.

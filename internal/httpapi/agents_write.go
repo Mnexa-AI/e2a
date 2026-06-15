@@ -6,25 +6,22 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Mnexa-AI/e2a/internal/agent"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/danielgtaylor/huma/v2"
 )
 
-// CreateAgentRequest mirrors the legacy RegisterAgentRequest verbatim. The
-// agent_mode / slug / webhook_url fields are legacy and are dropped in the
-// agent-model slice (decisions 1/2); Slice 1 preserves them for the path
-// move + conventions only.
+// CreateAgentRequest is the /v1 agent-create body. The legacy agent_mode and
+// webhook_url fields were dropped (migration 029): push is delivered solely
+// via the /v1/webhooks subscriber resource and WebSocket is open to all
+// agents, so per-agent mode/webhook no longer exist.
 // Fields are schema-optional (omitempty) so validation is handler-owned and
 // uniform — the legacy 400 business-rule messages, not Huma's 422 (email
 // itself can't be schema-required since the slug path derives it).
 type CreateAgentRequest struct {
-	Email      string `json:"email,omitempty"`
-	Slug       string `json:"slug,omitempty"`
-	Name       string `json:"name,omitempty"`
-	WebhookURL string `json:"webhook_url,omitempty"`
-	AgentMode  string `json:"agent_mode,omitempty"`
+	Email string `json:"email,omitempty"`
+	Slug  string `json:"slug,omitempty"`
+	Name  string `json:"name,omitempty"`
 }
 
 // CreateAgentResponse mirrors the legacy RegisterAgentResponse.
@@ -90,7 +87,7 @@ func (s *Server) registerAgentWrites() {
 		Method:      http.MethodPatch,
 		Path:        "/v1/agents/{address}",
 		Summary:     "Update an agent",
-		Description: "Patch an agent's webhook/mode and HITL settings. Returns the post-update agent.",
+		Description: "Patch an agent's HITL settings. Returns the post-update agent.",
 		Tags:        []string{"agents"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleUpdateAgent)
@@ -106,12 +103,10 @@ func (s *Server) registerAgentWrites() {
 	}, s.handleDeleteAgent)
 }
 
-// UpdateAgentRequest mirrors the legacy PATCH body — pointer fields so
-// absent != zero. webhook_url/agent_mode are legacy (dropped in the
-// agent-model slice); HITL settings stay.
+// UpdateAgentRequest is the /v1 agent PATCH body — pointer fields so
+// absent != zero. webhook_url/agent_mode were dropped (migration 029); only
+// HITL settings remain mutable.
 type UpdateAgentRequest struct {
-	WebhookURL           *string `json:"webhook_url,omitempty"`
-	AgentMode            *string `json:"agent_mode,omitempty"`
 	HITLEnabled          *bool   `json:"hitl_enabled,omitempty"`
 	HITLTTLSeconds       *int    `json:"hitl_ttl_seconds,omitempty"`
 	HITLExpirationAction *string `json:"hitl_expiration_action,omitempty"`
@@ -129,36 +124,6 @@ func (s *Server) handleUpdateAgent(ctx context.Context, in *updateAgentInput) (*
 	}
 	req := in.Body
 	touched := false
-
-	switch {
-	case req.AgentMode != nil:
-		mode := *req.AgentMode
-		if mode != "cloud" && mode != "local" {
-			return nil, NewError(http.StatusBadRequest, "invalid_request", "agent_mode must be 'cloud' or 'local'")
-		}
-		webhook := ""
-		if req.WebhookURL != nil {
-			webhook = *req.WebhookURL
-		}
-		if mode == "cloud" && webhook == "" {
-			return nil, NewError(http.StatusBadRequest, "invalid_request", "webhook_url is required when switching to cloud mode")
-		}
-		if s.deps.UpdateAgentMode == nil {
-			return nil, NewError(http.StatusInternalServerError, "internal_error", "update unavailable")
-		}
-		if err := s.deps.UpdateAgentMode(ctx, ag.ID, ag.UserID, mode, webhook); err != nil {
-			return nil, NewError(http.StatusForbidden, "forbidden", err.Error())
-		}
-		touched = true
-	case req.WebhookURL != nil:
-		if s.deps.UpdateAgentWebhook == nil {
-			return nil, NewError(http.StatusInternalServerError, "internal_error", "update unavailable")
-		}
-		if err := s.deps.UpdateAgentWebhook(ctx, ag.ID, ag.UserID, *req.WebhookURL); err != nil {
-			return nil, NewError(http.StatusForbidden, "forbidden", err.Error())
-		}
-		touched = true
-	}
 
 	if req.HITLEnabled != nil || req.HITLTTLSeconds != nil || req.HITLExpirationAction != nil {
 		enabled := ag.HITLEnabled
@@ -240,11 +205,6 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 	if email == "" {
 		return nil, NewError(http.StatusBadRequest, "invalid_request", "email is required")
 	}
-	if req.WebhookURL != "" {
-		if err := agent.ValidateWebhookURL(req.WebhookURL); err != nil {
-			return nil, NewError(http.StatusBadRequest, "invalid_webhook_url", err.Error())
-		}
-	}
 
 	// Resolve the DNS domain.
 	var domain string
@@ -286,22 +246,12 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 		}
 	}
 
-	// agent_mode is required (legacy contract).
-	mode := req.AgentMode
-	if mode == "" {
-		return nil, NewError(http.StatusBadRequest, "invalid_request", "agent_mode is required (must be 'local' or 'cloud')")
-	}
-	if mode != "cloud" && mode != "local" {
-		return nil, NewError(http.StatusBadRequest, "invalid_request", "agent_mode must be 'cloud' or 'local'")
-	}
-	if mode == "cloud" && req.WebhookURL == "" {
-		return nil, NewError(http.StatusBadRequest, "invalid_request", "webhook_url is required for cloud agent mode")
-	}
-
 	if s.deps.CreateAgent == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "agent create unavailable")
 	}
-	ag, err := s.deps.CreateAgent(ctx, email, domain, req.Name, req.WebhookURL, mode, user.ID)
+	// webhookURL/agentMode params are ignored by the store (migration 029);
+	// pass "" to satisfy the retained signature.
+	ag, err := s.deps.CreateAgent(ctx, email, domain, req.Name, "", "", user.ID)
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate") {
 			return nil, NewError(http.StatusConflict, "conflict", "agent already registered for this domain")

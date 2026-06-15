@@ -20,10 +20,10 @@ import (
 // and applies scope filters (agent_ids, conversation_ids, labels) to
 // further narrow which events fire to it.
 //
-// The legacy agent_identities.webhook_url field continues to work
-// unchanged in slice 1; the publisher fires events to both pathways
-// side-by-side. See the final design at tmp/e2a_webhooks_design.md for
-// the full feature scope.
+// This subscriber resource is the sole push path: the legacy per-agent
+// agent_identities.webhook_url + agent_mode columns were dropped in
+// migration 029 (slice 3). See the final design at
+// tmp/e2a_webhooks_design.md for the full feature scope.
 
 // WebhookFilters is the structured form of webhooks.filters JSONB.
 // Empty / nil slices mean "no constraint of that type" — a webhook

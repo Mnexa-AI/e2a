@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/gorilla/mux"
 	"nhooyr.io/websocket"
 )
 
@@ -41,12 +41,11 @@ func (m *mockStore) GetMessagesByAgent(_ context.Context, _ identity.MessageList
 
 // ── Helpers ─────────────────────────────────────────────────────
 
-func newTestAgent(userID, mode string) *identity.AgentIdentity {
+func newTestAgent(userID string) *identity.AgentIdentity {
 	return &identity.AgentIdentity{
-		ID:        "agent_test",
-		Email:     "bot@agents.e2a.dev",
-		AgentMode: mode,
-		UserID:    userID,
+		ID:     "agent_test",
+		Email:  "bot@agents.e2a.dev",
+		UserID: userID,
 	}
 }
 
@@ -165,7 +164,7 @@ func TestHandler_NotOwner(t *testing.T) {
 	defer hub.Close()
 	store := &mockStore{
 		user:  newTestUser(),
-		agent: newTestAgent("other_user", "local"),
+		agent: newTestAgent("other_user"),
 	}
 	handler := NewHandler(hub, store)
 	srv := startServer(t, handler)
@@ -177,33 +176,12 @@ func TestHandler_NotOwner(t *testing.T) {
 	}
 }
 
-func TestHandler_NotLocalMode(t *testing.T) {
-	hub := NewHub()
-	defer hub.Close()
-	store := &mockStore{
-		user:  newTestUser(),
-		agent: newTestAgent("user_1", "cloud"),
-	}
-	handler := NewHandler(hub, store)
-	srv := startServer(t, handler)
-
-	resp := doHTTP(t, srv, "bot@agents.e2a.dev", "valid_key")
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", resp.StatusCode)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "local-mode") {
-		t.Fatalf("unexpected body: %s", body)
-	}
-}
-
 func TestHandler_SuccessfulConnect(t *testing.T) {
 	hub := NewHub()
 	defer hub.Close()
 	store := &mockStore{
 		user:  newTestUser(),
-		agent: newTestAgent("user_1", "local"),
+		agent: newTestAgent("user_1"),
 	}
 	handler := NewHandler(hub, store)
 	srv := startServer(t, handler)
@@ -224,7 +202,7 @@ func TestHandler_DrainUnreadOnConnect(t *testing.T) {
 	now := time.Now()
 	store := &mockStore{
 		user:  newTestUser(),
-		agent: newTestAgent("user_1", "local"),
+		agent: newTestAgent("user_1"),
 		messages: []identity.Message{
 			{
 				ID:             "msg_1",
@@ -313,7 +291,7 @@ func TestHandler_DisconnectUnregisters(t *testing.T) {
 	defer hub.Close()
 	store := &mockStore{
 		user:  newTestUser(),
-		agent: newTestAgent("user_1", "local"),
+		agent: newTestAgent("user_1"),
 	}
 	handler := NewHandler(hub, store)
 	srv := startServer(t, handler)
@@ -345,7 +323,7 @@ func TestHandler_SendAfterConnect(t *testing.T) {
 	defer hub.Close()
 	store := &mockStore{
 		user:  newTestUser(),
-		agent: newTestAgent("user_1", "local"),
+		agent: newTestAgent("user_1"),
 	}
 	handler := NewHandler(hub, store)
 	srv := startServer(t, handler)

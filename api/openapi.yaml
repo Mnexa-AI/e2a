@@ -27,8 +27,6 @@ components:
     AgentIdentity:
       additionalProperties: false
       properties:
-        agent_mode:
-          type: string
         created_at:
           format: date-time
           type: string
@@ -67,15 +65,11 @@ components:
           type: string
         webhook_healthy:
           type: boolean
-        webhook_url:
-          type: string
       required:
         - id
         - domain
         - email
         - name
-        - webhook_url
-        - agent_mode
         - domain_verified
         - public
         - created_at
@@ -91,8 +85,6 @@ components:
     AgentView:
       additionalProperties: false
       properties:
-        agent_mode:
-          type: string
         created_at:
           format: date-time
           type: string
@@ -113,15 +105,11 @@ components:
           type: string
         name:
           type: string
-        webhook_url:
-          type: string
       required:
         - id
         - domain
         - email
         - name
-        - webhook_url
-        - agent_mode
         - domain_verified
         - created_at
         - hitl_enabled
@@ -286,15 +274,11 @@ components:
     CreateAgentRequest:
       additionalProperties: false
       properties:
-        agent_mode:
-          type: string
         email:
           type: string
         name:
           type: string
         slug:
-          type: string
-        webhook_url:
           type: string
       type: object
     CreateAgentResponse:
@@ -1213,8 +1197,6 @@ components:
     UpdateAgentRequest:
       additionalProperties: false
       properties:
-        agent_mode:
-          type: string
         hitl_enabled:
           type: boolean
         hitl_expiration_action:
@@ -1222,8 +1204,6 @@ components:
         hitl_ttl_seconds:
           format: int64
           type: integer
-        webhook_url:
-          type: string
       type: object
     UpdateDomainRequest:
       additionalProperties: false
@@ -1652,7 +1632,7 @@ paths:
       tags:
         - agents
     patch:
-      description: Patch an agent's webhook/mode and HITL settings. Returns the post-update agent.
+      description: Patch an agent's HITL settings. Returns the post-update agent.
       operationId: updateAgent
       parameters:
         - in: path

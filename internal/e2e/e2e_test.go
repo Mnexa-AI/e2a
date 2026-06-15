@@ -69,12 +69,32 @@ func authHeaderSecrets(t *testing.T, ts *testutil.E2ATestServer, userID string) 
 	return out
 }
 
+// receivedAuthHeaders pulls the auth_headers map out of an email.received
+// subscriber envelope's data block (the relay carries the signed
+// X-E2A-Auth-* headers there).
+func receivedAuthHeaders(data map[string]any) map[string]string {
+	raw, _ := data["auth_headers"].(map[string]any)
+	out := make(map[string]string, len(raw))
+	for k, v := range raw {
+		if s, ok := v.(string); ok {
+			out[k] = s
+		}
+	}
+	return out
+}
+
 func TestInboundDelivered(t *testing.T) {
 	pool := testutil.TestDB(t)
-	receiver := testutil.WebhookReceiver(t)
+	receiver := testutil.SubscriberReceiver(t)
 	ts := testutil.TestServer(t, pool)
 
-	user, _, _ := setupDomainAndAgent(t, ts, "agent@inbound.example.com", "inbound.example.com", receiver.Server.URL, "cloud")
+	// Inbound push now flows exclusively through the /v1/webhooks
+	// subscriber resource (the legacy per-agent webhook_url is gone). Any
+	// agent receives email.received as long as a subscription matches.
+	user, _, agent := setupDomainAndAgent(t, ts, "agent@inbound.example.com", "inbound.example.com", "", "")
+	registerWebhook(t, ts, user.ID, receiver.Server.URL+"/received",
+		[]string{"email.received"}, identity.WebhookFilters{})
+	_ = agent
 
 	// Send email via SMTP
 	msg := "From: alice@gmail.com\r\nTo: agent@inbound.example.com\r\nSubject: Test\r\n\r\nHello from SMTP!"
@@ -83,18 +103,28 @@ func TestInboundDelivered(t *testing.T) {
 		t.Fatalf("SendMail: %v", err)
 	}
 
-	payloads := receiver.WaitForPayloads(t, 1, 5*time.Second)
-	p := payloads[0]
-
-	if p.Body.From != "alice@gmail.com" {
-		t.Errorf("From = %q", p.Body.From)
+	tick(t, ts)
+	got := receiver.WaitFor(t, 5*time.Second, func(c []testutil.SubscriberCaptured) bool { return len(c) >= 1 })
+	if len(got) != 1 {
+		t.Fatalf("got %d captures, want 1", len(got))
 	}
-	if len(p.Body.To) != 1 || p.Body.To[0] != "agent@inbound.example.com" {
-		t.Errorf("To = %v, want [agent@inbound.example.com]", p.Body.To)
+	c := got[0]
+	if c.Envelope["event"] != "email.received" {
+		t.Errorf("event=%v want email.received", c.Envelope["event"])
+	}
+	data, _ := c.Envelope["data"].(map[string]any)
+
+	if data["from"] != "alice@gmail.com" {
+		t.Errorf("from = %v", data["from"])
+	}
+	to, _ := data["to"].([]any)
+	if len(to) != 1 || to[0] != "agent@inbound.example.com" {
+		t.Errorf("to = %v, want [agent@inbound.example.com]", data["to"])
 	}
 
-	// Domain-Check header should be present
-	domainCheck := p.Body.AuthHeaders["X-E2A-Auth-Domain-Check"]
+	// Domain-Check header should be present in the carried auth_headers.
+	authHeaders := receivedAuthHeaders(data)
+	domainCheck := authHeaders["X-E2A-Auth-Domain-Check"]
 	if domainCheck == "" {
 		t.Error("expected non-empty X-E2A-Auth-Domain-Check header")
 	}
@@ -104,7 +134,7 @@ func TestInboundDelivered(t *testing.T) {
 
 	// Verify signature against the owner's per-user signing secret (the
 	// relay signs inbound auth headers with it, not the deployment signer).
-	if !headers.Verify(authHeaderSecrets(t, ts, user.ID), headers.AuthHeaders(p.Body.AuthHeaders)) {
+	if !headers.Verify(authHeaderSecrets(t, ts, user.ID), headers.AuthHeaders(authHeaders)) {
 		t.Error("auth header signature verification failed")
 	}
 }
@@ -181,16 +211,23 @@ func TestOutboundRequiresAuth(t *testing.T) {
 
 func TestReplayProtection(t *testing.T) {
 	pool := testutil.TestDB(t)
-	receiver := testutil.WebhookReceiver(t)
+	receiver := testutil.SubscriberReceiver(t)
 	ts := testutil.TestServer(t, pool)
 
-	user, _, _ := setupDomainAndAgent(t, ts, "agent@replay.example.com", "replay.example.com", receiver.Server.URL, "cloud")
+	user, _, _ := setupDomainAndAgent(t, ts, "agent@replay.example.com", "replay.example.com", "", "")
+	registerWebhook(t, ts, user.ID, receiver.Server.URL+"/received",
+		[]string{"email.received"}, identity.WebhookFilters{})
 
 	msg := "From: alice@test.com\r\nTo: agent@replay.example.com\r\nSubject: Replay\r\n\r\nTest"
 	smtp.SendMail(ts.SMTPAddr, nil, "alice@test.com", []string{"agent@replay.example.com"}, []byte(msg))
 
-	payloads := receiver.WaitForPayloads(t, 1, 5*time.Second)
-	authHeaders := headers.AuthHeaders(payloads[0].Body.AuthHeaders)
+	tick(t, ts)
+	got := receiver.WaitFor(t, 5*time.Second, func(c []testutil.SubscriberCaptured) bool { return len(c) >= 1 })
+	if len(got) != 1 {
+		t.Fatalf("got %d captures, want 1", len(got))
+	}
+	data, _ := got[0].Envelope["data"].(map[string]any)
+	authHeaders := headers.AuthHeaders(receivedAuthHeaders(data))
 	secrets := authHeaderSecrets(t, ts, user.ID)
 
 	// Should verify with normal window
@@ -350,54 +387,6 @@ func TestPollMode_E2E(t *testing.T) {
 	}
 }
 
-func TestPushToLocalSwitch_E2E(t *testing.T) {
-	pool := testutil.TestDB(t)
-	receiver := testutil.WebhookReceiver(t)
-	ts := testutil.TestServer(t, pool)
-	ctx := context.Background()
-
-	user, apiKey, agent := setupDomainAndAgent(t, ts, "agent@switch.example.com", "switch.example.com", receiver.Server.URL, "cloud")
-
-	// Switch to local mode
-	err := ts.Store.UpdateAgentMode(ctx, agent.ID, user.ID, "local", "")
-	if err != nil {
-		t.Fatalf("UpdateAgentMode: %v", err)
-	}
-
-	// Send email — should be stored, not pushed
-	msg := "From: alice-switch@gmail.com\r\nTo: agent@switch.example.com\r\nSubject: Switch Test\r\n\r\nAfter switch"
-	smtp.SendMail(ts.SMTPAddr, nil, "alice-switch@gmail.com", []string{"agent@switch.example.com"}, []byte(msg))
-
-	time.Sleep(500 * time.Millisecond)
-
-	// Webhook should NOT have received anything
-	payloads := receiver.Payloads()
-	if len(payloads) != 0 {
-		t.Errorf("expected 0 webhook deliveries after switch to local, got %d", len(payloads))
-	}
-
-	// API should show the message. /v1 cursor page: {items:[...]}.
-	req, _ := http.NewRequest("GET", ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape("agent@switch.example.com")+"/messages", nil)
-	req.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
-	resp, _ := http.DefaultClient.Do(req)
-	defer resp.Body.Close()
-
-	var listResp struct {
-		Items []struct {
-			MessageID string `json:"message_id"`
-			Status    string `json:"status"`
-		} `json:"items"`
-	}
-	json.NewDecoder(resp.Body).Decode(&listResp)
-
-	if len(listResp.Items) != 1 {
-		t.Fatalf("expected 1 message, got %d", len(listResp.Items))
-	}
-	if listResp.Items[0].Status != "unread" {
-		t.Errorf("Status = %q, want unread", listResp.Items[0].Status)
-	}
-}
-
 func TestRcptRejectsUnknownRecipient(t *testing.T) {
 	pool := testutil.TestDB(t)
 	ts := testutil.TestServer(t, pool)
@@ -436,10 +425,12 @@ func TestRcptRejectsUnverifiedDomain(t *testing.T) {
 
 func TestRcptAcceptsValidAgent(t *testing.T) {
 	pool := testutil.TestDB(t)
-	receiver := testutil.WebhookReceiver(t)
+	receiver := testutil.SubscriberReceiver(t)
 	ts := testutil.TestServer(t, pool)
 
-	_, _, _ = setupDomainAndAgent(t, ts, "agent@valid.example.com", "valid.example.com", receiver.Server.URL, "cloud")
+	user, _, _ := setupDomainAndAgent(t, ts, "agent@valid.example.com", "valid.example.com", "", "")
+	registerWebhook(t, ts, user.ID, receiver.Server.URL+"/received",
+		[]string{"email.received"}, identity.WebhookFilters{})
 
 	msg := "From: alice@gmail.com\r\nTo: agent@valid.example.com\r\nSubject: Test\r\n\r\nHello!"
 	err := smtp.SendMail(ts.SMTPAddr, nil, "alice@gmail.com", []string{"agent@valid.example.com"}, []byte(msg))
@@ -447,10 +438,15 @@ func TestRcptAcceptsValidAgent(t *testing.T) {
 		t.Fatalf("expected SendMail to succeed for valid agent, got: %v", err)
 	}
 
-	// Verify delivery happened
-	payloads := receiver.WaitForPayloads(t, 1, 5*time.Second)
-	if payloads[0].Body.From != "alice@gmail.com" {
-		t.Errorf("From = %q, want alice@gmail.com", payloads[0].Body.From)
+	// Verify delivery happened via the subscriber path.
+	tick(t, ts)
+	got := receiver.WaitFor(t, 5*time.Second, func(c []testutil.SubscriberCaptured) bool { return len(c) >= 1 })
+	if len(got) != 1 {
+		t.Fatalf("got %d captures, want 1", len(got))
+	}
+	data, _ := got[0].Envelope["data"].(map[string]any)
+	if data["from"] != "alice@gmail.com" {
+		t.Errorf("from = %v, want alice@gmail.com", data["from"])
 	}
 }
 

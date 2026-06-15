@@ -133,16 +133,18 @@ func main() {
 		log.Fatalf("Failed to seed shared domain row: %v", err)
 	}
 	signer := headers.NewSigner(cfg.Signing.HMACSecret)
-	deliverer := webhook.NewDeliverer(cfg.IsProduction())
+	// deliveryStore backs the legacy webhook_deliveries table. The
+	// legacy per-agent push path (Deliverer/RetryWorker) is gone — push
+	// now flows exclusively through the /v1/webhooks subscriber resource
+	// — but the store is retained so the cleanup janitor can keep draining
+	// any rows left over from before the cutover.
 	deliveryStore := webhook.NewDeliveryStore(pool)
-	persistentDeliverer := webhook.NewPersistentDeliverer(deliverer, deliveryStore)
 
-	// New webhooks-as-a-resource pipeline (slice 1 of the feature).
-	// Lives alongside the legacy single-URL path above — both fire on
-	// inbound events. The feature flag E2A_FEATURE_WEBHOOK_RESOURCE
-	// (default ON) gates the publisher only; the subscriber retry
-	// worker keeps draining any pending rows even when the flag is
-	// OFF. See tmp/e2a_webhooks_design.md for the full design.
+	// Webhooks-as-a-resource pipeline (the sole push path). The feature
+	// flag E2A_FEATURE_WEBHOOK_RESOURCE (default ON) gates the publisher
+	// only; the subscriber retry worker keeps draining any pending rows
+	// even when the flag is OFF. See tmp/e2a_webhooks_design.md for the
+	// full design.
 	webhookFlag := webhookpub.StaticFlag(os.Getenv("E2A_FEATURE_WEBHOOK_RESOURCE") != "false")
 	subscriberStore := webhook.NewSubscriberStore(pool)
 	subscriberDeliverer := webhook.NewSubscriberDeliverer(cfg.IsProduction())
@@ -314,7 +316,7 @@ func main() {
 	}
 
 	// SMTP Relay
-	smtpServer := relay.NewServer(cfg, store, signer, persistentDeliverer, usageTracker, wsHub)
+	smtpServer := relay.NewServer(cfg, store, signer, usageTracker, wsHub)
 	smtpServer.SetEnforcer(enforcer)
 	smtpServer.SetPublisher(webhookPublisher)
 	smtpServer.SetOutbox(webhookOutbox)
@@ -352,17 +354,7 @@ func main() {
 	// is a follow-up.
 	var workerWG sync.WaitGroup
 
-	// Webhook delivery retry worker (legacy single-URL path)
-	retryWorker := webhook.NewRetryWorker(deliveryStore, deliverer, store)
-	retryCtx, retryCancel := context.WithCancel(context.Background())
-	workerWG.Add(1)
-	go func() {
-		defer workerWG.Done()
-		retryWorker.Start(retryCtx)
-	}()
-
-	// Webhook subscriber retry worker (new webhooks-as-a-resource path).
-	// Lives alongside the legacy worker; both drain their own table.
+	// Webhook subscriber retry worker (the webhooks-as-a-resource path).
 	// Unconditionally started — even with the feature flag OFF (publisher
 	// disabled) this worker keeps draining any rows that were inserted
 	// before the flag flipped, so flipping the flag mid-flight doesn't
@@ -484,7 +476,6 @@ func main() {
 	// branches return on the next iteration; processBatch / RunOnce
 	// calls already in flight finish their current row before the
 	// goroutine exits.
-	retryCancel()
 	subRetryCancel()
 	hitlCancel()
 	cleanupCancel()

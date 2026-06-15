@@ -15,7 +15,6 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/relay"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
 	"github.com/Mnexa-AI/e2a/internal/usage"
-	"github.com/Mnexa-AI/e2a/internal/webhook"
 	"github.com/Mnexa-AI/e2a/internal/ws"
 )
 
@@ -78,10 +77,9 @@ func TestRelay_RcptTo_Rejects552WhenOverCap(t *testing.T) {
 		},
 		Env: "development",
 	}
-	// usage tracker + webhook deliverer + ws hub aren't relevant for
-	// the RCPT path under test; pass benign defaults.
-	deliverer := webhook.NewPersistentDeliverer(webhook.NewDeliverer(false), webhook.NewDeliveryStore(pool))
-	server := relay.NewServer(cfg, store, signer, deliverer, usage.NewNoopUsageTracker(), ws.NewHub())
+	// usage tracker + ws hub aren't relevant for the RCPT path under
+	// test; pass benign defaults.
+	server := relay.NewServer(cfg, store, signer, usage.NewNoopUsageTracker(), ws.NewHub())
 	enf := limits.NewEnforcer(lstore, usage.NewStore(pool), limits.Defaults{
 		PlanCode: "default", MaxAgents: 1, MaxDomains: 1, MaxMessagesMonth: 1, MaxStorageBytes: 1,
 	}, 0)
@@ -97,7 +95,7 @@ func TestRelay_RcptTo_Rejects552WhenOverCap(t *testing.T) {
 	}
 	cfg.SMTP.ListenAddr = "127.0.0.1:" + port
 	// Rebuild server with the resolved port (NewServer copies ListenAddr).
-	server = relay.NewServer(cfg, store, signer, deliverer, usage.NewNoopUsageTracker(), ws.NewHub())
+	server = relay.NewServer(cfg, store, signer, usage.NewNoopUsageTracker(), ws.NewHub())
 	server.SetEnforcer(enf)
 
 	listenErrCh := make(chan error, 1)
@@ -181,8 +179,8 @@ func TestRelay_RcptTo_AcceptsWhenUnderCap(t *testing.T) {
 	// Generous caps — RCPT should succeed.
 	lstore := limits.NewStore(pool)
 	if err := lstore.Upsert(ctx, user.ID, limits.Limits{
-		PlanCode:         "pro_test",
-		MaxAgents:        100, MaxDomains: 100, MaxMessagesMonth: 100_000, MaxStorageBytes: 1 << 40,
+		PlanCode:  "pro_test",
+		MaxAgents: 100, MaxDomains: 100, MaxMessagesMonth: 100_000, MaxStorageBytes: 1 << 40,
 	}); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
@@ -190,8 +188,7 @@ func TestRelay_RcptTo_AcceptsWhenUnderCap(t *testing.T) {
 	signer := headers.NewSigner("test-relay-hmac-key-32-bytes-long!")
 	port, _ := freePort()
 	cfg := &config.Config{SMTP: config.SMTPConfig{ListenAddr: "127.0.0.1:" + port, Domain: "test.relay"}, Env: "development"}
-	deliverer := webhook.NewPersistentDeliverer(webhook.NewDeliverer(false), webhook.NewDeliveryStore(pool))
-	server := relay.NewServer(cfg, store, signer, deliverer, usage.NewNoopUsageTracker(), ws.NewHub())
+	server := relay.NewServer(cfg, store, signer, usage.NewNoopUsageTracker(), ws.NewHub())
 	enf := limits.NewEnforcer(lstore, usage.NewStore(pool),
 		limits.Defaults{PlanCode: "default", MaxAgents: 1, MaxDomains: 1, MaxMessagesMonth: 1, MaxStorageBytes: 1}, 0)
 	server.SetEnforcer(enf)

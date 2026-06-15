@@ -189,9 +189,10 @@ type API struct {
 	subscriberStore *webhook.SubscriberStore
 
 	// publisher routes email.sent / email.pending_approval /
-	// email.approved / email.rejected events to the new webhooks
-	// resource. Optional — when nil, the trigger sites silently skip
-	// the publish step (the legacy webhook_url path is unaffected).
+	// email.approved / email.rejected events to the webhooks
+	// resource — the sole push path since the legacy per-agent
+	// webhook_url was removed in slice 3. Optional — when nil, the
+	// trigger sites silently skip the publish step.
 	publisher webhookpub.Publisher
 	// outbox is the slice-4 transactional publisher for outbound
 	// events. When wired AND its FeatureFlag is enabled, post-side-

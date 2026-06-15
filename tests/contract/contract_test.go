@@ -269,10 +269,8 @@ func (r *runner) executeSetup(t *testing.T) {
 func (r *runner) setupRegisterAgent(t *testing.T, a *agentSetup) {
 	t.Helper()
 	email := r.resolve(a.Email)
-	agentMode := r.resolve(a.AgentMode)
 	body, _ := json.Marshal(map[string]string{
-		"email":      email,
-		"agent_mode": agentMode,
+		"email": email,
 	})
 	req, _ := http.NewRequest("POST", r.env.baseURL+"/v1/agents", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+r.env.apiKey)

@@ -47,7 +47,9 @@ type ConversationGetter func(ctx context.Context, agentID, conversationID string
 
 // --- write collaborators ---
 
-// AgentCreator mirrors store.CreateAgent.
+// AgentCreator mirrors store.CreateAgent. The webhookURL/agentMode params are
+// retained for signature compatibility with the store but are ignored — the
+// legacy columns were dropped (migration 029). Handlers pass "".
 type AgentCreator func(ctx context.Context, email, domain, name, webhookURL, agentMode, userID string) (*identity.AgentIdentity, error)
 
 // DomainLookup mirrors store.LookupDomain(domain, userID) — the create-time
@@ -60,10 +62,8 @@ type AgentCreateEnforcer func(ctx context.Context, userID string) error
 
 // Agent mutation funcs mirror the like-named store methods.
 type (
-	AgentModeUpdater    func(ctx context.Context, agentID, userID, agentMode, webhookURL string) error
-	AgentWebhookUpdater func(ctx context.Context, agentID, userID, webhookURL string) error
-	AgentHITLUpdater    func(ctx context.Context, agentID, userID string, enabled bool, ttlSeconds int, expirationAction string) error
-	AgentDeleter        func(ctx context.Context, agentID, userID string) error
+	AgentHITLUpdater func(ctx context.Context, agentID, userID string, enabled bool, ttlSeconds int, expirationAction string) error
+	AgentDeleter     func(ctx context.Context, agentID, userID string) error
 )
 
 // Deps are the collaborators the v1 layer needs. Everything is injected so
@@ -81,8 +81,6 @@ type Deps struct {
 	CreateAgent        AgentCreator
 	LookupDomain       DomainLookup
 	EnforceAgentCreate AgentCreateEnforcer
-	UpdateAgentMode    AgentModeUpdater
-	UpdateAgentWebhook AgentWebhookUpdater
 	UpdateAgentHITL    AgentHITLUpdater
 	DeleteAgent        AgentDeleter
 

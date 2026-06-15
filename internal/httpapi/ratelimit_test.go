@@ -158,7 +158,7 @@ func TestRegRateLimited(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
-		"slug": "bot", "agent_mode": "local",
+		"slug": "bot",
 	})
 	if code != 429 || errCode(body) != "rate_limited" {
 		t.Fatalf("want 429 rate_limited, got %d %v", code, body)

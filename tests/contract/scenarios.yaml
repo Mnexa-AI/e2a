@@ -46,7 +46,6 @@ scenarios:
         path: /v1/agents
         body:
           email: bot@crud.test.dev
-          agent_mode: local
         expect:
           status: 201
           body_contains:
@@ -65,7 +64,6 @@ scenarios:
             - agents
           body_match:
             "agents[0].email": bot@crud.test.dev
-            "agents[0].agent_mode": local
 
       - id: get
         action: request
@@ -76,10 +74,11 @@ scenarios:
           body_contains:
             - id
             - email
-            - agent_mode
           body_excludes:
             - user_id
             - public
+            - agent_mode
+            - webhook_url
 
       - id: delete
         action: request
@@ -158,7 +157,6 @@ scenarios:
       - verify_domain: readstate.test.dev
       - register_agent:
           email: bot@readstate.test.dev
-          agent_mode: local
       - inject_message:
           agent_email: "{agent_email}"
           from: alice@example.com
@@ -213,7 +211,6 @@ scenarios:
       - verify_domain: placeholder.test.dev
       - register_agent:
           email: bot@placeholder.test.dev
-          agent_mode: local
     steps:
       - id: duplicate_register_with_placeholder
         action: request
@@ -221,7 +218,6 @@ scenarios:
         path: /v1/agents
         body:
           email: "{agent_email}"
-          agent_mode: local
         expect:
           status: 409
 
@@ -331,7 +327,6 @@ scenarios:
         path: /v1/agents
         body:
           email: bot@unverified.test.dev
-          agent_mode: local
         # /v1 createAgent rejects an unverified (but claimed) domain with a
         # 400 envelope carrying code=domain_not_verified.
         expect:
@@ -346,7 +341,6 @@ scenarios:
         path: /v1/agents
         body:
           email: bot@unverified.test.dev
-          agent_mode: local
         expect:
           status: 201
 
@@ -360,7 +354,6 @@ scenarios:
       - verify_domain: ws.test.dev
       - register_agent:
           email: bot@ws.test.dev
-          agent_mode: local
     steps:
       - id: connect
         action: ws_connect
@@ -416,7 +409,6 @@ scenarios:
       - verify_domain: hitl-hold.test.dev
       - register_agent:
           email: bot@hitl-hold.test.dev
-          agent_mode: local
     steps:
       - id: enable_hitl
         # /v1 agent updates use PATCH (the legacy PUT was dropped).
@@ -474,7 +466,6 @@ scenarios:
       - verify_domain: hitl-reject.test.dev
       - register_agent:
           email: bot@hitl-reject.test.dev
-          agent_mode: local
     steps:
       - id: enable_hitl
         action: request
@@ -541,7 +532,6 @@ scenarios:
       - verify_domain: mixed.test.dev
       - register_agent:
           email: bot@mixed.test.dev
-          agent_mode: local
       - inject_message:
           agent_email: "{agent_email}"
           from: external@example.com
@@ -730,7 +720,6 @@ scenarios:
       - verify_domain: wsauth.test.dev
       - register_agent:
           email: bot@wsauth.test.dev
-          agent_mode: local
     steps:
       - id: no_token
         action: request

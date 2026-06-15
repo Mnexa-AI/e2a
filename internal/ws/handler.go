@@ -19,7 +19,8 @@ type HandlerStore interface {
 	GetMessagesByAgent(ctx context.Context, f identity.MessageListFilter) ([]identity.Message, error)
 }
 
-// Handler upgrades HTTP connections to WebSocket for local-mode agents.
+// Handler upgrades HTTP connections to WebSocket. Open to any agent the
+// caller owns — the legacy local-mode gate was removed (migration 029).
 type Handler struct {
 	hub   *Hub
 	store HandlerStore
@@ -69,10 +70,6 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string)
 	}
 	if agent.UserID != user.ID {
 		http.Error(w, "not authorized for this agent", http.StatusForbidden)
-		return
-	}
-	if agent.AgentMode != "local" {
-		http.Error(w, "WebSocket is only available for local-mode agents", http.StatusBadRequest)
 		return
 	}
 

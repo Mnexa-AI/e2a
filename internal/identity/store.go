@@ -67,8 +67,6 @@ type AgentIdentity struct {
 	Domain               string    `json:"domain"`
 	Email                string    `json:"email"`
 	Name                 string    `json:"name"`
-	WebhookURL           string    `json:"webhook_url"`
-	AgentMode            string    `json:"agent_mode"`
 	DomainVerified       bool      `json:"domain_verified"`
 	Public               bool      `json:"public"`
 	CreatedAt            time.Time `json:"created_at"`
@@ -87,8 +85,7 @@ type AgentIdentity struct {
 	LastDeliveryAt *time.Time `json:"last_delivery_at,omitempty"`
 	// WebhookHealthy is false iff there's been a failed webhook delivery
 	// in the last 24h. Defaults to true for agents with no deliveries
-	// yet — avoids painting fresh agents red. Meaningless for
-	// agent_mode='local'; the frontend hides the badge in that case.
+	// yet — avoids painting fresh agents red.
 	WebhookHealthy bool `json:"webhook_healthy"`
 }
 
@@ -168,13 +165,13 @@ type Message struct {
 	// SizeBytes is the byte length of raw_message. Populated by load paths
 	// that compute it (e.g. GetMessagesByAgent for the dashboard inbox).
 	// Zero on load paths that don't — the inbox renders "—" in that case.
-	SizeBytes         int               `json:"size_bytes,omitempty"`
+	SizeBytes int `json:"size_bytes,omitempty"`
 	// InboxStatus mirrors messages.inbox_status ('unread' | 'read') for
 	// inbound rows. Kept separate from DeliveryStatus (which currently
 	// carries the same value under a confusing JSON key — see line 161)
 	// so the dashboard's inbox can read it under a non-overloaded key.
 	// Empty on outbound rows. Populated by GetMessagesByAgent.
-	InboxStatus       string            `json:"inbox_status,omitempty"`
+	InboxStatus string `json:"inbox_status,omitempty"`
 
 	// Multi-recipient fields. For outbound, these are the addressed
 	// To/Cc/Bcc recipients of the send. For inbound, ToRecipients and CC
@@ -202,9 +199,9 @@ type Message struct {
 	// HITL approval fields. Status defaults to 'sent'; body and attachments
 	// are populated only while a message is in 'pending_approval', and are
 	// scrubbed on any terminal transition.
-	Status             string          `json:"status,omitempty"`
-	ApprovalExpiresAt  *time.Time      `json:"approval_expires_at,omitempty"`
-	ReviewedAt         *time.Time      `json:"reviewed_at,omitempty"`
+	Status            string     `json:"status,omitempty"`
+	ApprovalExpiresAt *time.Time `json:"approval_expires_at,omitempty"`
+	ReviewedAt        *time.Time `json:"reviewed_at,omitempty"`
 	// ReviewedByUserID identifies the human reviewer who approved or
 	// rejected this message. NULL on worker-triggered transitions
 	// (TTL auto-approve / auto-reject) — operator-visible signal "no
@@ -215,21 +212,21 @@ type Message struct {
 	// users row, populated only by GetOutboundMessageForUser. List
 	// endpoints leave this empty to avoid a join-per-row cost — the
 	// pending-detail page is where reviewer attribution matters.
-	ReviewedByName  *string `json:"reviewed_by_name,omitempty"`
+	ReviewedByName  *string         `json:"reviewed_by_name,omitempty"`
 	RejectionReason string          `json:"rejection_reason,omitempty"`
-	Edited             bool            `json:"edited,omitempty"`
-	BodyText           string          `json:"body_text,omitempty"`
-	BodyHTML           string          `json:"body_html,omitempty"`
-	AttachmentsJSON    json.RawMessage `json:"attachments,omitempty"`
+	Edited          bool            `json:"edited,omitempty"`
+	BodyText        string          `json:"body_text,omitempty"`
+	BodyHTML        string          `json:"body_html,omitempty"`
+	AttachmentsJSON json.RawMessage `json:"attachments,omitempty"`
 }
 
 // Message status values mirror the CHECK constraint in migration 003_hitl.sql.
 const (
-	MessageStatusSent             = "sent"
-	MessageStatusPendingApproval  = "pending_approval"
-	MessageStatusRejected         = "rejected"
-	MessageStatusExpiredApproved  = "expired_approved"
-	MessageStatusExpiredRejected  = "expired_rejected"
+	MessageStatusSent            = "sent"
+	MessageStatusPendingApproval = "pending_approval"
+	MessageStatusRejected        = "rejected"
+	MessageStatusExpiredApproved = "expired_approved"
+	MessageStatusExpiredRejected = "expired_rejected"
 )
 
 type Store struct {
@@ -561,13 +558,13 @@ func (s *Store) DeleteDomain(ctx context.Context, domain, userID string) error {
 func (s *Store) GetAgentByID(ctx context.Context, id string) (*AgentIdentity, error) {
 	a := &AgentIdentity{}
 	err := s.pool.QueryRow(ctx,
-		`SELECT a.id, a.domain, a.user_id, a.name, a.webhook_url, a.agent_mode, a.public, a.created_at,
+		`SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at,
 		        a.hitl_enabled, a.hitl_ttl_seconds, a.hitl_expiration_action,
 		        d.verified as domain_verified
 		 FROM agent_identities a
 		 JOIN domains d ON a.domain = d.domain
 		 WHERE a.id = $1`, id,
-	).Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.WebhookURL, &a.AgentMode, &a.Public, &a.CreatedAt,
+	).Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt,
 		&a.HITLEnabled, &a.HITLTTLSeconds, &a.HITLExpirationAction,
 		&a.DomainVerified)
 	if err != nil {
@@ -584,8 +581,15 @@ func (s *Store) GetAgentByEmail(ctx context.Context, email string) (*AgentIdenti
 
 // CreateAgent inserts an agent with a domain FK. Does NOT check domain ownership —
 // that's the API handler's responsibility (shared domain skips the check).
+//
+// webhookURL and agentMode are accepted for signature compatibility but are
+// now IGNORED: the legacy per-agent webhook_url + agent_mode columns were
+// dropped (migration 029). Push is delivered solely via the /v1/webhooks
+// subscriber resource and WebSocket is open to all agents. The params are
+// retained to avoid churning the ~80 call-sites that still pass them; the
+// internal-signature cleanup is a separate follow-up.
 func (s *Store) CreateAgent(ctx context.Context, agentEmail, domain, name, webhookURL, agentMode, userID string) (*AgentIdentity, error) {
-	return createAgent(ctx, s.pool, agentEmail, domain, name, webhookURL, agentMode, userID)
+	return createAgent(ctx, s.pool, agentEmail, domain, name, userID)
 }
 
 // CreateAgentTx inserts an agent inside a caller-owned transaction.
@@ -593,8 +597,9 @@ func (s *Store) CreateAgent(ctx context.Context, agentEmail, domain, name, webho
 // authorization-code insert (in oauth_auth_codes) commit together —
 // without this, a code-issue failure after the agent commit would
 // leave a phantom inbox the user never authorized.
+// webhookURL and agentMode are accepted but IGNORED — see CreateAgent.
 func (s *Store) CreateAgentTx(ctx context.Context, tx pgx.Tx, agentEmail, domain, name, webhookURL, agentMode, userID string) (*AgentIdentity, error) {
-	return createAgent(ctx, tx, agentEmail, domain, name, webhookURL, agentMode, userID)
+	return createAgent(ctx, tx, agentEmail, domain, name, userID)
 }
 
 // agentExecutor is the subset of pgxpool.Pool + pgx.Tx that
@@ -604,17 +609,11 @@ type agentExecutor interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
 
-func createAgent(ctx context.Context, exec agentExecutor, agentEmail, domain, name, webhookURL, agentMode, userID string) (*AgentIdentity, error) {
-	if agentMode == "" {
-		agentMode = "cloud"
-	}
-
+func createAgent(ctx context.Context, exec agentExecutor, agentEmail, domain, name, userID string) (*AgentIdentity, error) {
 	a := &AgentIdentity{
 		ID:                   agentEmail,
 		Domain:               normalizeDomain(domain),
 		Name:                 name,
-		WebhookURL:           webhookURL,
-		AgentMode:            agentMode,
 		Public:               true,
 		CreatedAt:            time.Now(),
 		UserID:               userID,
@@ -623,43 +622,15 @@ func createAgent(ctx context.Context, exec agentExecutor, agentEmail, domain, na
 		HITLExpirationAction: HITLDefaultExpirationAct,
 	}
 	_, err := exec.Exec(ctx,
-		`INSERT INTO agent_identities (id, domain, user_id, name, webhook_url, agent_mode, public, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		a.ID, a.Domain, a.UserID, a.Name, a.WebhookURL, a.AgentMode, a.Public, a.CreatedAt,
+		`INSERT INTO agent_identities (id, domain, user_id, name, public, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		a.ID, a.Domain, a.UserID, a.Name, a.Public, a.CreatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
 	a.populateEmail()
 	return a, nil
-}
-
-func (s *Store) UpdateAgentWebhook(ctx context.Context, agentID, userID, webhookURL string) error {
-	tag, err := s.pool.Exec(ctx,
-		`UPDATE agent_identities SET webhook_url = $1 WHERE id = $2 AND user_id = $3`,
-		webhookURL, agentID, userID,
-	)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("agent not found or not owned by user")
-	}
-	return nil
-}
-
-func (s *Store) UpdateAgentMode(ctx context.Context, agentID, userID, agentMode, webhookURL string) error {
-	tag, err := s.pool.Exec(ctx,
-		`UPDATE agent_identities SET agent_mode = $1, webhook_url = $2 WHERE id = $3 AND user_id = $4`,
-		agentMode, webhookURL, agentID, userID,
-	)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("agent not found or not owned by user")
-	}
-	return nil
 }
 
 // UpdateAgentHITL updates all three HITL settings on an agent owned by userID.
@@ -695,7 +666,7 @@ func (s *Store) UpdateAgentHITL(ctx context.Context, agentID, userID string, ena
 // only the dashboard needs them.
 func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIdentity, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT a.id, a.domain, a.user_id, a.name, a.webhook_url, a.agent_mode, a.public, a.created_at,
+		`SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at,
 		        a.hitl_enabled, a.hitl_ttl_seconds, a.hitl_expiration_action,
 		        d.verified as domain_verified,
 		        (SELECT count(*) FROM messages m
@@ -730,7 +701,7 @@ func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIde
 	for rows.Next() {
 		var a AgentIdentity
 		var lastDeliveryAt *time.Time
-		if err := rows.Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.WebhookURL, &a.AgentMode, &a.Public, &a.CreatedAt,
+		if err := rows.Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt,
 			&a.HITLEnabled, &a.HITLTTLSeconds, &a.HITLExpirationAction,
 			&a.DomainVerified,
 			&a.Inbound7d, &a.Outbound7d, &a.PendingCount,
@@ -770,6 +741,7 @@ func (s *Store) DeleteAgent(ctx context.Context, agentID, userID string) error {
 //     visibility before the metadata row is dropped;
 //   - reply-composition can load a parent inbound up to 10 days old
 //     for quoting context.
+//
 // If HITLMaxTTLSeconds is ever raised, raise this too — keep
 // MessageTTL > HITLMaxTTLSeconds by at least 1 day.
 const MessageTTL = 10 * 24 * time.Hour // 10 days
@@ -1049,7 +1021,7 @@ func (s *Store) CreatePendingOutboundMessage(ctx context.Context, agentID string
 }
 
 // nullIfEmptyString returns nil interface when s is empty so the column is
-// inserted as SQL NULL rather than ''. Keeps body columns distinguishable
+// inserted as SQL NULL rather than ”. Keeps body columns distinguishable
 // between "scrubbed" (NULL) and "empty body" once scrubbing is wired up.
 func nullIfEmptyString(s string) interface{} {
 	if s == "" {
@@ -1928,7 +1900,7 @@ type MessageListFilter struct {
 	// (Postgres ILIKE) and bound to 200 chars at the handler layer.
 	From            string
 	SubjectContains string
-	ConversationID  string // exact match
+	ConversationID  string    // exact match
 	Since           time.Time // created_at >= Since
 	Until           time.Time // created_at <  Until
 	// Labels filters rows where ALL given labels are present on the
@@ -2260,15 +2232,15 @@ func (s *Store) LookupConversationID(ctx context.Context, agentID string, messag
 // the conversation list is the agent's mailbox view, not the
 // reviewer's HITL queue.
 type ConversationSummary struct {
-	ID              string    `json:"conversation_id"`
-	LastMessageAt   time.Time `json:"last_message_at"`
-	FirstMessageAt  time.Time `json:"first_message_at"`
-	MessageCount    int       `json:"message_count"`
-	InboundCount    int       `json:"inbound_count"`
-	OutboundCount   int       `json:"outbound_count"`
-	HasUnread       bool      `json:"has_unread"`
-	LatestSubject   string    `json:"latest_subject"`
-	LatestSender    string    `json:"latest_sender"`
+	ID             string    `json:"conversation_id"`
+	LastMessageAt  time.Time `json:"last_message_at"`
+	FirstMessageAt time.Time `json:"first_message_at"`
+	MessageCount   int       `json:"message_count"`
+	InboundCount   int       `json:"inbound_count"`
+	OutboundCount  int       `json:"outbound_count"`
+	HasUnread      bool      `json:"has_unread"`
+	LatestSubject  string    `json:"latest_subject"`
+	LatestSender   string    `json:"latest_sender"`
 }
 
 // ConversationDetail extends the summary with member messages and
@@ -2789,12 +2761,12 @@ func deltaPct(current, previous int) int {
 // --- Per-user API keys ---
 
 type APIKey struct {
-	ID           string     `json:"id"`
-	UserID       string     `json:"user_id"`
-	Name         string     `json:"name"`
-	KeyPrefix    string     `json:"key_prefix"`
-	PlaintextKey string     `json:"key,omitempty"` // only set once at creation, never stored
-	CreatedAt    time.Time  `json:"created_at"`
+	ID           string    `json:"id"`
+	UserID       string    `json:"user_id"`
+	Name         string    `json:"name"`
+	KeyPrefix    string    `json:"key_prefix"`
+	PlaintextKey string    `json:"key,omitempty"` // only set once at creation, never stored
+	CreatedAt    time.Time `json:"created_at"`
 	// LastUsedAt is updated by GetUserByAPIKey on every successful
 	// AuthenticateRequest. NULL on keys that have never been used.
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
@@ -2933,9 +2905,9 @@ const MaxSigningSecretsPerUser = 5
 // errors.Is rather than string-matching the message text. Tests can
 // also assert against them directly.
 var (
-	ErrSigningSecretCapReached     = fmt.Errorf("at most %d signing secrets per user; delete one before creating another", MaxSigningSecretsPerUser)
+	ErrSigningSecretCapReached       = fmt.Errorf("at most %d signing secrets per user; delete one before creating another", MaxSigningSecretsPerUser)
 	ErrCannotDeleteLastSigningSecret = errors.New("cannot delete the last signing secret; create a new one first")
-	ErrSigningSecretNotFound       = errors.New("signing secret not found or not owned by user")
+	ErrSigningSecretNotFound         = errors.New("signing secret not found or not owned by user")
 )
 
 // SigningSecret is one of a user's HMAC secrets used to sign their
