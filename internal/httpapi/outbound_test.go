@@ -1,6 +1,9 @@
 package httpapi
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // sendURL is POST /v1/agents/{address}/messages for the test agent. The sender
 // is the path agent (decision 3 — explicit operation, not a body `from`).
@@ -118,6 +121,23 @@ func TestSendOverCap(t *testing.T) {
 	})
 	if code == 402 {
 		t.Fatalf("u_1 is under cap; should not 402")
+	}
+}
+
+// TestSendLargeBodyAccepted guards the outbound body cap: Huma's default is
+// 1 MiB, which would 413 attachment-bearing mail. The send op raises it to
+// maxOutboundBytes (25 MB), so a >1 MiB body is accepted, not rejected.
+func TestSendLargeBodyAccepted(t *testing.T) {
+	srv := testServer(t)
+	big := strings.Repeat("a", 1500*1024) // ~1.5 MiB — over Huma's 1 MiB default
+	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
+		"to": []string{"alice@x.com"}, "subject": "Hi", "body": big,
+	})
+	if code == 413 {
+		t.Fatalf("a 1.5 MiB body must be accepted (cap raised to 25 MB), got 413")
+	}
+	if code != 200 || body["status"] != "sent" {
+		t.Fatalf("want 200 sent for a large-but-under-cap body, got %d %v", code, body)
 	}
 }
 

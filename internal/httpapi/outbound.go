@@ -22,6 +22,11 @@ type SendResultView struct {
 	ApprovalExpiresAt *time.Time `json:"approval_expires_at,omitempty"`
 }
 
+// maxOutboundBytes caps the outbound request body (send/reply/forward). It
+// matches the legacy 25 MB limit so attachments keep working — Huma's default
+// is only 1 MiB, which would silently reject anything but tiny mail.
+const maxOutboundBytes = 25 * 1024 * 1024
+
 // SendEmailRequest mirrors the legacy /send body.
 type SendEmailRequest struct {
 	From           string                `json:"from,omitempty"`
@@ -51,22 +56,25 @@ func (s *Server) registerOutbound() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "sendMessage", Method: http.MethodPost, Path: "/v1/agents/{address}/messages",
 		Summary: "Send a new email", Tags: []string{"messages"},
-		Description: "Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.",
-		Security:    []map[string][]string{{"bearer": {}}},
+		Description:  "Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.",
+		Security:     []map[string][]string{{"bearer": {}}},
+		MaxBodyBytes: maxOutboundBytes,
 	}, s.handleCreateMessage)
 
 	huma.Register(s.API, huma.Operation{
 		OperationID: "replyToMessage", Method: http.MethodPost, Path: "/v1/agents/{address}/messages/{id}/reply",
 		Summary: "Reply to a message", Tags: []string{"messages"},
-		Description: "Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.",
-		Security:    []map[string][]string{{"bearer": {}}},
+		Description:  "Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.",
+		Security:     []map[string][]string{{"bearer": {}}},
+		MaxBodyBytes: maxOutboundBytes,
 	}, s.handleReply)
 
 	huma.Register(s.API, huma.Operation{
 		OperationID: "forwardMessage", Method: http.MethodPost, Path: "/v1/agents/{address}/messages/{id}/forward",
 		Summary: "Forward a message", Tags: []string{"messages"},
-		Description: "Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.",
-		Security:    []map[string][]string{{"bearer": {}}},
+		Description:  "Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.",
+		Security:     []map[string][]string{{"bearer": {}}},
+		MaxBodyBytes: maxOutboundBytes,
 	}, s.handleForward)
 
 	huma.Register(s.API, huma.Operation{

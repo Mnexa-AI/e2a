@@ -114,6 +114,15 @@ func TestSpecGeneratedFromHandlers(t *testing.T) {
 			t.Errorf("generated spec missing %q", want)
 		}
 	}
+
+	// Retired routes must NOT reappear. /v1/send was relocated to
+	// POST /v1/agents/{address}/messages in Slice 2 (decision 3); guard against
+	// a regression that re-registers it.
+	for _, gone := range []string{"/v1/send"} {
+		if strings.Contains(spec, gone) {
+			t.Errorf("generated spec still contains retired route %q", gone)
+		}
+	}
 }
 
 // TestSpecServedOverHTTP confirms the spec is reachable at the versioned

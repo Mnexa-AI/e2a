@@ -40,9 +40,9 @@ var pollLimitedOps = map[string]bool{
 // reads and the per-IP registration limiter on agent create, and stamps the
 // IETF RateLimit-Limit/Remaining/Reset headers (plus Retry-After on a 429) on
 // the response. The per-agent SEND limiter is enforced inside the outbound
-// handlers instead: its key is the resolved sender agent, which is only known
-// after the request body is parsed (POST /v1/send carries the sender in the
-// body, not the path), so it cannot be classified from the operation alone.
+// handlers instead: its key is the *resolved owned* agent (after the
+// resolveOwnedAgent ownership check), which this middleware doesn't perform —
+// so the send limit is applied in deliver()/the outbound handlers, not here.
 func (s *Server) rateLimit(ctx huma.Context, next func(huma.Context)) {
 	op := ctx.Operation()
 	if op == nil {
