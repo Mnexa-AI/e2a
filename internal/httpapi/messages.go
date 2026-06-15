@@ -10,6 +10,7 @@ import (
 
 	"github.com/Mnexa-AI/e2a/internal/emailauth"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/mailparse"
 	"github.com/danielgtaylor/huma/v2"
 )
 
@@ -47,6 +48,30 @@ type MessageView struct {
 	// outbound messages, which carry no verdict.
 	Auth       *emailauth.Result `json:"auth,omitempty"`
 	RawMessage []byte            `json:"raw_message"`
+	// Parsed is the injection-reduced view (decision 9 / Slice 4b-3): the raw
+	// message rendered to text with quoted reply/forward chains stripped and a
+	// length cap, for the agent to feed a model by default. Inbound-only; a
+	// CONVENIENCE — `raw_message` is always present and the security decision is
+	// made on `auth` + provenance, never on this stripped text.
+	Parsed *MessageParsedView `json:"parsed,omitempty"`
+	// Body is the mutable draft body for a held outbound message
+	// (status=pending_approval), which has no raw_message yet. This is the
+	// second representation the unified read exposes (decision 9): held drafts
+	// carry body_text/body_html, sent/inbound carry raw_message. Omitted when
+	// empty (sent/inbound rows).
+	Body *MessageBodyView `json:"body,omitempty"`
+}
+
+// MessageParsedView is the parsed-body payload (see MessageView.Parsed).
+type MessageParsedView struct {
+	Text      string `json:"text"`
+	Truncated bool   `json:"truncated"`
+}
+
+// MessageBodyView is the held-draft body (see MessageView.Body).
+type MessageBodyView struct {
+	Text string `json:"text,omitempty"`
+	HTML string `json:"html,omitempty"`
 }
 
 func messageViewFromIdentity(m *identity.Message) MessageView {
@@ -73,6 +98,18 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		v.DeliveryStatus = m.DeliveryStatus
 		v.DeliveryDetail = m.DeliveryDetail
 		v.SentAs = m.SentAs
+	}
+	// Parsed view (decision 9): inbound-only, derived from the raw message.
+	if m.Direction == "inbound" && len(m.RawMessage) > 0 {
+		text, truncated := mailparse.ParsedBody(m.RawMessage, mailparse.DefaultMaxBytes)
+		v.Parsed = &MessageParsedView{Text: text, Truncated: truncated}
+	}
+	// Held-draft body (decision 9 unification): the second representation a
+	// pending_approval outbound message carries instead of raw_message. Gated on
+	// outbound direction so it can never surface on an inbound row even if a
+	// future load path populates the body columns.
+	if m.Direction == "outbound" && (m.BodyText != "" || m.BodyHTML != "") {
+		v.Body = &MessageBodyView{Text: m.BodyText, HTML: m.BodyHTML}
 	}
 	return v
 }

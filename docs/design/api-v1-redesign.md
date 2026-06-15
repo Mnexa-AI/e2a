@@ -1234,9 +1234,21 @@ Break the current `/api/v1` surface directly and move it to
     `auth: {spf,dkim,dmarc}` verdict is persisted on inbound (migration 032,
     `messages.auth_verdict`; SPF can't be recomputed at read) and surfaced as
     `auth` on inbound message reads — the trust primitive Slice 7 enforces on.
+  * **Slice 4b-3 — parsed view + message-read unification.** *(Shipped.)*
+    `internal/mailparse` derives the injection-reduced **parsed view** from the
+    raw message (MIME-walk → prefer text/plain else HTML→text, strip quoted
+    reply/forward chains, length-cap), surfaced as `parsed: {text,truncated}` on
+    inbound message reads — a convenience; `raw_message` always present and the
+    security decision is made on `auth`+provenance, never the stripped text. The
+    unified `GET /v1/agents/{address}/messages/{id}` now serves BOTH
+    representations (decision 9): `raw_message` for sent/inbound AND the
+    held-draft `body: {text,html}` for `pending_approval` outbound — so it is the
+    single canonical read. **Deferred:** the *literal deletion* of the legacy
+    flat `/api/v1/messages/{id}` route rides the consumer-port slice (the TS +
+    Python SDKs still call it; deleting now breaks them before they repoint to
+    `/v1`).
   * **Still deferred:** the `email.flagged` security event (it fires on a
-    policy decision → Slice 7); the injection-reduced **parsed view** + unified
-    `GET /messages/{id}` flat-path removal (4b-3); the ≥N-soft-bounce
+    policy decision → Slice 7); the ≥N-soft-bounce
     suppression threshold; the `_dmarc` policy (`p=`/strict-alignment) fetch;
     and the SNS flow's real-AWS e2e (CI uses crafted SNS payloads + fake cert).
 * **Slice 5 — Auth: OAuth 2.1 + auth.md agent identity.** OAuth 2.1 hosted-MCP
