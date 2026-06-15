@@ -235,6 +235,16 @@ func TestCheckDMARC(t *testing.T) {
 		{"neither aligned → fail", from("acme.com"), "x@other.com", pass, pass, "other.com", StatusFail},
 		{"nothing attempted → none", from("acme.com"), "x@other.com", none, none, "", StatusNone},
 		{"no From domain → none", []byte("To: a@b.com\r\n\r\nhi"), "x@acme.com", pass, none, "", StatusNone},
+		// Hardening (adversarial review): a From that is itself a public suffix
+		// must NOT self-align even with a matching d= (no org to attribute to).
+		{"public-suffix From does not self-align", from("github.io"), "x@y.com", none, pass, "github.io", StatusFail},
+		// Trailing-dot (absolute form) From: net/mail rejects it → conservative
+		// none (not a spoof). normDomain still strips trailing dots on any
+		// identifier that does reach alignment (e.g. a d= value).
+		{"trailing-dot From → conservative none", from("acme.com."), "x@y.com", none, pass, "acme.com", StatusNone},
+		// Documented relaxed-alignment limitation: distinct tenants under a
+		// non-PSL shared parent align (a.wordpress.com ~ b.wordpress.com).
+		{"shared non-PSL parent aligns (known relaxed gap)", from("a.wordpress.com"), "x@y.com", none, pass, "b.wordpress.com", StatusPass},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

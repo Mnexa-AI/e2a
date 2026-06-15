@@ -228,11 +228,16 @@ func (s *session) Data(r io.Reader) error {
 	return s.deliverMessages(ctx, senderEmail, body)
 }
 
-// deliverMessages runs SPF/DKIM checks and delivers to agents via webhook.
+// deliverMessages runs SPF/DKIM/DMARC checks and delivers to agents via webhook.
 func (s *session) deliverMessages(ctx context.Context, senderEmail string, body []byte) error {
-	// Run SPF/DKIM checks on the inbound message
-	domainAuth := emailauth.Check(s.remoteIP, senderEmail, body)
-	log.Printf("[%s] [%s] domain auth from %s: %s", s.id, senderEmail, s.remoteIP, domainAuth.Summary())
+	// Authenticate against the TRUE SMTP envelope MAIL FROM (s.from), not the
+	// display senderEmail (which prefers the From header). SPF is an
+	// envelope-identity check (RFC 7208), and DMARC alignment must compare the
+	// real envelope domain against the From-header domain — passing the
+	// From-derived senderEmail here would make SPF-alignment a tautology
+	// (adversarial review F5). DKIM + From extraction come from the body.
+	domainAuth := emailauth.Check(s.remoteIP, extractEmail(s.from), body)
+	log.Printf("[%s] [%s] domain auth from %s (envelope %s): %s", s.id, senderEmail, s.remoteIP, s.from, domainAuth.Summary())
 
 	delivered := 0
 	for _, rcpt := range s.recipients {

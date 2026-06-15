@@ -99,11 +99,24 @@ func checkDMARC(rawMessage []byte, envelopeSender string, spf, dkim CheckResult,
 }
 
 // aligned reports relaxed (organizational-domain) alignment between two
-// domains, the DMARC default. Exact match always aligns; otherwise their
-// eTLD+1 must match (so mail.example.com aligns with example.com).
+// domains, the DMARC default. Exact match aligns; otherwise their eTLD+1 must
+// match (so mail.example.com aligns with example.com).
+//
+// Guards (adversarial review): trailing dots are normalized so the absolute
+// form acme.com. aligns with acme.com; a domain that is ITSELF a public suffix
+// (e.g. github.io, co.uk) never aligns — there is no organization to attribute
+// it to, so a bare-suffix From with a matching d= must not earn a pass.
+//
+// LIMITATION (relaxed alignment, by design): two distinct tenants under a
+// non-PSL shared parent (e.g. a.wordpress.com vs b.wordpress.com) share an
+// eTLD+1 and therefore align. This is the standard relaxed-DMARC shared-hosting
+// gap; strict alignment (a deferred _dmarc-policy fetch) would close it.
 func aligned(a, b string) bool {
-	a, b = strings.ToLower(strings.TrimSpace(a)), strings.ToLower(strings.TrimSpace(b))
+	a, b = normDomain(a), normDomain(b)
 	if a == "" || b == "" {
+		return false
+	}
+	if isPublicSuffix(a) || isPublicSuffix(b) {
 		return false
 	}
 	if a == b {
@@ -111,6 +124,17 @@ func aligned(a, b string) bool {
 	}
 	oa, ob := orgDomain(a), orgDomain(b)
 	return oa != "" && oa == ob
+}
+
+func normDomain(d string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(d)), ".")
+}
+
+// isPublicSuffix reports whether d is itself a public suffix (ICANN or private),
+// i.e. it has no registrable label of its own.
+func isPublicSuffix(d string) bool {
+	suffix, _ := publicsuffix.PublicSuffix(d)
+	return suffix == d
 }
 
 func orgDomain(d string) string {
