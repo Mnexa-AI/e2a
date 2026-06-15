@@ -219,7 +219,7 @@ func TestGetOutboundMessage_ReplyAttachesInboundContext(t *testing.T) {
 	if _, err := store.CreateInboundMessage(ctx, "", agent.ID,
 		"alice@gmail.com", "bot@inbound-ctx.example.com",
 		"<orig@gmail.com>", "Hello Bot", "", "",
-		nil, authHeaders, nil, nil, nil); err != nil {
+		nil, authHeaders, nil, nil, nil, nil); err != nil {
 		t.Fatalf("seed inbound: %v", err)
 	}
 
@@ -326,7 +326,7 @@ func TestGetOutboundMessage_ReplyWithMissingInboundReturnsNilContext(t *testing.
 	inbound, err := store.CreateInboundMessage(ctx, "", agent.ID,
 		"alice@gmail.com", "bot@missing-inbound.example.com",
 		"<missing@gmail.com>", "Subject that will vanish", "", "",
-		nil, nil, nil, nil, nil)
+		nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("seed inbound: %v", err)
 	}
@@ -386,7 +386,7 @@ func TestGetOutboundMessage_InboundContextIsAgentScoped(t *testing.T) {
 	if _, err := store.CreateInboundMessage(ctx, "", agentA.ID,
 		"alice@gmail.com", "bot@scoped-a.example.com",
 		"<shared-id@gmail.com>", "Subject for A", "", "",
-		nil, map[string]string{"spf": "pass"}, nil, nil, nil); err != nil {
+		nil, map[string]string{"spf": "pass"}, nil, nil, nil, nil); err != nil {
 		t.Fatalf("seed inbound A: %v", err)
 	}
 
@@ -398,7 +398,7 @@ func TestGetOutboundMessage_InboundContextIsAgentScoped(t *testing.T) {
 	if _, err := store.CreateInboundMessage(ctx, "", agentB.ID,
 		"bob@gmail.com", "bot@scoped-b.example.com",
 		"<shared-id@gmail.com>", "Subject for B (must NOT leak)", "", "",
-		nil, map[string]string{"spf": "fail"}, nil, nil, nil); err != nil {
+		nil, map[string]string{"spf": "fail"}, nil, nil, nil, nil); err != nil {
 		t.Fatalf("seed inbound B: %v", err)
 	}
 

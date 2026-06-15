@@ -68,12 +68,13 @@ func TestDomainAuthenticatedBothFail(t *testing.T) {
 
 func TestSummaryFormat(t *testing.T) {
 	r := &Result{
-		SPF:  CheckResult{Status: StatusPass},
-		DKIM: CheckResult{Status: StatusNone},
+		SPF:   CheckResult{Status: StatusPass},
+		DKIM:  CheckResult{Status: StatusNone},
+		DMARC: CheckResult{Status: StatusFail},
 	}
 	summary := r.Summary()
-	if summary != "spf=pass; dkim=none" {
-		t.Errorf("summary = %q, want %q", summary, "spf=pass; dkim=none")
+	if summary != "spf=pass; dkim=none; dmarc=fail" {
+		t.Errorf("summary = %q, want %q", summary, "spf=pass; dkim=none; dmarc=fail")
 	}
 }
 
@@ -97,7 +98,7 @@ func TestCheckDKIMLengthTagRefused(t *testing.T) {
 		"\r\n" +
 		"AAAAAAAAAA[attacker-appended-content-past-signed-length]")
 
-	result := checkDKIM(msg)
+	result, _ := checkDKIM(msg)
 	if result.Status != StatusFail {
 		t.Errorf("DKIM status = %q, want %q (l= must trigger refusal)", result.Status, StatusFail)
 	}
@@ -123,7 +124,7 @@ func TestCheckDKIMNoLengthTagFallsThroughToVerify(t *testing.T) {
 		"\r\n" +
 		"body")
 
-	result := checkDKIM(msg)
+	result, _ := checkDKIM(msg)
 	if result.Status == StatusFail && strings.Contains(result.Detail, "l= body-length tag") {
 		t.Errorf("DKIM refused with l= detail despite no l= tag in header: %q", result.Detail)
 	}
@@ -205,5 +206,42 @@ func TestExtractDomain(t *testing.T) {
 		if got != tt.domain {
 			t.Errorf("extractDomain(%q) = %q, want %q", tt.email, got, tt.domain)
 		}
+	}
+}
+
+// TestCheckDMARC covers the alignment verdict (relaxed org-domain) without
+// needing live SPF/DKIM: it drives checkDMARC directly with crafted inputs.
+func TestCheckDMARC(t *testing.T) {
+	from := func(d string) []byte {
+		return []byte("From: Sender <s@" + d + ">\r\nTo: a@b.com\r\nSubject: x\r\n\r\nhi")
+	}
+	pass := CheckResult{Status: StatusPass}
+	none := CheckResult{Status: StatusNone}
+
+	tests := []struct {
+		name       string
+		raw        []byte
+		envelope   string
+		spf, dkim  CheckResult
+		dkimDomain string
+		wantStatus CheckStatus
+	}{
+		{"dkim aligned exact", from("acme.com"), "bounce@x.com", none, pass, "acme.com", StatusPass},
+		{"dkim aligned subdomain (relaxed org)", from("acme.com"), "bounce@x.com", none, pass, "mail.acme.com", StatusPass},
+		{"dkim pass but unaligned", from("acme.com"), "bounce@x.com", none, pass, "evil.com", StatusFail},
+		{"spf aligned", from("acme.com"), "notify@acme.com", pass, none, "", StatusPass},
+		{"spf pass but unaligned envelope", from("acme.com"), "bounce@sendgrid.net", pass, none, "", StatusFail},
+		{"spf aligned via org domain", from("acme.com"), "bounce@mail.acme.com", pass, none, "", StatusPass},
+		{"neither aligned → fail", from("acme.com"), "x@other.com", pass, pass, "other.com", StatusFail},
+		{"nothing attempted → none", from("acme.com"), "x@other.com", none, none, "", StatusNone},
+		{"no From domain → none", []byte("To: a@b.com\r\n\r\nhi"), "x@acme.com", pass, none, "", StatusNone},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := checkDMARC(tc.raw, tc.envelope, tc.spf, tc.dkim, tc.dkimDomain)
+			if got.Status != tc.wantStatus {
+				t.Errorf("DMARC = %q (%s), want %q", got.Status, got.Detail, tc.wantStatus)
+			}
+		})
 	}
 }

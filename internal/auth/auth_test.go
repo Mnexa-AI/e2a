@@ -120,9 +120,9 @@ func TestHandleAgentActivity_WithMessages(t *testing.T) {
 	agent, _ := store.CreateAgent(ctx, "agent@active.example.com", "active.example.com", "", "https://example.com/webhook", "", user.ID)
 
 	// Create some activity ("" id lets the store generate one).
-	store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", "bot@active.example.com", "", "Hello", "", "", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", "bot@active.example.com", "", "Hello", "", "", nil, nil, nil, nil, nil, nil)
 	store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "", "")
-	store.CreateInboundMessage(ctx, "", agent.ID, "bob@gmail.com", "bot@active.example.com", "", "Hi", "", "", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", agent.ID, "bob@gmail.com", "bot@active.example.com", "", "Hi", "", "", nil, nil, nil, nil, nil, nil)
 
 	req := authedRequest("GET", "/api/dashboard/agents/agent%40active.example.com/activity", token)
 	w := httptest.NewRecorder()
@@ -149,7 +149,6 @@ func TestHandleAgentActivity_WithMessages(t *testing.T) {
 		t.Errorf("third entry: direction=%q subject=%q", activity[2].Direction, activity[2].Subject)
 	}
 }
-
 
 // --- API key endpoints (Item #3) ---
 

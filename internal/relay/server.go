@@ -6,6 +6,7 @@ import (
 	crand "crypto/rand"
 	"crypto/tls"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"log"
 	"mime"
@@ -366,6 +367,13 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	//       in-process publisher.Publish goroutine fires post-commit.
 	//       Preserves pre-design behavior so deployments that haven't
 	//       wired the outbox don't regress.
+	// Structured inbound auth verdict {spf,dkim,dmarc} persisted alongside the
+	// signed X-E2A-Auth-* blob (decision 9 / Slice 4b-2) — the trust primitive
+	// surfaced on the message and enforced on by the Slice 7 inbound policy.
+	// SPF can't be recomputed at read (the connecting IP isn't stored), so store
+	// it now. Best-effort marshal: a failure just omits the verdict.
+	authVerdictJSON, _ := json.Marshal(domainAuth)
+
 	var inboundMsg *identity.Message
 	var err error
 	if s.relay.outbox != nil {
@@ -374,7 +382,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 			inboundMsg, txErr = s.relay.store.CreateInboundMessageInTx(
 				ctx, tx, messageID, agent.ID, displaySender, rcpt,
 				s.inboundMsgID, s.inboundSubject, conversationID,
-				deliveryStatus, body, authHeaders,
+				deliveryStatus, body, authHeaders, authVerdictJSON,
 				s.inboundThreadInfo.To, s.inboundThreadInfo.CC, s.inboundThreadInfo.ReplyTo,
 			)
 			if txErr != nil {
@@ -386,7 +394,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 		inboundMsg, err = s.relay.store.CreateInboundMessage(
 			ctx, messageID, agent.ID, displaySender, rcpt,
 			s.inboundMsgID, s.inboundSubject, conversationID,
-			deliveryStatus, body, authHeaders,
+			deliveryStatus, body, authHeaders, authVerdictJSON,
 			s.inboundThreadInfo.To, s.inboundThreadInfo.CC, s.inboundThreadInfo.ReplyTo,
 		)
 	}

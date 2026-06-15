@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/emailauth"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -41,7 +42,11 @@ type MessageView struct {
 	Labels      []string          `json:"labels"`
 	CreatedAt   string            `json:"created_at"`
 	AuthHeaders map[string]string `json:"auth_headers"`
-	RawMessage  []byte            `json:"raw_message"`
+	// Auth is the structured inbound authentication verdict (SPF/DKIM/DMARC,
+	// each with status + detail) from migration 032. Inbound-only; omitted on
+	// outbound messages, which carry no verdict.
+	Auth       *emailauth.Result `json:"auth,omitempty"`
+	RawMessage []byte            `json:"raw_message"`
 }
 
 func messageViewFromIdentity(m *identity.Message) MessageView {
@@ -58,6 +63,7 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		Labels:         orEmptyStrings(m.Labels),
 		CreatedAt:      m.CreatedAt.UTC().Format(time.RFC3339),
 		AuthHeaders:    m.AuthHeaders,
+		Auth:           m.Auth,
 		RawMessage:     m.RawMessage,
 	}
 	// Outbound delivery feedback (migration 031). On outbound rows
@@ -110,6 +116,9 @@ type MessageSummaryView struct {
 	SizeBytes      int      `json:"size_bytes,omitempty"`
 	Labels         []string `json:"labels"`
 	CreatedAt      string   `json:"created_at"`
+	// Auth is the structured inbound authentication verdict (migration 032).
+	// Inbound-only; omitted on outbound rows.
+	Auth *emailauth.Result `json:"auth,omitempty"`
 }
 
 func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
@@ -127,6 +136,7 @@ func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
 		SizeBytes:      m.SizeBytes,
 		Labels:         orEmptyStrings(m.Labels),
 		CreatedAt:      m.CreatedAt.UTC().Format(time.RFC3339),
+		Auth:           m.Auth,
 	}
 	if m.Direction == "outbound" {
 		s.HITLStatus = m.Status

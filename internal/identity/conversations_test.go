@@ -47,7 +47,7 @@ func TestListConversationsByAgent_GroupsByConversationID(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		_, err := store.CreateInboundMessage(ctx, "", agentID, "alice@gmail.com", "bot@convo-group.example.com",
 			fmt.Sprintf("<a%d@gmail.com>", i),
-			"Subject A", "conv-A", "", nil, nil, nil, nil, nil,
+			"Subject A", "conv-A", "", nil, nil, nil, nil, nil, nil,
 		)
 		if err != nil {
 			t.Fatalf("CreateInboundMessage A%d: %v", i, err)
@@ -55,13 +55,13 @@ func TestListConversationsByAgent_GroupsByConversationID(t *testing.T) {
 	}
 	// Conversation B: 1 message
 	if _, err := store.CreateInboundMessage(ctx, "", agentID, "bob@gmail.com", "bot@convo-group.example.com",
-		"<b0@gmail.com>", "Subject B", "conv-B", "", nil, nil, nil, nil, nil,
+		"<b0@gmail.com>", "Subject B", "conv-B", "", nil, nil, nil, nil, nil, nil,
 	); err != nil {
 		t.Fatalf("CreateInboundMessage B: %v", err)
 	}
 	// A message with NO conversation_id — must NOT show up in the list.
 	if _, err := store.CreateInboundMessage(ctx, "", agentID, "carol@gmail.com", "bot@convo-group.example.com",
-		"<c0@gmail.com>", "Subject C (no conv)", "", "", nil, nil, nil, nil, nil,
+		"<c0@gmail.com>", "Subject C (no conv)", "", "", nil, nil, nil, nil, nil, nil,
 	); err != nil {
 		t.Fatalf("CreateInboundMessage C: %v", err)
 	}
@@ -96,10 +96,10 @@ func TestListConversationsByAgent_SortsByLastMessageDesc(t *testing.T) {
 
 	// Create A first, then B — but A is the "newer" conversation
 	// because we add another message to A after B's only one.
-	store.CreateInboundMessage(ctx, "", agentID, "x@gmail.com", "bot@convo-sort.example.com", "<a1@x>", "A", "conv-A-sort", "", nil, nil, nil, nil, nil)
-	store.CreateInboundMessage(ctx, "", agentID, "x@gmail.com", "bot@convo-sort.example.com", "<b1@x>", "B", "conv-B-sort", "", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", agentID, "x@gmail.com", "bot@convo-sort.example.com", "<a1@x>", "A", "conv-A-sort", "", nil, nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", agentID, "x@gmail.com", "bot@convo-sort.example.com", "<b1@x>", "B", "conv-B-sort", "", nil, nil, nil, nil, nil, nil)
 	// Bump A's last_message_at to be the newest.
-	store.CreateInboundMessage(ctx, "", agentID, "x@gmail.com", "bot@convo-sort.example.com", "<a2@x>", "A2", "conv-A-sort", "", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", agentID, "x@gmail.com", "bot@convo-sort.example.com", "<a2@x>", "A2", "conv-A-sort", "", nil, nil, nil, nil, nil, nil)
 
 	convos, _ := store.ListConversationsByAgent(ctx, identity.ConversationListFilter{AgentID: agentID})
 	if len(convos) != 2 {
@@ -126,7 +126,7 @@ func TestListConversationsByAgent_LimitClamp(t *testing.T) {
 	if identity.ConversationListHardCap < 1 {
 		t.Fatalf("ConversationListHardCap must be > 0, got %d", identity.ConversationListHardCap)
 	}
-	store.CreateInboundMessage(ctx, "", agentID, "x@gmail.com", "bot@convo-clamp.example.com", "<a@x>", "A", "conv-clamp-A", "", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", agentID, "x@gmail.com", "bot@convo-clamp.example.com", "<a@x>", "A", "conv-clamp-A", "", nil, nil, nil, nil, nil, nil)
 	convos, err := store.ListConversationsByAgent(ctx, identity.ConversationListFilter{AgentID: agentID, Limit: 9999})
 	if err != nil {
 		t.Fatalf("ListConversationsByAgent: %v", err)
@@ -142,8 +142,8 @@ func TestListConversationsByAgent_SinceUntilWindow(t *testing.T) {
 	ctx := context.Background()
 	agentID := convoTestSetup(t, store, "convo-window")
 
-	store.CreateInboundMessage(ctx, "", agentID, "x@gmail.com", "bot@convo-window.example.com", "<old@x>", "old", "conv-old", "", nil, nil, nil, nil, nil)
-	store.CreateInboundMessage(ctx, "", agentID, "x@gmail.com", "bot@convo-window.example.com", "<new@x>", "new", "conv-new", "", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", agentID, "x@gmail.com", "bot@convo-window.example.com", "<old@x>", "old", "conv-old", "", nil, nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", agentID, "x@gmail.com", "bot@convo-window.example.com", "<new@x>", "new", "conv-new", "", nil, nil, nil, nil, nil, nil)
 
 	// since=now-1h should return both; since=future should return zero.
 	all, _ := store.ListConversationsByAgent(ctx, identity.ConversationListFilter{
@@ -171,7 +171,7 @@ func TestListConversationsByAgent_AggregateFields(t *testing.T) {
 	// Conversation with one inbound (explicitly unread) and one outbound.
 	// The 9th arg of CreateInboundMessage is inbox_status — pass
 	// "unread" explicitly so the has_unread aggregate is true.
-	store.CreateInboundMessage(ctx, "", agentID, "alice@gmail.com", "bot@convo-agg.example.com", "<i1@x>", "Hello", "conv-agg", "unread", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", agentID, "alice@gmail.com", "bot@convo-agg.example.com", "<i1@x>", "Hello", "conv-agg", "unread", nil, nil, nil, nil, nil, nil)
 	store.CreateOutboundMessage(ctx, agentID, []string{"alice@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "<out@x>", "conv-agg")
 
 	convos, _ := store.ListConversationsByAgent(ctx, identity.ConversationListFilter{AgentID: agentID})
@@ -207,9 +207,9 @@ func TestGetConversationByID_OrdersChronologically(t *testing.T) {
 
 	// Create three messages explicitly in non-monotonic order to
 	// verify the storage layer sorts on read, not write.
-	store.CreateInboundMessage(ctx, "", agentID, "x@gmail.com", "bot@convo-order.example.com", "<m1@x>", "first", "conv-ord", "", nil, nil, nil, nil, nil)
-	store.CreateInboundMessage(ctx, "", agentID, "x@gmail.com", "bot@convo-order.example.com", "<m2@x>", "second", "conv-ord", "", nil, nil, nil, nil, nil)
-	store.CreateInboundMessage(ctx, "", agentID, "x@gmail.com", "bot@convo-order.example.com", "<m3@x>", "third", "conv-ord", "", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", agentID, "x@gmail.com", "bot@convo-order.example.com", "<m1@x>", "first", "conv-ord", "", nil, nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", agentID, "x@gmail.com", "bot@convo-order.example.com", "<m2@x>", "second", "conv-ord", "", nil, nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", agentID, "x@gmail.com", "bot@convo-order.example.com", "<m3@x>", "third", "conv-ord", "", nil, nil, nil, nil, nil, nil)
 
 	d, err := store.GetConversationByID(ctx, agentID, "conv-ord")
 	if err != nil {
@@ -231,10 +231,10 @@ func TestGetConversationByID_ComputesParticipantsAndLabels(t *testing.T) {
 	ctx := context.Background()
 	agentID := convoTestSetup(t, store, "convo-part")
 
-	m1, _ := store.CreateInboundMessage(ctx, "", agentID, "alice@gmail.com", "bot@convo-part.example.com", "<p1@x>", "hi", "conv-part", "", nil, nil,
+	m1, _ := store.CreateInboundMessage(ctx, "", agentID, "alice@gmail.com", "bot@convo-part.example.com", "<p1@x>", "hi", "conv-part", "", nil, nil, nil,
 		[]string{"bot@convo-part.example.com", "team@convo-part.example.com"}, nil, nil,
 	)
-	m2, _ := store.CreateInboundMessage(ctx, "", agentID, "bob@gmail.com", "bot@convo-part.example.com", "<p2@x>", "hi", "conv-part", "", nil, nil,
+	m2, _ := store.CreateInboundMessage(ctx, "", agentID, "bob@gmail.com", "bot@convo-part.example.com", "<p2@x>", "hi", "conv-part", "", nil, nil, nil,
 		[]string{"bot@convo-part.example.com"}, []string{"carol@gmail.com"}, nil,
 	)
 	store.ModifyMessageLabels(ctx, m1.ID, agentID, []string{"urgent"}, nil)
@@ -285,7 +285,7 @@ func TestGetConversationByID_CrossAgentIsolation(t *testing.T) {
 	ctx := context.Background()
 	agentA := convoTestSetup(t, store, "convo-iso-a")
 	agentB := convoTestSetup(t, store, "convo-iso-b")
-	store.CreateInboundMessage(ctx, "", agentA, "x@gmail.com", "bot@convo-iso-a.example.com", "<a@x>", "secret", "conv-shared", "", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", agentA, "x@gmail.com", "bot@convo-iso-a.example.com", "<a@x>", "secret", "conv-shared", "", nil, nil, nil, nil, nil, nil)
 
 	// Agent B reading conv-shared must get not-found, NOT the inbound from A.
 	_, err := store.GetConversationByID(ctx, agentB, "conv-shared")

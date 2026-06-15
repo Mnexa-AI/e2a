@@ -10,6 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"encoding/json"
+
+	"github.com/Mnexa-AI/e2a/internal/emailauth"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
 )
@@ -350,7 +353,7 @@ func TestCreateAndGetInboundMessage(t *testing.T) {
 	store.ClaimOrCreateDomain(ctx, "inbound.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@inbound.example.com", "inbound.example.com", "", "https://example.com/webhook", "", user.ID)
 
-	msg, err := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@inbound.example.com", "<abc123@gmail.com>", "Hello Bot", "", "", nil, nil, nil, nil, nil)
+	msg, err := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@inbound.example.com", "<abc123@gmail.com>", "Hello Bot", "", "", nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateInboundMessage: %v", err)
 	}
@@ -382,6 +385,68 @@ func TestCreateAndGetInboundMessage(t *testing.T) {
 	}
 }
 
+// TestInboundMessageRoundTripsAuthVerdict asserts the structured inbound
+// auth verdict (messages.auth_verdict, migration 032) persists and reads
+// back through the message read paths, and that an outbound message has no
+// verdict (nil Auth).
+func TestInboundMessageRoundTripsAuthVerdict(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "av-owner@example.com", "Owner", "google-authverdict")
+	store.ClaimOrCreateDomain(ctx, "authverdict.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "bot@authverdict.example.com", "authverdict.example.com", "", "https://example.com/webhook", "", user.ID)
+
+	verdict := emailauth.Result{
+		SPF:   emailauth.CheckResult{Status: emailauth.StatusPass, Detail: "spf-pass detail"},
+		DKIM:  emailauth.CheckResult{Status: emailauth.StatusFail, Detail: "dkim-fail detail"},
+		DMARC: emailauth.CheckResult{Status: emailauth.StatusNone, Detail: "no alignment"},
+	}
+	verdictJSON, err := json.Marshal(verdict)
+	if err != nil {
+		t.Fatalf("marshal verdict: %v", err)
+	}
+
+	in, err := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@authverdict.example.com", "<av1@gmail.com>", "Hello", "", "unread", nil, nil, verdictJSON, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("CreateInboundMessage: %v", err)
+	}
+
+	got, err := store.GetMessageWithContent(ctx, in.ID, a.ID)
+	if err != nil {
+		t.Fatalf("GetMessageWithContent: %v", err)
+	}
+	if got.Auth == nil {
+		t.Fatalf("inbound Auth is nil, want populated verdict")
+	}
+	if got.Auth.SPF.Status != emailauth.StatusPass {
+		t.Errorf("SPF.Status = %q, want %q", got.Auth.SPF.Status, emailauth.StatusPass)
+	}
+	if got.Auth.DKIM.Status != emailauth.StatusFail {
+		t.Errorf("DKIM.Status = %q, want %q", got.Auth.DKIM.Status, emailauth.StatusFail)
+	}
+	if got.Auth.DMARC.Status != emailauth.StatusNone {
+		t.Errorf("DMARC.Status = %q, want %q", got.Auth.DMARC.Status, emailauth.StatusNone)
+	}
+	if got.Auth.SPF.Detail != "spf-pass detail" {
+		t.Errorf("SPF.Detail = %q", got.Auth.SPF.Detail)
+	}
+
+	// Outbound rows never carry a verdict — Auth must stay nil.
+	out, err := store.CreateOutboundMessage(ctx, a.ID, []string{"bob@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "<prov@authverdict.example.com>", "")
+	if err != nil {
+		t.Fatalf("CreateOutboundMessage: %v", err)
+	}
+	gotOut, err := store.GetMessageWithContent(ctx, out.ID, a.ID)
+	if err != nil {
+		t.Fatalf("GetMessageWithContent outbound: %v", err)
+	}
+	if gotOut.Auth != nil {
+		t.Errorf("outbound Auth = %+v, want nil", gotOut.Auth)
+	}
+}
+
 func TestInboundMessageRoundTripsToCcLists(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
@@ -398,7 +463,7 @@ func TestInboundMessageRoundTripsToCcLists(t *testing.T) {
 	// and is covered transitively by other tests that pass nil here.
 	replyTo := []string{"real-user@example.com", "delegate@example.com"}
 
-	msg, err := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot-a@tcc.example.com", "<x@gmail.com>", "Group thread", "", "", nil, nil, to, cc, replyTo)
+	msg, err := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot-a@tcc.example.com", "<x@gmail.com>", "Group thread", "", "", nil, nil, nil, to, cc, replyTo)
 	if err != nil {
 		t.Fatalf("CreateInboundMessage: %v", err)
 	}
@@ -470,7 +535,7 @@ func TestGetInboundMessageExpired(t *testing.T) {
 	user, _ := store.CreateOrGetUser(ctx, "owner@example.com", "Owner", "google-expired-inbound")
 	store.ClaimOrCreateDomain(ctx, "expired-inbound.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@expired-inbound.example.com", "expired-inbound.example.com", "", "https://example.com/webhook", "", user.ID)
-	msg, _ := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@expired-inbound.example.com", "", "", "", "", nil, nil, nil, nil, nil)
+	msg, _ := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@expired-inbound.example.com", "", "", "", "", nil, nil, nil, nil, nil, nil)
 
 	// Set expiry to the past
 	pool.Exec(ctx, `UPDATE messages SET expires_at = $1 WHERE id = $2`, time.Now().Add(-1*time.Hour), msg.ID)
@@ -489,7 +554,7 @@ func TestDeleteExpiredMessages(t *testing.T) {
 	user, _ := store.CreateOrGetUser(ctx, "owner@example.com", "Owner", "google-cleanup-inbound")
 	store.ClaimOrCreateDomain(ctx, "cleanup-inbound.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@cleanup-inbound.example.com", "cleanup-inbound.example.com", "", "https://example.com/webhook", "", user.ID)
-	msg, _ := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@cleanup-inbound.example.com", "", "", "", "", nil, nil, nil, nil, nil)
+	msg, _ := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@cleanup-inbound.example.com", "", "", "", "", nil, nil, nil, nil, nil, nil)
 
 	// Set expiry to the past
 	pool.Exec(ctx, `UPDATE messages SET expires_at = $1 WHERE id = $2`, time.Now().Add(-1*time.Hour), msg.ID)
@@ -542,9 +607,9 @@ func TestListActivityByAgent(t *testing.T) {
 	store.ClaimOrCreateDomain(ctx, "activity.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@activity.example.com", "activity.example.com", "", "https://example.com/webhook", "", user.ID)
 
-	store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@activity.example.com", "", "Hello", "", "", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@activity.example.com", "", "Hello", "", "", nil, nil, nil, nil, nil, nil)
 	store.CreateOutboundMessage(ctx, a.ID, []string{"alice@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "", "")
-	store.CreateInboundMessage(ctx, "", a.ID, "bob@gmail.com", "bot@activity.example.com", "", "Hi", "", "", nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", a.ID, "bob@gmail.com", "bot@activity.example.com", "", "Hi", "", "", nil, nil, nil, nil, nil, nil)
 
 	activity, err := store.ListActivityByAgent(ctx, a.ID, 50)
 	if err != nil {
@@ -664,7 +729,7 @@ func TestLookupConversationID_EmailThread(t *testing.T) {
 		"alice@gmail.com", "bot@thread.example.com",
 		"<CAMCKtby_first@mail.gmail.com>", "Hello",
 		"", // no conversation_id on first message
-		"pending", nil, nil, nil, nil, nil)
+		"pending", nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateInboundMessage: %v", err)
 	}
@@ -1402,9 +1467,9 @@ func TestListAgentsByUser_EnrichedFields(t *testing.T) {
 	//   3 outbound (sent) in last 7d, 1 pending_approval
 	//   1 webhook delivery: delivered (healthy)
 	for i := 0; i < 2; i++ {
-		store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", agent.EmailAddress(), "", "in fresh", "", "", nil, nil, nil, nil, nil)
+		store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", agent.EmailAddress(), "", "in fresh", "", "", nil, nil, nil, nil, nil, nil)
 	}
-	old, _ := store.CreateInboundMessage(ctx, "", agent.ID, "old@gmail.com", agent.EmailAddress(), "", "in old", "", "", nil, nil, nil, nil, nil)
+	old, _ := store.CreateInboundMessage(ctx, "", agent.ID, "old@gmail.com", agent.EmailAddress(), "", "in old", "", "", nil, nil, nil, nil, nil, nil)
 	pool.Exec(ctx, `UPDATE messages SET created_at = now() - interval '14 days' WHERE id = $1`, old.ID)
 
 	for i := 0; i < 3; i++ {

@@ -33,7 +33,7 @@ func labelsTestSetup(t *testing.T, store *identity.Store, prefix string) (msgID,
 	if err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
-	msg, err := store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", "bot@"+domain, "<orig-"+prefix+"@gmail.com>", "Hello", "", "", nil, nil, nil, nil, nil)
+	msg, err := store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", "bot@"+domain, "<orig-"+prefix+"@gmail.com>", "Hello", "", "", nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateInboundMessage: %v", err)
 	}
@@ -168,9 +168,9 @@ func TestGetMessagesByAgent_LabelsFilterANDMatch(t *testing.T) {
 	//   m2: [urgent]
 	//   m3: [follow-up]
 	// Filter labels=[urgent, follow-up] must return ONLY m1 (AND semantics).
-	m1, _ := store.CreateInboundMessage(ctx, "", agent.ID, "a@gmail.com", "bot@lblfilter.example.com", "<m1@gmail.com>", "M1", "", "", nil, nil, nil, nil, nil)
-	m2, _ := store.CreateInboundMessage(ctx, "", agent.ID, "a@gmail.com", "bot@lblfilter.example.com", "<m2@gmail.com>", "M2", "", "", nil, nil, nil, nil, nil)
-	store.CreateInboundMessage(ctx, "", agent.ID, "a@gmail.com", "bot@lblfilter.example.com", "<m3@gmail.com>", "M3", "", "", nil, nil, nil, nil, nil)
+	m1, _ := store.CreateInboundMessage(ctx, "", agent.ID, "a@gmail.com", "bot@lblfilter.example.com", "<m1@gmail.com>", "M1", "", "", nil, nil, nil, nil, nil, nil)
+	m2, _ := store.CreateInboundMessage(ctx, "", agent.ID, "a@gmail.com", "bot@lblfilter.example.com", "<m2@gmail.com>", "M2", "", "", nil, nil, nil, nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", agent.ID, "a@gmail.com", "bot@lblfilter.example.com", "<m3@gmail.com>", "M3", "", "", nil, nil, nil, nil, nil, nil)
 
 	store.ModifyMessageLabels(ctx, m1.ID, agent.ID, []string{"urgent", "follow-up"}, nil)
 	store.ModifyMessageLabels(ctx, m2.ID, agent.ID, []string{"urgent"}, nil)

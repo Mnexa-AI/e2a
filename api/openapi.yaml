@@ -180,6 +180,16 @@ components:
         - content_type
         - data
       type: object
+    CheckResult:
+      additionalProperties: false
+      properties:
+        detail:
+          type: string
+        status:
+          type: string
+      required:
+        - status
+      type: object
     ConversationDetailView:
       additionalProperties: false
       properties:
@@ -712,6 +722,8 @@ components:
           format: date-time
           type: string
         attachments: {}
+        auth:
+          $ref: "#/components/schemas/Result"
         auth_headers:
           additionalProperties:
             type: string
@@ -823,6 +835,8 @@ components:
     MessageSummaryView:
       additionalProperties: false
       properties:
+        auth:
+          $ref: "#/components/schemas/Result"
         cc:
           items:
             type: string
@@ -892,6 +906,8 @@ components:
     MessageView:
       additionalProperties: false
       properties:
+        auth:
+          $ref: "#/components/schemas/Result"
         auth_headers:
           additionalProperties:
             type: string
@@ -1149,6 +1165,20 @@ components:
           type: string
         reply_all:
           type: boolean
+      type: object
+    Result:
+      additionalProperties: false
+      properties:
+        dkim:
+          $ref: "#/components/schemas/CheckResult"
+        dmarc:
+          $ref: "#/components/schemas/CheckResult"
+        spf:
+          $ref: "#/components/schemas/CheckResult"
+      required:
+        - spf
+        - dkim
+        - dmarc
       type: object
     RotateSecretOutputBody:
       additionalProperties: false

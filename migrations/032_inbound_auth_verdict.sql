@@ -1,0 +1,12 @@
+-- 032_inbound_auth_verdict.sql
+--
+-- Structured inbound authentication verdict (decision 9 / Slice 4b-2). The
+-- relay already signs an X-E2A-Auth-* header blob into messages.auth_headers;
+-- this adds the structured {spf,dkim,dmarc} verdict (with DMARC newly
+-- evaluated) as a first-class field so agents — and the Slice 7 inbound policy
+-- — can reason on the trust primitive directly instead of parsing the blob.
+--
+-- SPF can't be recomputed at read time (it needs the connecting IP, which is
+-- not stored), so the verdict is persisted at inbound time. Inbound-only;
+-- NULL on outbound rows. Idempotent + non-destructive.
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS auth_verdict JSONB;

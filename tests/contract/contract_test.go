@@ -160,7 +160,7 @@ func (e *testEnv) injectInboundMessage(t *testing.T, agentEmail, from, subject s
 	if err != nil {
 		t.Fatalf("get agent: %v", err)
 	}
-	msg, err := e.store.CreateInboundMessage(ctx, "", ag.ID, from, agentEmail, "", subject, "", "unread", nil, nil, nil, nil, nil)
+	msg, err := e.store.CreateInboundMessage(ctx, "", ag.ID, from, agentEmail, "", subject, "", "unread", nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("store message: %v", err)
 	}

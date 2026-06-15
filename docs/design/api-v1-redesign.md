@@ -1226,11 +1226,19 @@ Break the current `/api/v1` surface directly and move it to
     overloaded by direction: inbound rows carry `inbox_status` (legacy polling
     SDK) under it, outbound rows carry the new lifecycle. A row is inbound XOR
     outbound, so they never collide per-row.
-  * **Deferred to follow-up slices (4b-2/4b-3):** structured inbound
-    `auth: {spf,dkim,dmarc}` (DMARC eval) + the `email.flagged` security event;
-    the injection-reduced **parsed view** + the unified `GET /messages/{id}`
-    (flat-path removal); the ≥N-soft-bounce suppression threshold; and the SNS
-    flow's real-AWS e2e (CI uses crafted SNS payloads + a fake cert fetcher).
+  * **Slice 4b-2 — structured inbound auth.** *(Shipped.)* `emailauth` now
+    derives a **DMARC** verdict (relaxed organizational-domain alignment via
+    `publicsuffix`: a passing DKIM whose `d=` aligns, or a passing SPF whose
+    envelope domain aligns, with the From-header domain — no `_dmarc` policy
+    fetch, since the policy governs enforcement, not the verdict). The full
+    `auth: {spf,dkim,dmarc}` verdict is persisted on inbound (migration 032,
+    `messages.auth_verdict`; SPF can't be recomputed at read) and surfaced as
+    `auth` on inbound message reads — the trust primitive Slice 7 enforces on.
+  * **Still deferred:** the `email.flagged` security event (it fires on a
+    policy decision → Slice 7); the injection-reduced **parsed view** + unified
+    `GET /messages/{id}` flat-path removal (4b-3); the ≥N-soft-bounce
+    suppression threshold; the `_dmarc` policy (`p=`/strict-alignment) fetch;
+    and the SNS flow's real-AWS e2e (CI uses crafted SNS payloads + fake cert).
 * **Slice 5 — Auth: OAuth 2.1 + auth.md agent identity.** OAuth 2.1 hosted-MCP
   (PKCE + refresh), scoped API keys (`e2a_agt_`/`e2a_acct_`), and the auth.md
   agent-identity layer (`/agent/identity`, claim ceremony, jwt-bearer/claim

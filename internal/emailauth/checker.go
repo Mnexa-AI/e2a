@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/mail"
 	"strings"
 
 	"blitiri.com.ar/go/spf"
 	"github.com/emersion/go-msgauth/dkim"
+	"golang.org/x/net/publicsuffix"
 )
 
 // CheckStatus represents the result of an authentication check.
@@ -29,10 +31,13 @@ type CheckResult struct {
 	Detail string      `json:"detail,omitempty"`
 }
 
-// Result aggregates SPF and DKIM check results.
+// Result aggregates SPF, DKIM, and DMARC check results. It is the inbound
+// trust primitive surfaced as `auth: {spf,dkim,dmarc}` on inbound messages and
+// (Slice 7) enforced on by the inbound policy.
 type Result struct {
-	SPF  CheckResult `json:"spf"`
-	DKIM CheckResult `json:"dkim"`
+	SPF   CheckResult `json:"spf"`
+	DKIM  CheckResult `json:"dkim"`
+	DMARC CheckResult `json:"dmarc"`
 }
 
 // DomainAuthenticated returns true if at least one domain-level check passed.
@@ -45,6 +50,7 @@ func (r *Result) Summary() string {
 	parts := []string{
 		fmt.Sprintf("spf=%s", r.SPF.Status),
 		fmt.Sprintf("dkim=%s", r.DKIM.Status),
+		fmt.Sprintf("dmarc=%s", r.DMARC.Status),
 	}
 	return strings.Join(parts, "; ")
 }
@@ -56,12 +62,76 @@ func (r *Result) Summary() string {
 func Check(remoteIP net.IP, senderEmail string, rawMessage []byte) *Result {
 	result := &Result{}
 
-	// Run SPF and DKIM checks
+	// Run SPF and DKIM checks, then derive DMARC from their alignment.
 	result.SPF = checkSPF(remoteIP, senderEmail)
-	result.DKIM = checkDKIM(rawMessage)
+	var dkimDomain string
+	result.DKIM, dkimDomain = checkDKIM(rawMessage)
+	result.DMARC = checkDMARC(rawMessage, senderEmail, result.SPF, result.DKIM, dkimDomain)
 
-	log.Printf("Email auth for %s from %s: SPF=%s DKIM=%s", senderEmail, remoteIP, result.SPF.Status, result.DKIM.Status)
+	log.Printf("Email auth for %s from %s: SPF=%s DKIM=%s DMARC=%s", senderEmail, remoteIP, result.SPF.Status, result.DKIM.Status, result.DMARC.Status)
 	return result
+}
+
+// checkDMARC derives a DMARC verdict from the SPF/DKIM results plus identifier
+// alignment (RFC 7489): DMARC passes when an authenticated identifier is
+// ALIGNED with the From-header domain — i.e. a passing DKIM whose d= aligns, or
+// a passing SPF whose envelope (MAIL FROM) domain aligns. We use relaxed
+// alignment (organizational-domain match, the DMARC default) and do NOT fetch
+// the _dmarc policy record: the policy governs what to DO on failure
+// (quarantine/reject — Slice 7's job), not the pass/fail verdict, which is what
+// the trust primitive needs. No aligned pass while some auth was attempted →
+// fail; nothing attempted / no From domain → none.
+func checkDMARC(rawMessage []byte, envelopeSender string, spf, dkim CheckResult, dkimDomain string) CheckResult {
+	fromDomain := fromHeaderDomain(rawMessage)
+	if fromDomain == "" {
+		return CheckResult{Status: StatusNone, Detail: "no From-header domain to align against"}
+	}
+	if dkim.Status == StatusPass && aligned(dkimDomain, fromDomain) {
+		return CheckResult{Status: StatusPass, Detail: fmt.Sprintf("dkim-aligned (d=%s, from=%s)", dkimDomain, fromDomain)}
+	}
+	if spf.Status == StatusPass && aligned(extractDomain(envelopeSender), fromDomain) {
+		return CheckResult{Status: StatusPass, Detail: fmt.Sprintf("spf-aligned (mailfrom=%s, from=%s)", extractDomain(envelopeSender), fromDomain)}
+	}
+	if spf.Status == StatusNone && dkim.Status == StatusNone {
+		return CheckResult{Status: StatusNone, Detail: "no SPF or DKIM to align"}
+	}
+	return CheckResult{Status: StatusFail, Detail: "no aligned authenticated identifier for " + fromDomain}
+}
+
+// aligned reports relaxed (organizational-domain) alignment between two
+// domains, the DMARC default. Exact match always aligns; otherwise their
+// eTLD+1 must match (so mail.example.com aligns with example.com).
+func aligned(a, b string) bool {
+	a, b = strings.ToLower(strings.TrimSpace(a)), strings.ToLower(strings.TrimSpace(b))
+	if a == "" || b == "" {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	oa, ob := orgDomain(a), orgDomain(b)
+	return oa != "" && oa == ob
+}
+
+func orgDomain(d string) string {
+	if e, err := publicsuffix.EffectiveTLDPlusOne(d); err == nil {
+		return e
+	}
+	return d
+}
+
+// fromHeaderDomain extracts the domain of the RFC 5322 From header (the
+// identifier DMARC aligns against). Empty if absent/unparseable.
+func fromHeaderDomain(rawMessage []byte) string {
+	msg, err := mail.ReadMessage(bytes.NewReader(rawMessage))
+	if err != nil {
+		return ""
+	}
+	addr, err := mail.ParseAddress(msg.Header.Get("From"))
+	if err != nil {
+		return ""
+	}
+	return extractDomain(addr.Address)
 }
 
 func checkSPF(remoteIP net.IP, senderEmail string) CheckResult {
@@ -97,7 +167,10 @@ func checkSPF(remoteIP net.IP, senderEmail string) CheckResult {
 	}
 }
 
-func checkDKIM(rawMessage []byte) CheckResult {
+// checkDKIM verifies DKIM and returns the result plus the signing domain (d=)
+// of the passing signature (empty when none passed) — needed for DMARC
+// alignment.
+func checkDKIM(rawMessage []byte) (CheckResult, string) {
 	// RFC 6376 §3.5 defines the `l=` tag (body length limit). Honoring
 	// it lets an attacker append arbitrary unsigned content (HTML,
 	// prompt-injection payloads) to a legitimately-signed message, and
@@ -109,28 +182,28 @@ func checkDKIM(rawMessage []byte) CheckResult {
 	// rare in modern signing configs (Gmail, M365, SES all omit it by
 	// default).
 	if dkimSignatureHasBodyLengthTag(rawMessage) {
-		return CheckResult{Status: StatusFail, Detail: "DKIM-Signature includes l= body-length tag (refused: would allow tail-content injection)"}
+		return CheckResult{Status: StatusFail, Detail: "DKIM-Signature includes l= body-length tag (refused: would allow tail-content injection)"}, ""
 	}
 
 	verifications, err := dkim.Verify(bytes.NewReader(rawMessage))
 	if err != nil {
-		return CheckResult{Status: StatusTempError, Detail: err.Error()}
+		return CheckResult{Status: StatusTempError, Detail: err.Error()}, ""
 	}
 
 	if len(verifications) == 0 {
-		return CheckResult{Status: StatusNone, Detail: "no DKIM signature found"}
+		return CheckResult{Status: StatusNone, Detail: "no DKIM signature found"}, ""
 	}
 
 	// At least one DKIM signature must pass
 	for _, v := range verifications {
 		if v.Err == nil {
-			return CheckResult{Status: StatusPass, Detail: fmt.Sprintf("domain %s", v.Domain)}
+			return CheckResult{Status: StatusPass, Detail: fmt.Sprintf("domain %s", v.Domain)}, v.Domain
 		}
 	}
 
 	// All signatures failed
 	firstErr := verifications[0].Err
-	return CheckResult{Status: StatusFail, Detail: firstErr.Error()}
+	return CheckResult{Status: StatusFail, Detail: firstErr.Error()}, ""
 }
 
 // dkimSignatureHasBodyLengthTag reports whether any DKIM-Signature
