@@ -60,6 +60,7 @@ for e in res.events:
 | Type | When it fires | Guarantee |
 |---|---|---|
 | `email.received` | Inbound SMTP message accepted | **At-least-once** end-to-end |
+| `email.flagged` | Inbound message accepted but did not match the agent's `inbound_policy` (delivered + flagged, never dropped) | **At-least-once** end-to-end |
 | `email.sent` | Outbound `/send` accepted by SES | Best-effort |
 | `email.pending_approval` | HITL-gated message held for human review | **At-least-once** |
 | `email.approved` | Reviewer approved + SES accepted | Best-effort |

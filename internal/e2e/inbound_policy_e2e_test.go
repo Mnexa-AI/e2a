@@ -49,6 +49,18 @@ func eventTypes(caps []testutil.SubscriberCaptured) map[string]int {
 	return out
 }
 
+// eventData returns the data block of the first captured envelope of the given
+// type, or nil if none was captured.
+func eventData(caps []testutil.SubscriberCaptured, eventType string) map[string]any {
+	for _, c := range caps {
+		if et, _ := c.Envelope["event"].(string); et == eventType {
+			d, _ := c.Envelope["data"].(map[string]any)
+			return d
+		}
+	}
+	return nil
+}
+
 func readFlagged(t *testing.T, pool *pgxpool.Pool, agentID string) (bool, string) {
 	t.Helper()
 	var flagged bool
@@ -146,6 +158,65 @@ func TestInboundPolicy_EvaluatesFromNotReplyTo(t *testing.T) {
 	}
 	if flagged, _ := readFlagged(t, pool, agent.ID); !flagged {
 		t.Error("Reply-To spoof persisted as un-flagged (gate read Reply-To, not From)")
+	}
+
+	// The flagged event must name the AUTHENTICATED From (the identity that
+	// failed the gate), not the trusted-looking Reply-To. Surfacing the
+	// Reply-To here would let an attacker make a rejected message look like it
+	// came from the address they impersonated (review finding #1).
+	if fe := eventData(got, "email.flagged"); fe != nil {
+		if fe["from"] != "stranger@evil.com" {
+			t.Errorf("email.flagged from = %v, want the authenticated From stranger@evil.com", fe["from"])
+		}
+		if fe["display_sender"] != "friend@trusted.com" {
+			t.Errorf("email.flagged display_sender = %v, want the Reply-To friend@trusted.com", fe["display_sender"])
+		}
+	} else {
+		t.Error("no email.flagged data captured")
+	}
+}
+
+// TestInboundPolicy_ReceivedSurfacesAuthenticatedFrom pins the surfacing
+// contract that makes the verdict honest: when the display sender (Reply-To)
+// differs from the authenticated From, email.received carries BOTH —
+// `authenticated_from` is the gated/verified identity, `from` is the reply
+// target. A consumer of a verified_only/allowlist agent must trust
+// `authenticated_from`, not `from`. Without this, an allowlisted (or
+// DMARC-aligned) From + attacker Reply-To yields an unflagged message whose
+// displayed sender is attacker-chosen (review finding #1, the unflagged inverse).
+func TestInboundPolicy_ReceivedSurfacesAuthenticatedFrom(t *testing.T) {
+	ts, pool, agent, receiver := setupFlaggedAgent(t, "allowlist",
+		[]string{"friend@trusted.com"}, "agent@authfrom.example.com", "authfrom.example.com")
+
+	// From is on the allowlist (so NOT flagged); Reply-To points elsewhere.
+	msg := "From: friend@trusted.com\r\n" +
+		"Reply-To: attacker@evil.com\r\n" +
+		"To: agent@authfrom.example.com\r\nSubject: Hi\r\n\r\nHello"
+	if err := smtp.SendMail(ts.SMTPAddr, nil, "friend@trusted.com", []string{"agent@authfrom.example.com"}, []byte(msg)); err != nil {
+		t.Fatalf("SendMail: %v", err)
+	}
+
+	tick(t, ts)
+	got := receiver.WaitFor(t, 5*time.Second, func(c []testutil.SubscriberCaptured) bool {
+		return eventTypes(c)["email.received"] >= 1
+	})
+	// Allowlisted From → not flagged.
+	if n := eventTypes(got)["email.flagged"]; n != 0 {
+		t.Errorf("allowlisted From should not be flagged, got %d email.flagged", n)
+	}
+	if flagged, _ := readFlagged(t, pool, agent.ID); flagged {
+		t.Error("allowlisted From persisted as flagged")
+	}
+	// email.received must distinguish the gated identity from the reply target.
+	re := eventData(got, "email.received")
+	if re == nil {
+		t.Fatal("no email.received data captured")
+	}
+	if re["authenticated_from"] != "friend@trusted.com" {
+		t.Errorf("authenticated_from = %v, want the gated From friend@trusted.com", re["authenticated_from"])
+	}
+	if re["from"] != "attacker@evil.com" {
+		t.Errorf("from = %v, want the reply target attacker@evil.com (display sender)", re["from"])
 	}
 }
 

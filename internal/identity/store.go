@@ -833,9 +833,17 @@ func (s *Store) UpdateAgentHITL(ctx context.Context, agentID, userID string, ena
 // violation. allowlist may be empty (the gate then flags everything for the
 // gating postures — fail-closed). Returns an error if the agent isn't found
 // or isn't owned by the user.
+// maxInboundAllowlist bounds the per-agent inbound_allowlist. The relay scans
+// it linearly on every inbound message, so an unbounded list is an owner-scoped
+// DoS vector; 1000 entries is far beyond any real allow/deny need.
+const maxInboundAllowlist = 1000
+
 func (s *Store) UpdateAgentInboundPolicy(ctx context.Context, agentID, userID, policy string, allowlist []string) error {
 	if !inboundpolicy.Valid(policy) {
 		return fmt.Errorf("invalid inbound_policy %q", policy)
+	}
+	if len(allowlist) > maxInboundAllowlist {
+		return fmt.Errorf("inbound_allowlist has %d entries, max %d", len(allowlist), maxInboundAllowlist)
 	}
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE agent_identities

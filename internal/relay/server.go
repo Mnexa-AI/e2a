@@ -354,7 +354,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// ON CONFLICT (id) DO NOTHING. Idempotency by construction; see
 	// design §5.1.
 	event := webhookpub.NewEvent(webhookpub.EventEmailReceived, agent.UserID, buildEmailReceivedPayload(
-		messageID, conversationID, displaySender, rcpt, s.inboundSubject, s.inboundThreadInfo, body, authHeaders, agent,
+		messageID, conversationID, displaySender, senderEmail, rcpt, s.inboundSubject, s.inboundThreadInfo, body, authHeaders, agent,
 	))
 	event.AgentID = agent.ID
 	event.ConversationID = conversationID
@@ -373,11 +373,18 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 			"message_id":      messageID,
 			"conversation_id": conversationID,
 			"agent":           map[string]interface{}{"id": agent.ID, "email": agent.EmailAddress(), "domain": agent.Domain},
-			"from":            displaySender,
-			"recipient":       rcpt,
-			"subject":         s.inboundSubject,
-			"policy":          agent.InboundPolicy,
-			"reason":          policyDecision.Reason,
+			// from is the AUTHENTICATED From identity the policy evaluated and
+			// flagged — NOT displaySender (Reply-To), which is attacker-
+			// controllable and would name a trusted-looking address on the very
+			// message the gate rejected. display_sender/reply_to carry the
+			// reply-routing addresses separately so the signal is complete.
+			"from":           senderEmail,
+			"display_sender": displaySender,
+			"reply_to":       s.inboundThreadInfo.ReplyTo,
+			"recipient":      rcpt,
+			"subject":        s.inboundSubject,
+			"policy":         agent.InboundPolicy,
+			"reason":         policyDecision.Reason,
 		})
 		fe.AgentID = agent.ID
 		fe.ConversationID = conversationID
@@ -505,7 +512,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 // the publisher when it marshals the Event; this helper only
 // produces the data subfield.
 func buildEmailReceivedPayload(
-	messageID, conversationID, displaySender, recipient, subject string,
+	messageID, conversationID, displaySender, authenticatedFrom, recipient, subject string,
 	threadInfo threadInfo,
 	rawMessage []byte,
 	authHeaders map[string]string,
@@ -519,15 +526,21 @@ func buildEmailReceivedPayload(
 			"email":  agent.EmailAddress(),
 			"domain": agent.Domain,
 		},
-		"from":         displaySender,
-		"to":           threadInfo.To,
-		"cc":           threadInfo.CC,
-		"reply_to":     threadInfo.ReplyTo,
-		"recipient":    recipient,
-		"subject":      subject,
-		"raw_message":  rawMessage,
-		"auth_headers": authHeaders,
-		"received_at":  time.Now().UTC().Format(time.RFC3339),
+		"from": displaySender,
+		// authenticated_from is the From-header identity that SPF/DKIM/DMARC
+		// and the inbound trust policy (decision 10) actually pertain to.
+		// It can differ from "from" (which prefers Reply-To for reply
+		// routing): a consumer of a verified_only/allowlist agent MUST treat
+		// authenticated_from — not from — as the gated/verified identity.
+		"authenticated_from": authenticatedFrom,
+		"to":                 threadInfo.To,
+		"cc":                 threadInfo.CC,
+		"reply_to":           threadInfo.ReplyTo,
+		"recipient":          recipient,
+		"subject":            subject,
+		"raw_message":        rawMessage,
+		"auth_headers":       authHeaders,
+		"received_at":        time.Now().UTC().Format(time.RFC3339),
 	}
 }
 

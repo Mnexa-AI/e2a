@@ -74,6 +74,43 @@ func TestUpdateAgentInboundPolicyRoundTrip(t *testing.T) {
 	}
 }
 
+// TestUpdateAgentInboundPolicyAllowlistCap: an oversized allowlist is rejected
+// before the UPDATE (review finding #3 — the relay scans it per inbound message,
+// so an unbounded list is an owner-scoped DoS).
+func TestUpdateAgentInboundPolicyAllowlistCap(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, err := store.CreateOrGetUser(ctx, "owner@cap.example.com", "Owner", "google-cap")
+	if err != nil {
+		t.Fatalf("CreateOrGetUser: %v", err)
+	}
+	if _, err := store.ClaimOrCreateDomain(ctx, "cap.example.com", user.ID); err != nil {
+		t.Fatalf("ClaimOrCreateDomain: %v", err)
+	}
+	agent, err := store.CreateAgent(ctx, "agent@cap.example.com", "cap.example.com", "", "", "", user.ID)
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	huge := make([]string, 1001)
+	for i := range huge {
+		huge[i] = "x@example.com"
+	}
+	if err := store.UpdateAgentInboundPolicy(ctx, agent.ID, user.ID, "allowlist", huge); err == nil {
+		t.Fatal("expected error for oversized allowlist, got nil")
+	}
+	// The agent must remain on its default (the rejected UPDATE never ran).
+	got, err := store.GetAgentByID(ctx, agent.ID)
+	if err != nil {
+		t.Fatalf("GetAgentByID: %v", err)
+	}
+	if got.InboundPolicy != "open" {
+		t.Errorf("InboundPolicy = %q after rejected oversized update, want open", got.InboundPolicy)
+	}
+}
+
 // TestUpdateAgentInboundPolicyWrongOwner: a user cannot change another user's
 // agent policy (tenant isolation — the UPDATE is scoped by user_id).
 func TestUpdateAgentInboundPolicyWrongOwner(t *testing.T) {
