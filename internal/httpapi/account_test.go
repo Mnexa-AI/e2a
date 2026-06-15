@@ -4,7 +4,7 @@ import "testing"
 
 func TestGetMyLimits(t *testing.T) {
 	srv := testServer(t)
-	code, body := getJSON(t, srv.URL+"/v1/users/me/limits", "good")
+	code, body := getJSON(t, srv.URL+"/v1/account", "good")
 	if code != 200 {
 		t.Fatalf("status %d body %v", code, body)
 	}
@@ -23,7 +23,7 @@ func TestGetMyLimits(t *testing.T) {
 
 func TestGetMyLimitsUnauthorized(t *testing.T) {
 	srv := testServer(t)
-	code, _ := getJSON(t, srv.URL+"/v1/users/me/limits", "")
+	code, _ := getJSON(t, srv.URL+"/v1/account", "")
 	if code != 401 {
 		t.Fatalf("want 401, got %d", code)
 	}

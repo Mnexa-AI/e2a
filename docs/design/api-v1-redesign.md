@@ -106,14 +106,14 @@ relative to that base):
 | **agents** | `GET/POST /agents` · `GET/PATCH/DELETE /agents/{address}` · `POST /agents/{address}/test` (top-level, keyed by full email; create enforces caller owns the verified domain). **DELETE semantics:** discards held drafts (`status=pending_approval`), removes the agent from any webhook `agent_ids` filter, revokes its agent-scoped credentials, and purges/retains inbound per the retention policy — but does **not** touch the domain's SES sending identity (per-domain; decision 4). |
 | **domain's agents** (filtered view) | `GET /domains/{domain}/agents` — list agents on a domain (management view; not a separate identity namespace) |
 | **messages** (per agent; inbound + outbound) | `GET /agents/{address}/messages` (filters incl. `direction`, `status`, `delivery_status`; held outbound drafts = `status=pending_approval`) · `GET …/messages/{id}` · `GET …/messages/{id}/attachments/{index}` · `PATCH …/messages/{id}` (labels/read). Outbound messages carry **`delivery_status ∈ {queued,sent,delivered,bounced,complained,deferred,failed}`** + `delivery_detail?` + `sent_as ∈ {own_address,relay}` (decision 9). Inbound messages carry structured `auth: {spf,dkim,dmarc}`. **Note:** there is **no** `messages.delivery_status` column today — the inbox read/unread column is `inbox_status` (`migrations/001_init.sql`), so the new outbound `delivery_status` collides with nothing and is **added fresh** (no rename needed). `delivery_status` currently exists only as a JSON *response* field name (webhook-delivery state in `events_api`); that is a distinct concept and stays. (Optionally rename `inbox_status` → `read_status` purely for clarity, but that is taste, not a collision fix.) |
-| **outbound** (unified) | `POST /agents/{address}/messages` — one endpoint for *new thread, reply, and forward*, disambiguated by body (`in_reply_to` / `forward_of` absent ⇒ new) |
+| **outbound** (consistent placement, explicit operations) | `POST /agents/{address}/messages` (new thread) · `POST …/messages/{id}/reply` · `POST …/messages/{id}/forward` — all nested under the agent; the operation is **explicit in the route** (not inferred from body fields), with the referenced message as a path param on reply/forward (decision 3) |
 | **conversations** (derived thread view) | `GET /agents/{address}/conversations` · `GET …/conversations/{id}` |
 | **stream** (inbound transport) | `GET /agents/{address}/ws` — WebSocket; first-class + documented (today it's side-registered + mode-gated) |
 | **approvals (HITL)** | `POST /agents/{address}/messages/{id}/approval {decision: approve\|reject}` — the one transition (agents; API-key/OAuth). Held drafts are listed via `GET …/messages?status=pending_approval` and read via the message GET (a held draft is just a message). Human magic link: `GET /approvals/{token}` renders an **HTML confirmation page with NO side effect** (prefetch-safe), whose buttons `POST /approvals/{token} {decision}` into the same transition (short-TTL capability; **single-use is enforced by the state machine** — the message leaves `pending_approval` on first decision and a second POST 409s — not by the token, which re-verifies within its TTL). **Never a mutating GET** — email scanners/prefetchers would auto-trigger it. |
 | **domains** | `GET/POST /domains` · `GET/PATCH/DELETE /domains/{domain}` (DELETE also **deprovisions the SES sending identity** — decision 4) · `POST /domains/{domain}/verify` (ownership + nudges a sending-identity re-check). The domain resource carries two independent statuses: `verified` (inbound/ownership, DNS TXT) and `sending_status ∈ {none,pending,verified,failed}` + `sending_error?` + `dns_records` + `last_checked_at?` (async SES sending identity — see §4 decision 4). `GET /domains/{domain}` is the poll target; no separate status endpoint. Inbound `verified` is **re-checkable** — a periodic ownership re-probe (and `POST /verify`) can flip it back to `false` if the DNS TXT/MX later disappears; it is not sticky-once-true. |
 | **webhooks** | `GET/POST /webhooks` · `GET/PATCH/DELETE /webhooks/{id}` · `…/deliveries` (read-only debug view) · `…/test` · `…/rotate-secret`. **Redelivery is event-scoped** (`POST /events/{id}/redeliver`), not a per-webhook endpoint — one canonical place (§3 principle 2). |
 | **events** (delivery log) | `GET /events` · `GET /events/{id}` · `POST /events/{id}/redeliver`. Canonical event vocabulary: `email.received` · `email.sent` · **`email.delivered`** · **`email.bounced`** · **`email.complained`** · `email.flagged` (inbound rejected/flagged by policy — decision 9/10) · `email.pending_approval` · `email.approved` · `email.approval_rejected` (renamed from `email.rejected` to avoid collision with inbound-flagged) · `domain.sending_verified` · `domain.sending_failed` · `domain.suppression_added` · `agent.credential_revoked`. (`deferred`/`failed` `delivery_status` have no push event — poll.) |
-| **account** | `GET /account` (replaces `/info` + `/users/me/limits`; **scope-filtered** — `scope=agent` sees only its bound agent + limits, §6a) · `GET /account/export` · `DELETE /account`. **API-key + signing-secret CRUD are console-only** (human session), not `/v1` endpoints (§5). |
+| **account** | `GET /account` (replaces `/users/me/limits` — the authenticated identity + plan + limits + usage; **scope-filtered** — `scope=agent` sees only its bound agent + limits, §6a) · `GET /account/export` · `DELETE /account`. **`GET /info` is NOT folded in** — it stays a **separate, public (unauthenticated)** deployment-discovery endpoint (shared domain, slug-registration-enabled, public URL) that clients read *pre-auth* to learn how to onboard; account data is authenticated and per-principal, deployment metadata is neither, so they can't share a route. **API-key + signing-secret CRUD are console-only** (human session), not `/v1` endpoints (§5). |
 
 ### Resource relationships
 
@@ -129,9 +129,11 @@ relative to that base):
   `conversations` table**; it's a read-only aggregate over
   `messages.conversation_id` (`store.go`: "thin read layer"). Threading
   establishes membership: inbound replies join via `In-Reply-To`/`References`;
-  an outbound message with `in_reply_to` joins its thread, otherwise the
-  server assigns a fresh `conversation_id`. Messages are canonical;
-  conversations are the inbox/thread view over them.
+  an outbound **reply** (`POST …/messages/{id}/reply`) joins the referenced
+  message's thread, while a new send or a **forward** gets a fresh
+  `conversation_id`. `conversation_id` may also be passed explicitly on any
+  outbound call to bind it to a thread. Messages are canonical; conversations
+  are the inbox/thread view over them.
 
 ### Key contract decisions
 
@@ -170,11 +172,36 @@ relative to that base):
    states the guarantee explicitly. Secret rotation's 24h dual-sign grace is a
    convenience, not free: a leaked *old* secret stays valid for that window —
    document it, keep the window short.
-3. **Outbound is one endpoint.** `POST /agents/{address}/messages` with a
-   body carrying `to`, `subject`, `body`/`html`, optional `in_reply_to`
-   (reply), `forward_of` (forward), `cc`/`bcc`, `attachments`,
-   `idempotency_key`, and — new — `from` (defaults to the agent address) and
-   `reply_to`. Eliminates the top-level `/send` vs nested `/reply` split.
+3. **Outbound — consistent placement, explicit operations.** The real
+   inconsistency to fix is *placement*: send was top-level (`/send`) while
+   reply/forward were nested. Fix it by nesting all three **under the agent**,
+   but keep the operation **explicit in the route** rather than collapsing to
+   one body-discriminated endpoint:
+   * **send (new thread):** `POST /agents/{address}/messages`
+   * **reply:** `POST /agents/{address}/messages/{id}/reply` (referenced
+     message is the **path param**; `reply_all?`)
+   * **forward:** `POST /agents/{address}/messages/{id}/forward`
+
+   Shared body: `to`, `subject`, `body`/`html`, `cc`/`bcc`, `attachments`,
+   `idempotency_key`, `conversation_id?`, and — new — `from` (defaults to the
+   agent address) and `reply_to` (the Reply-To header). Reply derives
+   `to`/`subject` from the referenced message; forward requires `to`.
+
+   **Why explicit operations over a unified, body-discriminated endpoint
+   (revised from the earlier "one endpoint" plan):** the agent-facing surface is
+   tools/SDK methods, where both shapes expose three named affordances anyway —
+   so unification buys the *agent* nothing. Where the wire shape *does* bite
+   agents is failure mode: a unified endpoint infers "reply vs send" from the
+   **presence of an optional body field** (`in_reply_to`), and LLM callers
+   routinely **drop optional fields** → a meant-to-be reply silently sends as a
+   **new email** (thread broken, no error). Routing the operation structurally
+   makes that misfire impossible (wrong target → loud 404, not a silent
+   send), schema-forces the referenced id, and keeps idempotency keys naturally
+   route-scoped. The closest agent-first peer (AgentMail) uses exactly this
+   path-based reply. We therefore **drop the `in_reply_to`/`forward_of` body
+   discriminators** (and with them the `in_reply_to` vs `reply_to` naming
+   collision — only `reply_to`, the header, remains). This still **eliminates
+   the top-level `/send`**; it just doesn't fold reply/forward into the send body.
 4. **Custom-domain sender identity (async) — send as your own address.** When
    the agent's domain is *sending-verified*, outbound `From` = **the agent's own
    address verbatim** (`"Display Name" <agent@customdomain>`). The current
@@ -238,28 +265,60 @@ relative to that base):
      the identity's e2a-owned creation tag/timestamp predates the current
      reconcile cycle. Re-registering a deleted domain re-creates the identity
      cleanly and the reaper must not touch it.
-5. **One HITL transition, prefetch-safe.** Collapse the nested approve/reject
-   AND the top-level magic-link into a single `approval` sub-resource
-   (`POST …/messages/{id}/approval {decision}`). The human magic link is
-   `GET /approvals/{token}` rendering an **HTML confirmation page with NO
-   side effect**; its buttons `POST /approvals/{token} {decision}` into the
-   same transition. **Never a mutating GET** — email scanners/link-prefetchers
-   would auto-approve/reject. Short-TTL capability; single-use is enforced by the
-   state machine (message leaves `pending_approval`; second decision 409s), not by
-   the token itself.
+5. **HITL: two explicit transitions, prefetch-safe.** A held draft
+   (`status=pending_approval`) is resolved by a human reviewer via **two
+   explicit sub-resources** — `POST …/messages/{id}/approve` and
+   `POST …/messages/{id}/reject`. **(Revised from the earlier "single
+   `approval {decision}`" plan — same reasoning as decision 3: the decision is
+   the whole point of the call, and two explicit operations make
+   approve-vs-reject a route/tool choice, not a body field an LLM could set
+   wrong. The footgun is weaker here than for send/reply/forward because the
+   primary consumer is a *human* clicking a button, but explicit is still the
+   safer, already-shipped shape.)** Held drafts are listed via
+   `GET …/messages?status=pending_approval` and read via the message GET (a held
+   draft is just a message). **Human magic link:** `GET /approvals/{token}`
+   renders an **HTML confirmation page with NO side effect** (prefetch-safe);
+   its two buttons `POST` into the same two transitions. **Never a mutating
+   GET** — email scanners/link-prefetchers would auto-approve/reject. Short-TTL
+   capability; **single-use is enforced by the state machine** (the message
+   leaves `pending_approval` on the first decision; a second 409s), not by the
+   token. **Status: the nested `approve`/`reject` ship on `/v1` today; the
+   magic-link pages + the account-wide `pending` list remain on legacy `/api/v1`
+   pending a separate port (they are human-facing HTML / a list, not agent JSON).**
 6. **One error envelope** (audit current handlers and standardize):
    `{ "error": { "code": "MACHINE_BRANCHABLE", "message": "human text",
    "details": {…} } }`, with stable `code` values documented in the spec.
 7. **One pagination scheme** — opaque cursor (`?cursor=…&limit=…`) returning
-   `{ items: [...], next_cursor: "…"|null }` across all list endpoints.
+   `{ items: [...], next_cursor: "…"|null }` across all paginated list endpoints.
+
+   **Why cursor, not offset/`page_size`.** The dominant collection here is an
+   **inbox** — high insert rate, agents scanning forward. Offset pagination
+   (`page`/`page_size`) is *unstable under concurrent writes*: a message arriving
+   mid-scan shifts every row, so the client silently skips or double-reads items;
+   it also degrades on deep pages (`OFFSET n` scans-and-discards). A cursor
+   anchored to `(created_at, id)` is stable across inserts and uses the index
+   at any depth. The trade — no jump-to-page and no cheap total count — is one
+   agents don't need (they stream "the next batch," they don't ask for "page 7").
+
+   **Naming.** `limit` (not `page_size`) because `page_size` is page-number
+   vocabulary that would mis-signal pages that don't exist under a cursor.
+   `items` (not a per-resource key like `messages`) so one generic paginator
+   walks **any** list. **Known inconsistency to resolve:** only the genuinely
+   cursor-paginated lists (messages, conversations, events) use `{items,
+   next_cursor}`; the small fixed lists (`listAgents`/`listDomains`/
+   `listWebhooks`) currently return named keys (`{agents}`/…) and aren't
+   paginated — so a generic `items` paginator works on the former, not the
+   latter. Either paginate those too (→ `items`) or accept the documented split.
 8. **Idempotency** — `Idempotency-Key` header (or body key) honored on all
    POSTs with side effects (send, create agent, webhook create, redeliver).
    Dedup key = `(principal, route, **request-body hash**)` — the body hash is
    **load-bearing** (it's already how the code works): same key + *different*
-   body ⇒ `422`, not a silent replay. This matters most on the **unified
-   outbound endpoint**, where send/reply/forward share one route — reusing a key
-   across a new send and a later reply must 422, never return the send's cached
-   response and drop the reply. **Canonicalization (pinned):** the hash is over
+   body ⇒ `422`, not a silent replay. With explicit per-operation routes
+   (decision 3), send/reply/forward each have a **distinct route**, so the route
+   already separates them in the dedup key — and reusing a key across two
+   *different* bodies on the same route still 422s (the body hash carries it).
+   (This is *why* a route-only key would be unsafe and the body hash stays.)
+   **Canonicalization (pinned):** the hash is over
    the **raw request bytes** (`route + "\n" + body`, `idempotency.HashRequest`),
    **not** canonicalized JSON — so a legitimate retry MUST resend byte-identical
    JSON (stable key order/whitespace) or it 422s. SDKs that auto-retry must
@@ -924,13 +983,14 @@ sees both tiers. The drift-gate map records each tool's tier next to its
 | `get_message` | `message_id`*,`address?` | `GET /agents/{address}/messages/{id}` | Flat `GET /messages/{id}` removed — one address. Also reads held outbound drafts. |
 | `get_attachment` | `message_id`*,`index`*,`address?` | `GET /agents/{address}/messages/{id}/attachments/{index}` | **Changed:** dedicated endpoint (was a full-message re-fetch). |
 | `update_message_labels` | `message_id`*,`add_labels?`,`remove_labels?`,`address?` | `PATCH /agents/{address}/messages/{id}` | Labels/read folded into the message PATCH. |
-| `send_message` | `to`*,`subject`*,`body`*,`html?`,`cc/bcc?`,`attachments?`,`from?`,`reply_to?`,`idempotency_key?`,`address?` | `POST /agents/{address}/messages` | New-thread case. **Renamed** from `send_email` to match the `message` resource. **New `from`,`reply_to`** (decision 3 / #206 coverage). |
-| `reply_to_message` | `message_id`*,`body`*,`html?`,`reply_all?`,`cc/bcc?`,`attachments?`,`reply_to?`,`idempotency_key?`,`address?` | `POST /agents/{address}/messages` | Sets `in_reply_to`. |
-| `forward_message` | `message_id`*,`to`*,`body?`,`cc/bcc?`,`attachments?`,`idempotency_key?`,`address?` | `POST /agents/{address}/messages` | Sets `forward_of`. |
+| `send_message` | `to`*,`subject`*,`body`*,`html?`,`cc/bcc?`,`attachments?`,`from?`,`reply_to?`,`conversation_id?`,`idempotency_key?`,`address?` | `POST /agents/{address}/messages` | New-thread case. **Renamed** from `send_email` to match the `message` resource. **New `from`,`reply_to`** (decision 3 / #206 coverage). |
+| `reply_to_message` | `message_id`*,`body`*,`html?`,`reply_all?`,`cc/bcc?`,`attachments?`,`reply_to?`,`idempotency_key?`,`address?` | `POST /agents/{address}/messages/{id}/reply` | Referenced message is the **path param** (`{id}`) — explicit reply operation, not a body discriminator. |
+| `forward_message` | `message_id`*,`to`*,`body?`,`cc/bcc?`,`attachments?`,`idempotency_key?`,`address?` | `POST /agents/{address}/messages/{id}/forward` | Referenced message is the **path param** (`{id}`). |
 
-> send/reply/forward all map to the single `sendMessage` operation; the body's
-> `in_reply_to`/`forward_of` selects the mode. Kept as three tools for intent
-> clarity — coverage check #4 treats them as jointly covering `sendMessage`.
+> send/reply/forward map to **three distinct operations** (`sendMessage`,
+> `replyToMessage`, `forwardMessage`), each its own route — the operation is
+> explicit, never inferred from optional body fields (decision 3). One tool per
+> operation; coverage check #4 maps each tool 1:1.
 
 **Conversations** — `list_conversations` → `GET /agents/{address}/conversations`;
 `get_conversation {conversation_id}` → `GET …/conversations/{id}`.
@@ -1054,15 +1114,16 @@ Applying 1 + 6: a runtime agent sees ~13 tools; the full self-host surface 31.
 
 | Current | Disposition | Target |
 |---|---|---|
-| `POST /send` | **move** | `POST /agents/{address}/messages` (new-thread case) |
-| `POST /agents/{e}/messages/{id}/reply` | **fold** | `POST /agents/{address}/messages` + `in_reply_to` |
-| `POST /agents/{e}/messages/{id}/forward` | **fold** | `POST /agents/{address}/messages` + `forward_of` |
-| `GET /messages/{id}` (flat) | **remove** | use `GET /agents/{address}/messages/{id}` |
+| `POST /send` | **move** | `POST /agents/{address}/messages` (new-thread case — nest under the agent) |
+| `POST /agents/{e}/messages/{id}/reply` | **keep (re-place)** | `POST /agents/{address}/messages/{id}/reply` — explicit reply op (target in path), not folded into the send body |
+| `POST /agents/{e}/messages/{id}/forward` | **keep (re-place)** | `POST /agents/{address}/messages/{id}/forward` — explicit forward op (target in path) |
+| `GET /messages/{id}` (flat) | **remove (deferred → Slice 4b)** | use `GET /agents/{address}/messages/{id}`. Held drafts store the body as `body_text`/`body_html` columns (mutable, reviewable, scrubbed on terminal transition), while sent/inbound carry `raw_message` — so the unified read must expose BOTH representations. That message-read shape is decision 9 / Slice 4b territory (the parsed view); removing the flat path before then would design the shape twice. Until 4b, the flat `/api/v1/messages/{id}` stays as strangler residue. |
 | host + prefix `…/api/v1/*` | **move** | dedicated host `api.e2a.dev`, prefix `/v1` (base `https://api.e2a.dev/v1`) |
 | `GET/POST /approve`, `/reject`, `/pending` | **collapse** | `POST …/messages/{id}/approval` + magic-link GET alias |
 | `POST …/messages/{id}/approve|reject` | **collapse** | same `approval` sub-resource |
-| `GET /info`, `GET /users/me/limits` | **merge** | `GET /account` |
-| `/users/me/*` | **rename** | `/account/*` |
+| `GET /users/me/limits` | **rename** | `GET /account` (identity + plan + limits + usage) |
+| `GET /info` | **keep** | stays a separate **public** deployment-discovery endpoint — NOT folded into `/account` |
+| `/users/me/*` | **rename** | `/account/*` (`/account/export`, `DELETE /account`) |
 | `create_agent` (slug path + `agent_mode`; MCP omitted `email` pre-#206) | **change** | full-email `address` only (drop slug), no mode |
 | `POST /send` body | **extend** | add `from`, `reply_to` |
 | `agent_mode` column + CHECK | **drop** | no modes; inbound via poll / `ws` / `/webhooks` |
@@ -1085,11 +1146,17 @@ Break the current `/api/v1` surface directly and move it to
   idempotency helpers; add the spec↔server test; **perform the host/prefix
   cutover** (`/api/v1` → `https://api.e2a.dev/v1`, the §8 "host + prefix" row).
   (No behavior change yet beyond envelope/pagination + the path move.)
-* **Slice 2 — Resource cleanup.** Unify outbound under
-  `POST /agents/{address}/messages` (send/reply/forward); single message
-  address; collapse HITL to `approval`; `/account`. Update MCP + SDKs from
-  the spec; update the internal consumer in lockstep (the `send`/`reply` calls
-  move).
+* **Slice 2 — Resource cleanup.** Outbound consistency: **move `send` under the
+  agent** (`POST /agents/{address}/messages`) and retire top-level `/v1/send`,
+  keeping reply/forward as **explicit sub-resources** (`…/messages/{id}/reply`,
+  `…/messages/{id}/forward`) — decision 3 (explicit operations, not body
+  discriminators). **Done.** `/account` rename (`/users/me/*` → `/account`,
+  `/info` stays public). **Done.** HITL stays two explicit transitions
+  (decision 5 revised) — **done-as-shipped**. **Single message address —
+  deferred to Slice 4b:** removing the flat `/messages/{id}` needs the unified
+  read to expose both the held-draft `body_text`/`body_html` and the sent/inbound
+  `raw_message`, which is the message-read shape decision 9 designs (don't build
+  it twice). MCP + SDK regen from the spec is the separate consumer port.
 * **Slice 3 — Agent model.** `address` unification; drop `agent_mode`;
   optional webhook. Migration drops the column + CHECK.
 * **Slice 4 — Sender identity (provision *and* teardown).** `SenderIdentityProvider`
@@ -1246,12 +1313,16 @@ Reconciles this design to what shipped on the `feat/api-v1-cutover` branch.
 **Scope, stated plainly:** the shipped `/v1` is the **contract + host/strangler
 cutover** (≈ Slice 1) — it ports the **legacy request/response shapes** onto the
 new host + envelope + pagination + idempotency + rate-limit. The §4
-resource-model changes are **NOT built yet:** outbound is still **three routes**
-(`/v1/send`, `…/reply`, `…/forward`), not the unified `POST …/messages`
-(decision 3); HITL is still **two routes** (`…/approve`, `…/reject`), not the
-single `approval` transition (decision 5); and decisions 4 (sender identity),
-9 (delivery feedback / structured inbound `auth`), and 10 (inbound policy) are
-unbuilt. Read decisions 3/4/5/9/10 as **target spec, not shipped behavior**.
+resource-model changes are **NOT fully built yet:** outbound is three routes but
+`send` is still **top-level `/v1/send`** rather than nested under the agent —
+decision 3's target is to relocate `send` to `POST /agents/{address}/messages`
+while **keeping** reply/forward as the explicit sub-resources they already are
+(`…/reply`, `…/forward`), so the shipped reply/forward shape is *aligned* with
+the revised decision 3 and only `send` needs moving; HITL is still **two routes**
+(`…/approve`, `…/reject`), not the single `approval` transition (decision 5); and
+decisions 4 (sender identity), 9 (delivery feedback / structured inbound `auth`),
+and 10 (inbound policy) are unbuilt. Read decisions 3/4/5/9/10 as **target spec,
+not shipped behavior**.
 
 **Implemented as designed:** the full additive `/v1` Huma surface (34 ops:
 agents/messages/conversations/domains/webhooks/events/account/HITL/info);

@@ -271,7 +271,7 @@ scenarios:
       - id: no_auth_send
         action: request
         method: POST
-        path: /v1/send
+        path: /v1/agents/bot@example.com/messages
         body: {}
         expect:
           status: 401
@@ -313,7 +313,7 @@ scenarios:
       - id: invalid_key_send
         action: request
         method: POST
-        path: /v1/send
+        path: /v1/agents/bot@example.com/messages
         body: {}
         expect:
           status: 401
@@ -433,9 +433,8 @@ scenarios:
       - id: send_held
         action: request
         method: POST
-        path: /v1/send
+        path: /v1/agents/{agent_email}/messages
         body:
-          from: "{agent_email}"
           to:
             - alice@example.com
           subject: Hold me
@@ -489,9 +488,8 @@ scenarios:
       - id: send_held
         action: request
         method: POST
-        path: /v1/send
+        path: /v1/agents/{agent_email}/messages
         body:
-          from: "{agent_email}"
           to:
             - alice@example.com
           subject: To be rejected
@@ -561,9 +559,8 @@ scenarios:
       - id: outbound_held
         action: request
         method: POST
-        path: /v1/send
+        path: /v1/agents/{agent_email}/messages
         body:
-          from: "{agent_email}"
           to:
             - someone@example.com
           subject: an outbound row

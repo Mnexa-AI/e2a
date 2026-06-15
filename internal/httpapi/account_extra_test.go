@@ -8,7 +8,7 @@ import (
 
 func TestExportUserData(t *testing.T) {
 	srv := testServer(t)
-	req, _ := http.NewRequest("GET", srv.URL+"/v1/users/me/export", nil)
+	req, _ := http.NewRequest("GET", srv.URL+"/v1/account/export", nil)
 	req.Header.Set("Authorization", "Bearer good")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -25,7 +25,7 @@ func TestExportUserData(t *testing.T) {
 
 func TestDeleteAccountRequiresConfirm(t *testing.T) {
 	srv := testServer(t)
-	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/users/me", "good", nil)
+	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/account", "good", nil)
 	if code != 400 || errCode(body) != "confirmation_required" {
 		t.Fatalf("want 400 confirmation_required, got %d %v", code, body)
 	}
@@ -33,7 +33,7 @@ func TestDeleteAccountRequiresConfirm(t *testing.T) {
 
 func TestDeleteAccountConfirmed(t *testing.T) {
 	srv := testServer(t)
-	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/users/me?confirm=DELETE", "good", nil)
+	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/account?confirm=DELETE", "good", nil)
 	if code != 200 {
 		t.Fatalf("want 200, got %d", code)
 	}
@@ -41,7 +41,7 @@ func TestDeleteAccountConfirmed(t *testing.T) {
 
 func TestDeleteAccountUnauthorized(t *testing.T) {
 	srv := testServer(t)
-	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/users/me?confirm=DELETE", "", nil)
+	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/account?confirm=DELETE", "", nil)
 	if code != 401 {
 		t.Fatalf("want 401, got %d", code)
 	}

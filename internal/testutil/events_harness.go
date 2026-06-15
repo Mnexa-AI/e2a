@@ -3,10 +3,13 @@ package testutil
 import (
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/agent"
+	"github.com/Mnexa-AI/e2a/internal/apiserver"
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
@@ -16,9 +19,12 @@ import (
 )
 
 // NewEventsAPIHarness spins up a minimal httptest server with the
-// agent.API wired for the slice 6/7 events API. Used by the
-// internal/e2e events tests that need to hit /api/v1/events and
-// /api/v1/events/{id}/redeliver against a real HTTP layer.
+// agent.API wired for the slice 6/7 events API. The legacy gorilla/mux
+// surface is wrapped by the typed /v1 chi root (the same apiserver
+// builder prod + TestServer use), so the e2e events tests can hit the
+// real /v1 handlers for ported routes (events, webhooks, agents) while
+// still-legacy routes (e.g. /api/v1/webhooks/{id}/redeliver-since) fall
+// through to the mux.
 //
 // Returns the *httptest.Server; caller must Close() on cleanup.
 func NewEventsAPIHarness(t *testing.T, pool *pgxpool.Pool, store *identity.Store, outbox webhookpub.Outbox) *httptest.Server {
@@ -27,15 +33,38 @@ func NewEventsAPIHarness(t *testing.T, pool *pgxpool.Pool, store *identity.Store
 	smtpRelay := outbound.NewSMTPRelay(nil)
 	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
 	noopUsage := usage.NewNoopUsageTracker()
+	subscriberStore := webhook.NewSubscriberStore(pool)
+	idempotencyStore := idempotency.NewStore(pool)
+	usageStore := usage.NewStore(pool)
+	// Generous caps — e2e exercises behavior, not quota enforcement.
+	enforcer := limits.NewEnforcer(limits.NewStore(pool), usageStore, limits.Defaults{
+		PlanCode: "test", MaxAgents: 100000, MaxDomains: 100000,
+		MaxMessagesMonth: 100000, MaxStorageBytes: 1 << 40,
+	}, time.Minute)
+
 	api := agent.NewAPI(store, sender, smtpRelay, nil, noopUsage, "e2a.dev", "test.e2a.dev", "agents.e2a.dev", "", false)
-	api.SetIdempotencyStore(idempotency.NewStore(pool))
-	api.SetSubscriberStore(webhook.NewSubscriberStore(pool))
+	api.SetIdempotencyStore(idempotencyStore)
+	api.SetSubscriberStore(subscriberStore)
 	api.SetPublisher(webhookpub.New(store, webhookpub.NewDBInserter(pool), webhookpub.StaticFlag(true)))
+	api.SetEnforcer(enforcer)
+	api.SetUsageStore(usageStore)
 	api.SetOutbox(outbox)
 	api.SetPoolForEvents(pool)
 
 	router := mux.NewRouter()
 	api.RegisterRoutes(router)
-	srv := httptest.NewServer(router)
+
+	// Wrap the legacy mux with the typed /v1 surface so the events e2e
+	// tests exercise the real /v1 handlers; still-legacy /api/v1 routes
+	// fall through to the mux.
+	v1 := apiserver.New(apiserver.Params{
+		API: api, Store: store, Enforcer: enforcer, UsageStore: usageStore,
+		SubscriberStore: subscriberStore, Idempotency: idempotencyStore, Pool: pool,
+		SMTPDomain: "test.e2a.dev", SharedDomain: "agents.e2a.dev",
+		PublicURL: "http://127.0.0.1", Production: false,
+		Legacy: router,
+	})
+
+	srv := httptest.NewServer(v1)
 	return srv
 }

@@ -83,8 +83,8 @@ func TestSpecGeneratedFromHandlers(t *testing.T) {
 		"operationId: listEvents",
 		"operationId: getEvent",
 		"operationId: redeliverEvent",
-		"operationId: getMyLimits",
-		"operationId: exportUserData",
+		"operationId: getAccount",
+		"operationId: exportAccount",
 		"operationId: deleteAccount",
 		"operationId: sendMessage",
 		"operationId: replyToMessage",
@@ -92,8 +92,7 @@ func TestSpecGeneratedFromHandlers(t *testing.T) {
 		"operationId: approveMessage",
 		"operationId: rejectMessage",
 		"operationId: testAgent",
-		"/v1/send",
-		"/v1/users/me/limits",
+		"/v1/account",
 		"/v1/events",
 		"/v1/events/{id}",
 		"/v1/webhooks",
@@ -113,6 +112,16 @@ func TestSpecGeneratedFromHandlers(t *testing.T) {
 	for _, want := range mustContain {
 		if !strings.Contains(spec, want) {
 			t.Errorf("generated spec missing %q", want)
+		}
+	}
+
+	// Retired routes must NOT reappear: /v1/send relocated to
+	// POST /v1/agents/{address}/messages (decision 3); the /v1/users/me/* cluster
+	// was renamed to /v1/account (decision 8). Guard against a regression that
+	// re-registers either.
+	for _, gone := range []string{"/v1/send", "/v1/users/me"} {
+		if strings.Contains(spec, gone) {
+			t.Errorf("generated spec still contains retired route %q", gone)
 		}
 	}
 }

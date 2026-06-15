@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/agent"
+	"github.com/Mnexa-AI/e2a/internal/apiserver"
 	"github.com/Mnexa-AI/e2a/internal/config"
 	"github.com/Mnexa-AI/e2a/internal/headers"
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/relay"
 	"github.com/Mnexa-AI/e2a/internal/usage"
@@ -108,10 +110,19 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 	// HTTP server
 	router := mux.NewRouter()
 	noopUsage := usage.NewNoopUsageTracker()
+	usageStore := usage.NewStore(pool)
+	// Generous caps — e2e exercises behavior, not quota enforcement.
+	enforcer := limits.NewEnforcer(limits.NewStore(pool), usageStore, limits.Defaults{
+		PlanCode: "test", MaxAgents: 100000, MaxDomains: 100000,
+		MaxMessagesMonth: 100000, MaxStorageBytes: 1 << 40,
+	}, time.Minute)
+	idempotencyStore := idempotency.NewStore(pool)
 	api := agent.NewAPI(store, sender, smtpRelay, nil, noopUsage, "e2a.dev", "test.e2a.dev", "agents.e2a.dev", "", false)
-	api.SetIdempotencyStore(idempotency.NewStore(pool))
+	api.SetIdempotencyStore(idempotencyStore)
 	api.SetSubscriberStore(subscriberStore)
 	api.SetPublisher(publisher)
+	api.SetEnforcer(enforcer)
+	api.SetUsageStore(usageStore)
 	api.RegisterRoutes(router)
 
 	// WebSocket route for local-mode agents
@@ -119,7 +130,18 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 	wsHandler := ws.NewHandler(wsHub, store)
 	api.RegisterWSRoute(router, wsHandler.Handle)
 
-	httpServer := httptest.NewServer(router)
+	// Wrap the legacy mux with the typed /v1 surface (the same apiserver
+	// builder prod + StartContractServer use) so e2e exercises the real /v1
+	// handler; the still-legacy /api/v1 routes fall through to the mux.
+	v1 := apiserver.New(apiserver.Params{
+		API: api, Store: store, Enforcer: enforcer, UsageStore: usageStore,
+		SubscriberStore: subscriberStore, Idempotency: idempotencyStore, Pool: pool,
+		SMTPDomain: "test.e2a.dev", SharedDomain: "agents.e2a.dev",
+		PublicURL: "http://127.0.0.1", Production: false,
+		Legacy: router, WSHandle: wsHandler.ServeWithEmail,
+	})
+
+	httpServer := httptest.NewServer(v1)
 
 	// SMTP server on random port
 	smtpListener, err := net.Listen("tcp", "127.0.0.1:0")

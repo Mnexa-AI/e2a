@@ -191,8 +191,8 @@ func serverWithSendLimit(t *testing.T) *httptest.Server {
 
 func TestSendRateLimited(t *testing.T) {
 	srv := serverWithSendLimit(t)
-	code, body := postJSON(t, srv.URL+"/v1/send", "good", map[string]any{
-		"from": "support@acme.com", "to": []string{"a@x.com"}, "subject": "Hi", "body": "hello",
+	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages", "good", map[string]any{
+		"to": []string{"a@x.com"}, "subject": "Hi", "body": "hello",
 	})
 	if code != 429 || errCode(body) != "rate_limited" {
 		t.Fatalf("want 429 rate_limited, got %d %v", code, body)
