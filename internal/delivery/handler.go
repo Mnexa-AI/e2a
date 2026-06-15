@@ -23,7 +23,13 @@ const maxSNSBody = 256 * 1024
 // handled or safely-ignored message (so SES stops retrying); 500 only when the
 // Consumer hits a real error worth a retry.
 func Handler(v *Verifier, c *Consumer) http.HandlerFunc {
-	client := &http.Client{Timeout: 10 * time.Second}
+	// No redirect-following: the SubscribeURL host is allow-listed
+	// (sns.*.amazonaws.com) before the GET, and we must not let a redirect carry
+	// the request to a non-allow-listed (internal) host — SSRF defense in depth.
+	client := &http.Client{
+		Timeout:       10 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

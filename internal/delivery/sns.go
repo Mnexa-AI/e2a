@@ -48,7 +48,13 @@ var snsHostRE = regexp.MustCompile(`^sns\.[a-z0-9-]+\.amazonaws\.com$`)
 // timeout that returns the PEM cert bytes. It rejects non-2xx responses. The
 // URL must already have passed the host allow-list (see validSigningCertHost).
 func HTTPCertFetcher(ctx context.Context, certURL string) ([]byte, error) {
-	c := &http.Client{Timeout: 10 * time.Second}
+	// No redirect-following: the cert URL host is already allow-listed
+	// (sns.*.amazonaws.com); a redirect must not carry the fetch to an internal
+	// host — SSRF defense in depth.
+	c := &http.Client{
+		Timeout:       10 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, certURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build cert request: %w", err)

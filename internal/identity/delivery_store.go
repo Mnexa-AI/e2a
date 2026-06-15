@@ -19,6 +19,12 @@ import (
 // CorrelateBySESMessageID finds the outbound message + owning user by the
 // SES-assigned provider_message_id captured at send time. found=false when the
 // id is unknown (expired message, or an event for a different deployment).
+//
+// The SNS notification carries the BARE SES id (e.g. 010f0193…-000000), but the
+// send path stores it angle-bracketed and sometimes with an @region.amazonses.com
+// suffix (parseMessageIDFromResponse) — same discrepancy LookupConversationID
+// works around. Match all three stored shapes against the bare id: exact,
+// <id>, and <id@…>. SES ids are [A-Za-z0-9-] so they carry no LIKE metacharacters.
 func (s *Store) CorrelateBySESMessageID(ctx context.Context, sesMessageID string) (messageID, userID, agentID string, found bool, err error) {
 	if sesMessageID == "" {
 		return "", "", "", false, nil
@@ -27,7 +33,10 @@ func (s *Store) CorrelateBySESMessageID(ctx context.Context, sesMessageID string
 		`SELECT m.id, a.user_id, m.agent_id
 		   FROM messages m
 		   JOIN agent_identities a ON a.id = m.agent_id
-		  WHERE m.provider_message_id = $1 AND m.direction = 'outbound'
+		  WHERE m.direction = 'outbound'
+		    AND ( m.provider_message_id = $1
+		       OR m.provider_message_id = '<' || $1 || '>'
+		       OR m.provider_message_id LIKE '<' || $1 || '@%' )
 		  LIMIT 1`,
 		sesMessageID,
 	).Scan(&messageID, &userID, &agentID)
@@ -53,19 +62,34 @@ func (s *Store) RecordDeliveryOutcome(ctx context.Context, messageID, address st
 	}
 	defer tx.Rollback(ctx)
 
+	// Lock the message row to serialize ALL events for this message (every
+	// recipient). SES fans out delivery + bounce/complaint for the same message
+	// concurrently; without this, two events for different recipients (or two
+	// first-events for an un-pre-populated recipient) race the rollup write and
+	// the insert ON CONFLICT path, dropping a terminal status. The lock makes
+	// the read-merge-write below strictly monotonic per message.
+	var lockedID string
+	err = tx.QueryRow(ctx, `SELECT id FROM messages WHERE id = $1 FOR UPDATE`, messageID).Scan(&lockedID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // message deleted between correlation and now
+	}
+	if err != nil {
+		return err
+	}
+
 	var cur string
 	err = tx.QueryRow(ctx,
-		`SELECT status FROM message_recipients WHERE message_id = $1 AND address = $2 FOR UPDATE`,
+		`SELECT status FROM message_recipients WHERE message_id = $1 AND address = $2`,
 		messageID, addr,
 	).Scan(&cur)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		// Recipient row not pre-populated (e.g. SES reports an address the send
-		// path didn't record) — insert it at the observed status.
+		// path didn't record). Serialized by the message-row lock, so no insert
+		// race.
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO message_recipients (id, message_id, address, status, detail)
-			 VALUES ($1, $2, $3, $4, $5)
-			 ON CONFLICT (message_id, address) DO NOTHING`,
+			 VALUES ($1, $2, $3, $4, $5)`,
 			"rcpt_"+generateID(), messageID, addr, string(status), nullIfEmpty(detail),
 		); err != nil {
 			return err
@@ -74,12 +98,18 @@ func (s *Store) RecordDeliveryOutcome(ctx context.Context, messageID, address st
 		return err
 	default:
 		merged := delivery.Merge(delivery.Status(cur), status)
-		if _, err := tx.Exec(ctx,
-			`UPDATE message_recipients SET status = $3, detail = COALESCE($4, detail), updated_at = now()
-			  WHERE message_id = $1 AND address = $2`,
-			messageID, addr, string(merged), nullIfEmpty(detail),
-		); err != nil {
-			return err
+		// Only write when the status actually advances — a duplicate/lower-rank
+		// event must not regress the status NOR clobber the diagnostic detail
+		// (a late `delivered` carrying a detail must not overwrite the bounce
+		// reason).
+		if merged != delivery.Status(cur) {
+			if _, err := tx.Exec(ctx,
+				`UPDATE message_recipients SET status = $3, detail = COALESCE($4, detail), updated_at = now()
+				  WHERE message_id = $1 AND address = $2`,
+				messageID, addr, string(merged), nullIfEmpty(detail),
+			); err != nil {
+				return err
+			}
 		}
 	}
 

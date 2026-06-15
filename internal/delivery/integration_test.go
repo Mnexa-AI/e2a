@@ -150,3 +150,102 @@ func TestSuppressionCRUD(t *testing.T) {
 		t.Fatalf("address should be un-suppressed, got %v", supp)
 	}
 }
+
+// TestCorrelationMatchesBracketedSESID pins the review BLOCKER: SES stores the
+// provider id angle-bracketed (and sometimes @region.amazonses.com-suffixed),
+// but the SNS notification carries the BARE id. Correlation must match across
+// those shapes — an exact-equality match would silently drop all feedback.
+func TestCorrelationMatchesBracketedSESID(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+
+	// Store the realistic bracketed+suffixed shape; correlate with the bare id.
+	_, msgID, agentEmail := seedOutbound(t, store, "corr", "<010f0193abc-000000@us-east-2.amazonses.com>", []string{"a@x.com"})
+
+	mID, _, _, found, err := store.CorrelateBySESMessageID(ctx, "010f0193abc-000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || mID != msgID {
+		t.Fatalf("bare-id correlation against bracketed stored id failed: found=%v id=%q want %q", found, mID, msgID)
+	}
+
+	// And the full pipeline must transition delivery_status via the bare id.
+	if err := delivery.NewConsumer(store, nil).Process(ctx, &delivery.Event{
+		Kind: delivery.KindDelivery, SESMessageID: "010f0193abc-000000",
+		Recipients: []delivery.RecipientOutcome{{Address: "a@x.com", Status: delivery.StatusDelivered}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := deliveryStatus(t, store, msgID, agentEmail); got != "delivered" {
+		t.Fatalf("delivery_status=%q, want delivered (bare-id correlation)", got)
+	}
+}
+
+// TestConcurrentRollupMonotonic pins the review race fix: concurrent SES events
+// for the same recipient (one delivered, one bounced) must converge to the
+// worst status (bounced) — the message-row lock serializes the merge.
+func TestConcurrentRollupMonotonic(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+	consumer := delivery.NewConsumer(store, nil)
+
+	// Seed the user/domain/agent once; create a distinct message per iteration.
+	_, _, agentEmail := seedOutbound(t, store, "race", "ses-race-seed", []string{"a@x.com"})
+
+	for i := 0; i < 25; i++ {
+		providerID := "ses-race-" + string(rune('a'+i%26)) + string(rune('a'+i/26))
+		msg, err := store.CreateOutboundMessage(ctx, agentEmail, []string{"a@x.com"}, nil, nil, "S", "send", "smtp", providerID, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.MarkMessageSent(ctx, msg.ID, "relay", []string{"a@x.com"}, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 2)
+		go func() {
+			done <- consumer.Process(ctx, &delivery.Event{Kind: delivery.KindDelivery, SESMessageID: providerID,
+				Recipients: []delivery.RecipientOutcome{{Address: "a@x.com", Status: delivery.StatusDelivered}}})
+		}()
+		go func() {
+			done <- consumer.Process(ctx, &delivery.Event{Kind: delivery.KindBounce, SESMessageID: providerID,
+				Recipients: []delivery.RecipientOutcome{{Address: "a@x.com", Status: delivery.StatusBounced, Detail: "550"}}})
+		}()
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		if got := deliveryStatus(t, store, msg.ID, agentEmail); got != "bounced" {
+			t.Fatalf("iter %d: rollup=%q, want bounced (concurrent monotonic)", i, got)
+		}
+	}
+}
+
+// TestDetailNotClobberedByLaterEvent pins the review low fix: a later
+// lower-rank event carrying a detail must not overwrite the terminal
+// diagnostic.
+func TestDetailNotClobberedByLaterEvent(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+	_, msgID, _ := seedOutbound(t, store, "detail", "ses-detail", []string{"a@x.com"})
+	consumer := delivery.NewConsumer(store, nil)
+
+	_ = consumer.Process(ctx, &delivery.Event{Kind: delivery.KindBounce, SESMessageID: "ses-detail",
+		Recipients: []delivery.RecipientOutcome{{Address: "a@x.com", Status: delivery.StatusBounced, Detail: "550 mailbox full"}}})
+	// A late delivered (lower rank) with its own detail must not clobber.
+	_ = consumer.Process(ctx, &delivery.Event{Kind: delivery.KindDelivery, SESMessageID: "ses-detail",
+		Recipients: []delivery.RecipientOutcome{{Address: "a@x.com", Status: delivery.StatusDelivered, Detail: "ok"}}})
+
+	var detail string
+	if err := pool.QueryRow(ctx, "SELECT COALESCE(detail,'') FROM message_recipients WHERE message_id=$1 AND address='a@x.com'", msgID).Scan(&detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail != "550 mailbox full" {
+		t.Fatalf("detail=%q, want the preserved bounce reason", detail)
+	}
+}
