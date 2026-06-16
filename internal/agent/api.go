@@ -16,10 +16,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/actiongate"
 	"github.com/Mnexa-AI/e2a/internal/agentauth"
 	"github.com/Mnexa-AI/e2a/internal/approvaltoken"
 	"github.com/Mnexa-AI/e2a/internal/auth"
 	"github.com/Mnexa-AI/e2a/internal/dkim"
+	"github.com/Mnexa-AI/e2a/internal/emailauth"
 	"github.com/Mnexa-AI/e2a/internal/hitlnotify"
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
@@ -1037,6 +1039,43 @@ func (a *API) checkSuppression(ctx context.Context, userID string, req outbound.
 	return nil
 }
 
+// actionGateHold computes the Slice 7b trust-gated hold decision. The caller
+// has already confirmed HITL is enabled; this only chooses based on the
+// agent's hitl_mode and the trust signals.
+//
+//   - referenced: the inbound message this action reacts to (reply/forward);
+//     nil for a cold send/test, which has no untrusted input to react to.
+//   - untrusted input (today): the referenced inbound's DMARC verdict is not a
+//     pass — i.e. we can't confirm it really came from the claimed sender. A
+//     missing verdict is treated as untrusted (fail-closed). This is the
+//     pluggable seam: a content-level prompt-injection verdict can later OR
+//     into this signal without touching actiongate.
+//   - high impact: a recipient reaches a domain that wasn't a participant of
+//     the referenced inbound (reply to a new party / forward to a third party).
+func actionGateHold(agent *identity.AgentIdentity, req outbound.SendRequest, referenced *identity.Message) actiongate.Decision {
+	mode := agent.HITLMode
+	if mode == "" {
+		mode = actiongate.ModeAll
+	}
+	untrusted := referenced == nil || referenced.Auth == nil ||
+		referenced.Auth.DMARC.Status != emailauth.StatusPass
+
+	var participants []string
+	if referenced != nil {
+		participants = append(participants, referenced.Sender)
+		participants = append(participants, referenced.ToRecipients...)
+		participants = append(participants, referenced.CC...)
+	}
+	participants = append(participants, agent.EmailAddress())
+
+	recipients := make([]string, 0, len(req.To)+len(req.CC)+len(req.BCC))
+	recipients = append(recipients, req.To...)
+	recipients = append(recipients, req.CC...)
+	recipients = append(recipients, req.BCC...)
+
+	return actiongate.Evaluate(mode, referenced != nil, untrusted, actiongate.HighImpact(participants, recipients))
+}
+
 // DeliverOutbound is the shared send/reply/forward delivery tail, HTTP-free:
 // HITL hold (HoldForApprovalCore), else self-send loopback, else SES send +
 // record outbound + publish sent event. The caller has already authed,
@@ -1046,7 +1085,7 @@ func (a *API) checkSuppression(ctx context.Context, userID string, req outbound.
 // live delivery path exists exactly once (api-v1-redesign — outbound
 // extraction). On a nil-error return the side effect has committed, so the
 // idempotency key must be Completed (cached), never Released.
-func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string) (*OutboundResult, *OutboundError) {
+func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string, referenced *identity.Message) (*OutboundResult, *OutboundError) {
 	// Suppression enforcement (decision 9 / Slice 4b): fail fast if any
 	// recipient is on this tenant's suppression list. Enforced fresh on every
 	// attempt and NOT cached under the idempotency key (it's a clearable state,
@@ -1055,7 +1094,12 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		return nil, supErr
 	}
 
-	if agent.HITLEnabled {
+	// Trust-gated action authorization (decision 10 / Slice 7b): when HITL is
+	// on, the sub-mode decides WHAT is held — all outbound (hitl_mode=all), or
+	// only a high-impact action taken on untrusted inbound (high_impact).
+	// `referenced` is the inbound message this action reacts to (reply/forward);
+	// nil for a cold send.
+	if agent.HITLEnabled && actionGateHold(agent, req, referenced).Hold {
 		msg, err := a.HoldForApprovalCore(ctx, agent, req, msgType, replyToEmailMessageID)
 		if err != nil {
 			if errors.Is(err, errHoldAttachments) {
@@ -1120,8 +1164,12 @@ func (a *API) SendTestCore(ctx context.Context, agent *identity.AgentIdentity) (
 	subject := "Test email from e2a"
 	body := fmt.Sprintf("This is a test email for %s.\n\nYour agent is set up and ready to receive emails.", agent.EmailAddress())
 
-	if agent.HITLEnabled {
-		msg, err := a.HoldForApprovalCore(ctx, agent, outbound.SendRequest{To: to, Subject: subject, Body: body}, "test", "")
+	// A platform test is a cold self-send (no referenced inbound), so in
+	// hitl_mode=high_impact it isn't held (nothing untrusted to react to); in
+	// hitl_mode=all it's held like any outbound.
+	testReq := outbound.SendRequest{To: to, Subject: subject, Body: body}
+	if agent.HITLEnabled && actionGateHold(agent, testReq, nil).Hold {
+		msg, err := a.HoldForApprovalCore(ctx, agent, testReq, "test", "")
 		if err != nil {
 			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to hold message for approval"}
 		}

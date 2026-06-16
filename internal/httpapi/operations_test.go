@@ -305,7 +305,7 @@ func testServer(t *testing.T) *httptest.Server {
 			}
 			return nil, errors.New("not found")
 		},
-		DeliverOutbound: func(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyTo string) (*agent.OutboundResult, *agent.OutboundError) {
+		DeliverOutbound: func(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyTo string, referenced *identity.Message) (*agent.OutboundResult, *agent.OutboundError) {
 			switch {
 			case strings.Contains(req.Subject, "HOLD"):
 				exp := time.Unix(1700090000, 0).UTC()

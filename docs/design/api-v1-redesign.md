@@ -1367,13 +1367,32 @@ Break the current `/api/v1` surface directly and move it to
     operators get a signal. Evaluator is a stdlib leaf (`internal/inboundpolicy`);
     surfaced as `inbound_policy`/`inbound_allowlist` on `AgentView` (settable via
     `update_agent`) and `flagged`/`flag_reason` on message reads.
-  * **Slice 7b — Trust-gated action authorization.** *(Deferred.)* Policy-driven
-    hold of suspicious outbound as `pending_approval`, keyed on the referenced
-    message's server-owned verdict (high-impact predicate: recipient domain not a
-    participant of the referenced inbound OR forward to a third party; weak
-    verdict: `dmarc != pass`). No new contract surface. Depends on the **hard
-    scope ceiling** (decision 10 / §5), which lands with **Slice 5**'s scope
-    machinery — so 7b follows 5.
+  * **Slice 7b — Trust-gated action authorization.** *(Shipped.)* The HITL
+    action gate gains a sub-mode so it holds *suspicious* outbound rather than
+    *all* outbound:
+    * `agent_identities.hitl_mode ∈ {all, high_impact}` (migration 036, DEFAULT
+      `all`, CHECK-constrained). `hitl_enabled` stays the on/off switch;
+      `hitl_mode` refines *what* is held. Default `all` = pre-7b behavior, so
+      every existing HITL agent is unchanged; trust-gating is an explicit
+      `hitl_mode=high_impact` PATCH. Surfaced on `AgentView` + settable via
+      `update_agent` (independent `UpdateAgentHITLMode`, validated → 400).
+    * `internal/actiongate` (stdlib leaf, mirrors `inboundpolicy`): in
+      `high_impact`, an outbound (reply/forward) is held only when **both** — the
+      referenced inbound's **`dmarc != pass`** (weak/spoofable; read from the
+      server-owned `auth_verdict`, never client input; a missing verdict is
+      fail-closed-untrusted) **and** a recipient reaches a **domain outside the
+      referenced inbound's participants** (reply to a new party / forward to a
+      third party). A trusted-thread or in-thread reply sends straight through; a
+      cold send (no referenced inbound) is never held in this mode. The hold
+      decision is threaded the referenced `*identity.Message` through
+      `DeliverOutbound`.
+    * The "untrusted input" signal is a plain bool in `actiongate` — the
+      **pluggable seam** to later fold a content-level prompt-injection verdict
+      (a partner scan API, under evaluation) into the same gate without rework.
+      That integration is deferred; e2a core stays provider-agnostic.
+
+    Built on the 5a hard scope ceiling (decision 10 / §5). No new contract
+    surface beyond `hitl_mode`.
 
 Slices 1–6 are independently shippable; 1–2 deliver most of the "clean and
 consistent" win. Slice 7 is a post-parity enhancement.

@@ -202,7 +202,7 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 	}
 	req.CC = agent.StripAgentSelfAliases(req.CC, ag.EmailAddress())
 	req.BCC = agent.StripAgentSelfAliases(req.BCC, ag.EmailAddress())
-	return s.deliver(ctx, user, ag, req, "reply", inbound.EmailMessageID, "/v1/reply/"+in.ID, in.IdempotencyKey, in.RawBody)
+	return s.deliver(ctx, user, ag, req, "reply", inbound.EmailMessageID, "/v1/reply/"+in.ID, in.IdempotencyKey, in.RawBody, inbound)
 }
 
 // ForwardRequest mirrors the legacy forward body.
@@ -252,7 +252,7 @@ func (s *Server) handleForward(ctx context.Context, in *forwardInput) (*sendOutp
 	}
 	req.CC = agent.StripAgentSelfAliases(req.CC, ag.EmailAddress())
 	req.BCC = agent.StripAgentSelfAliases(req.BCC, ag.EmailAddress())
-	return s.deliver(ctx, user, ag, req, "forward", inbound.EmailMessageID, "/v1/forward/"+in.ID, in.IdempotencyKey, in.RawBody)
+	return s.deliver(ctx, user, ag, req, "forward", inbound.EmailMessageID, "/v1/forward/"+in.ID, in.IdempotencyKey, in.RawBody, inbound)
 }
 
 // validateOutboundBody runs the shared pre-send validation.
@@ -277,7 +277,7 @@ func (s *Server) validateOutboundBody(subject, body string, to, cc, bcc []string
 
 // deliver runs the domain-verified + enforce-cap checks then DeliverOutbound
 // under the idempotency handshake, mapping the OutboundResult to the wire view.
-func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyTo, route, idemKey string, rawBody []byte) (*sendOutput, error) {
+func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyTo, route, idemKey string, rawBody []byte, referenced *identity.Message) (*sendOutput, error) {
 	if env := s.checkSendLimit(ag.ID); env != nil {
 		return nil, env
 	}
@@ -296,7 +296,7 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "outbound delivery unavailable")
 	}
 	status, view, err := runIdempotent(s, ctx, user.ID, idemKey, route, rawBody, func() (int, SendResultView, error) {
-		res, derr := s.deps.DeliverOutbound(ctx, user, ag, req, msgType, replyTo)
+		res, derr := s.deps.DeliverOutbound(ctx, user, ag, req, msgType, replyTo, referenced)
 		if derr != nil {
 			return 0, SendResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
 		}
@@ -360,5 +360,7 @@ func (s *Server) handleCreateMessage(ctx context.Context, in *createMessageInput
 	// could collide on an identical key+body (the body hash alone no longer
 	// separates them).
 	route := "/v1/agents/" + ag.ID + "/messages"
-	return s.deliver(ctx, user, ag, req, "send", "", route, in.IdempotencyKey, in.RawBody)
+	// A cold send has no referenced inbound — passes nil, so high_impact mode
+	// never holds it (no untrusted input being acted on).
+	return s.deliver(ctx, user, ag, req, "send", "", route, in.IdempotencyKey, in.RawBody, nil)
 }

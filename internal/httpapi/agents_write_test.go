@@ -85,6 +85,49 @@ func TestUpdateAgentInboundPolicy(t *testing.T) {
 	}
 }
 
+// TestUpdateAgentHITLMode exercises the PATCH → store → AgentView round-trip
+// for the Slice 7b action-gate sub-mode, and the 400 on an invalid mode.
+func TestUpdateAgentHITLMode(t *testing.T) {
+	ag := sampleAgent()
+	ag.HITLMode = "all"
+	deps := Deps{
+		Authenticator: func(r *http.Request) (*identity.User, error) {
+			if r.Header.Get("Authorization") == "Bearer good" {
+				return &identity.User{ID: "u_1", Email: "owner@acme.com"}, nil
+			}
+			return nil, errors.New("unauthorized")
+		},
+		GetAgent: func(ctx context.Context, address string) (*identity.AgentIdentity, error) {
+			if address == "support@acme.com" {
+				a := ag
+				return &a, nil
+			}
+			return nil, errors.New("not found")
+		},
+		UpdateAgentHITLMode: func(ctx context.Context, agentID, userID, mode string) error {
+			if mode != "all" && mode != "high_impact" {
+				return errors.New("invalid hitl_mode " + mode)
+			}
+			ag.HITLMode = mode
+			return nil
+		},
+		Legacy: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) }),
+	}
+	srv := httptest.NewServer(New(deps))
+	t.Cleanup(srv.Close)
+
+	// Valid mode round-trips onto the AgentView.
+	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/agents/support%40acme.com", "good", map[string]any{"hitl_mode": "high_impact"})
+	if code != 200 || body["hitl_mode"] != "high_impact" {
+		t.Fatalf("expected 200 + hitl_mode=high_impact, got %d %v", code, body)
+	}
+	// Invalid mode → 400 invalid_request.
+	code, body = sendJSON(t, "PATCH", srv.URL+"/v1/agents/support%40acme.com", "good", map[string]any{"hitl_mode": "bogus"})
+	if code != 400 || errCode(body) != "invalid_request" {
+		t.Fatalf("expected 400 invalid_request for bogus mode, got %d %v", code, body)
+	}
+}
+
 func TestUpdateAgentNoFields(t *testing.T) {
 	srv := testServer(t)
 	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/agents/support%40acme.com", "good", map[string]any{})

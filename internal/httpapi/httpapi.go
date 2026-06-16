@@ -91,6 +91,9 @@ type Deps struct {
 	LookupDomain       DomainLookup
 	EnforceAgentCreate AgentCreateEnforcer
 	UpdateAgentHITL    AgentHITLUpdater
+	// UpdateAgentHITLMode sets the action-gate sub-mode (Slice 7b). Returns a
+	// validation error for an unknown mode (handler maps to 400).
+	UpdateAgentHITLMode func(ctx context.Context, agentID, userID, mode string) error
 	// UpdateAgentInboundPolicy sets the per-agent inbound ingestion gate
 	// (migration 033 / Slice 7). Returns a validation error for an unknown
 	// policy, which the handler maps to 400 invalid_request.
@@ -114,7 +117,7 @@ type Deps struct {
 	Idempotency IdemStore
 
 	// outbound (the shared live delivery path extracted from agent.API)
-	DeliverOutbound func(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string) (*agent.OutboundResult, *agent.OutboundError)
+	DeliverOutbound func(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string, referenced *identity.Message) (*agent.OutboundResult, *agent.OutboundError)
 	SendTest        func(ctx context.Context, ag *identity.AgentIdentity) (*agent.OutboundResult, *agent.OutboundError)
 	// HITL approve/reject (the held-draft decision)
 	ApprovePending     func(ctx context.Context, userID, messageID, expectedAgentEmail string, ovr agent.ApproveOverrides) (*identity.Message, *agent.OutboundError)

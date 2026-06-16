@@ -180,7 +180,7 @@ func serverWithSendLimit(t *testing.T) *httptest.Server {
 			return &identity.AgentIdentity{ID: "support@acme.com", Email: "support@acme.com", UserID: "u_1", DomainVerified: true}, nil
 		},
 		SendLimit: func(key string) (bool, time.Duration) { return false, 7 * time.Second },
-		DeliverOutbound: func(ctx context.Context, u *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, mt, rt string) (*agent.OutboundResult, *agent.OutboundError) {
+		DeliverOutbound: func(ctx context.Context, u *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, mt, rt string, ref *identity.Message) (*agent.OutboundResult, *agent.OutboundError) {
 			t.Error("DeliverOutbound must NOT be reached when rate-limited")
 			return &agent.OutboundResult{}, nil
 		},

@@ -110,6 +110,9 @@ type UpdateAgentRequest struct {
 	HITLEnabled          *bool   `json:"hitl_enabled,omitempty"`
 	HITLTTLSeconds       *int    `json:"hitl_ttl_seconds,omitempty"`
 	HITLExpirationAction *string `json:"hitl_expiration_action,omitempty"`
+	// HITLMode is the action-gate sub-mode (Slice 7b): "all" | "high_impact".
+	// Settable independently of the other HITL fields.
+	HITLMode *string `json:"hitl_mode,omitempty"`
 	// InboundPolicy / InboundAllowlist set the per-agent inbound ingestion gate
 	// (migration 033 / Slice 7). Pointers so absent != zero.
 	InboundPolicy    *string   `json:"inbound_policy,omitempty"`
@@ -152,6 +155,16 @@ func (s *Server) handleUpdateAgent(ctx context.Context, in *updateAgentInput) (*
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "update unavailable")
 		}
 		if err := s.deps.UpdateAgentHITL(ctx, ag.ID, ag.UserID, enabled, ttl, action); err != nil {
+			return nil, NewError(http.StatusBadRequest, "invalid_request", err.Error())
+		}
+		touched = true
+	}
+
+	if req.HITLMode != nil {
+		if s.deps.UpdateAgentHITLMode == nil {
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "update unavailable")
+		}
+		if err := s.deps.UpdateAgentHITLMode(ctx, ag.ID, ag.UserID, *req.HITLMode); err != nil {
 			return nil, NewError(http.StatusBadRequest, "invalid_request", err.Error())
 		}
 		touched = true

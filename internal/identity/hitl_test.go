@@ -102,6 +102,44 @@ func TestUpdateAgentHITL(t *testing.T) {
 	}
 }
 
+// TestUpdateAgentHITLMode covers the Slice 7b sub-mode setter: default 'all',
+// round-trip to 'high_impact', invalid mode rejected, cross-tenant rejected.
+func TestUpdateAgentHITLMode(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	user, _ := store.CreateOrGetUser(ctx, "owner@hitlmode.example.com", "Owner", "google-hitlmode")
+	store.ClaimOrCreateDomain(ctx, "hitlmode.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "bot@hitlmode.example.com", "hitlmode.example.com", "", "", "", user.ID)
+
+	// Fresh agent defaults to 'all' (column default, read via GetAgentByID).
+	got, _ := store.GetAgentByID(ctx, a.ID)
+	if got.HITLMode != "all" {
+		t.Errorf("fresh HITLMode = %q, want all", got.HITLMode)
+	}
+
+	if err := store.UpdateAgentHITLMode(ctx, a.ID, user.ID, "high_impact"); err != nil {
+		t.Fatalf("UpdateAgentHITLMode: %v", err)
+	}
+	got, _ = store.GetAgentByID(ctx, a.ID)
+	if got.HITLMode != "high_impact" {
+		t.Errorf("HITLMode = %q, want high_impact", got.HITLMode)
+	}
+
+	// Invalid mode → clean error, no mutation.
+	if err := store.UpdateAgentHITLMode(ctx, a.ID, user.ID, "bogus"); err == nil {
+		t.Error("expected error for invalid hitl_mode")
+	}
+	// Cross-tenant → error, no mutation.
+	if err := store.UpdateAgentHITLMode(ctx, a.ID, "other-user", "all"); err == nil {
+		t.Error("expected error updating another user's agent")
+	}
+	got, _ = store.GetAgentByID(ctx, a.ID)
+	if got.HITLMode != "high_impact" {
+		t.Errorf("HITLMode mutated by rejected updates: %q", got.HITLMode)
+	}
+}
+
 func TestUpdateAgentHITLValidation(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)

@@ -52,7 +52,7 @@ func TestSendIdempotencyRouteIncludesAgent(t *testing.T) {
 			return nil, errors.New("not found")
 		},
 		Idempotency: rec,
-		DeliverOutbound: func(ctx context.Context, u *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, mt, rt string) (*agent.OutboundResult, *agent.OutboundError) {
+		DeliverOutbound: func(ctx context.Context, u *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, mt, rt string, ref *identity.Message) (*agent.OutboundResult, *agent.OutboundError) {
 			return &agent.OutboundResult{MessageID: "m", Method: "smtp"}, nil
 		},
 	}))

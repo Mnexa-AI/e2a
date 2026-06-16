@@ -40,6 +40,8 @@ components:
           type: boolean
         hitl_expiration_action:
           type: string
+        hitl_mode:
+          type: string
         hitl_ttl_seconds:
           format: int64
           type: integer
@@ -85,6 +87,7 @@ components:
         - hitl_enabled
         - hitl_ttl_seconds
         - hitl_expiration_action
+        - hitl_mode
         - inbound_7d
         - outbound_7d
         - pending_count
@@ -106,6 +109,8 @@ components:
         hitl_enabled:
           type: boolean
         hitl_expiration_action:
+          type: string
+        hitl_mode:
           type: string
         hitl_ttl_seconds:
           format: int64
@@ -132,6 +137,7 @@ components:
         - hitl_enabled
         - hitl_ttl_seconds
         - hitl_expiration_action
+        - hitl_mode
         - inbound_policy
       type: object
     ApproveRequest:
@@ -1366,6 +1372,8 @@ components:
         hitl_enabled:
           type: boolean
         hitl_expiration_action:
+          type: string
+        hitl_mode:
           type: string
         hitl_ttl_seconds:
           format: int64
