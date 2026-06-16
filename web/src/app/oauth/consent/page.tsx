@@ -8,7 +8,7 @@ import type { DashboardAgent } from "../../components/types";
 
 // Required OAuth params the consent screen needs. If any is missing
 // we refuse to render the form — the request didn't come from a real
-// /api/oauth/authorize and pushing forward would either tamper-fail
+// /oauth2/authorize and pushing forward would either tamper-fail
 // at the backend or, worse, submit half-baked params that fosite
 // silently defaults.
 const REQUIRED_PARAMS = [
@@ -86,7 +86,7 @@ function ConsentInner() {
     // the cancelled flag prevents a stale resolution from clobbering
     // a fresh one. Worst case (rare): user sees the previous error
     // for the brief window before the new fetch settles — acceptable.
-    fetch(`/api/oauth/clients/${encodeURIComponent(clientID)}`, {
+    fetch(`/oauth2/clients/${encodeURIComponent(clientID)}`, {
       credentials: "include",
     })
       .then(async (r) => {
@@ -149,7 +149,7 @@ function ConsentInner() {
         </ul>
         <p className="text-muted text-sm">
           This screen is reached from{" "}
-          <code>/api/oauth/authorize</code>. If you arrived here directly,
+          <code>/oauth2/authorize</code>. If you arrived here directly,
           start the flow from your MCP client.
         </p>
       </ConsentShell>
@@ -161,12 +161,12 @@ function ConsentInner() {
   }
 
   // Not signed in → bounce through Google login carrying return_to so
-  // the user lands back on /api/oauth/authorize (which then re-renders
+  // the user lands back on /oauth2/authorize (which then re-renders
   // this page with a session). We construct return_to from the same
   // params so the round-trip preserves everything.
   if (!user) {
     const qs = new URLSearchParams(params).toString();
-    const returnTo = `/api/oauth/authorize?${qs}`;
+    const returnTo = `/oauth2/authorize?${qs}`;
     const loginURL = `/api/auth/login?return_to=${encodeURIComponent(returnTo)}`;
     return (
       <ConsentShell>
@@ -196,7 +196,7 @@ function ConsentInner() {
         <p className="text-muted text-sm mb-4">{clientError}</p>
         <p className="text-muted text-sm">
           The client must register via{" "}
-          <code>/api/oauth/register</code> before requesting authorization.
+          <code>/oauth2/register</code> before requesting authorization.
         </p>
       </ConsentShell>
     );
@@ -301,7 +301,7 @@ function ConsentForm({
         </div>
       )}
 
-      <form method="POST" action="/api/oauth/consent" className="space-y-4">
+      <form method="POST" action="/oauth2/consent" className="space-y-4">
         {Object.entries(params).map(([k, v]) => (
           <input key={k} type="hidden" name={k} value={v} />
         ))}

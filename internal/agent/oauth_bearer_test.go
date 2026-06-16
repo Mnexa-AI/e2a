@@ -50,7 +50,7 @@ func mintTokensForFixture(t *testing.T, f *consentFixture) (accessToken, refresh
 	tokForm.Set("client_id", f.clientID)
 	tokForm.Set("redirect_uri", "http://localhost:8765/callback")
 	tokForm.Set("code_verifier", verifier)
-	tokResp, err := http.Post(f.server.URL+"/api/oauth/token",
+	tokResp, err := http.Post(f.server.URL+"/oauth2/token",
 		"application/x-www-form-urlencoded", strings.NewReader(tokForm.Encode()))
 	if err != nil {
 		t.Fatal(err)

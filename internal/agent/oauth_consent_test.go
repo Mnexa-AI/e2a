@@ -115,12 +115,12 @@ func newConsentFixture(t *testing.T) *consentFixture {
 	}
 }
 
-// authorizeRequest sends a GET /api/oauth/authorize. When session=true
+// authorizeRequest sends a GET /oauth2/authorize. When session=true
 // the request carries the user session cookie; otherwise it goes in
 // anonymously to test the "no session → login" path.
 func (f *consentFixture) authorizeRequest(t *testing.T, q url.Values, session bool) *http.Response {
 	t.Helper()
-	req, err := http.NewRequest("GET", f.server.URL+"/api/oauth/authorize?"+q.Encode(), nil)
+	req, err := http.NewRequest("GET", f.server.URL+"/oauth2/authorize?"+q.Encode(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func (f *consentFixture) authorizeRequest(t *testing.T, q url.Values, session bo
 // default (consent requires it).
 func (f *consentFixture) consentPOST(t *testing.T, form url.Values) *http.Response {
 	t.Helper()
-	req, err := http.NewRequest("POST", f.server.URL+"/api/oauth/consent",
+	req, err := http.NewRequest("POST", f.server.URL+"/oauth2/consent",
 		strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatal(err)
@@ -197,7 +197,7 @@ func TestHTTP_Authorize_NoSession(t *testing.T) {
 		t.Errorf("Location path = %q, want /api/auth/login", loc.Path)
 	}
 	returnTo := loc.Query().Get("return_to")
-	if !strings.HasPrefix(returnTo, "/api/oauth/authorize") {
+	if !strings.HasPrefix(returnTo, "/oauth2/authorize") {
 		t.Errorf("return_to should preserve the authorize request URI: got %q", returnTo)
 	}
 	if !strings.Contains(returnTo, "client_id=") || !strings.Contains(returnTo, "code_challenge=") {
@@ -395,7 +395,7 @@ func TestHTTP_Consent_NoSession(t *testing.T) {
 	form.Set("new_agent_slug", "x")
 
 	// Direct POST without the helper (no cookie).
-	resp, err := http.Post(f.server.URL+"/api/oauth/consent",
+	resp, err := http.Post(f.server.URL+"/oauth2/consent",
 		"application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatal(err)
@@ -485,7 +485,7 @@ func TestHTTP_FullE2E_AuthorizeConsentToken(t *testing.T) {
 	tokForm.Set("client_id", f.clientID)
 	tokForm.Set("redirect_uri", "http://localhost:8765/callback")
 	tokForm.Set("code_verifier", verifier)
-	resp3, err := http.Post(f.server.URL+"/api/oauth/token",
+	resp3, err := http.Post(f.server.URL+"/oauth2/token",
 		"application/x-www-form-urlencoded", strings.NewReader(tokForm.Encode()))
 	if err != nil {
 		t.Fatal(err)

@@ -596,8 +596,9 @@ describe("HTTP MCP server", () => {
     // resource/resource_metadata values reflect the externally-
     // reachable URL exactly (the DNS-rebinding allowlist still gates
     // /mcp on the Host header — local dev adds 127.0.0.1 there too).
-    // Also pins the local "mcp" scope so the consent UI's scope-list
-    // aligns with the e2a backend.
+    // Also pins the advertised "agent" scope so the consent UI's scope-list
+    // aligns with the e2a backend (Slice 5b retired the lone "mcp" scope;
+    // MCP clients connect as public DCR clients, capped at scope=agent).
     await close();
     const { close: c, port } = await startHttpServer(0, {
       baseUrl: "http://e2a.local",
@@ -613,7 +614,7 @@ describe("HTTP MCP server", () => {
     expect(disc.status).toBe(200);
     const meta = await disc.json();
     expect(meta.resource).toBe("http://localhost:8765");
-    expect(meta.scopes_supported).toEqual(["mcp"]);
+    expect(meta.scopes_supported).toEqual(["agent"]);
 
     // 401 on /mcp without bearer: WWW-Authenticate's resource_metadata
     // URL must use publicUrl, not "https://127.0.0.1:port".

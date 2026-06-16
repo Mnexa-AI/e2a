@@ -11,6 +11,12 @@ const nextConfig: NextConfig = {
   ...(isDev && {
     rewrites: async () => [
       { source: "/api/:path*", destination: "http://localhost:8080/api/:path*" },
+      // OAuth surface moved to /oauth2/* (Slice 5b) — proxy it (and the JWKS +
+      // AS discovery docs the backend owns) to the Go server in dev, mirroring
+      // the Caddyfile in prod. Without these the consent UI + token flow 404.
+      { source: "/oauth2/:path*", destination: "http://localhost:8080/oauth2/:path*" },
+      { source: "/.well-known/jwks.json", destination: "http://localhost:8080/.well-known/jwks.json" },
+      { source: "/.well-known/oauth-authorization-server", destination: "http://localhost:8080/.well-known/oauth-authorization-server" },
     ],
   }),
 };

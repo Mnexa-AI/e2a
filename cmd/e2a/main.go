@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/agent"
+	"github.com/Mnexa-AI/e2a/internal/agentauth"
 	"github.com/Mnexa-AI/e2a/internal/apiserver"
 	"github.com/Mnexa-AI/e2a/internal/approvaltoken"
 	"github.com/Mnexa-AI/e2a/internal/auth"
@@ -280,6 +281,19 @@ func main() {
 	// don't have to configure a second key.
 	approvalSigner := approvaltoken.NewSigner(cfg.Signing.HMACSecret)
 	api.SetApprovalSigner(approvalSigner)
+	// auth.md agent-token signer (Slice 5b). A malformed key is fatal (fail
+	// fast at startup); an empty key yields a disabled signer (JWKS serves an
+	// empty set) so deployments not using agent identity run unchanged.
+	jwtSigner, err := agentauth.NewSigner(cfg.OAuth.SigningKey, cfg.OAuth.SigningKID)
+	if err != nil {
+		log.Fatalf("Failed to load OAuth signing key: %v", err)
+	}
+	if jwtSigner.Enabled() {
+		log.Printf("[agentauth] JWT signing enabled (kid=%s)", jwtSigner.KeyID())
+	} else {
+		log.Printf("[agentauth] JWT signing disabled (E2A_OAUTH_SIGNING_KEY not set); /.well-known/jwks.json serves an empty set")
+	}
+	api.SetSigner(jwtSigner)
 	// HITL reviewer-notification emails. Requires both a configured
 	// outbound SMTP relay (to actually send) and a public base URL (so
 	// the magic links in the email are absolute and clickable from any
@@ -298,7 +312,7 @@ func main() {
 	// HMAC secret (signing.hmac_secret) for token HMAC signing and the
 	// public URL as the canonical issuer. Without PublicURL, RFC 9207
 	// `iss` emission + discovery would emit empty/inconsistent values
-	// — skip wiring so /api/oauth/* return 404 and operators get a
+	// — skip wiring so /oauth2/* return 404 and operators get a
 	// loud signal that the deployment needs http.public_url set.
 	var oauthStorage *oauth.Storage
 	if cfg.HTTP.PublicURL == "" {

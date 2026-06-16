@@ -109,12 +109,12 @@ func TestHandleLogin_WebLoginOmitsCliParams(t *testing.T) {
 }
 
 // TestHandleLogin_EncodesReturnToInOAuthState: /api/auth/login?return_to=
-// /api/oauth/authorize?... encodes that path into the Google OAuth state
+// /oauth2/authorize?... encodes that path into the Google OAuth state
 // so HandleCallback can bounce the user back into the MCP authorize flow.
 func TestHandleLogin_EncodesReturnToInOAuthState(t *testing.T) {
 	ua, _, _ := setupUserAuth(t)
 
-	returnTo := "/api/oauth/authorize?client_id=mcp_abc&response_type=code&state=xyz"
+	returnTo := "/oauth2/authorize?client_id=mcp_abc&response_type=code&state=xyz"
 	req := httptest.NewRequest(
 		http.MethodGet,
 		"/api/auth/login?return_to="+url.QueryEscape(returnTo),
@@ -152,14 +152,14 @@ func TestHandleLogin_RejectsReturnToOutsideAllowList(t *testing.T) {
 	bad := []string{
 		"/dashboard",                                    // wrong prefix
 		"/api/v1/agents",                                // wrong prefix
-		"https://evil.com/api/oauth/authorize",          // absolute
-		"//evil.com/api/oauth/authorize",                // protocol-relative
-		"/api/oauth/authorize\nSet-Cookie: x=y",         // header injection
+		"https://evil.com/oauth2/authorize",          // absolute
+		"//evil.com/oauth2/authorize",                // protocol-relative
+		"/oauth2/authorize\nSet-Cookie: x=y",         // header injection
 		"\\api\\oauth\\authorize",                       // backslash bypass
-		"http://localhost/api/oauth/authorize",          // scheme present
-		"/api/oauth/../../dashboard",                    // path traversal escaping the allow-list
-		"/api/oauth/../v1/agents",                       // path traversal into another API surface
-		"/api/oauth//evil.com/path",                     // empty segment after prefix
+		"http://localhost/oauth2/authorize",          // scheme present
+		"/oauth2/../../dashboard",                    // path traversal escaping the allow-list
+		"/oauth2/../v1/agents",                       // path traversal into another API surface
+		"/oauth2//evil.com/path",                     // empty segment after prefix
 	}
 	for _, rt := range bad {
 		t.Run(rt, func(t *testing.T) {
@@ -329,7 +329,7 @@ func TestHandleCallback_ReturnTo_BouncesUser(t *testing.T) {
 	ua, _, srv := setupUserAuthWithFakeOAuth(t)
 
 	nonce := "nonce-rt-bounce"
-	returnTo := "/api/oauth/authorize?client_id=mcp_abc&state=xyz"
+	returnTo := "/oauth2/authorize?client_id=mcp_abc&state=xyz"
 	state := auth.EncodeOAuthState(&auth.OAuthState{
 		Nonce:    nonce,
 		ReturnTo: returnTo,
