@@ -1278,6 +1278,17 @@ Break the current `/api/v1` surface directly and move it to
     (decided: build OAuth in the e2a core): the OAuth 2.1 token endpoint +
     JWT/JWKS, the auth.md identity/claim ceremony + `act` delegation, and the
     DCR consent-screen scope split — none of which the ceiling needs to hold.
+
+    **Known confinement gap (tracked).** The ceiling is enforced on the new
+    `/v1` (Huma) surface only; the *legacy* `/api/v1` mux (being retired) still
+    accepts bearer API keys without a scope check on a few write routes —
+    message-label `PATCH`, signing-secret create, webhook `redeliver-since`.
+    Blast radius is **within the owner's own tenant** (an owner-minted
+    agent-scoped key escaping its confinement, not cross-tenant), since minting
+    is session-cookie-only. Mitigation: do **not** advertise agent-scoped keys
+    to customers until the legacy `/api/v1` write surface is retired or
+    scope-gated (a later slice). Surfaced by both independent + adversarial
+    review; both classed it a non-goal of 5a, not a regression.
 * **Slice 6 — Agent-first docs.** `e2a.md`/`llms.txt`/`setup.md`/`auth.md`,
   binary-served; `api.md` generated from the spec.
 * **Slice 7 — Inbound trust policy (decision 10), post-parity.** Builds on
