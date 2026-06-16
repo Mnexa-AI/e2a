@@ -906,6 +906,7 @@ func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIde
 	rows, err := s.pool.Query(ctx,
 		`SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at,
 		        a.hitl_enabled, a.hitl_ttl_seconds, a.hitl_expiration_action,
+		        COALESCE(a.hitl_mode, 'all'),
 		        COALESCE(a.inbound_policy, 'open'), a.inbound_allowlist,
 		        d.verified as domain_verified,
 		        (SELECT count(*) FROM messages m
@@ -942,6 +943,7 @@ func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIde
 		var lastDeliveryAt *time.Time
 		if err := rows.Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt,
 			&a.HITLEnabled, &a.HITLTTLSeconds, &a.HITLExpirationAction,
+			&a.HITLMode,
 			&a.InboundPolicy, &a.InboundAllowlist,
 			&a.DomainVerified,
 			&a.Inbound7d, &a.Outbound7d, &a.PendingCount,

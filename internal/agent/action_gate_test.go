@@ -43,8 +43,8 @@ func TestActionGateHold_HighImpactMode(t *testing.T) {
 		hold bool
 	}{
 		{"weak verdict + forward to third party → hold", weak, outbound.SendRequest{To: []string{"legal@external.com"}}, true},
-		{"weak verdict + reply within thread → send", weak, outbound.SendRequest{To: []string{"boss@acme.com"}}, false},
-		{"weak verdict + reply to new same-domain → send", weak, outbound.SendRequest{To: []string{"hr@acme.com"}}, false},
+		{"weak verdict + reply to agent's own domain → send", weak, outbound.SendRequest{To: []string{"boss@acme.com"}}, false},
+		{"weak verdict + send to other agent-domain addr → send", weak, outbound.SendRequest{To: []string{"hr@acme.com"}}, false},
 		{"strong verdict + forward to third party → send", strong, outbound.SendRequest{To: []string{"legal@external.com"}}, false},
 		{"weak verdict + cc adds external → hold", weak, outbound.SendRequest{To: []string{"boss@acme.com"}, CC: []string{"x@evil.com"}}, true},
 		{"cold send (no referenced) → send", nil, outbound.SendRequest{To: []string{"anyone@wherever.com"}}, false},
@@ -53,6 +53,48 @@ func TestActionGateHold_HighImpactMode(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			if got := actionGateHold(ag, c.req, c.ref).Hold; got != c.hold {
 				t.Errorf("Hold = %v, want %v", got, c.hold)
+			}
+		})
+	}
+}
+
+// TestActionGateHold_SpoofedParticipantsCannotPreAuthorize is the regression
+// for the adversarial-review CRITICAL: the trust anchor is the agent's OWN
+// domain, never the untrusted inbound's headers. A spoofer who seeds the
+// From/To/Cc with their exfil domain must NOT thereby make a forward/reply to
+// that domain "in-thread" and slip it past the gate.
+func TestActionGateHold_SpoofedParticipantsCannotPreAuthorize(t *testing.T) {
+	ag := agentWith(actiongate.ModeHighImpact)
+	cases := []struct {
+		name string
+		ref  *identity.Message
+		req  outbound.SendRequest
+	}{
+		{
+			"spoofed From=exfil domain, reply there → hold",
+			refMsg(t, emailauth.StatusFail, "attacker@evil.com", []string{"bot@acme.com"}, nil),
+			outbound.SendRequest{To: []string{"attacker@evil.com"}},
+		},
+		{
+			"spoofed Cc=exfil domain, forward there → hold",
+			refMsg(t, emailauth.StatusFail, "boss@acme.com", []string{"bot@acme.com"}, []string{"exfil@evil.com"}),
+			outbound.SendRequest{To: []string{"exfil@evil.com"}},
+		},
+		{
+			"spoofed To=exfil domain, forward there → hold",
+			refMsg(t, emailauth.StatusFail, "boss@acme.com", []string{"bot@acme.com", "exfil@evil.com"}, nil),
+			outbound.SendRequest{To: []string{"exfil@evil.com"}},
+		},
+		{
+			"exfil via BCC → hold",
+			refMsg(t, emailauth.StatusFail, "boss@acme.com", []string{"bot@acme.com"}, nil),
+			outbound.SendRequest{To: []string{"boss@acme.com"}, BCC: []string{"exfil@evil.com"}},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if !actionGateHold(ag, c.req, c.ref).Hold {
+				t.Errorf("spoofed-participant exfil to a new domain must be HELD, was not")
 			}
 		})
 	}

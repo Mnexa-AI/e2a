@@ -1060,13 +1060,15 @@ func actionGateHold(agent *identity.AgentIdentity, req outbound.SendRequest, ref
 	untrusted := referenced == nil || referenced.Auth == nil ||
 		referenced.Auth.DMARC.Status != emailauth.StatusPass
 
-	var participants []string
-	if referenced != nil {
-		participants = append(participants, referenced.Sender)
-		participants = append(participants, referenced.ToRecipients...)
-		participants = append(participants, referenced.CC...)
-	}
-	participants = append(participants, agent.EmailAddress())
+	// Trust anchor for the high-impact check is the agent's OWN verified domain
+	// — NOT the referenced inbound's From/To/Cc. high_impact only ever holds on
+	// an untrusted (DMARC-fail) inbound, whose headers are attacker-controlled:
+	// a spoofer who adds `Cc: exfil@evil.com` would otherwise pre-authorize
+	// their own exfil domain as a "participant" and slip a forward past the gate
+	// (adversarial review). So an untrusted inbound expands the trusted set by
+	// nothing; any recipient off the agent's domain is high-impact. (Reusing a
+	// *trusted* prior thread's participants is a possible future refinement.)
+	participants := []string{agent.EmailAddress()}
 
 	recipients := make([]string, 0, len(req.To)+len(req.CC)+len(req.BCC))
 	recipients = append(recipients, req.To...)

@@ -1381,11 +1381,17 @@ Break the current `/api/v1` surface directly and move it to
       referenced inbound's **`dmarc != pass`** (weak/spoofable; read from the
       server-owned `auth_verdict`, never client input; a missing verdict is
       fail-closed-untrusted) **and** a recipient reaches a **domain outside the
-      referenced inbound's participants** (reply to a new party / forward to a
-      third party). A trusted-thread or in-thread reply sends straight through; a
-      cold send (no referenced inbound) is never held in this mode. The hold
-      decision is threaded the referenced `*identity.Message` through
-      `DeliverOutbound`.
+      agent's own verified domain** (high-impact). A reply/forward staying within
+      the agent's own domain sends straight through; a cold send (no referenced
+      inbound) is never held in this mode. The hold decision is threaded the
+      referenced `*identity.Message` through `DeliverOutbound`.
+      **Security correction (adversarial review):** the high-impact trust anchor
+      is the **agent's own verified domain**, *not* the referenced inbound's
+      `From`/`To`/`Cc` — those are attacker-controlled on a spoofed/unauthenticated
+      message, so a spoofer who seeds `Cc: exfil@evil.com` could otherwise
+      pre-authorize their exfil domain as a "participant" and slip a forward past
+      the gate. (Reusing the participant set of a *trusted* prior thread is a
+      possible future refinement.)
     * The "untrusted input" signal is a plain bool in `actiongate` — the
       **pluggable seam** to later fold a content-level prompt-injection verdict
       (a partner scan API, under evaluation) into the same gate without rework.
