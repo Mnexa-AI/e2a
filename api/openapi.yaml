@@ -109,8 +109,14 @@ components:
         hitl_enabled:
           type: boolean
         hitl_expiration_action:
+          enum:
+            - approve
+            - reject
           type: string
         hitl_mode:
+          enum:
+            - all
+            - high_impact
           type: string
         hitl_ttl_seconds:
           format: int64
@@ -124,6 +130,11 @@ components:
             - array
             - "null"
         inbound_policy:
+          enum:
+            - open
+            - allowlist
+            - domain
+            - verified_only
           type: string
         name:
           type: string
@@ -599,6 +610,19 @@ components:
         status:
           type: string
         type:
+          enum:
+            - email.received
+            - email.sent
+            - email.pending_approval
+            - email.approved
+            - email.rejected
+            - domain.sending_verified
+            - domain.sending_failed
+            - email.delivered
+            - email.bounced
+            - email.complained
+            - domain.suppression_added
+            - email.flagged
           type: string
       required:
         - id
@@ -893,10 +917,19 @@ components:
         conversation_id:
           type: string
         created_at:
+          format: date-time
           type: string
         delivery_detail:
           type: string
         delivery_status:
+          enum:
+            - queued
+            - sent
+            - delivered
+            - bounced
+            - complained
+            - deferred
+            - failed
           type: string
         direction:
           type: string
@@ -925,6 +958,9 @@ components:
             - array
             - "null"
         sent_as:
+          enum:
+            - own_address
+            - relay
           type: string
         size_bytes:
           format: int64
@@ -974,10 +1010,19 @@ components:
         conversation_id:
           type: string
         created_at:
+          format: date-time
           type: string
         delivery_detail:
           type: string
         delivery_status:
+          enum:
+            - queued
+            - sent
+            - delivered
+            - bounced
+            - complained
+            - deferred
+            - failed
           type: string
         flag_reason:
           type: string
@@ -1007,6 +1052,9 @@ components:
             - array
             - "null"
         sent_as:
+          enum:
+            - own_address
+            - relay
           type: string
         status:
           type: string
@@ -1533,6 +1581,19 @@ components:
         created_at:
           type: string
         event_type:
+          enum:
+            - email.received
+            - email.sent
+            - email.pending_approval
+            - email.approved
+            - email.rejected
+            - domain.sending_verified
+            - domain.sending_failed
+            - email.delivered
+            - email.bounced
+            - email.complained
+            - domain.suppression_added
+            - email.flagged
           type: string
         id:
           type: string
@@ -2929,3 +2990,6 @@ paths:
       summary: Fire a synthetic event
       tags:
         - webhooks
+servers:
+  - description: Production
+    url: https://api.e2a.dev

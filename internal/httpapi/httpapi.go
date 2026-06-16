@@ -231,6 +231,14 @@ func New(deps Deps) *Server {
 	config.CreateHooks = nil
 	config.Transformers = []huma.Transformer{stampRequestID}
 	config.Info.Description = "e2a — authenticated email gateway for AI agents. v1 contract."
+	// Canonical production host (api-v1-redesign §1: "Canonical base URL
+	// https://api.e2a.dev/v1"). Operations already carry the /v1 prefix, so the
+	// server URL stops at the host — otherwise clients would double it. Without a
+	// servers block, generated SDKs default to http://localhost (a
+	// Bearer-over-cleartext footgun).
+	config.Servers = []*huma.Server{
+		{URL: "https://api.e2a.dev", Description: "Production"},
+	}
 	// One auth scheme across the surface: a Bearer credential that is
 	// either an API key or an OAuth 2.1 access token (api-v1-redesign §5).
 	config.Components.SecuritySchemes = map[string]*huma.SecurityScheme{

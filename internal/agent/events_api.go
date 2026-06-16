@@ -33,7 +33,7 @@ func (a *API) SetPoolForEvents(p *pgxpool.Pool) { a.eventsPool = p }
 // GET /events/{id}. Mirrors design §4.6.
 type eventJSON struct {
 	ID             string                 `json:"id"`
-	Type           string                 `json:"type"`
+	Type           string                 `json:"type" enum:"email.received,email.sent,email.pending_approval,email.approved,email.rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged"`
 	SchemaVersion  int                    `json:"schema_version"`
 	CreatedAt      time.Time              `json:"created_at"`
 	AgentID        *string                `json:"agent_id,omitempty"`

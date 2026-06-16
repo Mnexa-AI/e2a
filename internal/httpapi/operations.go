@@ -55,16 +55,16 @@ type AgentView struct {
 	CreatedAt            time.Time `json:"created_at"`
 	HITLEnabled          bool      `json:"hitl_enabled"`
 	HITLTTLSeconds       int       `json:"hitl_ttl_seconds"`
-	HITLExpirationAction string    `json:"hitl_expiration_action"`
+	HITLExpirationAction string    `json:"hitl_expiration_action" enum:"approve,reject"`
 	// HITLMode is the action-gate sub-mode (Slice 7b): "all" (hold every
 	// outbound when HITL is on) or "high_impact" (hold only a high-impact action
 	// on unauthenticated inbound). Meaningful only when hitl_enabled.
-	HITLMode string `json:"hitl_mode"`
+	HITLMode string `json:"hitl_mode" enum:"all,high_impact"`
 	// InboundPolicy is the per-agent inbound ingestion gate (migration 033 /
 	// Slice 7): one of open, allowlist, domain, verified_only. InboundAllowlist
 	// holds the trusted addresses (allowlist) or domains (domain); omitted when
 	// empty.
-	InboundPolicy    string   `json:"inbound_policy"`
+	InboundPolicy    string   `json:"inbound_policy" enum:"open,allowlist,domain,verified_only"`
 	InboundAllowlist []string `json:"inbound_allowlist,omitempty"`
 }
 

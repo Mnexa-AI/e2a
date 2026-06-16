@@ -33,20 +33,20 @@ type MessageView struct {
 	// DeliveryStatus is the outbound delivery rollup (migration 031:
 	// 'sent', 'delivered', 'bounced', …) — the worst recipient status by
 	// precedence. Outbound-only; omitted on inbound messages.
-	DeliveryStatus string `json:"delivery_status,omitempty"`
+	DeliveryStatus string `json:"delivery_status,omitempty" enum:"queued,sent,delivered,bounced,complained,deferred,failed"`
 	// DeliveryDetail is the human-readable diagnostic for the delivery
 	// rollup (e.g. bounce sub-type / SMTP response). Outbound-only.
 	DeliveryDetail string `json:"delivery_detail,omitempty"`
 	// SentAs is the From identity actually used at relay accept time.
 	// Outbound-only; omitted on inbound messages.
-	SentAs string `json:"sent_as,omitempty"`
+	SentAs string `json:"sent_as,omitempty" enum:"own_address,relay"`
 	// Flagged + FlagReason carry the inbound ingestion verdict (migration 033 /
 	// Slice 7): true when the agent's inbound_policy gate flagged this message
 	// on arrival (still delivered). Inbound-relevant; omitted on unflagged rows.
 	Flagged     bool              `json:"flagged,omitempty"`
 	FlagReason  string            `json:"flag_reason,omitempty"`
 	Labels      []string          `json:"labels"`
-	CreatedAt   string            `json:"created_at"`
+	CreatedAt   string            `json:"created_at" format:"date-time"`
 	AuthHeaders map[string]string `json:"auth_headers"`
 	// Auth is the structured inbound authentication verdict (SPF/DKIM/DMARC,
 	// each with status + detail) from migration 032. Inbound-only; omitted on
@@ -154,9 +154,9 @@ type MessageSummaryView struct {
 	WebhookError   string   `json:"webhook_error,omitempty"`
 	// DeliveryStatus / DeliveryDetail / SentAs are the outbound delivery
 	// rollup (migration 031). Outbound-only; omitted on inbound rows.
-	DeliveryStatus string `json:"delivery_status,omitempty"`
+	DeliveryStatus string `json:"delivery_status,omitempty" enum:"queued,sent,delivered,bounced,complained,deferred,failed"`
 	DeliveryDetail string `json:"delivery_detail,omitempty"`
-	SentAs         string `json:"sent_as,omitempty"`
+	SentAs         string `json:"sent_as,omitempty" enum:"own_address,relay"`
 	// Flagged + FlagReason are the inbound ingestion verdict (migration 033 /
 	// Slice 7). Surfaced in list views so flagged mail is visible without a
 	// per-message drill-down. Inbound-relevant; omitted on unflagged rows.
@@ -164,7 +164,7 @@ type MessageSummaryView struct {
 	FlagReason string   `json:"flag_reason,omitempty"`
 	SizeBytes  int      `json:"size_bytes,omitempty"`
 	Labels     []string `json:"labels"`
-	CreatedAt  string   `json:"created_at"`
+	CreatedAt  string   `json:"created_at" format:"date-time"`
 	// Auth is the structured inbound authentication verdict (migration 032).
 	// Inbound-only; omitted on outbound rows.
 	Auth *emailauth.Result `json:"auth,omitempty"`

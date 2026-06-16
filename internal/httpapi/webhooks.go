@@ -299,7 +299,7 @@ func (s *Server) handleTestWebhook(ctx context.Context, in *testWebhookInput) (*
 // WebhookDeliveryView mirrors the legacy per-delivery wire shape.
 type WebhookDeliveryView struct {
 	ID             string `json:"id"`
-	EventType      string `json:"event_type"`
+	EventType      string `json:"event_type" enum:"email.received,email.sent,email.pending_approval,email.approved,email.rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged"`
 	Status         string `json:"status"`
 	Attempts       int    `json:"attempts"`
 	LastError      string `json:"last_error,omitempty"`

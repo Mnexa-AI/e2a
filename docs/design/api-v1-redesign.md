@@ -1400,8 +1400,82 @@ Break the current `/api/v1` surface directly and move it to
     Built on the 5a hard scope ceiling (decision 10 / §5). No new contract
     surface beyond `hitl_mode`.
 
+* **Slice 8 — Consumer port (SDK regen + `/v1` repoint + legacy retirement).**
+  *(Planned.)* Switch SDK codegen from the legacy swag pipeline
+  (`swag init` → Swagger 2.0 → `swagger2openapi` → `openapi-typescript` /
+  `datamodel-codegen`) to **OpenAPI Generator** consuming the Huma-emitted
+  `api/openapi.yaml` (3.1) directly, then repoint web/MCP/CLI from `/api/v1` to
+  `/v1` and retire the legacy strangler. Validated by a generation spike +
+  independent and adversarial review (2026-06); findings folded in below.
+
+  **Generator selection (validated, pinned).**
+    * **TypeScript: the `typescript` generator — NOT `typescript-fetch`.** The
+      `typescript-fetch` output **fails to compile** (TS2590 "union type too
+      complex" from per-field `instanceOf` guards on wide models like
+      `AgentIdentity`; unfixable by tsconfig flags). The modular `typescript`
+      generator compiles clean and is *more* capable: `pre`/`post` **middleware**
+      hooks (the injection point for retries / idempotency / logging), a typed
+      **`ApiException<ErrorEnvelope>`** that wires the `default` error response
+      (so `error.code`/`request_id` are typed — `typescript-fetch` dropped them),
+      per-op bearer auth, configurable `baseServer`, and Promise/Observable/
+      ObjectParam client flavors.
+    * **Python: the `python` generator** (pydantic v2 + urllib3) — works as-is:
+      typed status-mapped exception hierarchy, safe-by-default retries
+      (urllib3 v2 excludes POST, so no duplicate-send on 5xx), `from`→`var_from`
+      alias round-trips correctly.
+    * **Pin the image to a released tag** (e.g. `openapitools/openapi-generator-cli:v7.16.0`,
+      not `:latest`/SNAPSHOT) and assert the version in the regen-diff gate.
+      Output is **deterministic** (regen twice = byte-identical), so
+      `git diff --exit-code` is a sound gate once the version is pinned.
+
+  **Fix the spec FIRST (the real value is here, not the generator).** Both
+  reviews converged: today's `api/openapi.yaml` under-specifies fields that
+  degrade *any* generated SDK. Before regenerating, add to the Huma view/input
+  structs and re-run `make spec`:
+    * **`enum:` tags** on the constrained body fields that currently emit as bare
+      `string`: `hitl_mode {all,high_impact}`, `inbound_policy
+      {open,allowlist,domain,verified_only}`, `delivery_status`, `sent_as
+      {own_address,relay}`, message `status`, webhook `event_type` (validate the
+      last against `webhookpub.AllEventTypes` so it can't drift) → union types in
+      TS, `Enum` in Python.
+    * **`required:`** on request bodies (`SendEmailRequest` has none, so
+      `to`/`subject`/`body` generate optional — losing the compile-time recipient
+      check) and drop the `,null` on arrays that mean "omit when empty."
+    * **`format: date-time`** on `MessageView`/`MessageSummaryView` `created_at`
+      (missing it → typed `string` on those models but `Date`/`datetime`
+      elsewhere — a latent `.getTime()` crash).
+    * **`servers:`** block (today absent → both SDKs default to
+      `http://localhost`, a Bearer-over-cleartext footgun).
+
+  **What stays first-class hand-written (NOT "thin ergonomics").** The generator
+  only sees the REST subset Huma emits; these are not in `api/openapi.yaml` and
+  must be hand-built and preserved via `.openapi-generator-ignore`:
+    * the **WebSocket** live-tail client (real-time delivery),
+    * the **agent-identity / OAuth token** client (`/agent/identity`,
+      `/oauth2/token` jwt-bearer, JWKS — Slice 5b, already shipped server-side),
+    * **HMAC webhook verification** + inbound `.parse()` / `.reply()` / `.forward()`
+      ergonomics, and
+    * a **Python error-envelope mapping** (the `python` generator collapses
+      `{error:{code,request_id}}` to the HTTP status, leaving `error.code` only in
+      the raw `.body`; TS is already covered by `ApiException<ErrorEnvelope>`).
+    Re-homing the ergonomic layer onto the generated `*Api` classes is a
+    **rewrite, not a swap** — budget it as the slice's real cost.
+    *(Optional: stub `/oauth2/token` + `/agent/identity` into the spec so at
+    least their request/response models are generated and drift-tested.)*
+
+  **Sequencing (legacy dies last).** (a) Fix the spec (enums/required/servers/
+  format) and regen; (b) ship/deploy `/v1` parity for every route the SDKs need;
+  (c) regenerate the SDK base against `/v1` + rewrite the ergonomic layer;
+  (d) repoint web + MCP + CLI from `/api/v1` to `/v1`; (e) **last**, delete the
+  flat `/api/v1/messages/{id}` and the remaining legacy mux write surface
+  (§11 strangler residue) — which also closes the Slice-5a confinement gap and
+  unblocks advertising `e2a_agt_` keys. Never combine "introduce generated base"
+  with "delete legacy" in one PR; isolate the mechanical codegen-source switch
+  (large auto-generated diff) into its own PR.
+
 Slices 1–6 are independently shippable; 1–2 deliver most of the "clean and
-consistent" win. Slice 7 is a post-parity enhancement.
+consistent" win. Slice 7 is a post-parity enhancement; Slice 8 (consumer port)
+is the cleanup that retires the legacy surface.
 
 ## 9a. Configuration & env-var surface
 
@@ -1500,8 +1574,12 @@ E2A_SMTP_URL          # only if sending mail
    typed handlers); no hand-authoring (no spec toolchain exists today). SDKs are
    generated (OpenAPI Generator); the **MCP surface is hand-curated and
    contract-locked**, not generated (§6a — tool↔`operationId` map + coverage
-   gate). Open sub-point: confirm the py/ts SDK generator config under
-   OpenAPI Generator.
+   gate). *Resolved (Slice 8, validated 2026-06):* TS uses the **`typescript`**
+   generator (not `typescript-fetch`, which fails TS2590), Python the **`python`**
+   (pydantic v2) generator, pinned to a released `openapi-generator-cli` tag;
+   spec must gain `enum`/`required`/`servers`/`format` first, and WS +
+   agent-identity/OAuth + the Python error-envelope mapping stay hand-written.
+   See Slice 8 for the full plan.
 3. ~~Magic-link alias shape~~ — **resolved:** one transition
    (`POST …/messages/{id}/approval {decision}`); the human magic link is
    `GET /approvals/{token}` → HTML confirmation page (no side effect),
