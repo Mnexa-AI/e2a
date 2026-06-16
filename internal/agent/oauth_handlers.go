@@ -522,9 +522,13 @@ type OAuthMetadata struct {
 // agentAuthMetadata is the auth.md `agent_auth` discovery block (Slice 5b-2).
 // Advertised only when the agent-identity surface is live.
 type agentAuthMetadata struct {
-	IdentityEndpoint        string   `json:"identity_endpoint"`
-	IdentityTypesSupported  []string `json:"identity_types_supported"`
-	AssertionTypesSupported []string `json:"assertion_types_supported"`
+	IdentityEndpoint       string   `json:"identity_endpoint"`
+	IdentityTypesSupported []string `json:"identity_types_supported"`
+	// AssertionTypesSupported lists provider-assertion types (e.g. ID-JAG)
+	// accepted at /agent/identity. Omitted until 5b-4 actually intakes them —
+	// advertising a type that currently 400s would mislead feature-detecting
+	// clients.
+	AssertionTypesSupported []string `json:"assertion_types_supported,omitempty"`
 }
 
 // handleOAuthDiscovery serves the RFC 8414 metadata document.
@@ -538,6 +542,13 @@ type agentAuthMetadata struct {
 // confusion). 404 when OAuth isn't configured (provider not wired) so
 // the announcement matches actual behavior.
 func (a *API) handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
+	// Gated on the fosite provider, which in production is co-wired with the
+	// agent-auth signer: cmd/e2a wires BOTH only when http.public_url is set
+	// (and the signer additionally requires agentAuthReady ⊇ publicURL). So a
+	// "signer enabled but provider nil" deployment can't occur in prod — the
+	// only place that config exists is test harnesses that SetSigner without
+	// SetOAuthProvider, which don't hit discovery. Thus this guard never hides
+	// a live agent-auth surface in practice.
 	if a.oauthProvider == nil || a.publicURL == "" {
 		http.NotFound(w, r)
 		return
@@ -571,9 +582,7 @@ func (a *API) handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
 		meta.AgentAuth = &agentAuthMetadata{
 			IdentityEndpoint:       base + "/agent/identity",
 			IdentityTypesSupported: []string{"identity_assertion"},
-			// ID-JAG provider assertions are forward-compat (a later 5b
-			// sub-slice); advertise the type so clients can detect support.
-			AssertionTypesSupported: []string{"urn:ietf:params:oauth:token-type:id-jag"},
+			// AssertionTypesSupported left empty until 5b-4 intakes ID-JAG.
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")

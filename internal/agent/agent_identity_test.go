@@ -191,6 +191,51 @@ func TestAgentIdentity_StaleAssertionRejected(t *testing.T) {
 	}
 }
 
+// TestAgentIdentity_AccessTokenRevokedOnVersionBump: bumping assertion_version
+// invalidates an already-minted access_token at the resource server on the very
+// next request — revocation is instant, not bounded by the 15-min TTL (review
+// fix; the agent row is loaded during resolution, so the check is free).
+func TestAgentIdentity_AccessTokenRevokedOnVersionBump(t *testing.T) {
+	f := newAgentIDFixture(t)
+
+	// Mint assertion → access_token.
+	req, _ := http.NewRequest("POST", f.srv.URL+"/agent/identity", nil)
+	req.Header.Set("Authorization", "Bearer "+f.apiKey)
+	resp, _ := http.DefaultClient.Do(req)
+	var idResp struct {
+		IdentityAssertion string `json:"identity_assertion"`
+	}
+	json.NewDecoder(resp.Body).Decode(&idResp)
+	resp.Body.Close()
+	form := url.Values{"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"}, "assertion": {idResp.IdentityAssertion}}
+	resp2, _ := http.PostForm(f.srv.URL+"/oauth2/token", form)
+	var tokResp struct {
+		AccessToken string `json:"access_token"`
+	}
+	json.NewDecoder(resp2.Body).Decode(&tokResp)
+	resp2.Body.Close()
+
+	// The token works before revocation.
+	areq, _ := http.NewRequest("GET", "/", nil)
+	areq.Header.Set("Authorization", "Bearer "+tokResp.AccessToken)
+	if _, err := f.api.AuthenticatePrincipal(areq); err != nil {
+		t.Fatalf("access token should be valid pre-revocation: %v", err)
+	}
+
+	// Kill switch: bump assertion_version.
+	if _, err := f.pool.Exec(context.Background(),
+		`UPDATE agent_identities SET assertion_version = assertion_version + 1 WHERE id = $1`, f.agent.ID); err != nil {
+		t.Fatalf("bump: %v", err)
+	}
+
+	// The already-minted access token is now rejected immediately.
+	areq2, _ := http.NewRequest("GET", "/", nil)
+	areq2.Header.Set("Authorization", "Bearer "+tokResp.AccessToken)
+	if _, err := f.api.AuthenticatePrincipal(areq2); err == nil {
+		t.Error("access token must be revoked instantly on assertion_version bump")
+	}
+}
+
 // TestAgentIdentity_TamperedAccessTokenRejected: a JWT we didn't sign (or a
 // mangled one) is rejected at the resource server, not treated as an API key.
 func TestAgentIdentity_TamperedAccessTokenRejected(t *testing.T) {

@@ -168,6 +168,13 @@ func (a *API) resolveAgentAccessToken(r *http.Request, bearer string) (*identity
 	if err != nil || ag == nil {
 		return nil, true, errors.New("agent not found for access token")
 	}
+	// Kill switch, re-checked per request (the agent row is already loaded, so
+	// this is free): a bumped assertion_version invalidates outstanding access
+	// tokens immediately rather than only starving new mints — revocation is
+	// instant, not bounded by the 15-min token TTL.
+	if ag.AssertionVersion != claims.AssertionVersion {
+		return nil, true, errors.New("access token revoked (stale assertion_version)")
+	}
 	user, err := a.store.GetUserByID(r.Context(), ag.UserID)
 	if err != nil || user == nil {
 		return nil, true, errors.New("owner not found for access token")
