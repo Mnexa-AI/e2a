@@ -122,6 +122,12 @@ type updateAgentInput struct {
 }
 
 func (s *Server) handleUpdateAgent(ctx context.Context, in *updateAgentInput) (*agentOutput, error) {
+	// Mutating agent config (HITL, inbound_policy) is account administration —
+	// an agent-scoped credential must not change its own security posture
+	// (Slice 5a hard ceiling), so this is account-only even for the bound agent.
+	if _, err := s.requireAccountScope(ctx); err != nil {
+		return nil, err
+	}
 	ag, err := s.resolveOwnedAgent(ctx, in.Address)
 	if err != nil {
 		return nil, err
@@ -188,6 +194,11 @@ type deleteAgentOutput struct {
 }
 
 func (s *Server) handleDeleteAgent(ctx context.Context, in *AddressParam) (*deleteAgentOutput, error) {
+	// Deleting an agent is account administration — barred for agent-scoped
+	// credentials even on their own bound agent (Slice 5a hard ceiling).
+	if _, err := s.requireAccountScope(ctx); err != nil {
+		return nil, err
+	}
 	ag, err := s.resolveOwnedAgent(ctx, in.Address)
 	if err != nil {
 		return nil, err
@@ -204,7 +215,7 @@ func (s *Server) handleDeleteAgent(ctx context.Context, in *AddressParam) (*dele
 }
 
 func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*createAgentOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}

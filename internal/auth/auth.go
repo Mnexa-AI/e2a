@@ -760,6 +760,12 @@ func (ua *UserAuth) HandleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name      string  `json:"name"`
 		ExpiresAt *string `json:"expires_at,omitempty"` // optional ISO 8601 timestamp
+		// Scope (Slice 5a) selects the credential's blast radius. Omitted/""
+		// defaults to account (backward compatible). "agent" requires Agent to
+		// name one of the caller's agents by email; the minted key can act ONLY
+		// as that agent.
+		Scope string `json:"scope,omitempty"`
+		Agent string `json:"agent,omitempty"` // agent email, required when scope=agent
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 
@@ -780,7 +786,33 @@ func (ua *UserAuth) HandleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		expiresAt = &t
 	}
 
-	key, err := ua.store.CreateAPIKey(r.Context(), user.ID, req.Name, expiresAt)
+	// Default to an account-scoped key (the pre-Slice-5a behavior). When the
+	// caller asks for an agent-scoped key, resolve the named agent to its id —
+	// CreateScopedAPIKey re-checks ownership, so a wrong/foreign agent is
+	// rejected rather than minting an over-broad or cross-tenant key.
+	scope := req.Scope
+	if scope == "" {
+		scope = identity.ScopeAccount
+	}
+	if !identity.ValidScope(scope) {
+		http.Error(w, "scope must be 'account' or 'agent'", http.StatusBadRequest)
+		return
+	}
+	var agentID string
+	if scope == identity.ScopeAgent {
+		if req.Agent == "" {
+			http.Error(w, "agent (email) is required when scope=agent", http.StatusBadRequest)
+			return
+		}
+		ag, err := ua.store.GetAgentByEmail(r.Context(), identity.NormalizeEmail(req.Agent))
+		if err != nil || ag == nil || ag.UserID != user.ID {
+			http.Error(w, "agent not found", http.StatusBadRequest)
+			return
+		}
+		agentID = ag.ID
+	}
+
+	key, err := ua.store.CreateScopedAPIKey(r.Context(), user.ID, req.Name, scope, agentID, expiresAt)
 	if err != nil {
 		http.Error(w, "failed to create API key", http.StatusInternalServerError)
 		return

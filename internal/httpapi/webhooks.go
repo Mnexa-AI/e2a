@@ -258,7 +258,7 @@ type testWebhookOutput struct {
 }
 
 func (s *Server) handleTestWebhook(ctx context.Context, in *testWebhookInput) (*testWebhookOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -319,7 +319,7 @@ type listDeliveriesOutput struct {
 }
 
 func (s *Server) handleListWebhookDeliveries(ctx context.Context, in *ListDeliveriesInput) (*listDeliveriesOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -370,7 +370,7 @@ type updateWebhookInput struct {
 }
 
 func (s *Server) handleUpdateWebhook(ctx context.Context, in *updateWebhookInput) (*webhookOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -435,7 +435,7 @@ type rotateSecretOutput struct {
 }
 
 func (s *Server) handleRotateWebhookSecret(ctx context.Context, in *WebhookIDParam) (*rotateSecretOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -453,7 +453,7 @@ func (s *Server) handleRotateWebhookSecret(ctx context.Context, in *WebhookIDPar
 }
 
 func (s *Server) handleCreateWebhook(ctx context.Context, in *createWebhookInput) (*webhookCreateOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -479,7 +479,7 @@ func (s *Server) handleCreateWebhook(ctx context.Context, in *createWebhookInput
 }
 
 func (s *Server) handleListWebhooks(ctx context.Context, _ *struct{}) (*listWebhooksOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -496,7 +496,7 @@ func (s *Server) handleListWebhooks(ctx context.Context, _ *struct{}) (*listWebh
 }
 
 func (s *Server) handleGetWebhook(ctx context.Context, in *WebhookIDParam) (*webhookOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -510,7 +510,7 @@ func (s *Server) handleGetWebhook(ctx context.Context, in *WebhookIDParam) (*web
 type deleteWebhookOutput struct{}
 
 func (s *Server) handleDeleteWebhook(ctx context.Context, in *WebhookIDParam) (*deleteWebhookOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}

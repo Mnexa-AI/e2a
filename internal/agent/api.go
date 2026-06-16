@@ -661,22 +661,50 @@ func stripBearerScheme(h string) string {
 // resolution path (API key, OAuth bearer, session cookie) instead of
 // forking a second one. There is one place credentials are checked.
 func (a *API) AuthenticateUser(r *http.Request) (*identity.User, error) {
-	return a.authenticateUser(r)
+	p, err := a.authenticatePrincipal(r)
+	if err != nil {
+		return nil, err
+	}
+	return p.User, nil
 }
 
+// AuthenticatePrincipal is the scope-aware seam (Slice 5a): same credential
+// resolution as AuthenticateUser, but returns the full principal (user + scope
+// + bound agent) so the v1 layer can enforce the hard scope ceiling. There is
+// still exactly one place credentials are checked.
+func (a *API) AuthenticatePrincipal(r *http.Request) (*identity.Principal, error) {
+	return a.authenticatePrincipal(r)
+}
+
+// authenticateUser is the user-only convenience over authenticatePrincipal,
+// retained for the legacy /api/v1 handlers that don't enforce scope.
 func (a *API) authenticateUser(r *http.Request) (*identity.User, error) {
+	p, err := a.authenticatePrincipal(r)
+	if err != nil {
+		return nil, err
+	}
+	return p.User, nil
+}
+
+func (a *API) authenticatePrincipal(r *http.Request) (*identity.Principal, error) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader != "" {
 		bearer := stripBearerScheme(authHeader)
 		if strings.HasPrefix(bearer, oauth.AccessTokenPrefix) {
-			return a.lookupUserByOAuthToken(r, bearer)
+			u, err := a.lookupUserByOAuthToken(r, bearer)
+			if err != nil {
+				return nil, err
+			}
+			// OAuth access tokens are account-scoped until Slice 5b adds
+			// scope claims to the token. Until then they behave as today.
+			return &identity.Principal{User: u, Scope: identity.ScopeAccount}, nil
 		}
-		return a.store.GetUserByAPIKey(r.Context(), bearer)
+		return a.store.GetPrincipalByAPIKey(r.Context(), bearer)
 	}
-	// Fall back to session cookie auth
+	// Fall back to session cookie auth — the web dashboard owner, account scope.
 	if a.userAuth != nil {
 		if user := a.userAuth.AuthenticateRequest(r); user != nil {
-			return user, nil
+			return &identity.Principal{User: user, Scope: identity.ScopeAccount}, nil
 		}
 	}
 	return nil, fmt.Errorf("authorization required")
@@ -1133,7 +1161,7 @@ type updateMessageRequest struct {
 // @Failure      404 {string} string "Message not found or does not belong to this agent"
 // @Router       /api/v1/agents/{email}/messages/{id} [patch]
 func (a *API) handleUpdateMessage(w http.ResponseWriter, r *http.Request) {
-	user, err := a.authenticateUser(r)
+	user, err := a.AuthenticateUser(r)
 	if err != nil {
 		a.writeAuthError(w, r, err)
 		return

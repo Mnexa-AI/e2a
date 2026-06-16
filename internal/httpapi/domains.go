@@ -183,7 +183,7 @@ type verifyDomainOutput struct {
 }
 
 func (s *Server) handleVerifyDomain(ctx context.Context, in *DomainParam) (*verifyDomainOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +233,7 @@ func (s *Server) handleVerifyDomain(ctx context.Context, in *DomainParam) (*veri
 }
 
 func (s *Server) handleListDomains(ctx context.Context, _ *struct{}) (*listDomainsOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +250,7 @@ func (s *Server) handleListDomains(ctx context.Context, _ *struct{}) (*listDomai
 }
 
 func (s *Server) handleGetDomain(ctx context.Context, in *DomainParam) (*domainOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +273,7 @@ type registerDomainInput struct {
 }
 
 func (s *Server) handleRegisterDomain(ctx context.Context, in *registerDomainInput) (*domainCreateOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +310,7 @@ type updateDomainInput struct {
 }
 
 func (s *Server) handleUpdateDomain(ctx context.Context, in *updateDomainInput) (*domainOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -336,7 +336,7 @@ func (s *Server) handleUpdateDomain(ctx context.Context, in *updateDomainInput) 
 type deleteDomainOutput struct{}
 
 func (s *Server) handleDeleteDomain(ctx context.Context, in *DomainParam) (*deleteDomainOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}

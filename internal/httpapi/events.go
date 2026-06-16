@@ -99,7 +99,7 @@ type redeliverOutput struct {
 }
 
 func (s *Server) handleRedeliverEvent(ctx context.Context, in *RedeliverEventInput) (*redeliverOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +172,7 @@ func containsStr(ss []string, want string) bool {
 }
 
 func (s *Server) handleListEvents(ctx context.Context, in *ListEventsInput) (*listEventsOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +219,7 @@ func (s *Server) handleListEvents(ctx context.Context, in *ListEventsInput) (*li
 func (s *Server) handleGetEvent(ctx context.Context, in *struct {
 	ID string `path:"id"`
 }) (*eventOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}

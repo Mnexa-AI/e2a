@@ -108,7 +108,7 @@ func (s *Server) registerAgents() {
 		Tags:        []string{"agents"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, func(ctx context.Context, _ *struct{}) (*listAgentsOutput, error) {
-		user, err := s.requireUser(ctx)
+		user, err := s.requireAccountUser(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -147,7 +147,7 @@ func (s *Server) registerAgents() {
 // or non-owned agent is reported as 403 (the legacy surface does not
 // distinguish the two, and preserving that is a Slice-1 non-goal to change).
 func (s *Server) resolveOwnedAgent(ctx context.Context, address string) (*identity.AgentIdentity, error) {
-	user, err := s.requireUser(ctx)
+	p, err := s.requirePrincipal(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -155,8 +155,16 @@ func (s *Server) resolveOwnedAgent(ctx context.Context, address string) (*identi
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "agent lookup unavailable")
 	}
 	ag, err := s.deps.GetAgent(ctx, identity.NormalizeEmail(address))
-	if err != nil || ag == nil || ag.UserID != user.ID {
+	if err != nil || ag == nil || ag.UserID != p.User.ID {
 		return nil, NewError(http.StatusForbidden, "forbidden", "agent not found")
+	}
+	// Hard scope ceiling (Slice 5a): an agent-scoped credential is pinned to a
+	// single agent. Even though the owner owns this agent, a credential bound
+	// to a DIFFERENT agent must not act here. Account-scoped credentials pass.
+	// This is the one choke point for every per-agent operation.
+	if p.Scope == identity.ScopeAgent && p.AgentID != ag.ID {
+		return nil, NewError(http.StatusForbidden, "forbidden",
+			"this agent-scoped credential is bound to a different agent")
 	}
 	return ag, nil
 }

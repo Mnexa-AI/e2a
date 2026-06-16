@@ -77,7 +77,7 @@ type suppressionsOutput struct {
 }
 
 func (s *Server) handleListSuppressions(ctx context.Context, _ *struct{}) (*suppressionsOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ type deleteSuppressionInput struct {
 type deleteSuppressionOutput struct{ Status int }
 
 func (s *Server) handleDeleteSuppression(ctx context.Context, in *deleteSuppressionInput) (*deleteSuppressionOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +123,7 @@ type exportOutput struct {
 }
 
 func (s *Server) handleExportUserData(ctx context.Context, _ *struct{}) (*exportOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +149,7 @@ type deleteAccountOutput struct {
 }
 
 func (s *Server) handleDeleteAccount(ctx context.Context, in *deleteAccountInput) (*deleteAccountOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +167,7 @@ func (s *Server) handleDeleteAccount(ctx context.Context, in *deleteAccountInput
 }
 
 func (s *Server) handleGetMyLimits(ctx context.Context, _ *struct{}) (*limitsOutput, error) {
-	user, err := s.requireUser(ctx)
+	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}

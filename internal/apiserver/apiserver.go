@@ -66,11 +66,12 @@ type SenderIdentityEnqueuer interface {
 // definition of the /v1 wiring so production and tests cannot diverge.
 func BuildDeps(p Params) httpapi.Deps {
 	return httpapi.Deps{
-		Authenticator: p.API.AuthenticateUser,
-		ListAgents:    p.Store.ListAgentsByUser,
-		GetAgent:      p.Store.GetAgentByEmail,
-		GetMessage:    p.Store.GetMessageWithContent,
-		ListMessages:  p.Store.GetMessagesByAgent,
+		Authenticator:          p.API.AuthenticateUser,
+		PrincipalAuthenticator: p.API.AuthenticatePrincipal,
+		ListAgents:             p.Store.ListAgentsByUser,
+		GetAgent:               p.Store.GetAgentByEmail,
+		GetMessage:             p.Store.GetMessageWithContent,
+		ListMessages:           p.Store.GetMessagesByAgent,
 
 		ListConversations: p.Store.ListConversationsByAgent,
 		GetConversation:   p.Store.GetConversationByID,

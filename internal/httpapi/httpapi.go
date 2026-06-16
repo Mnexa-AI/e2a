@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -15,11 +16,18 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// Authenticator resolves the calling principal from the raw request. It is
+// Authenticator resolves the calling user from the raw request. It is
 // injected so this package reuses the *single* auth path that already lives
 // in the agent layer (API key, OAuth bearer, session cookie) instead of
 // forking a second one — there is exactly one place credentials are checked.
 type Authenticator func(r *http.Request) (*identity.User, error)
+
+// PrincipalAuthenticator is the scope-aware seam (Slice 5a): the same single
+// auth path, but returning the full principal (user + credential scope + bound
+// agent) so the v1 handlers can enforce the hard scope ceiling (design §5).
+// When set it supersedes Authenticator; when nil the server wraps Authenticator
+// and treats every caller as account-scoped (pre-Slice-5a behavior).
+type PrincipalAuthenticator func(r *http.Request) (*identity.Principal, error)
 
 // AgentLister returns the agents owned by a user. Injected as a narrow
 // function so the foundation slice doesn't depend on the whole store; the
@@ -69,11 +77,12 @@ type (
 // Deps are the collaborators the v1 layer needs. Everything is injected so
 // the package has no hidden globals and is straightforward to test.
 type Deps struct {
-	Authenticator Authenticator
-	ListAgents    AgentLister
-	GetAgent      AgentGetter
-	GetMessage    MessageGetter
-	ListMessages  MessageLister
+	Authenticator          Authenticator
+	PrincipalAuthenticator PrincipalAuthenticator
+	ListAgents             AgentLister
+	GetAgent               AgentGetter
+	GetMessage             MessageGetter
+	ListMessages           MessageLister
 
 	ListConversations ConversationLister
 	GetConversation   ConversationGetter
@@ -308,18 +317,46 @@ func RequestFromContext(ctx context.Context) *http.Request {
 // requireUser authenticates the caller or returns a 401 envelope carrying
 // the machine-branchable "unauthorized" code.
 func (s *Server) requireUser(ctx context.Context) (*identity.User, error) {
+	p, err := s.requirePrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return p.User, nil
+}
+
+// requirePrincipal authenticates the caller and returns the full principal
+// (user + scope + bound agent), or a 401 envelope. The scope-aware basis for
+// the hard scope ceiling (requireAccountScope / requireAgentAccess).
+func (s *Server) requirePrincipal(ctx context.Context) (*identity.Principal, error) {
 	// The rate-limit middleware may have already authenticated this request
 	// on the read path; reuse that principal instead of hitting auth twice.
-	if u := userFromContext(ctx); u != nil {
-		return u, nil
+	if p := principalFromContext(ctx); p != nil {
+		return p, nil
 	}
 	r := RequestFromContext(ctx)
-	if r == nil || s.deps.Authenticator == nil {
+	if r == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "authentication unavailable")
 	}
-	user, err := s.deps.Authenticator(r)
+	p, err := s.resolvePrincipal(r)
 	if err != nil {
 		return nil, NewError(http.StatusUnauthorized, "unauthorized", "authentication required")
 	}
-	return user, nil
+	return p, nil
+}
+
+// resolvePrincipal runs the injected auth path. It prefers the scope-aware
+// PrincipalAuthenticator; if only the legacy Authenticator is wired it treats
+// the caller as account-scoped (pre-Slice-5a behavior — no scope ceiling).
+func (s *Server) resolvePrincipal(r *http.Request) (*identity.Principal, error) {
+	if s.deps.PrincipalAuthenticator != nil {
+		return s.deps.PrincipalAuthenticator(r)
+	}
+	if s.deps.Authenticator == nil {
+		return nil, fmt.Errorf("authentication unavailable")
+	}
+	u, err := s.deps.Authenticator(r)
+	if err != nil {
+		return nil, err
+	}
+	return &identity.Principal{User: u, Scope: identity.ScopeAccount}, nil
 }

@@ -59,17 +59,17 @@ func (s *Server) rateLimit(ctx huma.Context, next func(huma.Context)) {
 			next(ctx)
 			return
 		}
-		user, err := s.deps.Authenticator(r)
+		p, err := s.resolvePrincipal(r)
 		if err != nil {
 			// Unauthenticated: let the handler emit the canonical 401 rather
 			// than masking a missing credential as a rate-limit decision.
 			next(ctx)
 			return
 		}
-		snap, key = s.deps.PollLimit, user.ID
+		snap, key = s.deps.PollLimit, p.User.ID
 		// Reuse the principal so the handler does not authenticate a second
 		// time on the hot read path.
-		ctx = huma.WithContext(ctx, withUser(ctx.Context(), user))
+		ctx = huma.WithContext(ctx, withPrincipal(ctx.Context(), p))
 	case op.OperationID == "createAgent" && s.deps.RegLimit != nil:
 		r := RequestFromContext(ctx.Context())
 		if r == nil {
@@ -110,17 +110,24 @@ func writeEnvelope(ctx huma.Context, env *ErrorEnvelope) {
 	_ = json.NewEncoder(ctx.BodyWriter()).Encode(env)
 }
 
-// userCtxKey carries a principal resolved by the rate-limit middleware so the
-// downstream handler's requireUser can skip a second Authenticator call.
-type userCtxKey struct{}
+// principalCtxKey carries a principal resolved by the rate-limit middleware so
+// the downstream handler's requireUser/requirePrincipal can skip a second auth.
+type principalCtxKey struct{}
 
-func withUser(ctx context.Context, u *identity.User) context.Context {
-	return context.WithValue(ctx, userCtxKey{}, u)
+func withPrincipal(ctx context.Context, p *identity.Principal) context.Context {
+	return context.WithValue(ctx, principalCtxKey{}, p)
+}
+
+func principalFromContext(ctx context.Context) *identity.Principal {
+	if p, ok := ctx.Value(principalCtxKey{}).(*identity.Principal); ok {
+		return p
+	}
+	return nil
 }
 
 func userFromContext(ctx context.Context) *identity.User {
-	if u, ok := ctx.Value(userCtxKey{}).(*identity.User); ok {
-		return u
+	if p := principalFromContext(ctx); p != nil {
+		return p.User
 	}
 	return nil
 }

@@ -2837,7 +2837,7 @@ func (s *Store) UpdateUserName(ctx context.Context, userID, name string) (*User,
 const SessionTTL = 7 * 24 * time.Hour
 
 func (s *Store) CreateUserSession(ctx context.Context, userID string) (string, error) {
-	token := generateAPIKey() // reuse for randomness
+	token := "sess_" + randomHex32() // opaque session cookie value
 	expiresAt := time.Now().Add(SessionTTL)
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO user_sessions (token, user_id, created_at, expires_at) VALUES ($1, $2, $3, $4)`,
@@ -3045,6 +3045,30 @@ func deltaPct(current, previous int) int {
 
 // --- Per-user API keys ---
 
+// Credential scope (Slice 5a / design §5). The scope a credential carries —
+// not the auth method — determines its blast radius.
+const (
+	// ScopeAccount is account-wide admin: agent/domain/key management, account
+	// settings. The pre-redesign default; what an `e2a_acct_…` key holds.
+	ScopeAccount = "account"
+	// ScopeAgent is bound to a single agent (runtime/inbox tier): the credential
+	// IS the agent. Pinned to one agent_id and barred from account-only ops.
+	ScopeAgent = "agent"
+)
+
+// ValidScope reports whether s is a known credential scope.
+func ValidScope(s string) bool { return s == ScopeAccount || s == ScopeAgent }
+
+// Principal is the authenticated caller resolved from a credential: the owning
+// user plus the credential's scope and (for agent-scoped credentials) the agent
+// it is bound to. The scope/agent binding is what the v1 handlers enforce the
+// hard scope ceiling against (design §5 / decision 10).
+type Principal struct {
+	User    *User
+	Scope   string // ScopeAccount | ScopeAgent
+	AgentID string // non-empty only when Scope == ScopeAgent
+}
+
 type APIKey struct {
 	ID           string    `json:"id"`
 	UserID       string    `json:"user_id"`
@@ -3052,6 +3076,11 @@ type APIKey struct {
 	KeyPrefix    string    `json:"key_prefix"`
 	PlaintextKey string    `json:"key,omitempty"` // only set once at creation, never stored
 	CreatedAt    time.Time `json:"created_at"`
+	// Scope is the credential's blast radius (ScopeAccount | ScopeAgent).
+	// Backfilled to ScopeAccount for pre-Slice-5a keys.
+	Scope string `json:"scope"`
+	// AgentID is the bound agent for ScopeAgent keys; nil for account keys.
+	AgentID *string `json:"agent_id,omitempty"`
 	// LastUsedAt is updated by GetUserByAPIKey on every successful
 	// AuthenticateRequest. NULL on keys that have never been used.
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
@@ -3066,16 +3095,54 @@ func hashAPIKey(plaintext string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// CreateAPIKey issues a fresh API key for the user. expiresAt is the
-// optional hard expiration; pass nil to issue a never-expiring key (the
-// backward-compatible default).
+// CreateAPIKey issues a fresh ACCOUNT-scoped API key for the user. expiresAt is
+// the optional hard expiration; pass nil to issue a never-expiring key (the
+// backward-compatible default). This is the account-tier convenience wrapper
+// over CreateScopedAPIKey — the self-host default key.
 func (s *Store) CreateAPIKey(ctx context.Context, userID, name string, expiresAt *time.Time) (*APIKey, error) {
+	return s.CreateScopedAPIKey(ctx, userID, name, ScopeAccount, "", expiresAt)
+}
+
+// CreateScopedAPIKey issues a fresh API key with an explicit scope (Slice 5a).
+//   - ScopeAccount: account-wide admin; agentID must be empty; prefix e2a_acct_.
+//   - ScopeAgent: bound to agentID (which must be a non-empty agent owned by the
+//     user); prefix e2a_agt_. The key can only act as that one agent.
+//
+// The visible prefix makes a key's blast radius obvious at a glance, and the DB
+// CHECK (scope='agent') == (agent_id IS NOT NULL) backstops the binding.
+func (s *Store) CreateScopedAPIKey(ctx context.Context, userID, name, scope, agentID string, expiresAt *time.Time) (*APIKey, error) {
+	if !ValidScope(scope) {
+		return nil, fmt.Errorf("invalid credential scope %q", scope)
+	}
+	if scope == ScopeAgent && agentID == "" {
+		return nil, fmt.Errorf("agent-scoped key requires an agent_id")
+	}
+	if scope == ScopeAccount && agentID != "" {
+		return nil, fmt.Errorf("account-scoped key must not name an agent")
+	}
+	// For an agent-scoped key, the named agent must exist and be owned by the
+	// same user — otherwise a caller could mint a key bound to someone else's
+	// agent (the FK alone wouldn't catch cross-user binding).
+	if scope == ScopeAgent {
+		owns, err := s.userOwnsAgent(ctx, agentID, userID)
+		if err != nil {
+			return nil, err
+		}
+		if !owns {
+			return nil, fmt.Errorf("agent %q not found or not owned by user", agentID)
+		}
+	}
+
 	id := "apk_" + generateID()
-	plaintext := generateAPIKey()
+	plaintext := generateAPIKey(scope)
 	keyHash := hashAPIKey(plaintext)
-	// Show first 8 chars as prefix (e.g. "e2a_abcd...")
-	prefix := plaintext[:12]
+	// Show the scoped prefix + a few key chars (e.g. "e2a_agt_abcd…").
+	prefix := plaintext[:16]
 	now := time.Now()
+	var agentCol *string
+	if scope == ScopeAgent {
+		agentCol = &agentID
+	}
 	ak := &APIKey{
 		ID:           id,
 		UserID:       userID,
@@ -3083,11 +3150,14 @@ func (s *Store) CreateAPIKey(ctx context.Context, userID, name string, expiresAt
 		KeyPrefix:    prefix,
 		PlaintextKey: plaintext,
 		CreatedAt:    now,
+		Scope:        scope,
+		AgentID:      agentCol,
 		ExpiresAt:    expiresAt,
 	}
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		ak.ID, ak.UserID, ak.Name, ak.KeyPrefix, keyHash, ak.CreatedAt, ak.ExpiresAt,
+		`INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, scope, agent_id, created_at, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		ak.ID, ak.UserID, ak.Name, ak.KeyPrefix, keyHash, ak.Scope, agentCol, ak.CreatedAt, ak.ExpiresAt,
 	)
 	if err != nil {
 		return nil, err
@@ -3095,9 +3165,20 @@ func (s *Store) CreateAPIKey(ctx context.Context, userID, name string, expiresAt
 	return ak, nil
 }
 
+// userOwnsAgent reports whether agentID exists and is owned by userID.
+func (s *Store) userOwnsAgent(ctx context.Context, agentID, userID string) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM agent_identities WHERE id = $1 AND user_id = $2)`,
+		agentID, userID,
+	).Scan(&exists)
+	return exists, err
+}
+
 func (s *Store) ListAPIKeys(ctx context.Context, userID string) ([]APIKey, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, user_id, name, key_prefix, created_at, last_used_at, expires_at FROM api_keys WHERE user_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC`,
+		`SELECT id, user_id, name, key_prefix, COALESCE(scope, 'account'), agent_id, created_at, last_used_at, expires_at
+		   FROM api_keys WHERE user_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC`,
 		userID,
 	)
 	if err != nil {
@@ -3107,7 +3188,7 @@ func (s *Store) ListAPIKeys(ctx context.Context, userID string) ([]APIKey, error
 	var keys []APIKey
 	for rows.Next() {
 		var k APIKey
-		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.KeyPrefix, &k.CreatedAt, &k.LastUsedAt, &k.ExpiresAt); err != nil {
+		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.KeyPrefix, &k.Scope, &k.AgentID, &k.CreatedAt, &k.LastUsedAt, &k.ExpiresAt); err != nil {
 			return nil, err
 		}
 		keys = append(keys, k)
@@ -3138,23 +3219,42 @@ func (s *Store) DeleteAPIKey(ctx context.Context, keyID, userID string) error {
 // the future, evaluated against now() in the same query so there's no
 // clock skew between row read and check.
 func (s *Store) GetUserByAPIKey(ctx context.Context, apiKey string) (*User, error) {
+	p, err := s.GetPrincipalByAPIKey(ctx, apiKey)
+	if err != nil {
+		return nil, err
+	}
+	return p.User, nil
+}
+
+// GetPrincipalByAPIKey authenticates a bearer token and returns the full
+// principal — the owning user PLUS the key's scope and bound agent (Slice 5a).
+// Same validation/last_used semantics as GetUserByAPIKey (it delegates here).
+// A legacy key with a NULL scope column resolves to ScopeAccount, preserving
+// pre-redesign authority.
+func (s *Store) GetPrincipalByAPIKey(ctx context.Context, apiKey string) (*Principal, error) {
 	keyHash := hashAPIKey(apiKey)
 	u := &User{}
+	var scope string
+	var agentID *string
 	err := s.pool.QueryRow(ctx,
 		`WITH touched AS (
 		   UPDATE api_keys SET last_used_at = now()
 		   WHERE key_hash = $1
 		     AND revoked_at IS NULL
 		     AND (expires_at IS NULL OR expires_at > now())
-		   RETURNING user_id
+		   RETURNING user_id, COALESCE(scope, 'account') AS scope, agent_id
 		 )
-		 SELECT u.id, u.email, u.name, u.google_subject, u.created_at
+		 SELECT u.id, u.email, u.name, u.google_subject, u.created_at, t.scope, t.agent_id
 		 FROM touched t JOIN users u ON u.id = t.user_id`, keyHash,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.GoogleSubject, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.Name, &u.GoogleSubject, &u.CreatedAt, &scope, &agentID)
 	if err != nil {
 		return nil, err
 	}
-	return u, nil
+	p := &Principal{User: u, Scope: scope}
+	if agentID != nil {
+		p.AgentID = *agentID
+	}
+	return p, nil
 }
 
 func generateID() string {
@@ -3168,14 +3268,34 @@ func generateID() string {
 	return hex.EncodeToString(b)
 }
 
-func generateAPIKey() string {
+// generateAPIKey mints a random key with a scope-revealing prefix (Slice 5a):
+// e2a_acct_… for account keys, e2a_agt_… for agent keys. The prefix is cosmetic
+// for validation (keys are matched by hash of the full string), but makes a
+// key's blast radius obvious wherever it's pasted or logged. Legacy `e2a_…`
+// keys minted before this change keep validating — the hash is over the whole
+// string, so the prefix change only affects newly minted keys.
+func generateAPIKey(scope string) string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		// Same reasoning as generateID — an all-zero API key would be
 		// catastrophic (predictable auth credential).
 		panic(fmt.Sprintf("identity: crypto/rand failed: %v", err))
 	}
-	return "e2a_" + hex.EncodeToString(b)
+	prefix := "e2a_acct_"
+	if scope == ScopeAgent {
+		prefix = "e2a_agt_"
+	}
+	return prefix + hex.EncodeToString(b)
+}
+
+// randomHex32 returns 32 bytes of crypto-random data hex-encoded. Shared by the
+// session-token path; panics on RNG failure (same reasoning as generateID).
+func randomHex32() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("identity: crypto/rand failed: %v", err))
+	}
+	return hex.EncodeToString(b)
 }
 
 // --- Webhook signing secrets ---

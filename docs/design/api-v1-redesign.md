@@ -1259,6 +1259,25 @@ Break the current `/api/v1` surface directly and move it to
   the scope machinery** (`agent`/`account`) that §6a's tool tiers and decision
   10's trust-gated guard depend on. Depends only on Slice 1 (contract/envelope +
   host cutover); independent of 4/4b. Keep API keys throughout.
+
+  * **Slice 5a — Scope machinery (the hard ceiling).** *(Shipped.)* The
+    `agent`/`account` scope axis, reuse-agnostic and independent of how tokens
+    are minted. `api_keys` gains `scope` (DEFAULT `account`, CHECK-constrained)
+    + `agent_id` with a row-level CHECK `(scope='agent') == (agent_id IS NOT
+    NULL)` (migration 034); existing `e2a_…` keys backfill to `account` so no
+    key loses authority. New keys carry a scope-revealing prefix (`e2a_acct_…` /
+    `e2a_agt_…`); legacy keys still validate (hash is over the whole string).
+    The single auth seam now resolves a `Principal{User, Scope, AgentID}`
+    (`GetPrincipalByAPIKey`; OAuth/session callers are `account` until 5b adds
+    scope claims). The v1 layer enforces the **hard ceiling**: account-only
+    operations (agent create/update/delete, domains, API-key & account mgmt,
+    webhooks, the account event log) reject agent-scoped credentials (403
+    `forbidden`); per-agent operations pin an agent-scoped credential to its one
+    bound agent via the shared `resolveOwnedAgent` choke point. Agent-scoped
+    keys are mintable via `POST /api/keys` (`scope`/`agent`). **Deferred to 5b**
+    (decided: build OAuth in the e2a core): the OAuth 2.1 token endpoint +
+    JWT/JWKS, the auth.md identity/claim ceremony + `act` delegation, and the
+    DCR consent-screen scope split — none of which the ceiling needs to hold.
 * **Slice 6 — Agent-first docs.** `e2a.md`/`llms.txt`/`setup.md`/`auth.md`,
   binary-served; `api.md` generated from the spec.
 * **Slice 7 — Inbound trust policy (decision 10), post-parity.** Builds on
