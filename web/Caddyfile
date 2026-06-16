@@ -34,6 +34,12 @@
         reverse_proxy {$E2A_BACKEND:http://e2a:8080}
     }
 
+    # auth.md agent-identity bootstrap (Slice 5b-2). Backend-owned API path, not
+    # under /api/* — needs its own proxy rule or POST /agent/identity 404s.
+    handle /agent/identity {
+        reverse_proxy {$E2A_BACKEND:http://e2a:8080}
+    }
+
     # Discovery + JWKS metadata. Live at well-known paths (NOT under /api/*)
     # per spec, so they need their own proxy rules. Without these the web
     # frontend returns a 404 HTML page when OAuth clients probe for the

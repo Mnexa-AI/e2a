@@ -606,6 +606,10 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	// Public JWKS for verifying e2a-minted agent JWTs (Slice 5b). Always
 	// registered; serves {"keys":[]} when no signing key is configured.
 	r.HandleFunc("/.well-known/jwks.json", a.handleJWKS).Methods("GET")
+	// auth.md agent-identity bootstrap (Slice 5b-2): present an agent-scoped
+	// credential, receive an identity_assertion to exchange at /oauth2/token
+	// (grant_type=jwt-bearer). 501 when no signing key is configured.
+	r.HandleFunc("/agent/identity", a.handleAgentIdentity).Methods("POST")
 
 	// User auth (Google OAuth for agent developers)
 	if a.userAuth != nil {
@@ -701,13 +705,23 @@ func (a *API) authenticatePrincipal(r *http.Request) (*identity.Principal, error
 	authHeader := r.Header.Get("Authorization")
 	if authHeader != "" {
 		bearer := stripBearerScheme(authHeader)
+		// auth.md agent access token (Slice 5b-2): an RS256 JWT we minted,
+		// resolving to an agent-scoped principal. Checked before the API-key
+		// path since a JWT is never a valid API key. A bearer that looks like
+		// our JWT but fails verification is rejected here (not fall-through).
+		if p, ours, err := a.resolveAgentAccessToken(r, bearer); ours {
+			if err != nil {
+				return nil, err
+			}
+			return p, nil
+		}
 		if strings.HasPrefix(bearer, oauth.AccessTokenPrefix) {
 			u, err := a.lookupUserByOAuthToken(r, bearer)
 			if err != nil {
 				return nil, err
 			}
-			// OAuth access tokens are account-scoped until Slice 5b adds
-			// scope claims to the token. Until then they behave as today.
+			// OAuth (fosite) access tokens are account-scoped until they carry
+			// scope claims. Until then they behave as today.
 			return &identity.Principal{User: u, Scope: identity.ScopeAccount}, nil
 		}
 		return a.store.GetPrincipalByAPIKey(r.Context(), bearer)

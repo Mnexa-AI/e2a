@@ -35,6 +35,14 @@ import (
 // not calling SetOAuthProvider). Matches the discovery / DCR / etc.
 // 404-when-not-configured pattern from the hand-rolled branch.
 func (a *API) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
+	// Agent-identity grant (Slice 5b-2): dispatch grant_type=jwt-bearer here
+	// before fosite, which doesn't implement it. ParseForm is idempotent —
+	// fosite re-reads the same cached r.PostForm — so peeking at grant_type
+	// first is safe. This path works even when fosite OAuth isn't wired.
+	if err := r.ParseForm(); err == nil && r.PostForm.Get("grant_type") == jwtBearerGrantType {
+		a.handleJWTBearerGrant(w, r)
+		return
+	}
 	if a.oauthProvider == nil {
 		http.NotFound(w, r)
 		return
@@ -501,10 +509,22 @@ type OAuthMetadata struct {
 	// against (Slice 5b). Always present once a signer surface exists; the
 	// endpoint serves {"keys":[]} when no signing key is configured.
 	JWKSURI string `json:"jwks_uri,omitempty"`
+	// AgentAuth is the auth.md agent-identity discovery block (Slice 5b-2).
+	// Present only when the agent-identity surface is enabled (a signing key is
+	// configured) — advertising endpoints that 501 would mislead clients.
+	AgentAuth *agentAuthMetadata `json:"agent_auth,omitempty"`
 	// RFC 9207 §3 — advertises that authorize responses carry `iss`
 	// (we emit it manually in writeAuthorizeRedirect since fosite
 	// v0.49 doesn't ship native RFC 9207 support).
 	AuthorizationResponseIssParameterSupported bool `json:"authorization_response_iss_parameter_supported,omitempty"`
+}
+
+// agentAuthMetadata is the auth.md `agent_auth` discovery block (Slice 5b-2).
+// Advertised only when the agent-identity surface is live.
+type agentAuthMetadata struct {
+	IdentityEndpoint        string   `json:"identity_endpoint"`
+	IdentityTypesSupported  []string `json:"identity_types_supported"`
+	AssertionTypesSupported []string `json:"assertion_types_supported"`
 }
 
 // handleOAuthDiscovery serves the RFC 8414 metadata document.
@@ -539,11 +559,22 @@ func (a *API) handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
 		RevocationEndpointAuthMethodsSupported: []string{"none"},
 		// Scope vocabulary is the §6a tier model (Slice 5b): agent (runtime/
 		// inbox, the DCR-public default) and account (admin). The lone legacy
-		// "mcp" scope is retired. The auth.md agent_auth discovery block +
-		// jwt-bearer grant arrive with the identity endpoints (5b-2).
+		// "mcp" scope is retired.
 		ScopesSupported: []string{"agent", "account"},
 		JWKSURI:         base + "/.well-known/jwks.json",
 		AuthorizationResponseIssParameterSupported: true,
+	}
+	// auth.md agent-identity surface (Slice 5b-2) — advertised only when a
+	// signing key is configured, so we never announce endpoints that 501.
+	if a.agentAuthReady() {
+		meta.GrantTypesSupported = append(meta.GrantTypesSupported, jwtBearerGrantType)
+		meta.AgentAuth = &agentAuthMetadata{
+			IdentityEndpoint:       base + "/agent/identity",
+			IdentityTypesSupported: []string{"identity_assertion"},
+			// ID-JAG provider assertions are forward-compat (a later 5b
+			// sub-slice); advertise the type so clients can detect support.
+			AssertionTypesSupported: []string{"urn:ietf:params:oauth:token-type:id-jag"},
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=3600")

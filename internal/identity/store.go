@@ -106,6 +106,10 @@ type AgentIdentity struct {
 	// trusts; empty for open/verified_only.
 	InboundPolicy    string   `json:"inbound_policy"`
 	InboundAllowlist []string `json:"inbound_allowlist,omitempty"`
+	// AssertionVersion is the auth.md kill-switch counter (migration 035 /
+	// Slice 5b-2): stamped into minted identity_assertion/access_token JWTs and
+	// re-checked at the token endpoint; a bump invalidates prior tokens.
+	AssertionVersion int `json:"-"`
 }
 
 // HITL constants mirror the CHECK constraints in migration 003_hitl.sql.
@@ -729,6 +733,7 @@ func (s *Store) GetAgentByID(ctx context.Context, id string) (*AgentIdentity, er
 		`SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at,
 		        a.hitl_enabled, a.hitl_ttl_seconds, a.hitl_expiration_action,
 		        COALESCE(a.inbound_policy, 'open'), a.inbound_allowlist,
+		        COALESCE(a.assertion_version, 1),
 		        d.verified as domain_verified
 		 FROM agent_identities a
 		 JOIN domains d ON a.domain = d.domain
@@ -736,6 +741,7 @@ func (s *Store) GetAgentByID(ctx context.Context, id string) (*AgentIdentity, er
 	).Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt,
 		&a.HITLEnabled, &a.HITLTTLSeconds, &a.HITLExpirationAction,
 		&a.InboundPolicy, &a.InboundAllowlist,
+		&a.AssertionVersion,
 		&a.DomainVerified)
 	if err != nil {
 		return nil, err

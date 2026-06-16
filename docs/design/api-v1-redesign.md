@@ -1310,13 +1310,35 @@ Break the current `/api/v1` surface directly and move it to
       `agent_auth` discovery block + `jwt-bearer` grant are **deferred to 5b-2**
       (advertising endpoints that don't exist yet would lie to clients).
 
-    **Deferred to later 5b sub-slices:** 5b-2 autonomous path (`POST
-    /agent/identity`, JWKS registration gated by domain ownership, the custom
-    `grant_type=jwt-bearer` token handler + the `agent_auth` discovery block);
-    5b-3 claim ceremony (email-OTP, `claim` grant); 5b-4 `act` delegation +
-    compromised-key kill switch + `agent.credential_revoked`. WorkOS AuthKit
-    human sign-in stays independent of the agent-token layer (pluggable, hosted
-    default) and off 5b's critical path.
+  * **Slice 5b-2 — Autonomous agent token path.** *(Shipped.)* The auth.md
+    jwt-bearer rails, server-signed model (decided: e2a follows **canonical
+    auth.md** — anonymous/claim/ID-JAG entry points into one server-signed token
+    system — **not** §5's self-signed-agent-key bridge, which agentdrive also
+    skipped and which deviates from the spec we adopt):
+    * `POST /agent/identity` — **bootstrap adapted for e2a's domain model**:
+      agentdrive's ownerless "anonymous self-provision" is unsafe for e2a (an
+      identity is an email on a *verified domain*), so the bootstrap credential
+      is the Slice-5a `e2a_agt_` key. Present it → receive a server-signed
+      `identity_assertion` JWT (`sub`=agent email, `scope=agent`,
+      `assertion_version`, 30-day TTL).
+    * `POST /oauth2/token` `grant_type=jwt-bearer` — the custom token handler
+      (fosite has no jwt-bearer): verify the assertion, re-check
+      `assertion_version` against the live row, mint a short-lived (15-min)
+      `access_token` JWT. No refresh — re-present the assertion.
+    * **Resource server accepts the `access_token`** as an `agent`-scoped
+      principal (composes with the 5a hard ceiling: an agent JWT is 403'd on
+      account-only routes, 200 on its own agent — proven over the wire).
+    * `agent_identities.assertion_version` (migration 035) is the **kill
+      switch**; discovery now carries the `agent_auth` block + the jwt-bearer
+      grant (advertised only when a signing key is configured). Proxies
+      (`Caddyfile`/`next.config`) route `/agent/identity`.
+
+    **Deferred to later 5b sub-slices:** 5b-3 claim ceremony (the human-connected
+    path: `user_code`/consent page + `claim` grant — same server-signed rails);
+    5b-4 ID-JAG provider assertions + `act` delegation + compromised-key revoke
+    event (`agent.credential_revoked`). WorkOS AuthKit human sign-in stays
+    independent of the agent-token layer (pluggable, hosted default) and off 5b's
+    critical path.
 * **Slice 6 — Agent-first docs.** `e2a.md`/`llms.txt`/`setup.md`/`auth.md`,
   binary-served; `api.md` generated from the spec.
 * **Slice 7 — Inbound trust policy (decision 10), post-parity.** Builds on
