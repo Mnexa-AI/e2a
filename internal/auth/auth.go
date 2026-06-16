@@ -262,8 +262,8 @@ func (ua *UserAuth) writeCLIHandoffPage(w http.ResponseWriter, r *http.Request, 
 // CLI login params (cli_callback, cli_state) are encoded into the OAuth state
 // parameter so they survive the redirect through Google without relying on cookies.
 // return_to (optional) is a same-origin server path the user resumes on after
-// callback success — only paths under /api/oauth/ are permitted, used to bounce
-// MCP OAuth clients back into /api/oauth/authorize after a session is created.
+// callback success — only paths under /oauth2/ are permitted, used to bounce
+// MCP OAuth clients back into /oauth2/authorize after a session is created.
 func (ua *UserAuth) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	cliCallback := r.URL.Query().Get("cli_callback")
 	cliState := r.URL.Query().Get("cli_state")
@@ -301,11 +301,12 @@ func (ua *UserAuth) HandleLogin(w http.ResponseWriter, r *http.Request) {
 // validateReturnToPath enforces the same-origin / known-prefix allow-list
 // for return_to values. Accepting an arbitrary URL would turn /api/auth/login
 // into an open redirector that an attacker could chain with phishing-class
-// social engineering. Limiting to /api/oauth/-prefixed server paths means
-// the bounce can only land inside the OAuth flow we own.
+// social engineering. Limiting to /oauth2/-prefixed server paths means
+// the bounce can only land inside the OAuth flow we own (Slice 5b renamed the
+// OAuth surface from /oauth2/* to /oauth2/*).
 func validateReturnToPath(raw string) error {
-	if !strings.HasPrefix(raw, "/api/oauth/") {
-		return errors.New("return_to must be a server path starting with /api/oauth/")
+	if !strings.HasPrefix(raw, "/oauth2/") {
+		return errors.New("return_to must be a server path starting with /oauth2/")
 	}
 	if strings.ContainsAny(raw, "\\\n\r\x00") {
 		return errors.New("return_to contains forbidden characters")
@@ -319,18 +320,18 @@ func validateReturnToPath(raw string) error {
 		return errors.New("return_to must be a path with no scheme or authority")
 	}
 	// Reject path traversal that survives the HasPrefix check by being
-	// collapsed by the browser. e.g. raw "/api/oauth/../../dashboard"
+	// collapsed by the browser. e.g. raw "/oauth2/../../dashboard"
 	// matches the prefix but http.Redirect emits a Location header that
 	// the browser resolves to "/dashboard" — escaping the allow-list.
 	// path.Clean folds the "../" segments and we re-check the prefix on
 	// the normalized form.
 	cleaned := path.Clean(u.Path)
-	if !strings.HasPrefix(cleaned, "/api/oauth/") && cleaned != "/api/oauth" {
+	if !strings.HasPrefix(cleaned, "/oauth2/") && cleaned != "/oauth2" {
 		return errors.New("return_to escapes the allow-list after normalization")
 	}
 	// Also reject empty segments which a future router refactor might
-	// treat as authority. "/api/oauth//foo" survives path.Clean as
-	// "/api/oauth/foo" but the raw value carries the empty segment
+	// treat as authority. "/oauth2//foo" survives path.Clean as
+	// "/oauth2/foo" but the raw value carries the empty segment
 	// which some HTTP stacks parse differently — fail closed.
 	if strings.Contains(u.Path, "//") {
 		return errors.New("return_to must not contain empty path segments")
@@ -414,7 +415,7 @@ func (ua *UserAuth) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If this login was triggered by an /api/oauth/ flow that wanted the
+	// If this login was triggered by an /oauth2/ flow that wanted the
 	// user to land back where they started, bounce to that path. The
 	// allow-list was enforced at HandleLogin time; re-validate defensively
 	// in case state was tampered with somehow (the OAuth state is integrity-

@@ -9,7 +9,7 @@ Two hosts are relevant:
 
 ## Current state
 
-e2a already implements the OAuth 2.0 surface that MCP clients depend on: RFC 8414 authorization-server metadata at [`/.well-known/oauth-authorization-server`](https://e2a.dev/.well-known/oauth-authorization-server), RFC 7591 Dynamic Client Registration at `/api/oauth/register` (rate-limited per IP), `authorization_code` + `refresh_token` grants with PKCE S256, RFC 7009 revocation, and RFC 6750 Bearer challenges on 401s. MCP clients can register and onboard without any human-supplied secret — the user only sees a browser consent screen.
+e2a already implements the OAuth 2.0 surface that MCP clients depend on: RFC 8414 authorization-server metadata at [`/.well-known/oauth-authorization-server`](https://e2a.dev/.well-known/oauth-authorization-server), RFC 7591 Dynamic Client Registration at `/oauth2/register` (rate-limited per IP), `authorization_code` + `refresh_token` grants with PKCE S256, RFC 7009 revocation, and RFC 6750 Bearer challenges on 401s. MCP clients can register and onboard without any human-supplied secret — the user only sees a browser consent screen.
 
 What e2a does **not** yet implement is the WorkOS [auth.md](https://github.com/workos/auth.md) flow specifically: there is no `/agent/auth` endpoint, no `agent_auth` block in the AS metadata, no RFC 9728 protected-resource metadata document, no ID-JAG verification, and no email-OTP claim ceremony. See [Agent identity](#agent-identity) for where we're heading — e2a's product (agent email addresses verified end-to-end) is unusually well-positioned to act as an identity provider in this protocol, and that's the direction we're building.
 
@@ -38,7 +38,7 @@ If you are an MCP client, you do not need an API key. Run the standard discovery
 
 1. **Discover** — `GET https://e2a.dev/.well-known/oauth-authorization-server`. Read `registration_endpoint`, `authorization_endpoint`, `token_endpoint`. Scope to request: `mcp`.
 2. **Register** — `POST` your client metadata to `registration_endpoint` (RFC 7591). You'll receive a `client_id`. Token endpoint auth method is `none` — you are a public client.
-3. **Authorize** — redirect the user to `authorization_endpoint` with `response_type=code`, your `client_id`, `redirect_uri`, `scope=mcp`, and PKCE S256 (`code_challenge`, `code_challenge_method=S256`). The user logs in to e2a and consents.
+3. **Authorize** — redirect the user to `authorization_endpoint` with `response_type=code`, your `client_id`, `redirect_uri`, `scope=agent`, and PKCE S256 (`code_challenge`, `code_challenge_method=S256`). The user logs in to e2a and consents.
 4. **Token exchange** — `POST` `code` + `code_verifier` to `token_endpoint`. You receive `access_token` (prefix `ate2a_…`) and `refresh_token`.
 5. **Use** — present the access token as a bearer; refresh with the refresh token before `expires_in`.
 
@@ -159,7 +159,7 @@ No code reading, no copy-paste, no transcript leakage. This is uniquely possible
 
 What e2a publishes today:
 
-- **RFC 8414 authorization-server metadata** at [`https://e2a.dev/.well-known/oauth-authorization-server`](https://e2a.dev/.well-known/oauth-authorization-server) — advertises `authorization_endpoint`, `token_endpoint`, `registration_endpoint`, `revocation_endpoint`, supported grants (`authorization_code`, `refresh_token`), PKCE (`S256`), scope (`mcp`), and the RFC 9207 `iss` parameter.
+- **RFC 8414 authorization-server metadata** at [`https://e2a.dev/.well-known/oauth-authorization-server`](https://e2a.dev/.well-known/oauth-authorization-server) — advertises `authorization_endpoint`, `token_endpoint`, `registration_endpoint`, `revocation_endpoint`, supported grants (`authorization_code`, `refresh_token`), PKCE (`S256`), scopes (`agent`, `account`), and the RFC 9207 `iss` parameter.
 - **RFC 6750 Bearer challenges** on every 401 from `/api/v1/...` — `WWW-Authenticate: Bearer realm="e2a"` for unknown/missing credentials, plus RFC 6750 §3.1 error params for OAuth-bearer failures.
 
 What's missing for full auth.md compliance:
@@ -173,7 +173,7 @@ These will land together. When they do, this document will be updated and the AS
 
 ## Revocation
 
-The user revokes API keys in the e2a dashboard. OAuth access tokens are revoked via `POST /api/oauth/revoke` (RFC 7009) or by the user disconnecting the client in the dashboard. Either way, you will discover revocation as a `401` on a previously-working credential — drop it and re-acquire from the same source you loaded it from. Once e2a issues ID-JAGs, providers will be able to POST logout tokens to a `revocation_uri` advertised in AS metadata; that is not in scope for the current credential paths.
+The user revokes API keys in the e2a dashboard. OAuth access tokens are revoked via `POST /oauth2/revoke` (RFC 7009) or by the user disconnecting the client in the dashboard. Either way, you will discover revocation as a `401` on a previously-working credential — drop it and re-acquire from the same source you loaded it from. Once e2a issues ID-JAGs, providers will be able to POST logout tokens to a `revocation_uri` advertised in AS metadata; that is not in scope for the current credential paths.
 
 ## References
 

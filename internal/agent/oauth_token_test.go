@@ -126,7 +126,7 @@ func mintAuthCode(t *testing.T, provider fosite.OAuth2Provider, clientID, userID
 	q.Set("code_challenge", challenge)
 	q.Set("code_challenge_method", "S256")
 
-	authReq, _ := http.NewRequest("GET", "https://test.e2a.dev/api/oauth/authorize?"+q.Encode(), nil)
+	authReq, _ := http.NewRequest("GET", "https://test.e2a.dev/oauth2/authorize?"+q.Encode(), nil)
 	ar, err := provider.NewAuthorizeRequest(ctx, authReq)
 	if err != nil {
 		t.Fatalf("NewAuthorizeRequest: %v", err)
@@ -151,7 +151,7 @@ func mintAuthCode(t *testing.T, provider fosite.OAuth2Provider, clientID, userID
 	return code
 }
 
-// TestHTTP_Token_AuthCode covers the happy path: POST /api/oauth/token
+// TestHTTP_Token_AuthCode covers the happy path: POST /oauth2/token
 // with an auth_code grant + PKCE verifier yields an access+refresh
 // token JSON envelope with the right fields and the no-store header.
 func TestHTTP_Token_AuthCode(t *testing.T) {
@@ -167,7 +167,7 @@ func TestHTTP_Token_AuthCode(t *testing.T) {
 	form.Set("redirect_uri", redirectURI)
 	form.Set("code_verifier", verifier)
 
-	resp, err := http.Post(server.URL+"/api/oauth/token",
+	resp, err := http.Post(server.URL+"/oauth2/token",
 		"application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatal(err)
@@ -224,7 +224,7 @@ func TestHTTP_Token_RefreshGrant(t *testing.T) {
 	form.Set("client_id", clientID)
 	form.Set("redirect_uri", redirectURI)
 	form.Set("code_verifier", verifier)
-	resp, err := http.Post(server.URL+"/api/oauth/token",
+	resp, err := http.Post(server.URL+"/oauth2/token",
 		"application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatal(err)
@@ -241,7 +241,7 @@ func TestHTTP_Token_RefreshGrant(t *testing.T) {
 	form.Set("grant_type", "refresh_token")
 	form.Set("refresh_token", first.RefreshToken)
 	form.Set("client_id", clientID)
-	resp2, err := http.Post(server.URL+"/api/oauth/token",
+	resp2, err := http.Post(server.URL+"/oauth2/token",
 		"application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatal(err)
@@ -280,7 +280,7 @@ func TestHTTP_Token_BadPKCE(t *testing.T) {
 	form.Set("redirect_uri", redirectURI)
 	form.Set("code_verifier", "not-the-right-verifier-not-the-right-verifier")
 
-	resp, err := http.Post(server.URL+"/api/oauth/token",
+	resp, err := http.Post(server.URL+"/oauth2/token",
 		"application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatal(err)
@@ -315,7 +315,7 @@ func TestHTTP_Token_CodeReplay(t *testing.T) {
 	form.Set("code_verifier", verifier)
 
 	// First exchange wins.
-	resp, err := http.Post(server.URL+"/api/oauth/token",
+	resp, err := http.Post(server.URL+"/oauth2/token",
 		"application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatal(err)
@@ -330,7 +330,7 @@ func TestHTTP_Token_CodeReplay(t *testing.T) {
 	resp.Body.Close()
 
 	// Replay: same code, same verifier. Must fail.
-	resp2, err := http.Post(server.URL+"/api/oauth/token",
+	resp2, err := http.Post(server.URL+"/oauth2/token",
 		"application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatal(err)
@@ -390,7 +390,7 @@ func TestHTTP_Token_NotConfigured(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	resp, err := http.Post(server.URL+"/api/oauth/token",
+	resp, err := http.Post(server.URL+"/oauth2/token",
 		"application/x-www-form-urlencoded", strings.NewReader("grant_type=authorization_code"))
 	if err != nil {
 		t.Fatal(err)

@@ -53,7 +53,7 @@ func postRegister(t *testing.T, srv *httptest.Server, body any) *http.Response {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err := http.Post(srv.URL+"/api/oauth/register", "application/json", bytes.NewReader(buf))
+	resp, err := http.Post(srv.URL+"/oauth2/register", "application/json", bytes.NewReader(buf))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,8 +108,8 @@ func TestHTTP_Register_Happy(t *testing.T) {
 	if got.TokenEndpointAuthMethod != "none" {
 		t.Errorf("token_endpoint_auth_method = %q, want none", got.TokenEndpointAuthMethod)
 	}
-	if got.Scope != "mcp" {
-		t.Errorf("scope = %q, want mcp", got.Scope)
+	if got.Scope != "agent" {
+		t.Errorf("scope = %q, want agent", got.Scope)
 	}
 }
 
@@ -301,7 +301,7 @@ func TestHTTP_Register_TooManyRedirectURIs(t *testing.T) {
 // TestHTTP_Register_InvalidJSON.
 func TestHTTP_Register_InvalidJSON(t *testing.T) {
 	srv := newDCRServer(t)
-	resp, err := http.Post(srv.URL+"/api/oauth/register", "application/json", strings.NewReader("not json"))
+	resp, err := http.Post(srv.URL+"/oauth2/register", "application/json", strings.NewReader("not json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +342,7 @@ func TestHTTP_Register_XFFCannotBypass(t *testing.T) {
 			ClientName:   fmt.Sprintf("xff-%d", i),
 			RedirectURIs: []string{"https://example.com/cb"},
 		})
-		req, _ := http.NewRequest("POST", srv.URL+"/api/oauth/register", bytes.NewReader(buf))
+		req, _ := http.NewRequest("POST", srv.URL+"/oauth2/register", bytes.NewReader(buf))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Forwarded-For", xff)
 		resp, err := http.DefaultClient.Do(req)
@@ -390,7 +390,7 @@ func TestHTTP_Register_NotConfigured(t *testing.T) {
 // Use context.Background helper without polluting the test surface.
 var _ = context.Background
 
-// TestHTTP_GetClient_PublicMetadata covers the GET /api/oauth/clients/{id}
+// TestHTTP_GetClient_PublicMetadata covers the GET /oauth2/clients/{id}
 // lookup the consent UI calls to render the friendly client_name.
 // Asserts: 200 + correct fields on a real client, 404 on unknown, 404
 // when OAuth is not wired, no secret fields in the JSON body, and the
@@ -410,7 +410,7 @@ func TestHTTP_GetClient_PublicMetadata(t *testing.T) {
 	}
 
 	t.Run("happy", func(t *testing.T) {
-		resp, err := http.Get(srv.URL + "/api/oauth/clients/" + reg.ClientID)
+		resp, err := http.Get(srv.URL + "/oauth2/clients/" + reg.ClientID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -435,8 +435,8 @@ func TestHTTP_GetClient_PublicMetadata(t *testing.T) {
 		if !equalStringSlice(got.RedirectURIs, []string{"https://app.example.com/oauth/cb"}) {
 			t.Errorf("redirect_uris = %v", got.RedirectURIs)
 		}
-		if !equalStringSlice(got.Scopes, []string{"mcp"}) {
-			t.Errorf("scopes = %v, want [mcp]", got.Scopes)
+		if !equalStringSlice(got.Scopes, []string{"agent"}) {
+			t.Errorf("scopes = %v, want [agent]", got.Scopes)
 		}
 		if got.ClientIDIssuedAt == 0 {
 			t.Error("client_id_issued_at must be non-zero")
@@ -447,7 +447,7 @@ func TestHTTP_GetClient_PublicMetadata(t *testing.T) {
 		// Defensive: even though OAuthClientPublicMetadata's Go type
 		// doesn't have a secret field, the JSON body could in theory
 		// carry one via misconfigured serialization. Grep the raw body.
-		resp, _ := http.Get(srv.URL + "/api/oauth/clients/" + reg.ClientID)
+		resp, _ := http.Get(srv.URL + "/oauth2/clients/" + reg.ClientID)
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
 		raw := strings.ToLower(string(body))
@@ -459,7 +459,7 @@ func TestHTTP_GetClient_PublicMetadata(t *testing.T) {
 	})
 
 	t.Run("unknown client_id 404", func(t *testing.T) {
-		resp, _ := http.Get(srv.URL + "/api/oauth/clients/mcp_does_not_exist")
+		resp, _ := http.Get(srv.URL + "/oauth2/clients/mcp_does_not_exist")
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusNotFound {
 			t.Errorf("unknown client status = %d, want 404", resp.StatusCode)
@@ -470,7 +470,7 @@ func TestHTTP_GetClient_PublicMetadata(t *testing.T) {
 		// gorilla/mux requires the path segment to be present, so a
 		// trailing slash or empty segment falls through to the default
 		// router 404.
-		resp, _ := http.Get(srv.URL + "/api/oauth/clients/")
+		resp, _ := http.Get(srv.URL + "/oauth2/clients/")
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusNotFound {
 			t.Errorf("empty client_id status = %d, want 404", resp.StatusCode)
@@ -494,7 +494,7 @@ func TestHTTP_GetClient_NotConfigured(t *testing.T) {
 	srv := httptest.NewServer(router)
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/api/oauth/clients/mcp_anything")
+	resp, err := http.Get(srv.URL + "/oauth2/clients/mcp_anything")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,10 +512,10 @@ func TestHTTP_GetClient_NotConfigured(t *testing.T) {
 func TestHTTP_GetClient_RateLimited(t *testing.T) {
 	srv := newDCRServer(t)
 	// Each DCR-server has its own rate limiter at 10/IP/hr. Burn through
-	// the budget with GET /api/oauth/clients/<random>; the 11th call
+	// the budget with GET /oauth2/clients/<random>; the 11th call
 	// from the same IP must 429.
 	for i := 0; i < 10; i++ {
-		resp, err := http.Get(srv.URL + "/api/oauth/clients/mcp_doesnotexist_" + fmt.Sprintf("%02d", i))
+		resp, err := http.Get(srv.URL + "/oauth2/clients/mcp_doesnotexist_" + fmt.Sprintf("%02d", i))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -526,7 +526,7 @@ func TestHTTP_GetClient_RateLimited(t *testing.T) {
 			t.Fatalf("hit rate limit early on call %d", i+1)
 		}
 	}
-	resp, err := http.Get(srv.URL + "/api/oauth/clients/mcp_doesnotexist_11")
+	resp, err := http.Get(srv.URL + "/oauth2/clients/mcp_doesnotexist_11")
 	if err != nil {
 		t.Fatal(err)
 	}

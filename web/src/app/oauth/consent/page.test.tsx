@@ -61,7 +61,7 @@ const VALID_QS =
   "&code_challenge=test_challenge_value" +
   "&code_challenge_method=S256" +
   "&state=opaque-state-xyz" +
-  "&scope=mcp";
+  "&scope=agent";
 
 function mockClientAndAgents(opts: {
   clientStatus?: number;
@@ -73,12 +73,12 @@ function mockClientAndAgents(opts: {
     client_id: "mcp_abc123",
     client_name: "Test MCP Client",
     redirect_uris: ["http://localhost:8765/cb"],
-    scopes: ["mcp"],
+    scopes: ["agent"],
     client_id_issued_at: 1700000000,
   };
   const agents = opts.agents ?? [];
   mockFetch.mockImplementation((url: string) => {
-    if (url.startsWith("/api/oauth/clients/")) {
+    if (url.startsWith("/oauth2/clients/")) {
       return Promise.resolve({
         ok: clientStatus === 200,
         status: clientStatus,
@@ -176,7 +176,7 @@ describe("ConsentPage", () => {
     const form = container.querySelector("form") as HTMLFormElement;
     expect(form).toBeTruthy();
     expect(form.method.toLowerCase()).toBe("post");
-    expect(form.getAttribute("action")).toBe("/api/oauth/consent");
+    expect(form.getAttribute("action")).toBe("/oauth2/consent");
 
     // Every OAuth param ends up as a hidden input.
     const hiddenByName = new Map<string, string>();
@@ -190,7 +190,7 @@ describe("ConsentPage", () => {
     expect(hiddenByName.get("code_challenge")).toBe("test_challenge_value");
     expect(hiddenByName.get("code_challenge_method")).toBe("S256");
     expect(hiddenByName.get("state")).toBe("opaque-state-xyz");
-    expect(hiddenByName.get("scope")).toBe("mcp");
+    expect(hiddenByName.get("scope")).toBe("agent");
 
     // With no existing agents, create_new is the default.
     const createRadio = screen.getByRole("radio", { name: /Create a new inbox/i }) as HTMLInputElement;

@@ -81,6 +81,16 @@ type OAuthConfig struct {
 	GoogleClientID     string `yaml:"google_client_id"`
 	GoogleClientSecret string `yaml:"google_client_secret"`
 	RedirectURL        string `yaml:"redirect_url"`
+	// SigningKey is the PEM-encoded RSA private key (PKCS#1 or PKCS#8) used to
+	// sign auth.md agent-identity JWTs + access tokens (Slice 5b). The public
+	// half is published at /.well-known/jwks.json. Empty ⇒ the agent-auth
+	// surface is disabled (JWKS serves an empty set). Supplied via
+	// E2A_OAUTH_SIGNING_KEY; never generated or persisted by e2a.
+	SigningKey string `yaml:"signing_key"`
+	// SigningKID is the key id advertised in the JWKS and stamped on every
+	// issued JWT (E2A_OAUTH_SIGNING_KID; default "v1"). Rotation advertises a
+	// new kid, then retires the old after the longest token TTL.
+	SigningKID string `yaml:"signing_kid"`
 }
 
 type SigningConfig struct {
@@ -205,6 +215,12 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("E2A_OAUTH_REDIRECT_URL"); v != "" {
 		cfg.OAuth.RedirectURL = v
+	}
+	if v := os.Getenv("E2A_OAUTH_SIGNING_KEY"); v != "" {
+		cfg.OAuth.SigningKey = v
+	}
+	if v := os.Getenv("E2A_OAUTH_SIGNING_KID"); v != "" {
+		cfg.OAuth.SigningKID = v
 	}
 	if v := os.Getenv("E2A_OUTBOUND_SMTP_HOST"); v != "" {
 		cfg.OutboundSMTP.Host = v

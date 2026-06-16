@@ -17,12 +17,13 @@ import (
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
+	jose "github.com/go-jose/go-jose/v3"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5"
 	"github.com/ory/fosite"
 )
 
-// handleOAuthToken is the /api/oauth/token endpoint. Thin wrapper
+// handleOAuthToken is the /oauth2/token endpoint. Thin wrapper
 // over fosite's NewAccessRequest → NewAccessResponse → WriteAccess-
 // Response chain. Everything interesting (grant_type dispatch, PKCE
 // verification, refresh rotation with reuse defense, RFC 6749 §5.1
@@ -69,7 +70,7 @@ func (a *API) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 // ───────────────────────── DCR (RFC 7591) ─────────────────────────
 
 // OAuthRegisterRequest is the RFC 7591 §2 client metadata POSTed to
-// /api/oauth/register. Unknown fields are tolerated (forward-compat
+// /oauth2/register. Unknown fields are tolerated (forward-compat
 // with RFC 7591 extensions) but ignored.
 type OAuthRegisterRequest struct {
 	ClientName              string   `json:"client_name"`
@@ -312,7 +313,7 @@ func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 		req.TokenEndpointAuthMethod = "none"
 	}
 	if req.Scope == "" {
-		req.Scope = "mcp"
+		req.Scope = "agent"
 	}
 
 	// Capability enforcement — reject anything outside what we
@@ -337,9 +338,14 @@ func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 			`only token_endpoint_auth_method="none" (public clients with PKCE) is supported`)
 		return
 	}
-	if req.Scope != "mcp" {
+	// Scope cap (Slice 5b / design §5): dynamically-registered clients are
+	// public (token_endpoint_auth_method=none), so they may request ONLY
+	// scope="agent" (runtime/inbox tier). scope="account" (admin) requires a
+	// pre-registered confidential client or console issuance — never via public
+	// DCR, so a leaked DCR client can't escalate to account-wide admin.
+	if req.Scope != "agent" {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata",
-			`only scope="mcp" is supported`)
+			`dynamically-registered public clients may request only scope="agent"; scope="account" requires console issuance`)
 		return
 	}
 
@@ -491,6 +497,10 @@ type OAuthMetadata struct {
 	TokenEndpointAuthMethodsSupported      []string `json:"token_endpoint_auth_methods_supported"`
 	RevocationEndpointAuthMethodsSupported []string `json:"revocation_endpoint_auth_methods_supported"`
 	ScopesSupported                        []string `json:"scopes_supported"`
+	// JWKSURI points at the public key set agents verify e2a-minted JWTs
+	// against (Slice 5b). Always present once a signer surface exists; the
+	// endpoint serves {"keys":[]} when no signing key is configured.
+	JWKSURI string `json:"jwks_uri,omitempty"`
 	// RFC 9207 §3 — advertises that authorize responses carry `iss`
 	// (we emit it manually in writeAuthorizeRedirect since fosite
 	// v0.49 doesn't ship native RFC 9207 support).
@@ -515,19 +525,24 @@ func (a *API) handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
 	base := strings.TrimRight(a.publicURL, "/")
 	meta := OAuthMetadata{
 		Issuer:                 base,
-		AuthorizationEndpoint:  base + "/api/oauth/authorize",
-		TokenEndpoint:          base + "/api/oauth/token",
-		RegistrationEndpoint:   base + "/api/oauth/register",
-		RevocationEndpoint:     base + "/api/oauth/revoke",
+		AuthorizationEndpoint:  base + "/oauth2/authorize",
+		TokenEndpoint:          base + "/oauth2/token",
+		RegistrationEndpoint:   base + "/oauth2/register",
+		RevocationEndpoint:     base + "/oauth2/revoke",
 		ResponseTypesSupported: []string{"code"},
 		// response_mode=query is the only mode we emit at the redirect
 		// URI; explicit so strict MCP clients don't try "fragment".
-		ResponseModesSupported:                     []string{"query"},
-		GrantTypesSupported:                        []string{"authorization_code", "refresh_token"},
-		CodeChallengeMethodsSupported:              []string{"S256"},
-		TokenEndpointAuthMethodsSupported:          []string{"none"},
-		RevocationEndpointAuthMethodsSupported:     []string{"none"},
-		ScopesSupported:                            []string{"mcp"},
+		ResponseModesSupported:                 []string{"query"},
+		GrantTypesSupported:                    []string{"authorization_code", "refresh_token"},
+		CodeChallengeMethodsSupported:          []string{"S256"},
+		TokenEndpointAuthMethodsSupported:      []string{"none"},
+		RevocationEndpointAuthMethodsSupported: []string{"none"},
+		// Scope vocabulary is the §6a tier model (Slice 5b): agent (runtime/
+		// inbox, the DCR-public default) and account (admin). The lone legacy
+		// "mcp" scope is retired. The auth.md agent_auth discovery block +
+		// jwt-bearer grant arrive with the identity endpoints (5b-2).
+		ScopesSupported: []string{"agent", "account"},
+		JWKSURI:         base + "/.well-known/jwks.json",
 		AuthorizationResponseIssParameterSupported: true,
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -535,7 +550,25 @@ func (a *API) handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(meta)
 }
 
-// handleOAuthRevoke is the /api/oauth/revoke endpoint (RFC 7009).
+// handleJWKS serves /.well-known/jwks.json — the public RS256 key(s) agents use
+// to verify e2a-minted JWTs (Slice 5b). Unauthenticated by design (a JWKS is
+// public). Always available: when no signing key is configured it serves a
+// valid empty set ({"keys":[]}) rather than 404, so a verifier gets a definite
+// "no keys" answer instead of an ambiguous routing failure. Cached 1h like the
+// discovery doc; rotation publishes a new kid which clients pick up within TTL.
+func (a *API) handleJWKS(w http.ResponseWriter, r *http.Request) {
+	var jwks jose.JSONWebKeySet
+	if a.signer != nil {
+		jwks = a.signer.PublicJWKS()
+	} else {
+		jwks = jose.JSONWebKeySet{Keys: []jose.JSONWebKey{}}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_ = json.NewEncoder(w).Encode(jwks)
+}
+
+// handleOAuthRevoke is the /oauth2/revoke endpoint (RFC 7009).
 // Thin shim over fosite's NewRevocationRequest → WriteRevocationResponse:
 //
 //   - parses + validates the token + token_type_hint per RFC 7009 §2.1
@@ -598,7 +631,7 @@ func logTokenError(req fosite.AccessRequester, stage string, err error) {
 //     in a later slice); operators see a log line on every such
 //     redirect so the missing piece is visible.
 //  3. With a session, 302 to {publicURL}/oauth/consent?<params>. The
-//     consent UI in web/ POSTs back to /api/oauth/consent.
+//     consent UI in web/ POSTs back to /oauth2/consent.
 func (a *API) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 	if a.oauthProvider == nil {
 		http.NotFound(w, r)
@@ -628,7 +661,7 @@ func (a *API) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 		// Bounce through Google login, then resume back here. We only
 		// pass the path portion (not host/scheme) so the same-origin
 		// invariant of validateReturnToPath holds. After callback the
-		// user lands back on /api/oauth/authorize with the same params
+		// user lands back on /oauth2/authorize with the same params
 		// and the now-valid session cookie.
 		loginURL, _ := url.Parse(strings.TrimRight(a.publicURL, "/") + "/api/auth/login")
 		q := loginURL.Query()

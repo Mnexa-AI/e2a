@@ -27,6 +27,16 @@ oauth:
   google_client_id: ""
   google_client_secret: ""
   redirect_url: "http://localhost:3000/api/auth/callback"
+  # auth.md agent-identity token signing (Slice 5b). PEM-encoded RSA private
+  # key (PKCS#1 or PKCS#8); the public half is published at
+  # /.well-known/jwks.json so agents can verify e2a-minted JWTs. Empty leaves
+  # the agent-auth surface disabled (JWKS serves {"keys":[]}). Override via
+  # E2A_OAUTH_SIGNING_KEY. Never generated or persisted by e2a.
+  signing_key: ""
+  # kid advertised in the JWKS and stamped on every issued JWT (default "v1").
+  # Rotation: advertise a new kid, then retire the old after the longest token
+  # TTL. Override via E2A_OAUTH_SIGNING_KID.
+  signing_kid: "v1"
 
 signing:
   # Generate with: openssl rand -hex 32

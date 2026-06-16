@@ -78,10 +78,20 @@ signing:
 	t.Setenv("E2A_HMAC_SECRET", "override-secret")
 	t.Setenv("E2A_OUTBOUND_SMTP_USERNAME", "smtp-user")
 	t.Setenv("E2A_OUTBOUND_SMTP_PASSWORD", "smtp-pass")
+	// A non-PEM sentinel: the config layer only copies the string through to
+	// cfg.OAuth.SigningKey (parsing happens later in agentauth.NewSigner), so
+	// this needs no real key — and deliberately omits the "BEGIN ... PRIVATE
+	// KEY" armor so secret scanners don't false-positive on a test fixture.
+	t.Setenv("E2A_OAUTH_SIGNING_KEY", "signing-key-sentinel-not-a-real-pem")
+	t.Setenv("E2A_OAUTH_SIGNING_KID", "k7")
 
 	cfg, err := Load(cfgPath)
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
+	}
+
+	if cfg.OAuth.SigningKey == "" || cfg.OAuth.SigningKID != "k7" {
+		t.Errorf("expected env override for OAuth signing key/kid, got key=%q kid=%q", cfg.OAuth.SigningKey, cfg.OAuth.SigningKID)
 	}
 
 	if cfg.Database.URL != "postgres://override" {

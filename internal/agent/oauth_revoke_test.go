@@ -12,7 +12,7 @@ import (
 // 7009 §2 requires.
 func postRevoke(t *testing.T, serverURL string, form url.Values) *http.Response {
 	t.Helper()
-	resp, err := http.Post(serverURL+"/api/oauth/revoke",
+	resp, err := http.Post(serverURL+"/oauth2/revoke",
 		"application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatal(err)

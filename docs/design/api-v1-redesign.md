@@ -1289,6 +1289,34 @@ Break the current `/api/v1` surface directly and move it to
     to customers until the legacy `/api/v1` write surface is retired or
     scope-gated (a later slice). Surfaced by both independent + adversarial
     review; both classed it a non-goal of 5a, not a regression.
+
+  * **Slice 5b-1 — Auth foundation (signing + JWKS + surface).** *(Shipped.)*
+    The pre-token-issuing foundation the agent-identity paths build on:
+    * `internal/agentauth` — RS256 JWT signer loaded from a PEM private key
+      (`E2A_OAUTH_SIGNING_KEY` + `E2A_OAUTH_SIGNING_KID`, default kid `v1`),
+      mirroring the sibling agentdrive deployment. The key is operator-supplied,
+      never generated or persisted by e2a; an empty key leaves the surface
+      **disabled** (sign → `ErrSigningDisabled`, JWKS → empty set), so
+      deployments not using agent identity run unchanged. A malformed key is
+      fatal at startup (fail fast).
+    * `GET /.well-known/jwks.json` — publishes the public key (kid, `use=sig`,
+      RS256); serves `{"keys":[]}` when unconfigured (never 404).
+    * **Route rename** `/api/oauth/*` → `/oauth2/*` (root, unversioned; **no
+      back-compat alias** per §1 — decided). Updated the discovery doc, the login
+      `return_to` allow-list, and the web consent page in lockstep.
+    * Discovery: endpoint URLs → `/oauth2/*`; added `jwks_uri`;
+      `scopes_supported` `["mcp"]` → `["agent","account"]`; **DCR public clients
+      capped at `scope=agent`** (account requires console issuance). The
+      `agent_auth` discovery block + `jwt-bearer` grant are **deferred to 5b-2**
+      (advertising endpoints that don't exist yet would lie to clients).
+
+    **Deferred to later 5b sub-slices:** 5b-2 autonomous path (`POST
+    /agent/identity`, JWKS registration gated by domain ownership, the custom
+    `grant_type=jwt-bearer` token handler + the `agent_auth` discovery block);
+    5b-3 claim ceremony (email-OTP, `claim` grant); 5b-4 `act` delegation +
+    compromised-key kill switch + `agent.credential_revoked`. WorkOS AuthKit
+    human sign-in stays independent of the agent-token layer (pluggable, hosted
+    default) and off 5b's critical path.
 * **Slice 6 — Agent-first docs.** `e2a.md`/`llms.txt`/`setup.md`/`auth.md`,
   binary-served; `api.md` generated from the spec.
 * **Slice 7 — Inbound trust policy (decision 10), post-parity.** Builds on

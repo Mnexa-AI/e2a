@@ -44,16 +44,16 @@ func TestHTTP_Discovery_Happy(t *testing.T) {
 	if meta.Issuer != "https://test.e2a.dev" {
 		t.Errorf("issuer = %q, want https://test.e2a.dev", meta.Issuer)
 	}
-	if meta.AuthorizationEndpoint != "https://test.e2a.dev/api/oauth/authorize" {
+	if meta.AuthorizationEndpoint != "https://test.e2a.dev/oauth2/authorize" {
 		t.Errorf("authorization_endpoint = %q", meta.AuthorizationEndpoint)
 	}
-	if meta.TokenEndpoint != "https://test.e2a.dev/api/oauth/token" {
+	if meta.TokenEndpoint != "https://test.e2a.dev/oauth2/token" {
 		t.Errorf("token_endpoint = %q", meta.TokenEndpoint)
 	}
-	if meta.RegistrationEndpoint != "https://test.e2a.dev/api/oauth/register" {
+	if meta.RegistrationEndpoint != "https://test.e2a.dev/oauth2/register" {
 		t.Errorf("registration_endpoint = %q", meta.RegistrationEndpoint)
 	}
-	if meta.RevocationEndpoint != "https://test.e2a.dev/api/oauth/revoke" {
+	if meta.RevocationEndpoint != "https://test.e2a.dev/oauth2/revoke" {
 		t.Errorf("revocation_endpoint = %q", meta.RevocationEndpoint)
 	}
 	// Capability lists must match what the server actually implements
@@ -74,6 +74,19 @@ func TestHTTP_Discovery_Happy(t *testing.T) {
 	}
 	if !meta.AuthorizationResponseIssParameterSupported {
 		t.Error("authorization_response_iss_parameter_supported should be true (RFC 9207)")
+	}
+	// Scope vocabulary is the §6a tier model (Slice 5b): the lone legacy "mcp"
+	// scope is retired in favor of agent/account.
+	wantScopes := map[string]bool{"agent": true, "account": true}
+	for _, s := range meta.ScopesSupported {
+		delete(wantScopes, s)
+	}
+	if len(wantScopes) != 0 || len(meta.ScopesSupported) != 2 {
+		t.Errorf("scopes_supported = %v, want [agent account]", meta.ScopesSupported)
+	}
+	// jwks_uri must point at the public key set agents verify e2a JWTs against.
+	if meta.JWKSURI != "https://test.e2a.dev/.well-known/jwks.json" {
+		t.Errorf("jwks_uri = %q, want .../.well-known/jwks.json", meta.JWKSURI)
 	}
 }
 

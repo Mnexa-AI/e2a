@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/agentauth"
 	"github.com/Mnexa-AI/e2a/internal/approvaltoken"
 	"github.com/Mnexa-AI/e2a/internal/auth"
 	"github.com/Mnexa-AI/e2a/internal/dkim"
@@ -175,8 +176,9 @@ type API struct {
 	dcrLimit          *ratelimit.Limiter    // OAuth Dynamic Client Registration — anonymous endpoint, per-IP
 	approvalSigner    *approvaltoken.Signer // optional; if nil, magic-link endpoints return 404
 	notifier          *hitlnotify.Notifier  // optional; if nil, holdForApproval doesn't send notification email
-	oauthProvider     fosite.OAuth2Provider // optional; if nil, /api/oauth/* endpoints return 404
+	oauthProvider     fosite.OAuth2Provider // optional; if nil, /oauth2/* endpoints return 404
 	oauthStorage      *oauth.Storage        // optional; consent handler needs Pool() for cross-package tx
+	signer            *agentauth.Signer     // optional; nil ⇒ JWKS serves an empty set (agent-auth disabled)
 	idempotency       *idempotency.Store    // optional; when nil, Idempotency-Key header is ignored
 	enforcer          limits.Enforcer       // optional; when nil, all limit checks are skipped (effectively unlimited)
 	usageStore        *usage.Store          // optional; needed by handleGetMyLimits to surface current counts
@@ -416,11 +418,16 @@ func (a *API) SetApprovalSigner(s *approvaltoken.Signer) { a.approvalSigner = s 
 func (a *API) SetNotifier(n *hitlnotify.Notifier) { a.notifier = n }
 
 // SetOAuthProvider wires in the fosite-backed OAuth provider. When
-// nil, /api/oauth/* endpoints return 404 (matches the
+// nil, /oauth2/* endpoints return 404 (matches the
 // SetApprovalSigner / SetNotifier pattern of "optional capability,
 // silently absent when not wired"). Operators who don't want OAuth
 // enabled simply don't call this.
 func (a *API) SetOAuthProvider(p fosite.OAuth2Provider) { a.oauthProvider = p }
+
+// SetSigner wires the RS256 agent-token signer (Slice 5b). Optional — when nil
+// or disabled, /.well-known/jwks.json serves an empty key set and the
+// agent-identity token paths (later sub-slices) report "not enabled".
+func (a *API) SetSigner(s *agentauth.Signer) { a.signer = s }
 
 // SetOAuthStorage wires in the OAuth storage handle separately from
 // the provider. The consent handler needs Pool() to begin a pgx tx
@@ -585,16 +592,20 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/health", a.handleHealth).Methods("GET", "HEAD")
 	r.HandleFunc("/api/feedback", a.handleFeedback).Methods("POST")
 
-	// OAuth 2.1 / RFC 6749 endpoints. Handlers 404 when
-	// SetOAuthProvider wasn't called, so registering unconditionally
-	// is safe.
-	r.HandleFunc("/api/oauth/authorize", a.handleOAuthAuthorize).Methods("GET")
-	r.HandleFunc("/api/oauth/consent", a.handleOAuthConsent).Methods("POST")
-	r.HandleFunc("/api/oauth/token", a.handleOAuthToken).Methods("POST")
-	r.HandleFunc("/api/oauth/revoke", a.handleOAuthRevoke).Methods("POST")
-	r.HandleFunc("/api/oauth/register", a.handleOAuthRegister).Methods("POST")
-	r.HandleFunc("/api/oauth/clients/{client_id}", a.handleOAuthGetClient).Methods("GET")
+	// OAuth 2.1 / RFC 6749 endpoints, root + unversioned (Slice 5b: renamed
+	// from /oauth2/* to /oauth2/* to conform to the auth.md spec — no
+	// back-compat alias). Handlers 404 when SetOAuthProvider wasn't called, so
+	// registering unconditionally is safe.
+	r.HandleFunc("/oauth2/authorize", a.handleOAuthAuthorize).Methods("GET")
+	r.HandleFunc("/oauth2/consent", a.handleOAuthConsent).Methods("POST")
+	r.HandleFunc("/oauth2/token", a.handleOAuthToken).Methods("POST")
+	r.HandleFunc("/oauth2/revoke", a.handleOAuthRevoke).Methods("POST")
+	r.HandleFunc("/oauth2/register", a.handleOAuthRegister).Methods("POST")
+	r.HandleFunc("/oauth2/clients/{client_id}", a.handleOAuthGetClient).Methods("GET")
 	r.HandleFunc("/.well-known/oauth-authorization-server", a.handleOAuthDiscovery).Methods("GET")
+	// Public JWKS for verifying e2a-minted agent JWTs (Slice 5b). Always
+	// registered; serves {"keys":[]} when no signing key is configured.
+	r.HandleFunc("/.well-known/jwks.json", a.handleJWKS).Methods("GET")
 
 	// User auth (Google OAuth for agent developers)
 	if a.userAuth != nil {

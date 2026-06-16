@@ -26,11 +26,22 @@
         reverse_proxy {$E2A_BACKEND:http://e2a:8080}
     }
 
-    # RFC 8414 OAuth authorization-server metadata. Lives at the
-    # well-known path (NOT under /api/*) per spec, so it needs its
-    # own proxy rule. Without this the web frontend would return
-    # a 404 HTML page when OAuth clients probe for discovery.
+    # OAuth 2.1 surface (Slice 5b renamed it from /api/oauth/* to /oauth2/*,
+    # which the /api/* rule above no longer covers). Authorize / token /
+    # consent / revoke / register / clients all live here and must reach the
+    # backend, or the entire OAuth flow 404s behind the proxy.
+    handle /oauth2/* {
+        reverse_proxy {$E2A_BACKEND:http://e2a:8080}
+    }
+
+    # Discovery + JWKS metadata. Live at well-known paths (NOT under /api/*)
+    # per spec, so they need their own proxy rules. Without these the web
+    # frontend returns a 404 HTML page when OAuth clients probe for the
+    # authorization-server metadata or the JWKS that verifies e2a-minted JWTs.
     handle /.well-known/oauth-authorization-server {
+        reverse_proxy {$E2A_BACKEND:http://e2a:8080}
+    }
+    handle /.well-known/jwks.json {
         reverse_proxy {$E2A_BACKEND:http://e2a:8080}
     }
 
