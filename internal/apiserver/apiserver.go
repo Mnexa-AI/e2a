@@ -72,6 +72,7 @@ func BuildDeps(p Params) httpapi.Deps {
 		GetAgent:               p.Store.GetAgentByEmail,
 		GetMessage:             p.Store.GetMessageWithContent,
 		ListMessages:           p.Store.GetMessagesByAgent,
+		ModifyMessageLabels:    p.Store.ModifyMessageLabels,
 
 		ListConversations: p.Store.ListConversationsByAgent,
 		GetConversation:   p.Store.GetConversationByID,

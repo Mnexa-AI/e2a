@@ -1267,12 +1267,12 @@ func (a *API) handleUpdateMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	addLabels, err := normalizeAndValidateLabelList(req.AddLabels, "add")
+	addLabels, err := NormalizeAndValidateLabelList(req.AddLabels, "add")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	removeLabels, err := normalizeAndValidateLabelList(req.RemoveLabels, "remove")
+	removeLabels, err := NormalizeAndValidateLabelList(req.RemoveLabels, "remove")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1503,11 +1503,11 @@ func normalizeAndValidateLabel(raw string, allowSystemPrefix bool) (string, erro
 	return l, nil
 }
 
-// normalizeAndValidateLabelList runs each entry through
+// NormalizeAndValidateLabelList runs each entry through
 // normalizeAndValidateLabel, dedups within the slice, and rejects if
 // the slice is empty after trimming or exceeds the per-op cap. The
 // `op` argument is used only to shape the error message.
-func normalizeAndValidateLabelList(raw []string, op string) ([]string, error) {
+func NormalizeAndValidateLabelList(raw []string, op string) ([]string, error) {
 	if len(raw) > MaxLabelsPerOp {
 		return nil, fmt.Errorf("%s_labels exceeds per-request cap of %d", op, MaxLabelsPerOp)
 	}
