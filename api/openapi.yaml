@@ -1439,6 +1439,37 @@ components:
         is_primary:
           type: boolean
       type: object
+    UpdateMessageRequest:
+      additionalProperties: false
+      properties:
+        add_labels:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        remove_labels:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+      type: object
+    UpdateMessageResultView:
+      additionalProperties: false
+      properties:
+        labels:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        message_id:
+          type: string
+      required:
+        - message_id
+        - labels
+      type: object
     UpdateWebhookRequest:
       additionalProperties: false
       properties:
@@ -2230,6 +2261,44 @@ paths:
       security:
         - bearer: []
       summary: Get a message
+      tags:
+        - messages
+    patch:
+      description: Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.
+      operationId: updateMessage
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMessageRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateMessageResultView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Update a message (labels)
       tags:
         - messages
   /v1/agents/{address}/messages/{id}/approve:

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/agent"
 	"github.com/Mnexa-AI/e2a/internal/emailauth"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/mailparse"
@@ -276,6 +277,78 @@ func (s *Server) registerMessages() {
 		}
 		return &messageOutput{Body: messageViewFromIdentity(msg)}, nil
 	})
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "updateMessage",
+		Method:      http.MethodPatch,
+		Path:        "/v1/agents/{address}/messages/{id}",
+		Summary:     "Update a message (labels)",
+		Description: "Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.",
+		Tags:        []string{"messages"},
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleUpdateMessage)
+}
+
+// UpdateMessageRequest is the labels-delta body for PATCH …/messages/{id}.
+// A label in both add and remove is removed (remove wins, per the store).
+type UpdateMessageRequest struct {
+	AddLabels    []string `json:"add_labels,omitempty"`
+	RemoveLabels []string `json:"remove_labels,omitempty"`
+}
+
+type updateMessageInput struct {
+	Address string `path:"address"`
+	ID      string `path:"id"`
+	Body    UpdateMessageRequest
+}
+
+// UpdateMessageResultView echoes the post-update label set so callers can
+// reflect state without a follow-up fetch.
+type UpdateMessageResultView struct {
+	MessageID string   `json:"message_id"`
+	Labels    []string `json:"labels"`
+}
+
+type updateMessageOutput struct {
+	Body UpdateMessageResultView
+}
+
+// handleUpdateMessage applies a labels delta (ports the legacy
+// PATCH /api/v1/agents/{email}/messages/{id}). This is a per-agent operation,
+// so an agent-scoped credential may label its own messages — it goes through
+// resolveOwnedAgent (which pins an agent-scoped credential to its bound agent),
+// NOT requireAccountScope. Label rules are validated via the shared
+// agent.NormalizeAndValidateLabelList so they can't drift from the legacy
+// surface; the store enforces the per-message cap.
+func (s *Server) handleUpdateMessage(ctx context.Context, in *updateMessageInput) (*updateMessageOutput, error) {
+	ag, err := s.resolveOwnedAgent(ctx, in.Address)
+	if err != nil {
+		return nil, err
+	}
+	if s.deps.ModifyMessageLabels == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "label update unavailable")
+	}
+	add, verr := agent.NormalizeAndValidateLabelList(in.Body.AddLabels, "add")
+	if verr != nil {
+		return nil, NewError(http.StatusBadRequest, "invalid_request", verr.Error())
+	}
+	remove, verr := agent.NormalizeAndValidateLabelList(in.Body.RemoveLabels, "remove")
+	if verr != nil {
+		return nil, NewError(http.StatusBadRequest, "invalid_request", verr.Error())
+	}
+	final, err := s.deps.ModifyMessageLabels(ctx, in.ID, ag.ID, add, remove)
+	if err != nil {
+		switch {
+		case errors.Is(err, identity.ErrMessageNotFound):
+			return nil, NewError(http.StatusNotFound, "not_found", "message not found")
+		case errors.Is(err, identity.ErrLabelLimitExceeded):
+			return nil, NewError(http.StatusBadRequest, "invalid_request",
+				fmt.Sprintf("label limit exceeded — a message may carry at most %d labels", identity.MaxLabelsPerMessage))
+		default:
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to update labels")
+		}
+	}
+	return &updateMessageOutput{Body: UpdateMessageResultView{MessageID: in.ID, Labels: orEmptyStrings(final)}}, nil
 }
 
 // handleListMessages ports the legacy list handler: same filter semantics

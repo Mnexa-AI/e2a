@@ -83,6 +83,9 @@ type Deps struct {
 	GetAgent               AgentGetter
 	GetMessage             MessageGetter
 	ListMessages           MessageLister
+	// ModifyMessageLabels applies a labels delta to a message scoped to an
+	// agent, returning the post-update set. Mirrors store.ModifyMessageLabels.
+	ModifyMessageLabels func(ctx context.Context, messageID, agentID string, add, remove []string) ([]string, error)
 
 	ListConversations ConversationLister
 	GetConversation   ConversationGetter
