@@ -1,4 +1,4 @@
-.PHONY: build run test test-unit test-integration test-e2e clean docker-up docker-down migrate swagger swagger-check spec spec-check generate generate-check generate-sdk generate-sdk-check generate-sdk-ts
+.PHONY: build run test test-unit test-integration test-e2e clean docker-up docker-down migrate swagger swagger-check spec spec-check generate generate-check generate-sdk generate-sdk-check generate-sdk-ts generate-sdk-py
 
 OPENAPI3_SPEC := /tmp/e2a-openapi3.yaml
 # OpenAPI Generator for the /v1 SDK base (consumer port / Slice 8). Pinned to a
@@ -115,3 +115,11 @@ generate-sdk-check: generate-sdk
 generate-sdk-ts:
 	@echo "==> Generating TS /v1 client base via $(OAG_IMAGE)"
 	bash sdks/typescript/scripts/generate-oag.sh
+
+# generate-sdk-py regenerates the Python /v1 client base (package e2a.v1.oag)
+# from api/openapi.yaml using OpenAPI Generator's `python` generator with the
+# httpx library (async-native, matches async-only Python + the hand-written
+# layer's HTTP client). Output is the leaf package only; see the script.
+generate-sdk-py:
+	@echo "==> Generating Python /v1 client base via $(OAG_IMAGE)"
+	bash sdks/python/scripts/generate-oag.sh
