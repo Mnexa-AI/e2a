@@ -1,6 +1,10 @@
-.PHONY: build run test test-unit test-integration test-e2e clean docker-up docker-down migrate swagger swagger-check spec spec-check generate generate-check generate-sdk generate-sdk-check
+.PHONY: build run test test-unit test-integration test-e2e clean docker-up docker-down migrate swagger swagger-check spec spec-check generate generate-check generate-sdk generate-sdk-check generate-sdk-ts
 
 OPENAPI3_SPEC := /tmp/e2a-openapi3.yaml
+# OpenAPI Generator for the /v1 SDK base (consumer port / Slice 8). Pinned to a
+# released tag (never :latest/SNAPSHOT) so output is reproducible for the drift
+# gate. Run via Docker — no local Java needed.
+OAG_IMAGE := openapitools/openapi-generator-cli:v7.16.0
 PY_CODEGEN_VENV := sdks/python/.venv-codegen
 PY_CODEGEN_REQUIREMENTS := sdks/python/codegen-requirements.txt
 PY_CODEGEN_PIP := $(PY_CODEGEN_VENV)/bin/pip
@@ -102,3 +106,12 @@ generate-check: swagger-check generate-sdk-check
 generate-sdk-check: generate-sdk
 	@echo "==> Checking generated code is up to date"
 	git diff --exit-code sdks/typescript/src/v1/generated/ sdks/python/src/e2a/v1/generated/
+
+# generate-sdk-ts regenerates the TypeScript /v1 client base from the canonical
+# api/openapi.yaml using OpenAPI Generator's `typescript` generator (NOT
+# typescript-fetch, which fails TS2590 on wide models — see Slice 8). Output
+# lands in sdks/typescript/src/v1/oag/; the hand-written ergonomic layer wraps
+# it (next slice). Package scaffolding is suppressed via .openapi-generator-ignore.
+generate-sdk-ts:
+	@echo "==> Generating TS /v1 client base via $(OAG_IMAGE)"
+	bash sdks/typescript/scripts/generate-oag.sh

@@ -1,0 +1,10 @@
+# Suppress package scaffolding — only the client source is integrated into @e2a/sdk.
+package.json
+tsconfig.json
+tsconfig.esm.json
+.gitignore
+.npmignore
+git_push.sh
+.gitattributes
+# Per-operation markdown docs: redundant with api/openapi.yaml. Keep our own README.
+*.md
