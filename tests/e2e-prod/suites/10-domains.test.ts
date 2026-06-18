@@ -23,7 +23,7 @@ after(async () => {
 test("domains: register returns 201 with DNS records + zero-counted Domain", async () => {
   const domain = fakeDomain("reg");
   const r = await client.post<{ domain: string; dns_records?: { txt?: unknown; mx?: unknown; spf?: unknown; dkim?: unknown }; agent_count?: number }>(
-    "/api/v1/domains",
+    "/v1/domains",
     { body: { domain } },
   );
   if (r.status !== 201) {
@@ -31,7 +31,7 @@ test("domains: register returns 201 with DNS records + zero-counted Domain", asy
     // Hard assert — the primary register test of the domains suite must
     // fail loudly if POST /domains regresses, not just record a JSON
     // finding behind a green node:test dot.
-    assert.fail(`POST /api/v1/domains expected 201, got ${r.status}: ${r.raw.slice(0, 200)}`);
+    assert.fail(`POST /v1/domains expected 201, got ${r.status}: ${r.raw.slice(0, 200)}`);
   }
   track("domain", domain);
   assert.equal(r.body?.domain, domain, "echoed domain matches");
@@ -44,26 +44,26 @@ test("domains: register returns 201 with DNS records + zero-counted Domain", asy
 
 test("domains: GET /domains/{domain} returns same record after register", async () => {
   const domain = fakeDomain("get");
-  const c = await client.post("/api/v1/domains", { body: { domain } });
+  const c = await client.post("/v1/domains", { body: { domain } });
   if (c.status !== 201) {
     info(SUITE, "register-skipped", `register returned ${c.status} — skipping get probe: ${c.raw.slice(0, 200)}`);
     return;
   }
   track("domain", domain);
-  const g = await client.get<{ domain: string; dns_records?: unknown }>(`/api/v1/domains/${encodeURIComponent(domain)}`);
+  const g = await client.get<{ domain: string; dns_records?: unknown }>(`/v1/domains/${encodeURIComponent(domain)}`);
   assert.equal(g.status, 200, `GET expected 200, got ${g.status}: ${g.raw.slice(0, 200)}`);
   assert.equal(g.body?.domain, domain);
 });
 
 test("domains: list includes newly-registered domain", async () => {
   const domain = fakeDomain("list");
-  const c = await client.post("/api/v1/domains", { body: { domain } });
+  const c = await client.post("/v1/domains", { body: { domain } });
   if (c.status !== 201) {
     info(SUITE, "list-skipped", `register returned ${c.status} — skipping list probe`);
     return;
   }
   track("domain", domain);
-  const list = await client.get<{ domains: Array<{ domain: string }> }>("/api/v1/domains");
+  const list = await client.get<{ domains: Array<{ domain: string }> }>("/v1/domains");
   assert.equal(list.status, 200);
   const found = list.body?.domains.some((d) => d.domain === domain);
   assert.ok(found, `freshly-registered ${domain} not in list response`);
@@ -71,14 +71,14 @@ test("domains: list includes newly-registered domain", async () => {
 
 test("domains: verify unowned-DNS domain returns 412 (TXT missing) with per-record diagnostic", async () => {
   const domain = fakeDomain("verify");
-  const c = await client.post("/api/v1/domains", { body: { domain } });
+  const c = await client.post("/v1/domains", { body: { domain } });
   if (c.status !== 201) {
     info(SUITE, "verify-skipped", `register returned ${c.status} — skipping verify`);
     return;
   }
   track("domain", domain);
   const v = await client.post<{ domain: string; mx?: unknown; spf?: unknown; dkim?: unknown }>(
-    `/api/v1/domains/${encodeURIComponent(domain)}/verify`,
+    `/v1/domains/${encodeURIComponent(domain)}/verify`,
     { body: {} },
   );
   // Spec: 200 if verified, 412 if TXT missing. Real DNS for our fake domain has no
@@ -98,21 +98,21 @@ test("domains: verify unowned-DNS domain returns 412 (TXT missing) with per-reco
 
 test("domains: DELETE returns 204 and removes from list", async () => {
   const domain = fakeDomain("del");
-  const c = await client.post("/api/v1/domains", { body: { domain } });
+  const c = await client.post("/v1/domains", { body: { domain } });
   if (c.status !== 201) {
     info(SUITE, "delete-skipped", `register returned ${c.status} — skipping delete probe`);
     return;
   }
   // Don't track — this test consumes it.
-  const del = await client.delete(`/api/v1/domains/${encodeURIComponent(domain)}`);
+  const del = await client.delete(`/v1/domains/${encodeURIComponent(domain)}`);
   assert.equal(del.status, 204, `DELETE expected 204, got ${del.status}: ${del.raw.slice(0, 200)}`);
-  const after = await client.get(`/api/v1/domains/${encodeURIComponent(domain)}`);
+  const after = await client.get(`/v1/domains/${encodeURIComponent(domain)}`);
   assert.ok(after.status === 404 || after.status === 403, `deleted domain should 404/403, got ${after.status}`);
 });
 
 test("domains: DELETE of a domain with agents on it fails (400)", async () => {
   const domain = fakeDomain("inuse");
-  const c = await client.post("/api/v1/domains", { body: { domain } });
+  const c = await client.post("/v1/domains", { body: { domain } });
   if (c.status !== 201) {
     info(SUITE, "in-use-skipped", `register returned ${c.status} — skipping in-use probe`);
     return;
@@ -129,24 +129,24 @@ test("domains: DELETE of a domain with agents on it fails (400)", async () => {
 });
 
 test("domains: register malformed domain returns 4xx", async () => {
-  const r = await client.post("/api/v1/domains", { body: { domain: "not a domain, just garbage" } });
+  const r = await client.post("/v1/domains", { body: { domain: "not a domain, just garbage" } });
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx for bad domain, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("domains: register empty body returns 4xx", async () => {
-  const r = await client.post("/api/v1/domains", { body: {} });
+  const r = await client.post("/v1/domains", { body: {} });
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx for empty body, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("domains: register duplicate returns 4xx (probably 409)", async () => {
   const domain = fakeDomain("dup");
-  const first = await client.post("/api/v1/domains", { body: { domain } });
+  const first = await client.post("/v1/domains", { body: { domain } });
   if (first.status !== 201) {
     info(SUITE, "dup-skipped", `first register returned ${first.status} — skipping dup probe`);
     return;
   }
   track("domain", domain);
-  const second = await client.post("/api/v1/domains", { body: { domain } });
+  const second = await client.post("/v1/domains", { body: { domain } });
   assert.ok(second.status >= 400 && second.status < 500, `dup expected 4xx, got ${second.status}: ${second.raw.slice(0, 200)}`);
   if (second.status !== 409) {
     info(SUITE, "dup-non-409", `duplicate domain register returned ${second.status} instead of 409: ${second.raw.slice(0, 200)}`);
@@ -154,12 +154,12 @@ test("domains: register duplicate returns 4xx (probably 409)", async () => {
 });
 
 test("domains: GET unowned domain returns 4xx (no info leak)", async () => {
-  const r = await client.get(`/api/v1/domains/${encodeURIComponent("not-mine-domain-987654321.example.com")}`);
+  const r = await client.get(`/v1/domains/${encodeURIComponent("not-mine-domain-987654321.example.com")}`);
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("domains: DELETE unowned domain returns 4xx (no cross-tenant delete)", async () => {
-  const r = await client.delete(`/api/v1/domains/${encodeURIComponent("not-mine-domain-987654321.example.com")}`);
+  const r = await client.delete(`/v1/domains/${encodeURIComponent("not-mine-domain-987654321.example.com")}`);
   if (r.status === 200 || r.status === 204) {
     fail(SUITE, "cross-tenant-domain-delete", "CRITICAL: deleted a domain we don't own");
   }
@@ -167,12 +167,12 @@ test("domains: DELETE unowned domain returns 4xx (no cross-tenant delete)", asyn
 });
 
 test("domains: verify nonexistent domain returns 404", async () => {
-  const r = await client.post(`/api/v1/domains/${encodeURIComponent("definitely-not-registered-" + Date.now() + ".example.com")}/verify`, { body: {} });
+  const r = await client.post(`/v1/domains/${encodeURIComponent("definitely-not-registered-" + Date.now() + ".example.com")}/verify`, { body: {} });
   assert.ok(r.status === 404 || (r.status >= 400 && r.status < 500), `expected 404/4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("domains: PATCH on nonexistent domain returns 4xx", async () => {
-  const r = await client.patch(`/api/v1/domains/${encodeURIComponent("definitely-not-registered-" + Date.now() + ".example.com")}`, {
+  const r = await client.patch(`/v1/domains/${encodeURIComponent("definitely-not-registered-" + Date.now() + ".example.com")}`, {
     body: { is_primary: true },
   });
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);

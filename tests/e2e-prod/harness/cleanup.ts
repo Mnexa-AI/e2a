@@ -1,6 +1,6 @@
 import type { ApiClient } from "./client.ts";
 
-type Kind = "agent" | "domain" | "signing_secret";
+type Kind = "agent" | "domain";
 
 interface Tracked {
   kind: Kind;
@@ -46,11 +46,9 @@ export async function cleanup(client: ApiClient, opts: { force?: boolean } = {})
 function pathFor(t: Tracked): string {
   switch (t.kind) {
     case "agent":
-      return `/api/v1/agents/${encodeURIComponent(t.id)}`;
+      return `/v1/agents/${encodeURIComponent(t.id)}`;
     case "domain":
-      return `/api/v1/domains/${encodeURIComponent(t.id)}`;
-    case "signing_secret":
-      return `/api/v1/users/me/signing-secrets/${encodeURIComponent(t.id)}`;
+      return `/v1/domains/${encodeURIComponent(t.id)}`;
   }
 }
 

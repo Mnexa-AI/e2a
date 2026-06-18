@@ -16,15 +16,15 @@ after(async () => {
   writeReport(`./reports/04-quota.json`);
 });
 
-test("quota: send /api/v1/send rapidly until first 429 (spec says 60/min/agent)", async () => {
+test("quota: send /v1/agents/{email}/messages rapidly until first 429 (spec says 60/min/agent)", async () => {
   const slug = uniqueSlug("quota");
-  const c = await client.post<{ email: string }>("/api/v1/agents", {
+  const c = await client.post<{ email: string }>("/v1/agents", {
     body: { slug, name: "quota", agent_mode: "local" },
   });
   assert.equal(c.status, 201);
   const email = c.body!.email;
   track("agent", email);
-  await client.put(`/api/v1/agents/${encodeURIComponent(email)}`, {
+  await client.put(`/v1/agents/${encodeURIComponent(email)}`, {
     body: { hitl_enabled: true, hitl_expiration_action: "reject", hitl_ttl_seconds: 60 },
   });
 
@@ -33,8 +33,8 @@ test("quota: send /api/v1/send rapidly until first 429 (spec says 60/min/agent)"
 
   const MAX_PROBE = 70;
   for (let i = 0; i < MAX_PROBE; i++) {
-    const r = await burst.post<{ message_id: string; status: string }>("/api/v1/send", {
-      body: { from: email, to: ["blackhole@e2a.dev"], subject: `probe ${i}`, body: "x" },
+    const r = await burst.post<{ message_id: string; status: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
+      body: { to: ["blackhole@e2a.dev"], subject: `probe ${i}`, body: "x" },
     });
     if (r.status === 429) {
       limited = { status: r.status, retryAfter: r.headers["retry-after"], index: i };
@@ -61,7 +61,7 @@ test("quota: send /api/v1/send rapidly until first 429 (spec says 60/min/agent)"
 
   // Reject everything we queued so no actual mail leaves the system.
   for (const id of ids) {
-    await burst.post(`/api/v1/messages/${id}/reject`, { body: { reason: "e2e cleanup" } });
+    await burst.post(`/v1/agents/${encodeURIComponent(email)}/messages/${id}/reject`, { body: { reason: "e2e cleanup" } });
   }
 });
 
@@ -70,7 +70,7 @@ test("quota: 429 on /agents create is documented and observable under repeated c
   let createdLimit: number | null = null;
   let lastCreatedEmail: string | null = null;
   for (let i = 0; i < 15; i++) {
-    const r = await burst.post<{ email: string }>("/api/v1/agents", {
+    const r = await burst.post<{ email: string }>("/v1/agents", {
       body: { slug: uniqueSlug(`q${i}`), name: "q", agent_mode: "local" },
     });
     if (r.body?.email) {
@@ -100,8 +100,8 @@ test("quota: 429 on /agents create is documented and observable under repeated c
 
 test("quota: rate-limited send still allows reads from same key (non-blocking)", async () => {
   // Even when a send-quota is exhausted, GETs on the same key should keep working.
-  const r = await burst.get("/api/v1/info");
+  const r = await burst.get("/v1/info");
   assert.equal(r.status, 200, "info endpoint should remain accessible regardless of send quota");
-  const a = await burst.get("/api/v1/agents");
+  const a = await burst.get("/v1/agents");
   assert.equal(a.status, 200, "list agents should remain accessible");
 });

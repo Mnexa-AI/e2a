@@ -27,20 +27,20 @@ function noteShape(label: string, r: RawResponse) {
 }
 
 test("error-contract: malformed JSON body returns 4xx, not 5xx", async () => {
-  const r = await client.post("/api/v1/agents", { body: "{not json", headers: { "Content-Type": "application/json" } });
+  const r = await client.post("/v1/agents", { body: "{not json", headers: { "Content-Type": "application/json" } });
   noteShape("post-agents-bad-json", r);
   if (r.status >= 500) fail(SUITE, "bad-json-500", `malformed JSON caused ${r.status}: ${r.raw.slice(0, 200)}`);
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}`);
 });
 
 test("error-contract: empty body on POST /agents returns 4xx", async () => {
-  const r = await client.post("/api/v1/agents", { body: "", headers: { "Content-Type": "application/json" } });
+  const r = await client.post("/v1/agents", { body: "", headers: { "Content-Type": "application/json" } });
   noteShape("post-agents-empty", r);
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("error-contract: wrong content-type on POST /agents returns 4xx", async () => {
-  const r = await client.post("/api/v1/agents", {
+  const r = await client.post("/v1/agents", {
     body: "slug=foo&name=bar",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
   });
@@ -49,36 +49,36 @@ test("error-contract: wrong content-type on POST /agents returns 4xx", async () 
 });
 
 test("error-contract: GET /info ignores body+method shenanigans", async () => {
-  const r = await client.get("/api/v1/info");
+  const r = await client.get("/v1/info");
   assert.equal(r.status, 200);
 });
 
 test("error-contract: POST /info returns 4xx or 405 (read-only endpoint)", async () => {
-  const r = await client.post("/api/v1/info", { body: {} });
+  const r = await client.post("/v1/info", { body: {} });
   noteShape("post-info", r);
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
-test("error-contract: PUT /api/v1/messages (no such method) returns 405 or 4xx", async () => {
-  const r = await client.put("/api/v1/messages", { body: {} });
+test("error-contract: PUT /v1/agents/{email}/messages (no such method) returns 405 or 4xx", async () => {
+  const r = await client.put(`/v1/agents/${encodeURIComponent(client.env.primaryAgentEmail)}/messages`, { body: {} });
   noteShape("put-messages", r);
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}`);
 });
 
-test("error-contract: DELETE /api/v1/messages (no such method) returns 4xx", async () => {
-  const r = await client.delete("/api/v1/messages");
+test("error-contract: DELETE /v1/agents/{email}/messages (no such method) returns 4xx", async () => {
+  const r = await client.delete(`/v1/agents/${encodeURIComponent(client.env.primaryAgentEmail)}/messages`);
   noteShape("delete-messages", r);
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}`);
 });
 
 test("error-contract: GET nonexistent path returns 404", async () => {
-  const r = await client.get("/api/v1/this/does/not/exist");
+  const r = await client.get("/v1/this/does/not/exist");
   noteShape("nonexistent-path", r);
   assert.equal(r.status, 404, `expected 404, got ${r.status}`);
 });
 
 test("error-contract: traversal attempt returns 4xx, not file leak", async () => {
-  const r = await client.get("/api/v1/agents/..%2F..%2Fetc%2Fpasswd");
+  const r = await client.get("/v1/agents/..%2F..%2Fetc%2Fpasswd");
   if (r.status === 200) {
     fail(SUITE, "traversal-200", "path traversal returned 200 — possible bug");
   }
@@ -87,48 +87,49 @@ test("error-contract: traversal attempt returns 4xx, not file leak", async () =>
 
 test("error-contract: very long email path is bounded (no 500)", async () => {
   const long = "a".repeat(2000) + "@example.com";
-  const r = await client.get(`/api/v1/agents/${encodeURIComponent(long)}`);
+  const r = await client.get(`/v1/agents/${encodeURIComponent(long)}`);
   if (r.status >= 500) fail(SUITE, "long-email-500", `${r.status}: ${r.raw.slice(0, 200)}`);
   assert.ok(r.status < 500, `expected <500, got ${r.status}`);
 });
 
 test("error-contract: invalid query types on /messages?limit=abc handled gracefully", async () => {
-  const r = await client.get("/api/v1/messages?limit=abc");
+  const r = await client.get(`/v1/agents/${encodeURIComponent(client.env.primaryAgentEmail)}/messages?limit=abc`);
   if (r.status >= 500) fail(SUITE, "bad-limit-500", `${r.status}: ${r.raw.slice(0, 200)}`);
   assert.ok(r.status < 500, `expected <500, got ${r.status}`);
 });
 
 test("error-contract: PATCH on /domains/<bogus> returns 4xx", async () => {
-  const r = await client.patch(`/api/v1/domains/bogus-${Date.now()}.example.com`, { body: {} });
+  const r = await client.patch(`/v1/domains/bogus-${Date.now()}.example.com`, { body: {} });
   noteShape("patch-bogus-domain", r);
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("error-contract: POST /domains/<bogus>/verify returns 4xx", async () => {
-  const r = await client.post(`/api/v1/domains/bogus-${Date.now()}.example.com/verify`, { body: {} });
+  const r = await client.post(`/v1/domains/bogus-${Date.now()}.example.com/verify`, { body: {} });
   noteShape("verify-bogus-domain", r);
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
-test("error-contract: invalid email path in /send.from", async () => {
-  const r = await client.post("/api/v1/send", {
-    body: { from: "not-an-email", to: ["someone@example.com"], subject: "x", body: "x" },
+test("error-contract: invalid sending-agent email in path", async () => {
+  // The sender is named in the path; a malformed sender address must 4xx.
+  const r = await client.post(`/v1/agents/${encodeURIComponent("not-an-email")}/messages`, {
+    body: { to: ["someone@example.com"], subject: "x", body: "x" },
   });
   noteShape("send-bad-from", r);
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("error-contract: send with empty 'to' array returns 4xx", async () => {
-  const r = await client.post("/api/v1/send", {
-    body: { from: client.env.primaryAgentEmail, to: [], subject: "x", body: "x" },
+  const r = await client.post(`/v1/agents/${encodeURIComponent(client.env.primaryAgentEmail)}/messages`, {
+    body: { to: [], subject: "x", body: "x" },
   });
   noteShape("send-empty-to", r);
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("error-contract: send with invalid recipient address returns 4xx (no smtp call)", async () => {
-  const r = await client.post("/api/v1/send", {
-    body: { from: client.env.primaryAgentEmail, to: ["definitely not an email"], subject: "x", body: "x" },
+  const r = await client.post(`/v1/agents/${encodeURIComponent(client.env.primaryAgentEmail)}/messages`, {
+    body: { to: ["definitely not an email"], subject: "x", body: "x" },
   });
   noteShape("send-bad-recipient", r);
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);

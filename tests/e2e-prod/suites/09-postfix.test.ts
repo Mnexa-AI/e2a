@@ -16,7 +16,7 @@ after(async () => {
 
 test("postfix #3: POST /agents without agent_mode returns 400 (was implicit default to cloud)", async () => {
   const slug = uniqueSlug("nomode");
-  const r = await client.post("/api/v1/agents", { body: { slug, name: "no mode" } });
+  const r = await client.post("/v1/agents", { body: { slug, name: "no mode" } });
   assert.equal(r.status, 400, `expected 400, got ${r.status}: ${r.raw.slice(0, 200)}`);
   // Body should mention agent_mode explicitly.
   assert.ok(/agent_mode/i.test(r.raw), `expected error mentioning agent_mode, got: ${r.raw.slice(0, 200)}`);
@@ -25,14 +25,14 @@ test("postfix #3: POST /agents without agent_mode returns 400 (was implicit defa
 
 test("postfix #3: invalid agent_mode value returns 400", async () => {
   const slug = uniqueSlug("badmode");
-  const r = await client.post("/api/v1/agents", {
+  const r = await client.post("/v1/agents", {
     body: { slug, name: "bad mode", agent_mode: "neither-local-nor-cloud" },
   });
   assert.equal(r.status, 400, `expected 400, got ${r.status}`);
 });
 
 test("postfix #4: GET nonexistent path returns 404 with text/plain body", async () => {
-  const r = await client.get("/api/v1/this/does/not/exist");
+  const r = await client.get("/v1/this/does/not/exist");
   assert.equal(r.status, 404, `expected 404, got ${r.status}`);
   const ct = r.headers["content-type"] ?? "";
   assert.ok(ct.startsWith("text/plain"), `expected text/plain, got "${ct}"`);
@@ -41,7 +41,7 @@ test("postfix #4: GET nonexistent path returns 404 with text/plain body", async 
 });
 
 test("postfix #4: wrong-method on /info returns 405 with text/plain body (was empty)", async () => {
-  const r = await client.post("/api/v1/info", { body: {} });
+  const r = await client.post("/v1/info", { body: {} });
   assert.equal(r.status, 405, `expected 405, got ${r.status}`);
   const ct = r.headers["content-type"] ?? "";
   assert.ok(ct.startsWith("text/plain"), `expected text/plain, got "${ct}"`);
@@ -50,7 +50,8 @@ test("postfix #4: wrong-method on /info returns 405 with text/plain body (was em
 });
 
 test("postfix #4: wrong-method on /messages returns 405 with body", async () => {
-  const r = await client.put("/api/v1/messages", { body: {} });
+  const email = client.env.primaryAgentEmail;
+  const r = await client.put(`/v1/agents/${encodeURIComponent(email)}/messages`, { body: {} });
   assert.equal(r.status, 405, `expected 405, got ${r.status}`);
   const ct = r.headers["content-type"] ?? "";
   assert.ok(ct.startsWith("text/plain"), `expected text/plain, got "${ct}"`);
@@ -58,8 +59,8 @@ test("postfix #4: wrong-method on /messages returns 405 with body", async () => 
 
 test("postfix #6: GET /agents/{email} is case-insensitive (lowercase + uppercase match)", async () => {
   const email = client.env.primaryAgentEmail;
-  const lower = await client.get(`/api/v1/agents/${encodeURIComponent(email.toLowerCase())}`);
-  const upper = await client.get(`/api/v1/agents/${encodeURIComponent(email.toUpperCase())}`);
+  const lower = await client.get(`/v1/agents/${encodeURIComponent(email.toLowerCase())}`);
+  const upper = await client.get(`/v1/agents/${encodeURIComponent(email.toUpperCase())}`);
   assert.equal(lower.status, 200, "lowercase form should resolve");
   assert.equal(upper.status, 200, `uppercase form should also resolve, got ${upper.status}: ${upper.raw.slice(0, 200)}`);
   if (lower.body && upper.body) {
@@ -75,14 +76,13 @@ test("postfix #6: GET /agents/{email} with mixed-case still matches", async () =
   const local = email.split("@")[0];
   const domain = email.split("@")[1];
   const mixed = local.toUpperCase() + "@" + domain.toLowerCase();
-  const r = await client.get(`/api/v1/agents/${encodeURIComponent(mixed)}`);
+  const r = await client.get(`/v1/agents/${encodeURIComponent(mixed)}`);
   assert.equal(r.status, 200, `mixed-case email should match, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("postfix #7: /send with CRLF in subject is rejected at the API (400)", async () => {
-  const r = await client.post("/api/v1/send", {
+  const r = await client.post(`/v1/agents/${encodeURIComponent(client.env.primaryAgentEmail)}/messages`, {
     body: {
-      from: client.env.primaryAgentEmail,
       to: ["blackhole@e2a.dev"],
       subject: "Hello\r\nBcc: attacker@evil.com",
       body: "x",
@@ -94,9 +94,8 @@ test("postfix #7: /send with CRLF in subject is rejected at the API (400)", asyn
 });
 
 test("postfix #7: bare LF in subject is also rejected (no carriage return)", async () => {
-  const r = await client.post("/api/v1/send", {
+  const r = await client.post(`/v1/agents/${encodeURIComponent(client.env.primaryAgentEmail)}/messages`, {
     body: {
-      from: client.env.primaryAgentEmail,
       to: ["blackhole@e2a.dev"],
       subject: "Hello\nX-Smuggled: yes",
       body: "x",
@@ -118,7 +117,7 @@ test("postfix #1 #2: /agents 429 includes Retry-After header (active probe — d
   let saw429 = false;
   let retryAfter: string | undefined;
   for (let i = 0; i < 25; i++) {
-    const r = await client.post<{ email?: string }>("/api/v1/agents", {
+    const r = await client.post<{ email?: string }>("/v1/agents", {
       body: { slug: uniqueSlug(`pf${i}`), name: "pf", agent_mode: "local" },
     });
     if (r.status === 429) {

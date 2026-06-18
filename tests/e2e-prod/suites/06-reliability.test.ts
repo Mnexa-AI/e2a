@@ -13,7 +13,7 @@ let sharedAgentEmail = "";
 before(async () => {
   // Single agent shared across reliability tests to avoid hitting the agent-creation rate limit.
   const slug = uniqueSlug("rel");
-  const c = await client.post<{ email: string }>("/api/v1/agents", {
+  const c = await client.post<{ email: string }>("/v1/agents", {
     body: { slug, name: "rel-shared", agent_mode: "local" },
   });
   if (c.status !== 201) {
@@ -31,7 +31,7 @@ after(async () => {
 
 function wsUrl(email: string): string {
   const base = client.env.apiUrl.replace(/^http/, "ws");
-  return `${base}/api/v1/agents/${encodeURIComponent(email)}/ws`;
+  return `${base}/v1/agents/${encodeURIComponent(email)}/ws`;
 }
 
 function openWS(url: string, key?: string | null, timeoutMs = 5_000): Promise<WebSocket> {
@@ -149,12 +149,12 @@ test("reliability: two concurrent WS sessions to same agent", async () => {
 
 test("reliability: idempotent PUT — applying same payload twice yields same state", async () => {
   const payload = { hitl_enabled: true, hitl_expiration_action: "reject", hitl_ttl_seconds: 120 };
-  const first = await client.put(`/api/v1/agents/${encodeURIComponent(sharedAgentEmail)}`, { body: payload });
-  const second = await client.put(`/api/v1/agents/${encodeURIComponent(sharedAgentEmail)}`, { body: payload });
+  const first = await client.put(`/v1/agents/${encodeURIComponent(sharedAgentEmail)}`, { body: payload });
+  const second = await client.put(`/v1/agents/${encodeURIComponent(sharedAgentEmail)}`, { body: payload });
   assert.equal(first.status, 200);
   assert.equal(second.status, 200);
   const g = await client.get<{ hitl_enabled: boolean; hitl_ttl_seconds: number; hitl_expiration_action: string }>(
-    `/api/v1/agents/${encodeURIComponent(sharedAgentEmail)}`,
+    `/v1/agents/${encodeURIComponent(sharedAgentEmail)}`,
   );
   assert.equal(g.body?.hitl_enabled, true);
   assert.equal(g.body?.hitl_ttl_seconds, 120);
@@ -162,25 +162,25 @@ test("reliability: idempotent PUT — applying same payload twice yields same st
 });
 
 test("reliability: server timestamps are RFC3339-parseable", async () => {
-  const r = await client.get<{ created_at: string }>(`/api/v1/agents/${encodeURIComponent(sharedAgentEmail)}`);
+  const r = await client.get<{ created_at: string }>(`/v1/agents/${encodeURIComponent(sharedAgentEmail)}`);
   assert.ok(r.body?.created_at);
   const t = new Date(r.body!.created_at).valueOf();
   assert.ok(!Number.isNaN(t), `created_at should parse as date: ${r.body?.created_at}`);
   assert.ok(t > 0 && t < Date.now() + 60_000, "created_at is plausibly recent");
 });
 
-test("reliability: GET /messages with bogus next_token returns 4xx, not 500", async () => {
-  const r = await client.get("/api/v1/messages", {
-    query: { limit: 5, next_token: "completely-invalid-token-xx" },
+test("reliability: GET /messages with bogus cursor returns 4xx, not 500", async () => {
+  const r = await client.get(`/v1/agents/${encodeURIComponent(sharedAgentEmail)}/messages`, {
+    query: { limit: 5, cursor: "completely-invalid-token-xx" },
   });
   if (r.status >= 500) {
-    fail(SUITE, "pagination-500", `bogus next_token caused ${r.status}: ${r.raw.slice(0, 200)}`);
+    fail(SUITE, "pagination-500", `bogus cursor caused ${r.status}: ${r.raw.slice(0, 200)}`);
   }
   assert.ok(r.status < 500, `expected <500, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("reliability: GET /messages with negative limit returns 4xx, not 500", async () => {
-  const r = await client.get("/api/v1/messages", { query: { limit: -5 } });
+  const r = await client.get(`/v1/agents/${encodeURIComponent(sharedAgentEmail)}/messages`, { query: { limit: -5 } });
   if (r.status >= 500) {
     fail(SUITE, "negative-limit-500", `negative limit caused ${r.status}: ${r.raw.slice(0, 200)}`);
   }
@@ -188,14 +188,14 @@ test("reliability: GET /messages with negative limit returns 4xx, not 500", asyn
 });
 
 test("reliability: GET /messages with absurdly large limit returns 4xx or capped result, not 500", async () => {
-  const r = await client.get<{ messages: unknown[] }>("/api/v1/messages", { query: { limit: 1_000_000 } });
+  const r = await client.get<{ items: unknown[] }>(`/v1/agents/${encodeURIComponent(sharedAgentEmail)}/messages`, { query: { limit: 1_000_000 } });
   if (r.status >= 500) {
     fail(SUITE, "huge-limit-500", `huge limit caused ${r.status}: ${r.raw.slice(0, 200)}`);
   }
   assert.ok(r.status < 500, `expected <500, got ${r.status}`);
-  if (r.status === 200 && Array.isArray(r.body?.messages) && r.body!.messages.length > 1000) {
-    info(SUITE, "limit-uncapped", `server returned ${r.body!.messages.length} items for limit=1M — no server-side cap`);
+  if (r.status === 200 && Array.isArray(r.body?.items) && r.body!.items.length > 1000) {
+    info(SUITE, "limit-uncapped", `server returned ${r.body!.items.length} items for limit=1M — no server-side cap`);
   } else if (r.status === 200) {
-    info(SUITE, "limit-capped", `server capped result to ${r.body?.messages.length ?? "?"} items for limit=1M`);
+    info(SUITE, "limit-capped", `server capped result to ${r.body?.items.length ?? "?"} items for limit=1M`);
   }
 });
