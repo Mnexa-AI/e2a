@@ -158,6 +158,17 @@ async def test_retry_after_clamped_to_ceiling():
 
 
 @pytest.mark.anyio
+async def test_non_transport_httpx_error_wrapped():
+    # Regression: a non-TransportError httpx error must surface as a typed
+    # E2AError, not a raw httpx exception. Not retried.
+    async def make(_headers):
+        raise httpx.HTTPError("boom")
+
+    with pytest.raises(E2AConnectionError):
+        await request_with_retry(make, cfg=cfg(), retryable=True, idempotency=False)
+
+
+@pytest.mark.anyio
 async def test_total_deadline_stops_before_retry():
     s = Script([_api_exc(503), _api_exc(503)])
     # Frozen clock + max jitter => backoff(0)=200ms > max_elapsed_ms 100.

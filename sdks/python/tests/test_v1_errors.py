@@ -101,6 +101,13 @@ def test_missing_envelope_does_not_crash():
         assert err.status == 500
 
 
+def test_list_valued_retry_after_does_not_crash():
+    # Regression: a non-string Retry-After must not raise TypeError out of the mapper.
+    err = from_api_exception(_exc(503, body="{}", headers={"retry-after": ["12", "34"]}))
+    assert isinstance(err, E2AServerError)
+    assert err.retry_after_seconds is None
+
+
 def test_connection_error_helper():
     err = connection_error("refused", cause=OSError("ECONNREFUSED"))
     assert isinstance(err, E2AConnectionError)

@@ -12,8 +12,10 @@ from __future__ import annotations
 import os
 from typing import Any, Awaitable, Callable, List, Optional, Sequence, Type, TypeVar, Union
 
+from pydantic import ValidationError
+
 from ._retry import RetryConfig, request_with_retry
-from .errors import E2AError
+from .errors import E2AError, E2AValidationError
 from .oag.api.account_api import AccountApi
 from .oag.api.agents_api import AgentsApi
 from .oag.api.conversations_api import ConversationsApi
@@ -84,7 +86,17 @@ def _coerce(model_cls: Type[T], body: Optional[Body]) -> T:
         return model_cls()  # type: ignore[call-arg]
     if isinstance(body, model_cls):
         return body
-    return model_cls.model_validate(body)  # type: ignore[attr-defined]
+    try:
+        return model_cls.model_validate(body)  # type: ignore[attr-defined]
+    except ValidationError as e:
+        # A bad request body is the caller's input error — surface it typed
+        # rather than leaking a raw pydantic ValidationError.
+        raise E2AValidationError(
+            code="invalid_request_body",
+            message=f"invalid request body for {model_cls.__name__}: {e}",
+            status=0,
+            retryable=False,
+        ) from e
 
 
 class E2AClient:
@@ -506,6 +518,9 @@ class AccountResource:
         return await self._c._read(lambda h: self._api.export_account(_headers=h))
 
     async def delete(self, confirm: Optional[str] = None) -> DeleteUserDataResult:
+        # Deliberately NOT retried (unlike the other DELETEs): account deletion is
+        # irreversible, so a transient failure should surface loudly to the caller
+        # rather than silently re-firing.
         return await self._c._write_unsafe(
             lambda h: self._api.delete_account(confirm=confirm, _headers=h)
         )

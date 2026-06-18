@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import time
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional, Sequence, Union
@@ -58,6 +59,10 @@ def verify_webhook_signature(
     try:
         ts = float(t)
     except ValueError:
+        return False
+    # Reject non-finite timestamps: abs(now - nan) > tol is False, which would
+    # silently disable the replay guard for a t=nan delivery.
+    if not math.isfinite(ts):
         return False
     if now is None:
         now = time.time()

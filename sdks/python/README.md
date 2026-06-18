@@ -58,7 +58,7 @@ await client.messages.send(address, {
 })
 ```
 
-Unsafe writes (`send` / `reply` / `forward` / `approve`) auto-mint an
+The mail-sending writes (`send` / `reply` / `forward` / `approve`) auto-mint an
 `Idempotency-Key` and reuse it across retries, so a network blip can't
 double-send. Pass a stable key to also survive a process restart:
 

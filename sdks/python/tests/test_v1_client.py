@@ -229,3 +229,12 @@ def test_listen_requires_address():
     c = _client()
     with pytest.raises(E2AError, match="address is required"):
         c.listen()
+
+
+@pytest.mark.anyio
+async def test_invalid_request_body_raises_typed_validation_error():
+    # Regression: a bad body must raise E2AValidationError, not a raw pydantic
+    # ValidationError (the SDK contract is "everything is an E2AError").
+    async with _client() as c:
+        with pytest.raises(E2AValidationError):
+            await c.agents.create([1, 2, 3])

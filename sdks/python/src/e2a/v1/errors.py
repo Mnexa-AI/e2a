@@ -159,13 +159,13 @@ def _header_get(headers: Optional[Mapping[str, str]], name: str) -> Optional[str
 
 def _parse_retry_after(headers: Optional[Mapping[str, str]]) -> Optional[float]:
     v = _header_get(headers, "retry-after")
-    if not v:
+    if not v or not isinstance(v, str):
         return None
     try:
         secs = float(v)
         if secs >= 0:
             return secs
-    except ValueError:
+    except (TypeError, ValueError):
         pass
     # RFC 9110 §10.2.3 also allows an HTTP-date (common behind CDNs).
     try:

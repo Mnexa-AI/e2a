@@ -73,6 +73,17 @@ def test_accepts_either_v1_during_rotation_grace() -> None:
     assert verify_webhook_signature(body, header, new_secret)
 
 
+def test_rejects_nan_timestamp() -> None:
+    # Regression: float("nan") parses, and abs(now - nan) > tol is False, which
+    # would silently disable replay protection. Even a correctly-signed t=nan
+    # must be rejected.
+    body = "{}"
+    t = "nan"
+    v1 = _sign(SECRET, t, body)
+    assert not verify_webhook_signature(body, f"t={t},v1={v1}", SECRET)
+    assert not verify_webhook_signature(body, f"t=inf,v1={_sign(SECRET, 'inf', body)}", SECRET)
+
+
 def test_rejects_malformed_header() -> None:
     assert not verify_webhook_signature("{}", "", SECRET)
     assert not verify_webhook_signature("{}", "t=123", SECRET)

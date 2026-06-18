@@ -130,6 +130,10 @@ async def request_with_retry(
             can_retry = retryable
         except E2AError:
             raise  # already typed (e.g. a nested helper) — pass through
+        except httpx.HTTPError as e:
+            # Non-transport httpx error (InvalidURL, etc.) — not retryable, but
+            # surface it as a typed E2AError rather than a raw httpx exception.
+            raise connection_error(str(e), cause=e)
 
         if not can_retry or attempt >= cfg.max_retries:
             raise _as_e2a_error(exc, api_exc)
