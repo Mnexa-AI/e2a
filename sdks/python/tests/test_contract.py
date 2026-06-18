@@ -4,10 +4,10 @@ Runs against a live test server. Requires env vars:
   E2A_TEST_BASE_URL  — test server URL (e.g. http://localhost:8080)
   E2A_TEST_API_KEY   — valid API key for the test user
 
-The runner routes scenario steps through the SDK's public API:
-- Agent/domain CRUD via E2AApi methods
-- Message listing/fetching via E2AApi methods
-- Auth-override scenarios via a bare httpx.Client (by design, to bypass SDK auth)
+The runner drives the server over raw HTTP (a thin scenario interpreter, not
+the ergonomic client):
+- Each request step issues a raw bearer-authed httpx request to step.path
+- Auth-override scenarios send their own Authorization header (by design)
 - WS scenarios skipped in this sync runner (async WS tested separately)
 
 Setup steps requiring direct store access (inject_message, verify_domain as
@@ -21,14 +21,15 @@ import os
 import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 
 import httpx
 import pytest
 import yaml
 
-from e2a.v1.api import E2AApi, E2AApiError
-from e2a.v1.generated import RegisterAgentRequest, RegisterDomainRequest
+# NOTE: the runner drives the server over raw HTTP (a thin scenario interpreter,
+# not the ergonomic client). scenario `path`s are repointed from /api/v1 to /v1
+# as part of the cross-language scenarios.yaml migration (tracked separately);
+# this runner is gated behind live-server env vars and not part of unit CI.
 
 # ── Config ────────────────────────────────────────────────────────
 
@@ -92,92 +93,6 @@ def scenario_needs_store(sc: dict[str, Any]) -> bool:
     return False
 
 
-# ── SDK method routing ────────────────────────────────────────────
-
-# Maps (method, path_pattern) to an SDK method name and how to extract args.
-# This lets us route scenario steps through SDK public methods instead of raw HTTP.
-
-
-def _route_to_sdk(api: E2AApi, method: str, path: str, body: dict | None, resolve_fn) -> tuple[int, dict]:
-    """Try to route a request through SDK public methods.
-
-    Returns (status_code, response_body_dict).
-    Raises E2AApiError on HTTP errors (which the caller can inspect).
-    """
-    # POST /api/v1/agents
-    if method == "POST" and path == "/api/v1/agents":
-        result = api.register_agent(RegisterAgentRequest(**(body or {})))
-        return 201, result.model_dump(by_alias=True, exclude_none=True)
-
-    # GET /api/v1/agents
-    if method == "GET" and path == "/api/v1/agents":
-        result = api.list_agents()
-        return 200, result.model_dump(by_alias=True, exclude_none=True)
-
-    # GET /api/v1/agents/{email}
-    m = re.match(r"^/api/v1/agents/([^/]+)$", path)
-    if m and method == "GET":
-        result = api.get_agent(m.group(1))
-        return 200, result.model_dump(by_alias=True, exclude_none=True)
-
-    # DELETE /api/v1/agents/{email}
-    if m and method == "DELETE":
-        api.delete_agent(m.group(1))
-        return 200, {}
-
-    # POST /api/v1/domains
-    if method == "POST" and path == "/api/v1/domains":
-        result = api.register_domain(RegisterDomainRequest(**(body or {})))
-        return 201, result.model_dump(by_alias=True, exclude_none=True)
-
-    # GET /api/v1/domains
-    if method == "GET" and path == "/api/v1/domains":
-        result = api.list_domains()
-        return 200, result.model_dump(by_alias=True, exclude_none=True)
-
-    # POST /api/v1/domains/{domain}/verify
-    m = re.match(r"^/api/v1/domains/([^/]+)/verify$", path)
-    if m and method == "POST":
-        result = api.verify_domain(m.group(1))
-        return 200, result.model_dump(by_alias=True, exclude_none=True)
-
-    # DELETE /api/v1/domains/{domain}
-    m = re.match(r"^/api/v1/domains/([^/]+)$", path)
-    if m and method == "DELETE":
-        api.delete_domain(m.group(1))
-        return 204, {}
-
-    # GET /api/v1/agents/{email}/messages?...
-    m = re.match(r"^/api/v1/agents/([^/]+)/messages$", path.split("?")[0])
-    if m and method == "GET":
-        # Parse query params from path
-        import urllib.parse
-        parsed = urllib.parse.urlparse(path)
-        params = urllib.parse.parse_qs(parsed.query)
-        result = api.list_messages(
-            m.group(1),
-            status=params.get("status", ["unread"])[0],
-            page_size=int(params.get("page_size", ["50"])[0]),
-            token=params.get("token", [None])[0],
-        )
-        return 200, result.model_dump(by_alias=True, exclude_none=True)
-
-    # GET /api/v1/agents/{email}/messages/{id}
-    m = re.match(r"^/api/v1/agents/([^/]+)/messages/([^/]+)$", path)
-    if m and method == "GET":
-        result = api.get_message(m.group(1), m.group(2))
-        return 200, result.model_dump(by_alias=True, exclude_none=True)
-
-    # POST /api/v1/send
-    if method == "POST" and path == "/api/v1/send":
-        from e2a.v1.generated import SendEmailRequest
-        result = api.send_email(SendEmailRequest(**(body or {})))
-        return 200, result.model_dump(by_alias=True, exclude_none=True)
-
-    # Fallback: unrecognized path — cannot route through SDK
-    return None, None  # type: ignore
-
-
 # ── Runner ────────────────────────────────────────────────────────
 
 
@@ -187,13 +102,16 @@ class Runner:
         self.api_key = api_key
         self.scenario = scenario
         self.vars: dict[str, str] = {}
-        self.api = E2AApi(api_key=api_key, base_url=base_url)
-        # Bare HTTP client for auth-override and legacy-path scenarios only
         self._http = httpx.Client(base_url=base_url, timeout=30)
 
     def close(self):
-        self.api.close()
         self._http.close()
+
+    def _raw(self, method: str, path: str, body: Any = None) -> httpx.Response:
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+        return self._http.request(method, path, headers=headers, json=body)
 
     def resolve(self, s: str) -> str:
         s = s.replace("{base_url}", self.base_url)
@@ -226,22 +144,18 @@ class Runner:
 
             if "register_domain" in s:
                 domain = self.resolve(s["register_domain"])
-                try:
-                    self.api.register_domain(RegisterDomainRequest(domain=domain))
-                except E2AApiError as e:
-                    if e.status_code != 409:
-                        raise
+                resp = self._raw("POST", "/v1/domains", {"domain": domain})
+                if resp.status_code >= 400 and resp.status_code != 409:
+                    resp.raise_for_status()
 
             if "register_agent" in s:
                 agent = s["register_agent"]
                 email = self.resolve(agent["email"])
-                try:
-                    self.api.register_agent(RegisterAgentRequest(
-                        email=email, agent_mode=agent.get("agent_mode"),
-                    ))
-                except E2AApiError as e:
-                    if e.status_code != 409:
-                        raise
+                resp = self._raw(
+                    "POST", "/v1/agents", {"address": email, "agent_mode": agent.get("agent_mode")}
+                )
+                if resp.status_code >= 400 and resp.status_code != 409:
+                    resp.raise_for_status()
                 self.vars["agent_email"] = email
 
         return False
@@ -283,27 +197,11 @@ class Runner:
             data = None
             raw_body = resp.text
         else:
-            # Route through SDK public methods
-            try:
-                status, data = _route_to_sdk(self.api, step["method"], path, body, self.resolve)
-            except E2AApiError as e:
-                # SDK threw on non-2xx — check it matches expectation
-                if "status" in ex:
-                    assert e.status_code == ex["status"], (
-                        f"step {step['id']}: expected {ex['status']}, got {e.status_code}"
-                    )
-                return
-
-            if status is None:
-                # Unrecognized path (e.g. legacy /api/... aliases) — fall back to bare HTTP
-                resp = self._http.request(
-                    step["method"], path,
-                    headers={"Authorization": f"Bearer {self.api_key}"},
-                    json=body if body is not None else None,
-                )
-                status = resp.status_code
-                raw_body = resp.text
-                data = None
+            # Default auth — raw bearer request.
+            resp = self._raw(step["method"], path, body)
+            status = resp.status_code
+            raw_body = resp.text
+            data = None
 
         if "status" in ex:
             assert status == ex["status"], f"step {step['id']}: expected {ex['status']}, got {status}"

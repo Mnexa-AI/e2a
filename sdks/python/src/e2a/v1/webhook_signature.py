@@ -1,51 +1,48 @@
-"""Webhook signature verification for the top-level webhooks resource.
+"""Webhook signature verification for the /v1 webhooks resource.
 
-e2a signs each subscriber delivery with HMAC-SHA256 keyed by the
-webhook's ``signing_secret``. The signature is sent on the
-``X-E2A-Signature`` header in Stripe-style format::
+e2a signs each subscriber delivery with HMAC-SHA256 keyed by the webhook's
+per-webhook ``signing_secret`` (``whsec_...``), Stripe-style::
 
     X-E2A-Signature: t=<unix>,v1=<hex>[,v1=<hex>]
 
-During the 24h rotation grace window each delivery carries two
-``v1=`` pairs (one per active secret). Receivers should accept the
-request if ANY of the ``v1=`` signatures matches. The timestamp
-guards against replay — reject anything older than the configured
-tolerance (default 5 min).
-
-The signed payload is ``f"{t}.{raw_body}"``. Pass the raw request
-body bytes — re-serializing parsed JSON will not match because of
-whitespace and key-order differences.
+During the 24h rotation grace each delivery carries two ``v1=`` pairs (one per
+active secret); accept if ANY matches. The timestamp guards replay — reject
+anything older than the tolerance (default 5 min). The signed payload is
+``f"{t}.{raw_body}"`` — pass the RAW request body bytes; re-stringifying parsed
+JSON will not match (whitespace / key-order differ).
 """
 
 from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import time
-from typing import Optional, Union
+from dataclasses import dataclass, field
+from typing import Any, Mapping, Optional, Sequence, Union
+
+from .errors import E2AWebhookSignatureError
+
+__all__ = ["verify_webhook_signature", "construct_event", "WebhookEvent"]
+
+Secret = Union[str, Sequence[str]]
 
 
 def verify_webhook_signature(
     raw_body: Union[str, bytes],
     header: str,
-    secret: str,
+    secret: Secret,
     *,
     tolerance_seconds: int = 300,
     now: Optional[float] = None,
 ) -> bool:
     """Verify an ``X-E2A-Signature`` header.
 
-    Returns ``True`` on success and ``False`` on any failure (bad
-    format, missing pair, signature mismatch, replay). Never raises —
-    designed for use directly in an HTTP handler's branch decision.
+    Returns ``True`` on success and ``False`` on any failure (bad format,
+    missing pair, signature mismatch, replay). Never raises.
 
-    Args:
-        raw_body: Raw HTTP request body bytes (or text).
-        header: Value of the ``X-E2A-Signature`` header.
-        secret: Webhook signing secret (``whsec_...``).
-        tolerance_seconds: Replay window. Defaults to 300 (5 min).
-        now: Test-only clock override (unix seconds). Defaults to
-            ``time.time()``.
+    ``secret`` may be a single ``whsec_...`` string or a sequence of them (to
+    verify one handler against several endpoints' secrets / a rotation grace).
     """
     t = ""
     v1s: list[str] = []
@@ -67,18 +64,69 @@ def verify_webhook_signature(
     if abs(now - ts) > tolerance_seconds:
         return False
 
-    if isinstance(raw_body, str):
-        body_bytes = raw_body.encode("utf-8")
-    else:
-        body_bytes = raw_body
-
+    body_bytes = raw_body.encode("utf-8") if isinstance(raw_body, str) else raw_body
     signed_payload = t.encode("ascii") + b"." + body_bytes
-    expected = hmac.new(
-        secret.encode("utf-8"), signed_payload, hashlib.sha256
-    ).hexdigest()
-    for candidate in v1s:
-        if len(candidate) != len(expected):
-            continue
-        if hmac.compare_digest(candidate, expected):
-            return True
+
+    secrets = [secret] if isinstance(secret, str) else list(secret)
+    for sec in secrets:
+        expected = hmac.new(sec.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
+        for candidate in v1s:
+            if len(candidate) != len(expected):
+                continue
+            if hmac.compare_digest(candidate, expected):
+                return True
     return False
+
+
+@dataclass(frozen=True)
+class WebhookEvent:
+    """A verified webhook event. ``data`` is the per-event payload (typed once
+    the server emits per-type schemas — a tracked follow-up); narrow on
+    ``type``."""
+
+    type: str
+    data: Any = None
+    id: Optional[str] = None
+    created_at: Optional[str] = None
+    #: The full parsed envelope (all fields, for forward-compatibility).
+    raw: Mapping[str, Any] = field(default_factory=dict)
+
+
+def construct_event(
+    raw_body: Union[str, bytes],
+    header: str,
+    secret: Secret,
+    *,
+    tolerance_seconds: int = 300,
+    now: Optional[float] = None,
+) -> WebhookEvent:
+    """Verify a delivery and parse it into a :class:`WebhookEvent` in one call
+    (Stripe's ``construct_event`` shape). Raises
+    :class:`~e2a.v1.errors.E2AWebhookSignatureError` on a bad signature, a replay
+    outside tolerance, or an unparseable body. Recommended path — call it from
+    your webhook handler with the RAW request body.
+    """
+    if not verify_webhook_signature(
+        raw_body, header, secret, tolerance_seconds=tolerance_seconds, now=now
+    ):
+        raise _sig_error("webhook_signature_invalid", "webhook signature verification failed")
+
+    text = raw_body.decode("utf-8") if isinstance(raw_body, bytes) else raw_body
+    try:
+        parsed = json.loads(text)
+    except (ValueError, TypeError):
+        raise _sig_error("webhook_body_invalid", "webhook body is not valid JSON")
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("type"), str):
+        raise _sig_error("webhook_body_invalid", "webhook event is missing a string `type`")
+
+    return WebhookEvent(
+        type=parsed["type"],
+        data=parsed.get("data"),
+        id=parsed.get("id"),
+        created_at=parsed.get("created_at"),
+        raw=parsed,
+    )
+
+
+def _sig_error(code: str, message: str) -> E2AWebhookSignatureError:
+    return E2AWebhookSignatureError(code=code, message=message, status=0, retryable=False)

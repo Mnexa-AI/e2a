@@ -1,44 +1,52 @@
-# Top-level convenience aliases — point to the current stable API version (v1).
+# Top-level convenience alias — points to the current stable API version (v1).
 #
 # The pinned contract path is `e2a.v1`:
-#   from e2a.v1 import E2AClient, AsyncE2AClient
+#   from e2a.v1 import E2AClient
 #
-# The top-level `e2a` package remains a convenience alias for that version.
+# The top-level `e2a` package re-exports that surface for convenience.
 
-from e2a.v1 import (
-    E2AApi,
-    AsyncE2AApi,
-    E2AApiError,
+from e2a.v1 import (  # noqa: F401
+    AutoPager,
+    E2AAuthError,
     E2AClient,
-    AsyncE2AClient,
-    InboundEmail,
-    AsyncInboundEmail,
-    Attachment,
-    AuthHeaders,
-    MessageList,
-    MessageSummary,
-    SendResult,
-    UnverifiedEmailError,
+    E2AConflictError,
+    E2AConnectionError,
+    E2AError,
+    E2AIdempotencyError,
+    E2ANotFoundError,
+    E2APermissionError,
+    E2ARateLimitError,
+    E2AServerError,
+    E2AValidationError,
+    E2AWebhookSignatureError,
+    Page,
+    WebhookEvent,
     WSNotification,
-    fetch_info,
-    fetch_info_async,
+    WSStream,
+    construct_event,
+    models,
+    verify_webhook_signature,
 )
 
 __all__ = [
-    "E2AApi",
-    "AsyncE2AApi",
-    "E2AApiError",
     "E2AClient",
-    "AsyncE2AClient",
-    "InboundEmail",
-    "AsyncInboundEmail",
-    "Attachment",
-    "AuthHeaders",
-    "MessageList",
-    "MessageSummary",
-    "SendResult",
-    "UnverifiedEmailError",
+    "E2AError",
+    "E2AAuthError",
+    "E2APermissionError",
+    "E2ANotFoundError",
+    "E2AConflictError",
+    "E2AValidationError",
+    "E2AIdempotencyError",
+    "E2ARateLimitError",
+    "E2AServerError",
+    "E2AConnectionError",
+    "E2AWebhookSignatureError",
+    "AutoPager",
+    "Page",
+    "verify_webhook_signature",
+    "construct_event",
+    "WebhookEvent",
     "WSNotification",
-    "fetch_info",
-    "fetch_info_async",
+    "WSStream",
+    "models",
 ]

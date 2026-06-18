@@ -1,47 +1,71 @@
-# Versioned v1 API surface — the stable, pinned contract path.
-# Do not edit generated/ files directly; run `make generate` to regenerate.
-from e2a.v1.generated import *  # noqa: F401,F403
+"""Public surface of the e2a v1 SDK (async-only).
 
-from e2a.v1.api import E2AApi, E2AApiError, fetch_info  # noqa: F401
-from e2a.v1.async_client import AsyncE2AApi, AsyncE2AClient  # noqa: F401
-from e2a.v1.async_client import fetch_info as fetch_info_async  # noqa: F401
-from e2a.v1.websocket import WSNotification  # noqa: F401
+The canonical request/response types are the generated ``oag`` models; the
+hand-written ergonomic layer (:class:`E2AClient` + resources, the typed error
+hierarchy, retry/pagination, webhook verification, WS) wraps them. The legacy
+flat/sync ``api`` / ``client`` / ``handler`` surface and the swag-generated
+``generated`` types have been retired in favour of this.
+"""
+
+# Generated request/response models (the canonical types).
+from e2a.v1.oag import models  # noqa: F401
+from e2a.v1.oag.models import *  # noqa: F401,F403
+
+# High-level async client.
 from e2a.v1.client import E2AClient  # noqa: F401
-from e2a.v1.handler import (  # noqa: F401
-    AsyncInboundEmail,
-    Attachment,
-    AuthHeaders,
-    InboundEmail,
-    MessageList,
-    MessageSummary,
-    SendResult,
-    UnverifiedEmailError,
+
+# Typed error hierarchy.
+from e2a.v1.errors import (  # noqa: F401
+    E2AAuthError,
+    E2AConflictError,
+    E2AConnectionError,
+    E2AError,
+    E2AIdempotencyError,
+    E2ANotFoundError,
+    E2APermissionError,
+    E2ARateLimitError,
+    E2AServerError,
+    E2AValidationError,
+    E2AWebhookSignatureError,
 )
-from e2a.v1.webhook_signature import verify_webhook_signature  # noqa: F401
+
+# Auto-pagination.
+from e2a.v1.pagination import AutoPager, Page  # noqa: F401
+
+# Webhook signature verification.
+from e2a.v1.webhook_signature import (  # noqa: F401
+    WebhookEvent,
+    construct_event,
+    verify_webhook_signature,
+)
+
+# Real-time WebSocket stream.
+from e2a.v1.websocket import WSNotification, WSStream  # noqa: F401
 
 __all__ = [
-    # Raw API layers
-    "E2AApi",
-    "AsyncE2AApi",
-    "E2AApiError",
-    # High-level clients
     "E2AClient",
-    "AsyncE2AClient",
-    # Email types
-    "InboundEmail",
-    "AsyncInboundEmail",
-    # Value types
-    "Attachment",
-    "AuthHeaders",
-    "MessageList",
-    "MessageSummary",
-    "SendResult",
-    "UnverifiedEmailError",
-    # Discovery (mirror of TS E2AApi.fetchInfo)
-    "fetch_info",
-    "fetch_info_async",
+    # Errors
+    "E2AError",
+    "E2AAuthError",
+    "E2APermissionError",
+    "E2ANotFoundError",
+    "E2AConflictError",
+    "E2AValidationError",
+    "E2AIdempotencyError",
+    "E2ARateLimitError",
+    "E2AServerError",
+    "E2AConnectionError",
+    "E2AWebhookSignatureError",
+    # Pagination
+    "AutoPager",
+    "Page",
+    # Webhooks
+    "verify_webhook_signature",
+    "construct_event",
+    "WebhookEvent",
     # WebSocket
     "WSNotification",
-    # Webhook signature verification (top-level webhooks resource)
-    "verify_webhook_signature",
+    "WSStream",
+    # Generated models namespace
+    "models",
 ]

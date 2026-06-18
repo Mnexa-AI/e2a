@@ -1,10 +1,14 @@
-"""Unit tests for verify_webhook_signature."""
+"""Unit tests for verify_webhook_signature + construct_event."""
 
 import hashlib
 import hmac
+import json
 import time
 
-from e2a.v1 import verify_webhook_signature
+import pytest
+
+from e2a.v1 import construct_event, verify_webhook_signature
+from e2a.v1.errors import E2AWebhookSignatureError
 
 
 SECRET = "whsec_test1234567890abcdef"
@@ -73,3 +77,74 @@ def test_rejects_malformed_header() -> None:
     assert not verify_webhook_signature("{}", "", SECRET)
     assert not verify_webhook_signature("{}", "t=123", SECRET)
     assert not verify_webhook_signature("{}", "v1=abc", SECRET)
+
+
+def test_accepts_any_secret_in_a_list() -> None:
+    body = "{}"
+    t = str(int(time.time()))
+    v1 = _sign("whsec_b", t, body)
+    header = f"t={t},v1={v1}"
+    assert verify_webhook_signature(body, header, ["whsec_a", "whsec_b", "whsec_c"])
+    assert not verify_webhook_signature(body, header, ["whsec_a", "whsec_x"])
+
+
+def test_empty_secret_list_rejects() -> None:
+    body = "{}"
+    t = str(int(time.time()))
+    v1 = _sign(SECRET, t, body)
+    assert not verify_webhook_signature(body, f"t={t},v1={v1}", [])
+
+
+# ── construct_event ──────────────────────────────────────────────
+
+
+def test_construct_event_verifies_and_parses() -> None:
+    body = json.dumps({"id": "evt_1", "type": "email.received", "data": {"message_id": "msg_1"}})
+    t = str(int(time.time()))
+    header = f"t={t},v1={_sign(SECRET, t, body)}"
+    event = construct_event(body, header, SECRET)
+    assert event.type == "email.received"
+    assert event.id == "evt_1"
+    assert event.data == {"message_id": "msg_1"}
+    assert event.raw["type"] == "email.received"
+
+
+def test_construct_event_rejects_bad_signature() -> None:
+    body = json.dumps({"type": "email.received"})
+    t = str(int(time.time()))
+    header = f"t={t},v1={_sign('whsec_wrong', t, body)}"
+    with pytest.raises(E2AWebhookSignatureError):
+        construct_event(body, header, SECRET)
+
+
+def test_construct_event_rejects_replay() -> None:
+    body = json.dumps({"type": "email.received"})
+    now = 1_700_000_000.0
+    t = str(int(now - 600))
+    header = f"t={t},v1={_sign(SECRET, t, body)}"
+    with pytest.raises(E2AWebhookSignatureError):
+        construct_event(body, header, SECRET, now=now)
+
+
+def test_construct_event_rejects_non_json() -> None:
+    body = "not json"
+    t = str(int(time.time()))
+    header = f"t={t},v1={_sign(SECRET, t, body)}"
+    with pytest.raises(E2AWebhookSignatureError, match="not valid JSON"):
+        construct_event(body, header, SECRET)
+
+
+def test_construct_event_rejects_missing_type() -> None:
+    body = json.dumps({"data": {}})
+    t = str(int(time.time()))
+    header = f"t={t},v1={_sign(SECRET, t, body)}"
+    with pytest.raises(E2AWebhookSignatureError, match="missing a string"):
+        construct_event(body, header, SECRET)
+
+
+def test_construct_event_accepts_bytes_body() -> None:
+    body = json.dumps({"type": "email.sent"})
+    t = str(int(time.time()))
+    header = f"t={t},v1={_sign(SECRET, t, body)}"
+    event = construct_event(body.encode("utf-8"), header, SECRET)
+    assert event.type == "email.sent"

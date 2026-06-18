@@ -19,12 +19,12 @@ from e2a.v1.websocket import WSNotification, _build_ws_url
 
 def test_build_ws_url_https():
     url = _build_ws_url("https://e2a.dev", "bot@agents.e2a.dev", "e2a_key")
-    assert url == "wss://e2a.dev/api/v1/agents/bot%40agents.e2a.dev/ws?token=e2a_key"
+    assert url == "wss://e2a.dev/v1/agents/bot%40agents.e2a.dev/ws?token=e2a_key"
 
 
 def test_build_ws_url_http():
     url = _build_ws_url("http://localhost:8080", "bot@agents.e2a.dev", "key")
-    assert url == "ws://localhost:8080/api/v1/agents/bot%40agents.e2a.dev/ws?token=key"
+    assert url == "ws://localhost:8080/v1/agents/bot%40agents.e2a.dev/ws?token=key"
 
 
 def test_build_ws_url_encodes_email():
@@ -34,9 +34,9 @@ def test_build_ws_url_encodes_email():
 
 def test_build_ws_url_uses_v1_path():
     url = _build_ws_url("https://e2a.dev", "bot@agents.e2a.dev", "k")
-    assert "/api/v1/agents/" in url
+    assert "/v1/agents/" in url
     # Must NOT use legacy /api/agents/ path
-    assert "/api/agents/" not in url.replace("/api/v1/agents/", "")
+    assert "/api/agents/" not in url.replace("/v1/agents/", "")
 
 
 # ── WSNotification.from_payload ──────────────────────────────────
@@ -188,40 +188,32 @@ async def test_connect_and_stream_skips_malformed():
     assert results[0].message_id == "msg_456"
 
 
-# ── listen() ─────────────────────────────────────────────────────
+# ── WSStream ─────────────────────────────────────────────────────
+
+
+def test_wsstream_builds_v1_url():
+    from e2a.v1.websocket import WSStream
+
+    s = WSStream(api_key="k", agent_email="bot@agents.e2a.dev", base_url="https://e2a.dev")
+    assert s._url == "wss://e2a.dev/v1/agents/bot%40agents.e2a.dev/ws?token=k"
 
 
 @pytest.mark.anyio
-async def test_listen_missing_agent_email():
-    from e2a.v1.websocket import listen
+async def test_wsstream_missing_websockets():
+    """Iterating raises ImportError with install guidance when websockets is missing."""
+    from e2a.v1.websocket import WSStream
 
-    mock_client = MagicMock()
-    mock_client.agent_email = ""
-
-    with pytest.raises(ValueError, match="agent_email is required"):
-        async for _ in listen(mock_client):
-            pass
-
-
-@pytest.mark.anyio
-async def test_listen_missing_websockets():
-    """Should raise ImportError with install guidance when websockets is missing."""
-    from e2a.v1.websocket import listen
-
-    mock_client = MagicMock()
-    mock_client.agent_email = "bot@agents.e2a.dev"
-
-    # Temporarily remove websockets from sys.modules to simulate missing package
+    s = WSStream(api_key="k", agent_email="bot@agents.e2a.dev", base_url="https://e2a.dev")
     with patch.dict(sys.modules, {"websockets": None}):
         with pytest.raises(ImportError, match="pip install e2a"):
-            async for _ in listen(mock_client):
+            async for _ in s:
                 pass
 
 
 @pytest.mark.anyio
-async def test_listen_no_reconnect_exits():
-    """With reconnect=False, listen() should exit after first disconnect."""
-    from e2a.v1.websocket import listen
+async def test_wsstream_no_reconnect_exits():
+    """With reconnect=False, the stream exits after the first disconnect."""
+    from e2a.v1.websocket import WSStream
 
     fake_notif = WSNotification(
         message_id="msg_1",
@@ -230,30 +222,20 @@ async def test_listen_no_reconnect_exits():
         subject="Hi",
         received_at="2026-04-27T10:00:00Z",
     )
-    mock_client = MagicMock()
-    mock_client.agent_email = "bot@agents.e2a.dev"
-    mock_client.api = MagicMock()
-    mock_client.api.base_url = "https://e2a.dev"
-    mock_client.api.api_key = "k"
-
     call_count = 0
 
     async def fake_connect_and_stream(*args, **kwargs):
         nonlocal call_count
         call_count += 1
-        if call_count == 1:
-            yield fake_notif
-            return
-        yield fake_notif  # should never reach here
+        yield fake_notif
+        return
 
-    mock_ws = MagicMock()
+    s = WSStream(
+        api_key="k", agent_email="bot@agents.e2a.dev", base_url="https://e2a.dev", reconnect=False
+    )
     with patch("e2a.v1.websocket._connect_and_stream", side_effect=fake_connect_and_stream), \
-         patch.dict(sys.modules, {"websockets": mock_ws}):
-        results = []
-        async for notif in listen(mock_client, reconnect=False):
-            results.append(notif)
+         patch.dict(sys.modules, {"websockets": MagicMock()}):
+        results = [notif async for notif in s]
 
     assert len(results) == 1
     assert call_count == 1
-    # The lightweight contract: client.get_message was never called by listen().
-    assert not hasattr(mock_client.get_message, "called") or not mock_client.get_message.called
