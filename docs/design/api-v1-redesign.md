@@ -1670,3 +1670,110 @@ approve/reject and the WebSocket upgrade served under `/v1`.
    poll/registration paths set). Both are minor; left as a tracked follow-up
    because moving the limit past `EnforceMessageSend` on the hot send path
    warrants its own change.
+
+## 12. Post-cutover architect review (2026-06) — findings & hardening
+
+After the consumer port shipped (TS SDK 3.0 #227, Python SDK 3.0 #228, cli/mcp
+#229, web dashboard #230), the `/v1` API + both 3.0 SDKs were reviewed against
+the industry gold standards (**Stripe**, **Svix**, **GitHub**) and the closest
+products (**Resend**, **AgentMail**, Postmark, Mailgun, SendGrid). The redesign
+grades well — it lands on the modern pattern (generated typed base + thin
+hand-written ergonomic layer, uniform error envelope with machine `code`, cursor
+pagination, mint-once idempotency, per-webhook HMAC with a `constructEvent`
+helper, typed error hierarchy, async-first). Two things it does that **none** of
+the surveyed products do: the **byte-equal spec drift gate** (§6) and the
+**structural scope ceiling** (agent creds can't widen authority, §5). The
+enforced **HITL approval-to-send** + the **two-axis trust model** (SPF/DKIM/DMARC
+`auth` verdict × `direction` × `hitl_status`) are a category differentiator.
+
+The review surfaced nine refinements (not foundations). They are tracked here
+with severity, the decision, and where each lands.
+
+### 12.1 Findings & dispositions
+
+**F1 — HIGH (correctness): `MessageView` (detail) must carry `direction` +
+`hitl_status`.** `MessageSummaryView` (list) exposes both, but the full
+`MessageView` drops them, so a client fetching one message loses two of the
+three trust-axis signals — this already forced the web dashboard (#230) to
+thread `direction`/`pending` through query params and breaks a deep-linked
+approve/reject. **Decision:** add both fields to `MessageView`. *Lands:* server
+(`internal/httpapi/messages.go`) + spec regen; SDKs pick it up on oag regen; the
+web query-param workaround can later simplify.
+
+**F2 — MEDIUM (error model): make SDK error mapping genuinely code-first.** Both
+SDKs document keying errors off `error.code`, but only the two idempotency codes
+do; everything else is status-driven, so a *new* semantic code on an unmodeled
+status (e.g. `domain_not_verified` on 400) degrades to a bare `E2AError`.
+**Decision:** add a `code → class` table for the common semantic codes so new
+codes degrade by family, and align the docstring with reality. *Lands:* TS
+`errors.ts` (#227) + Python `errors.py` (#228).
+
+**F3 — MEDIUM (observability): rate-limit headers consistent + in the spec.**
+`RateLimit-Limit/Remaining/Reset` are emitted only on the poll/registration
+subset (the send-path 429 omits them — §11 follow-up #4) and are **absent from
+the OpenAPI spec**. **Decision:** stamp the IETF `RateLimit-*` (+ `Retry-After`)
+headers across all rate-limited responses including the send-path 429, document
+them in the spec, and surface `retry_after`/`reset` on `E2ARateLimitError` in
+both SDKs. *Lands:* server (`ratelimit.go` + spec) + SDK error fields.
+
+**F4 — MEDIUM (DX consistency): uniform list ergonomics.** `.list()` returns a
+cursor `AutoPager` for messages/events but a single-page pager (agents, domains,
+webhooks, suppressions) or even a plain array (Python `conversations.list`) for
+the rest — three mental models for "list." **Decision:** every `.list()` returns
+an `AutoPager` (single-page ones simply terminate after page 1), uniformly
+across TS + Python. *Lands:* TS `client.ts` (#227) + Python `client.py` (#228).
+
+**F5 — MEDIUM (DX / parity, ROADMAP): inbound ergonomics — typed event payloads
++ stripped reply body.** `WebhookEvent.data` is `unknown` in both SDKs and the
+rich `InboundEmail` helper was deferred (S2). Postmark (`StrippedTextReply`) and
+AgentMail (`extracted_text`) both ship a quoted-history-stripped reply body — the
+single highest-value agent ergonomic. **Decision (roadmap):** this is the next
+slice, not a point-fix — (a) the server emits per-event-type payload schemas so
+`WebhookEvent`/`constructEvent` can be generic over `type`, and (b) a
+stripped-reply-body accessor on the inbound message. Tracked as **Slice S2 +
+the `InboundEmail` fast-follow**; not implemented in this hardening pass.
+
+**F6 — LOW-MED (security/robustness): WebSocket.** Auth rides in the URL
+(`?token=<apiKey>`) — a long-lived credential in proxy/referrer logs (carried
+over from legacy); and the Python `WSStream` swallows all exceptions into an
+endless silent reconnect, so a bad URL/credential loops forever at warning level.
+**Decision:** (a) the Python WS stream surfaces a fatal auth/4xx as a typed error
+and stops reconnecting (only transient/network failures reconnect); (b) the
+query-token auth is documented as a known limitation with a planned move to a
+header or short-lived ticket (server change, separate). *Lands:* Python
+`websocket.py` (#228) now; the header/ticket auth is a tracked server follow-up.
+
+**F7 — LOW (contract hygiene).** (a) A stale legacy `Message` schema is
+over-exposed in `components` next to the clean `MessageView`/`MessageSummaryView`;
+(b) `error.details` is typed `any` (varies array-vs-object by source);
+(c) `request_id` lives in both the envelope and the `X-Request-Id` header while
+the SDKs read only the header. **Decision:** remove the leaked `Message` schema
+from the public surface; keep `request_id` canonical in **both** (envelope is the
+contract, header is the convenience) and document that the SDKs read the header;
+leave `details` as open `any` deliberately (it carries heterogeneous
+validation/handler context) but document its two shapes. *Lands:* server/spec.
+
+**F8 — STRATEGIC (versioning).** `/v1` + the drift gate is strong, but there is
+no written evolution policy. **Decision:** **additive-only on `/v1`** — new
+optional fields and new endpoints are non-breaking and ship freely; any field
+**removal/rename or behavioral break is a `/v2` event**. A dated version-pin
+header (Stripe-style) is **deferred to pre-GA** — `/v1` + additive-only is
+sufficient while pre-GA. Recorded here as policy; no code change.
+
+**F9 — STRATEGIC (webhook ecosystem familiarity).** The custom `X-E2A-Signature`
+is correctly Stripe-shaped (`t=,v1=`) and ships `constructEvent` + multi-secret
+verify. The two modern agent-email players (Resend, AgentMail) standardized on
+**Svix** headers (`svix-id/timestamp/signature`). **Decision:** **keep** the
+well-designed custom header (no new dependency, the scheme is already correct);
+**document the Svix equivalence** in the webhook docs so integrators recognize
+the pattern. No adoption of Svix now. Recorded as decision; no code change.
+
+### 12.2 Sequencing
+
+F1, F3, F7 are **server + spec** changes (this hardening pass, mergeable to
+`main` independently of the open SDK PRs). F2, F4, F6 are **SDK-internal** and
+land on the open SDK PR branches (#227/#228). F1's SDK side is mechanical — the
+fields appear once each SDK's `oag` base is regenerated against the updated spec
+(after the server change lands / the SDK branch rebases). F5 is the next slice;
+F8/F9 are recorded decisions. None block the legacy `/api/v1` deletion (8e),
+which remains gated on merging the four consumer PRs.
