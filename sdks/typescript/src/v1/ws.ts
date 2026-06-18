@@ -25,7 +25,7 @@ export interface WSListenerOptions {
   apiKey: string;
   /** Agent email to listen for. */
   agentEmail: string;
-  /** Base URL (http/https). Defaults to "https://e2a.dev". */
+  /** Base URL (http/https). Defaults to "https://api.e2a.dev". */
   baseUrl?: string;
   /**
    * Auto-reconnect on disconnect. Defaults to true.
@@ -67,7 +67,7 @@ export class WSListener extends EventEmitter<WSListenerEvents> {
 
   constructor(private readonly opts: WSListenerOptions) {
     super();
-    const base = (opts.baseUrl ?? "https://e2a.dev").replace(/\/+$/, "");
+    const base = (opts.baseUrl ?? "https://api.e2a.dev").replace(/\/+$/, "");
     const wsBase = base.replace(/^http/, "ws");
     this.url = `${wsBase}/v1/agents/${encodeURIComponent(opts.agentEmail)}/ws?token=${opts.apiKey}`;
     this.shouldReconnect = opts.reconnect ?? true;

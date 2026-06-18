@@ -60,6 +60,25 @@ describe("AutoPager", () => {
     expect(out).toEqual([7]);
   });
 
+  // Adversarial review finding: a multi-step cycle (A-B-C-A-B-C…) slips past a
+  // single one-step-back guard. The seen-set must catch any repeated cursor.
+  it("aborts a multi-step cursor cycle (A-B-C-A)", async () => {
+    const ring = ["c1", "c2", "c3"]; // start → c1 → c2 → c3 → c1 → …
+    let i = 0;
+    const pager = new AutoPager<number>(async () => {
+      const next = ring[i % ring.length];
+      i++;
+      return { items: [i], next_cursor: next };
+    });
+    const run = async () => {
+      for await (const _ of pager) {
+        if (i > 20) throw new Error("looped");
+      }
+    };
+    await expect(run()).rejects.toThrow(/did not advance/);
+    expect(i).toBeLessThanOrEqual(5); // caught within one full cycle
+  });
+
   // Adversarial finding: a never-repeating, never-null cursor defeats the
   // repeated-cursor guard; the page-count ceiling must backstop it.
   it("aborts an ever-advancing cursor at maxPages", async () => {

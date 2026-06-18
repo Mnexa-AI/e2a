@@ -247,6 +247,7 @@ class MessagesResource {
 class ConversationsResource {
   constructor(private readonly api: PromiseConversationsApi) {}
   async list(address: string, params: { since?: string; until?: string; limit?: number } = {}): Promise<ConversationSummaryView[]> {
+    // listConversations has no cursor param — single page by contract.
     const page = await call(() => this.api.listConversations(address, params.since, params.until, params.limit));
     return page.items ?? [];
   }
@@ -331,9 +332,11 @@ class WebhooksResource {
   }
   deliveries(id: string, params: { status?: "pending" | "delivered" | "failed"; limit?: number } = {}): AutoPager<WebhookDeliveryView> {
     return new AutoPager(async (cursor) => {
-      void cursor; // listWebhookDeliveries has no cursor param yet — single page.
+      void cursor; // listWebhookDeliveries has no cursor param — single page by contract.
       const page = await call(() => this.api.listWebhookDeliveries(id, params.status, params.limit));
-      return { items: page.items ?? [], next_cursor: page.nextCursor };
+      // Drop next_cursor: we can't pass it back (no cursor param), so surfacing
+      // it would make the pager re-fetch the same page and trip the cycle guard.
+      return { items: page.items ?? [], next_cursor: undefined };
     });
   }
 }

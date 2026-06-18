@@ -63,7 +63,7 @@ await client.messages.send(address, {
   to: ["alice@example.com"],
   subject: "Hello",
   body: "Hi from my agent!",
-  html_body: "<p>Hi!</p>",
+  htmlBody: "<p>Hi!</p>",
   cc: ["carol@example.com"],
 });
 ```

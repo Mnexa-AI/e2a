@@ -5,6 +5,7 @@ import {
   E2ANotFoundError,
   E2AConflictError,
   E2AValidationError,
+  E2AConnectionError,
 } from "../../src/v1/errors.js";
 
 // These exercise the full hand-written stack — namespaced resources →
@@ -198,6 +199,51 @@ describe("E2AClient", () => {
       expect(err.requestId).toBe("req_abc");
       expect(err.status).toBe(404);
     }
+  });
+
+  // ── webhooks.deliveries pager termination (review finding) ──────
+
+  it("webhooks.deliveries terminates even if the page carries a next_cursor", async () => {
+    // The endpoint has no cursor param; surfacing next_cursor would make the
+    // pager re-fetch the same page and trip the cycle guard. It must stop after
+    // one page regardless.
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls++;
+      const text = JSON.stringify({ items: [{ id: "del_1" }], next_cursor: "should_be_ignored" });
+      return {
+        status: 200,
+        headers: new Headers({ "content-type": "application/json" }),
+        text: async () => text,
+        blob: async () => new Blob([text]),
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+    const items = await client.webhooks.deliveries("wh_1").toArray({ limit: 100 });
+    expect(items).toHaveLength(1);
+    expect(calls).toBe(1); // single page, no loop
+  });
+
+  // ── account + suppressions smoke (thin passthroughs) ────────────
+
+  it("account.get / export / suppressions hit the right operations", async () => {
+    globalThis.fetch = mockFetch(200, { plan: "free" });
+    await client.account.get();
+    expect(lastCall().url).toContain("/v1/account");
+
+    globalThis.fetch = mockFetch(200, { suppressions: [{ address: "blocked@x.com" }] });
+    const supp = await client.account.suppressions.list().toArray({ limit: 10 });
+    expect(supp).toHaveLength(1);
+    expect(lastCall().url).toContain("/v1/account/suppressions");
+  });
+
+  // ── connection-error path through call() ────────────────────────
+
+  it("maps a transport-level failure to E2AConnectionError", async () => {
+    // fetch rejects (DNS/refused/abort) with no HTTP response. With retries
+    // off, the retry layer rethrows and call() wraps it as a connection error.
+    const c = new E2AClient({ apiKey: "e2a_test", baseUrl: BASE, maxRetries: 0 });
+    globalThis.fetch = vi.fn(async () => { throw new TypeError("fetch failed"); }) as unknown as typeof fetch;
+    await expect(c.agents.get("bot@test.dev")).rejects.toBeInstanceOf(E2AConnectionError);
   });
 
   // ── listen() ────────────────────────────────────────────────────

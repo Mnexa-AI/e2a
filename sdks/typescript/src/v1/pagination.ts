@@ -32,7 +32,9 @@ export class AutoPager<T> implements AsyncIterable<T> {
 
   async *[Symbol.asyncIterator](): AsyncIterator<T> {
     let cursor: string | undefined;
-    let prev: string | undefined;
+    // Every cursor we've already requested. A repeat means the server is
+    // cycling (A-B-A or A-B-C-A-…); bail rather than loop. Bounded by maxPages.
+    const seen = new Set<string>();
     let pages = 0;
     for (;;) {
       if (pages >= this.maxPages) {
@@ -46,12 +48,12 @@ export class AutoPager<T> implements AsyncIterable<T> {
 
       const next = page.next_cursor ?? undefined;
       if (!next) return; // null / empty → the last page
-      if (next === cursor || next === prev) {
+      if (next === cursor || seen.has(next)) {
         throw new Error(
           "e2a pagination: next_cursor did not advance; aborting to avoid an infinite loop",
         );
       }
-      prev = cursor;
+      if (cursor !== undefined) seen.add(cursor);
       cursor = next;
     }
   }
