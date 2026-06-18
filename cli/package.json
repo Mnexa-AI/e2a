@@ -26,7 +26,7 @@
   "homepage": "https://github.com/Mnexa-AI/e2a/tree/main/cli",
   "bugs": "https://github.com/Mnexa-AI/e2a/issues",
   "dependencies": {
-    "@e2a/sdk": "^2.4.0"
+    "@e2a/sdk": "^3.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.9.2",
