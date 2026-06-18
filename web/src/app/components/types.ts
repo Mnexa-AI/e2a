@@ -35,9 +35,18 @@ export type DashboardAgent = {
   webhook_healthy?: boolean;
 };
 
+// Aggregated client-side from `GET /v1/agents/{address}/messages?
+// direction=outbound` rows whose status === "pending_approval".
+// `/v1` has no cross-account pending endpoint, so the pending page
+// fans out over the account's agents and tags each row with the
+// owning agent's address (`agent_email`) — needed to drive the
+// agent-scoped approve/reject/detail endpoints.
 export type PendingMessageSummary = {
   id: string;
-  agent_id: string;
+  // Owning agent's email address. In `/v1` this is how detail/approve/
+  // reject are addressed (the path's {address}). Displayed in the queue
+  // row's "from" line.
+  agent_email: string;
   direction: "outbound";
   subject: string;
   type?: string;
@@ -106,12 +115,11 @@ export type ActivityEntry = {
   size_bytes?: number;
 };
 
-// Response shape from `GET /api/v1/agents/{email}/messages`. The wire
-// `status` field carries the inbox_status value for back-compat with
-// the SDK polling contract; `hitl_status` is the outbound HITL
-// lifecycle (sent | pending_approval | rejected | expired_*) and is
-// empty on inbound rows. The dashboard inbox uses this projection
-// directly; SDK consumers continue to read the inbound-only fields.
+// MessageSummaryView from `GET /v1/agents/{address}/messages`
+// (PageMessageSummaryView.items). `status` carries the lifecycle value:
+// for inbound rows "unread" | "read"; for outbound rows the HITL
+// lifecycle (sent | pending_approval | rejected | expired_*). The
+// dashboard inbox uses this projection directly.
 export type MessageSummary = {
   message_id: string;
   direction: "inbound" | "outbound";
@@ -122,9 +130,10 @@ export type MessageSummary = {
   recipient: string;
   subject: string;
   conversation_id?: string;
-  // Inbox status for inbound rows: "unread" | "read". Empty for outbound.
+  // Lifecycle status. Inbound: "unread" | "read". Outbound HITL:
+  // sent | pending_approval | rejected | expired_*.
   status: string;
-  // Outbound HITL lifecycle. Empty for inbound.
+  // Outbound HITL lifecycle (mirrors `status` on outbound rows).
   hitl_status?: string;
   // Outbound webhook delivery state.
   webhook_status?: string;
@@ -135,14 +144,18 @@ export type MessageSummary = {
   created_at: string;
 };
 
+// PageMessageSummaryView — the cursor-paginated envelope returned by
+// `GET /v1/agents/{address}/messages`.
 export type ListMessagesResponse = {
-  messages: MessageSummary[];
-  next_token?: string;
+  items: MessageSummary[];
+  next_cursor?: string | null;
 };
 
-// Response shape from `GET /api/v1/agents/{email}/messages/{id}` for an
-// inbound row. Hand-rolled on the backend (see api.go's handleGetMessage)
-// — kept here as the wire type for the focus page's inbound branch.
+// MessageView from `GET /v1/agents/{address}/messages/{id}`. Used by the
+// focus page's inbound branch. The `/v1` detail endpoint returns the
+// same MessageView shape for inbound and outbound; inbound rows carry
+// `auth_headers` + `raw_message`, and the parsed text/plain body comes
+// through `body.text`.
 export type InboundMessageDetail = {
   message_id: string;
   from: string;
@@ -152,13 +165,13 @@ export type InboundMessageDetail = {
   recipient: string;
   subject: string;
   conversation_id: string;
-  status: string; // inbox_status
+  status: string;
   created_at: string;
   auth_headers: Record<string, string>;
+  // Parsed body, when the backend could extract a text/plain part.
+  body?: { text?: string; html?: string };
   // Raw RFC-5322 bytes, base64-encoded by the JSON layer. The focus page
-  // renders a parsed text/plain part when present; otherwise falls back
-  // to a "View raw" link. Backend body_text projection for inbound is a
-  // tracked follow-up.
+  // decodes this as a fallback when `body.text` is absent.
   raw_message: string;
 };
 
@@ -220,7 +233,7 @@ export type DomainInfo = {
   agent_count: number;
 };
 
-// Request body for PATCH /api/v1/domains/{domain}. is_primary=true
+// Request body for PATCH /v1/domains/{domain}. is_primary=true
 // promotes the domain (atomically demoting any prior primary).
 // is_primary=false is rejected — switch primary by promoting a
 // different domain.

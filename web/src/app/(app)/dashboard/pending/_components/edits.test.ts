@@ -3,11 +3,11 @@ import type { PendingMessageDetail } from "../../../../components/types";
 
 // makeMsg builds a minimal PendingMessageDetail fixture. Fields not
 // supplied default to the agent-authored "draft" values the form would
-// load from GET /api/v1/messages/{id}.
+// load from GET /v1/agents/{address}/messages/{id}.
 function makeMsg(overrides: Partial<PendingMessageDetail> = {}): PendingMessageDetail {
   return {
     id: "msg_abc",
-    agent_id: "bot@acme.io",
+    agent_email: "bot@acme.io",
     direction: "outbound",
     subject: "original subject",
     type: "reply",

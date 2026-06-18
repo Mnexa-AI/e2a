@@ -23,7 +23,7 @@ export function joinCSV(xs?: string[]): string {
 
 // diffApproveEdits compares the reviewer's form state against the
 // originally-loaded message and returns ONLY the fields that changed,
-// shaped for POST /api/v1/messages/{id}/approve.
+// shaped for POST /v1/agents/{address}/messages/{id}/approve.
 //
 // Rationale for diffing instead of always sending the full draft:
 // the server's PendingApprovalEdit.Apply treats a present field as

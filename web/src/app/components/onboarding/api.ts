@@ -56,12 +56,12 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 // ── Domains ──────────────────────────────────────────────
 
 export async function listDomains(): Promise<DomainInfo[]> {
-  const data = await request<{ domains: DomainInfo[] }>("/api/v1/domains");
+  const data = await request<{ domains: DomainInfo[] }>("/v1/domains");
   return data.domains ?? [];
 }
 
 export async function registerDomain(domain: string): Promise<DomainInfo> {
-  return request<DomainInfo>("/api/v1/domains", {
+  return request<DomainInfo>("/v1/domains", {
     method: "POST",
     body: JSON.stringify({ domain }),
   });
@@ -70,25 +70,25 @@ export async function registerDomain(domain: string): Promise<DomainInfo> {
 export async function verifyDomain(
   domain: string,
 ): Promise<import("./types").VerifyDomainResponse> {
-  return request("/api/v1/domains/" + encodeURIComponent(domain) + "/verify", {
+  return request("/v1/domains/" + encodeURIComponent(domain) + "/verify", {
     method: "POST",
   });
 }
 
 export async function deleteDomain(domain: string): Promise<void> {
-  return request("/api/v1/domains/" + encodeURIComponent(domain), {
+  return request("/v1/domains/" + encodeURIComponent(domain), {
     method: "DELETE",
   });
 }
 
-// updateDomain hits PATCH /api/v1/domains/{domain}. Currently the
+// updateDomain hits PATCH /v1/domains/{domain}. Currently the
 // only mutable field is is_primary — passing true promotes the domain
 // (and atomically demotes any prior primary on the server side). The
 // server rejects {is_primary: false} (to switch primary you promote
 // a different domain instead) so we don't expose that case here.
 export async function setDomainPrimary(domain: string): Promise<DomainInfo> {
   return request<DomainInfo>(
-    "/api/v1/domains/" + encodeURIComponent(domain),
+    "/v1/domains/" + encodeURIComponent(domain),
     {
       method: "PATCH",
       body: JSON.stringify({ is_primary: true }),
@@ -110,7 +110,7 @@ export async function createAgent(params: {
   agent_mode: AgentMode;
   webhook_url?: string;
 }): Promise<AgentCreateResponse> {
-  return request<AgentCreateResponse>("/api/v1/agents", {
+  return request<AgentCreateResponse>("/v1/agents", {
     method: "POST",
     body: JSON.stringify(params),
   });
@@ -131,7 +131,7 @@ export async function sendAgentTestEmail(
   email: string,
 ): Promise<{ status: string; message_id: string }> {
   return request(
-    "/api/v1/agents/" + encodeURIComponent(email) + "/test",
+    "/v1/agents/" + encodeURIComponent(email) + "/test",
     { method: "POST" },
   );
 }
@@ -154,43 +154,213 @@ export async function getAgentActivity(email: string): Promise<ActivityEntry[]> 
   );
 }
 
-// Dashboard inbox + SDK polling share this endpoint. SDK callers pass
-// `direction=inbound` (the default); the dashboard inbox passes
-// `direction=all` to fetch mixed inbound+outbound newest-first.
+// Wire shape of a row in PageMessageSummaryView.items
+// (GET /v1/agents/{address}/messages). Mirrors MessageSummaryView in
+// api/openapi.yaml. Kept local; the dashboard projects it into the
+// MessageSummary type the UI reads.
+type MessageSummaryWire = {
+  message_id: string;
+  direction: "inbound" | "outbound";
+  from: string;
+  to?: string[] | null;
+  cc?: string[] | null;
+  reply_to?: string[] | null;
+  recipient: string;
+  subject: string;
+  conversation_id?: string;
+  status: string;
+  hitl_status?: string;
+  webhook_status?: string;
+  webhook_error?: string;
+  size_bytes?: number;
+  created_at: string;
+};
+
+type PageMessageSummaryWire = {
+  items?: MessageSummaryWire[] | null;
+  next_cursor?: string | null;
+};
+
+function projectSummary(w: MessageSummaryWire): import("../types").MessageSummary {
+  return {
+    message_id: w.message_id,
+    direction: w.direction,
+    from: w.from,
+    to: w.to ?? [],
+    cc: w.cc ?? undefined,
+    reply_to: w.reply_to ?? undefined,
+    recipient: w.recipient,
+    subject: w.subject,
+    conversation_id: w.conversation_id,
+    status: w.status,
+    hitl_status: w.hitl_status,
+    webhook_status: w.webhook_status,
+    webhook_error: w.webhook_error,
+    size_bytes: w.size_bytes,
+    created_at: w.created_at,
+  };
+}
+
+// Dashboard inbox + SDK polling share this endpoint
+// (GET /v1/agents/{address}/messages). Cursor pagination: pass `cursor`
+// (the prior page's next_cursor) to fetch the next page. `direction=all`
+// fetches mixed inbound+outbound newest-first.
 export async function listAgentMessages(
   email: string,
   opts: {
     direction?: "all" | "inbound" | "outbound";
     status?: "all" | "unread" | "read";
     pageSize?: number;
-    token?: string;
+    cursor?: string;
   } = {},
 ): Promise<ListMessagesResponse> {
   const params = new URLSearchParams();
   if (opts.direction) params.set("direction", opts.direction);
-  if (opts.status) params.set("status", opts.status);
-  if (opts.pageSize) params.set("page_size", String(opts.pageSize));
-  if (opts.token) params.set("token", opts.token);
+  // `status` is inbound-only in /v1; sending it on direction=all/outbound
+  // is harmless but we only forward it when meaningful.
+  if (opts.status && opts.direction !== "outbound") params.set("status", opts.status);
+  if (opts.pageSize) params.set("limit", String(opts.pageSize));
+  if (opts.cursor) params.set("cursor", opts.cursor);
   const qs = params.toString();
-  return request<ListMessagesResponse>(
-    "/api/v1/agents/" + encodeURIComponent(email) + "/messages" + (qs ? "?" + qs : ""),
+  const page = await request<PageMessageSummaryWire>(
+    "/v1/agents/" + encodeURIComponent(email) + "/messages" + (qs ? "?" + qs : ""),
   );
+  return {
+    items: (page.items ?? []).map(projectSummary),
+    next_cursor: page.next_cursor ?? null,
+  };
 }
 
-// Inbound focus-page payload. Note: the server flips inbox_status from
-// "unread" to "read" as a side effect of this GET. The focus page
-// always wants this; if a future consumer needs to preview without
-// marking, add `?mark_read=false` to the backend.
+// Wire shape of MessageView (GET /v1/agents/{address}/messages/{id}).
+type MessageViewWire = {
+  message_id: string;
+  from: string;
+  to?: string[] | null;
+  cc?: string[] | null;
+  reply_to?: string[] | null;
+  recipient: string;
+  subject: string;
+  conversation_id?: string;
+  status: string;
+  created_at: string;
+  auth_headers?: Record<string, string>;
+  body?: { text?: string; html?: string };
+  raw_message?: string;
+};
+
+// Inbound focus-page payload. The `/v1` detail endpoint
+// (GET /v1/agents/{address}/messages/{id}) returns a MessageView for
+// both inbound and outbound rows; the focus page's inbound branch reads
+// these fields. Marks the row read as a server-side side effect.
 export async function getInboundMessage(
   email: string,
   id: string,
 ): Promise<InboundMessageDetail> {
-  return request<InboundMessageDetail>(
-    "/api/v1/agents/" +
+  const w = await request<MessageViewWire>(
+    "/v1/agents/" +
       encodeURIComponent(email) +
       "/messages/" +
       encodeURIComponent(id),
   );
+  return {
+    message_id: w.message_id,
+    from: w.from,
+    to: w.to ?? [],
+    cc: w.cc ?? [],
+    reply_to: w.reply_to ?? [],
+    recipient: w.recipient,
+    subject: w.subject,
+    conversation_id: w.conversation_id ?? "",
+    status: w.status,
+    created_at: w.created_at,
+    auth_headers: w.auth_headers ?? {},
+    body: w.body,
+    raw_message: w.raw_message ?? "",
+  };
+}
+
+// Projects a MessageView into the PendingMessageDetail shape the review
+// surfaces read. Fields the `/v1` MessageView doesn't expose
+// (approval_expires_at, attachments, the parent inbound context, the
+// reviewer identity) come through undefined — the UI degrades
+// gracefully, hiding those affordances.
+function projectPending(
+  email: string,
+  w: MessageViewWire,
+): PendingMessageDetail {
+  return {
+    id: w.message_id,
+    agent_email: email,
+    direction: "outbound",
+    subject: w.subject,
+    conversation_id: w.conversation_id,
+    to: w.to ?? [],
+    cc: w.cc ?? undefined,
+    status: w.status,
+    created_at: w.created_at,
+    body_text: w.body?.text,
+    body_html: w.body?.html,
+  };
+}
+
+// Pending-draft detail. `/v1` has no bare-id endpoint, so callers must
+// thread the owning agent's address. Built from the agent-scoped
+// MessageView.
+export async function getPendingMessage(
+  email: string,
+  id: string,
+): Promise<PendingMessageDetail> {
+  const w = await request<MessageViewWire>(
+    "/v1/agents/" +
+      encodeURIComponent(email) +
+      "/messages/" +
+      encodeURIComponent(id),
+  );
+  return projectPending(email, w);
+}
+
+// Combined detail fetch for the focus page. `/v1` returns one MessageView
+// for both directions; there's no `direction` field on it, so we derive
+// it by comparing the sender to the agent's own address: a message
+// `from` the agent is outbound, anything else is inbound. Returns both
+// projections under a discriminated `direction` so the focus page can
+// keep its existing inbound/outbound branches.
+export async function getMessageDetail(
+  email: string,
+  id: string,
+):
+  | Promise<
+      | { direction: "outbound"; data: PendingMessageDetail }
+      | { direction: "inbound"; data: InboundMessageDetail }
+    > {
+  const w = await request<MessageViewWire>(
+    "/v1/agents/" +
+      encodeURIComponent(email) +
+      "/messages/" +
+      encodeURIComponent(id),
+  );
+  const isOutbound = (w.from ?? "").toLowerCase() === email.toLowerCase();
+  if (isOutbound) {
+    return { direction: "outbound", data: projectPending(email, w) };
+  }
+  return {
+    direction: "inbound",
+    data: {
+      message_id: w.message_id,
+      from: w.from,
+      to: w.to ?? [],
+      cc: w.cc ?? [],
+      reply_to: w.reply_to ?? [],
+      recipient: w.recipient,
+      subject: w.subject,
+      conversation_id: w.conversation_id ?? "",
+      status: w.status,
+      created_at: w.created_at,
+      auth_headers: w.auth_headers ?? {},
+      body: w.body,
+      raw_message: w.raw_message ?? "",
+    },
+  };
 }
 
 // ── Agent update (general) ──────────────────────────────
@@ -207,17 +377,58 @@ export async function updateAgent(
 
 // ── HITL pending messages ───────────────────────────────
 
-export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
-  const data = await request<{ messages: PendingMessageSummary[] }>(
-    "/api/v1/pending",
-  );
-  return data.messages ?? [];
-}
+// Wire shape of an agent row in ListAgentsOutputBody.agents (GET /v1/agents).
+type AgentViewWire = {
+  email: string;
+  hitl_enabled?: boolean;
+};
 
-export async function getPendingMessage(id: string): Promise<PendingMessageDetail> {
-  return request<PendingMessageDetail>(
-    "/api/v1/messages/" + encodeURIComponent(id),
+// `/v1` has no cross-account pending endpoint. Pending drafts are
+// outbound messages with status="pending_approval", scoped per agent.
+// We fan out over the account's agents, list each agent's outbound
+// messages, keep the pending_approval rows, and tag each with the
+// owning agent's address so the detail/approve/reject calls can be
+// addressed. Aggregated newest-first.
+export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
+  const agentsResp = await request<{ agents?: AgentViewWire[] | null }>("/v1/agents");
+  const agents = agentsResp.agents ?? [];
+  // Only agents with HITL enabled can have pending drafts; querying
+  // the rest is wasted round-trips. Fall back to querying all if the
+  // flag is absent on the wire.
+  const candidates = agents.filter((a) => a.hitl_enabled !== false);
+  const perAgent = await Promise.all(
+    candidates.map(async (a) => {
+      try {
+        const page = await listAgentMessages(a.email, {
+          direction: "outbound",
+          pageSize: 100,
+        });
+        return page.items
+          .filter((m) => m.status === "pending_approval")
+          .map<PendingMessageSummary>((m) => ({
+            id: m.message_id,
+            agent_email: a.email,
+            direction: "outbound",
+            subject: m.subject,
+            conversation_id: m.conversation_id,
+            to: m.to ?? [],
+            cc: m.cc,
+            status: m.status,
+            created_at: m.created_at,
+          }));
+      } catch {
+        // One agent failing (e.g. transient 5xx) shouldn't blank the
+        // whole queue — drop its rows and surface the rest.
+        return [] as PendingMessageSummary[];
+      }
+    }),
   );
+  return perAgent
+    .flat()
+    .sort(
+      (a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
 }
 
 export type ApprovePayload = {
@@ -247,7 +458,7 @@ export async function approvePendingMessage(
   edited?: boolean;
 }> {
   return request(
-    "/api/v1/agents/" +
+    "/v1/agents/" +
       encodeURIComponent(agentEmail) +
       "/messages/" +
       encodeURIComponent(id) +
@@ -265,7 +476,7 @@ export async function rejectPendingMessage(
   reason: string,
 ): Promise<{ status: string; message_id: string; rejection_reason?: string }> {
   return request(
-    "/api/v1/agents/" +
+    "/v1/agents/" +
       encodeURIComponent(agentEmail) +
       "/messages/" +
       encodeURIComponent(id) +

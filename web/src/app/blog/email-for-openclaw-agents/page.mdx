@@ -132,7 +132,7 @@ Check your inbox. The reply arrives in the same email thread — OpenClaw's answ
        │  HTTP response
        ▼
    e2a CLI
-       │  POST /api/v1/.../reply
+       │  POST /v1/.../reply
        ▼
    e2a.dev
        │  SMTP out  (SES-signed, lands in the same thread)
@@ -141,7 +141,7 @@ Check your inbox. The reply arrives in the same email thread — OpenClaw's answ
 ```
 
 - Inbound: Gmail → MX points to e2a → e2a verifies SPF/DKIM → pushes lightweight notification over WebSocket → CLI fetches full body → POST to OpenClaw.
-- Outbound: OpenClaw response → CLI → `POST /api/v1/agents/{email}/messages/{id}/reply` → e2a composes with `In-Reply-To` / `References` headers + `X-E2A-Conversation-Id` → SES sends → lands in the original thread.
+- Outbound: OpenClaw response → CLI → `POST /v1/agents/{address}/messages/{id}/reply` → e2a composes with `In-Reply-To` / `References` headers + `X-E2A-Conversation-Id` → SES sends → lands in the original thread.
 
 Threading, sender auth, reply-routing — all handled by the gateway so OpenClaw doesn't have to know any of it.
 

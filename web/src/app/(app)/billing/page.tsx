@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { PageShell } from "../../components/loft/PageShell";
 
-// LimitsInfo matches the shape returned by GET /api/v1/users/me/limits.
+// LimitsInfo matches the LimitsView shape returned by GET /v1/account.
 // Kept inline rather than imported from a generated client because the
 // OSS SDK doesn't expose this endpoint yet (it's a dashboard-only
 // surface — SDK consumers would call /agents and /messages directly).
@@ -33,7 +33,7 @@ type LimitsInfo = {
 const BILLING_API = (process.env.NEXT_PUBLIC_BILLING_API ?? "").replace(/\/$/, "");
 
 async function fetchLimits(): Promise<LimitsInfo> {
-  const res = await fetch("/api/v1/users/me/limits", { credentials: "include" });
+  const res = await fetch("/v1/account", { credentials: "include" });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`limits: HTTP ${res.status}${body ? ` — ${body}` : ""}`);

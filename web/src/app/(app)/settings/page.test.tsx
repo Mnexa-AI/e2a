@@ -77,7 +77,7 @@ describe("Settings — Export section", () => {
   it("links the Download export button at the API endpoint", () => {
     render(<SettingsPage />);
     const link = screen.getByRole("link", { name: /download export/i });
-    expect(link).toHaveAttribute("href", "/api/v1/users/me/export");
+    expect(link).toHaveAttribute("href", "/v1/account/export");
   });
 });
 
@@ -104,7 +104,7 @@ describe("Settings — Danger zone (delete account)", () => {
     expect(finalBtn).toBeEnabled();
   });
 
-  it("issues DELETE /api/v1/users/me?confirm=DELETE with cookie credentials on confirmation", async () => {
+  it("issues DELETE /v1/account?confirm=DELETE with cookie credentials on confirmation", async () => {
     // Hold the response in a deferred Promise so the assertion runs
     // before the success handler tries to redirect (which would mutate
     // window.location and is hard to mock cleanly in jsdom).
@@ -121,7 +121,7 @@ describe("Settings — Danger zone (delete account)", () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/v1/users/me?confirm=DELETE",
+        "/v1/account?confirm=DELETE",
         expect.objectContaining({ method: "DELETE", credentials: "include" }),
       );
     });

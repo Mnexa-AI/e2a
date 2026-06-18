@@ -2,24 +2,24 @@
 
 // Single-message focus view (Screen 2 of agent_messages_v2).
 //
-// Loads via try-outbound-then-inbound fallback because the e2a backend
-// splits message detail endpoints by direction:
-//   - GET /api/v1/messages/{id}        → outbound (PendingMessageDetail)
-//   - GET /api/v1/agents/{email}/messages/{id} → inbound  (InboundMessageDetail)
-//
-// A unified `GET /api/v1/messages/{id}` that returns a discriminated
-// union is a tracked follow-up; until then we do two requests in the
-// worst case.
+// `/v1` exposes a single agent-scoped detail endpoint:
+//   GET /v1/agents/{address}/messages/{id} → MessageView
+// There is no bare-id endpoint, so the agent address is threaded in via
+// the ?email= query param (the inbox list page links here with it). We
+// fetch the same MessageView twice-shaped: once projected to the
+// outbound PendingMessageDetail (for the draft/HITL surfaces) and once
+// to the inbound InboundMessageDetail (for the received-mail surfaces),
+// keyed off the row's `direction`-derived state. The outbound fetch is
+// tried first (focus is most often a held draft); inbound is the
+// fallback when the outbound projection isn't a pending draft.
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import {
-  ApiError,
   approvePendingMessage,
-  getInboundMessage,
-  getPendingMessage,
+  getMessageDetail,
   rejectPendingMessage,
 } from "../../../../../components/onboarding/api";
 import { useAgents } from "../../../../../components/hooks/useAgents";
@@ -39,7 +39,6 @@ import {
 } from "../../../../../components/messages/MessageLifecycleTimeline";
 import { formatRelativeAge } from "../../../../../../lib/relativeTime";
 import {
-  inboundMessageKey,
   invalidateAgentMessages,
   invalidateAgents,
   invalidateMessageDetail,
@@ -154,67 +153,40 @@ function FocusContent({
   const { agents } = useAgents();
   const hitlEnabled = agents.find((a) => a.email === email)?.hitl_enabled ?? true;
 
-  // Try outbound first (focus is most often a Pending draft from the
-  // inbox callout); fall back to inbound only on 404. A 500/401/etc.
-  // from outbound is surfaced as-is — falling through would mask the
-  // real server error behind "not found".
-  //
   // `hasUserEditedRef` flips true the first time the user types into
-  // the draft-body textarea OR clicks Edit. The onSuccess callback
-  // (below) uses it to decide whether to overwrite the textarea
-  // with the server's body when SWR revalidates. Without the guard,
-  // a revalidation mid-edit (focus event, manual mutate) would
-  // silently revert the user's edits — or, more subtly, re-populate
-  // a body the user deliberately cleared.
+  // the draft-body textarea OR clicks Edit. The seeding effect (below)
+  // uses it to decide whether to overwrite the textarea with the
+  // server's body when SWR revalidates. Without the guard, a
+  // revalidation mid-edit (focus event, manual mutate) would silently
+  // revert the user's edits — or, more subtly, re-populate a body the
+  // user deliberately cleared.
   const hasUserEditedRef = useRef(false);
 
-  // Both per-id SWR calls opt out of `keepPreviousData` so navigating
-  // between focus pages (different `?id=`) doesn't briefly render
-  // the previous message under the new URL. The global default
-  // stays on for smoother revalidation in views with a stable key.
-  const outboundSWR = useSWR(
-    id ? pendingMessageKey(id) : null,
-    () => getPendingMessage(id),
-    { shouldRetryOnError: false, keepPreviousData: false },
-  );
-  const outboundIs404 =
-    outboundSWR.error instanceof ApiError && outboundSWR.error.status === 404;
-  const inboundSWR = useSWR(
-    email && id && outboundIs404 ? inboundMessageKey(email, id) : null,
-    () => getInboundMessage(email, id),
+  // Single agent-scoped fetch (GET /v1/agents/{address}/messages/{id}).
+  // `getMessageDetail` derives the direction from the sender and returns
+  // the right projection. Opts out of `keepPreviousData` so navigating
+  // between focus pages (different `?id=`) doesn't briefly render the
+  // previous message under the new URL.
+  const detailSWR = useSWR(
+    email && id ? pendingMessageKey(email, id) : null,
+    () => getMessageDetail(email, id),
     {
       shouldRetryOnError: false,
       keepPreviousData: false,
-      // GET /agents/{email}/messages/{id} flips inbox_status from
-      // unread → read on the server as a side effect (see
-      // getInboundMessage). Without this invalidation, the inbox
-      // SWR cache still shows the row as unread until window-focus
-      // revalidation eventually catches up — visible regression vs
-      // the pre-SWR codepath, which refetched the inbox on every
-      // navigation.
+      // The detail GET flips inbox_status unread → read server-side as a
+      // side effect. Invalidate the inbox cache so the row's read state
+      // reflects immediately rather than waiting for focus revalidation.
       onSuccess: () => {
         void invalidateAgentMessages(email);
       },
     },
   );
 
-  const msg: LoadedMessage | null = outboundSWR.data
-    ? { direction: "outbound", data: outboundSWR.data }
-    : inboundSWR.data
-      ? { direction: "inbound", data: inboundSWR.data }
-      : null;
+  const msg: LoadedMessage | null = detailSWR.data ?? null;
 
-  // Surface the outbound error directly unless it's the 404 we're
-  // expecting (in which case wait for the inbound result to settle).
-  const error: string = (() => {
-    if (outboundSWR.error && !outboundIs404) {
-      return outboundSWR.error.message || "Failed to load message";
-    }
-    if (outboundIs404 && inboundSWR.error) {
-      return inboundSWR.error.message || "Message not found";
-    }
-    return "";
-  })();
+  const error: string = detailSWR.error
+    ? detailSWR.error.message || "Failed to load message"
+    : "";
 
   const [editingDraft, setEditingDraft] = useState(false);
   const [draftBody, setDraftBody] = useState("");
@@ -224,23 +196,17 @@ function FocusContent({
   const [rejectReason, setRejectReason] = useState("");
 
   // Seed the draft-body textarea from the loaded outbound message.
-  // Previously this lived in SWR's onSuccess callback, but onSuccess
-  // only fires on a real fetch — not on a cache-hit served within
-  // SWR's dedupingInterval. If the pending panel populated
-  // pendingMessageKey(id) shortly before the user landed on this
-  // page (e.g. via a future "Open in focus" link), the focus page
-  // would hit cache, skip the fetcher, never call onSuccess, and
-  // the reviewer would see an empty textarea.
-  //
-  // Effect-based seeding fires on every render where outboundSWR.data
-  // changes — including the cache-hit case where data resolves
+  // Effect-based seeding fires on every render where the loaded
+  // message changes — including the cache-hit case where data resolves
   // synchronously on mount. The hasUserEditedRef guard prevents
   // window-focus revalidation from stomping in-progress edits.
+  const outboundData =
+    detailSWR.data?.direction === "outbound" ? detailSWR.data.data : null;
   useEffect(() => {
     if (hasUserEditedRef.current) return;
-    if (!outboundSWR.data) return;
-    setDraftBody(outboundSWR.data.body_text ?? "");
-  }, [outboundSWR.data]);
+    if (!outboundData) return;
+    setDraftBody(outboundData.body_text ?? "");
+  }, [outboundData]);
 
   const isPending = msg?.direction === "outbound" && msg.data.status === "pending_approval";
 
@@ -282,28 +248,28 @@ function FocusContent({
       const overrides = editingDraft && draftBody !== (msg.data.body_text ?? "")
         ? { body_text: draftBody }
         : {};
-      await approvePendingMessage(msg.data.agent_id, msg.data.id, overrides);
+      await approvePendingMessage(email, msg.data.id, overrides);
       await refreshAfterMutation(msg.data.id);
       router.push(convLink);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Failed to approve");
       setSubmitting(false);
     }
-  }, [msg, editingDraft, draftBody, router, convLink, refreshAfterMutation]);
+  }, [msg, editingDraft, draftBody, email, router, convLink, refreshAfterMutation]);
 
   const onReject = useCallback(async () => {
     if (!msg || msg.direction !== "outbound") return;
     setSubmitting(true);
     setSubmitError("");
     try {
-      await rejectPendingMessage(msg.data.agent_id, msg.data.id, rejectReason || "rejected by reviewer");
+      await rejectPendingMessage(email, msg.data.id, rejectReason || "rejected by reviewer");
       await refreshAfterMutation(msg.data.id);
       router.push(convLink);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Failed to reject");
       setSubmitting(false);
     }
-  }, [msg, rejectReason, router, convLink, refreshAfterMutation]);
+  }, [msg, rejectReason, email, router, convLink, refreshAfterMutation]);
 
   // ⌘↵ on the focus page approves a pending message.
   useEffect(() => {

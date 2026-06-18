@@ -22,7 +22,7 @@ export function SuccessPanel({
     setSendError("");
     setTestState("sending");
     try {
-      const res = await fetch(`/api/v1/agents/${encodeURIComponent(agent.email)}/test`, {
+      const res = await fetch(`/v1/agents/${encodeURIComponent(agent.email)}/test`, {
         method: "POST",
         credentials: "include",
       });

@@ -184,7 +184,7 @@ export function DomainCard({
         </div>
         <div className="flex gap-2 shrink-0 flex-wrap">
           {/* Make-primary action: only shown for verified, non-primary
-              domains. PATCH /api/v1/domains/{domain} atomically swaps
+              domains. PATCH /v1/domains/{domain} atomically swaps
               the primary flag on the server side. */}
           {domain.verified && !domain.is_primary && (
             <button

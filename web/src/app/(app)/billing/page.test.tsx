@@ -41,7 +41,7 @@ function renderPage() {
 
 function stageLimits(payload: unknown) {
   mockFetch.mockImplementation((url: string) => {
-    if (url === "/api/v1/users/me/limits") {
+    if (url === "/v1/account") {
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve(payload),

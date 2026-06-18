@@ -349,7 +349,7 @@ function ExportSection() {
         subtitle="Download a JSON dump of everything we store about you: profile, agents, domains, API key metadata, all messages with bodies, and usage events. Internal identifiers (Google subject, key hashes, session tokens) are excluded. Right of access — GDPR Article 15 / CCPA equivalent."
       />
       <a
-        href="/api/v1/users/me/export"
+        href="/v1/account/export"
         className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-medium transition"
         style={{
           background: "var(--fg)",
@@ -393,7 +393,7 @@ function DangerZone() {
     setState("deleting");
     setErrorMessage("");
     try {
-      const res = await fetch("/api/v1/users/me?confirm=DELETE", {
+      const res = await fetch("/v1/account?confirm=DELETE", {
         method: "DELETE",
         credentials: "include",
       });

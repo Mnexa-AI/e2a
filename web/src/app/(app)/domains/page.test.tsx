@@ -18,7 +18,7 @@ function mockDomainsAndAgents(
   agents: unknown[] = [],
 ) {
   mockFetch.mockImplementation((url: string) => {
-    if (url === "/api/v1/domains") {
+    if (url === "/v1/domains") {
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({ domains }),
@@ -211,7 +211,7 @@ describe("Domains page — add domain form", () => {
 describe("Domains page — error handling", () => {
   it("shows error when domains fetch fails", async () => {
     mockFetch.mockImplementation((url: string) => {
-      if (url === "/api/v1/domains") {
+      if (url === "/v1/domains") {
         return Promise.resolve({ ok: false, text: () => Promise.resolve("Server error") });
       }
       return Promise.resolve({
@@ -233,13 +233,13 @@ describe("Domains page — verify domain", () => {
     // First load: unverified domain
     let callCount = 0;
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === `/api/v1/domains/${encodeURIComponent("mail.example.com")}/verify` && init?.method === "POST") {
+      if (url === `/v1/domains/${encodeURIComponent("mail.example.com")}/verify` && init?.method === "POST") {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ domain: "mail.example.com", verified: true }),
         });
       }
-      if (url === "/api/v1/domains") {
+      if (url === "/v1/domains") {
         callCount++;
         // After verify, return verified domain
         const domains = callCount > 1
@@ -283,7 +283,7 @@ describe("Domains page — verify domain", () => {
           text: () => Promise.resolve("DNS records not found"),
         });
       }
-      if (url === "/api/v1/domains") {
+      if (url === "/v1/domains") {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ domains: [sampleDomain] }),
@@ -317,7 +317,7 @@ describe("Domains page — Make primary action", () => {
     const patched: Array<{ url: string; body: unknown }> = [];
     mockFetch.mockImplementation(
       (url: string, init?: { method?: string; body?: string }) => {
-        if (url === "/api/v1/domains" && (!init || !init.method)) {
+        if (url === "/v1/domains" && (!init || !init.method)) {
           return Promise.resolve({
             ok: true,
             json: () =>
@@ -335,7 +335,7 @@ describe("Domains page — Make primary action", () => {
           });
         }
         if (
-          url === `/api/v1/domains/${encodeURIComponent(verifiedDomain.domain)}` &&
+          url === `/v1/domains/${encodeURIComponent(verifiedDomain.domain)}` &&
           init?.method === "PATCH"
         ) {
           patched.push({ url, body: JSON.parse(init.body as string) });

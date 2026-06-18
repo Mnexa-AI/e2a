@@ -74,25 +74,27 @@ function formatQueuedAgo(iso: string): string {
 }
 
 export function PendingDetailPanel({
+  agentEmail,
   messageId,
   onChanged,
 }: {
+  agentEmail: string;
   messageId: string;
   onChanged: () => void;
 }) {
   // Shared SWR cache with the focus page: when the focus page (or
   // the pending page's handleChanged) calls
   // `invalidateMessageDetail(id)`, this panel's data refetches
-  // automatically. Before the migration, the panel held its own
-  // useState/useEffect copy and stayed stale across mutations
-  // from elsewhere in the app.
+  // automatically. The detail fetch is agent-scoped in /v1
+  // (GET /v1/agents/{address}/messages/{id}), so the owning agent's
+  // address is threaded in from the queue row.
   const {
     data: msg,
     error: fetchError,
     isLoading,
   } = useSWR<PendingMessageDetail>(
-    messageId ? pendingMessageKey(messageId) : null,
-    () => getPendingMessage(messageId),
+    agentEmail && messageId ? pendingMessageKey(agentEmail, messageId) : null,
+    () => getPendingMessage(agentEmail, messageId),
     {
       // Different message ID = different conceptual content; don't
       // briefly render the previous message's data under the new id.
@@ -158,7 +160,7 @@ export function PendingDetailPanel({
         cc,
         bcc,
       });
-      await approvePendingMessage(msg.agent_id, msg.id, overrides);
+      await approvePendingMessage(agentEmail, msg.id, overrides);
       onChanged();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Approve failed");
@@ -173,7 +175,7 @@ export function PendingDetailPanel({
     setRejecting(true);
     setActionError("");
     try {
-      await rejectPendingMessage(msg.agent_id, msg.id, rejectReason);
+      await rejectPendingMessage(agentEmail, msg.id, rejectReason);
       onChanged();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Reject failed");
@@ -267,7 +269,7 @@ export function PendingDetailPanel({
         >
           <span>
             <span style={{ color: "var(--fg-subtle)" }}>from </span>
-            {msg.agent_id}
+            {agentEmail}
           </span>
           <span>
             <span style={{ color: "var(--fg-subtle)" }}>to </span>

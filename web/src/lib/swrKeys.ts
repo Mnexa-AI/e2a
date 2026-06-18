@@ -31,7 +31,10 @@ export const agentMessagesKey = (
 ) =>
   ["agent-messages", email, direction, status, token ?? null] as const;
 
-export const pendingMessageKey = (id: string) => ["pending-message", id] as const;
+// Agent-scoped in /v1: the detail fetch is GET /v1/agents/{address}/
+// messages/{id}, so the cache key carries the owning agent's email.
+export const pendingMessageKey = (email: string, id: string) =>
+  ["pending-message", email, id] as const;
 export const inboundMessageKey = (email: string, id: string) => ["inbound-message", email, id] as const;
 
 // ── Invalidation helpers ─────────────────────────────────
@@ -58,8 +61,15 @@ export function invalidatePendingList() {
 // approval outbound row. If we ever start mutating inbound rows
 // (e.g. mark-as-unread), this helper needs a second mutate for
 // `inbound-message`.
+//
+// Matches by message id regardless of which agent's email keyed the
+// fetch, so callers that don't have the agent address in scope (the
+// pending page's blanket refresh) can still drop the right entry.
 export function invalidateMessageDetail(id: string) {
-  return mutate(pendingMessageKey(id));
+  return mutate(
+    (key) =>
+      Array.isArray(key) && key[0] === "pending-message" && key[2] === id,
+  );
 }
 
 export function invalidateAgentMessages(email: string) {

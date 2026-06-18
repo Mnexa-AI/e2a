@@ -71,7 +71,7 @@ describe("Sidebar — nav entries", () => {
       { label: "Pending", href: "/dashboard/pending" },
       { label: "Domains", href: "/domains" },
       { label: "API keys", href: "/api-keys" },
-      { label: "Webhook secrets", href: "/webhook-secrets" },
+      { label: "Webhooks", href: "/webhook-secrets" },
     ];
     for (const { label, href } of expected) {
       const link = document.querySelector(`a[href="${href}"]`);

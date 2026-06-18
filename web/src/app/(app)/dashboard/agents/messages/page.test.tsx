@@ -77,11 +77,13 @@ const ORPHAN_INBOUND: MessageSummary = {
 
 function mockMessages(messages: MessageSummary[]) {
   mockFetch.mockImplementation((url: string) => {
-    if (url.includes("/api/v1/agents/") && url.includes("/messages")) {
+    if (url.includes("/v1/agents/") && url.includes("/messages")) {
+      // PageMessageSummaryView envelope; api helper reads it via res.text().
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ messages }),
+        text: () =>
+          Promise.resolve(JSON.stringify({ items: messages, next_cursor: null })),
       });
     }
     return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve("not found") });

@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import WebhookSecretsPage from "./page";
+import WebhooksPage from "./page";
 
 // jsdom doesn't provide navigator.clipboard. The signing-secret Copy
 // button calls writeText, so we install a jest mock once at module
@@ -70,72 +70,114 @@ function errResp(text: string, status: number): MockResponse {
   return { ok: false, status, text: async () => text, json: async () => ({}) };
 }
 
-describe("Webhook secrets page", () => {
-  // The list endpoint returns the full plaintext `secret` so the dashboard
-  // can offer a Show/Hide toggle. Fixtures include both prefix and full
-  // secret for that reason.
-  const defaultSecret = {
-    id: "wsec_default0001",
-    name: "default",
-    secret: "abcd1234efgh".repeat(6).slice(0, 64),
-    secret_prefix: "abcd1234efgh",
+describe("Webhooks page", () => {
+  // WebhookView from GET /v1/webhooks. GET never returns signing_secret —
+  // it's only present on create / rotate responses.
+  const webhook = {
+    id: "wh_default0001",
+    url: "https://app.example.com/inbox",
+    description: "",
+    events: ["email.received"],
+    enabled: true,
     created_at: "2026-04-15T10:00:00Z",
   };
 
-  it("lists existing secrets with the prefix hidden by default", async () => {
+  it("lists existing webhooks (url, events, status) without exposing a secret", async () => {
     global.fetch = makeFetchMock({
-      "/api/v1/users/me/signing-secrets": () =>
-        jsonResp({ secrets: [defaultSecret] }),
+      "/v1/webhooks": () => jsonResp({ webhooks: [webhook] }),
     }) as unknown as typeof fetch;
 
-    render(<WebhookSecretsPage />);
+    render(<WebhooksPage />);
     await waitFor(() => {
-      expect(screen.getByText("default")).toBeInTheDocument();
+      expect(screen.getByText(webhook.url)).toBeInTheDocument();
     });
-    expect(screen.getByText("abcd1234efgh…")).toBeInTheDocument();
-    expect(screen.queryByText(defaultSecret.secret)).not.toBeInTheDocument();
+    expect(screen.getByText("email.received")).toBeInTheDocument();
+    expect(screen.getByText("enabled")).toBeInTheDocument();
+    // No secret column / value in the list view.
+    expect(document.body.innerHTML).not.toContain("signing_secret");
   });
 
-  it("toggles the full secret on Show / Hide", async () => {
+  it("creates a webhook, reveals the signing secret once, and hides it on dismiss", async () => {
+    const created = {
+      id: "wh_new0002",
+      url: "https://app.example.com/hook2",
+      description: "",
+      events: ["email.received"],
+      enabled: true,
+      created_at: "2026-04-27T16:10:00Z",
+      signing_secret: "whsec_" + "deadbeef".repeat(8),
+    };
+    let listCallCount = 0;
     global.fetch = makeFetchMock({
-      "/api/v1/users/me/signing-secrets": () =>
-        jsonResp({ secrets: [defaultSecret] }),
+      "GET /v1/webhooks": () => {
+        listCallCount++;
+        if (listCallCount === 1) return jsonResp({ webhooks: [webhook] });
+        return jsonResp({
+          webhooks: [webhook, { ...created, signing_secret: undefined }],
+        });
+      },
+      "POST /v1/webhooks": () => jsonResp(created, 201),
     }) as unknown as typeof fetch;
 
-    render(<WebhookSecretsPage />);
+    render(<WebhooksPage />);
     await waitFor(() =>
-      expect(screen.getByText("default")).toBeInTheDocument(),
+      expect(screen.getByText(webhook.url)).toBeInTheDocument(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /^show$/i }));
-    expect(screen.getByText(defaultSecret.secret)).toBeInTheDocument();
-    expect(screen.queryByText("abcd1234efgh…")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /add webhook/i }));
+    fireEvent.change(screen.getByPlaceholderText(/your-app\.com/i), {
+      target: { value: created.url },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
 
-    fireEvent.click(screen.getByRole("button", { name: /^hide$/i }));
-    expect(screen.queryByText(defaultSecret.secret)).not.toBeInTheDocument();
-    expect(screen.getByText("abcd1234efgh…")).toBeInTheDocument();
-  });
+    await waitFor(() => {
+      expect(
+        screen.getByText(/copy this signing secret now/i),
+      ).toBeInTheDocument();
+    });
+    const plaintextInput = screen.getByLabelText(
+      /plaintext signing secret/i,
+    ) as HTMLInputElement;
+    expect(plaintextInput.value).toBe(created.signing_secret);
 
-  it("copies the full plaintext to the clipboard and flips the Copy label", async () => {
-    global.fetch = makeFetchMock({
-      "/api/v1/users/me/signing-secrets": () =>
-        jsonResp({ secrets: [defaultSecret] }),
-    }) as unknown as typeof fetch;
-
-    render(<WebhookSecretsPage />);
-    await waitFor(() =>
-      expect(screen.getByText("default")).toBeInTheDocument(),
-    );
-
-    // Copy is only rendered once the row is revealed — that's the
-    // point of the feature, you can't copy what you haven't disclosed.
+    fireEvent.click(screen.getByRole("button", { name: /^dismiss$/i }));
     expect(
-      screen.queryByRole("button", { name: /^copy$/i }),
+      screen.queryByText(/copy this signing secret now/i),
     ).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /^show$/i }));
+    expect(document.body.innerHTML).not.toContain(created.signing_secret);
+  });
 
+  it("copies the revealed secret to the clipboard and flips the Copy label", async () => {
+    const created = {
+      id: "wh_new0003",
+      url: "https://app.example.com/hook3",
+      events: ["email.received"],
+      enabled: true,
+      created_at: "2026-04-27T16:10:00Z",
+      signing_secret: "whsec_copyme",
+    };
+    global.fetch = makeFetchMock({
+      "GET /v1/webhooks": () => jsonResp({ webhooks: [webhook] }),
+      "POST /v1/webhooks": () => jsonResp(created, 201),
+    }) as unknown as typeof fetch;
+
+    render(<WebhooksPage />);
+    await waitFor(() =>
+      expect(screen.getByText(webhook.url)).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /add webhook/i }));
+    fireEvent.change(screen.getByPlaceholderText(/your-app\.com/i), {
+      target: { value: created.url },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText(/plaintext signing secret/i),
+      ).toBeInTheDocument(),
+    );
     fireEvent.click(screen.getByRole("button", { name: /^copy$/i }));
-    expect(writeText).toHaveBeenCalledWith(defaultSecret.secret);
+    expect(writeText).toHaveBeenCalledWith(created.signing_secret);
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: /^copied$/i }),
@@ -143,119 +185,79 @@ describe("Webhook secrets page", () => {
     });
   });
 
-  it("disables Delete when only one secret exists", async () => {
+  it("shows an inline error when create fails", async () => {
     global.fetch = makeFetchMock({
-      "/api/v1/users/me/signing-secrets": () =>
-        jsonResp({ secrets: [defaultSecret] }),
+      "GET /v1/webhooks": () => jsonResp({ webhooks: [webhook] }),
+      "POST /v1/webhooks": () => errResp("invalid url", 400),
     }) as unknown as typeof fetch;
 
-    render(<WebhookSecretsPage />);
+    render(<WebhooksPage />);
     await waitFor(() =>
-      expect(screen.getByText("default")).toBeInTheDocument(),
-    );
-    const delBtn = screen.getByRole("button", { name: /^delete$/i });
-    expect(delBtn).toBeDisabled();
-  });
-
-  it("creates a new secret, shows the plaintext in the banner, and hides the banner on dismiss", async () => {
-    const created = {
-      id: "wsec_new0002",
-      name: "rolling",
-      secret: "deadbeef".repeat(8),
-      secret_prefix: "deadbeefdead",
-      created_at: "2026-04-27T16:10:00Z",
-    };
-    let listCallCount = 0;
-    global.fetch = makeFetchMock({
-      "GET /api/v1/users/me/signing-secrets": () => {
-        listCallCount++;
-        if (listCallCount === 1) return jsonResp({ secrets: [defaultSecret] });
-        return jsonResp({ secrets: [defaultSecret, created] });
-      },
-      "POST /api/v1/users/me/signing-secrets": () => jsonResp(created, 201),
-    }) as unknown as typeof fetch;
-
-    render(<WebhookSecretsPage />);
-    await waitFor(() =>
-      expect(screen.getByText("default")).toBeInTheDocument(),
+      expect(screen.getByText(webhook.url)).toBeInTheDocument(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /create new secret/i }));
-    fireEvent.change(screen.getByPlaceholderText(/rolling-2026/i), {
-      target: { value: "rolling" },
+    fireEvent.click(screen.getByRole("button", { name: /add webhook/i }));
+    fireEvent.change(screen.getByPlaceholderText(/your-app\.com/i), {
+      target: { value: "https://bad" },
     });
     fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
 
     await waitFor(() => {
+      expect(screen.getByText(/invalid url/i)).toBeInTheDocument();
+    });
+  });
+
+  it("rotates the secret and reveals the new one", async () => {
+    global.fetch = makeFetchMock({
+      "GET /v1/webhooks": () => jsonResp({ webhooks: [webhook] }),
+      [`POST /v1/webhooks/${encodeURIComponent(webhook.id)}/rotate-secret`]: () =>
+        jsonResp({
+          signing_secret: "whsec_rotated",
+          previous_secret_expires_at: "2026-05-01T00:00:00Z",
+        }),
+    }) as unknown as typeof fetch;
+
+    render(<WebhooksPage />);
+    await waitFor(() =>
+      expect(screen.getByText(webhook.url)).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /rotate secret/i }));
+
+    await waitFor(() => {
       expect(
-        screen.getByText(/new signing secret created/i),
+        screen.getByText(/copy the new signing secret now/i),
       ).toBeInTheDocument();
     });
     const plaintextInput = screen.getByLabelText(
       /plaintext signing secret/i,
     ) as HTMLInputElement;
-    expect(plaintextInput.value).toBe(created.secret);
-
-    fireEvent.click(screen.getByRole("button", { name: /^dismiss$/i }));
-    expect(
-      screen.queryByText(/new signing secret created/i),
-    ).not.toBeInTheDocument();
-    expect(document.body.innerHTML).not.toContain(created.secret);
-  });
-
-  it("shows an inline error when the cap is reached on create", async () => {
-    global.fetch = makeFetchMock({
-      "GET /api/v1/users/me/signing-secrets": () =>
-        jsonResp({ secrets: [defaultSecret] }),
-      "POST /api/v1/users/me/signing-secrets": () =>
-        errResp(
-          "at most 5 signing secrets per user; delete one before creating another",
-          400,
-        ),
-    }) as unknown as typeof fetch;
-
-    render(<WebhookSecretsPage />);
-    await waitFor(() =>
-      expect(screen.getByText("default")).toBeInTheDocument(),
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /create new secret/i }));
-    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
-
-    await waitFor(() => {
-      expect(
-        screen.getByText(/at most 5 signing secrets/i),
-      ).toBeInTheDocument();
-    });
+    expect(plaintextInput.value).toBe("whsec_rotated");
   });
 
   it("DELETEs the right id when confirming a row delete", async () => {
     const second = {
-      ...defaultSecret,
-      id: "wsec_other",
-      name: "other",
-      secret: "1111".repeat(16),
-      secret_prefix: "1111",
+      ...webhook,
+      id: "wh_other",
+      url: "https://app.example.com/other",
     };
     const deletedIDs: string[] = [];
     global.fetch = makeFetchMock({
-      "GET /api/v1/users/me/signing-secrets": () =>
-        jsonResp({ secrets: [defaultSecret, second] }),
-      [`DELETE /api/v1/users/me/signing-secrets/${encodeURIComponent("wsec_other")}`]:
-        () => {
-          deletedIDs.push("wsec_other");
-          return {
-            ok: true,
-            status: 204,
-            text: async () => "",
-            json: async () => ({}),
-          };
-        },
+      "GET /v1/webhooks": () => jsonResp({ webhooks: [webhook, second] }),
+      [`DELETE /v1/webhooks/${encodeURIComponent("wh_other")}`]: () => {
+        deletedIDs.push("wh_other");
+        return {
+          ok: true,
+          status: 204,
+          text: async () => "",
+          json: async () => ({}),
+        };
+      },
     }) as unknown as typeof fetch;
 
-    render(<WebhookSecretsPage />);
+    render(<WebhooksPage />);
     await waitFor(() =>
-      expect(screen.getByText("other")).toBeInTheDocument(),
+      expect(screen.getByText(second.url)).toBeInTheDocument(),
     );
 
     const delButtons = screen.getAllByRole("button", { name: /^delete$/i });
@@ -264,38 +266,7 @@ describe("Webhook secrets page", () => {
     fireEvent.click(screen.getByRole("button", { name: /^confirm$/i }));
 
     await waitFor(() => {
-      expect(deletedIDs).toEqual(["wsec_other"]);
-    });
-  });
-
-  it("surfaces a 'cannot delete the last' error inline", async () => {
-    const second = {
-      ...defaultSecret,
-      id: "wsec_other",
-      name: "other",
-      secret: "1111".repeat(16),
-      secret_prefix: "1111",
-    };
-    global.fetch = makeFetchMock({
-      "GET /api/v1/users/me/signing-secrets": () =>
-        jsonResp({ secrets: [defaultSecret, second] }),
-      [`DELETE /api/v1/users/me/signing-secrets/${encodeURIComponent("wsec_other")}`]:
-        () =>
-          errResp(
-            "cannot delete the last signing secret; create a new one first",
-            400,
-          ),
-    }) as unknown as typeof fetch;
-
-    render(<WebhookSecretsPage />);
-    await waitFor(() => expect(screen.getByText("other")).toBeInTheDocument());
-
-    const delButtons = screen.getAllByRole("button", { name: /^delete$/i });
-    fireEvent.click(delButtons[1]);
-    fireEvent.click(screen.getByRole("button", { name: /^confirm$/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText(/cannot delete the last/i)).toBeInTheDocument();
+      expect(deletedIDs).toEqual(["wh_other"]);
     });
   });
 });

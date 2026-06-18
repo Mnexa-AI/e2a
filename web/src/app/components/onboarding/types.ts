@@ -20,7 +20,7 @@ export type ChecklistStep =
   | "domain_verified"
   | "agent_created";
 
-/** Domain as returned by GET /api/v1/domains. */
+/** Domain as returned by GET /v1/domains. */
 export type DomainInfo = {
   domain: string;
   verified: boolean;
@@ -42,7 +42,7 @@ export type DomainInfo = {
   agent_count?: number;
 };
 
-/** Response from POST /api/v1/domains/{domain}/verify — per-record
+/** Response from POST /v1/domains/{domain}/verify — per-record
  * diagnostic. `dkim` reports "found" or "missing" against the
  * per-domain public key registered at claim time. "deferred" is
  * returned only for pre-migration domains that have no stored
@@ -98,7 +98,7 @@ export type CreateAgentRequest =
   | { type: "shared"; slug: string; agent_mode: AgentMode; webhook_url?: string }
   | { type: "custom"; email: string; agent_mode: AgentMode; webhook_url?: string };
 
-/** Response from POST /api/v1/agents. */
+/** Response from POST /v1/agents. */
 export type AgentCreateResponse = {
   id: string;
   domain: string;

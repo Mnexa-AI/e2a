@@ -3,7 +3,7 @@
 // Inbox (threaded) — primary per-agent screen.
 // Two-column grid: thread list (360px) | thread detail (1fr).
 // Threads grouped client-side over a 100-row window of mixed inbound +
-// outbound messages from `GET /api/v1/agents/{email}/messages?direction=all`.
+// outbound messages from `GET /v1/agents/{address}/messages?direction=all`.
 // Server-side conversations endpoint is a tracked follow-up; until it
 // lands, the window may starve old threads for accounts with >100
 // recent messages.
@@ -70,15 +70,15 @@ function AgentInboxContent() {
   );
 
   // "Load older" appends additional pages keyed by the prior page's
-  // next_token. We keep these in local state because SWR's cache key
-  // would need the token in it (defeating the dedup) — appended
+  // next_cursor. We keep these in local state because SWR's cache key
+  // would need the cursor in it (defeating the dedup) — appended
   // pages are append-only so a separate state ref works fine.
   const [olderPages, setOlderPages] = useState<MessageSummary[][]>([]);
-  const [latestToken, setLatestToken] = useState<string | null | undefined>(undefined);
+  const [latestCursor, setLatestCursor] = useState<string | null | undefined>(undefined);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState("");
 
-  const initialMessages = initialPage?.messages ?? [];
+  const initialMessages = initialPage?.items ?? [];
   // Concatenate the initial page with any imperatively-loaded older
   // pages, then de-dupe by `message_id`. The de-dupe matters because
   // SWR can revalidate the initial page mid-session (focus event,
@@ -97,11 +97,11 @@ function AgentInboxContent() {
     }
     return out;
   }, [initialMessages, olderPages]);
-  // The token to use for the next "Load older" click is the most
-  // recent next_token we've seen (either from the initial fetch or
+  // The cursor to use for the next "Load older" click is the most
+  // recent next_cursor we've seen (either from the initial fetch or
   // the latest appended page).
-  const nextToken: string | null =
-    latestToken !== undefined ? latestToken : (initialPage?.next_token ?? null);
+  const nextCursor: string | null =
+    latestCursor !== undefined ? latestCursor : (initialPage?.next_cursor ?? null);
 
   const threads = useMemo(
     () => (rows.length > 0 ? groupIntoThreads(rows) : []),
@@ -136,7 +136,7 @@ function AgentInboxContent() {
   };
 
   const loadOlder = async () => {
-    if (!nextToken) return;
+    if (!nextCursor) return;
     // Capture the email at call time so we can detect a navigation
     // (?email=… changed) before the response lands. Without this, a
     // late response would merge into the wrong agent's rows.
@@ -148,11 +148,11 @@ function AgentInboxContent() {
         direction: "all",
         status: "all",
         pageSize: 100,
-        token: nextToken,
+        cursor: nextCursor,
       });
       if (startEmail !== email) return;
-      setOlderPages((prev) => [...prev, res.messages]);
-      setLatestToken(res.next_token ?? null);
+      setOlderPages((prev) => [...prev, res.items]);
+      setLatestCursor(res.next_cursor ?? null);
     } catch (err) {
       if (startEmail !== email) return;
       setLoadError(err instanceof Error ? err.message : "Failed to load older messages");
@@ -177,7 +177,7 @@ function AgentInboxContent() {
         onSelect={selectThread}
         total={threads.length}
         pendingCount={pendingCount}
-        hasMore={!!nextToken}
+        hasMore={!!nextCursor}
         onLoadMore={loadOlder}
         loadingMore={loadingMore}
       />

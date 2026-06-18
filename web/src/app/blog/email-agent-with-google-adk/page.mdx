@@ -86,7 +86,7 @@ ngrok http 18080
 Set that public URL on your agent (replace `<EMAIL>` and `<API_KEY>`; the `@` in `EMAIL` must be URL-encoded as `%40`):
 
 ```bash
-curl -X PUT "https://e2a.dev/api/v1/agents/assistant%40agents.e2a.dev" \
+curl -X PATCH "https://e2a.dev/v1/agents/assistant%40agents.e2a.dev" \
   -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{"webhook_url":"https://abc123.ngrok.io/webhook"}'

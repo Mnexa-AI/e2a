@@ -82,7 +82,7 @@ const verifiedDomain = {
 /** Mock both listDomains and listAgents returning empty (fresh user). */
 function mockFreshUser() {
   mockFetch.mockImplementation((url: string) => {
-    if (url === "/api/v1/domains") {
+    if (url === "/v1/domains") {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ domains: [] }) });
     }
     if (url === "/api/dashboard/agents") {
@@ -103,13 +103,13 @@ beforeEach(() => {
 
 function mockAgentCreation(email: string) {
   mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-    if (url === "/api/v1/domains") {
+    if (url === "/v1/domains") {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ domains: [] }) });
     }
     if (url === "/api/dashboard/agents" && !init?.method) {
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ agents: [] }) });
     }
-    if (url === "/api/v1/agents" && init?.method === "POST") {
+    if (url === "/v1/agents" && init?.method === "POST") {
       return Promise.resolve({
         ok: true,
         status: 200,
@@ -122,13 +122,13 @@ function mockAgentCreation(email: string) {
 
 function mockAgentCreationFailure(errorMessage: string) {
   mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-    if (url === "/api/v1/domains") {
+    if (url === "/v1/domains") {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ domains: [] }) });
     }
     if (url === "/api/dashboard/agents" && !init?.method) {
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ agents: [] }) });
     }
-    if (url === "/api/v1/agents" && init?.method === "POST") {
+    if (url === "/v1/agents" && init?.method === "POST") {
       return Promise.resolve({
         ok: false,
         status: 400,
@@ -233,7 +233,7 @@ describe("Shared local flow", () => {
     // Verify API call
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
-        "/api/v1/agents",
+        "/v1/agents",
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({ slug: "my-bot", agent_mode: "local" }),
@@ -285,7 +285,7 @@ describe("Shared cloud flow", () => {
     // Verify API call includes agent_mode: "cloud" and webhook_url
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
-        "/api/v1/agents",
+        "/v1/agents",
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({
@@ -335,7 +335,7 @@ describe("Webhook validation for shared cloud", () => {
       expect(screen.getByText("Webhook URL must be a valid HTTPS URL.")).toBeInTheDocument();
     });
 
-    expect(mockFetch).not.toHaveBeenCalledWith("/api/v1/agents", expect.anything());
+    expect(mockFetch).not.toHaveBeenCalledWith("/v1/agents", expect.anything());
   });
 
   it("shows inline error for invalid slug", async () => {
@@ -355,7 +355,7 @@ describe("Webhook validation for shared cloud", () => {
       expect(screen.getByText(/Slug must be 2/)).toBeInTheDocument();
     });
 
-    expect(mockFetch).not.toHaveBeenCalledWith("/api/v1/agents", expect.anything());
+    expect(mockFetch).not.toHaveBeenCalledWith("/v1/agents", expect.anything());
   });
 });
 
@@ -402,7 +402,7 @@ describe("Query param support", () => {
   it("?domain= resumes at agent creation for a verified domain", async () => {
     setSearchParams({ domain: "verified.example.com" });
     mockFetch.mockImplementation((url: string) => {
-      if (url === "/api/v1/domains") {
+      if (url === "/v1/domains") {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ domains: [verifiedDomain] }),
@@ -423,7 +423,7 @@ describe("Query param support", () => {
   it("?domain= falls back to choose when domain is not owned", async () => {
     setSearchParams({ domain: "missing.example.com" });
     mockFetch.mockImplementation((url: string) => {
-      if (url === "/api/v1/domains") {
+      if (url === "/v1/domains") {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ domains: [] }),
@@ -452,7 +452,7 @@ describe("Query param support", () => {
     };
     setSearchParams({ domain: "unverified.example.com" });
     mockFetch.mockImplementation((url: string) => {
-      if (url === "/api/v1/domains") {
+      if (url === "/v1/domains") {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ domains: [unverifiedDomainFixture] }),
@@ -494,14 +494,14 @@ function mockCustomDomainFlow() {
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ agents: [] }) });
     }
     // listDomains — initially empty
-    if (url === "/api/v1/domains" && (!init?.method || init.method === "GET")) {
+    if (url === "/v1/domains" && (!init?.method || init.method === "GET")) {
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({ domains: [] }),
       });
     }
     // registerDomain
-    if (url === "/api/v1/domains" && init?.method === "POST") {
+    if (url === "/v1/domains" && init?.method === "POST") {
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve(unverifiedDomain),
@@ -516,7 +516,7 @@ function mockCustomDomainFlow() {
       });
     }
     // createAgent
-    if (url === "/api/v1/agents" && init?.method === "POST") {
+    if (url === "/v1/agents" && init?.method === "POST") {
       const body = JSON.parse(init.body as string);
       return Promise.resolve({
         ok: true,
@@ -636,13 +636,13 @@ describe("Custom-domain flow: existing verified domain -> create agent directly"
   it("skips DNS/verify for already-verified domains", async () => {
     setSearchParams({ domain: "verified.example.com" });
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/v1/domains") {
+      if (url === "/v1/domains") {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ domains: [verifiedDomain] }),
         });
       }
-      if (url === "/api/v1/agents" && init?.method === "POST") {
+      if (url === "/v1/agents" && init?.method === "POST") {
         return Promise.resolve({
           ok: true,
           status: 200,
@@ -684,7 +684,7 @@ describe("Custom-domain flow: existing unverified domain -> resume verify", () =
     };
     setSearchParams({ domain: "pending.example.com" });
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/v1/domains") {
+      if (url === "/v1/domains") {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ domains: [unverified] }),
@@ -724,13 +724,13 @@ describe("Custom-domain flow: verification retry", () => {
       if (url === "/api/dashboard/agents" && !init?.method) {
         return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ agents: [] }) });
       }
-      if (url === "/api/v1/domains" && (!init?.method || init.method === "GET")) {
+      if (url === "/v1/domains" && (!init?.method || init.method === "GET")) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ domains: [] }),
         });
       }
-      if (url === "/api/v1/domains" && init?.method === "POST") {
+      if (url === "/v1/domains" && init?.method === "POST") {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve(unverifiedDomain),
@@ -777,7 +777,7 @@ describe("Custom-domain flow: verification retry", () => {
 describe("Plain /get-started always shows address choice", () => {
   it("shows address choice even when user has existing agents", async () => {
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/v1/domains") {
+      if (url === "/v1/domains") {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ domains: [] }) });
       }
       if (url === "/api/dashboard/agents" && !init?.method) {
@@ -812,7 +812,7 @@ describe("Plain /get-started always shows address choice", () => {
       verified_at: null,
     };
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/v1/domains") {
+      if (url === "/v1/domains") {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ domains: [unverified] }) });
       }
       if (url === "/api/dashboard/agents" && !init?.method) {
@@ -831,7 +831,7 @@ describe("Plain /get-started always shows address choice", () => {
 
   it("shows address choice even with verified domain and no agents", async () => {
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/v1/domains") {
+      if (url === "/v1/domains") {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ domains: [verifiedDomain] }) });
       }
       if (url === "/api/dashboard/agents" && !init?.method) {
@@ -953,7 +953,7 @@ describe("URL-driven step navigation", () => {
   it("?domain=… (legacy) gets translated to ?step=custom_checklist via replace", async () => {
     setSearchParams({ domain: "verified.example.com" });
     mockFetch.mockImplementation((url: string) => {
-      if (url === "/api/v1/domains") {
+      if (url === "/v1/domains") {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ domains: [verifiedDomain] }),

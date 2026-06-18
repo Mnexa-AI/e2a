@@ -578,7 +578,7 @@ export default function Home() {
             {activeTab === "webhook" && (
               <>
                 <Line c="comment"># register a cloud agent with a webhook URL</Line>
-                <Line>curl -X POST {SITE_URL}/api/v1/agents \</Line>
+                <Line>curl -X POST {SITE_URL}/v1/agents \</Line>
                 <Line>&nbsp;&nbsp;-H <Tok c="string">{`"Authorization: Bearer $E2A_API_KEY"`}</Tok> \</Line>
                 <Line>&nbsp;&nbsp;-d <Tok c="string">{`'{"slug":"my-agent","webhook_url":"https://your-app.com/inbox"}'`}</Tok></Line>
                 <Line>&nbsp;</Line>

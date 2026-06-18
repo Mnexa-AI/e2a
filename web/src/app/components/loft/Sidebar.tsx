@@ -99,7 +99,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   { href: "/domains", label: "Domains", icon: "globe" },
   { href: "/api-keys", label: "API keys", icon: "key" },
-  { href: "/webhook-secrets", label: "Webhook secrets", icon: "shield" },
+  { href: "/webhook-secrets", label: "Webhooks", icon: "shield" },
   { href: "/billing", label: "Billing", icon: "card" },
 ];
 

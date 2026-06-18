@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageShell } from "../../components/loft/PageShell";
 
-// /webhook-secrets owns the user's HMAC signing-secret lifecycle —
-// create, reveal, rotate, delete. Lifted out of /settings into a
-// dedicated nav entry so it sits alongside "API keys" in the sidebar
-// (both are credential surfaces; surfacing them at the same depth
-// makes them easier to find).
+// /webhook-secrets owns the user's webhook lifecycle — create, reveal
+// the one-time signing secret, rotate it, delete. In the /v1 redesign
+// signing secrets are per-webhook (not account-wide shared HMAC
+// secrets), so this page manages webhook endpoints over /v1/webhooks
+// and reveals each webhook's signing_secret once at create/rotate time.
 
 // Inline-code chip used inline in the subtitle copy. Pulled out so
 // the two usages in the page header stay byte-identical.
@@ -21,38 +21,61 @@ const inlineCodeStyle: React.CSSProperties = {
   color: "var(--fg)",
 };
 
-type SigningSecretSummary = {
+// WebhookView (GET /v1/webhooks → { webhooks: [...] }). GET never
+// returns `signing_secret` — it's only present on create / rotate
+// responses, which we surface once in the reveal banner.
+type WebhookView = {
   id: string;
-  name: string;
-  secret: string;
-  secret_prefix: string;
+  url: string;
+  description?: string;
+  events?: string[] | null;
+  enabled: boolean;
   created_at: string;
-  last_signed_at?: string;
+  last_delivered_at?: string;
+  signing_secret?: string;
+  previous_secret_expires_at?: string;
 };
 
-type CreatedSecret = {
-  id: string;
-  name: string;
+// The subset of event types a webhook can subscribe to. Mirrors the
+// EventJSON.type enum in api/openapi.yaml.
+const EVENT_TYPES = [
+  "email.received",
+  "email.sent",
+  "email.pending_approval",
+  "email.approved",
+  "email.rejected",
+  "email.delivered",
+  "email.bounced",
+  "email.complained",
+] as const;
+
+// A revealed secret (from a create or a rotate). `kind` drives the
+// banner copy; `webhookUrl` lets the reviewer confirm which endpoint
+// the secret belongs to.
+type RevealedSecret = {
+  kind: "created" | "rotated";
   secret: string;
-  secret_prefix: string;
-  created_at: string;
+  webhookUrl: string;
 };
 
-export default function WebhookSecretsPage() {
-  const [secrets, setSecrets] = useState<SigningSecretSummary[]>([]);
+export default function WebhooksPage() {
+  const [webhooks, setWebhooks] = useState<WebhookView[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [created, setCreated] = useState<CreatedSecret | null>(null);
+  const [revealed, setRevealed] = useState<RevealedSecret | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
-  const [newName, setNewName] = useState("");
+  const [newURL, setNewURL] = useState("");
+  const [newEvents, setNewEvents] = useState<string[]>([
+    "email.received",
+  ]);
   const [showCreateForm, setShowCreateForm] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setLoadError("");
     try {
-      const res = await fetch("/api/v1/users/me/signing-secrets", {
+      const res = await fetch("/v1/webhooks", {
         credentials: "include",
       });
       if (!res.ok) {
@@ -61,7 +84,7 @@ export default function WebhookSecretsPage() {
         return;
       }
       const body = await res.json();
-      setSecrets(body.secrets ?? []);
+      setWebhooks(body.webhooks ?? []);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -73,25 +96,38 @@ export default function WebhookSecretsPage() {
     void refresh();
   }, [refresh]);
 
+  const toggleEvent = (ev: string) => {
+    setNewEvents((prev) =>
+      prev.includes(ev) ? prev.filter((e) => e !== ev) : [...prev, ev],
+    );
+  };
+
   const handleCreate = async () => {
     setCreating(true);
     setCreateError("");
     try {
-      const res = await fetch("/api/v1/users/me/signing-secrets", {
+      const res = await fetch("/v1/webhooks", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName.trim() }),
+        body: JSON.stringify({ url: newURL.trim(), events: newEvents }),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => `HTTP ${res.status}`);
         setCreateError(text.trim() || `HTTP ${res.status}`);
         return;
       }
-      const body: CreatedSecret = await res.json();
-      setCreated(body);
+      const body: WebhookView = await res.json();
+      if (body.signing_secret) {
+        setRevealed({
+          kind: "created",
+          secret: body.signing_secret,
+          webhookUrl: body.url,
+        });
+      }
       setShowCreateForm(false);
-      setNewName("");
+      setNewURL("");
+      setNewEvents(["email.received"]);
       await refresh();
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : String(err));
@@ -102,26 +138,25 @@ export default function WebhookSecretsPage() {
 
   return (
     <PageShell
-      crumbs={["Webhook secrets"]}
+      crumbs={["Webhooks"]}
       eyebrow="Workspace"
-      title={<>Webhook secrets</>}
+      title={<>Webhooks</>}
       subtitle={
         <>
           <span style={{ display: "block" }}>
             <strong style={{ color: "var(--fg)" }}>For cloud agents only.</strong>{" "}
             When your agent runs behind a webhook
             (<code style={inlineCodeStyle}>agent_mode=cloud</code>), e2a
-            HMAC-signs every inbound payload it POSTs to you so your
-            handler can confirm the request really came from e2a.
+            HMAC-signs every payload it POSTs to the endpoint with that
+            webhook&apos;s signing secret so your handler can confirm the
+            request really came from e2a.
           </span>
           <span style={{ display: "block", marginTop: 10 }}>
-            Pass any active secret to{" "}
+            The signing secret is shown <strong style={{ color: "var(--fg)" }}>once</strong>{" "}
+            when you create or rotate a webhook — copy it then. Pass it to{" "}
             <code style={inlineCodeStyle}>verify_signature()</code> in the
-            SDK to validate. The relay always signs with your most
-            recently created secret; older ones remain valid for
-            verification until you delete them — so rotation is: create
-            new → swap in your code → delete old. Up to 5 active at a
-            time.
+            SDK to validate. Rotation keeps the previous secret valid for a
+            short overlap so you can swap it in without dropping deliveries.
           </span>
           <span
             style={{
@@ -137,10 +172,10 @@ export default function WebhookSecretsPage() {
         </>
       }
     >
-      {created && (
-        <CreatedSecretBanner
-          secret={created}
-          onDismiss={() => setCreated(null)}
+      {revealed && (
+        <RevealedSecretBanner
+          revealed={revealed}
+          onDismiss={() => setRevealed(null)}
         />
       )}
 
@@ -153,7 +188,13 @@ export default function WebhookSecretsPage() {
           {loadError}
         </p>
       ) : (
-        <SigningSecretsTable secrets={secrets} onChange={refresh} />
+        <WebhooksTable
+          webhooks={webhooks}
+          onChange={refresh}
+          onRevealRotated={(secret, webhookUrl) =>
+            setRevealed({ kind: "rotated", secret, webhookUrl })
+          }
+        />
       )}
 
       <div className="mt-4">
@@ -169,39 +210,21 @@ export default function WebhookSecretsPage() {
               color: "var(--accent-fg)",
               borderRadius: "var(--r-md)",
             }}
-            disabled={!loadError && secrets.length >= 5}
-            title={
-              !loadError && secrets.length >= 5
-                ? "Cap reached — delete one first"
-                : undefined
-            }
           >
-            Create new secret
+            Add webhook
           </button>
         ) : (
-          <div className="space-y-2 max-w-md">
+          <div className="space-y-3 max-w-md">
             <label className="block">
               <span className="text-[13px]" style={{ color: "var(--fg)" }}>
-                Name (optional, e.g.{" "}
-                <code
-                  className="font-mono text-[12px] px-1 py-0.5"
-                  style={{
-                    background: "var(--bg-elev)",
-                    border: "1px solid var(--border-sub)",
-                    borderRadius: "var(--r-sm)",
-                    color: "var(--fg)",
-                  }}
-                >
-                  prod
-                </code>
-                )
+                Endpoint URL
               </span>
               <input
                 autoFocus
-                type="text"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="rolling-2026-04"
+                type="url"
+                value={newURL}
+                onChange={(e) => setNewURL(e.target.value)}
+                placeholder="https://your-app.com/inbox"
                 className="mt-1 w-full px-3 py-2 text-[13px]"
                 style={{
                   background: "var(--bg-panel)",
@@ -211,6 +234,32 @@ export default function WebhookSecretsPage() {
                 }}
               />
             </label>
+            <div>
+              <span className="text-[13px]" style={{ color: "var(--fg)" }}>
+                Subscribed events
+              </span>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {EVENT_TYPES.map((ev) => {
+                  const on = newEvents.includes(ev);
+                  return (
+                    <button
+                      type="button"
+                      key={ev}
+                      onClick={() => toggleEvent(ev)}
+                      className="px-2 py-1 font-mono text-[11px] transition"
+                      style={{
+                        background: on ? "var(--accent-fill)" : "var(--bg-panel)",
+                        color: on ? "var(--accent-fg)" : "var(--fg)",
+                        border: `1px solid ${on ? "var(--accent-fill)" : "var(--border)"}`,
+                        borderRadius: "var(--r-sm)",
+                      }}
+                    >
+                      {ev}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             {createError && (
               <p
                 className="text-[13px]"
@@ -222,7 +271,7 @@ export default function WebhookSecretsPage() {
             <div className="flex gap-2">
               <button
                 onClick={handleCreate}
-                disabled={creating}
+                disabled={creating || !newURL.trim() || newEvents.length === 0}
                 className="px-4 py-2 text-[13px] font-medium transition disabled:opacity-50"
                 style={{
                   background: "var(--accent-fill)",
@@ -235,7 +284,8 @@ export default function WebhookSecretsPage() {
               <button
                 onClick={() => {
                   setShowCreateForm(false);
-                  setNewName("");
+                  setNewURL("");
+                  setNewEvents(["email.received"]);
                   setCreateError("");
                 }}
                 disabled={creating}
@@ -257,18 +307,18 @@ export default function WebhookSecretsPage() {
   );
 }
 
-function CreatedSecretBanner({
-  secret,
+function RevealedSecretBanner({
+  revealed,
   onDismiss,
 }: {
-  secret: CreatedSecret;
+  revealed: RevealedSecret;
   onDismiss: () => void;
 }) {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(secret.secret);
+      await navigator.clipboard.writeText(revealed.secret);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -289,10 +339,23 @@ function CreatedSecretBanner({
         className="text-[14px] font-semibold mb-1"
         style={{ color: "var(--warn-strong)" }}
       >
-        New signing secret created
+        {revealed.kind === "created"
+          ? "Webhook created — copy this signing secret now"
+          : "Secret rotated — copy the new signing secret now"}
       </h3>
       <p className="text-[13px] mb-3" style={{ color: "var(--warn-strong)" }}>
-        Copy it into your environment variable (commonly{" "}
+        This is the only time we&apos;ll show it. It belongs to{" "}
+        <code
+          className="font-mono text-[12px] px-1 py-0.5"
+          style={{
+            background: "var(--bg-panel)",
+            color: "var(--fg)",
+            borderRadius: "var(--r-sm)",
+          }}
+        >
+          {revealed.webhookUrl}
+        </code>
+        . Store it in your environment (commonly{" "}
         <code
           className="font-mono text-[12px] px-1 py-0.5"
           style={{
@@ -303,12 +366,12 @@ function CreatedSecretBanner({
         >
           E2A_HMAC_SECRET
         </code>
-        ). You can also reveal it later from the table below.
+        ).
       </p>
       <div className="flex gap-2 items-start flex-wrap">
         <input
           readOnly
-          value={secret.secret}
+          value={revealed.secret}
           aria-label="Plaintext signing secret"
           onFocus={(e) => e.currentTarget.select()}
           className="flex-1 min-w-[200px] font-mono text-[12px] px-3 py-2"
@@ -348,18 +411,19 @@ function CreatedSecretBanner({
   );
 }
 
-function SigningSecretsTable({
-  secrets,
+function WebhooksTable({
+  webhooks,
   onChange,
+  onRevealRotated,
 }: {
-  secrets: SigningSecretSummary[];
+  webhooks: WebhookView[];
   onChange: () => Promise<void> | void;
+  onRevealRotated: (secret: string, webhookUrl: string) => void;
 }) {
-  if (secrets.length === 0) {
+  if (webhooks.length === 0) {
     return (
       <p className="text-[13px]" style={{ color: "var(--fg-muted)" }}>
-        No secrets yet. New accounts always get a default one — if you&apos;re
-        seeing this, something is wrong.
+        No webhooks yet. Add one to start receiving signed event payloads.
       </p>
     );
   }
@@ -372,7 +436,7 @@ function SigningSecretsTable({
         borderRadius: "var(--r-lg)",
       }}
     >
-      <table className="w-full text-[13px] min-w-[640px]">
+      <table className="w-full text-[13px] min-w-[720px]">
         <thead>
           <tr
             className="text-left font-mono text-[10px] uppercase"
@@ -382,20 +446,20 @@ function SigningSecretsTable({
               letterSpacing: "0.08em",
             }}
           >
-            <th className="px-4 py-2 font-semibold">Name</th>
-            <th className="px-4 py-2 font-semibold">Secret</th>
+            <th className="px-4 py-2 font-semibold">URL</th>
+            <th className="px-4 py-2 font-semibold">Events</th>
+            <th className="px-4 py-2 font-semibold">Status</th>
             <th className="px-4 py-2 font-semibold">Created</th>
-            <th className="px-4 py-2 font-semibold">Last used</th>
             <th className="px-4 py-2"></th>
           </tr>
         </thead>
         <tbody>
-          {secrets.map((s, i) => (
-            <SigningSecretRow
-              key={s.id}
-              secret={s}
-              isLast={secrets.length === 1}
+          {webhooks.map((w, i) => (
+            <WebhookRow
+              key={w.id}
+              webhook={w}
               onChange={onChange}
+              onRevealRotated={onRevealRotated}
               isFirstRow={i === 0}
             />
           ))}
@@ -405,29 +469,28 @@ function SigningSecretsTable({
   );
 }
 
-function SigningSecretRow({
-  secret,
-  isLast,
+function WebhookRow({
+  webhook,
   onChange,
+  onRevealRotated,
   isFirstRow,
 }: {
-  secret: SigningSecretSummary;
-  isLast: boolean;
+  webhook: WebhookView;
   onChange: () => Promise<void> | void;
+  onRevealRotated: (secret: string, webhookUrl: string) => void;
   isFirstRow: boolean;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [rotating, setRotating] = useState(false);
   const [error, setError] = useState("");
-  const [revealed, setRevealed] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   const handleDelete = async () => {
     setDeleting(true);
     setError("");
     try {
       const res = await fetch(
-        `/api/v1/users/me/signing-secrets/${encodeURIComponent(secret.id)}`,
+        `/v1/webhooks/${encodeURIComponent(webhook.id)}`,
         {
           method: "DELETE",
           credentials: "include",
@@ -447,15 +510,35 @@ function SigningSecretRow({
     }
   };
 
-  const handleCopy = async () => {
+  const handleRotate = async () => {
+    setRotating(true);
+    setError("");
     try {
-      await navigator.clipboard.writeText(secret.secret);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // No clipboard in test env — silently noop.
+      const res = await fetch(
+        `/v1/webhooks/${encodeURIComponent(webhook.id)}/rotate-secret`,
+        {
+          method: "POST",
+          credentials: "include",
+        },
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => `HTTP ${res.status}`);
+        setError(text.trim() || `HTTP ${res.status}`);
+        return;
+      }
+      const body: { signing_secret?: string } = await res.json();
+      if (body.signing_secret) {
+        onRevealRotated(body.signing_secret, webhook.url);
+      }
+      await onChange();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRotating(false);
     }
   };
+
+  const busy = deleting || rotating;
 
   return (
     <tr
@@ -463,55 +546,28 @@ function SigningSecretRow({
         borderTop: isFirstRow ? undefined : "1px solid var(--border-sub)",
       }}
     >
-      <td className="px-4 py-3" style={{ color: "var(--fg)" }}>
-        {secret.name || "—"}
+      <td className="px-4 py-3 font-mono text-[12px] break-all" style={{ color: "var(--fg)" }}>
+        {webhook.url}
+      </td>
+      <td className="px-4 py-3 font-mono text-[11px]" style={{ color: "var(--fg-muted)" }}>
+        {(webhook.events ?? []).length > 0
+          ? (webhook.events ?? []).join(", ")
+          : "all"}
       </td>
       <td className="px-4 py-3 font-mono text-[12px]">
-        <div className="flex items-center gap-2">
-          <span className="break-all" style={{ color: "var(--fg)" }}>
-            {revealed ? secret.secret : `${secret.secret_prefix}…`}
-          </span>
-          <button
-            type="button"
-            onClick={() => setRevealed((v) => !v)}
-            className="px-2 py-1 text-[11px] transition shrink-0"
-            style={{
-              background: "var(--bg-panel)",
-              border: "1px solid var(--border)",
-              color: "var(--fg)",
-              borderRadius: "var(--r-sm)",
-            }}
-          >
-            {revealed ? "Hide" : "Show"}
-          </button>
-          {revealed && (
-            <button
-              type="button"
-              onClick={handleCopy}
-              className="px-2 py-1 text-[11px] transition shrink-0"
-              style={{
-                background: "var(--bg-panel)",
-                border: "1px solid var(--border)",
-                color: "var(--fg)",
-                borderRadius: "var(--r-sm)",
-              }}
-            >
-              {copied ? "Copied" : "Copy"}
-            </button>
-          )}
-        </div>
+        <span
+          style={{
+            color: webhook.enabled ? "var(--success)" : "var(--fg-subtle)",
+          }}
+        >
+          {webhook.enabled ? "enabled" : "disabled"}
+        </span>
       </td>
       <td
         className="px-4 py-3 font-mono text-[12px]"
         style={{ color: "var(--fg-muted)" }}
       >
-        {formatDate(secret.created_at)}
-      </td>
-      <td
-        className="px-4 py-3 font-mono text-[12px]"
-        style={{ color: "var(--fg-muted)" }}
-      >
-        {secret.last_signed_at ? formatRelative(secret.last_signed_at) : "Never"}
+        {formatDate(webhook.created_at)}
       </td>
       <td className="px-4 py-3 text-right">
         {error && (
@@ -554,24 +610,35 @@ function SigningSecretRow({
             </button>
           </span>
         ) : (
-          <button
-            onClick={() => setConfirming(true)}
-            disabled={isLast}
-            title={
-              isLast
-                ? "Cannot delete your only signing secret — create a new one first"
-                : undefined
-            }
-            className="px-2 py-1 text-[11px] transition disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{
-              background: "var(--bg-panel)",
-              border: "1px solid var(--border)",
-              color: "var(--fg)",
-              borderRadius: "var(--r-sm)",
-            }}
-          >
-            Delete
-          </button>
+          <span className="inline-flex gap-1">
+            <button
+              onClick={handleRotate}
+              disabled={busy}
+              title="Generate a new signing secret (the old one stays valid for a short overlap)"
+              className="px-2 py-1 text-[11px] transition disabled:opacity-50"
+              style={{
+                background: "var(--bg-panel)",
+                border: "1px solid var(--border)",
+                color: "var(--fg)",
+                borderRadius: "var(--r-sm)",
+              }}
+            >
+              {rotating ? "Rotating…" : "Rotate secret"}
+            </button>
+            <button
+              onClick={() => setConfirming(true)}
+              disabled={busy}
+              className="px-2 py-1 text-[11px] transition disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                background: "var(--bg-panel)",
+                border: "1px solid var(--border)",
+                color: "var(--fg)",
+                borderRadius: "var(--r-sm)",
+              }}
+            >
+              Delete
+            </button>
+          </span>
         )}
       </td>
     </tr>
@@ -585,19 +652,6 @@ function formatDate(iso: string): string {
       month: "short",
       day: "numeric",
     });
-  } catch {
-    return iso;
-  }
-}
-
-function formatRelative(iso: string): string {
-  try {
-    const ts = new Date(iso).getTime();
-    const ageSec = (Date.now() - ts) / 1000;
-    if (ageSec < 60) return "just now";
-    if (ageSec < 3600) return `${Math.floor(ageSec / 60)}m ago`;
-    if (ageSec < 86400) return `${Math.floor(ageSec / 3600)}h ago`;
-    return `${Math.floor(ageSec / 86400)}d ago`;
   } catch {
     return iso;
   }

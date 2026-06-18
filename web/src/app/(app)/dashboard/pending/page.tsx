@@ -75,7 +75,7 @@ function QueueRow({
 }) {
   const expires = formatExpiresIn(msg.approval_expires_at);
   const queued = formatQueuedAgo(msg.created_at);
-  const hue = hueFor(msg.agent_id);
+  const hue = hueFor(msg.agent_email);
   const accent = active;
 
   return (
@@ -100,7 +100,7 @@ function QueueRow({
           color: "#fff",
         }}
       >
-        {initialsFor(msg.agent_id)}
+        {initialsFor(msg.agent_email)}
       </div>
       <div className="min-w-0 flex-1">
         <div
@@ -115,7 +115,7 @@ function QueueRow({
           className="font-mono text-[10.5px] truncate"
           style={{ color: "var(--fg-subtle)" }}
         >
-          {msg.agent_id} → {(msg.to ?? [])[0] || "—"}
+          {msg.agent_email} → {(msg.to ?? [])[0] || "—"}
           {msg.to && msg.to.length > 1 && ` +${msg.to.length - 1}`}
         </div>
         <div
@@ -191,6 +191,11 @@ function PendingContent() {
     });
   };
 
+  // The detail fetch is agent-scoped in /v1, so resolve the selected
+  // row's owning agent address from the queue payload.
+  const selectedAgentEmail =
+    messages.find((m) => m.id === selectedId)?.agent_email ?? "";
+
   // After approve/reject, refresh the queue. If the selected message
   // is no longer in the list, advance to the next pending row.
   // Also invalidate the SWR caches that hold derived state from this
@@ -212,10 +217,9 @@ function PendingContent() {
         ((await mutate(pendingMessagesKey)) as
           | PendingMessageSummary[]
           | undefined) ?? [];
-      // PendingMessageSummary doesn't carry the owning agent's email
-      // — to[0] is the outbound recipient, not the agent — so
-      // `invalidateAllAgentMessages()` blanket-matches every cached
-      // inbox key rather than trying to be precise.
+      // We don't know which specific agent's inbox is open elsewhere, so
+      // `invalidateAllAgentMessages()` blanket-matches every cached inbox
+      // key rather than trying to be precise.
       void Promise.all([
         selectedId ? invalidateMessageDetail(selectedId) : Promise.resolve(),
         invalidateAgents(),
@@ -363,9 +367,10 @@ function PendingContent() {
 
           {/* Detail */}
           <div className="min-h-0 overflow-hidden">
-            {selectedId ? (
+            {selectedId && selectedAgentEmail ? (
               <PendingDetailPanel
                 key={selectedId}
+                agentEmail={selectedAgentEmail}
                 messageId={selectedId}
                 onChanged={handleChanged}
               />

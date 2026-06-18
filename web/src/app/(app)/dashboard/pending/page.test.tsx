@@ -1,8 +1,8 @@
 // Pending queue contract: the page must subscribe to the shared
 // `pendingMessagesKey` SWR cache so a single fetch is shared with
-// the Sidebar badge (usePendingCount). Before the SWR migration the
-// page kept its own useState/useEffect copy and double-fetched the
-// /api/v1/messages/pending endpoint on every load.
+// the Sidebar badge (usePendingCount). In /v1 the queue is aggregated
+// client-side from GET /v1/agents + per-agent outbound message lists
+// (rows with status=pending_approval).
 
 import {
   render,
@@ -22,16 +22,46 @@ jest.mock("next/navigation", () => ({
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
-const SAMPLE = {
-  id: "msg_1",
-  agent_id: "ag_1",
+const AGENT_EMAIL = "ag_1@agents.e2a.dev";
+
+// MessageSummaryView row (PageMessageSummaryView.items) for the agent's
+// outbound message list — a held pending_approval draft.
+const SAMPLE_ROW = {
+  message_id: "msg_1",
   direction: "outbound",
-  subject: "Sample pending subject",
+  from: AGENT_EMAIL,
   to: ["alice@example.com"],
+  recipient: "alice@example.com",
+  subject: "Sample pending subject",
   status: "pending_approval",
-  approval_expires_at: "2099-01-01T00:00:00Z",
   created_at: "2026-05-23T00:00:00Z",
 };
+
+// Stage GET /v1/agents and the per-agent outbound message list.
+function stagePendingFetch() {
+  mockFetch.mockImplementation((url: string) => {
+    if (url === "/v1/agents") {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              agents: [{ email: AGENT_EMAIL, hitl_enabled: true }],
+            }),
+          ),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      text: () =>
+        Promise.resolve(
+          JSON.stringify({ items: [SAMPLE_ROW], next_cursor: null }),
+        ),
+    });
+  });
+}
 
 beforeEach(async () => {
   mockFetch.mockReset();
@@ -42,11 +72,7 @@ beforeEach(async () => {
 
 describe("PendingPage SWR subscription", () => {
   it("reflects external mutate() to pendingMessagesKey (proves the page is a SWR subscriber, not local-state)", async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ messages: [SAMPLE] }),
-    });
+    stagePendingFetch();
 
     render(<PendingPage />);
 

@@ -2,48 +2,53 @@ import { render, screen, waitFor } from "../../../../../test-utils/swr";
 import userEvent from "@testing-library/user-event";
 import { PendingDetailPanel } from "./PendingDetailPanel";
 
-// Mock fetch with a controllable jest.fn that records every call. The
-// panel calls /api/v1/messages/{id} on mount and /api/v1/messages/{id}/
-// approve on submit; both go through the api.ts helpers which delegate
-// to global fetch.
+// Mock fetch with a controllable jest.fn that records every call. In
+// /v1 the panel calls GET /v1/agents/{address}/messages/{id} on mount
+// (returns a MessageView) and POST .../approve on submit; both go
+// through the api.ts helpers which delegate to global fetch.
 const mockFetch = jest.fn();
 beforeEach(() => {
   mockFetch.mockReset();
   global.fetch = mockFetch;
 });
 
-const baseMessage = {
-  id: "msg_abc",
-  agent_id: "bot@acme.io",
-  direction: "outbound",
-  subject: "original subject",
-  type: "reply",
+const AGENT_EMAIL = "bot@acme.io";
+
+// MessageView wire shape returned by GET /v1/agents/{address}/messages/{id}.
+const baseView = {
+  message_id: "msg_abc",
+  from: AGENT_EMAIL,
   to: ["alice@example.com"],
   cc: [],
-  bcc: [],
+  recipient: "alice@example.com",
+  subject: "original subject",
+  conversation_id: "conv_1",
   status: "pending_approval",
-  approval_expires_at: "2099-01-01T00:00:00Z",
   created_at: "2026-05-23T00:00:00Z",
-  body_text: "original body",
-  body_html: "",
+  body: { text: "original body", html: "" },
 };
 
-// Stage the GET /messages/{id} mock and the POST /messages/{id}/approve
-// mock. Returns the spy so the caller can inspect the approve body.
-function stagePanelFetch(message = baseMessage) {
+// Stage the GET detail mock and the POST approve mock. The detail GET
+// returns a MessageView; the api helper reads it via res.text().
+function stagePanelFetch(view = baseView) {
+  const detailURL = `/v1/agents/${encodeURIComponent(AGENT_EMAIL)}/messages/${view.message_id}`;
   mockFetch.mockImplementation(
     (url: string, init?: { method?: string; body?: string }) => {
-      if (url === `/api/v1/agents/${encodeURIComponent(message.agent_id)}/messages/${message.id}/approve` && init?.method === "POST") {
+      if (url === `${detailURL}/approve` && init?.method === "POST") {
         return Promise.resolve({
           ok: true,
-          json: () =>
-            Promise.resolve({ status: "sent", message_id: message.id }),
+          status: 200,
+          text: () =>
+            Promise.resolve(
+              JSON.stringify({ status: "sent", message_id: view.message_id }),
+            ),
         });
       }
-      if (url === `/api/v1/messages/${message.id}`) {
+      if (url === detailURL) {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve(message),
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify(view)),
         });
       }
       return Promise.resolve({
@@ -61,7 +66,7 @@ describe("PendingDetailPanel", () => {
     const onChanged = jest.fn();
     const user = userEvent.setup();
 
-    render(<PendingDetailPanel messageId="msg_abc" onChanged={onChanged} />);
+    render(<PendingDetailPanel agentEmail="bot@acme.io" messageId="msg_abc" onChanged={onChanged} />);
 
     // Wait for load — subject input should have the original value
     const subject = await screen.findByDisplayValue("original subject");
@@ -83,7 +88,7 @@ describe("PendingDetailPanel", () => {
     await waitFor(() => {
       const approveCall = mockFetch.mock.calls.find(
         (call) =>
-          call[0] === "/api/v1/agents/bot%40acme.io/messages/msg_abc/approve" &&
+          call[0] === "/v1/agents/bot%40acme.io/messages/msg_abc/approve" &&
           call[1]?.method === "POST",
       );
       expect(approveCall).toBeDefined();
@@ -99,7 +104,7 @@ describe("PendingDetailPanel", () => {
     const onChanged = jest.fn();
     const user = userEvent.setup();
 
-    render(<PendingDetailPanel messageId="msg_abc" onChanged={onChanged} />);
+    render(<PendingDetailPanel agentEmail="bot@acme.io" messageId="msg_abc" onChanged={onChanged} />);
     await screen.findByDisplayValue("original subject");
 
     await user.click(screen.getByRole("button", { name: /approve & send/i }));
@@ -107,7 +112,7 @@ describe("PendingDetailPanel", () => {
     await waitFor(() => {
       const approveCall = mockFetch.mock.calls.find(
         (call) =>
-          call[0] === "/api/v1/agents/bot%40acme.io/messages/msg_abc/approve" &&
+          call[0] === "/v1/agents/bot%40acme.io/messages/msg_abc/approve" &&
           call[1]?.method === "POST",
       );
       expect(approveCall).toBeDefined();
@@ -119,9 +124,9 @@ describe("PendingDetailPanel", () => {
   });
 
   it("disables the form when the message is no longer pending", async () => {
-    stagePanelFetch({ ...baseMessage, status: "sent" });
+    stagePanelFetch({ ...baseView, status: "sent" });
 
-    render(<PendingDetailPanel messageId="msg_abc" onChanged={() => {}} />);
+    render(<PendingDetailPanel agentEmail="bot@acme.io" messageId="msg_abc" onChanged={() => {}} />);
 
     const subject = await screen.findByDisplayValue("original subject");
     expect(subject).toBeDisabled();
