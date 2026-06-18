@@ -22,9 +22,60 @@ from dataclasses import dataclass
 from typing import AsyncIterator, Optional
 from urllib.parse import quote, urlencode, urlparse, urlunparse
 
+from .errors import E2AAuthError, E2AError, E2APermissionError
+
 __all__ = ["WSNotification", "WSStream"]
 
 logger = logging.getLogger("e2a.v1.websocket")
+
+
+def _handshake_status(exc: BaseException) -> Optional[int]:
+    """Return the HTTP status of a rejected WebSocket handshake, if any.
+
+    The ``websockets`` library rejects a bad handshake with ``InvalidStatus``
+    (modern; status on ``exc.response.status_code``) or the deprecated
+    ``InvalidStatusCode`` (status on ``exc.status_code``). We probe both so this
+    works across library versions without importing version-specific symbols.
+    """
+    resp = getattr(exc, "response", None)
+    status = getattr(resp, "status_code", None)
+    if isinstance(status, int):
+        return status
+    status = getattr(exc, "status_code", None)  # deprecated InvalidStatusCode
+    if isinstance(status, int):
+        return status
+    return None
+
+
+def _fatal_error_for_status(status: int, exc: BaseException) -> Optional[E2AError]:
+    """Map a fatal (non-retryable) handshake status to a typed E2AError.
+
+    Auth/permission and other 4xx handshake rejections are caller/credential
+    bugs that will never succeed on retry, so we surface them instead of
+    looping. 5xx and everything else stays transient.
+    """
+    if status == 401:
+        return E2AAuthError(
+            code="unauthorized",
+            message=f"WebSocket handshake rejected: HTTP {status}",
+            status=status,
+            retryable=False,
+        )
+    if status == 403:
+        return E2APermissionError(
+            code="forbidden",
+            message=f"WebSocket handshake rejected: HTTP {status}",
+            status=status,
+            retryable=False,
+        )
+    if 400 <= status < 500:
+        return E2AError(
+            code="ws_handshake_rejected",
+            message=f"WebSocket handshake rejected: HTTP {status}",
+            status=status,
+            retryable=False,
+        )
+    return None
 
 
 @dataclass
@@ -55,7 +106,12 @@ class WSNotification:
 
 
 def _build_ws_url(base_url: str, agent_email: str, api_key: str) -> str:
-    """Build the versioned WebSocket URL from the HTTP base URL."""
+    """Build the versioned WebSocket URL from the HTTP base URL.
+
+    Note: auth is passed as a ``?token=`` query parameter, which can land in
+    server/proxy access logs (a logged-credential limitation). A header- or
+    ticket-based handshake is planned to replace it.
+    """
     parsed = urlparse(base_url)
     scheme = "wss" if parsed.scheme == "https" else "ws"
     path = f"/v1/agents/{quote(agent_email, safe='')}/ws"
@@ -106,7 +162,19 @@ class WSStream:
                 async for notif in _connect_and_stream(self._url, self._email):
                     yield notif
                     backoff = 1.0  # reset on a successful message
-            except Exception as exc:  # noqa: BLE001 - reconnect on any failure
+            except E2AError:
+                # Already-typed fatal errors (e.g. raised below) propagate.
+                raise
+            except Exception as exc:  # noqa: BLE001
+                # A fatal handshake rejection (auth/permission/4xx) will never
+                # succeed on retry — surface it and stop instead of looping.
+                status = _handshake_status(exc)
+                if status is not None:
+                    fatal = _fatal_error_for_status(status, exc)
+                    if fatal is not None:
+                        fatal.__cause__ = exc
+                        raise fatal
+                # Transient/network failure — log and reconnect.
                 logger.warning("WebSocket disconnected: %s", exc)
 
             if not self._reconnect:

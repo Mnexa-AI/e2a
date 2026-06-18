@@ -4,10 +4,16 @@ Mirrors the TypeScript SDK's error model. The /v1 surface returns a uniform
 envelope ``{"error": {"code", "message", "request_id", "details"}}``
 (internal/httpapi/errors.go). We map it to typed exceptions so a caller can
 branch with ``except E2ANotFoundError`` and read ``.code`` / ``.status`` /
-``.request_id`` / ``.retryable`` without parsing bodies. The class is chosen
-primarily from the semantic ``error.code``, falling back to the HTTP status
-bucket — so a NEW server code degrades to the right family rather than a bare
-base error.
+``.request_id`` / ``.retryable`` without parsing bodies.
+
+Class selection is genuinely code-first: a known, stable ``error.code`` (see
+``_CODE_MAP`` and the ``*_not_found`` / ``*_exists`` suffix conventions) maps to
+its typed class *regardless of the HTTP status it arrives on*, so a code carried
+on an unexpected status no longer degrades to the bare base error. Unknown or
+empty codes fall back to the HTTP status bucket, which preserves every
+status→class outcome (401→auth, 403→permission, 404→not-found, 409→conflict,
+422→validation, 429→rate-limit, 5xx/408→server). The two idempotency codes are
+the most specific and win over both.
 """
 
 from __future__ import annotations
@@ -128,10 +134,49 @@ _DEFAULT_CODE = {
     429: "rate_limited",
 }
 
+# Code-first map: a known, stable server `code` selects the typed class
+# regardless of the HTTP status it arrives on, so a code carried on an
+# unexpected status no longer degrades to the bare E2AError. Seeded from the
+# codes the /v1 server emits (internal/httpapi/errors.go defaultCodeForStatus
+# + the NewError(...) call sites in internal/httpapi/*.go). Unknown codes fall
+# through to the status bucket below, preserving every status→class outcome.
+_CODE_MAP: "dict[str, tuple[type[E2AError], bool]]" = {
+    # 401 family
+    "unauthorized": (E2AAuthError, False),
+    # 403 family
+    "forbidden": (E2APermissionError, False),
+    # 404 family — also covers *_not_found via the suffix check in _resolve.
+    "not_found": (E2ANotFoundError, False),
+    "gone": (E2ANotFoundError, False),
+    # 409 family — also covers *_exists via the suffix check in _resolve.
+    "conflict": (E2AConflictError, False),
+    "webhook_cooldown": (E2AConflictError, False),
+    "webhook_disabled": (E2AConflictError, False),
+    # 4xx validation / bad-request family
+    "domain_not_verified": (E2AValidationError, False),
+    "invalid_request": (E2AValidationError, False),
+    "bad_request": (E2AValidationError, False),
+    "unprocessable_entity": (E2AValidationError, False),
+    "invalid_cursor": (E2AValidationError, False),
+    # 429
+    "rate_limited": (E2ARateLimitError, True),
+}
+
 
 def _resolve(status: int, code: str) -> "tuple[type[E2AError], bool]":
+    # 1. Idempotency codes are the most specific — they win over everything.
     if code in _IDEMPOTENCY_CODES:
         return E2AIdempotencyError, (code == _IDEMPOTENCY_RETRYABLE)
+    # 2. Code-first: a known stable code selects the class regardless of status.
+    if code:
+        if code in _CODE_MAP:
+            return _CODE_MAP[code]
+        # Conventional suffixes the server uses across many resources.
+        if code.endswith("_not_found"):
+            return E2ANotFoundError, False
+        if code.endswith("_exists"):
+            return E2AConflictError, False
+    # 3. Fall back to the HTTP status bucket for unknown/empty codes.
     by_status: "dict[int, tuple[type[E2AError], bool]]" = {
         401: (E2AAuthError, False),
         403: (E2APermissionError, False),
@@ -179,6 +224,22 @@ def _parse_retry_after(headers: Optional[Mapping[str, str]]) -> Optional[float]:
     return max(0.0, dt.timestamp() - time.time())
 
 
+def _retry_after_from_details(details: Any) -> Optional[float]:
+    """Read ``details.retry_after_seconds`` (a number) when present.
+
+    Used as a fallback when the ``Retry-After`` header is absent — the send-path
+    429 carries its retry hint in the body, not the header.
+    """
+    if not isinstance(details, Mapping):
+        return None
+    v = details.get("retry_after_seconds")
+    if isinstance(v, bool):  # bool is a subclass of int — reject it.
+        return None
+    if isinstance(v, (int, float)):
+        return max(0.0, float(v))
+    return None
+
+
 def to_e2a_error(
     *,
     status: int,
@@ -194,6 +255,12 @@ def to_e2a_error(
         "internal_error" if status >= 500 else "error"
     )
     klass, retryable = _resolve(status, code)
+    # Prefer the Retry-After header; else fall back to the error body's
+    # details.retry_after_seconds. The send-path 429 carries its hint in the
+    # body (not the header) because of a Huma constraint, so we honor both.
+    retry_after = _parse_retry_after(headers)
+    if retry_after is None:
+        retry_after = _retry_after_from_details(details)
     err = klass(
         code=resolved_code,
         message=message or f"e2a API error ({status})",
@@ -201,7 +268,7 @@ def to_e2a_error(
         request_id=request_id,
         details=details,
         retryable=retryable,
-        retry_after_seconds=_parse_retry_after(headers),
+        retry_after_seconds=retry_after,
     )
     if cause is not None:
         err.__cause__ = cause

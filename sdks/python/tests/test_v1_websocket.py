@@ -239,3 +239,104 @@ async def test_wsstream_no_reconnect_exits():
 
     assert len(results) == 1
     assert call_count == 1
+
+
+# ── F6: fatal handshake failure surfaces a typed error, no infinite loop ──
+
+
+class _FakeResponse:
+    def __init__(self, status_code):
+        self.status_code = status_code
+
+
+class _FakeInvalidStatus(Exception):
+    """Mimics websockets.InvalidStatus: status on .response.status_code."""
+
+    def __init__(self, status_code):
+        super().__init__(f"server rejected WebSocket connection: HTTP {status_code}")
+        self.response = _FakeResponse(status_code)
+
+
+class _FakeInvalidStatusCode(Exception):
+    """Mimics the deprecated websockets.InvalidStatusCode: .status_code."""
+
+    def __init__(self, status_code):
+        super().__init__(f"HTTP {status_code}")
+        self.status_code = status_code
+
+
+def test_handshake_status_extracts_from_both_shapes():
+    from e2a.v1.websocket import _handshake_status
+
+    assert _handshake_status(_FakeInvalidStatus(401)) == 401
+    assert _handshake_status(_FakeInvalidStatusCode(403)) == 403
+    assert _handshake_status(OSError("connection refused")) is None
+
+
+def test_fatal_error_for_status_maps_typed():
+    from e2a.v1.errors import E2AAuthError, E2AError, E2APermissionError
+    from e2a.v1.websocket import _fatal_error_for_status
+
+    assert isinstance(_fatal_error_for_status(401, ValueError()), E2AAuthError)
+    assert isinstance(_fatal_error_for_status(403, ValueError()), E2APermissionError)
+    # Other 4xx -> generic but still fatal E2AError.
+    other = _fatal_error_for_status(404, ValueError())
+    assert isinstance(other, E2AError) and other.retryable is False
+    # 5xx is transient -> no fatal error (reconnect).
+    assert _fatal_error_for_status(503, ValueError()) is None
+
+
+@pytest.mark.anyio
+async def test_wsstream_fatal_401_raises_typed_and_does_not_loop():
+    """A 401 handshake rejection must raise E2AAuthError and STOP — not loop."""
+    from e2a.v1.errors import E2AAuthError
+    from e2a.v1.websocket import WSStream
+
+    attempts = 0
+
+    async def fake_connect_and_stream(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        raise _FakeInvalidStatus(401)
+        yield  # pragma: no cover - makes this an async generator
+
+    # reconnect=True: the bug being fixed would loop forever here.
+    s = WSStream(
+        api_key="bad", agent_email="bot@agents.e2a.dev", base_url="https://e2a.dev",
+        reconnect=True,
+    )
+    with patch("e2a.v1.websocket._connect_and_stream", side_effect=fake_connect_and_stream), \
+         patch.dict(sys.modules, {"websockets": MagicMock()}):
+        with pytest.raises(E2AAuthError) as ei:
+            async for _ in s:
+                pass
+
+    assert ei.value.status == 401
+    # Bounded: a single connect attempt, then it raised instead of reconnecting.
+    assert attempts == 1
+
+
+@pytest.mark.anyio
+async def test_wsstream_transient_failure_reconnects():
+    """A network failure (no handshake status) reconnects rather than raising."""
+    from e2a.v1.websocket import WSStream
+
+    attempts = 0
+
+    async def fake_connect_and_stream(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        raise OSError("connection refused")
+        yield  # pragma: no cover
+
+    # reconnect=False so the transient path returns after one failure (no raise).
+    s = WSStream(
+        api_key="k", agent_email="bot@agents.e2a.dev", base_url="https://e2a.dev",
+        reconnect=False,
+    )
+    with patch("e2a.v1.websocket._connect_and_stream", side_effect=fake_connect_and_stream), \
+         patch.dict(sys.modules, {"websockets": MagicMock()}):
+        results = [notif async for notif in s]
+
+    assert results == []  # no notifications, and crucially no raise
+    assert attempts == 1

@@ -108,6 +108,70 @@ def test_list_valued_retry_after_does_not_crash():
     assert err.retry_after_seconds is None
 
 
+def test_known_code_maps_by_code_on_unexpected_status():
+    # `forbidden` arriving on a 200 (an impossible-but-defensive case) must map
+    # to E2APermissionError by code, NOT degrade to the base E2AError.
+    err = from_api_exception(
+        _exc(200, body='{"error":{"code":"forbidden","message":"nope"}}')
+    )
+    assert isinstance(err, E2APermissionError)
+
+    # `not_found` on a 400 maps by code to E2ANotFoundError.
+    nf = from_api_exception(
+        _exc(400, body='{"error":{"code":"agent_not_found","message":"x"}}')
+    )
+    assert isinstance(nf, E2ANotFoundError)
+
+    # `domain_not_verified` (server emits it on both 400 and 403) → validation.
+    dnv = from_api_exception(
+        _exc(403, body='{"error":{"code":"domain_not_verified","message":"x"}}')
+    )
+    assert isinstance(dnv, E2AValidationError)
+
+    # `rate_limited` on a non-429 status stays a rate-limit error (retryable).
+    rl = from_api_exception(
+        _exc(400, body='{"error":{"code":"rate_limited","message":"slow"}}')
+    )
+    assert isinstance(rl, E2ARateLimitError)
+    assert rl.retryable is True
+
+
+def test_unknown_code_falls_back_to_status_bucket():
+    # An unrecognized code must not short-circuit the status bucket.
+    err = from_api_exception(
+        _exc(404, body='{"error":{"code":"totally_made_up","message":"x"}}')
+    )
+    assert isinstance(err, E2ANotFoundError)
+
+    # Unknown code on a plain 422 → validation via status.
+    val = from_api_exception(
+        _exc(422, body='{"error":{"code":"some_new_thing","message":"x"}}')
+    )
+    assert isinstance(val, E2AValidationError)
+
+
+def test_retry_after_from_details_body_when_header_absent():
+    err = from_api_exception(
+        _exc(
+            429,
+            body='{"error":{"code":"rate_limited","details":{"retry_after_seconds":30}}}',
+        )
+    )
+    assert isinstance(err, E2ARateLimitError)
+    assert err.retry_after_seconds == 30
+
+
+def test_retry_after_header_wins_over_details():
+    err = from_api_exception(
+        _exc(
+            429,
+            body='{"error":{"code":"rate_limited","details":{"retry_after_seconds":30}}}',
+            headers={"Retry-After": "5"},
+        )
+    )
+    assert err.retry_after_seconds == 5
+
+
 def test_connection_error_helper():
     err = connection_error("refused", cause=OSError("ECONNREFUSED"))
     assert isinstance(err, E2AConnectionError)
