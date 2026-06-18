@@ -1,5 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { E2AClient } from "@e2a/sdk/v1";
+import type { McpClient } from "../client.js";
 import { z } from "zod";
 import { runTool, strictInputSchema } from "./util.js";
 
@@ -15,7 +15,7 @@ import { runTool, strictInputSchema } from "./util.js";
  * confirm gate so the schema validator catches LLM hallucinations
  * before any HTTP call runs.
  */
-export function registerDomainTools(server: McpServer, client: E2AClient): void {
+export function registerDomainTools(server: McpServer, client: McpClient): void {
   server.registerTool(
     "list_domains",
     {
@@ -24,7 +24,7 @@ export function registerDomainTools(server: McpServer, client: E2AClient): void 
         "List every custom mail domain registered under the authenticated user, with verification status (verified / pending DNS / failed) and the verification token for each. Useful to discover which domains can already send/receive mail and which still need DNS records to be added. Read-only; cheap to call.",
       inputSchema: strictInputSchema({}),
     },
-    async () => runTool(() => client.listDomains()),
+    async () => runTool(async () => ({ domains: await client.listDomains() })),
   );
 
   server.registerTool(

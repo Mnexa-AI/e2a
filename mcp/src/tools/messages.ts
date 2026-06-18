@@ -1,10 +1,48 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { E2AClient } from "@e2a/sdk/v1";
+import { simpleParser } from "mailparser";
+import type { McpClient, SendOpts } from "../client.js";
+import type { MessageView } from "@e2a/sdk/v1";
 import { z } from "zod";
 import { runTool, strictInputSchema } from "./util.js";
-import { attachmentsArraySchema } from "./attachments.js";
+import { attachmentsArraySchema, type AttachmentInput } from "./attachments.js";
 
-export function registerMessageTools(server: McpServer, client: E2AClient): void {
+// Map the snake_case attachment wire shape (filename, content_type, data)
+// to the SDK Attachment model (filename, contentType, data).
+function mapAttachments(
+  atts?: AttachmentInput[],
+): Array<{ filename: string; contentType: string; data: string }> | undefined {
+  if (atts === undefined) return undefined;
+  return atts.map((a) => ({
+    filename: a.filename,
+    contentType: a.content_type,
+    data: a.data,
+  }));
+}
+
+// Decoded attachment from the message's raw MIME.
+interface ParsedAttachment {
+  filename: string;
+  contentType: string;
+  size: number;
+  content: Buffer;
+}
+
+// The v1 MessageView no longer exposes decoded attachments inline (the
+// flat SDK's InboundEmail did). It carries the full MIME blob in
+// `rawMessage`, so we decode attachments on demand from that. Returns
+// [] when there is no raw MIME (e.g. a body-only summary view).
+async function parseAttachments(email: MessageView): Promise<ParsedAttachment[]> {
+  if (!email.rawMessage) return [];
+  const parsed = await simpleParser(email.rawMessage);
+  return (parsed.attachments ?? []).map((a, i) => ({
+    filename: a.filename ?? `attachment-${i}`,
+    contentType: a.contentType ?? "application/octet-stream",
+    size: a.size ?? a.content.length,
+    content: a.content,
+  }));
+}
+
+export function registerMessageTools(server: McpServer, client: McpClient): void {
   server.registerTool(
     "send_email",
     {
@@ -38,21 +76,30 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
       }),
     },
     async (args) =>
-      runTool(() =>
-        client.send(args.to, args.subject, args.body, {
-          ...(args.html_body !== undefined ? { htmlBody: args.html_body } : {}),
-          ...(args.cc !== undefined ? { cc: args.cc } : {}),
-          ...(args.bcc !== undefined ? { bcc: args.bcc } : {}),
-          ...(args.attachments !== undefined ? { attachments: args.attachments } : {}),
-          ...(args.conversation_id !== undefined
-            ? { conversationId: args.conversation_id }
-            : {}),
-          ...(args.idempotency_key !== undefined
+      runTool(() => {
+        const opts: SendOpts =
+          args.idempotency_key !== undefined
             ? { idempotencyKey: args.idempotency_key }
-            : {}),
-          ...(args.agent_email !== undefined ? { agentEmail: args.agent_email } : {}),
-        }),
-      ),
+            : {};
+        return client.send(
+          {
+            to: args.to,
+            subject: args.subject,
+            body: args.body,
+            ...(args.html_body !== undefined ? { htmlBody: args.html_body } : {}),
+            ...(args.cc !== undefined ? { cc: args.cc } : {}),
+            ...(args.bcc !== undefined ? { bcc: args.bcc } : {}),
+            ...(mapAttachments(args.attachments) !== undefined
+              ? { attachments: mapAttachments(args.attachments) }
+              : {}),
+            ...(args.conversation_id !== undefined
+              ? { conversationId: args.conversation_id }
+              : {}),
+          },
+          opts,
+          args.agent_email,
+        );
+      }),
   );
 
   server.registerTool(
@@ -83,22 +130,30 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
       }),
     },
     async (args) =>
-      runTool(() =>
-        client.reply(args.message_id, args.body, {
-          ...(args.html_body !== undefined ? { htmlBody: args.html_body } : {}),
-          ...(args.reply_all !== undefined ? { replyAll: args.reply_all } : {}),
-          ...(args.cc !== undefined ? { cc: args.cc } : {}),
-          ...(args.bcc !== undefined ? { bcc: args.bcc } : {}),
-          ...(args.attachments !== undefined ? { attachments: args.attachments } : {}),
-          ...(args.conversation_id !== undefined
-            ? { conversationId: args.conversation_id }
-            : {}),
-          ...(args.idempotency_key !== undefined
+      runTool(() => {
+        const opts: SendOpts =
+          args.idempotency_key !== undefined
             ? { idempotencyKey: args.idempotency_key }
-            : {}),
-          ...(args.agent_email !== undefined ? { agentEmail: args.agent_email } : {}),
-        }),
-      ),
+            : {};
+        return client.reply(
+          args.message_id,
+          {
+            body: args.body,
+            ...(args.html_body !== undefined ? { htmlBody: args.html_body } : {}),
+            ...(args.reply_all !== undefined ? { replyAll: args.reply_all } : {}),
+            ...(args.cc !== undefined ? { cc: args.cc } : {}),
+            ...(args.bcc !== undefined ? { bcc: args.bcc } : {}),
+            ...(mapAttachments(args.attachments) !== undefined
+              ? { attachments: mapAttachments(args.attachments) }
+              : {}),
+            ...(args.conversation_id !== undefined
+              ? { conversationId: args.conversation_id }
+              : {}),
+          },
+          opts,
+          args.agent_email,
+        );
+      }),
   );
 
   server.registerTool(
@@ -136,22 +191,30 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
       }),
     },
     async (args) =>
-      runTool(() =>
-        client.forward(args.message_id, args.to, {
-          ...(args.body !== undefined ? { body: args.body } : {}),
-          ...(args.html_body !== undefined ? { htmlBody: args.html_body } : {}),
-          ...(args.cc !== undefined ? { cc: args.cc } : {}),
-          ...(args.bcc !== undefined ? { bcc: args.bcc } : {}),
-          ...(args.attachments !== undefined ? { attachments: args.attachments } : {}),
-          ...(args.conversation_id !== undefined
-            ? { conversationId: args.conversation_id }
-            : {}),
-          ...(args.idempotency_key !== undefined
+      runTool(() => {
+        const opts: SendOpts =
+          args.idempotency_key !== undefined
             ? { idempotencyKey: args.idempotency_key }
-            : {}),
-          ...(args.agent_email !== undefined ? { agentEmail: args.agent_email } : {}),
-        }),
-      ),
+            : {};
+        return client.forward(
+          args.message_id,
+          args.to,
+          {
+            ...(args.body !== undefined ? { body: args.body } : {}),
+            ...(args.html_body !== undefined ? { htmlBody: args.html_body } : {}),
+            ...(args.cc !== undefined ? { cc: args.cc } : {}),
+            ...(args.bcc !== undefined ? { bcc: args.bcc } : {}),
+            ...(mapAttachments(args.attachments) !== undefined
+              ? { attachments: mapAttachments(args.attachments) }
+              : {}),
+            ...(args.conversation_id !== undefined
+              ? { conversationId: args.conversation_id }
+              : {}),
+          },
+          opts,
+          args.agent_email,
+        );
+      }),
   );
 
   server.registerTool(
@@ -175,11 +238,14 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
     },
     async (args) =>
       runTool(() =>
-        client.updateMessageLabels(args.message_id, {
-          ...(args.add_labels !== undefined ? { addLabels: args.add_labels } : {}),
-          ...(args.remove_labels !== undefined ? { removeLabels: args.remove_labels } : {}),
-          ...(args.agent_email !== undefined ? { agentEmail: args.agent_email } : {}),
-        }),
+        client.updateMessageLabels(
+          args.message_id,
+          {
+            ...(args.add_labels !== undefined ? { addLabels: args.add_labels } : {}),
+            ...(args.remove_labels !== undefined ? { removeLabels: args.remove_labels } : {}),
+          },
+          args.agent_email,
+        ),
       ),
   );
 
@@ -207,14 +273,16 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
       }),
     },
     async (args) =>
-      runTool(() =>
-        client.listConversations({
-          ...(args.page_size !== undefined ? { pageSize: args.page_size } : {}),
-          ...(args.since !== undefined ? { since: args.since } : {}),
-          ...(args.until !== undefined ? { until: args.until } : {}),
-          ...(args.agent_email !== undefined ? { agentEmail: args.agent_email } : {}),
-        }),
-      ),
+      runTool(async () => ({
+        conversations: await client.listConversations(
+          {
+            ...(args.page_size !== undefined ? { limit: args.page_size } : {}),
+            ...(args.since !== undefined ? { since: args.since } : {}),
+            ...(args.until !== undefined ? { until: args.until } : {}),
+          },
+          args.agent_email,
+        ),
+      })),
   );
 
   server.registerTool(
@@ -229,11 +297,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
       }),
     },
     async (args) =>
-      runTool(() =>
-        client.getConversation(args.conversation_id, {
-          ...(args.agent_email !== undefined ? { agentEmail: args.agent_email } : {}),
-        }),
-      ),
+      runTool(() => client.getConversation(args.conversation_id, args.agent_email)),
   );
 
   server.registerTool(
@@ -293,10 +357,13 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
       }),
     },
     async (args) =>
-      runTool(() =>
-        client.listMessages({
+      // The v1 client auto-paginates; `token` is accepted in the schema
+      // for contract stability but unused — the pager walks cursors
+      // internally up to `page_size` rows.
+      runTool(async () => ({
+        messages: await client.listMessages({
           ...(args.status !== undefined ? { status: args.status } : {}),
-          ...(args.page_size !== undefined ? { pageSize: args.page_size } : {}),
+          ...(args.page_size !== undefined ? { limit: args.page_size } : {}),
           ...(args.sort !== undefined ? { sort: args.sort } : {}),
           ...(args.from !== undefined ? { from: args.from } : {}),
           ...(args.subject_contains !== undefined
@@ -308,10 +375,9 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
           ...(args.since !== undefined ? { since: args.since } : {}),
           ...(args.until !== undefined ? { until: args.until } : {}),
           ...(args.labels !== undefined ? { labels: args.labels } : {}),
-          ...(args.token !== undefined ? { token: args.token } : {}),
-          ...(args.agent_email !== undefined ? { agentEmail: args.agent_email } : {}),
+          ...(args.agent_email !== undefined ? { explicitAddress: args.agent_email } : {}),
         }),
-      ),
+      })),
   );
 
   server.registerTool(
@@ -327,34 +393,30 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
     },
     async (args) =>
       runTool(async () => {
-        const agentEmail = args.agent_email ?? client.agentEmail;
-        if (!agentEmail) {
-          throw new Error(
-            "agent_email is required (no E2A_AGENT_EMAIL in environment).",
-          );
-        }
-        // Hit the high-level client so we get the parsed InboundEmail
-        // (MIME-decoded attachments, decoded text+html bodies). The
-        // bearer authenticated this channel — pre-verified is the
-        // correct trust level for getMessage's return value.
-        const email = await client.getMessage(args.message_id, agentEmail);
-        // Plain JSON shape: every getter (which throws if unverified)
-        // wrapped in a single object. Omit `raw_message` entirely —
-        // the LLM should never see the full MIME blob unless it
-        // explicitly asks for an attachment via get_attachment_data.
+        // McpClient.getMessage resolves the address (explicit arg →
+        // pinned default) and throws a directive error when neither is
+        // available, so we don't pre-check here.
+        const email = await client.getMessage(args.message_id, args.agent_email);
+        // Attachment metadata is decoded from the raw MIME (the v1
+        // MessageView no longer exposes attachments inline). Bytes are
+        // NOT returned here — call get_attachment_data for one. Omit
+        // `raw_message` entirely so the LLM never sees the full MIME
+        // blob unless it explicitly fetches an attachment.
+        const attachments = await parseAttachments(email);
         return {
           message_id: email.messageId,
           conversation_id: email.conversationId,
-          from: email.sender,
+          from: email._from,
           recipient: email.recipient,
           to: email.to,
           cc: email.cc,
           reply_to: email.replyTo,
           subject: email.subject,
-          body_text: email.textBody,
-          body_html: email.htmlBody,
-          received_at: email.receivedAt,
-          attachments: email.attachments.map((a, index) => ({
+          status: email.status,
+          body_text: email.body?.text,
+          body_html: email.body?.html,
+          received_at: email.createdAt,
+          attachments: attachments.map((a, index) => ({
             index,
             filename: a.filename,
             content_type: a.contentType,
@@ -397,20 +459,15 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
     },
     async (args) =>
       runTool(async () => {
-        const agentEmail = args.agent_email ?? client.agentEmail;
-        if (!agentEmail) {
-          throw new Error(
-            "agent_email is required (no E2A_AGENT_EMAIL in environment).",
-          );
-        }
-        const email = await client.getMessage(args.message_id, agentEmail);
-        const list = email.attachments;
+        // McpClient.getMessage resolves + validates the address.
+        const email = await client.getMessage(args.message_id, args.agent_email);
+        const list = await parseAttachments(email);
         if (args.attachment_index < 0 || args.attachment_index >= list.length) {
           throw new Error(
             `attachment_index ${args.attachment_index} out of range (message has ${list.length} attachment${list.length === 1 ? "" : "s"})`,
           );
         }
-        const a = list[args.attachment_index];
+        const a = list[args.attachment_index]!;
         if (a.size > MAX_INLINE_BYTES) {
           throw new Error(
             `attachment too large for inline retrieval: ${a.size} bytes (max ${MAX_INLINE_BYTES}). Ask a host-side tool to write the raw_message MIME to disk and extract this attachment out of band.`,
@@ -423,7 +480,7 @@ export function registerMessageTools(server: McpServer, client: E2AClient): void
           // Buffer → standard-alphabet base64. This matches the wire
           // shape send_email/reply_to_message expect on the way back
           // out, so a forward-attachment workflow is a verbatim copy.
-          data: a.data.toString("base64"),
+          data: a.content.toString("base64"),
         };
       }),
   );

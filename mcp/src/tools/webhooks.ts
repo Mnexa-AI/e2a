@@ -1,5 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { E2AClient } from "@e2a/sdk/v1";
+import type { McpClient } from "../client.js";
 import { z } from "zod";
 import { runTool, strictInputSchema } from "./util.js";
 
@@ -17,7 +17,7 @@ import { runTool, strictInputSchema } from "./util.js";
  * The plaintext signing_secret is returned ONCE on create + on
  * rotate-secret. Other reads scrub it.
  */
-export function registerWebhookTools(server: McpServer, client: E2AClient): void {
+export function registerWebhookTools(server: McpServer, client: McpClient): void {
   const filtersSchema = z
     .object({
       agent_ids: z.array(z.string()).optional(),
@@ -29,6 +29,20 @@ export function registerWebhookTools(server: McpServer, client: E2AClient): void
       "Optional scope filters. Empty / missing keys mean 'no constraint of that type'. agent_ids must reference agents owned by the caller; cross-user ids are rejected. conversation_ids / labels are exact-match.",
     );
 
+  // Map the snake_case tool filter shape to the SDK's camelCase
+  // WebhookFiltersView. Returns undefined for an absent filter so we
+  // don't send an empty object.
+  const mapFilters = (
+    f?: { agent_ids?: string[]; conversation_ids?: string[]; labels?: string[] },
+  ): { agentIds?: string[]; conversationIds?: string[]; labels?: string[] } | undefined => {
+    if (!f) return undefined;
+    return {
+      ...(f.agent_ids !== undefined ? { agentIds: f.agent_ids } : {}),
+      ...(f.conversation_ids !== undefined ? { conversationIds: f.conversation_ids } : {}),
+      ...(f.labels !== undefined ? { labels: f.labels } : {}),
+    };
+  };
+
   server.registerTool(
     "list_webhooks",
     {
@@ -37,7 +51,7 @@ export function registerWebhookTools(server: McpServer, client: E2AClient): void
         "Returns every webhook subscriber owned by the authenticated user, enabled + disabled, with their event subscriptions, filters, and last-delivered timestamp. signing_secret is omitted (it is only ever returned on create + rotate). Read-only; cheap.",
       inputSchema: strictInputSchema({}),
     },
-    async () => runTool(() => client.listWebhooks()),
+    async () => runTool(async () => ({ webhooks: await client.listWebhooks() })),
   );
 
   server.registerTool(
@@ -76,8 +90,8 @@ export function registerWebhookTools(server: McpServer, client: E2AClient): void
         client.createWebhook({
           url: args.url,
           events: args.events,
-          description: args.description,
-          filters: args.filters,
+          ...(args.description !== undefined ? { description: args.description } : {}),
+          ...(mapFilters(args.filters) ? { filters: mapFilters(args.filters) } : {}),
         }),
       ),
   );
@@ -98,8 +112,14 @@ export function registerWebhookTools(server: McpServer, client: E2AClient): void
       }),
     },
     async (args) => {
-      const { id, ...rest } = args;
-      return runTool(() => client.updateWebhook(id, rest));
+      const { id, filters, ...rest } = args;
+      const mapped = mapFilters(filters);
+      return runTool(() =>
+        client.updateWebhook(id, {
+          ...rest,
+          ...(mapped ? { filters: mapped } : {}),
+        }),
+      );
     },
   );
 

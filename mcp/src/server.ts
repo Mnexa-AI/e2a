@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { E2AClient } from "@e2a/sdk/v1";
+import type { McpClient } from "./client.js";
 import { registerMessageTools } from "./tools/messages.js";
 import { registerAgentTools } from "./tools/agents.js";
 import { registerDomainTools } from "./tools/domains.js";
@@ -8,7 +8,7 @@ import { registerWebhookTools } from "./tools/webhooks.js";
 import { registerEventTools } from "./tools/events.js";
 
 export interface BuildServerOptions {
-  client: E2AClient;
+  client: McpClient;
   version?: string;
 }
 

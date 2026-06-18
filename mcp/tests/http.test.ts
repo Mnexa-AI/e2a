@@ -1,30 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { E2AClient } from "@e2a/sdk/v1";
+import type { McpClient } from "../src/client.js";
 import { startHttpServer } from "../src/http-server.js";
 import { Sessions } from "../src/session.js";
 
-// Reuse the same stub shape from tools.test.ts. Only the methods the
-// tools actually call need to be present.
-function makeStubClient(): E2AClient {
+// Stub the McpClient wrapper — only the methods the tools and the
+// session prefetch (listAgents / agentEmail) actually touch. List
+// methods return flat arrays (the wrapper collapses the SDK pager).
+function makeStubClient(): McpClient {
   const stub = {
     agentEmail: "bot@example.com",
-    api: {
-      getMessage: vi.fn(async (_e: string, id: string) => ({ message_id: id })),
-      getAgent: vi.fn(async (e: string) => ({ id: e, email: e })),
-    },
-    send: vi.fn(async () => ({ message_id: "msg_sent", status: "sent" })),
-    reply: vi.fn(async () => ({ message_id: "msg_reply", status: "sent" })),
-    listMessages: vi.fn(async () => ({ messages: [] })),
-    listAgents: vi.fn(async () => ({ agents: [] })),
-    registerAgent: vi.fn(async () => ({ email: "x@y", id: "x", domain: "y" })),
-    listPendingMessages: vi.fn(async () => ({ messages: [] })),
-    getPendingMessage: vi.fn(async () => ({ id: "p", status: "pending_approval" })),
-    approveMessage: vi.fn(async () => ({ message_id: "x", status: "sent" })),
-    rejectMessage: vi.fn(async () => ({ message_id: "x", status: "rejected" })),
+    getMessage: vi.fn(async (id: string) => ({ messageId: id })),
+    getAgent: vi.fn(async (e: string) => ({ id: e, email: e })),
+    send: vi.fn(async () => ({ messageId: "msg_sent", status: "sent" })),
+    reply: vi.fn(async () => ({ messageId: "msg_reply", status: "sent" })),
+    listMessages: vi.fn(async () => []),
+    listAgents: vi.fn(async () => []),
+    createAgent: vi.fn(async () => ({ email: "x@y", id: "x", domain: "y" })),
+    listPendingMessages: vi.fn(async () => []),
+    getPendingMessage: vi.fn(async () => ({ messageId: "p", status: "pending_approval" })),
+    approveMessage: vi.fn(async () => ({ messageId: "x", status: "sent" })),
+    rejectMessage: vi.fn(async () => ({ messageId: "x", status: "rejected" })),
   };
-  return stub as unknown as E2AClient;
+  return stub as unknown as McpClient;
 }
 
 function makeHttpError(statusCode: number): Error & { statusCode: number } {
@@ -34,7 +33,7 @@ function makeHttpError(statusCode: number): Error & { statusCode: number } {
 }
 
 describe("HTTP MCP server", () => {
-  let stub: E2AClient;
+  let stub: McpClient;
   let close: () => Promise<void>;
   let url: string;
 
@@ -95,7 +94,7 @@ describe("HTTP MCP server", () => {
     const invalidStub = makeStubClient();
     invalidStub.listAgents = vi.fn(async () => {
       throw makeHttpError(401);
-    }) as E2AClient["listAgents"];
+    }) as McpClient["listAgents"];
     const { close: c, port } = await startHttpServer(0, {
       baseUrl: "http://e2a.local",
       allowedHosts: ["127.0.0.1", "localhost"],
@@ -297,23 +296,22 @@ describe("HTTP MCP server", () => {
       initialEmail?: string;
       agents: Array<{ email: string }>;
       listAgentsThrows?: boolean;
-    }): E2AClient {
+    }): McpClient {
       return {
         agentEmail: opts.initialEmail ?? "",
-        api: {},
         send: vi.fn(),
         reply: vi.fn(),
-        listMessages: vi.fn(async () => ({ messages: [] })),
+        listMessages: vi.fn(async () => []),
         listAgents: vi.fn(async () => {
           if (opts.listAgentsThrows) throw new Error("upstream 500");
-          return { agents: opts.agents };
+          return opts.agents;
         }),
-        registerAgent: vi.fn(),
-        listPendingMessages: vi.fn(async () => ({ messages: [] })),
+        createAgent: vi.fn(),
+        listPendingMessages: vi.fn(async () => []),
         getPendingMessage: vi.fn(),
         approveMessage: vi.fn(),
         rejectMessage: vi.fn(),
-      } as unknown as E2AClient;
+      } as unknown as McpClient;
     }
 
     it("resolves agent_email when listAgents returns exactly one agent", async () => {

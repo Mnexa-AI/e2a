@@ -5,6 +5,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { E2AClient } from "@e2a/sdk/v1";
 import { buildServer } from "./server.js";
+import { McpClient } from "./client.js";
 import { Sessions, fingerprintBearer } from "./session.js";
 
 export interface HttpServerOptions {
@@ -47,7 +48,7 @@ export interface HttpServerOptions {
    * want to exercise the prefetch path can pass it through to their
    * stub; tests that only care about the bearer can ignore it.
    */
-  clientFactory?: (bearer: string, opts?: { agentEmail?: string }) => E2AClient;
+  clientFactory?: (bearer: string, opts?: { agentEmail?: string }) => McpClient;
 }
 
 interface BuiltApp {
@@ -212,7 +213,7 @@ async function handleClientRequest(
   }
 
   if (!entry && isInitializeRequest(req.body)) {
-    let client: E2AClient;
+    let client: McpClient;
     try {
       client = await buildSessionClient(opts, bearer);
     } catch (err) {
@@ -345,8 +346,8 @@ async function handleStreamingOrDelete(
 export async function buildSessionClient(
   opts: HttpServerOptions,
   bearer: string,
-): Promise<E2AClient> {
-  const make = (agentEmail?: string): E2AClient => {
+): Promise<McpClient> {
+  const make = (agentEmail?: string): McpClient => {
     if (opts.clientFactory) {
       // Preserve the no-arg-factory shape for callers (and tests) that
       // don't care about the resolved email. Pass the email through
@@ -355,13 +356,16 @@ export async function buildSessionClient(
         ? opts.clientFactory(bearer, { agentEmail })
         : opts.clientFactory(bearer);
     }
-    return new E2AClient({ apiKey: bearer, baseUrl: opts.baseUrl, agentEmail });
+    return new McpClient(
+      new E2AClient({ apiKey: bearer, baseUrl: opts.baseUrl }),
+      agentEmail ?? "",
+    );
   };
 
   const client = make();
   let resolved: string | undefined;
   try {
-    const { agents } = await client.listAgents();
+    const agents = await client.listAgents();
     // Env-var path already populated agentEmail — operator opted in
     // explicitly, don't second-guess it with auto-resolution.
     if (!client.agentEmail && Array.isArray(agents) && agents.length === 1) {

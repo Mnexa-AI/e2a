@@ -1,10 +1,10 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { E2AClient } from "@e2a/sdk/v1";
+import type { McpClient } from "../client.js";
 import { z } from "zod";
 import { runTool, strictInputSchema } from "./util.js";
 import { attachmentsArraySchema } from "./attachments.js";
 
-export function registerHitlTools(server: McpServer, client: E2AClient): void {
+export function registerHitlTools(server: McpServer, client: McpClient): void {
   server.registerTool(
     "list_pending_messages",
     {
@@ -13,7 +13,7 @@ export function registerHitlTools(server: McpServer, client: E2AClient): void {
         "Use when the user asks what's awaiting approval, or after a `send_email`/`reply_to_message` returned `pending_approval` and they want to see the queue. Lists held outbound messages from HITL-enabled agents sorted by soonest-expiring first. Body content is summary-only — call `get_pending_message` for the full draft of one. Read-only; cheap, but don't poll it on a loop.",
       inputSchema: strictInputSchema({}),
     },
-    async () => runTool(() => client.listPendingMessages()),
+    async () => runTool(async () => ({ messages: await client.listPendingMessages() })),
   );
 
   server.registerTool(
@@ -28,6 +28,35 @@ export function registerHitlTools(server: McpServer, client: E2AClient): void {
     },
     async (args) => runTool(() => client.getPendingMessage(args.message_id)),
   );
+
+  // Map the snake_case approve override args to the SDK's ApproveRequest
+  // (camelCase body fields). An explicitly-passed empty attachments array
+  // must survive as a strip override, so map by key-presence.
+  const mapOverrides = (overrides: {
+    subject?: string;
+    body_text?: string;
+    body_html?: string;
+    to?: string[];
+    cc?: string[];
+    bcc?: string[];
+    attachments?: Array<{ filename: string; content_type: string; data: string }>;
+  }) => ({
+    ...(overrides.subject !== undefined ? { subject: overrides.subject } : {}),
+    ...(overrides.body_text !== undefined ? { bodyText: overrides.body_text } : {}),
+    ...(overrides.body_html !== undefined ? { bodyHtml: overrides.body_html } : {}),
+    ...(overrides.to !== undefined ? { to: overrides.to } : {}),
+    ...(overrides.cc !== undefined ? { cc: overrides.cc } : {}),
+    ...(overrides.bcc !== undefined ? { bcc: overrides.bcc } : {}),
+    ...(overrides.attachments !== undefined
+      ? {
+          attachments: overrides.attachments.map((a) => ({
+            filename: a.filename,
+            contentType: a.content_type,
+            data: a.data,
+          })),
+        }
+      : {}),
+  });
 
   server.registerTool(
     "approve_pending_message",
@@ -54,17 +83,15 @@ export function registerHitlTools(server: McpServer, client: E2AClient): void {
     },
     async (args) => {
       const { message_id, idempotency_key, ...overrides } = args;
-      // The approve endpoint is agent-scoped; discover the owning
-      // agent via the message detail before calling. One extra GET
-      // gating one side-effectful POST is a fair trade for keeping
-      // the MCP tool surface minimal (caller passes only message_id).
-      return runTool(async () => {
-        const detail = await client.getPendingMessage(message_id);
-        const agentEmail = (detail as { agent_id: string }).agent_id;
-        return idempotency_key !== undefined
-          ? client.approveMessage(agentEmail, message_id, overrides, { idempotencyKey: idempotency_key })
-          : client.approveMessage(agentEmail, message_id, overrides);
-      });
+      // The approve endpoint is agent-scoped; the client discovers the
+      // owning agent (via the pending queue) before calling, keeping the
+      // MCP tool surface minimal (caller passes only message_id).
+      const mapped = mapOverrides(overrides);
+      return runTool(() =>
+        idempotency_key !== undefined
+          ? client.approveMessage(message_id, mapped, { idempotencyKey: idempotency_key })
+          : client.approveMessage(message_id, mapped),
+      );
     },
   );
 
@@ -80,10 +107,6 @@ export function registerHitlTools(server: McpServer, client: E2AClient): void {
       }),
     },
     async (args) =>
-      runTool(async () => {
-        const detail = await client.getPendingMessage(args.message_id);
-        const agentEmail = (detail as { agent_id: string }).agent_id;
-        return client.rejectMessage(agentEmail, args.message_id, args.reason);
-      }),
+      runTool(() => client.rejectMessage(args.message_id, args.reason)),
   );
 }
