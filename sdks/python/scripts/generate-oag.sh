@@ -17,7 +17,12 @@ DEST="$ROOT/sdks/python/src/e2a/v1/generated"
 IMG="openapitools/openapi-generator-cli:v7.16.0"
 
 rm -rf "$TMP"
-docker run --rm -v "$ROOT:/work" "$IMG" generate \
+# Run as the invoking host user (not the container's default root) so the
+# generated files + the .oag-tmp scratch dir are host-user-owned and removable
+# on CI's non-root runner. HOME is a writable path for tools that expect it.
+# (Docker Desktop/macOS maps ownership already, so this is a no-op there but
+# required on Linux CI.)
+docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$ROOT:/work" "$IMG" generate \
   -i /work/api/openapi.yaml -g python \
   -o /work/sdks/python/.oag-tmp \
   --additional-properties=packageName=e2a.v1.generated,library=httpx >/dev/null

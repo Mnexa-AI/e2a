@@ -17,7 +17,7 @@ find "$OUT" -name '*.ts' -delete 2>/dev/null || true
 # (Default platform: its fetch call uses a STANDARD RequestInit — no node-fetch
 #  `agent`/`buffer` — so it is native-fetch-compatible once the polyfill import
 #  is stripped below.)
-docker run --rm -v "$ROOT:/work" "$IMG" generate \
+docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$ROOT:/work" "$IMG" generate \
   -i /work/api/openapi.yaml -g typescript \
   -o /work/sdks/typescript/src/v1/generated \
   --additional-properties=supportsES6=true,importFileExtension=.js >/dev/null
