@@ -1,654 +1,511 @@
-"""High-level sync client for the e2a v1 API.
+"""The e2a high-level async client (Slice 8c).
 
-Wraps :class:`E2AApi` with ergonomic methods that return parsed
-:class:`InboundEmail` objects and handle agent email resolution.
+A thin, namespaced ergonomic layer over the generated ``oag/`` base: resource
+sub-clients (``client.agents``, ``client.messages``, …) wrap the generated
+``*Api`` classes (composition, never inheritance), map the generated
+``ApiException`` to the typed :mod:`e2a.v1.errors` hierarchy, and expose cursor
+lists as an :class:`~e2a.v1.pagination.AutoPager`. Async-only.
 """
 
 from __future__ import annotations
 
-import base64
-import json
 import os
-import warnings
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, List, Optional, Sequence, Type, TypeVar, Union
 
-from e2a.v1.api import E2AApi
-from e2a.v1.generated import (
-    ApprovePendingMessageRequest,
-    ConversationDetail,
+from ._retry import RetryConfig, request_with_retry
+from .errors import E2AError
+from .oag.api.account_api import AccountApi
+from .oag.api.agents_api import AgentsApi
+from .oag.api.conversations_api import ConversationsApi
+from .oag.api.domains_api import DomainsApi
+from .oag.api.events_api import EventsApi
+from .oag.api.messages_api import MessagesApi
+from .oag.api.meta_api import MetaApi
+from .oag.api.webhooks_api import WebhooksApi
+from .oag.api_client import ApiClient
+from .oag.configuration import Configuration
+from .oag.models import (
+    AgentView,
+    ApproveRequest,
+    ApproveResultView,
+    ConversationDetailView,
+    ConversationSummaryView,
+    CreateAgentRequest,
+    CreateAgentResponse,
     CreateWebhookRequest,
-    ForwardMessageRequest,
-    ListConversationsResponse,
-    MessageDetail,
-    RegisterAgentRequest,
+    DeleteUserDataResult,
+    DeploymentInfoView,
+    DomainView,
+    EventJSON,
+    ForwardRequest,
+    LimitsView,
+    MessageSummaryView,
+    MessageView,
+    RedeliverEventInputBody,
+    RedeliverView,
     RegisterDomainRequest,
-    ReplyToMessageRequest,
+    RejectInputBody,
+    ReplyRequest,
+    RotateSecretOutputBody,
     SendEmailRequest,
+    SendResultView,
+    Suppression,
+    TestWebhookOutputBody,
     TestWebhookRequest,
     UpdateAgentRequest,
+    UpdateDomainRequest,
     UpdateMessageRequest,
-    UpdateMessageResponse,
+    UpdateMessageResultView,
     UpdateWebhookRequest,
-    WebhookFilters,
+    UserExport,
+    VerifyDomainView,
+    WebhookDeliveryView,
+    WebhookView,
 )
-from e2a.v1.generated import internal_agent
-from e2a.v1.handler import (
-    Attachment,
-    InboundEmail,
-    MessageList,
-    MessageSummary,
-    SendResult,
-    build_inbound_email,
-)
+from .pagination import AutoPager, Page
+
+__all__ = ["E2AClient"]
+
+T = TypeVar("T")
+_Make = Callable[[Optional["dict[str, str]"]], Awaitable[Any]]
+# A request body accepted as the typed model or a plain dict.
+Body = Union[Any, dict]
+
+DEFAULT_BASE_URL = "https://api.e2a.dev"
 
 
-def _serialize_attachments(
-    attachments: list[Attachment] | None,
-) -> list[internal_agent.Attachment] | None:
-    """Convert high-level Attachment objects to generated wire format."""
-    if not attachments:
-        return None
-    return [
-        internal_agent.Attachment(
-            filename=att.filename,
-            content_type=att.content_type,
-            data=base64.b64encode(att.data).decode(),
-        )
-        for att in attachments
-    ]
+def _env(name: str) -> Optional[str]:
+    v = os.environ.get(name)
+    return v or None
+
+
+def _coerce(model_cls: Type[T], body: Optional[Body]) -> T:
+    if body is None:
+        return model_cls()  # type: ignore[call-arg]
+    if isinstance(body, model_cls):
+        return body
+    return model_cls.model_validate(body)  # type: ignore[attr-defined]
 
 
 class E2AClient:
-    """High-level sync client for the e2a v1 API.
+    """Async client for the e2a /v1 API.
 
-    Wraps the raw :class:`E2AApi` with convenience methods that return
-    parsed :class:`InboundEmail` objects.
+    Use as an async context manager so the underlying HTTP connections are
+    closed::
 
-    Args:
-        api_key: Your API key.
-            Falls back to the ``E2A_API_KEY`` environment variable.
-        agent_email: Default agent email address.
-            Falls back to ``E2A_AGENT_EMAIL``.
-        base_url: e2a API base URL. Defaults to ``https://e2a.dev``.
-        timeout: Request timeout in seconds. Defaults to 30.
+        async with E2AClient(api_key="e2a_...") as client:
+            agents = await client.agents.list().to_list(limit=100)
     """
 
     def __init__(
         self,
         api_key: Optional[str] = None,
-        agent_email: Optional[str] = None,
-        base_url: str = "https://e2a.dev",
-        timeout: float = 30,
+        *,
+        base_url: Optional[str] = None,
+        max_retries: int = 2,
+        max_elapsed_ms: Optional[float] = None,
+        _retry_config: Optional[RetryConfig] = None,
     ) -> None:
-        resolved_key = api_key or os.environ.get("E2A_API_KEY", "")
-        self.agent_email = agent_email or os.environ.get("E2A_AGENT_EMAIL", "")
-        self.api = E2AApi(api_key=resolved_key, base_url=base_url, timeout=timeout)
-
-    def _require_agent_email(self, agent_email: Optional[str] = None) -> str:
-        email = agent_email or self.agent_email
-        if not email:
-            raise ValueError(
-                "agent_email is required. Pass it to E2AClient(), set E2A_AGENT_EMAIL, "
-                "or use InboundEmail.reply() which auto-resolves it from the payload."
+        key = api_key or _env("E2A_API_KEY")
+        if not key:
+            raise E2AError(
+                code="no_api_key",
+                message="api_key is required — pass api_key=... or set E2A_API_KEY",
+                status=0,
+                retryable=False,
             )
-        return email
-
-    # ── Parsing ───────────────────────────────────────────────────────
-
-    def parse(
-        self,
-        body: bytes | str | dict[str, Any] | MessageDetail,
-        headers: dict[str, str] | None = None,
-    ) -> InboundEmail:
-        """Parse a webhook payload or MessageDetail into an InboundEmail.
-
-        .. deprecated:: 2.2
-           Use :meth:`parse_webhook` for webhook handlers (parse + verify
-           in one call) or :attr:`InboundEmail.unverified_payload` for
-           inspection without verification. ``parse`` will be removed in
-           3.0.
-
-        Accepts bytes, JSON string, dict, or a generated MessageDetail.
-
-        The returned InboundEmail starts in the *unverified* state —
-        property accesses (sender, subject, body, …) raise
-        :class:`UnverifiedEmailError` until :meth:`InboundEmail.verify_signature`
-        succeeds. The combination of "looks usable" + "blows up on first
-        field access" is precisely the trap that motivated the deprecation;
-        ``parse_webhook`` raises immediately on bad signatures and returns
-        a ready-to-use object on success.
-        """
-        warnings.warn(
-            "E2AClient.parse() is deprecated and will be removed in 3.0. "
-            "For webhook handlers, use client.parse_webhook(body) — it "
-            "parses and HMAC-verifies in one call. For inspection without "
-            "verification, use email.unverified_payload after parse_webhook.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._parse_unverified(body)
-
-    def _parse_unverified(
-        self,
-        body: bytes | str | dict[str, Any] | MessageDetail,
-    ) -> InboundEmail:
-        """Internal parse without the deprecation warning. ``parse_webhook``
-        delegates here so the recommended path doesn't emit the warning
-        meant for direct ``parse`` callers."""
-        if isinstance(body, MessageDetail):
-            data = body.model_dump(by_alias=True)
-        elif isinstance(body, dict):
-            data = body
-        elif isinstance(body, (bytes, str)):
-            data = json.loads(body)
-        else:
-            raise TypeError(f"Unsupported body type: {type(body)}")
-
-        return build_inbound_email(data, self)
-
-    def parse_webhook(
-        self,
-        body: bytes | str | dict[str, Any] | MessageDetail,
-        secret: Optional[str] = None,
-    ) -> InboundEmail:
-        """Parse + HMAC-verify a webhook payload in one call.
-
-        Recommended entry point for webhook handlers. Returns an
-        already-verified :class:`InboundEmail` — field access just
-        works. Raises :class:`PermissionError` on signature failure
-        (so a webhook handler can let the exception bubble to a 401).
-
-        ``secret`` defaults to the ``E2A_WEBHOOK_SECRET`` environment
-        variable (with ``E2A_HMAC_SECRET`` accepted as a deprecated alias).
-        """
-        email = self._parse_unverified(body)
-        if not email.verify_signature(secret):
-            raise PermissionError("HMAC signature verification failed")
-        return email
-
-    # ── Messages ──────────────────────────────────────────────────────
-
-    def get_message(
-        self,
-        message_id: str,
-        agent_email: Optional[str] = None,
-    ) -> InboundEmail:
-        """Fetch a single message and return a parsed InboundEmail.
-
-        Marks the message as read.
-
-        The returned email is **pre-verified** (``trusted=True``) — the
-        REST API channel is authenticated by the bearer token, so an
-        additional HMAC verify on the response would be redundant. This
-        differs from :meth:`parse` (webhook entry), which leaves the
-        email unverified until you explicitly verify it.
-        """
-        email = self._require_agent_email(agent_email)
-        detail = self.api.get_message(email, message_id)
-        data = detail.model_dump(by_alias=True)
-        return build_inbound_email(data, self, trusted=True)
-
-    def get_messages(
-        self,
-        status: str = "unread",
-        page_size: int = 50,
-        token: Optional[str] = None,
-        agent_email: Optional[str] = None,
-        sort: Optional[str] = None,
-        from_: Optional[str] = None,
-        subject_contains: Optional[str] = None,
-        conversation_id: Optional[str] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        labels: Optional[list[str]] = None,
-    ) -> MessageList:
-        """Fetch message summaries with ergonomic field names.
-
-        ``sort`` defaults server-side to ``"desc"`` (newest first). Pass
-        ``"asc"`` to drain the inbox in arrival order — FIFO polling.
-
-        ``from_`` / ``subject_contains`` are case-insensitive substring
-        filters (capped at 200 chars server-side). ``conversation_id``
-        exact-matches a thread. ``since`` / ``until`` are RFC3339
-        timestamps bounding ``created_at``.
-
-        ``labels``: AND-match filter. A row is returned only if EVERY
-        label in the list is present. Each entry must match
-        ``[a-z0-9:_-]+`` (≤64 chars). Reading by ``e2a:*`` system
-        labels is allowed; setting them is server-only.
-        """
-        email = self._require_agent_email(agent_email)
-        resp = self.api.list_messages(
-            email,
-            status=status,
-            page_size=page_size,
-            token=token,
-            sort=sort,
-            from_=from_,
-            subject_contains=subject_contains,
-            conversation_id=conversation_id,
-            since=since,
-            until=until,
-            labels=labels,
-        )
-        messages = [
-            MessageSummary(
-                message_id=m.message_id or "",
-                conversation_id=m.conversation_id,
-                sender=m.from_ or "",
-                recipient=m.recipient or "",
-                to=list(m.to or []),
-                cc=list(m.cc or []),
-                reply_to=list(m.reply_to or []),
-                subject=m.subject or "",
-                status=m.status or "",
-                created_at=m.created_at or "",
-                labels=list(m.labels or []),
-            )
-            for m in (resp.messages or [])
-        ]
-        return MessageList(messages=messages, next_token=resp.next_token)
-
-    # ── Reply / Send ──────────────────────────────────────────────────
-
-    def reply(
-        self,
-        message_id: str,
-        body: str,
-        html_body: Optional[str] = None,
-        reply_all: Optional[bool] = None,
-        cc: Optional[list[str]] = None,
-        bcc: Optional[list[str]] = None,
-        conversation_id: Optional[str] = None,
-        attachments: Optional[list[Attachment]] = None,
-        agent_email: Optional[str] = None,
-        idempotency_key: Optional[str] = None,
-    ) -> SendResult:
-        """Reply to an inbound email.
-
-        ``idempotency_key`` is sent as the ``Idempotency-Key`` header.
-        Supply a stable key derived from the triggering event (e.g. the
-        inbound message id) to make this reply safe to retry; omit to
-        let the SDK generate a fresh UUIDv4 per call (network-layer
-        retry safety only).
-        """
-        email = self._require_agent_email(agent_email)
-        req = ReplyToMessageRequest(
-            body=body,
-            html_body=html_body,
-            reply_all=reply_all,
-            cc=cc,
-            bcc=bcc,
-            conversation_id=conversation_id,
-            attachments=_serialize_attachments(attachments),
-        )
-        resp = self.api.reply_to_message(email, message_id, req, idempotency_key=idempotency_key)
-        return SendResult(
-            status=resp.status or "",
-            message_id=resp.message_id or "",
-            method=resp.method or "",
+        self._api_key = key
+        self._base_url = base_url or _env("E2A_BASE_URL") or DEFAULT_BASE_URL
+        self._cfg = _retry_config or RetryConfig(
+            max_retries=max_retries, max_elapsed_ms=max_elapsed_ms
         )
 
-    def forward(
-        self,
-        message_id: str,
-        to: list[str],
-        body: Optional[str] = None,
-        html_body: Optional[str] = None,
-        cc: Optional[list[str]] = None,
-        bcc: Optional[list[str]] = None,
-        conversation_id: Optional[str] = None,
-        attachments: Optional[list[Attachment]] = None,
-        agent_email: Optional[str] = None,
-        idempotency_key: Optional[str] = None,
-    ) -> SendResult:
-        """Forward an inbound email to new recipients.
+        config = Configuration(host=self._base_url, access_token=key)
+        self._api_client = ApiClient(config)
 
-        The server prepends ``body`` / ``html_body`` (your optional
-        comment), then a Gmail-style "Forwarded message" block with
-        the original headers and body. A forward is a new thread —
-        no ``In-Reply-To`` / ``References`` headers are emitted. Pass
-        ``conversation_id`` to bind to an existing thread.
+        self.agents = AgentsResource(AgentsApi(self._api_client), self)
+        self.messages = MessagesResource(MessagesApi(self._api_client), self)
+        self.conversations = ConversationsResource(ConversationsApi(self._api_client), self)
+        self.domains = DomainsResource(DomainsApi(self._api_client), self)
+        self.events = EventsResource(EventsApi(self._api_client), self)
+        self.webhooks = WebhooksResource(WebhooksApi(self._api_client), self)
+        self.account = AccountResource(AccountApi(self._api_client), self)
+        self._meta = MetaApi(self._api_client)
 
-        ``idempotency_key`` is sent as the ``Idempotency-Key`` header.
-        Supply a stable key derived from the triggering event (e.g.
-        the inbound ``message_id`` plus targets) to make this forward
-        safe to retry.
-        """
-        email = self._require_agent_email(agent_email)
-        req = ForwardMessageRequest(
-            to=to,
-            cc=cc,
-            bcc=bcc,
-            body=body,
-            html_body=html_body,
-            conversation_id=conversation_id,
-            attachments=_serialize_attachments(attachments),
-        )
-        resp = self.api.forward_message(email, message_id, req, idempotency_key=idempotency_key)
-        return SendResult(
-            status=resp.status or "",
-            message_id=resp.message_id or "",
-            method=resp.method or "",
-        )
+    # ── lifecycle ───────────────────────────────────────────────────
+    async def aclose(self) -> None:
+        await self._api_client.close()
 
-    def update_message_labels(
-        self,
-        message_id: str,
-        add_labels: Optional[list[str]] = None,
-        remove_labels: Optional[list[str]] = None,
-        agent_email: Optional[str] = None,
-    ) -> list[str]:
-        """Apply a labels delta to a message; return the post-update set.
-
-        ``add_labels`` / ``remove_labels`` are each capped at 50 entries
-        per call. Labels are lowercased server-side and must match
-        ``[a-z0-9:_-]+`` up to 64 chars. The ``e2a:`` prefix is
-        reserved for server-applied system labels — caller writes that
-        try to set them return 400. A label that appears in both
-        lists is removed (remove wins).
-
-        Empty / None for both arguments is a no-op that simply echoes
-        the current label set — useful as a cheap "fetch labels only"
-        call without pulling the full message body.
-        """
-        email = self._require_agent_email(agent_email)
-        req = UpdateMessageRequest(add_labels=add_labels, remove_labels=remove_labels)
-        resp = self.api.update_message_labels(email, message_id, req)
-        return list(resp.labels or [])
-
-    # ── Conversations ───────────────────────────────────────────────
-
-    def list_conversations(
-        self,
-        page_size: Optional[int] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        agent_email: Optional[str] = None,
-    ) -> ListConversationsResponse:
-        """List conversations for the configured agent.
-
-        One row per non-empty ``conversation_id``, sorted by most
-        recent activity. The server caps the response at 100 entries
-        — pagination is intentionally deferred for slice 1. Pass
-        ``since`` / ``until`` (RFC3339) to bracket ``last_message_at``.
-        """
-        email = self._require_agent_email(agent_email)
-        return self.api.list_conversations(
-            email, page_size=page_size, since=since, until=until,
-        )
-
-    def get_conversation(
-        self,
-        conversation_id: str,
-        agent_email: Optional[str] = None,
-    ) -> ConversationDetail:
-        """Fetch a single conversation with member messages, computed
-        participants union, and computed labels union."""
-        email = self._require_agent_email(agent_email)
-        return self.api.get_conversation(email, conversation_id)
-
-    def send(
-        self,
-        to: list[str],
-        subject: str,
-        body: str,
-        html_body: Optional[str] = None,
-        cc: Optional[list[str]] = None,
-        bcc: Optional[list[str]] = None,
-        conversation_id: Optional[str] = None,
-        attachments: Optional[list[Attachment]] = None,
-        agent_email: Optional[str] = None,
-        idempotency_key: Optional[str] = None,
-    ) -> SendResult:
-        """Send a new email.
-
-        ``idempotency_key`` is sent as the ``Idempotency-Key`` header.
-        Supply a stable key derived from the triggering event (e.g. a
-        job id) to make this send safe to retry; omit to let the SDK
-        generate a fresh UUIDv4 per call (network-layer retry safety
-        only — does not help across an explicit retry loop).
-        """
-        email = self._require_agent_email(agent_email)
-        req = SendEmailRequest(
-            to=to,
-            subject=subject,
-            body=body,
-            html_body=html_body,
-            from_=email,
-            cc=cc,
-            bcc=bcc,
-            conversation_id=conversation_id,
-            attachments=_serialize_attachments(attachments),
-        )
-        resp = self.api.send_email(req, idempotency_key=idempotency_key)
-        return SendResult(
-            status=resp.status or "",
-            message_id=resp.message_id or "",
-            method=resp.method or "",
-        )
-
-    # ── Agent CRUD ────────────────────────────────────────────────────
-
-    def list_agents(self):
-        return self.api.list_agents()
-
-    def register_agent(
-        self,
-        slug: Optional[str] = None,
-        *,
-        email: Optional[str] = None,
-        name: Optional[str] = None,
-        webhook_url: Optional[str] = None,
-        agent_mode: Optional[str] = None,
-    ):
-        """Register a new agent.
-
-        For shared-domain agents, pass ``slug`` (just the local part, e.g. ``"my-bot"``).
-        The server appends its configured shared domain automatically — do not
-        pass a full email. Slug registration only works on deployments where
-        the operator has enabled it; otherwise the request is rejected with 400.
-
-        For custom-domain agents, pass ``email`` with the full address
-        (e.g. ``"support@mycompany.com"``). The domain must be registered
-        and DNS-verified first.
-        """
-        return self.api.register_agent(
-            RegisterAgentRequest(
-                slug=slug, email=email, name=name, webhook_url=webhook_url, agent_mode=agent_mode,
-            )
-        )
-
-    def get_agent(self, email: str):
-        return self.api.get_agent(email)
-
-    def delete_agent(self, email: str):
-        return self.api.delete_agent(email)
-
-    def update_agent(
-        self,
-        email: str,
-        *,
-        webhook_url: Optional[str] = None,
-        agent_mode: Optional[str] = None,
-        hitl_enabled: Optional[bool] = None,
-        hitl_ttl_seconds: Optional[int] = None,
-        hitl_expiration_action: Optional[str] = None,
-    ):
-        """Update an agent's configuration.
-
-        Only fields you pass are applied; missing fields keep their
-        current server-side value. Useful for toggling HITL on/off or
-        adjusting the approval window without re-specifying the rest.
-        """
-        body = UpdateAgentRequest(
-            webhook_url=webhook_url,
-            agent_mode=agent_mode,
-            hitl_enabled=hitl_enabled,
-            hitl_ttl_seconds=hitl_ttl_seconds,
-            hitl_expiration_action=hitl_expiration_action,
-        )
-        return self.api.update_agent(email, body)
-
-    # ── HITL (human-in-the-loop approval) ─────────────────────────────
-
-    def list_pending_messages(self):
-        """List pending-approval messages across every owned agent,
-        sorted by soonest-expiring first."""
-        return self.api.list_pending_messages()
-
-    def get_pending_message(self, message_id: str):
-        """Fetch the full detail of a held outbound message."""
-        return self.api.get_pending_message(message_id)
-
-    def approve_message(
-        self,
-        agent_email: str,
-        message_id: str,
-        *,
-        subject: Optional[str] = None,
-        body_text: Optional[str] = None,
-        body_html: Optional[str] = None,
-        to: Optional[list[str]] = None,
-        cc: Optional[list[str]] = None,
-        bcc: Optional[list[str]] = None,
-        idempotency_key: Optional[str] = None,
-    ):
-        """Approve a held outbound message.
-
-        ``agent_email`` is the message's owning agent — taken from the
-        pending-message listing (``agent_id``) or the webhook payload.
-        Returns 404 if it doesn't match the message's owner.
-
-        Pass any subset of overrides to approve with edits; pass none
-        to approve as-is.
-
-        ``idempotency_key`` makes retries safe across the SES double-
-        send window. Supply a stable key derived from the review event
-        (e.g. the dashboard click id or the pending ``message_id``) to
-        make retries dedupe. When omitted the SDK mints a fresh UUIDv4
-        per call — that gives network-layer retry safety only; the
-        per-call default does not survive an explicit retry loop.
-        """
-        any_override = any(
-            v is not None for v in (subject, body_text, body_html, to, cc, bcc)
-        )
-        overrides = (
-            ApprovePendingMessageRequest(
-                subject=subject,
-                body_text=body_text,
-                body_html=body_html,
-                to=to,
-                cc=cc,
-                bcc=bcc,
-            )
-            if any_override
-            else None
-        )
-        return self.api.approve_message(agent_email, message_id, overrides, idempotency_key=idempotency_key)
-
-    def reject_message(self, agent_email: str, message_id: str, reason: str = ""):
-        """Reject a held outbound message. The optional reason is
-        stored for audit. ``agent_email`` requirements match
-        :meth:`approve_message`."""
-        return self.api.reject_message(agent_email, message_id, reason)
-
-    # ── Domain CRUD ───────────────────────────────────────────────────
-
-    def list_domains(self):
-        return self.api.list_domains()
-
-    def register_domain(self, domain: str):
-        return self.api.register_domain(RegisterDomainRequest(domain=domain))
-
-    def verify_domain(self, domain: str):
-        return self.api.verify_domain(domain)
-
-    def delete_domain(self, domain: str):
-        return self.api.delete_domain(domain)
-
-    # ── Webhooks (top-level resource) ─────────────────────────────────
-
-    def list_webhooks(self):
-        return self.api.list_webhooks()
-
-    def create_webhook(
-        self,
-        url: str,
-        events: list[str],
-        *,
-        description: str = "",
-        filters: Optional[WebhookFilters] = None,
-    ):
-        return self.api.create_webhook(
-            CreateWebhookRequest(
-                url=url,
-                events=events,
-                description=description,
-                filters=filters,
-            )
-        )
-
-    def get_webhook(self, webhook_id: str):
-        return self.api.get_webhook(webhook_id)
-
-    def update_webhook(
-        self,
-        webhook_id: str,
-        *,
-        url: Optional[str] = None,
-        events: Optional[list[str]] = None,
-        filters: Optional[WebhookFilters] = None,
-        description: Optional[str] = None,
-        enabled: Optional[bool] = None,
-    ):
-        return self.api.update_webhook(
-            webhook_id,
-            UpdateWebhookRequest(
-                url=url,
-                events=events,
-                filters=filters,
-                description=description,
-                enabled=enabled,
-            ),
-        )
-
-    def delete_webhook(self, webhook_id: str):
-        return self.api.delete_webhook(webhook_id)
-
-    def rotate_webhook_secret(self, webhook_id: str):
-        return self.api.rotate_webhook_secret(webhook_id)
-
-    def test_webhook(
-        self,
-        webhook_id: str,
-        *,
-        event: str = "",
-        data: Optional[dict] = None,
-    ):
-        return self.api.test_webhook(
-            webhook_id, TestWebhookRequest(event=event, data=data)
-        )
-
-    def list_webhook_deliveries(
-        self,
-        webhook_id: str,
-        *,
-        limit: Optional[int] = None,
-        status: Optional[str] = None,
-    ):
-        return self.api.list_webhook_deliveries(
-            webhook_id, limit=limit, status=status
-        )
-
-    # ── Lifecycle ─────────────────────────────────────────────────────
-
-    def close(self) -> None:
-        """Close the underlying HTTP client."""
-        self.api.close()
-
-    def __enter__(self) -> E2AClient:
+    async def __aenter__(self) -> "E2AClient":
         return self
 
-    def __exit__(self, *args: object) -> None:
-        self.close()
+    async def __aexit__(self, *exc: Any) -> None:
+        await self.aclose()
+
+    # ── shared executors (retry + error mapping live here) ──────────
+    async def _read(self, make: _Make) -> Any:
+        return await request_with_retry(make, cfg=self._cfg, retryable=True, idempotency=False)
+
+    async def _write_keyed(self, make: _Make, idempotency_key: Optional[str]) -> Any:
+        # send/reply/forward/approve: server dedupes on the key → safe to retry.
+        return await request_with_retry(
+            make, cfg=self._cfg, retryable=True, idempotency=True, idempotency_key=idempotency_key
+        )
+
+    async def _write_idempotent(self, make: _Make) -> Any:
+        # PUT/PATCH/DELETE: HTTP-idempotent → safe to retry.
+        return await request_with_retry(make, cfg=self._cfg, retryable=True, idempotency=True)
+
+    async def _write_unsafe(self, make: _Make) -> Any:
+        # Bare POST (create/reject/redeliver/test): NOT retried (avoid double-create).
+        return await request_with_retry(make, cfg=self._cfg, retryable=False, idempotency=False)
+
+    # ── public top-level ────────────────────────────────────────────
+    async def info(self) -> DeploymentInfoView:
+        """Public deployment metadata."""
+        return await self._read(lambda h: self._meta.get_info(_headers=h))
+
+    def listen(self, address: Optional[str] = None) -> Any:
+        """Open a notification stream for an agent's inbox.
+
+        ``address`` falls back to ``E2A_AGENT_EMAIL``. Yields lightweight
+        notifications; fetch the body with ``client.messages.get(address, id)``.
+        """
+        target = address or _env("E2A_AGENT_EMAIL")
+        if not target:
+            raise E2AError(
+                code="missing_address",
+                message="address is required — pass client.listen(address) or set E2A_AGENT_EMAIL",
+                status=0,
+                retryable=False,
+            )
+        from .websocket import WSStream  # local import: optional `websockets` dep
+
+        return WSStream(api_key=self._api_key, agent_email=target, base_url=self._base_url)
+
+
+def _page(items: Optional[Sequence[T]], next_cursor: Optional[str] = None) -> Page:
+    return Page(items=items or [], next_cursor=next_cursor)
+
+
+class AgentsResource:
+    def __init__(self, api: AgentsApi, client: E2AClient) -> None:
+        self._api = api
+        self._c = client
+
+    def list(self) -> AutoPager[AgentView]:
+        async def fetch(_cursor: Optional[str]) -> Page:
+            resp = await self._c._read(lambda h: self._api.list_agents(_headers=h))
+            return _page(resp.agents)
+
+        return AutoPager(fetch)
+
+    async def get(self, address: str) -> AgentView:
+        return await self._c._read(lambda h: self._api.get_agent(address, _headers=h))
+
+    async def create(self, body: Body) -> CreateAgentResponse:
+        req = _coerce(CreateAgentRequest, body)
+        return await self._c._write_unsafe(lambda h: self._api.create_agent(req, _headers=h))
+
+    async def update(self, address: str, patch: Body) -> AgentView:
+        req = _coerce(UpdateAgentRequest, patch)
+        return await self._c._write_idempotent(
+            lambda h: self._api.update_agent(address, req, _headers=h)
+        )
+
+    async def delete(self, address: str) -> None:
+        await self._c._write_idempotent(lambda h: self._api.delete_agent(address, _headers=h))
+
+    async def test(self, address: str) -> SendResultView:
+        return await self._c._write_unsafe(lambda h: self._api.test_agent(address, _headers=h))
+
+
+class MessagesResource:
+    def __init__(self, api: MessagesApi, client: E2AClient) -> None:
+        self._api = api
+        self._c = client
+
+    def list(
+        self,
+        address: str,
+        *,
+        direction: Optional[str] = None,
+        status: Optional[str] = None,
+        sort: Optional[str] = None,
+        var_from: Optional[str] = None,
+        subject_contains: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        labels: Optional[List[str]] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> AutoPager[MessageSummaryView]:
+        async def fetch(cursor: Optional[str]) -> Page:
+            resp = await self._c._read(
+                lambda h: self._api.list_messages(
+                    address,
+                    direction=direction,
+                    status=status,
+                    sort=sort,
+                    var_from=var_from,
+                    subject_contains=subject_contains,
+                    conversation_id=conversation_id,
+                    labels=labels,
+                    since=since,
+                    until=until,
+                    cursor=cursor,
+                    limit=limit,
+                    _headers=h,
+                )
+            )
+            return _page(resp.items, resp.next_cursor)
+
+        return AutoPager(fetch)
+
+    async def get(self, address: str, message_id: str) -> MessageView:
+        return await self._c._read(lambda h: self._api.get_message(address, message_id, _headers=h))
+
+    async def send(
+        self, address: str, body: Body, *, idempotency_key: Optional[str] = None
+    ) -> SendResultView:
+        req = _coerce(SendEmailRequest, body)
+        return await self._c._write_keyed(
+            lambda h: self._api.send_message(address, req, _headers=h), idempotency_key
+        )
+
+    async def reply(
+        self, address: str, message_id: str, body: Body, *, idempotency_key: Optional[str] = None
+    ) -> SendResultView:
+        req = _coerce(ReplyRequest, body)
+        return await self._c._write_keyed(
+            lambda h: self._api.reply_to_message(address, message_id, req, _headers=h),
+            idempotency_key,
+        )
+
+    async def forward(
+        self, address: str, message_id: str, body: Body, *, idempotency_key: Optional[str] = None
+    ) -> SendResultView:
+        req = _coerce(ForwardRequest, body)
+        return await self._c._write_keyed(
+            lambda h: self._api.forward_message(address, message_id, req, _headers=h),
+            idempotency_key,
+        )
+
+    async def approve(
+        self,
+        address: str,
+        message_id: str,
+        body: Optional[Body] = None,
+        *,
+        idempotency_key: Optional[str] = None,
+    ) -> ApproveResultView:
+        req = _coerce(ApproveRequest, body)
+        return await self._c._write_keyed(
+            lambda h: self._api.approve_message(address, message_id, req, _headers=h),
+            idempotency_key,
+        )
+
+    async def reject(self, address: str, message_id: str, body: Optional[Body] = None) -> Any:
+        req = _coerce(RejectInputBody, body)
+        return await self._c._write_unsafe(
+            lambda h: self._api.reject_message(address, message_id, req, _headers=h)
+        )
+
+    async def update_labels(
+        self, address: str, message_id: str, body: Body
+    ) -> UpdateMessageResultView:
+        req = _coerce(UpdateMessageRequest, body)
+        return await self._c._write_idempotent(
+            lambda h: self._api.update_message(address, message_id, req, _headers=h)
+        )
+
+
+class ConversationsResource:
+    def __init__(self, api: ConversationsApi, client: E2AClient) -> None:
+        self._api = api
+        self._c = client
+
+    async def list(
+        self,
+        address: str,
+        *,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> List[ConversationSummaryView]:
+        # No cursor param — single page by contract.
+        resp = await self._c._read(
+            lambda h: self._api.list_conversations(
+                address, since=since, until=until, limit=limit, _headers=h
+            )
+        )
+        return list(resp.items or [])
+
+    async def get(self, address: str, conversation_id: str) -> ConversationDetailView:
+        return await self._c._read(
+            lambda h: self._api.get_conversation(address, conversation_id, _headers=h)
+        )
+
+
+class DomainsResource:
+    def __init__(self, api: DomainsApi, client: E2AClient) -> None:
+        self._api = api
+        self._c = client
+
+    def list(self) -> AutoPager[DomainView]:
+        async def fetch(_cursor: Optional[str]) -> Page:
+            resp = await self._c._read(lambda h: self._api.list_domains(_headers=h))
+            return _page(resp.domains)
+
+        return AutoPager(fetch)
+
+    async def get(self, domain: str) -> DomainView:
+        return await self._c._read(lambda h: self._api.get_domain(domain, _headers=h))
+
+    async def create(self, body: Body) -> DomainView:
+        req = _coerce(RegisterDomainRequest, body)
+        return await self._c._write_unsafe(lambda h: self._api.register_domain(req, _headers=h))
+
+    async def update(self, domain: str, patch: Body) -> DomainView:
+        req = _coerce(UpdateDomainRequest, patch)
+        return await self._c._write_idempotent(
+            lambda h: self._api.update_domain(domain, req, _headers=h)
+        )
+
+    async def delete(self, domain: str) -> None:
+        await self._c._write_idempotent(lambda h: self._api.delete_domain(domain, _headers=h))
+
+    async def verify(self, domain: str) -> VerifyDomainView:
+        return await self._c._write_unsafe(lambda h: self._api.verify_domain(domain, _headers=h))
+
+
+class EventsResource:
+    def __init__(self, api: EventsApi, client: E2AClient) -> None:
+        self._api = api
+        self._c = client
+
+    def list(
+        self,
+        *,
+        type: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        message_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> AutoPager[EventJSON]:
+        async def fetch(cursor: Optional[str]) -> Page:
+            resp = await self._c._read(
+                lambda h: self._api.list_events(
+                    type=type,
+                    agent_id=agent_id,
+                    conversation_id=conversation_id,
+                    message_id=message_id,
+                    since=since,
+                    until=until,
+                    cursor=cursor,
+                    limit=limit,
+                    _headers=h,
+                )
+            )
+            return _page(resp.items, resp.next_cursor)
+
+        return AutoPager(fetch)
+
+    async def get(self, event_id: str) -> EventJSON:
+        return await self._c._read(lambda h: self._api.get_event(event_id, _headers=h))
+
+    async def redeliver(self, event_id: str, body: Optional[Body] = None) -> RedeliverView:
+        req = _coerce(RedeliverEventInputBody, body)
+        return await self._c._write_unsafe(
+            lambda h: self._api.redeliver_event(event_id, req, _headers=h)
+        )
+
+
+class WebhooksResource:
+    def __init__(self, api: WebhooksApi, client: E2AClient) -> None:
+        self._api = api
+        self._c = client
+
+    def list(self) -> AutoPager[WebhookView]:
+        async def fetch(_cursor: Optional[str]) -> Page:
+            resp = await self._c._read(lambda h: self._api.list_webhooks(_headers=h))
+            return _page(resp.webhooks)
+
+        return AutoPager(fetch)
+
+    async def get(self, webhook_id: str) -> WebhookView:
+        return await self._c._read(lambda h: self._api.get_webhook(webhook_id, _headers=h))
+
+    async def create(self, body: Body) -> WebhookView:
+        req = _coerce(CreateWebhookRequest, body)
+        return await self._c._write_unsafe(lambda h: self._api.create_webhook(req, _headers=h))
+
+    async def update(self, webhook_id: str, patch: Body) -> WebhookView:
+        req = _coerce(UpdateWebhookRequest, patch)
+        return await self._c._write_idempotent(
+            lambda h: self._api.update_webhook(webhook_id, req, _headers=h)
+        )
+
+    async def delete(self, webhook_id: str) -> None:
+        await self._c._write_idempotent(lambda h: self._api.delete_webhook(webhook_id, _headers=h))
+
+    async def rotate_secret(self, webhook_id: str) -> RotateSecretOutputBody:
+        return await self._c._write_unsafe(
+            lambda h: self._api.rotate_webhook_secret(webhook_id, _headers=h)
+        )
+
+    async def test(self, webhook_id: str, body: Optional[Body] = None) -> TestWebhookOutputBody:
+        req = _coerce(TestWebhookRequest, body)
+        return await self._c._write_unsafe(
+            lambda h: self._api.test_webhook(webhook_id, req, _headers=h)
+        )
+
+    def deliveries(
+        self, webhook_id: str, *, status: Optional[str] = None, limit: Optional[int] = None
+    ) -> AutoPager[WebhookDeliveryView]:
+        async def fetch(_cursor: Optional[str]) -> Page:
+            resp = await self._c._read(
+                lambda h: self._api.list_webhook_deliveries(
+                    webhook_id, status=status, limit=limit, _headers=h
+                )
+            )
+            # No cursor param: drop next_cursor so the pager stops after one page.
+            return _page(resp.items, None)
+
+        return AutoPager(fetch)
+
+
+class SuppressionsResource:
+    def __init__(self, api: AccountApi, client: E2AClient) -> None:
+        self._api = api
+        self._c = client
+
+    def list(self) -> AutoPager[Suppression]:
+        async def fetch(_cursor: Optional[str]) -> Page:
+            resp = await self._c._read(lambda h: self._api.list_suppressions(_headers=h))
+            return _page(resp.suppressions)
+
+        return AutoPager(fetch)
+
+    async def delete(self, address: str) -> None:
+        await self._c._write_idempotent(lambda h: self._api.delete_suppression(address, _headers=h))
+
+
+class AccountResource:
+    def __init__(self, api: AccountApi, client: E2AClient) -> None:
+        self._api = api
+        self._c = client
+        self.suppressions = SuppressionsResource(api, client)
+
+    async def get(self) -> LimitsView:
+        return await self._c._read(lambda h: self._api.get_account(_headers=h))
+
+    async def export(self) -> UserExport:
+        return await self._c._read(lambda h: self._api.export_account(_headers=h))
+
+    async def delete(self, confirm: Optional[str] = None) -> DeleteUserDataResult:
+        return await self._c._write_unsafe(
+            lambda h: self._api.delete_account(confirm=confirm, _headers=h)
+        )

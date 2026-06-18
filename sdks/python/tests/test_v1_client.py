@@ -1,775 +1,231 @@
-"""Tests for e2a.v1.client — high-level sync E2AClient."""
+"""Unit tests for the namespaced async E2AClient (Slice 8c-2).
 
-import base64
-import json
+Mocks httpx (the layer the generated oag base uses) so these exercise the full
+stack: namespaced resource -> generated *Api -> bearer auth -> retry layer ->
+httpx -> envelope unwrap -> typed-error mapping.
+"""
 
 import pytest
 
+from e2a.v1._retry import RetryConfig
 from e2a.v1.client import E2AClient
-from e2a.v1.handler import Attachment, InboundEmail, MessageList, SendResult
+from e2a.v1.errors import (
+    E2AConflictError,
+    E2AError,
+    E2ANotFoundError,
+    E2AValidationError,
+)
+from e2a.v1.oag.models import (
+    AgentView,
+    CreateAgentResponse,
+    MessageSummaryView,
+)
+
+BASE = "http://test.local"
 
 
-BASE = "https://e2a.dev"
+from datetime import datetime, timezone  # noqa: E402
+
+_DT = datetime(2026, 6, 18, tzinfo=timezone.utc)
+# Valid values for required fields (incl. enum-constrained ones) so a fixture is
+# a real, deserializable server object rather than a stub.
+_REQUIRED_DEFAULTS = {
+    "created_at": _DT,
+    "domain": "test.dev",
+    "domain_verified": True,
+    "email": "x@test.dev",
+    "hitl_enabled": False,
+    "hitl_expiration_action": "reject",
+    "hitl_mode": "all",
+    "hitl_ttl_seconds": 0,
+    "id": "id_1",
+    "inbound_policy": "open",
+    "name": "n",
+    "direction": "inbound",
+    "var_from": "a@x.com",
+    "labels": [],
+    "message_id": "msg_1",
+    "recipient": "bot@test.dev",
+    "status": "unread",
+    "subject": "s",
+    "to": [],
+}
 
 
-# ── Helpers ───────────────────────────────────────────────────────
+def _dummy(ann):
+    s = str(ann)
+    if "bool" in s:
+        return False
+    if "int" in s:
+        return 0
+    if "float" in s:
+        return 0.0
+    if "List" in s or "list" in s:
+        return []
+    return ""
 
 
-def _make_raw_email(subject="Hello", text="Hi there"):
-    lines = [
-        "From: alice@example.com",
-        "To: bot@agents.e2a.dev",
-        f"Subject: {subject}",
-        "Content-Type: text/plain; charset=utf-8",
-        "",
-        text,
-    ]
-    return "\r\n".join(lines).encode()
+def _valid(model_cls, **overrides):
+    """Construct a REAL model (valid by construction) and dump it to wire JSON —
+    the Go server always returns full objects, so fixtures should too."""
+    kwargs = {}
+    for name, field in model_cls.model_fields.items():
+        if name in overrides:
+            kwargs[name] = overrides[name]
+        elif field.is_required():
+            kwargs[name] = _REQUIRED_DEFAULTS.get(name, _dummy(field.annotation))
+    inst = model_cls(**kwargs)
+    return inst.model_dump(by_alias=True, mode="json")
 
 
-def _make_message_detail_json(message_id="msg_123", raw=None):
-    if raw is None:
-        raw = _make_raw_email()
-    return {
-        "message_id": message_id,
-        "from": "alice@example.com",
-        "to": ["bot@agents.e2a.dev"], "recipient": "bot@agents.e2a.dev",
-        "subject": "Hello",
-        "conversation_id": "conv_abc",
-        "status": "read",
-        "created_at": "2026-03-30T10:00:00Z",
-        "auth_headers": {
-            "X-E2A-Auth-Verified": "true",
-            "X-E2A-Auth-Sender": "alice@example.com",
-            "X-E2A-Auth-Entity-Type": "human",
-        },
-        "raw_message": base64.b64encode(raw).decode(),
-    }
+@pytest.fixture(autouse=True)
+def _clear_env(monkeypatch):
+    for v in ("E2A_API_KEY", "E2A_BASE_URL", "E2A_AGENT_EMAIL"):
+        monkeypatch.delenv(v, raising=False)
 
 
-# ── parse() ──────────────────────────────────────────────────────
+def _client():
+    # No-sleep retry config so any retry path is instant.
+    async def no_sleep(_s):
+        return None
 
-
-def test_parse_bytes(httpx_mock):
-    webhook = _make_message_detail_json()
-    body = json.dumps(webhook).encode()
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        email = client.parse(body)
-        email._verified = True  # test fixture: bypass verify gate
-
-    assert isinstance(email, InboundEmail)
-    assert email.message_id == "msg_123"
-    assert email.sender == "alice@example.com"
-    assert email.text_body == "Hi there"
-
-
-def test_parse_string(httpx_mock):
-    webhook = _make_message_detail_json()
-    body = json.dumps(webhook)
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        email = client.parse(body)
-        email._verified = True  # test fixture: bypass verify gate
-
-    assert email.message_id == "msg_123"
-
-
-def test_parse_dict(httpx_mock):
-    webhook = _make_message_detail_json()
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        email = client.parse(webhook)
-        email._verified = True  # test fixture: bypass verify gate
-
-    assert email.message_id == "msg_123"
-    assert email.sender == "alice@example.com"
-
-
-def test_parse_message_detail(httpx_mock):
-    from e2a.v1.generated import MessageDetail
-
-    raw = _make_raw_email()
-    detail = MessageDetail(
-        message_id="msg_456",
-        from_="bob@example.com",
-        to=["bot@agents.e2a.dev"], recipient="bot@agents.e2a.dev",
-        subject="Test",
-        created_at="2026-03-30T12:00:00Z",
-        raw_message=base64.b64encode(raw).decode(),
-        auth_headers={"X-E2A-Auth-Verified": "false"},
+    return E2AClient(
+        api_key="e2a_test", base_url=BASE, _retry_config=RetryConfig(sleep=no_sleep)
     )
 
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        email = client.parse(detail)
-        email._verified = True  # test fixture: bypass verify gate
 
-    assert email.message_id == "msg_456"
-    assert email.sender == "bob@example.com"
-    assert email.received_at == "2026-03-30T12:00:00Z"
-    assert email.is_verified is False
+# ── construction ────────────────────────────────────────────────────
+
+def test_requires_api_key():
+    with pytest.raises(E2AError, match="api_key is required"):
+        E2AClient(base_url=BASE)
 
 
-def test_parse_unsupported_type():
-    with E2AClient(api_key="k") as client:
-        with pytest.raises(TypeError, match="Unsupported body type"):
-            client.parse(12345)
+def test_resources_exposed():
+    c = _client()
+    for name in ("agents", "messages", "conversations", "domains", "events", "webhooks", "account"):
+        assert getattr(c, name) is not None
+    assert c.account.suppressions is not None
 
 
-def test_parse_emits_deprecation_warning():
-    """Calling the legacy `parse` method on the sync client emits a
-    DeprecationWarning that points users at parse_webhook. Pin the
-    deprecation contract so it isn't silently dropped before 3.0."""
-    webhook = _make_message_detail_json()
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        with pytest.warns(DeprecationWarning, match="parse_webhook"):
-            client.parse(webhook)
+# ── auth + agents ───────────────────────────────────────────────────
+
+@pytest.mark.anyio
+async def test_get_agent_sends_bearer_and_encodes_address(httpx_mock):
+    httpx_mock.add_response(json=_valid(AgentView, id="ag_1", email="bot@test.dev"))
+    async with _client() as c:
+        agent = await c.agents.get("bot@test.dev")
+    assert agent.email == "bot@test.dev"
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "GET"
+    assert "/v1/agents/" in str(req.url)
+    assert "bot%40test.dev" in str(req.url)
+    assert req.headers["authorization"] == "Bearer e2a_test"
 
 
-def test_parse_webhook_does_not_emit_deprecation_warning(monkeypatch):
-    """The recommended path must not emit the deprecation warning even
-    though it shares the underlying parse logic. Regression: an early
-    refactor had parse_webhook delegate to parse(), which made every
-    correct caller see the deprecation message."""
-    import warnings
-
-    monkeypatch.setenv("E2A_WEBHOOK_SECRET", "secret-xyz")
-    webhook = _make_message_detail_json()
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            try:
-                client.parse_webhook(webhook)
-            except DeprecationWarning:
-                pytest.fail("parse_webhook should not emit DeprecationWarning")
-            except PermissionError:
-                # Expected — fixture body has no real signature, so
-                # verify_signature returns False and parse_webhook raises.
-                # The point of this test is the absence of DeprecationWarning,
-                # which we'd have hit before the PermissionError if present.
-                pass
+@pytest.mark.anyio
+async def test_create_agent_posts_body(httpx_mock):
+    httpx_mock.add_response(status_code=201, json=_valid(CreateAgentResponse, id="ag_new", email="new@test.dev"))
+    async with _client() as c:
+        res = await c.agents.create({"slug": "new", "agent_mode": "drive"})
+    assert res.id == "ag_new"
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "POST"
+    assert str(req.url).endswith("/v1/agents")
 
 
-# ── get_message() ────────────────────────────────────────────────
+@pytest.mark.anyio
+async def test_agents_list_autopager(httpx_mock):
+    httpx_mock.add_response(json={"agents": [_valid(AgentView, id="ag_1", email="bot@test.dev")]})
+    async with _client() as c:
+        items = await c.agents.list().to_list(limit=10)
+    assert [a.email for a in items] == ["bot@test.dev"]
 
 
-def test_get_message(httpx_mock):
-    raw = _make_raw_email()
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123",
-        method="GET",
-        json=_make_message_detail_json(),
-    )
+# ── messages: idempotency + pagination ──────────────────────────────
 
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        email = client.get_message("msg_123")
-
-    assert isinstance(email, InboundEmail)
-    assert email.message_id == "msg_123"
-    assert email.sender == "alice@example.com"
-    assert email.subject == "Hello"
-    assert email.text_body == "Hi there"
-    assert email.conversation_id == "conv_abc"
-    assert email.is_verified is True
-    assert email.received_at == "2026-03-30T10:00:00Z"
+@pytest.mark.anyio
+async def test_send_mints_idempotency_key(httpx_mock):
+    httpx_mock.add_response(json={"message_id": "msg_1", "status": "sent"})
+    async with _client() as c:
+        await c.messages.send("bot@test.dev", {"to": ["a@x.com"], "subject": "Hi", "body": "yo"})
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "POST"
+    assert "/v1/agents/bot%40test.dev/messages" in str(req.url)
+    assert req.headers.get("Idempotency-Key")
 
 
-# ── get_messages() ───────────────────────────────────────────────
-
-
-def test_get_messages(httpx_mock):
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages?status=unread&page_size=50",
-        method="GET",
-        json={
-            "messages": [
-                {
-                    "message_id": "msg_1",
-                    "from": "alice@example.com",
-                    "to": ["bot@agents.e2a.dev"], "recipient": "bot@agents.e2a.dev",
-                    "subject": "Hello",
-                    "status": "unread",
-                    "created_at": "2026-03-30T10:00:00Z",
-                    "conversation_id": "conv_1",
-                },
-            ],
-            "next_token": "tok_abc",
-        },
-    )
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        result = client.get_messages()
-
-    assert isinstance(result, MessageList)
-    assert len(result.messages) == 1
-    assert result.messages[0].message_id == "msg_1"
-    assert result.messages[0].sender == "alice@example.com"
-    assert result.messages[0].recipient == "bot@agents.e2a.dev"
-    assert result.messages[0].status == "unread"
-    assert result.next_token == "tok_abc"
-
-
-def test_get_messages_empty(httpx_mock):
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages?status=unread&page_size=50",
-        method="GET",
-        json={"messages": []},
-    )
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        result = client.get_messages()
-
-    assert result.messages == []
-    assert result.next_token is None
-
-
-def test_get_messages_surfaces_labels(httpx_mock):
-    # Regression: every row must expose `labels` as a list (never
-    # None). The wire field is a JSON array; the dataclass mirror
-    # must populate it.
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages?status=unread&page_size=50",
-        method="GET",
-        json={
-            "messages": [
-                {
-                    "message_id": "m1",
-                    "from": "alice@example.com",
-                    "to": ["bot@agents.e2a.dev"], "recipient": "bot@agents.e2a.dev",
-                    "subject": "Hi",
-                    "status": "unread",
-                    "created_at": "2026-03-30T10:00:00Z",
-                    "labels": ["urgent", "follow-up"],
-                },
-                {
-                    "message_id": "m2",
-                    "from": "bob@example.com",
-                    "to": ["bot@agents.e2a.dev"], "recipient": "bot@agents.e2a.dev",
-                    "subject": "Hi",
-                    "status": "unread",
-                    "created_at": "2026-03-30T10:00:00Z",
-                    "labels": [],
-                },
-            ]
-        },
-    )
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        result = client.get_messages()
-
-    assert result.messages[0].labels == ["urgent", "follow-up"]
-    assert result.messages[1].labels == []
-
-
-def test_get_messages_with_labels_filter(httpx_mock):
-    # Filter must be emitted as repeated ?labels=foo&labels=bar.
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages?status=all&page_size=50&labels=urgent&labels=follow-up",
-        method="GET",
-        json={"messages": []},
-    )
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        client.get_messages(status="all", labels=["urgent", "follow-up"])
-
-
-def test_forward(httpx_mock):
-    # High-level forward() builds a ForwardMessageRequest and returns
-    # a SendResult dataclass — same shape callers already use for
-    # reply/send.
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123/forward",
-        method="POST",
-        json={"status": "sent", "message_id": "fwd_456", "method": "smtp"},
-    )
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        result = client.forward("msg_123", to=["dest@example.com"], body="FYI")
-
-    assert isinstance(result, SendResult)
-    assert result.status == "sent"
-    assert result.message_id == "fwd_456"
-    body = json.loads(httpx_mock.get_request().content)
-    assert body == {"to": ["dest@example.com"], "body": "FYI"}
-
-
-def test_forward_with_attachments_and_conversation(httpx_mock):
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123/forward",
-        method="POST",
-        json={"status": "sent", "message_id": "fwd_789", "method": "smtp"},
-    )
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        client.forward(
-            "msg_123",
-            to=["dest@example.com"],
-            cc=["copy@example.com"],
-            conversation_id="conv_explicit",
-            attachments=[Attachment(filename="note.txt", content_type="text/plain", data=b"hello", size=5)],
+@pytest.mark.anyio
+async def test_send_uses_caller_idempotency_key(httpx_mock):
+    httpx_mock.add_response(json={"message_id": "msg_2", "status": "sent"})
+    async with _client() as c:
+        await c.messages.send(
+            "bot@test.dev",
+            {"to": ["a@x.com"], "subject": "Hi", "body": "yo"},
+            idempotency_key="caller-key-123",
         )
-
-    body = json.loads(httpx_mock.get_request().content)
-    assert body["to"] == ["dest@example.com"]
-    assert body["cc"] == ["copy@example.com"]
-    assert body["conversation_id"] == "conv_explicit"
-    # Attachment data is base64-encoded by the SDK before serialization,
-    # so the wire form is base64("hello") = "aGVsbG8=".
-    assert body["attachments"] == [
-        {"filename": "note.txt", "content_type": "text/plain", "data": "aGVsbG8="}
-    ]
+    assert httpx_mock.get_requests()[-1].headers["Idempotency-Key"] == "caller-key-123"
 
 
-def test_update_message_labels(httpx_mock):
+@pytest.mark.anyio
+async def test_messages_list_threads_cursor(httpx_mock):
+    httpx_mock.add_response(json={"items": [_valid(MessageSummaryView, message_id="msg_1")], "next_cursor": "cur_2"})
+    httpx_mock.add_response(json={"items": [_valid(MessageSummaryView, message_id="msg_2")], "next_cursor": None})
+    async with _client() as c:
+        items = await c.messages.list("bot@test.dev").to_list(limit=50)
+    assert [m.message_id for m in items] == ["msg_1", "msg_2"]
+    reqs = httpx_mock.get_requests()
+    assert len(reqs) == 2
+    assert "cursor=cur_2" in str(reqs[1].url)
+
+
+# ── error mapping ───────────────────────────────────────────────────
+
+@pytest.mark.anyio
+async def test_404_maps_to_not_found(httpx_mock):
     httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123",
-        method="PATCH",
-        json={"message_id": "msg_123", "labels": ["follow-up", "urgent"]},
+        status_code=404, json={"error": {"code": "agent_not_found", "message": "no such agent"}}
     )
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        result = client.update_message_labels(
-            "msg_123", add_labels=["urgent", "follow-up"], remove_labels=["unread"],
-        )
-
-    # High-level returns just the labels list (most callers want the
-    # post-update state, not the wrapping response object).
-    assert result == ["follow-up", "urgent"]
-    body = json.loads(httpx_mock.get_request().content)
-    assert body == {"add_labels": ["urgent", "follow-up"], "remove_labels": ["unread"]}
+    async with _client() as c:
+        with pytest.raises(E2ANotFoundError) as ei:
+            await c.agents.get("ghost@test.dev")
+    assert ei.value.code == "agent_not_found"
+    assert ei.value.status == 404
 
 
-def test_update_message_labels_empty_delta_echoes_current(httpx_mock):
-    # PATCH with both lists None is a no-op that returns current
-    # labels — useful as a cheap "fetch labels only" call. The
-    # request body has no add_labels/remove_labels (model_dump
-    # exclude_none=True drops them).
+@pytest.mark.anyio
+async def test_409_maps_to_conflict(httpx_mock):
     httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123",
-        method="PATCH",
-        json={"message_id": "msg_123", "labels": ["urgent"]},
+        status_code=409, json={"error": {"code": "domain_exists", "message": "dup"}}
     )
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        result = client.update_message_labels("msg_123")
-
-    assert result == ["urgent"]
-    body = json.loads(httpx_mock.get_request().content)
-    assert body == {}
+    async with _client() as c:
+        with pytest.raises(E2AConflictError):
+            await c.domains.create({"domain": "dup.dev"})
 
 
-# ── reply() ──────────────────────────────────────────────────────
-
-
-def test_reply(httpx_mock):
+@pytest.mark.anyio
+async def test_422_maps_to_validation(httpx_mock):
     httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123/reply",
-        method="POST",
-        json={"status": "sent", "message_id": "reply_456", "method": "smtp"},
+        status_code=422, json={"error": {"code": "invalid_request", "message": "bad"}}
     )
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        result = client.reply("msg_123", "Thanks!")
-
-    assert isinstance(result, SendResult)
-    assert result.status == "sent"
-    assert result.message_id == "reply_456"
-
-    body = json.loads(httpx_mock.get_request().content)
-    assert body == {"body": "Thanks!"}
-
-
-def test_reply_with_html_and_conversation(httpx_mock):
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123/reply",
-        method="POST",
-        json={"status": "sent", "message_id": "r1", "method": "smtp"},
-    )
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        client.reply("msg_123", "Thanks!", html_body="<p>Thanks!</p>", conversation_id="conv_1")
-
-    body = json.loads(httpx_mock.get_request().content)
-    assert body["body"] == "Thanks!"
-    assert body["html_body"] == "<p>Thanks!</p>"
-    assert body["conversation_id"] == "conv_1"
-
-
-def test_reply_with_reply_all_cc_bcc(httpx_mock):
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123/reply",
-        method="POST",
-        json={"status": "sent", "message_id": "r1", "method": "smtp"},
-    )
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        client.reply(
-            "msg_123", "Thanks!",
-            reply_all=True,
-            cc=["bob@example.com"],
-            bcc=["carol@example.com"],
-        )
-
-    body = json.loads(httpx_mock.get_request().content)
-    assert body["reply_all"] is True
-    assert body["cc"] == ["bob@example.com"]
-    assert body["bcc"] == ["carol@example.com"]
-
-
-def test_reply_with_attachments(httpx_mock):
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123/reply",
-        method="POST",
-        json={"status": "sent", "message_id": "r1", "method": "smtp"},
-    )
-
-    att = Attachment(filename="doc.pdf", content_type="application/pdf", data=b"pdf-data", size=8)
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        client.reply("msg_123", "See attached", attachments=[att])
-
-    body = json.loads(httpx_mock.get_request().content)
-    assert len(body["attachments"]) == 1
-    assert body["attachments"][0]["filename"] == "doc.pdf"
-    assert body["attachments"][0]["data"] == base64.b64encode(b"pdf-data").decode()
-
-
-# ── send() ───────────────────────────────────────────────────────
-
-
-def test_list_conversations(httpx_mock):
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/conversations",
-        method="GET",
-        json={"conversations": [{"conversation_id": "conv_1", "message_count": 3, "has_unread": True}]},
-    )
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        result = client.list_conversations()
-
-    assert len(result.conversations) == 1
-    assert result.conversations[0].conversation_id == "conv_1"
-
-
-def test_get_conversation(httpx_mock):
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/conversations/conv_1",
-        method="GET",
-        json={
-            "conversation_id": "conv_1",
-            "message_count": 1,
-            "participants": ["alice@example.com"],
-            "labels": ["follow-up"],
-            "messages": [],
-        },
-    )
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        result = client.get_conversation("conv_1")
-
-    assert result.conversation_id == "conv_1"
-    assert result.participants == ["alice@example.com"]
-    assert result.labels == ["follow-up"]
-
-
-def test_send(httpx_mock):
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/send",
-        method="POST",
-        json={"status": "sent", "message_id": "send_abc", "method": "smtp"},
-    )
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        result = client.send(["alice@example.com"], "Hello", "Hi Alice")
-
-    assert isinstance(result, SendResult)
-    assert result.status == "sent"
-
-    body = json.loads(httpx_mock.get_request().content)
-    assert body["from"] == "bot@agents.e2a.dev"
-    assert body["to"] == ["alice@example.com"]
-    assert body["subject"] == "Hello"
-    assert body["body"] == "Hi Alice"
-
-
-def test_send_with_cc_bcc_html(httpx_mock):
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/send",
-        method="POST",
-        json={"status": "sent", "message_id": "s1", "method": "smtp"},
-    )
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        client.send(
-            ["alice@example.com", "bob@example.com"],
-            "Hello",
-            "Hi",
-            html_body="<p>Hi</p>",
-            cc=["carol@example.com"],
-            bcc=["dave@example.com"],
-        )
-
-    body = json.loads(httpx_mock.get_request().content)
-    assert body["to"] == ["alice@example.com", "bob@example.com"]
-    assert body["html_body"] == "<p>Hi</p>"
-    assert body["cc"] == ["carol@example.com"]
-    assert body["bcc"] == ["dave@example.com"]
-
-
-def test_send_with_attachments(httpx_mock):
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/send",
-        method="POST",
-        json={"status": "sent", "message_id": "s1", "method": "smtp"},
-    )
-
-    att = Attachment(filename="img.png", content_type="image/png", data=b"png-data", size=8)
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        client.send(["alice@example.com"], "Photo", "See attached", attachments=[att])
-
-    body = json.loads(httpx_mock.get_request().content)
-    assert body["attachments"][0]["filename"] == "img.png"
-    assert body["attachments"][0]["data"] == base64.b64encode(b"png-data").decode()
-
-
-# ── Domain convenience methods ───────────────────────────────────
-
-
-def test_list_domains(httpx_mock):
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/domains",
-        method="GET",
-        json={"domains": [{"domain": "mycompany.com", "verified": True}]},
-    )
-
-    with E2AClient(api_key="k") as client:
-        result = client.list_domains()
-
-    assert result.domains[0].domain == "mycompany.com"
-
-
-def test_register_domain(httpx_mock):
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/domains",
-        method="POST",
-        json={"domain": "mycompany.com", "dns_records": {"mx": {"host": "@", "value": "mx.e2a.dev"}}},
-    )
-
-    with E2AClient(api_key="k") as client:
-        result = client.register_domain("mycompany.com")
-
-    body = json.loads(httpx_mock.get_request().content)
-    assert body == {"domain": "mycompany.com"}
-
-
-def test_verify_domain(httpx_mock):
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/domains/mycompany.com/verify",
-        method="POST",
-        json={"domain": "mycompany.com", "verified": True},
-    )
-
-    with E2AClient(api_key="k") as client:
-        result = client.verify_domain("mycompany.com")
-
-    assert result.verified is True
-
-
-def test_delete_domain(httpx_mock):
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/domains/mycompany.com",
-        method="DELETE",
-        status_code=204,
-        text="",
-    )
-
-    with E2AClient(api_key="k") as client:
-        client.delete_domain("mycompany.com")
-
-
-# ── Agent convenience methods ────────────────────────────────────
-
-
-def test_list_agents(httpx_mock):
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents",
-        method="GET",
-        json={"agents": [{"email": "bot@agents.e2a.dev", "id": "ag_1"}]},
-    )
-
-    with E2AClient(api_key="k") as client:
-        result = client.list_agents()
-
-    assert result.agents[0].email == "bot@agents.e2a.dev"
-
-
-def test_register_agent_slug_only(httpx_mock):
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents",
-        method="POST",
-        json={"id": "ag_new", "email": "new@agents.e2a.dev"},
-    )
-
-    with E2AClient(api_key="k") as client:
-        result = client.register_agent("new", agent_mode="local")
-
-    body = json.loads(httpx_mock.get_request().content)
-    assert body == {"slug": "new", "agent_mode": "local"}
-
-
-def test_register_agent_custom_domain(httpx_mock):
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents",
-        method="POST",
-        json={"id": "ag_cd", "email": "support@mycompany.com"},
-    )
-
-    with E2AClient(api_key="k") as client:
-        result = client.register_agent(email="support@mycompany.com", agent_mode="cloud", webhook_url="https://mycompany.com/webhook")
-
-    body = json.loads(httpx_mock.get_request().content)
-    assert body == {"email": "support@mycompany.com", "agent_mode": "cloud", "webhook_url": "https://mycompany.com/webhook"}
-
-
-# ── Env fallback ─────────────────────────────────────────────────
-
-
-def test_env_fallback(monkeypatch):
-    monkeypatch.setenv("E2A_API_KEY", "e2a_from_env")
-    monkeypatch.setenv("E2A_AGENT_EMAIL", "env@agents.e2a.dev")
-
-    client = E2AClient()
-    assert client.api.api_key == "e2a_from_env"
-    assert client.agent_email == "env@agents.e2a.dev"
-    client.close()
-
-
-def test_explicit_overrides_env(monkeypatch):
-    monkeypatch.setenv("E2A_API_KEY", "e2a_env")
-    monkeypatch.setenv("E2A_AGENT_EMAIL", "env@agents.e2a.dev")
-
-    client = E2AClient(api_key="explicit", agent_email="explicit@agents.e2a.dev")
-    assert client.api.api_key == "explicit"
-    assert client.agent_email == "explicit@agents.e2a.dev"
-    client.close()
-
-
-# ── _require_agent_email ─────────────────────────────────────────
-
-
-def test_require_agent_email_raises(monkeypatch):
-    monkeypatch.delenv("E2A_AGENT_EMAIL", raising=False)
-
-    with E2AClient(api_key="k") as client:
-        with pytest.raises(ValueError, match="agent_email is required"):
-            client.get_messages()
-        with pytest.raises(ValueError, match="agent_email is required"):
-            client.reply("msg_123", "Hello")
-        with pytest.raises(ValueError, match="agent_email is required"):
-            client.send("alice@example.com", "Subject", "Body")
-
-
-# ── InboundEmail.reply() through client ──────────────────────────
-
-
-def test_inbound_email_reply_through_client(httpx_mock):
-    raw = _make_raw_email()
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123",
-        method="GET",
-        json=_make_message_detail_json(),
-    )
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_123/reply",
-        method="POST",
-        json={"status": "sent", "message_id": "reply_789", "method": "smtp"},
-    )
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        email = client.get_message("msg_123")
-        result = email.reply("Got it!")
-
-    assert result.status == "sent"
-    assert result.message_id == "reply_789"
-
-    # Verify it used the recipient as agent_email in the reply URL
-    requests = httpx_mock.get_requests()
-    reply_req = requests[1]
-    assert "/agents/bot%40agents.e2a.dev/messages/msg_123/reply" in str(reply_req.url)
-
-
-# --- parse_webhook (combined parse + verify) ---
-
-def test_parse_webhook_returns_verified_email_on_success(monkeypatch):
-    """parse_webhook(body, secret) returns an already-verified email."""
-    import e2a.v1.handler as h
-    monkeypatch.setattr(h, "_verify_auth_headers", lambda *a, **kw: True)
-
-    raw = b"From: alice@gmail.com\r\nSubject: Hi\r\n\r\nbody"
-    payload = json.dumps({
-        "message_id": "msg_pw",
-        "from": "alice@gmail.com",
-        "recipient": "bot@agents.e2a.dev",
-        "to": ["bot@agents.e2a.dev"],
-        "cc": [],
-        "subject": "Hi",
-        "raw_message": base64.b64encode(raw).decode(),
-        "auth_headers": {"X-E2A-Auth-Verified": "true", "X-E2A-Auth-Sender": "alice@gmail.com"},
-    })
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        email = client.parse_webhook(payload, secret="any-secret")
-
-    assert email.verified is True
-    # Field access works without further intervention.
-    assert email.sender == "alice@gmail.com"
-
-
-def test_parse_webhook_raises_on_signature_failure(monkeypatch):
-    """parse_webhook raises PermissionError when verify returns False."""
-    import e2a.v1.handler as h
-    monkeypatch.setattr(h, "_verify_auth_headers", lambda *a, **kw: False)
-
-    payload = json.dumps({
-        "message_id": "msg_bad",
-        "from": "a@b.c",
-        "recipient": "bot@agents.e2a.dev",
-        "to": ["bot@agents.e2a.dev"], "cc": [],
-        "subject": "x",
-        "raw_message": base64.b64encode(b"x").decode(),
-        "auth_headers": {"X-E2A-Auth-Verified": "true"},
-    })
-
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev") as client:
-        with pytest.raises(PermissionError, match="HMAC"):
-            client.parse_webhook(payload, secret="wrong")
-
-
-# --- get_message returns trusted (pre-verified) emails ---
-
-def test_get_message_returns_pre_verified_email(httpx_mock):
-    """REST-fetched emails are trusted (channel auth) — no verify needed."""
-    raw = _make_raw_email()
-    httpx_mock.add_response(
-        url=f"{BASE}/api/v1/agents/bot%40agents.e2a.dev/messages/msg_rest",
-        method="GET",
-        json={
-            "message_id": "msg_rest",
-            "from": "alice@gmail.com",
-            "recipient": "bot@agents.e2a.dev",
-            "to": ["bot@agents.e2a.dev"], "cc": [],
-            "subject": "REST fetched",
-            "raw_message": base64.b64encode(raw).decode(),
-            "auth_headers": {"X-E2A-Auth-Verified": "true"},
-        },
-    )
-    with E2AClient(api_key="k", agent_email="bot@agents.e2a.dev", base_url=BASE) as client:
-        email = client.get_message("msg_rest")
-
-    # Pre-verified — no verify_signature() needed for field access.
-    assert email.verified is True
-    assert email.sender == "alice@gmail.com"
-    # Subject comes from the parsed raw RFC 2822 (the fixture's default
-    # "Hello") since the SDK prefers that over the JSON subject field.
-    assert email.subject == "Hello"
+    async with _client() as c:
+        with pytest.raises(E2AValidationError):
+            await c.agents.create({"slug": ""})
+
+
+@pytest.mark.anyio
+async def test_retries_500_then_succeeds(httpx_mock):
+    httpx_mock.add_response(status_code=503, json={"error": {"code": "x", "message": "down"}})
+    httpx_mock.add_response(json=_valid(AgentView, id="ag_1", email="bot@test.dev"))
+    async with _client() as c:
+        agent = await c.agents.get("bot@test.dev")  # GET is retryable
+    assert agent.email == "bot@test.dev"
+    assert len(httpx_mock.get_requests()) == 2
+
+
+# ── listen() ────────────────────────────────────────────────────────
+
+def test_listen_requires_address():
+    c = _client()
+    with pytest.raises(E2AError, match="address is required"):
+        c.listen()
