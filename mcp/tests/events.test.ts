@@ -1,59 +1,49 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { E2AClient } from "@e2a/sdk/v1";
+import type { McpClient } from "../src/client.js";
 import { buildServer } from "../src/server.js";
 
-// Slice 8 MCP tool tests for list_events / get_event / redeliver_event.
-// Pattern mirrors tools.test.ts — in-memory transport, stub E2AClient,
-// assert wire shape passed to the SDK + the tool result.
+// MCP tool tests for list_events / get_event / redeliver_event.
+// Pattern mirrors tools.test.ts — in-memory transport, stub McpClient,
+// assert wire shape passed to the wrapper + the tool result. The
+// wrapper auto-paginates, so list_events returns a flat array (the
+// cursor token is handled inside the SDK pager, not surfaced).
 
-function makeStubClient(): E2AClient {
+function makeStubClient(): McpClient {
   const stub = {
     agentEmail: "bot@example.com",
-    api: {
-      // Existing methods the tools may touch transitively.
-      getMessage: vi.fn(async () => ({ message_id: "m" })),
-      getAgent: vi.fn(async () => ({ id: "x@y", email: "x@y" })),
-      // Events methods.
-      listEvents: vi.fn(async (params?: Record<string, unknown>) => ({
-        events: [
-          {
-            id: "evt_abc",
-            type: "email.received",
-            schema_version: 1,
-            created_at: "2026-06-01T12:00:00Z",
-            status: "processed",
-            data: { from: "alice@example.com" },
-            _captured: params, // smuggle the params back for assertion
-          },
-        ],
-        next_token: "next_cursor",
-      })),
-      getEvent: vi.fn(async (id: string) => ({
-        id,
+    // Events methods on the wrapper.
+    listEvents: vi.fn(async (_params?: Record<string, unknown>) => [
+      {
+        id: "evt_abc",
         type: "email.received",
-        schema_version: 1,
-        created_at: "2026-06-01T12:00:00Z",
+        schemaVersion: 1,
+        createdAt: "2026-06-01T12:00:00Z",
         status: "processed",
-        data: {},
-        delivery_status: { matched_webhooks: 1, delivered: 1, pending: 0, failed: 0 },
-      })),
-      redeliverEvent: vi.fn(
-        async (id: string, opts?: { webhookId?: string }) => ({
-          event_id: id,
-          webhook_id: opts?.webhookId ?? "",
-          delivery_id: "whd_replay_xyz",
-          status: "pending",
-          _capturedOpts: opts,
-        }),
-      ),
-    },
+        data: { from: "alice@example.com" },
+      },
+    ]),
+    getEvent: vi.fn(async (id: string) => ({
+      id,
+      type: "email.received",
+      schemaVersion: 1,
+      createdAt: "2026-06-01T12:00:00Z",
+      status: "processed",
+      data: {},
+      deliveryStatus: { matchedWebhooks: 1, delivered: 1, pending: 0, failed: 0 },
+    })),
+    redeliverEvent: vi.fn(async (id: string, webhookId?: string) => ({
+      eventId: id,
+      webhookId: webhookId ?? "",
+      deliveryId: "whd_replay_xyz",
+      status: "pending",
+    })),
   };
-  return stub as unknown as E2AClient;
+  return stub as unknown as McpClient;
 }
 
-async function buildClient(stub: E2AClient): Promise<Client> {
+async function buildClient(stub: McpClient): Promise<Client> {
   const server = buildServer({ client: stub, version: "test" });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -69,7 +59,7 @@ function parseToolResult(result: unknown): Record<string, unknown> {
 }
 
 describe("MCP events tools", () => {
-  let stub: E2AClient;
+  let stub: McpClient;
 
   beforeEach(() => {
     stub = makeStubClient();
@@ -83,17 +73,17 @@ describe("MCP events tools", () => {
       expect(names).toContain("list_events");
     });
 
-    it("invokes client.api.listEvents with no params", async () => {
+    it("invokes client.listEvents with no params", async () => {
       const client = await buildClient(stub);
       const result = await client.callTool({ name: "list_events", arguments: {} });
       const parsed = parseToolResult(result);
       expect(parsed.events).toBeDefined();
       const events = parsed.events as Array<{ id: string }>;
       expect(events[0].id).toBe("evt_abc");
-      expect(stub.api.listEvents).toHaveBeenCalledOnce();
+      expect(stub.listEvents).toHaveBeenCalledOnce();
     });
 
-    it("forwards all filter params to the SDK", async () => {
+    it("forwards all filter params to the wrapper (page_size → limit)", async () => {
       const client = await buildClient(stub);
       await client.callTool({
         name: "list_events",
@@ -108,23 +98,17 @@ describe("MCP events tools", () => {
           token: "opaque",
         },
       });
-      expect(stub.api.listEvents).toHaveBeenCalledWith({
+      // `token` is accepted in the schema for contract stability but the
+      // auto-pager handles cursoring internally, so it is not forwarded.
+      expect(stub.listEvents).toHaveBeenCalledWith({
         type: "email.received",
         agentId: "ag_x",
         conversationId: "conv_y",
         messageId: "msg_z",
         since: "2026-06-01T00:00:00Z",
         until: "2026-06-02T00:00:00Z",
-        pageSize: 25,
-        token: "opaque",
+        limit: 25,
       });
-    });
-
-    it("includes next_token in result for pagination", async () => {
-      const client = await buildClient(stub);
-      const result = await client.callTool({ name: "list_events", arguments: {} });
-      const parsed = parseToolResult(result);
-      expect(parsed.next_token).toBe("next_cursor");
     });
   });
 
@@ -135,7 +119,7 @@ describe("MCP events tools", () => {
       expect(tools.map((t) => t.name)).toContain("get_event");
     });
 
-    it("calls client.api.getEvent with the event_id", async () => {
+    it("calls client.getEvent with the event_id", async () => {
       const client = await buildClient(stub);
       const result = await client.callTool({
         name: "get_event",
@@ -143,17 +127,17 @@ describe("MCP events tools", () => {
       });
       const parsed = parseToolResult(result);
       expect(parsed.id).toBe("evt_xyz");
-      expect(stub.api.getEvent).toHaveBeenCalledWith("evt_xyz");
+      expect(stub.getEvent).toHaveBeenCalledWith("evt_xyz");
     });
 
-    it("surfaces delivery_status in the response", async () => {
+    it("surfaces deliveryStatus in the response", async () => {
       const client = await buildClient(stub);
       const result = await client.callTool({
         name: "get_event",
         arguments: { event_id: "evt_xyz" },
       });
       const parsed = parseToolResult(result);
-      const ds = parsed.delivery_status as Record<string, number>;
+      const ds = parsed.deliveryStatus as Record<string, number>;
       expect(ds.delivered).toBe(1);
     });
   });
@@ -165,15 +149,13 @@ describe("MCP events tools", () => {
       expect(tools.map((t) => t.name)).toContain("redeliver_event");
     });
 
-    it("targeted: forwards webhook_id to the SDK", async () => {
+    it("targeted: forwards webhook_id to the wrapper", async () => {
       const client = await buildClient(stub);
       await client.callTool({
         name: "redeliver_event",
         arguments: { event_id: "evt_abc", webhook_id: "wh_target" },
       });
-      expect(stub.api.redeliverEvent).toHaveBeenCalledWith("evt_abc", {
-        webhookId: "wh_target",
-      });
+      expect(stub.redeliverEvent).toHaveBeenCalledWith("evt_abc", "wh_target");
     });
 
     it("fan-out: omits webhook_id when not provided", async () => {
@@ -182,9 +164,7 @@ describe("MCP events tools", () => {
         name: "redeliver_event",
         arguments: { event_id: "evt_abc" },
       });
-      expect(stub.api.redeliverEvent).toHaveBeenCalledWith("evt_abc", {
-        webhookId: undefined,
-      });
+      expect(stub.redeliverEvent).toHaveBeenCalledWith("evt_abc", undefined);
     });
 
     it("returns the new delivery_id", async () => {
@@ -194,7 +174,7 @@ describe("MCP events tools", () => {
         arguments: { event_id: "evt_abc", webhook_id: "wh_x" },
       });
       const parsed = parseToolResult(result);
-      expect(parsed.delivery_id).toBe("whd_replay_xyz");
+      expect(parsed.deliveryId).toBe("whd_replay_xyz");
     });
   });
 
@@ -226,7 +206,7 @@ describe("MCP events tools", () => {
         const parsed = parseToolResult(r);
         expect((parsed.events as unknown[]).length).toBe(1);
       }
-      expect(stub.api.listEvents).toHaveBeenCalledTimes(20);
+      expect(stub.listEvents).toHaveBeenCalledTimes(20);
     });
 
     it("handles concurrent mix of all three tools", async () => {
@@ -241,9 +221,9 @@ describe("MCP events tools", () => {
         client.callTool({ name: "list_events", arguments: {} }),
         client.callTool({ name: "get_event", arguments: { event_id: "evt_c" } }),
       ]);
-      expect(stub.api.listEvents).toHaveBeenCalledTimes(2);
-      expect(stub.api.getEvent).toHaveBeenCalledTimes(2);
-      expect(stub.api.redeliverEvent).toHaveBeenCalledTimes(1);
+      expect(stub.listEvents).toHaveBeenCalledTimes(2);
+      expect(stub.getEvent).toHaveBeenCalledTimes(2);
+      expect(stub.redeliverEvent).toHaveBeenCalledTimes(1);
     });
   });
 });

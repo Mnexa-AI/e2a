@@ -1,34 +1,53 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { E2AClient } from "@e2a/sdk/v1";
+import { simpleParser } from "mailparser";
+import type { McpClient } from "../src/client.js";
 import { buildServer } from "../src/server.js";
 
-// Minimal stub of E2AClient — only the methods our tools actually call.
-function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): E2AClient {
+// Build a small RFC822 blob with one attachment so the MessageView's
+// `rawMessage` decodes to a known attachment set (the v1 MessageView no
+// longer carries decoded attachments — the tools parse rawMessage).
+function rawWith(text: string, filename: string, contentType: string, body: Buffer): string {
+  const b64 = body.toString("base64");
+  return [
+    "From: alice@example.com",
+    "To: bot@example.com",
+    "Subject: hi",
+    'Content-Type: multipart/mixed; boundary="BNDRY"',
+    "",
+    "--BNDRY",
+    "Content-Type: text/plain",
+    "",
+    text,
+    "--BNDRY",
+    `Content-Type: ${contentType}`,
+    "Content-Transfer-Encoding: base64",
+    `Content-Disposition: attachment; filename="${filename}"`,
+    "",
+    b64,
+    "--BNDRY--",
+    "",
+  ].join("\r\n");
+}
+
+const pdfBytes = Buffer.from("%PDF-1.4 fake pdf bytes");
+
+// Minimal stub of McpClient — only the methods our tools call. The
+// wrapper concentrates SDK calls and address resolution, so tests stub
+// it directly rather than the namespaced SDK underneath.
+function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): McpClient {
   const stub = {
     agentEmail: overrides.agentEmail ?? "bot@example.com",
-    api: {
-      getMessage: vi.fn(async (_email: string, id: string) => ({
-        message_id: id,
-        from: "alice@example.com",
-        subject: "hi",
-      })),
-      getAgent: vi.fn(async (email: string) => ({
-        id: email,
-        email,
-        agent_mode: "local",
-      })),
-    },
-    send: vi.fn(async () => ({ message_id: "msg_sent", status: "sent" })),
-    reply: vi.fn(async () => ({ message_id: "msg_reply", status: "sent" })),
-    forward: vi.fn(async () => ({ message_id: "msg_fwd", status: "sent" })),
-    updateMessageLabels: vi.fn(async () => ({ message_id: "msg_in", labels: ["urgent"] })),
-    listConversations: vi.fn(async () => ({ conversations: [{ conversation_id: "conv_1" }] })),
-    getConversation: vi.fn(async () => ({ conversation_id: "conv_1", messages: [] })),
-    listMessages: vi.fn(async () => ({ messages: [], next_token: undefined })),
-    listAgents: vi.fn(async () => ({ agents: [{ email: "bot@example.com" }] })),
-    registerAgent: vi.fn(async (body: Record<string, unknown>) => ({
+    send: vi.fn(async () => ({ messageId: "msg_sent", status: "sent" })),
+    reply: vi.fn(async () => ({ messageId: "msg_reply", status: "sent" })),
+    forward: vi.fn(async () => ({ messageId: "msg_fwd", status: "sent" })),
+    updateMessageLabels: vi.fn(async () => ({ messageId: "msg_in", labels: ["urgent"] })),
+    listConversations: vi.fn(async () => [{ conversationId: "conv_1" }]),
+    getConversation: vi.fn(async () => ({ conversationId: "conv_1", messages: [] })),
+    listMessages: vi.fn(async () => []),
+    listAgents: vi.fn(async () => [{ email: "bot@example.com" }]),
+    createAgent: vi.fn(async (body: { slug: string }) => ({
       email: `${body.slug}@agents.example.com`,
       domain: "agents.example.com",
       id: `${body.slug}@agents.example.com`,
@@ -36,25 +55,22 @@ function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): E2ACli
     getAgent: vi.fn(async (email: string) => ({
       id: email,
       email,
-      agent_mode: "local",
-      hitl_enabled: false,
+      hitlEnabled: false,
     })),
     updateAgent: vi.fn(async (body: Record<string, unknown>) => ({
       id: "bot@example.com",
       email: "bot@example.com",
       ...body,
     })),
-    deleteAgent: vi.fn(async () => undefined),
-    listDomains: vi.fn(async () => ({
-      domains: [
-        { domain: "mail.acme.com", verified: true, verification_token: "tok1" },
-      ],
-    })),
+    deleteAgent: vi.fn(async (addr?: string) => addr ?? "bot@example.com"),
+    listDomains: vi.fn(async () => [
+      { domain: "mail.acme.com", verified: true, verificationToken: "tok1" },
+    ]),
     registerDomain: vi.fn(async (domain: string) => ({
       domain,
       verified: false,
-      verification_token: "tok_new",
-      dns_records: {
+      verificationToken: "tok_new",
+      dnsRecords: {
         mx: { host: domain, value: "mx.e2a.dev", priority: 10 },
         txt: { host: domain, value: "e2a-verify=tok_new" },
       },
@@ -62,54 +78,38 @@ function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): E2ACli
     verifyDomain: vi.fn(async (domain: string) => ({
       domain,
       verified: true,
-      verification_token: "tok_new",
+      verificationToken: "tok_new",
     })),
     deleteDomain: vi.fn(async () => undefined),
-    // Stand-in for the SDK's client.getMessage() which returns an
-    // InboundEmail with verified=true (the REST channel is bearer-
-    // authenticated so the SDK marks pre-verified). The production
-    // tool reads the getters which on the real class throw if
-    // unverified — but TypeScript's structural typing doesn't
-    // distinguish data properties from getters, so this plain
-    // object satisfies the call site. Attachments default to one
-    // small PDF; tests override via mockResolvedValueOnce.
-    getMessage: vi.fn(async (id: string, _email?: string) => ({
+    // Stand-in for McpClient.getMessage() which returns a v1
+    // MessageView. Attachments are decoded by the tool from
+    // `rawMessage`; the default raw carries one small PDF.
+    getMessage: vi.fn(async (id: string, _addr?: string) => ({
       messageId: id,
       conversationId: "conv_x",
-      sender: "alice@example.com",
+      _from: "alice@example.com",
       recipient: "bot@example.com",
       to: ["bot@example.com"],
       cc: [],
       replyTo: [],
       subject: "hi",
-      textBody: "hello world",
-      htmlBody: null,
-      receivedAt: "2026-05-20T10:00:00Z",
-      attachments: [
-        {
-          filename: "report.pdf",
-          contentType: "application/pdf",
-          data: Buffer.from("%PDF-1.4 fake pdf bytes"),
-          size: 23,
-        },
-      ],
+      status: "read",
+      body: { text: "hello world", html: undefined },
+      createdAt: "2026-05-20T10:00:00Z",
+      rawMessage: rawWith("hello world", "report.pdf", "application/pdf", pdfBytes),
     })),
-    listPendingMessages: vi.fn(async () => ({ messages: [] })),
-    // agent_id is required by the approve/reject tool wrappers, which
-    // do a pre-flight detail fetch to discover the owning agent for
-    // the agent-scoped backend endpoint.
+    listPendingMessages: vi.fn(async () => []),
     getPendingMessage: vi.fn(async (id: string) => ({
-      id,
+      messageId: id,
       status: "pending_approval",
-      agent_id: "bot@agents.e2a.dev",
     })),
-    approveMessage: vi.fn(async () => ({ message_id: "msg_x", status: "sent" })),
-    rejectMessage: vi.fn(async () => ({ message_id: "msg_x", status: "rejected" })),
+    approveMessage: vi.fn(async () => ({ messageId: "msg_x", status: "sent" })),
+    rejectMessage: vi.fn(async () => ({ messageId: "msg_x", status: "rejected" })),
   };
-  return stub as unknown as E2AClient;
+  return stub as unknown as McpClient;
 }
 
-async function connect(stub: E2AClient): Promise<Client> {
+async function connect(stub: McpClient): Promise<Client> {
   const server = buildServer({ client: stub, version: "0.0.0-test" });
   const client = new Client({ name: "test-client", version: "0.0.0" });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
@@ -118,7 +118,7 @@ async function connect(stub: E2AClient): Promise<Client> {
 }
 
 describe("e2a MCP server", () => {
-  let stub: E2AClient;
+  let stub: McpClient;
   let client: Client;
 
   beforeEach(async () => {
@@ -179,10 +179,9 @@ describe("e2a MCP server", () => {
       },
     });
     expect(stub.send).toHaveBeenCalledWith(
-      ["alice@example.com"],
-      "hi",
-      "hello",
-      { cc: ["bob@example.com"] },
+      { to: ["alice@example.com"], subject: "hi", body: "hello", cc: ["bob@example.com"] },
+      {},
+      undefined,
     );
   });
 
@@ -195,7 +194,12 @@ describe("e2a MCP server", () => {
         reply_all: true,
       },
     });
-    expect(stub.reply).toHaveBeenCalledWith("msg_in", "thanks", { replyAll: true });
+    expect(stub.reply).toHaveBeenCalledWith(
+      "msg_in",
+      { body: "thanks", replyAll: true },
+      {},
+      undefined,
+    );
   });
 
   it("forward_message forwards args to client.forward", async () => {
@@ -211,6 +215,8 @@ describe("e2a MCP server", () => {
       "msg_in",
       ["destination@example.com"],
       { body: "FYI" },
+      {},
+      undefined,
     );
   });
 
@@ -223,10 +229,11 @@ describe("e2a MCP server", () => {
         remove_labels: ["unread"],
       },
     });
-    expect(stub.updateMessageLabels).toHaveBeenCalledWith("msg_in", {
-      addLabels: ["urgent"],
-      removeLabels: ["unread"],
-    });
+    expect(stub.updateMessageLabels).toHaveBeenCalledWith(
+      "msg_in",
+      { addLabels: ["urgent"], removeLabels: ["unread"] },
+      undefined,
+    );
   });
 
   it("list_conversations forwards args to client.listConversations", async () => {
@@ -234,10 +241,10 @@ describe("e2a MCP server", () => {
       name: "list_conversations",
       arguments: { page_size: 20, since: "2026-05-01T00:00:00Z" },
     });
-    expect(stub.listConversations).toHaveBeenCalledWith({
-      pageSize: 20,
-      since: "2026-05-01T00:00:00Z",
-    });
+    expect(stub.listConversations).toHaveBeenCalledWith(
+      { limit: 20, since: "2026-05-01T00:00:00Z" },
+      undefined,
+    );
   });
 
   it("get_conversation forwards args to client.getConversation", async () => {
@@ -245,7 +252,7 @@ describe("e2a MCP server", () => {
       name: "get_conversation",
       arguments: { conversation_id: "conv_1" },
     });
-    expect(stub.getConversation).toHaveBeenCalledWith("conv_1", {});
+    expect(stub.getConversation).toHaveBeenCalledWith("conv_1", undefined);
   });
 
   it("list_messages forwards filters", async () => {
@@ -255,7 +262,7 @@ describe("e2a MCP server", () => {
     });
     expect(stub.listMessages).toHaveBeenCalledWith({
       status: "unread",
-      pageSize: 10,
+      limit: 10,
     });
   });
 
@@ -264,11 +271,11 @@ describe("e2a MCP server", () => {
       name: "get_message",
       arguments: { message_id: "msg_abc" },
     });
-    // High-level client.getMessage (the parsed InboundEmail path) —
-    // not client.api.getMessage. The MCP server is responsible for
-    // unwrapping to plain JSON so the LLM gets a digestible shape
-    // without the raw_message MIME blob.
-    expect(stub.getMessage).toHaveBeenCalledWith("msg_abc", "bot@example.com");
+    // McpClient.getMessage resolves the address internally; the tool
+    // passes the explicit arg (undefined here → pinned default in the
+    // wrapper). The MCP server unwraps the MessageView to plain JSON,
+    // decoding attachment metadata from rawMessage.
+    expect(stub.getMessage).toHaveBeenCalledWith("msg_abc", undefined);
     const content = res.content as Array<{ type: string; text: string }>;
     const parsed = JSON.parse(content[0]!.text) as Record<string, unknown>;
     expect(parsed.message_id).toBe("msg_abc");
@@ -294,7 +301,7 @@ describe("e2a MCP server", () => {
       name: "get_attachment_data",
       arguments: { message_id: "msg_abc", attachment_index: 0 },
     });
-    expect(stub.getMessage).toHaveBeenCalledWith("msg_abc", "bot@example.com");
+    expect(stub.getMessage).toHaveBeenCalledWith("msg_abc", undefined);
     const content = res.content as Array<{ type: string; text: string }>;
     const parsed = JSON.parse(content[0]!.text) as Record<string, unknown>;
     expect(parsed.filename).toBe("report.pdf");
@@ -317,27 +324,22 @@ describe("e2a MCP server", () => {
   });
 
   it("get_attachment_data refuses attachments above the 2 MB inline cap", async () => {
-    // One-shot override: pretend the message has a 5 MB attachment.
+    // One-shot override: a message whose raw MIME carries a 3 MB
+    // attachment (decoded), above the 2 MB inline cap.
+    const big = Buffer.alloc(3 * 1024 * 1024, 0x41);
     (stub.getMessage as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       messageId: "msg_big",
       conversationId: null,
-      sender: "alice@example.com",
+      _from: "alice@example.com",
       recipient: "bot@example.com",
       to: ["bot@example.com"],
       cc: [],
       replyTo: [],
       subject: "huge",
-      textBody: "",
-      htmlBody: null,
-      receivedAt: null,
-      attachments: [
-        {
-          filename: "big.zip",
-          contentType: "application/zip",
-          data: Buffer.alloc(0),
-          size: 5 * 1024 * 1024,
-        },
-      ],
+      status: "read",
+      body: { text: "", html: undefined },
+      createdAt: null,
+      rawMessage: rawWith("", "big.zip", "application/zip", big),
     });
     const res = await client.callTool({
       name: "get_attachment_data",
@@ -362,9 +364,9 @@ describe("e2a MCP server", () => {
     // one agent rather than error. Mirrors send_email's "from
     // required only when multiple agents" auto-from behavior.
     const bareStub = makeStubClient({ agentEmail: "" });
-    (bareStub.listAgents as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      agents: [{ id: "solo@example.com", email: "solo@example.com" }],
-    });
+    (bareStub.listAgents as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { id: "solo@example.com", email: "solo@example.com" },
+    ]);
     const bareClient = await connect(bareStub);
     const res = await bareClient.callTool({ name: "whoami", arguments: {} });
     expect(res.isError).toBeFalsy();
@@ -376,12 +378,10 @@ describe("e2a MCP server", () => {
     // available agent emails in the error so the LLM can act
     // without a follow-up list_agents call.
     const bareStub = makeStubClient({ agentEmail: "" });
-    (bareStub.listAgents as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      agents: [
-        { id: "support@x.com", email: "support@x.com" },
-        { id: "sales@x.com", email: "sales@x.com" },
-      ],
-    });
+    (bareStub.listAgents as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { id: "support@x.com", email: "support@x.com" },
+      { id: "sales@x.com", email: "sales@x.com" },
+    ]);
     const bareClient = await connect(bareStub);
     const res = await bareClient.callTool({ name: "whoami", arguments: {} });
     expect(res.isError).toBe(true);
@@ -394,9 +394,7 @@ describe("e2a MCP server", () => {
 
   it("whoami errors when the account has zero agents and prompts to create one", async () => {
     const bareStub = makeStubClient({ agentEmail: "" });
-    (bareStub.listAgents as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      agents: [],
-    });
+    (bareStub.listAgents as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
     const bareClient = await connect(bareStub);
     const res = await bareClient.callTool({ name: "whoami", arguments: {} });
     expect(res.isError).toBe(true);
@@ -404,18 +402,19 @@ describe("e2a MCP server", () => {
     expect(content[0]?.text).toMatch(/create_agent/);
   });
 
-  it("create_agent defaults agent_mode to local", async () => {
+  it("create_agent forwards the slug only when name omitted", async () => {
     await client.callTool({
       name: "create_agent",
       arguments: { slug: "new-bot" },
     });
-    expect(stub.registerAgent).toHaveBeenCalledWith({
-      slug: "new-bot",
-      agent_mode: "local",
-    });
+    // v1 agent-create takes slug + name only. agent_mode / webhook_url
+    // are accepted in the schema for contract stability but no longer
+    // part of the agent shape (push delivery is a top-level webhooks
+    // resource), so they are not forwarded.
+    expect(stub.createAgent).toHaveBeenCalledWith({ slug: "new-bot" });
   });
 
-  it("create_agent forwards cloud-mode webhook", async () => {
+  it("create_agent forwards name and ignores retired cloud-mode fields", async () => {
     await client.callTool({
       name: "create_agent",
       arguments: {
@@ -425,37 +424,39 @@ describe("e2a MCP server", () => {
         name: "Cloud Bot",
       },
     });
-    expect(stub.registerAgent).toHaveBeenCalledWith({
+    // agent_mode / webhook_url dropped — only slug + name reach the SDK.
+    expect(stub.createAgent).toHaveBeenCalledWith({
       slug: "cloud-bot",
-      agent_mode: "cloud",
       name: "Cloud Bot",
-      webhook_url: "https://example.com/hook",
     });
   });
 
-  it("update_agent forwards body fields and uses env email by default", async () => {
+  it("update_agent maps HITL fields to camelCase and uses env email by default", async () => {
     await client.callTool({
       name: "update_agent",
       arguments: { hitl_enabled: true, hitl_ttl_seconds: 3600 },
     });
     expect(stub.updateAgent).toHaveBeenCalledWith(
-      { hitl_enabled: true, hitl_ttl_seconds: 3600 },
-      {}, // no agent_email override → falls back to env-scoped agentEmail in the SDK
+      { hitlEnabled: true, hitlTtlSeconds: 3600 },
+      undefined, // no explicit agent_email → wrapper resolves the pinned default
     );
   });
 
-  it("update_agent threads explicit agent_email into opts.agentEmail", async () => {
+  it("update_agent threads explicit agent_email and drops retired fields", async () => {
     await client.callTool({
       name: "update_agent",
       arguments: {
         agent_email: "other@example.com",
         agent_mode: "cloud",
         webhook_url: "https://example.com/hook",
+        hitl_expiration_action: "reject",
       },
     });
+    // agent_mode / webhook_url no longer part of the agent shape — only
+    // the mapped HITL fields reach the SDK; the address is passed through.
     expect(stub.updateAgent).toHaveBeenCalledWith(
-      { agent_mode: "cloud", webhook_url: "https://example.com/hook" },
-      { agentEmail: "other@example.com" },
+      { hitlExpirationAction: "reject" },
+      "other@example.com",
     );
   });
 
@@ -508,7 +509,7 @@ describe("e2a MCP server", () => {
     // The returned shape must surface the DNS records so the LLM can
     // hand them to a DNS-provider MCP. If a future SDK change drops
     // them from the response, this test trips immediately.
-    expect(content[0]?.text).toContain("dns_records");
+    expect(content[0]?.text).toContain("dnsRecords");
     expect(content[0]?.text).toContain("mx.e2a.dev");
     expect(content[0]?.text).toContain("tok_new");
   });
@@ -555,7 +556,7 @@ describe("e2a MCP server", () => {
     expect(stub.getPendingMessage).toHaveBeenCalledWith("msg_p");
   });
 
-  it("approve_pending_message strips message_id and forwards overrides", async () => {
+  it("approve_pending_message strips message_id and maps overrides to camelCase", async () => {
     await client.callTool({
       name: "approve_pending_message",
       arguments: {
@@ -564,9 +565,11 @@ describe("e2a MCP server", () => {
         body_text: "edited body",
       },
     });
-    expect(stub.approveMessage).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_p", {
+    // The wrapper resolves the owning agent internally, so the tool no
+    // longer passes an address; body_text → bodyText (ApproveRequest).
+    expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", {
       subject: "edited subject",
-      body_text: "edited body",
+      bodyText: "edited body",
     });
   });
 
@@ -575,7 +578,7 @@ describe("e2a MCP server", () => {
       name: "approve_pending_message",
       arguments: { message_id: "msg_p" },
     });
-    expect(stub.approveMessage).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_p", {});
+    expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", {});
   });
 
   // Regression: when idempotency_key is omitted, the MCP layer must
@@ -589,14 +592,16 @@ describe("e2a MCP server", () => {
   // on args and is strict on argument count, so this test fails if a
   // 4th arg leaks in. Mirrors the same guard on send / reply tests
   // above (lines 145 / 163).
-  it("approve_pending_message omits 4th-arg opts when idempotency_key is unset", async () => {
+  it("approve_pending_message omits 3rd-arg opts when idempotency_key is unset", async () => {
     await client.callTool({
       name: "approve_pending_message",
       arguments: { message_id: "msg_p", subject: "edited" },
     });
-    expect(stub.approveMessage).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_p", { subject: "edited" });
+    expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", { subject: "edited" });
+    // Two args only — no { idempotencyKey: undefined } leaking in as a
+    // 3rd arg (different semantics for an auto-mint helper downstream).
     const lastCall = (stub.approveMessage as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1);
-    expect(lastCall?.length).toBe(3);
+    expect(lastCall?.length).toBe(2);
   });
 
   // Approve fires SES so an idempotency_key argument has to reach the
@@ -613,7 +618,6 @@ describe("e2a MCP server", () => {
       },
     });
     expect(stub.approveMessage).toHaveBeenCalledWith(
-      "bot@agents.e2a.dev",
       "msg_p",
       { subject: "edited" },
       { idempotencyKey: "approve-key-123" },
@@ -633,10 +637,9 @@ describe("e2a MCP server", () => {
       },
     });
     expect(stub.send).toHaveBeenCalledWith(
-      ["alice@example.com"],
-      "x",
-      "y",
-      expect.objectContaining({ idempotencyKey: "send-key-9" }),
+      expect.objectContaining({ to: ["alice@example.com"], subject: "x", body: "y" }),
+      { idempotencyKey: "send-key-9" },
+      undefined,
     );
   });
 
@@ -651,8 +654,9 @@ describe("e2a MCP server", () => {
     });
     expect(stub.reply).toHaveBeenCalledWith(
       "msg_in_xyz",
-      "reply",
-      expect.objectContaining({ idempotencyKey: "reply-key-9" }),
+      expect.objectContaining({ body: "reply" }),
+      { idempotencyKey: "reply-key-9" },
+      undefined,
     );
   });
 
@@ -670,8 +674,14 @@ describe("e2a MCP server", () => {
     content_type: "text/plain",
     data: helloBase64,
   };
+  // The wire shape after the tool's snake→camel mapping.
+  const sdkAttachment = {
+    filename: "note.txt",
+    contentType: "text/plain",
+    data: helloBase64,
+  };
 
-  it("send_email forwards attachments verbatim to client.send", async () => {
+  it("send_email maps attachments to the SDK shape on client.send", async () => {
     await client.callTool({
       name: "send_email",
       arguments: {
@@ -682,14 +692,13 @@ describe("e2a MCP server", () => {
       },
     });
     expect(stub.send).toHaveBeenCalledWith(
-      ["alice@example.com"],
-      "with file",
-      "see attached",
-      { attachments: [sampleAttachment] },
+      expect.objectContaining({ attachments: [sdkAttachment] }),
+      {},
+      undefined,
     );
   });
 
-  it("reply_to_message forwards attachments verbatim to client.reply", async () => {
+  it("reply_to_message maps attachments to the SDK shape on client.reply", async () => {
     await client.callTool({
       name: "reply_to_message",
       arguments: {
@@ -698,9 +707,12 @@ describe("e2a MCP server", () => {
         attachments: [sampleAttachment],
       },
     });
-    expect(stub.reply).toHaveBeenCalledWith("msg_in", "reply with file", {
-      attachments: [sampleAttachment],
-    });
+    expect(stub.reply).toHaveBeenCalledWith(
+      "msg_in",
+      expect.objectContaining({ body: "reply with file", attachments: [sdkAttachment] }),
+      {},
+      undefined,
+    );
   });
 
   it("approve_pending_message accepts an attachments override (HITL reviewer adds a file)", async () => {
@@ -711,8 +723,8 @@ describe("e2a MCP server", () => {
         attachments: [sampleAttachment],
       },
     });
-    expect(stub.approveMessage).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_p", {
-      attachments: [sampleAttachment],
+    expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", {
+      attachments: [sdkAttachment],
     });
   });
 
@@ -725,7 +737,7 @@ describe("e2a MCP server", () => {
       name: "approve_pending_message",
       arguments: { message_id: "msg_p", attachments: [] },
     });
-    expect(stub.approveMessage).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_p", { attachments: [] });
+    expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", { attachments: [] });
   });
 
   it("send_email rejects base64 with whitespace (URL-safe or LLM-truncated patterns)", async () => {
@@ -794,7 +806,7 @@ describe("e2a MCP server", () => {
       name: "reject_pending_message",
       arguments: { message_id: "msg_p", reason: "wrong recipient" },
     });
-    expect(stub.rejectMessage).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_p", "wrong recipient");
+    expect(stub.rejectMessage).toHaveBeenCalledWith("msg_p", "wrong recipient");
   });
 
   it("surfaces SDK errors as isError results", async () => {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { E2AClient } from "@e2a/sdk/v1";
+import type { McpClient } from "../src/client.js";
 import { startHttpServer } from "../src/http-server.js";
 
 // Events tools exercised through the streamable-http MCP transport
@@ -10,48 +10,43 @@ import { startHttpServer } from "../src/http-server.js";
 // real HTTP layer — catches auth header parsing, JSON-RPC framing,
 // and session lifecycle bugs that InMemoryTransport masks.
 
-function makeStubClient(): E2AClient {
+function makeStubClient(): McpClient {
   const stub = {
     agentEmail: "bot@example.com",
-    api: {
-      getMessage: vi.fn(async () => ({ message_id: "m" })),
-      getAgent: vi.fn(async () => ({ id: "x@y", email: "x@y" })),
-      listAgents: vi.fn(async () => ({ agents: [{ email: "bot@example.com" }] })),
-      listEvents: vi.fn(async () => ({
-        events: [
-          {
-            id: "evt_http",
-            type: "email.received",
-            schema_version: 1,
-            created_at: "2026-06-01T12:00:00Z",
-            status: "processed",
-            data: { from: "alice@example.com" },
-          },
-        ],
-        next_token: "",
-      })),
-      getEvent: vi.fn(async (id: string) => ({
-        id,
+    getMessage: vi.fn(async () => ({ messageId: "m" })),
+    getAgent: vi.fn(async () => ({ id: "x@y", email: "x@y" })),
+    listAgents: vi.fn(async () => [{ email: "bot@example.com" }]),
+    listEvents: vi.fn(async () => [
+      {
+        id: "evt_http",
         type: "email.received",
-        schema_version: 1,
-        created_at: "2026-06-01T12:00:00Z",
+        schemaVersion: 1,
+        createdAt: "2026-06-01T12:00:00Z",
         status: "processed",
-        data: {},
-        delivery_status: { matched_webhooks: 1, delivered: 1, pending: 0, failed: 0 },
-      })),
-      redeliverEvent: vi.fn(async (id: string, opts?: { webhookId?: string }) => ({
-        event_id: id,
-        webhook_id: opts?.webhookId ?? "",
-        delivery_id: "whd_replay_http",
-        status: "pending",
-      })),
-    },
+        data: { from: "alice@example.com" },
+      },
+    ]),
+    getEvent: vi.fn(async (id: string) => ({
+      id,
+      type: "email.received",
+      schemaVersion: 1,
+      createdAt: "2026-06-01T12:00:00Z",
+      status: "processed",
+      data: {},
+      deliveryStatus: { matchedWebhooks: 1, delivered: 1, pending: 0, failed: 0 },
+    })),
+    redeliverEvent: vi.fn(async (id: string, webhookId?: string) => ({
+      eventId: id,
+      webhookId: webhookId ?? "",
+      deliveryId: "whd_replay_http",
+      status: "pending",
+    })),
   };
-  return stub as unknown as E2AClient;
+  return stub as unknown as McpClient;
 }
 
 describe("MCP events tools over streamable-http", () => {
-  let stub: E2AClient;
+  let stub: McpClient;
   let close: () => Promise<void>;
   let url: string;
 
@@ -90,7 +85,7 @@ describe("MCP events tools over streamable-http", () => {
     const result = await client.callTool({ name: "list_events", arguments: {} });
     const parsed = parseToolResult(result);
     expect((parsed.events as Array<{ id: string }>)[0].id).toBe("evt_http");
-    expect(stub.api.listEvents).toHaveBeenCalledOnce();
+    expect(stub.listEvents).toHaveBeenCalledOnce();
     await client.close();
   });
 
@@ -102,7 +97,7 @@ describe("MCP events tools over streamable-http", () => {
     });
     const parsed = parseToolResult(result);
     expect(parsed.id).toBe("evt_via_http");
-    expect(stub.api.getEvent).toHaveBeenCalledWith("evt_via_http");
+    expect(stub.getEvent).toHaveBeenCalledWith("evt_via_http");
     await client.close();
   });
 
@@ -113,8 +108,8 @@ describe("MCP events tools over streamable-http", () => {
       arguments: { event_id: "evt_x", webhook_id: "wh_y" },
     });
     const parsed = parseToolResult(result);
-    expect(parsed.delivery_id).toBe("whd_replay_http");
-    expect(stub.api.redeliverEvent).toHaveBeenCalledWith("evt_x", { webhookId: "wh_y" });
+    expect(parsed.deliveryId).toBe("whd_replay_http");
+    expect(stub.redeliverEvent).toHaveBeenCalledWith("evt_x", "wh_y");
     await client.close();
   });
 

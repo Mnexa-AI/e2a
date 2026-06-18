@@ -1,5 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { E2AClient } from "@e2a/sdk/v1";
+import type { McpClient } from "../client.js";
 import { z } from "zod";
 import { runTool, strictInputSchema } from "./util.js";
 
@@ -12,7 +12,7 @@ import { runTool, strictInputSchema } from "./util.js";
 // auth-bound to the API key the MCP server was launched with — the
 // LLM cannot list events for other accounts.
 
-export function registerEventTools(server: McpServer, client: E2AClient): void {
+export function registerEventTools(server: McpServer, client: McpClient): void {
   server.registerTool(
     "list_events",
     {
@@ -39,18 +39,23 @@ export function registerEventTools(server: McpServer, client: E2AClient): void {
       }),
     },
     async (args) =>
-      runTool(() =>
-        client.api.listEvents({
-          type: args.type,
-          agentId: args.agent_id,
-          conversationId: args.conversation_id,
-          messageId: args.message_id,
-          since: args.since,
-          until: args.until,
-          pageSize: args.page_size,
-          token: args.token,
+      // The v1 client auto-paginates; we collect up to `page_size` rows
+      // (the SDK walks cursors internally). `token` is accepted in the
+      // schema for contract stability but no longer needed — the pager
+      // handles cursoring transparently.
+      runTool(async () => ({
+        events: await client.listEvents({
+          ...(args.type !== undefined ? { type: args.type } : {}),
+          ...(args.agent_id !== undefined ? { agentId: args.agent_id } : {}),
+          ...(args.conversation_id !== undefined
+            ? { conversationId: args.conversation_id }
+            : {}),
+          ...(args.message_id !== undefined ? { messageId: args.message_id } : {}),
+          ...(args.since !== undefined ? { since: args.since } : {}),
+          ...(args.until !== undefined ? { until: args.until } : {}),
+          ...(args.page_size !== undefined ? { limit: args.page_size } : {}),
         }),
-      ),
+      })),
   );
 
   server.registerTool(
@@ -63,7 +68,7 @@ export function registerEventTools(server: McpServer, client: E2AClient): void {
         event_id: z.string().describe("Stable event id (evt_<32hex>)."),
       }),
     },
-    async (args) => runTool(() => client.api.getEvent(args.event_id)),
+    async (args) => runTool(() => client.getEvent(args.event_id)),
   );
 
   server.registerTool(
@@ -83,8 +88,6 @@ export function registerEventTools(server: McpServer, client: E2AClient): void {
       }),
     },
     async (args) =>
-      runTool(() =>
-        client.api.redeliverEvent(args.event_id, { webhookId: args.webhook_id }),
-      ),
+      runTool(() => client.redeliverEvent(args.event_id, args.webhook_id)),
   );
 }

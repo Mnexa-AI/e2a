@@ -1,9 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { E2AClient } from "@e2a/sdk/v1";
+import type { McpClient } from "../client.js";
 import { z } from "zod";
 import { runTool, strictInputSchema } from "./util.js";
 
-export function registerAgentTools(server: McpServer, client: E2AClient): void {
+export function registerAgentTools(server: McpServer, client: McpClient): void {
   server.registerTool(
     "list_agents",
     {
@@ -12,7 +12,7 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
         "List every agent inbox owned by the authenticated user. Useful for orientation — which inbox to send `from` or query messages against. Read-only.",
       inputSchema: strictInputSchema({}),
     },
-    async () => runTool(() => client.listAgents()),
+    async () => runTool(async () => ({ agents: await client.listAgents() })),
   );
 
   server.registerTool(
@@ -34,7 +34,7 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
         // "from field required only when user has multiple agents"
         // behavior on the backend. For 0 or 2+ agents the LLM needs
         // explicit input, so we error with a directive next-step.
-        const { agents } = await client.listAgents();
+        const agents = await client.listAgents();
         if (!agents || agents.length === 0) {
           throw new Error(
             "no agents on this account. Use `create_agent` to register one before sending mail.",
@@ -86,11 +86,15 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
     },
     async (args) =>
       runTool(() =>
-        client.registerAgent({
+        // v1 agent-create takes slug + name only. Per-agent delivery
+        // mode and webhook binding were removed from the agent shape in
+        // the v1 redesign — push delivery is now a top-level webhooks
+        // resource (create_webhook). agent_mode / webhook_url are still
+        // accepted in the input schema for contract stability but no
+        // longer forwarded; use create_webhook for push subscriptions.
+        client.createAgent({
           slug: args.slug,
-          agent_mode: args.agent_mode ?? "local",
           ...(args.name !== undefined ? { name: args.name } : {}),
-          ...(args.webhook_url !== undefined ? { webhook_url: args.webhook_url } : {}),
         }),
       ),
   );
@@ -146,10 +150,24 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
     },
     async (args) =>
       runTool(() => {
-        const { agent_email, ...body } = args;
-        return client.updateAgent(body, {
-          ...(agent_email !== undefined ? { agentEmail: agent_email } : {}),
-        });
+        // v1 update takes camelCase HITL fields. agent_mode / webhook_url
+        // are accepted in the schema for contract stability but no longer
+        // part of the agent shape (push delivery is a top-level webhooks
+        // resource now); they are not forwarded.
+        const patch: {
+          hitlEnabled?: boolean;
+          hitlTtlSeconds?: number;
+          hitlExpirationAction?: string;
+        } = {
+          ...(args.hitl_enabled !== undefined ? { hitlEnabled: args.hitl_enabled } : {}),
+          ...(args.hitl_ttl_seconds !== undefined
+            ? { hitlTtlSeconds: args.hitl_ttl_seconds }
+            : {}),
+          ...(args.hitl_expiration_action !== undefined
+            ? { hitlExpirationAction: args.hitl_expiration_action }
+            : {}),
+        };
+        return client.updateAgent(patch, args.agent_email);
       }),
   );
 
@@ -181,8 +199,8 @@ export function registerAgentTools(server: McpServer, client: E2AClient): void {
             "delete_agent requires confirm:true — refusing to proceed without explicit confirmation.",
           );
         }
-        await client.deleteAgent(args.agent_email);
-        return { deleted: args.agent_email ?? client.agentEmail };
+        const deleted = await client.deleteAgent(args.agent_email);
+        return { deleted };
       }),
   );
 }
