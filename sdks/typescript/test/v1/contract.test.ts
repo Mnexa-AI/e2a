@@ -5,18 +5,57 @@
  *   E2A_TEST_BASE_URL  — test server URL (e.g. http://localhost:8080)
  *   E2A_TEST_API_KEY   — valid API key for the test user
  *
- * The runner uses {@link E2AApi} for HTTP requests and {@link WSListener}
- * for WebSocket steps, exercising the real SDK surface.
+ * The runner drives the server over raw HTTP (a thin scenario interpreter,
+ * not the ergonomic client) plus {@link WSListener} for WebSocket steps.
  *
  * Setup steps that require direct store access (inject_message,
  * verify_domain as setup) cause the scenario to be skipped.
+ *
+ * NOTE: scenario `path`s are repointed from `/api/v1` to `/v1` as part of the
+ * cross-language scenarios.yaml migration (tracked separately); this runner is
+ * gated behind live-server env vars and is not part of the unit build.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve as pathResolve } from "node:path";
 import { parse as yamlParse } from "yaml";
-import { E2AApi, E2AApiError } from "../../src/v1/api.js";
 import { WSListener } from "../../src/v1/ws.js";
+
+// Minimal raw-HTTP driver — the scenario runner needs a generic
+// request(method, path, body) shim, not the ergonomic client surface.
+class RawApiError extends Error {
+  constructor(public readonly statusCode: number, message: string) {
+    super(message);
+    this.name = "RawApiError";
+  }
+}
+
+class RawApi {
+  constructor(
+    private readonly apiKey: string,
+    private readonly baseUrl: string,
+  ) {}
+
+  async raw(method: string, path: string, body?: unknown): Promise<Response> {
+    const headers: Record<string, string> = { Authorization: `Bearer ${this.apiKey}` };
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    const resp = await fetch(`${this.baseUrl}${path}`, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    if (resp.status >= 400) throw new RawApiError(resp.status, await resp.text());
+    return resp;
+  }
+
+  async registerDomain(input: { domain: string }): Promise<void> {
+    await this.raw("POST", "/v1/domains", input);
+  }
+
+  async registerAgent(input: { email: string; agent_mode: string }): Promise<void> {
+    await this.raw("POST", "/v1/agents", { address: input.email, agent_mode: input.agent_mode });
+  }
+}
 
 // ── YAML schema ─────────────────────────────────────────────────
 
@@ -120,7 +159,7 @@ function extractEmailFromWSPath(path: string): string {
 
 class Runner {
   private vars: Record<string, string> = {};
-  private api: E2AApi;
+  private api: RawApi;
   private wsListener: WSListener | null = null;
   /** Buffer of notifications received from WSListener. */
   private wsMessages: string[] = [];
@@ -130,7 +169,7 @@ class Runner {
     private readonly apiKey: string,
     private readonly scenario: Scenario,
   ) {
-    this.api = new E2AApi({ apiKey, baseUrl });
+    this.api = new RawApi(apiKey, baseUrl);
   }
 
   resolve(s: string): string {
@@ -177,7 +216,7 @@ class Runner {
         try {
           await this.api.registerDomain({ domain: this.resolve(s.register_domain) });
         } catch (err) {
-          if (err instanceof E2AApiError && err.statusCode === 409) {
+          if (err instanceof RawApiError && err.statusCode === 409) {
             /* already exists */
           } else {
             throw err;
@@ -193,7 +232,7 @@ class Runner {
             agent_mode: s.register_agent.agent_mode,
           });
         } catch (err) {
-          if (err instanceof E2AApiError && err.statusCode === 409) {
+          if (err instanceof RawApiError && err.statusCode === 409) {
             /* already exists */
           } else {
             throw err;
@@ -262,13 +301,13 @@ class Runner {
       status = resp.status;
       rawBody = await resp.text();
     } else {
-      // Happy path — route through E2AApi.raw() to exercise SDK plumbing.
+      // Happy path — route through the raw HTTP driver.
       try {
         const resp = await this.api.raw(step.method!, path, body);
         status = resp.status;
         rawBody = await resp.text();
       } catch (err) {
-        if (err instanceof E2AApiError) {
+        if (err instanceof RawApiError) {
           // SDK threw on a non-2xx status — verify it matches expectation.
           if (ex?.status) {
             expect(err.statusCode, `step ${step.id}: status`).toBe(ex.status);

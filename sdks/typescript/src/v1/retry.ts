@@ -109,11 +109,20 @@ export class RetryHttpLibrary implements HttpLibrary {
   // Mint an Idempotency-Key once, before the first attempt, for an unsafe
   // method the caller didn't already key. Setting it on the shared
   // RequestContext means every retry of this request reuses the same key.
+  //
+  // The generated layer unconditionally calls setHeaderParam("Idempotency-Key",
+  // serialize(undefined)) on send/reply/forward/approve, leaving the header
+  // *present but empty* when the caller passed no key. So "present" isn't enough
+  // to mean "caller-supplied" — only a non-empty value counts; otherwise we mint
+  // (overwriting the empty stub).
   private ensureIdempotencyKey(request: RequestContext): void {
     if (!UNSAFE_METHODS.has(request.getHttpMethod())) return;
     const headers = request.getHeaders();
     for (const k of Object.keys(headers)) {
-      if (k.toLowerCase() === IDEMPOTENCY_HEADER.toLowerCase()) return; // caller-supplied wins
+      if (k.toLowerCase() !== IDEMPOTENCY_HEADER.toLowerCase()) continue;
+      const v = headers[k];
+      if (v != null && String(v).trim() !== "") return; // genuine caller-supplied key wins
+      break; // present-but-empty generated stub → fall through and mint
     }
     request.setHeaderParam(IDEMPOTENCY_HEADER, (this.opts.genIdempotencyKey ?? defaultUuid)());
   }

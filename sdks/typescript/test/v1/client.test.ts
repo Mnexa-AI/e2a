@@ -1,389 +1,208 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { E2AClient } from "../../src/v1/client.js";
 import {
-  E2AClient,
-  _resetParseDeprecationWarningForTests,
-} from "../../src/v1/client.js";
-import { InboundEmail } from "../../src/v1/inbound-email.js";
-import type { WebhookPayload } from "../../src/v1/inbound-email.js";
+  E2AError,
+  E2ANotFoundError,
+  E2AConflictError,
+  E2AValidationError,
+} from "../../src/v1/errors.js";
+
+// These exercise the full hand-written stack — namespaced resources →
+// generated `Promise*Api` → bearer auth → retry layer → fetch → envelope
+// unwrap → typed-error mapping — by mocking the global `fetch` the generated
+// `IsomorphicFetchHttpLibrary` calls. That's deliberately closer to the wire
+// than mocking the generated API: header/URL/body encoding all get covered.
 
 const BASE = "http://localhost:9998";
 
-function mockFetch(status: number, body?: unknown) {
-  return vi.fn().mockResolvedValue({
-    ok: status >= 200 && status < 300,
+/** A minimal `fetch` Response the generated http library understands:
+ *  it reads `.status`, iterates `.headers`, and calls `.text()` / `.blob()`. */
+function mockFetch(status: number, jsonBody?: unknown, headers: Record<string, string> = {}) {
+  const text = JSON.stringify(jsonBody ?? {});
+  return vi.fn(async () => ({
     status,
-    json: () => Promise.resolve(body),
-    text: () => Promise.resolve(JSON.stringify(body ?? "")),
-  } as Partial<Response> as Response);
+    headers: new Headers({ "content-type": "application/json", ...headers }),
+    text: async () => text,
+    blob: async () => new Blob([text]),
+  }) as unknown as Response);
+}
+
+function lastCall() {
+  const mock = globalThis.fetch as ReturnType<typeof vi.fn>;
+  const [url, init] = mock.mock.calls[mock.mock.calls.length - 1] as [string, RequestInit];
+  return { url, init, headers: init.headers as Record<string, string> };
 }
 
 describe("E2AClient", () => {
   const originalFetch = globalThis.fetch;
   let client: E2AClient;
+  let savedEnv: Record<string, string | undefined>;
 
   beforeEach(() => {
-    client = new E2AClient({
-      apiKey: "e2a_test",
-      baseUrl: BASE,
-      agentEmail: "bot@test.dev",
-    });
+    savedEnv = {
+      E2A_API_KEY: process.env.E2A_API_KEY,
+      E2A_BASE_URL: process.env.E2A_BASE_URL,
+      E2A_AGENT_EMAIL: process.env.E2A_AGENT_EMAIL,
+    };
+    delete process.env.E2A_API_KEY;
+    delete process.env.E2A_BASE_URL;
+    delete process.env.E2A_AGENT_EMAIL;
+    client = new E2AClient({ apiKey: "e2a_test", baseUrl: BASE });
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-  });
-
-  it("requires agentEmail at point of use", async () => {
-    const prev = process.env.E2A_AGENT_EMAIL;
-    delete process.env.E2A_AGENT_EMAIL;
-    try {
-      const c = new E2AClient({ apiKey: "e2a_test", baseUrl: BASE });
-      globalThis.fetch = mockFetch(200, { messages: [] });
-      await expect(c.listMessages()).rejects.toThrow("agentEmail is required");
-    } finally {
-      if (prev !== undefined) process.env.E2A_AGENT_EMAIL = prev;
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
     }
   });
 
-  it("falls back to E2A_AGENT_EMAIL env var when agentEmail not passed", () => {
-    const prev = process.env.E2A_AGENT_EMAIL;
-    process.env.E2A_AGENT_EMAIL = "env-default@test.dev";
-    try {
-      const c = new E2AClient({ apiKey: "e2a_test", baseUrl: BASE });
-      expect(c.agentEmail).toBe("env-default@test.dev");
-      // Explicit arg still wins.
-      const c2 = new E2AClient({
-        apiKey: "e2a_test",
-        baseUrl: BASE,
-        agentEmail: "explicit@test.dev",
-      });
-      expect(c2.agentEmail).toBe("explicit@test.dev");
-    } finally {
-      if (prev === undefined) delete process.env.E2A_AGENT_EMAIL;
-      else process.env.E2A_AGENT_EMAIL = prev;
-    }
+  // ── Construction ────────────────────────────────────────────────
+
+  it("requires an apiKey (throws when none is given or in env)", () => {
+    expect(() => new E2AClient({ baseUrl: BASE })).toThrow(/apiKey is required/);
   });
 
-  it("exposes the raw api", () => {
-    expect(client.api).toBeDefined();
-    expect(client.api.apiKey).toBe("e2a_test");
+  it("falls back to E2A_API_KEY from the environment", () => {
+    process.env.E2A_API_KEY = "e2a_env";
+    expect(() => new E2AClient({ baseUrl: BASE })).not.toThrow();
   });
 
-  // ── Agents ──────────────────────────────────────────────────
-
-  it("listAgents", async () => {
-    globalThis.fetch = mockFetch(200, { agents: [{ id: "ag_1", email: "bot@test.dev" }] });
-    const res = await client.listAgents();
-    expect(res.agents![0].email).toBe("bot@test.dev");
+  it("exposes the namespaced resources", () => {
+    expect(client.agents).toBeDefined();
+    expect(client.messages).toBeDefined();
+    expect(client.conversations).toBeDefined();
+    expect(client.domains).toBeDefined();
+    expect(client.events).toBeDefined();
+    expect(client.webhooks).toBeDefined();
+    expect(client.account).toBeDefined();
+    expect(client.account.suppressions).toBeDefined();
   });
 
-  it("registerAgent", async () => {
+  // ── Auth + transport ────────────────────────────────────────────
+
+  it("sends the bearer Authorization header", async () => {
+    globalThis.fetch = mockFetch(200, { id: "ag_1", email: "bot@test.dev" });
+    await client.agents.get("bot@test.dev");
+    expect(lastCall().headers["Authorization"]).toBe("Bearer e2a_test");
+  });
+
+  // ── Agents ──────────────────────────────────────────────────────
+
+  it("agents.get hits GET /v1/agents/{address} (URL-encoded)", async () => {
+    globalThis.fetch = mockFetch(200, { id: "ag_1", email: "bot@test.dev" });
+    const agent = await client.agents.get("bot@test.dev");
+    const { url, init } = lastCall();
+    expect(init.method).toBe("GET");
+    expect(url).toContain("/v1/agents/");
+    expect(url).toContain("bot%40test.dev");
+    expect(agent.email).toBe("bot@test.dev");
+  });
+
+  it("agents.create POSTs the body to /v1/agents", async () => {
     globalThis.fetch = mockFetch(201, { id: "ag_new", email: "new@test.dev" });
-    const res = await client.registerAgent({ email: "new@test.dev", agent_mode: "local" });
+    const res = await client.agents.create({ email: "new@test.dev", agent_mode: "local" } as never);
+    const { url, init } = lastCall();
+    expect(init.method).toBe("POST");
+    expect(url).toContain("/v1/agents");
+    expect(JSON.parse(init.body as string)).toMatchObject({ email: "new@test.dev" });
     expect(res.id).toBe("ag_new");
   });
 
-  it("getAgent uses default email", async () => {
-    globalThis.fetch = mockFetch(200, { id: "ag_1", email: "bot@test.dev" });
-    await client.getAgent();
-    const url = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
-    expect(url).toContain("bot%40test.dev");
+  it("agents.list returns an AutoPager over the agents array", async () => {
+    globalThis.fetch = mockFetch(200, { agents: [{ id: "ag_1", email: "bot@test.dev" }] });
+    const items = await client.agents.list().toArray({ limit: 10 });
+    expect(items).toHaveLength(1);
+    expect(items[0].email).toBe("bot@test.dev");
   });
 
-  it("getAgent accepts override", async () => {
-    globalThis.fetch = mockFetch(200, { id: "ag_2", email: "other@test.dev" });
-    await client.getAgent("other@test.dev");
-    const url = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
-    expect(url).toContain("other%40test.dev");
+  // ── Messages: idempotency + pagination ──────────────────────────
+
+  it("messages.send mints an Idempotency-Key for the POST", async () => {
+    globalThis.fetch = mockFetch(200, { message_id: "msg_s1", status: "sent" });
+    await client.messages.send("bot@test.dev", { to: ["a@x.com"], subject: "Hi", body: "Hello" } as never);
+    const { url, init, headers } = lastCall();
+    expect(init.method).toBe("POST");
+    expect(url).toContain("/v1/agents/bot%40test.dev/messages");
+    expect(headers["Idempotency-Key"]).toBeTruthy();
   });
 
-  it("deleteAgent", async () => {
-    globalThis.fetch = mockFetch(200, {});
-    await expect(client.deleteAgent()).resolves.toBeUndefined();
-  });
-
-  // ── Messages ────────────────────────────────────────────────
-
-  it("listMessages", async () => {
-    globalThis.fetch = mockFetch(200, { messages: [{ message_id: "msg_1" }] });
-    const res = await client.listMessages({ status: "unread" });
-    expect(res.messages).toHaveLength(1);
-  });
-
-  it("getMessage returns InboundEmail", async () => {
-    globalThis.fetch = mockFetch(200, {
-      message_id: "msg_1",
-      from: "alice@example.com",
-      to: ["bot@test.dev"],
-      recipient: "bot@test.dev",
-      subject: "Hello",
-      raw_message: Buffer.from(
-        "From: alice@example.com\r\nTo: bot@test.dev\r\nSubject: Hello\r\n\r\nHi!",
-      ).toString("base64"),
-      auth_headers: { "X-E2A-Auth-Verified": "true" },
-    });
-    const email = await client.getMessage("msg_1");
-    expect(email).toBeInstanceOf(InboundEmail);
-    expect(email.messageId).toBe("msg_1");
-    expect(email.sender).toBe("alice@example.com");
-    expect(email.subject).toBe("Hello");
-    expect(email.textBody).toBe("Hi!");
-    expect(email.auth.verified).toBe(true);
-    expect(email.isVerified).toBe(true);
-  });
-
-  it("parse returns InboundEmail from MessageDetail", async () => {
-    const email = await client.parse({
-      message_id: "msg_2",
-      from: "bob@example.com",
-      to: ["bot@test.dev"],
-      recipient: "bot@test.dev",
-      raw_message: Buffer.from(
-        "From: bob@example.com\r\nTo: bot@test.dev\r\nSubject: Test\r\n\r\nBody",
-      ).toString("base64"),
-      auth_headers: {
-        "X-E2A-Auth-Verified": "false",
-        "X-E2A-Auth-Sender": "bob@example.com",
-        "X-E2A-Auth-Entity-Type": "human",
-      },
-    });
-    expect(email).toBeInstanceOf(InboundEmail);
-    // Unverified by default — claim getters throw, but unverifiedPayload
-    // and the always-available auth/isVerified/verified work.
-    expect(email.unverifiedPayload.messageId).toBe("msg_2");
-    expect(email.auth.verified).toBe(false);
-    expect(email.auth.sender).toBe("bob@example.com");
-    expect(email.auth.entityType).toBe("human");
-    expect(email.isVerified).toBe(false);
-    expect(email.verified).toBe(false);
-  });
-
-  it("parse accepts a webhook payload object", async () => {
-    const payload: WebhookPayload = {
-      message_id: "msg_webhook",
-      from: "carol@example.com",
-      to: ["bot@test.dev"],
-      recipient: "bot@test.dev",
-      raw_message: Buffer.from(
-        "From: carol@example.com\r\nTo: bot@test.dev\r\nSubject: Webhook\r\n\r\nPayload body",
-      ).toString("base64"),
-      auth_headers: {
-        "X-E2A-Auth-Verified": "true",
-        "X-E2A-Auth-Sender": "carol@example.com",
-      },
-      received_at: "2026-03-29T00:00:00Z",
-    };
-
-    const email = await client.parse(payload);
-    expect(email).toBeInstanceOf(InboundEmail);
-    // Unverified by default — read via unverifiedPayload.
-    expect(email.unverifiedPayload.messageId).toBe("msg_webhook");
-    expect(email.unverifiedPayload.sender).toBe("carol@example.com");
-    expect(email.unverifiedPayload.textBody).toBe("Payload body");
-    // auth is always accessible.
-    expect(email.auth.sender).toBe("carol@example.com");
-  });
-
-  it("parse exposes structured to/cc lists from the server payload", async () => {
-    const payload: WebhookPayload = {
-      message_id: "msg_lists",
-      from: "alice@example.com",
-      to: ["bot-a@test.dev", "bot-b@test.dev"],
-      cc: ["watcher@example.com"],
-      recipient: "bot-a@test.dev",
-      raw_message: Buffer.from(
-        "From: alice@example.com\r\nTo: bot-a@test.dev, bot-b@test.dev\r\n" +
-        "Cc: watcher@example.com\r\nSubject: Group\r\n\r\nbody",
-      ).toString("base64"),
-    };
-
-    const email = await client.parse(payload);
-    // Unverified — read via unverifiedPayload.
-    expect(email.unverifiedPayload.to).toEqual(["bot-a@test.dev", "bot-b@test.dev"]);
-    expect(email.unverifiedPayload.cc).toEqual(["watcher@example.com"]);
-    expect(email.unverifiedPayload.recipient).toBe("bot-a@test.dev");
-  });
-
-  it("parse accepts JSON string and Buffer webhook payloads", async () => {
-    const payload = {
-      message_id: "msg_string",
-      from: "dana@example.com",
-      to: ["bot@test.dev"],
-      recipient: "bot@test.dev",
-      raw_message: Buffer.from(
-        "From: dana@example.com\r\nTo: bot@test.dev\r\nSubject: Buffer\r\n\r\nBuffer body",
-      ).toString("base64"),
-      auth_headers: { "X-E2A-Auth-Verified": "false" },
-    };
-
-    const fromString = await client.parse(JSON.stringify(payload));
-    expect(fromString.unverifiedPayload.messageId).toBe("msg_string");
-    expect(fromString.unverifiedPayload.textBody).toBe("Buffer body");
-
-    const fromBuffer = await client.parse(
-      Buffer.from(JSON.stringify({ ...payload, message_id: "msg_buffer" })),
+  it("messages.send uses a caller-supplied idempotency key", async () => {
+    globalThis.fetch = mockFetch(200, { message_id: "msg_s2", status: "sent" });
+    await client.messages.send(
+      "bot@test.dev",
+      { to: ["a@x.com"], subject: "Hi", body: "Hello" } as never,
+      { idempotencyKey: "caller-key-123" },
     );
-    expect(fromBuffer.unverifiedPayload.messageId).toBe("msg_buffer");
-    expect(fromBuffer.unverifiedPayload.sender).toBe("dana@example.com");
+    expect(lastCall().headers["Idempotency-Key"]).toBe("caller-key-123");
   });
 
-  // ── Deprecation contract for parse() ─────────────────────────────
+  it("messages.list threads next_cursor across pages", async () => {
+    const calls: string[] = [];
+    globalThis.fetch = vi.fn(async (url: string) => {
+      calls.push(url);
+      const cursor = new URL(url).searchParams.get("cursor");
+      const text = cursor
+        ? JSON.stringify({ items: [{ message_id: "msg_2" }], next_cursor: null })
+        : JSON.stringify({ items: [{ message_id: "msg_1" }], next_cursor: "cur_2" });
+      return {
+        status: 200,
+        headers: new Headers({ "content-type": "application/json" }),
+        text: async () => text,
+        blob: async () => new Blob([text]),
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
 
-  it("parse() logs a deprecation warning pointing at parseWebhook", async () => {
-    // Mirrors the Python SDK contract — pin so the warning isn't silently
-    // dropped before the 3.0 removal.
-    _resetParseDeprecationWarningForTests();
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const items = await client.messages.list("bot@test.dev").toArray({ limit: 50 });
+    expect(items.map((m) => m.messageId)).toEqual(["msg_1", "msg_2"]);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toContain("cursor=cur_2");
+  });
+
+  // ── Error mapping ───────────────────────────────────────────────
+
+  it("maps a 404 envelope to E2ANotFoundError", async () => {
+    globalThis.fetch = mockFetch(404, { error: { code: "agent_not_found", message: "no such agent" } });
+    await expect(client.agents.get("ghost@test.dev")).rejects.toBeInstanceOf(E2ANotFoundError);
+  });
+
+  it("maps a 409 envelope to E2AConflictError", async () => {
+    globalThis.fetch = mockFetch(409, { error: { code: "domain_exists", message: "already registered" } });
+    await expect(
+      client.domains.create({ domain: "dup.dev" } as never),
+    ).rejects.toBeInstanceOf(E2AConflictError);
+  });
+
+  it("maps a 422 envelope to E2AValidationError", async () => {
+    globalThis.fetch = mockFetch(422, { error: { code: "invalid_request", message: "bad input" } });
+    await expect(
+      client.agents.create({ email: "" } as never),
+    ).rejects.toBeInstanceOf(E2AValidationError);
+  });
+
+  it("surfaces the envelope code/message/requestId on the typed error", async () => {
+    globalThis.fetch = mockFetch(
+      404,
+      { error: { code: "agent_not_found", message: "no such agent" } },
+      { "x-request-id": "req_abc" },
+    );
     try {
-      const payload: WebhookPayload = {
-        message_id: "msg_dep_1",
-        from: "x@example.com",
-        to: ["bot@test.dev"],
-        recipient: "bot@test.dev",
-        raw_message: Buffer.from(
-          "From: x@example.com\r\nTo: bot@test.dev\r\nSubject: D\r\n\r\nbody",
-        ).toString("base64"),
-      };
-      await client.parse(payload);
-      expect(warn).toHaveBeenCalledOnce();
-      expect(warn.mock.calls[0][0]).toContain("parseWebhook");
-      expect(warn.mock.calls[0][0]).toContain("deprecated");
-    } finally {
-      warn.mockRestore();
+      await client.agents.get("ghost@test.dev");
+      throw new Error("expected to throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(E2AError);
+      const err = e as E2AError;
+      expect(err.code).toBe("agent_not_found");
+      expect(err.message).toBe("no such agent");
+      expect(err.requestId).toBe("req_abc");
+      expect(err.status).toBe(404);
     }
   });
 
-  it("parse() warning is once-per-process, not once-per-call", async () => {
-    // The warning would be obnoxious if it fired on every call in a hot
-    // webhook handler. Pin the once-per-process behaviour so future
-    // refactors don't regress it.
-    _resetParseDeprecationWarningForTests();
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      const payload: WebhookPayload = {
-        message_id: "msg_dep_2",
-        from: "x@example.com",
-        to: ["bot@test.dev"],
-        recipient: "bot@test.dev",
-        raw_message: Buffer.from(
-          "From: x@example.com\r\nTo: bot@test.dev\r\nSubject: D\r\n\r\nbody",
-        ).toString("base64"),
-      };
-      await client.parse(payload);
-      await client.parse(payload);
-      await client.parse(payload);
-      expect(warn).toHaveBeenCalledOnce();
-    } finally {
-      warn.mockRestore();
-    }
-  });
+  // ── listen() ────────────────────────────────────────────────────
 
-  it("parseWebhook() does not emit the parse() deprecation warning", async () => {
-    // Regression: an early refactor had parseWebhook delegate to parse(),
-    // which made every correct caller see the deprecation message.
-    _resetParseDeprecationWarningForTests();
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      const payload: WebhookPayload = {
-        message_id: "msg_dep_3",
-        from: "x@example.com",
-        to: ["bot@test.dev"],
-        recipient: "bot@test.dev",
-        raw_message: Buffer.from(
-          "From: x@example.com\r\nTo: bot@test.dev\r\nSubject: D\r\n\r\nbody",
-        ).toString("base64"),
-        auth_headers: {},
-      };
-      await expect(
-        client.parseWebhook(payload, "any-secret"),
-      ).rejects.toThrow();
-      expect(warn).not.toHaveBeenCalled();
-    } finally {
-      warn.mockRestore();
-    }
-  });
-
-  it("reply", async () => {
-    globalThis.fetch = mockFetch(200, { status: "sent", message_id: "msg_r1" });
-    const res = await client.reply("msg_1", "thanks");
-    expect(res.status).toBe("sent");
-    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
-    expect(body.body).toBe("thanks");
-  });
-
-  it("reply with html and conversationId", async () => {
-    globalThis.fetch = mockFetch(200, { status: "sent" });
-    await client.reply("msg_1", "thanks", {
-      htmlBody: "<p>thanks</p>",
-      conversationId: "conv_1",
-    });
-    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
-    expect(body.html_body).toBe("<p>thanks</p>");
-    expect(body.conversation_id).toBe("conv_1");
-  });
-
-  it("reply with replyAll, cc, bcc", async () => {
-    globalThis.fetch = mockFetch(200, { status: "sent" });
-    await client.reply("msg_1", "thanks", {
-      replyAll: true,
-      cc: ["bob@example.com"],
-      bcc: ["carol@example.com"],
-    });
-    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
-    expect(body.reply_all).toBe(true);
-    expect(body.cc).toEqual(["bob@example.com"]);
-    expect(body.bcc).toEqual(["carol@example.com"]);
-  });
-
-  // ── Domains ─────────────────────────────────────────────────
-
-  it("listDomains", async () => {
-    globalThis.fetch = mockFetch(200, { domains: [] });
-    const res = await client.listDomains();
-    expect(res.domains).toHaveLength(0);
-  });
-
-  it("registerDomain", async () => {
-    globalThis.fetch = mockFetch(201, { domain: "new.dev", verified: false });
-    const res = await client.registerDomain("new.dev");
-    expect(res.verified).toBe(false);
-    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
-    expect(body.domain).toBe("new.dev");
-  });
-
-  it("deleteDomain", async () => {
-    globalThis.fetch = mockFetch(204);
-    await expect(client.deleteDomain("test.dev")).resolves.toBeUndefined();
-  });
-
-  it("verifyDomain", async () => {
-    globalThis.fetch = mockFetch(200, { domain: "test.dev", verified: true });
-    const res = await client.verifyDomain("test.dev");
-    expect(res.verified).toBe(true);
-  });
-
-  // ── Send ────────────────────────────────────────────────────
-
-  it("send", async () => {
-    globalThis.fetch = mockFetch(200, { status: "sent", message_id: "msg_s1" });
-    const res = await client.send(["alice@example.com"], "Hi", "Hello");
-    expect(res.status).toBe("sent");
-    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
-    expect(body.from).toBe("bot@test.dev");
-    expect(body.to).toEqual(["alice@example.com"]);
-    expect(body.subject).toBe("Hi");
-  });
-
-  it("send with htmlBody, cc, bcc", async () => {
-    globalThis.fetch = mockFetch(200, { status: "sent" });
-    await client.send(["alice@example.com"], "Hi", "Hello", {
-      htmlBody: "<p>Hello</p>",
-      cc: ["bob@example.com"],
-      bcc: ["carol@example.com"],
-    });
-    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
-    expect(body.html_body).toBe("<p>Hello</p>");
-    expect(body.cc).toEqual(["bob@example.com"]);
-    expect(body.bcc).toEqual(["carol@example.com"]);
+  it("listen() requires an address (arg or E2A_AGENT_EMAIL)", () => {
+    expect(() => client.listen()).toThrow(/agentEmail is required/);
   });
 });

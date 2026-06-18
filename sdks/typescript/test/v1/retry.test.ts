@@ -94,6 +94,18 @@ describe("RetryHttpLibrary idempotency", () => {
     expect(fake.seenKeys[0]).toBeUndefined();
   });
 
+  it("mints a key when the header is present but empty (generated-layer stub)", async () => {
+    // The generated send/reply/forward/approve unconditionally set an empty
+    // Idempotency-Key header when the caller passes none. A present-but-empty
+    // header must NOT be mistaken for a caller-supplied key.
+    const req = post();
+    req.setHeaderParam("Idempotency-Key", "");
+    const fake = new FakeHttp([{ status: 500 }, { status: 200 }]);
+    const retry = new RetryHttpLibrary(fake, { sleep: noSleep, genIdempotencyKey: () => "minted" });
+    await retry.send(req).toPromise();
+    expect(fake.seenKeys).toEqual(["minted", "minted"]);
+  });
+
   it("preserves a caller-supplied Idempotency-Key", async () => {
     const req = post();
     req.setHeaderParam("Idempotency-Key", "caller-key");

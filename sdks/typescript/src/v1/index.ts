@@ -1,25 +1,65 @@
-// Versioned v1 API types — generated from OpenAPI spec.
-// Do not edit generated/ files directly; run `make generate` to regenerate.
-export type * from "./generated/types.js";
+// Public surface of the e2a v1 SDK.
+//
+// The canonical request/response types are the generated `oag/` models; the
+// hand-written ergonomic layer (E2AClient + resources, errors, retry,
+// pagination, webhook verification, WS) wraps them. The legacy hand-written
+// `api.ts` / `inbound-email.ts` surface and the swag-generated `generated/`
+// types have been retired in favour of this.
 
-// Hand-written v1 SDK surface
-export { E2AApi, E2AApiError } from "./api.js";
-export type { E2AApiOptions, SendOptions } from "./api.js";
+// Generated request/response models (types + the small value classes).
+export * from "./oag/models/all.js";
+
+// High-level client and its per-resource parameter types.
 export { E2AClient } from "./client.js";
-export type { E2AClientOptions } from "./client.js";
-export { InboundEmail, UnverifiedEmailError } from "./inbound-email.js";
-export type { Attachment, AuthHeaders, WebhookPayload } from "./inbound-email.js";
+export type {
+  E2AClientOptions,
+  RequestOptions,
+  ListMessagesParams,
+  ListEventsParams,
+} from "./client.js";
+
+// Typed error hierarchy.
+export {
+  E2AError,
+  E2AAuthError,
+  E2APermissionError,
+  E2ANotFoundError,
+  E2AConflictError,
+  E2AValidationError,
+  E2AIdempotencyError,
+  E2ARateLimitError,
+  E2AServerError,
+  E2AConnectionError,
+  E2AWebhookSignatureError,
+} from "./errors.js";
+
+// Retry + auto-pagination primitives (exported for advanced configuration).
+export { RetryHttpLibrary } from "./retry.js";
+export type { RetryOptions } from "./retry.js";
+export { AutoPager } from "./pagination.js";
+export type { Page, FetchPage, AutoPagerOptions } from "./pagination.js";
+
+// Webhook signature verification.
+export { verifyWebhookSignature, constructEvent } from "./webhook-signature.js";
+export type {
+  VerifySignatureOptions,
+  ConstructEventOptions,
+  WebhookEvent,
+} from "./webhook-signature.js";
+
+// Real-time WebSocket stream.
 export { WSListener, WSStream } from "./ws.js";
 export type { WSListenerOptions, WSListenerEvents, WSNotification } from "./ws.js";
-export { verifyWebhookSignature } from "./webhook-signature.js";
-export type { VerifySignatureOptions } from "./webhook-signature.js";
 
-// Friendly aliases for the most-used response shapes. These mirror the
-// types Python's SDK exports under the same names (MessageList, MessageSummary,
-// SendResult), so cross-language users can reach for the same vocabulary
-// without diving into `components["schemas"]`.
-import type { components as _components } from "./generated/types.js";
-export type MessageList = _components["schemas"]["ListMessagesResponse"];
-export type MessageSummary = _components["schemas"]["MessageSummary"];
-export type SendResult = _components["schemas"]["SendEmailResponse"];
-export type DeploymentInfo = _components["schemas"]["DeploymentInfo"];
+// Friendly cross-language aliases for the most-used response shapes — mirror
+// the names the Python SDK exports so users reach for the same vocabulary.
+import type {
+  PageMessageSummaryView,
+  MessageSummaryView,
+  SendResultView,
+  DeploymentInfoView,
+} from "./oag/index.js";
+export type MessageList = PageMessageSummaryView;
+export type MessageSummary = MessageSummaryView;
+export type SendResult = SendResultView;
+export type DeploymentInfo = DeploymentInfoView;

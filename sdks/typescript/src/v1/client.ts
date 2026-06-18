@@ -1,570 +1,365 @@
-import type { components } from "./generated/types.js";
-import { E2AApi, E2AApiError, envVar } from "./api.js";
-import type { E2AApiOptions } from "./api.js";
-import { InboundEmail } from "./inbound-email.js";
-import type { WebhookPayload } from "./inbound-email.js";
+// The e2a high-level client (Slice 8b). A thin, namespaced ergonomic layer over
+// the generated `oag/` base: resource sub-clients (`client.agents`,
+// `.messages`, …) wrap the generated `Promise*Api` classes (composition, never
+// inheritance), map the generated `ApiException` to the typed `E2AError`
+// hierarchy, unwrap envelope output bodies, and expose cursor lists as an
+// `AutoPager`. The generated base supplies transport (the retry-wrapped
+// `HttpLibrary`), bearer auth, models, and `ApiException`.
+
+import { createConfiguration } from "./oag/configuration.js";
+import { ServerConfiguration } from "./oag/servers.js";
+import { IsomorphicFetchHttpLibrary } from "./oag/http/isomorphic-fetch.js";
+import { ApiException } from "./oag/apis/exception.js";
+import {
+  PromiseAgentsApi,
+  PromiseMessagesApi,
+  PromiseConversationsApi,
+  PromiseDomainsApi,
+  PromiseEventsApi,
+  PromiseWebhooksApi,
+  PromiseAccountApi,
+  PromiseMetaApi,
+} from "./oag/types/PromiseAPI.js";
+import type {
+  AgentView,
+  CreateAgentRequest,
+  CreateAgentResponse,
+  UpdateAgentRequest,
+  MessageView,
+  MessageSummaryView,
+  SendEmailRequest,
+  ReplyRequest,
+  ForwardRequest,
+  ApproveRequest,
+  RejectInputBody,
+  UpdateMessageRequest,
+  UpdateMessageResultView,
+  SendResultView,
+  ApproveResultView,
+  RejectResultView,
+  ConversationSummaryView,
+  ConversationDetailView,
+  DomainView,
+  RegisterDomainRequest,
+  UpdateDomainRequest,
+  VerifyDomainView,
+  EventJSON,
+  RedeliverEventInputBody,
+  RedeliverView,
+  WebhookView,
+  CreateWebhookRequest,
+  UpdateWebhookRequest,
+  RotateSecretOutputBody,
+  TestWebhookRequest,
+  TestWebhookOutputBody,
+  WebhookDeliveryView,
+  LimitsView,
+  UserExport,
+  DeleteUserDataResult,
+  Suppression,
+  DeploymentInfoView,
+} from "./oag/index.js";
+import { RetryHttpLibrary, type RetryOptions } from "./retry.js";
+import { E2AError, fromApiException, connectionError } from "./errors.js";
+import { AutoPager } from "./pagination.js";
 import { WSStream } from "./ws.js";
 
-type Schemas = components["schemas"];
-type MessagePayload = Schemas["MessageDetail"] | WebhookPayload;
-
-// Module-scoped flag so the deprecation message appears once per
-// process, not once per call. Mirrors the standard Node deprecation
-// pattern (cf. util.deprecate). Tests that need to assert the warning
-// fires can reset this via the exported test helper below.
-let _parseWarnedOnce = false;
-function warnParseDeprecated(): void {
-  if (_parseWarnedOnce) return;
-  _parseWarnedOnce = true;
-  console.warn(
-    "[e2a] E2AClient.parse() is deprecated and will be removed in 3.0. " +
-      "For webhook handlers, use client.parseWebhook(body) — it parses " +
-      "and HMAC-verifies in one call. For inspection without " +
-      "verification, use email.unverifiedPayload after parseWebhook.",
-  );
+export interface E2AClientOptions {
+  /** Account (`e2a_acct_`) or agent (`e2a_agt_`) key, or an OAuth access token.
+   *  Falls back to `E2A_API_KEY`. */
+  apiKey?: string;
+  /** API base URL. Default `https://api.e2a.dev`; override for self-host. */
+  baseUrl?: string;
+  /** Max retry attempts on 429/5xx/connection (default 2). */
+  maxRetries?: RetryOptions["maxRetries"];
+  /** Optional total deadline across attempts (ms). */
+  maxElapsedMs?: RetryOptions["maxElapsedMs"];
 }
 
-/** Test-only: reset the once-per-process deprecation flag. */
-export function _resetParseDeprecationWarningForTests(): void {
-  _parseWarnedOnce = false;
+/** Per-call options for unsafe writes. */
+export interface RequestOptions {
+  /** Stable idempotency key. Omit and the SDK mints one (and reuses it across
+   *  retries). Supply a stable value derived from the triggering event to also
+   *  survive a process restart. */
+  idempotencyKey?: string;
 }
 
-export interface E2AClientOptions extends E2AApiOptions {
-  /**
-   * Default agent email for message/WS operations. Falls back to the
-   * `E2A_AGENT_EMAIL` environment variable when omitted.
-   */
-  agentEmail?: string;
+function envVar(name: string): string | undefined {
+  if (typeof process !== "undefined" && process.env && process.env[name]) return process.env[name];
+  return undefined;
 }
 
-/**
- * High-level e2a client wrapping {@link E2AApi}.
- *
- * Adds agent-email scoping and convenience methods on top of the raw API.
- */
+// Map generated/transport failures to the typed hierarchy: ApiException →
+// envelope-mapped E2AError; an already-typed E2AError passes through; anything
+// else (a transport throw from the retry layer) is a connection error.
+async function call<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof E2AError) throw e;
+    if (e instanceof ApiException) throw fromApiException(e);
+    throw connectionError(e instanceof Error ? e.message : String(e), e);
+  }
+}
+
 export class E2AClient {
-  readonly api: E2AApi;
-  readonly agentEmail: string;
+  readonly agents: AgentsResource;
+  readonly messages: MessagesResource;
+  readonly conversations: ConversationsResource;
+  readonly domains: DomainsResource;
+  readonly events: EventsResource;
+  readonly webhooks: WebhooksResource;
+  readonly account: AccountResource;
+  private readonly meta: PromiseMetaApi;
+  private readonly apiKey: string;
+  private readonly baseUrl: string;
 
   constructor(opts: E2AClientOptions = {}) {
-    this.api = new E2AApi(opts);
-    this.agentEmail = opts.agentEmail || envVar("E2A_AGENT_EMAIL");
+    const apiKey = opts.apiKey ?? envVar("E2A_API_KEY");
+    if (!apiKey) {
+      throw new E2AError({
+        code: "no_api_key",
+        message: "apiKey is required — pass { apiKey } or set E2A_API_KEY",
+        status: 0,
+        retryable: false,
+      });
+    }
+    const baseUrl = opts.baseUrl ?? envVar("E2A_BASE_URL") ?? "https://api.e2a.dev";
+    this.apiKey = apiKey;
+    this.baseUrl = baseUrl;
+    const httpApi = new RetryHttpLibrary(new IsomorphicFetchHttpLibrary(), {
+      maxRetries: opts.maxRetries,
+      maxElapsedMs: opts.maxElapsedMs,
+    });
+    const config = createConfiguration({
+      baseServer: new ServerConfiguration(baseUrl, {}),
+      httpApi,
+      authMethods: { bearer: { tokenProvider: { getToken: () => apiKey } } },
+    });
+
+    this.agents = new AgentsResource(new PromiseAgentsApi(config));
+    this.messages = new MessagesResource(new PromiseMessagesApi(config));
+    this.conversations = new ConversationsResource(new PromiseConversationsApi(config));
+    this.domains = new DomainsResource(new PromiseDomainsApi(config));
+    this.events = new EventsResource(new PromiseEventsApi(config));
+    this.webhooks = new WebhooksResource(new PromiseWebhooksApi(config));
+    this.account = new AccountResource(new PromiseAccountApi(config));
+    this.meta = new PromiseMetaApi(config);
   }
 
-  private requireEmail(override?: string): string {
-    const email = override || this.agentEmail;
-    if (!email) {
-      throw new Error(
-        "agentEmail is required. Pass it to E2AClient(), or provide it per-call.",
+  /** Public deployment metadata. */
+  info(): Promise<DeploymentInfoView> {
+    return call(() => this.meta.getInfo());
+  }
+
+  /**
+   * Open a notification stream for an agent's inbox. Yields lightweight
+   * {@link WSNotification}s; fetch the body with `client.messages.get(address, id)`
+   * when you need it. `address` falls back to `E2A_AGENT_EMAIL`.
+   *
+   *     for await (const n of client.listen("bot@acme.dev")) { ... }
+   */
+  listen(address?: string): WSStream {
+    const target = address ?? envVar("E2A_AGENT_EMAIL");
+    if (!target) {
+      throw new E2AError({
+        code: "missing_address",
+        message: "agentEmail is required — pass client.listen(address) or set E2A_AGENT_EMAIL",
+        status: 0,
+        retryable: false,
+      });
+    }
+    return new WSStream({ apiKey: this.apiKey, agentEmail: target, baseUrl: this.baseUrl });
+  }
+}
+
+class AgentsResource {
+  constructor(private readonly api: PromiseAgentsApi) {}
+  list(): AutoPager<AgentView> {
+    return new AutoPager(async () => ({ items: (await call(() => this.api.listAgents())).agents ?? [] }));
+  }
+  get(address: string): Promise<AgentView> {
+    return call(() => this.api.getAgent(address));
+  }
+  create(body: CreateAgentRequest): Promise<CreateAgentResponse> {
+    return call(() => this.api.createAgent(body));
+  }
+  update(address: string, patch: UpdateAgentRequest): Promise<AgentView> {
+    return call(() => this.api.updateAgent(address, patch));
+  }
+  async delete(address: string): Promise<void> {
+    await call(() => this.api.deleteAgent(address));
+  }
+  test(address: string): Promise<SendResultView> {
+    return call(() => this.api.testAgent(address));
+  }
+}
+
+export interface ListMessagesParams {
+  direction?: "inbound" | "outbound" | "all";
+  status?: "unread" | "read" | "all";
+  sort?: "asc" | "desc";
+  from?: string;
+  subjectContains?: string;
+  conversationId?: string;
+  labels?: string[];
+  since?: string;
+  until?: string;
+  limit?: number;
+}
+
+class MessagesResource {
+  constructor(private readonly api: PromiseMessagesApi) {}
+
+  list(address: string, params: ListMessagesParams = {}): AutoPager<MessageSummaryView> {
+    return new AutoPager(async (cursor) => {
+      const page = await call(() =>
+        this.api.listMessages(address, params.direction, params.status, params.sort, params.from,
+          params.subjectContains, params.conversationId, params.labels, params.since, params.until,
+          cursor, params.limit),
       );
-    }
-    return email;
-  }
-
-  // ── Webhook parsing ──────────────────────────────────────────────
-
-  /**
-   * Parse a webhook payload (or raw `MessageDetail`) into an {@link InboundEmail}.
-   *
-   * @deprecated since 2.2 — will be removed in 3.0. For webhook
-   * handlers, use {@link parseWebhook} (parse + HMAC-verify in one
-   * call). For inspection without verification, call `parseWebhook`
-   * and then read `email.unverifiedPayload` after catching the
-   * verification failure. Calling `parse` logs a one-time deprecation
-   * warning to `console.warn`.
-   *
-   * Returns an *unverified* InboundEmail — claim getters (sender,
-   * subject, body, …) throw `UnverifiedEmailError` until you call
-   * {@link InboundEmail.verifySignature}. The "looks usable until you
-   * touch a field" shape is precisely the trap that motivated the
-   * deprecation.
-   */
-  async parse(body: Buffer | string | MessagePayload): Promise<InboundEmail> {
-    warnParseDeprecated();
-    return this._parseUnverified(body);
-  }
-
-  /**
-   * Internal parse without the deprecation warning. `parseWebhook`
-   * delegates here so the recommended path doesn't emit the warning
-   * meant for direct `parse` callers.
-   */
-  private async _parseUnverified(
-    body: Buffer | string | MessagePayload,
-  ): Promise<InboundEmail> {
-    const detail: MessagePayload =
-      typeof body === "string"
-        ? (JSON.parse(body) as MessagePayload)
-        : Buffer.isBuffer(body)
-          ? (JSON.parse(body.toString("utf-8")) as MessagePayload)
-          : body;
-    return InboundEmail.fromPayload(detail, this);
-  }
-
-  /**
-   * Parse + HMAC-verify a webhook payload in one call.
-   *
-   * Recommended entry point for webhook handlers. Returns an
-   * already-verified {@link InboundEmail} so getters work directly.
-   * Throws on signature failure — let it bubble to a 401 response.
-   *
-   * `secret` defaults to the `E2A_WEBHOOK_SECRET` environment variable
-   * (with `E2A_HMAC_SECRET` accepted as a deprecated alias).
-   */
-  async parseWebhook(
-    body: Buffer | string | MessagePayload,
-    secret?: string,
-  ): Promise<InboundEmail> {
-    const email = await this._parseUnverified(body);
-    if (!email.verifySignature(secret)) {
-      throw new Error("HMAC signature verification failed");
-    }
-    return email;
-  }
-
-  // ── Agents ──────────────────────────────────────────────────────
-
-  async listAgents() {
-    return this.api.listAgents();
-  }
-
-  /**
-   * Register a new agent.
-   *
-   * For shared-domain agents, pass `slug` (just the local part, e.g. `"my-bot"`).
-   * The server appends its configured shared domain automatically — do not
-   * pass a full email. Slug registration only works on deployments where the
-   * operator has enabled it; otherwise the request is rejected with 400.
-   *
-   * For custom-domain agents, pass `email` with the full address
-   * (e.g. `"support@mycompany.com"`). The domain must be registered
-   * and DNS-verified first.
-   */
-  async registerAgent(body: Schemas["RegisterAgentRequest"]) {
-    return this.api.registerAgent(body);
-  }
-
-  async getAgent(email?: string) {
-    return this.api.getAgent(this.requireEmail(email));
-  }
-
-  async deleteAgent(email?: string) {
-    return this.api.deleteAgent(this.requireEmail(email));
-  }
-
-  /**
-   * Update an agent's configuration. Pass any subset of fields; missing
-   * fields keep their current value server-side. Most useful for
-   * toggling HITL on/off or adjusting the approval window.
-   */
-  async updateAgent(
-    body: Schemas["UpdateAgentRequest"],
-    opts?: { agentEmail?: string },
-  ) {
-    return this.api.updateAgent(this.requireEmail(opts?.agentEmail), body);
-  }
-
-  // ── Messages ────────────────────────────────────────────────────
-
-  async listMessages(opts?: {
-    status?: "unread" | "read" | "all";
-    pageSize?: number;
-    token?: string;
-    agentEmail?: string;
-    /**
-     * Sort by created_at. Defaults server-side to `"desc"` (newest
-     * first). Pass `"asc"` to drain the inbox in arrival order — FIFO
-     * polling. The choice is encoded in `next_token` so subsequent
-     * pages keep the same order; switching mid-pagination returns 400.
-     */
-    sort?: "asc" | "desc";
-    /** Case-insensitive substring on sender. Capped at 200 chars. */
-    from?: string;
-    /** Case-insensitive substring on subject. Capped at 200 chars. */
-    subjectContains?: string;
-    /** Exact-match thread id. */
-    conversationId?: string;
-    /** RFC3339 timestamp; messages with created_at >= since. */
-    since?: string;
-    /** RFC3339 timestamp; messages with created_at < until. */
-    until?: string;
-    /**
-     * AND-match filter on message labels. A row is returned only if
-     * ALL given labels are present. Each entry must match the same
-     * charset as a writable label (`[a-z0-9:_-]+`, ≤ 64 chars). Passing
-     * `e2a:*` system labels is allowed at the read layer even though
-     * setting them is server-only.
-     */
-    labels?: string[];
-  }) {
-    return this.api.listMessages(this.requireEmail(opts?.agentEmail), {
-      status: opts?.status,
-      pageSize: opts?.pageSize,
-      token: opts?.token,
-      sort: opts?.sort,
-      from: opts?.from,
-      subjectContains: opts?.subjectContains,
-      conversationId: opts?.conversationId,
-      since: opts?.since,
-      until: opts?.until,
-      labels: opts?.labels,
+      return { items: page.items ?? [], next_cursor: page.nextCursor };
     });
   }
-
-  /**
-   * Apply a delta to a message's labels. Pass `addLabels` and/or
-   * `removeLabels` — each capped at 50 entries per call. Labels are
-   * lowercased server-side and must match `[a-z0-9:_-]+` up to 64
-   * chars. The `e2a:` prefix is reserved for server-applied system
-   * labels; user writes that try to set them return 400. Returns the
-   * post-update label set so callers can echo state without a fetch.
-   */
-  async updateMessageLabels(
-    messageId: string,
-    opts: {
-      addLabels?: string[];
-      removeLabels?: string[];
-      agentEmail?: string;
-    },
-  ) {
-    const body: Schemas["UpdateMessageRequest"] = {};
-    if (opts.addLabels) body.add_labels = opts.addLabels;
-    if (opts.removeLabels) body.remove_labels = opts.removeLabels;
-    return this.api.updateMessageLabels(
-      this.requireEmail(opts.agentEmail),
-      messageId,
-      body,
-    );
+  get(address: string, id: string): Promise<MessageView> {
+    return call(() => this.api.getMessage(address, id));
   }
-
-  /**
-   * Fetch a message and return a parsed {@link InboundEmail}.
-   *
-   * The returned email is **pre-verified** — the REST API channel is
-   * authenticated by the bearer token, so an additional HMAC verify on
-   * the response would be redundant. This differs from {@link parse}
-   * (webhook entry), which leaves the email unverified until you
-   * explicitly verify it.
-   *
-   * For the raw `MessageDetail` JSON, use `client.api.getMessage()`.
-   */
-  async getMessage(
-    messageId: string,
-    agentEmail?: string,
-  ): Promise<InboundEmail> {
-    const detail = await this.api.getMessage(
-      this.requireEmail(agentEmail),
-      messageId,
-    );
-    return InboundEmail.fromPayload(detail, this, /*trusted=*/ true);
+  send(address: string, body: SendEmailRequest, opts: RequestOptions = {}): Promise<SendResultView> {
+    return call(() => this.api.sendMessage(address, body, opts.idempotencyKey));
   }
-
-  async reply(
-    messageId: string,
-    body: string,
-    opts?: {
-      htmlBody?: string;
-      replyAll?: boolean;
-      cc?: string[];
-      bcc?: string[];
-      conversationId?: string;
-      attachments?: Schemas["internal_agent.Attachment"][];
-      agentEmail?: string;
-      /**
-       * Stable key for retry-safe replies. When set, the server caches
-       * the response and replays it on retry with the same key + body.
-       * Omit to let the SDK generate a fresh per-call key (gives you
-       * network-layer retry safety but no benefit across explicit retry
-       * loops — for that, supply your own key derived from the
-       * triggering event).
-       */
-      idempotencyKey?: string;
-    },
-  ) {
-    const req: Schemas["ReplyToMessageRequest"] = { body };
-    if (opts?.htmlBody) req.html_body = opts.htmlBody;
-    if (opts?.replyAll) req.reply_all = opts.replyAll;
-    if (opts?.cc) req.cc = opts.cc;
-    if (opts?.bcc) req.bcc = opts.bcc;
-    if (opts?.conversationId) req.conversation_id = opts.conversationId;
-    if (opts?.attachments) req.attachments = opts.attachments;
-    return this.api.replyToMessage(
-      this.requireEmail(opts?.agentEmail),
-      messageId,
-      req,
-      { idempotencyKey: opts?.idempotencyKey },
-    );
+  reply(address: string, id: string, body: ReplyRequest, opts: RequestOptions = {}): Promise<SendResultView> {
+    return call(() => this.api.replyToMessage(address, id, body, opts.idempotencyKey));
   }
-
-  /**
-   * Forward an inbound message to one or more new recipients. The
-   * server prepends the optional comment, then a Gmail-style header
-   * block with the original From/Date/Subject/To/Cc and the original
-   * body. A forward is treated as a new thread — no In-Reply-To /
-   * References headers are emitted. Pass conversationId to bind the
-   * forward to an existing thread explicitly.
-   */
-  async forward(
-    messageId: string,
-    to: string[],
-    opts?: {
-      body?: string;
-      htmlBody?: string;
-      cc?: string[];
-      bcc?: string[];
-      conversationId?: string;
-      attachments?: Schemas["internal_agent.Attachment"][];
-      agentEmail?: string;
-      /**
-       * Stable key for retry-safe forwards. When set, the server caches
-       * the response and replays it on retry with the same key + body.
-       */
-      idempotencyKey?: string;
-    },
-  ) {
-    const req: Schemas["ForwardMessageRequest"] = { to };
-    if (opts?.body) req.body = opts.body;
-    if (opts?.htmlBody) req.html_body = opts.htmlBody;
-    if (opts?.cc) req.cc = opts.cc;
-    if (opts?.bcc) req.bcc = opts.bcc;
-    if (opts?.conversationId) req.conversation_id = opts.conversationId;
-    if (opts?.attachments) req.attachments = opts.attachments;
-    return this.api.forwardMessage(
-      this.requireEmail(opts?.agentEmail),
-      messageId,
-      req,
-      { idempotencyKey: opts?.idempotencyKey },
-    );
+  forward(address: string, id: string, body: ForwardRequest, opts: RequestOptions = {}): Promise<SendResultView> {
+    return call(() => this.api.forwardMessage(address, id, body, opts.idempotencyKey));
   }
-
-  // ── Conversations ───────────────────────────────────────────────
-
-  /**
-   * List conversations for the configured agent. Returns one summary
-   * row per conversation_id, sorted by most recent activity. The
-   * server hard-caps the response at 100 entries.
-   */
-  async listConversations(opts?: {
-    agentEmail?: string;
-    pageSize?: number;
-    since?: string;
-    until?: string;
-  }) {
-    return this.api.listConversations(this.requireEmail(opts?.agentEmail), {
-      pageSize: opts?.pageSize,
-      since: opts?.since,
-      until: opts?.until,
-    });
+  approve(address: string, id: string, body: ApproveRequest = {}, opts: RequestOptions = {}): Promise<ApproveResultView> {
+    return call(() => this.api.approveMessage(address, id, body, opts.idempotencyKey));
   }
-
-  /**
-   * Fetch a single conversation with all member messages, computed
-   * participants union, and computed labels union (across members).
-   */
-  async getConversation(
-    conversationId: string,
-    opts?: { agentEmail?: string },
-  ) {
-    return this.api.getConversation(
-      this.requireEmail(opts?.agentEmail),
-      conversationId,
-    );
+  reject(address: string, id: string, body: RejectInputBody = {}): Promise<RejectResultView> {
+    return call(() => this.api.rejectMessage(address, id, body));
   }
-
-  // ── Domains ─────────────────────────────────────────────────────
-
-  async listDomains() {
-    return this.api.listDomains();
+  updateLabels(address: string, id: string, body: UpdateMessageRequest): Promise<UpdateMessageResultView> {
+    return call(() => this.api.updateMessage(address, id, body));
   }
+}
 
-  async registerDomain(domain: string) {
-    return this.api.registerDomain({ domain });
+class ConversationsResource {
+  constructor(private readonly api: PromiseConversationsApi) {}
+  async list(address: string, params: { since?: string; until?: string; limit?: number } = {}): Promise<ConversationSummaryView[]> {
+    const page = await call(() => this.api.listConversations(address, params.since, params.until, params.limit));
+    return page.items ?? [];
   }
-
-  async deleteDomain(domain: string) {
-    return this.api.deleteDomain(domain);
+  get(address: string, id: string): Promise<ConversationDetailView> {
+    return call(() => this.api.getConversation(address, id));
   }
+}
 
-  async verifyDomain(domain: string) {
-    return this.api.verifyDomain(domain);
+class DomainsResource {
+  constructor(private readonly api: PromiseDomainsApi) {}
+  list(): AutoPager<DomainView> {
+    return new AutoPager(async () => ({ items: (await call(() => this.api.listDomains())).domains ?? [] }));
   }
-
-  // ── Webhooks (top-level resource) ───────────────────────────────
-
-  async listWebhooks() {
-    return this.api.listWebhooks();
+  get(domain: string): Promise<DomainView> {
+    return call(() => this.api.getDomain(domain));
   }
-
-  async createWebhook(opts: {
-    url: string;
-    events: string[];
-    description?: string;
-    filters?: Schemas["WebhookFilters"];
-  }) {
-    return this.api.createWebhook({
-      url: opts.url,
-      events: opts.events,
-      description: opts.description ?? "",
-      filters: opts.filters,
-    });
+  create(body: RegisterDomainRequest): Promise<DomainView> {
+    return call(() => this.api.registerDomain(body));
   }
-
-  async getWebhook(id: string) {
-    return this.api.getWebhook(id);
+  update(domain: string, patch: UpdateDomainRequest): Promise<DomainView> {
+    return call(() => this.api.updateDomain(domain, patch));
   }
-
-  async updateWebhook(id: string, patch: Schemas["UpdateWebhookRequest"]) {
-    return this.api.updateWebhook(id, patch);
+  async delete(domain: string): Promise<void> {
+    await call(() => this.api.deleteDomain(domain));
   }
-
-  async deleteWebhook(id: string) {
-    return this.api.deleteWebhook(id);
+  verify(domain: string): Promise<VerifyDomainView> {
+    return call(() => this.api.verifyDomain(domain));
   }
+}
 
-  async rotateWebhookSecret(id: string) {
-    return this.api.rotateWebhookSecret(id);
-  }
+export interface ListEventsParams {
+  type?: string;
+  agentId?: string;
+  conversationId?: string;
+  messageId?: string;
+  since?: string;
+  until?: string;
+  limit?: number;
+}
 
-  async testWebhook(
-    id: string,
-    opts?: { event?: string; data?: Record<string, unknown> },
-  ) {
-    return this.api.testWebhook(id, {
-      event: opts?.event ?? "",
-      data: opts?.data,
-    });
-  }
-
-  async listWebhookDeliveries(
-    id: string,
-    opts?: { limit?: number; status?: "pending" | "delivered" | "failed" },
-  ) {
-    return this.api.listWebhookDeliveries(id, opts);
-  }
-
-  // ── Send ────────────────────────────────────────────────────────
-
-  async send(
-    to: string[],
-    subject: string,
-    body: string,
-    opts?: {
-      htmlBody?: string;
-      cc?: string[];
-      bcc?: string[];
-      conversationId?: string;
-      attachments?: Schemas["internal_agent.Attachment"][];
-      agentEmail?: string;
-      /**
-       * Stable key for retry-safe sends. When set, the server caches
-       * the response and replays it on retry with the same key + body.
-       * Omit to let the SDK generate a fresh per-call key (gives you
-       * network-layer retry safety but no benefit across explicit retry
-       * loops — for that, supply your own key derived from the
-       * triggering event).
-       */
-      idempotencyKey?: string;
-    },
-  ) {
-    const req: Schemas["SendEmailRequest"] = {
-      from: this.requireEmail(opts?.agentEmail),
-      to,
-      subject,
-      body,
-    };
-    if (opts?.htmlBody) req.html_body = opts.htmlBody;
-    if (opts?.cc) req.cc = opts.cc;
-    if (opts?.bcc) req.bcc = opts.bcc;
-    if (opts?.conversationId) req.conversation_id = opts.conversationId;
-    if (opts?.attachments) req.attachments = opts.attachments;
-    return this.api.sendEmail(req, { idempotencyKey: opts?.idempotencyKey });
-  }
-
-  // ── HITL (human-in-the-loop approval) ───────────────────────────
-
-  /**
-   * List pending-approval messages across every agent owned by the
-   * authenticated user, sorted by soonest-expiring first.
-   */
-  async listPendingMessages() {
-    return this.api.listPendingMessages();
-  }
-
-  /** Fetch the full detail of one held outbound message. */
-  async getPendingMessage(messageId: string) {
-    return this.api.getPendingMessage(messageId);
-  }
-
-  /**
-   * Approve a held outbound message. Pass overrides to approve with
-   * edits; omit for approve-as-is.
-   *
-   * `agentEmail` is the message's owning agent — taken from the
-   * pending-message listing (`agent_id`) or from the webhook payload.
-   * The server returns 404 if it doesn't match the message's owner.
-   *
-   * Approve fires a real SES send, so `idempotencyKey` works the same
-   * way as on send / reply — supply a stable key derived from the
-   * review event to make retries safe.
-   */
-  async approveMessage(
-    agentEmail: string,
-    messageId: string,
-    overrides: Schemas["ApprovePendingMessageRequest"] = {},
-    opts?: { idempotencyKey?: string },
-  ) {
-    return this.api.approveMessage(agentEmail, messageId, overrides, {
-      idempotencyKey: opts?.idempotencyKey,
-    });
-  }
-
-  /**
-   * Reject a held outbound message. The message is discarded; the
-   * optional reason is stored for audit. `agentEmail` requirements
-   * match approveMessage.
-   */
-  async rejectMessage(agentEmail: string, messageId: string, reason?: string) {
-    return this.api.rejectMessage(agentEmail, messageId, reason);
-  }
-
-  // ── WebSocket ──────────────────────────────────────────────────
-
-  /**
-   * Listen for inbound mail via WebSocket. Returns a {@link WSStream},
-   * which is both an `AsyncIterable<WSNotification>` and an
-   * `EventEmitter` — pick whichever access pattern fits.
-   *
-   *     for await (const notif of client.listen()) {
-   *       if (notif.subject.startsWith("URGENT")) {
-   *         const email = await client.api.getMessage(notif.recipient, notif.message_id);
-   *         // …
-   *       }
-   *     }
-   *
-   * Yielded notifications are lightweight metadata only — the body is
-   * not auto-fetched. This matches the server's design (small WS
-   * frames, explicit REST fetch) and lets callers skip messages
-   * without a network round-trip.
-   *
-   * Reconnects with exponential backoff (1s → 30s by default).
-   *
-   * @param opts.agentEmail Override the client's default agent email.
-   * @param opts.maxBackoffMs Cap on the reconnect delay (default 30s).
-   */
-  listen(opts: { agentEmail?: string; maxBackoffMs?: number } = {}): WSStream {
-    const agentEmail = opts.agentEmail || this.agentEmail;
-    if (!agentEmail) {
-      throw new Error(
-        "agentEmail is required. Pass it to E2AClient(), set E2A_AGENT_EMAIL, or pass it to listen({ agentEmail }).",
+class EventsResource {
+  constructor(private readonly api: PromiseEventsApi) {}
+  list(params: ListEventsParams = {}): AutoPager<EventJSON> {
+    return new AutoPager(async (cursor) => {
+      const page = await call(() =>
+        this.api.listEvents(params.type, params.agentId, params.conversationId, params.messageId,
+          params.since, params.until, cursor, params.limit),
       );
-    }
-    return new WSStream({
-      apiKey: this.api.apiKey,
-      agentEmail,
-      baseUrl: this.api.baseUrl,
-      maxBackoffMs: opts.maxBackoffMs,
+      return { items: page.items ?? [], next_cursor: page.nextCursor };
+    });
+  }
+  get(id: string): Promise<EventJSON> {
+    return call(() => this.api.getEvent(id));
+  }
+  redeliver(id: string, body: RedeliverEventInputBody = {}): Promise<RedeliverView> {
+    return call(() => this.api.redeliverEvent(id, body));
+  }
+}
+
+class WebhooksResource {
+  constructor(private readonly api: PromiseWebhooksApi) {}
+  list(): AutoPager<WebhookView> {
+    return new AutoPager(async () => ({ items: (await call(() => this.api.listWebhooks())).webhooks ?? [] }));
+  }
+  get(id: string): Promise<WebhookView> {
+    return call(() => this.api.getWebhook(id));
+  }
+  create(body: CreateWebhookRequest): Promise<WebhookView> {
+    return call(() => this.api.createWebhook(body));
+  }
+  update(id: string, patch: UpdateWebhookRequest): Promise<WebhookView> {
+    return call(() => this.api.updateWebhook(id, patch));
+  }
+  async delete(id: string): Promise<void> {
+    await call(() => this.api.deleteWebhook(id));
+  }
+  rotateSecret(id: string): Promise<RotateSecretOutputBody> {
+    return call(() => this.api.rotateWebhookSecret(id));
+  }
+  test(id: string, body: TestWebhookRequest = {}): Promise<TestWebhookOutputBody> {
+    return call(() => this.api.testWebhook(id, body));
+  }
+  deliveries(id: string, params: { status?: "pending" | "delivered" | "failed"; limit?: number } = {}): AutoPager<WebhookDeliveryView> {
+    return new AutoPager(async (cursor) => {
+      void cursor; // listWebhookDeliveries has no cursor param yet — single page.
+      const page = await call(() => this.api.listWebhookDeliveries(id, params.status, params.limit));
+      return { items: page.items ?? [], next_cursor: page.nextCursor };
     });
   }
 }
 
-export { E2AApiError };
+class SuppressionsResource {
+  constructor(private readonly api: PromiseAccountApi) {}
+  list(): AutoPager<Suppression> {
+    return new AutoPager(async () => ({ items: (await call(() => this.api.listSuppressions())).suppressions ?? [] }));
+  }
+  async delete(address: string): Promise<void> {
+    await call(() => this.api.deleteSuppression(address));
+  }
+}
+
+class AccountResource {
+  readonly suppressions: SuppressionsResource;
+  constructor(private readonly api: PromiseAccountApi) {
+    this.suppressions = new SuppressionsResource(api);
+  }
+  get(): Promise<LimitsView> {
+    return call(() => this.api.getAccount());
+  }
+  export(): Promise<UserExport> {
+    return call(() => this.api.exportAccount());
+  }
+  delete(confirm?: string): Promise<DeleteUserDataResult> {
+    return call(() => this.api.deleteAccount(confirm));
+  }
+}

@@ -8,7 +8,7 @@ import { EventEmitter } from "node:events";
  * The body is intentionally not included — fetch it via REST when (and
  * only when) you actually need it:
  *
- *     const email = await client.api.getMessage(notif.recipient, notif.message_id);
+ *     const email = await client.messages.get(notif.recipient, notif.message_id);
  */
 export interface WSNotification {
   message_id: string;
@@ -48,7 +48,7 @@ export interface WSListenerEvents {
 /**
  * Notification-only WebSocket listener.
  *
- * Connects to `/api/v1/agents/{email}/ws?token={apiKey}` and emits
+ * Connects to `/v1/agents/{address}/ws?token={apiKey}` and emits
  * `"notification"` events with lightweight metadata. The protocol is
  * server→client only — the client never sends application frames.
  *
@@ -69,7 +69,7 @@ export class WSListener extends EventEmitter<WSListenerEvents> {
     super();
     const base = (opts.baseUrl ?? "https://e2a.dev").replace(/\/+$/, "");
     const wsBase = base.replace(/^http/, "ws");
-    this.url = `${wsBase}/api/v1/agents/${encodeURIComponent(opts.agentEmail)}/ws?token=${opts.apiKey}`;
+    this.url = `${wsBase}/v1/agents/${encodeURIComponent(opts.agentEmail)}/ws?token=${opts.apiKey}`;
     this.shouldReconnect = opts.reconnect ?? true;
     this.initialDelayMs = opts.reconnectDelay ?? 1000;
     this.maxBackoffMs = opts.maxBackoffMs ?? 30_000;
