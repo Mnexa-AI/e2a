@@ -1899,3 +1899,24 @@ Deleted dead legacy codegen: the TS `openapi-typescript` output
 swag→TS npm scripts/devDeps. The `make swagger` target + `web/public/openapi.yaml`
 are kept (the dashboard's `scalar.html` API-reference page renders the file) but
 unwired from `make generate`/`generate-check`.
+
+### 13.3 Known deprecations & follow-ups (from the review passes)
+
+- **Per-user signing secrets — management API dropped, signing path kept
+  (deliberate deprecation).** Deleting `/api/v1/users/me/signing-secrets` removed
+  the only way to create/rotate/delete per-user webhook signing secrets, but the
+  secrets themselves remain a *live* signing path: the SMTP relay signs inbound
+  webhook deliveries with `GetUserSigningSecrets` (falling back to the
+  deployment-wide signer when a user has none), and `hitlnotify` reads them too.
+  So webhook signing never breaks — existing secrets keep working and absent ones
+  use the deployment signer — but per-user signing is now legacy/unmanaged, with
+  per-webhook `whsec_` (`/v1/webhooks/{id}/rotate-secret`) the forward path. This
+  is an accepted deprecation, not a regression in signing behavior; the store
+  schema + relay read path are intentionally left intact for in-place secrets.
+- **Required pre-deploy follow-up: migrate `tests/e2e-prod` to `/v1`.** The manual
+  post-deploy verification suite (run against `https://e2a.dev`, not CI-gated)
+  still calls `/api/v1/*` (~243 refs across ~15 files). It works against prod
+  today via the legacy fallback but **breaks once this change deploys** — most
+  refs are a prefix swap, but the moved/dropped ones (flat HITL approve/reject →
+  agent-scoped `/v1`, signing-secrets, `pending`, `send`) need per-endpoint care.
+  Tracked as its own PR before the legacy surface is removed in prod.
