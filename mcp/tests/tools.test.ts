@@ -10,7 +10,7 @@ import { buildServer } from "../src/server.js";
 // longer carries decoded attachments — the tools parse rawMessage).
 function rawWith(text: string, filename: string, contentType: string, body: Buffer): string {
   const b64 = body.toString("base64");
-  return [
+  const rfc822 = [
     "From: alice@example.com",
     "To: bot@example.com",
     "Subject: hi",
@@ -29,6 +29,9 @@ function rawWith(text: string, filename: string, contentType: string, body: Buff
     "--BNDRY--",
     "",
   ].join("\r\n");
+  // The server base64-encodes raw_message on the wire; the fixture must match
+  // so the tool's decode path is exercised (a plaintext blob would hide it).
+  return Buffer.from(rfc822, "utf8").toString("base64");
 }
 
 const pdfBytes = Buffer.from("%PDF-1.4 fake pdf bytes");
@@ -94,7 +97,10 @@ function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): McpCli
       replyTo: [],
       subject: "hi",
       status: "read",
-      body: { text: "hello world", html: undefined },
+      // Inbound messages carry decoded text in `parsed`, NOT `body` (the server
+      // only sets `body` for outbound held drafts). Match the real wire shape.
+      parsed: { text: "hello world" },
+      body: undefined,
       createdAt: "2026-05-20T10:00:00Z",
       rawMessage: rawWith("hello world", "report.pdf", "application/pdf", pdfBytes),
     })),

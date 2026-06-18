@@ -33,7 +33,10 @@ interface ParsedAttachment {
 // [] when there is no raw MIME (e.g. a body-only summary view).
 async function parseAttachments(email: MessageView): Promise<ParsedAttachment[]> {
   if (!email.rawMessage) return [];
-  const parsed = await simpleParser(email.rawMessage);
+  // rawMessage is base64-encoded on the wire (contentEncoding: base64); decode
+  // to the raw RFC822 bytes before parsing — simpleParser on the base64 text
+  // finds nothing.
+  const parsed = await simpleParser(Buffer.from(email.rawMessage, "base64"));
   return (parsed.attachments ?? []).map((a, i) => ({
     filename: a.filename ?? `attachment-${i}`,
     contentType: a.contentType ?? "application/octet-stream",
@@ -413,7 +416,9 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           reply_to: email.replyTo,
           subject: email.subject,
           status: email.status,
-          body_text: email.body?.text,
+          // Inbound messages carry the decoded text in `parsed`; only outbound
+          // held drafts populate `body` (mirror the CLI's read fallback).
+          body_text: email.parsed?.text ?? email.body?.text,
           body_html: email.body?.html,
           received_at: email.createdAt,
           attachments: attachments.map((a, index) => ({
