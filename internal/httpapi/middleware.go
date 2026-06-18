@@ -115,7 +115,7 @@ func (cw *challengeWriter) Write(b []byte) (int, error) {
 // Hijack forwards to the underlying ResponseWriter so the WebSocket upgrade
 // (root.Get("/v1/agents/{address}/ws", …), which this root middleware also
 // wraps) can still take over the connection. Without this passthrough the
-// gorilla upgrader's `w.(http.Hijacker)` assertion fails and live-tail breaks.
+// WebSocket upgrader's `w.(http.Hijacker)` assertion fails and live-tail breaks.
 func (cw *challengeWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if hj, ok := cw.ResponseWriter.(http.Hijacker); ok {
 		return hj.Hijack()

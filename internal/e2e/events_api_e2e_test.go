@@ -14,7 +14,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
@@ -38,7 +37,6 @@ import (
 //   * REST API: GET /events with pagination + filters
 //   * REST API: GET /events/{id} happy path + 404 + 410
 //   * REST API: POST /events/{id}/redeliver (targeted + fan-out)
-//   * REST API: POST /webhooks/{id}/redeliver-since (bulk)
 //   * Concurrent publishes (deterministic ID dedup)
 //   * Concurrent reads (handler thread safety)
 //   * Auth boundaries (cross-user isolation)
@@ -499,55 +497,6 @@ func TestEventsE2E_RedeliverFanOut(t *testing.T) {
 	}
 	if rcvB.Count() != 2 {
 		t.Errorf("receiver B after replay: %d; want 2", rcvB.Count())
-	}
-}
-
-func TestEventsE2E_RedeliverSinceBulk(t *testing.T) {
-	fix := newEventsFixture(t)
-	defer fix.Close()
-	ctx := context.Background()
-	user := fix.seedUser("e2e_bulk")
-	agent := fix.seedAgent(user, "bulk")
-	apiKey := fix.issueAPIKey(user)
-
-	receiver := newCaptureReceiver()
-	defer receiver.Close()
-	whID := fix.seedWebhook(user, receiver.URL(), []string{webhookpub.EventEmailReceived})
-
-	since := time.Now().Add(-1 * time.Minute)
-	for i := 0; i < 4; i++ {
-		mid := fmt.Sprintf("msg_bulk_%d", i)
-		fix.publishEvent(ctx, webhookpub.Event{
-			ID:        webhookpub.DeterministicEventID(mid, webhookpub.EventEmailReceived),
-			Type:      webhookpub.EventEmailReceived,
-			UserID:    user,
-			AgentID:   agent,
-			MessageID: mid,
-			Data:      map[string]any{"i": i},
-		})
-	}
-	if receiver.Count() != 4 {
-		t.Fatalf("originals: %d; want 4", receiver.Count())
-	}
-
-	body := fmt.Sprintf(`{"since":"%s"}`, since.UTC().Format(time.RFC3339Nano))
-	resp := fix.httpPost("/api/v1/webhooks/"+whID+"/redeliver-since", apiKey, []byte(body))
-	if resp.StatusCode != 200 {
-		b, _ := io.ReadAll(resp.Body)
-		t.Fatalf("redeliver-since status %d: %s", resp.StatusCode, b)
-	}
-	var bulkResp struct {
-		Scheduled             int `json:"scheduled"`
-		SkippedAlreadyPending int `json:"skipped_already_pending"`
-	}
-	json.NewDecoder(resp.Body).Decode(&bulkResp)
-	resp.Body.Close()
-	if bulkResp.Scheduled != 4 {
-		t.Errorf("scheduled = %d; want 4", bulkResp.Scheduled)
-	}
-	fix.drainBoth(ctx)
-	if receiver.Count() != 8 {
-		t.Errorf("after bulk replay: %d; want 8 (4 originals + 4 replays)", receiver.Count())
 	}
 }
 

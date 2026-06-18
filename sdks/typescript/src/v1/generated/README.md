@@ -1,4 +1,4 @@
-# `oag/` — OpenAPI-Generator `/v1` client base (generated)
+# `generated/` — OpenAPI-Generator `/v1` client base (generated)
 
 Do not edit by hand. Regenerate with `make generate-sdk-ts`
 (`sdks/typescript/scripts/generate-oag.sh`): OpenAPI Generator's `typescript`

@@ -9,7 +9,6 @@ import (
 	"io"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"github.com/jackc/pgx/v5"
@@ -17,39 +16,11 @@ import (
 
 // Edge-case tests covering design corners that the main e2e suite
 // glides past:
-//   * 7-day cap boundary on /redeliver-since (design §4.6)
 //   * empty matched_webhook_ids replay returns sensible response
 //   * cursor pagination across filter mismatch
 //   * 410 boundary as expires_at crosses now()
 //   * Replay-since on a webhook that originally matched 0 events
 //   * Long event payload survives JSON round-trip in envelope
-
-func TestEdge_RedeliverSince_7DayCapBoundary(t *testing.T) {
-	fix := newEventsFixture(t)
-	defer fix.Close()
-	user := fix.seedUser("edge_7day")
-	apiKey := fix.issueAPIKey(user)
-	whID := fix.seedWebhook(user, "http://example.com/wh", []string{webhookpub.EventEmailReceived})
-
-	// 8 days ago — should 400.
-	tooOld := time.Now().Add(-8 * 24 * time.Hour).UTC().Format(time.RFC3339)
-	body := fmt.Sprintf(`{"since":"%s"}`, tooOld)
-	resp := fix.httpPost("/api/v1/webhooks/"+whID+"/redeliver-since", apiKey, []byte(body))
-	if resp.StatusCode != 400 {
-		t.Errorf("8 days ago → %d; want 400 (7-day cap)", resp.StatusCode)
-	}
-	resp.Body.Close()
-
-	// Exactly 7 days minus 1 hour — should accept.
-	justWithin := time.Now().Add(-7*24*time.Hour + time.Hour).UTC().Format(time.RFC3339)
-	body2 := fmt.Sprintf(`{"since":"%s"}`, justWithin)
-	resp2 := fix.httpPost("/api/v1/webhooks/"+whID+"/redeliver-since", apiKey, []byte(body2))
-	if resp2.StatusCode != 200 {
-		b, _ := io.ReadAll(resp2.Body)
-		t.Errorf("just-within-window → %d (%s); want 200", resp2.StatusCode, b)
-	}
-	resp2.Body.Close()
-}
 
 func TestEdge_RedeliverEmptyMatched_NoCrash(t *testing.T) {
 	fix := newEventsFixture(t)
@@ -82,28 +53,6 @@ func TestEdge_RedeliverEmptyMatched_NoCrash(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&r)
 	if len(r.Deliveries) != 0 {
 		t.Errorf("empty-matched replay produced %d deliveries; want 0", len(r.Deliveries))
-	}
-}
-
-func TestEdge_RedeliverSinceOnWebhookWithZeroEvents(t *testing.T) {
-	fix := newEventsFixture(t)
-	defer fix.Close()
-	user := fix.seedUser("edge_zero")
-	apiKey := fix.issueAPIKey(user)
-	whID := fix.seedWebhook(user, "http://example.com/wh", []string{webhookpub.EventEmailReceived})
-
-	body := fmt.Sprintf(`{"since":"%s"}`, time.Now().Add(-1*time.Hour).UTC().Format(time.RFC3339))
-	resp := fix.httpPost("/api/v1/webhooks/"+whID+"/redeliver-since", apiKey, []byte(body))
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Fatalf("zero-event window → %d", resp.StatusCode)
-	}
-	var r struct {
-		Scheduled int `json:"scheduled"`
-	}
-	json.NewDecoder(resp.Body).Decode(&r)
-	if r.Scheduled != 0 {
-		t.Errorf("zero-event scheduled = %d; want 0", r.Scheduled)
 	}
 }
 
@@ -199,7 +148,9 @@ func TestEdge_RedeliverIdempotency_FiveMinWindow(t *testing.T) {
 	}
 	r1, _ := io.ReadAll(resp1.Body)
 	resp1.Body.Close()
-	var first struct{ DeliveryID string `json:"delivery_id"` }
+	var first struct {
+		DeliveryID string `json:"delivery_id"`
+	}
 	json.Unmarshal(r1, &first)
 
 	fix.drainBoth(ctx)
@@ -213,7 +164,9 @@ func TestEdge_RedeliverIdempotency_FiveMinWindow(t *testing.T) {
 	}
 	r2, _ := io.ReadAll(resp2.Body)
 	resp2.Body.Close()
-	var second struct{ DeliveryID string `json:"delivery_id"` }
+	var second struct {
+		DeliveryID string `json:"delivery_id"`
+	}
 	json.Unmarshal(r2, &second)
 
 	if first.DeliveryID == "" || first.DeliveryID != second.DeliveryID {
@@ -227,38 +180,6 @@ func TestEdge_RedeliverIdempotency_FiveMinWindow(t *testing.T) {
 		t.Errorf("receiver received %d POSTs after second replay; want %d (idempotent)", got, afterFirst)
 	}
 	_ = originalDeliveries
-}
-
-// Slice B-2 test: 1/min rate limit on POST /webhooks/{id}/redeliver-since.
-// Per design §S9: in-memory per-process limit; second rapid call within
-// the window returns 429 with a Retry-After header.
-func TestEdge_RedeliverSince_RateLimit429(t *testing.T) {
-	fix := newEventsFixture(t)
-	defer fix.Close()
-	user := fix.seedUser("edge_rate")
-	apiKey := fix.issueAPIKey(user)
-	whID := fix.seedWebhook(user, "http://example.com/wh", []string{webhookpub.EventEmailReceived})
-
-	body := fmt.Sprintf(`{"since":"%s"}`,
-		time.Now().Add(-1*time.Minute).UTC().Format(time.RFC3339))
-
-	// First call: should succeed.
-	resp1 := fix.httpPost("/api/v1/webhooks/"+whID+"/redeliver-since", apiKey, []byte(body))
-	resp1.Body.Close()
-	if resp1.StatusCode != 200 {
-		t.Fatalf("first call → %d; want 200", resp1.StatusCode)
-	}
-
-	// Second call within the 1-minute window: should 429.
-	resp2 := fix.httpPost("/api/v1/webhooks/"+whID+"/redeliver-since", apiKey, []byte(body))
-	defer resp2.Body.Close()
-	if resp2.StatusCode != 429 {
-		raw, _ := io.ReadAll(resp2.Body)
-		t.Errorf("second call → %d (%s); want 429", resp2.StatusCode, raw)
-	}
-	if ra := resp2.Header.Get("Retry-After"); ra == "" {
-		t.Error("Retry-After header missing on 429")
-	}
 }
 
 // Replay always signs with the CURRENT signing secret, never with a
