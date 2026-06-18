@@ -32,13 +32,13 @@ type MessageView struct {
 	ConversationID string   `json:"conversation_id"`
 	// Direction (inbound|outbound) — mirrors MessageSummaryView so a client
 	// fetching a single message keeps the full trust-axis context (review F1).
-	Direction string `json:"direction"`
+	Direction string `json:"direction" enum:"inbound,outbound"`
 	Status    string `json:"status"`
 	// HITLStatus is the human-in-the-loop lifecycle (e.g. pending_approval) —
 	// outbound only, mirroring MessageSummaryView. Distinct from `status`
 	// (the delivery rollup) so a held draft is identifiable on the detail view
-	// without re-deriving it (review F1).
-	HITLStatus string `json:"hitl_status,omitempty"`
+	// without re-deriving it (review F1). Closed set = migration 003 CHECK.
+	HITLStatus string `json:"hitl_status,omitempty" enum:"pending_approval,sent,rejected,expired_approved,expired_rejected"`
 	// DeliveryStatus is the outbound delivery rollup (migration 031:
 	// 'sent', 'delivered', 'bounced', …) — the worst recipient status by
 	// precedence. Outbound-only; omitted on inbound messages.
@@ -158,7 +158,7 @@ type messageOutput struct {
 // deleted at the 1Z cutover.
 type MessageSummaryView struct {
 	ID             string   `json:"message_id"`
-	Direction      string   `json:"direction"`
+	Direction      string   `json:"direction" enum:"inbound,outbound"`
 	From           string   `json:"from"`
 	To             []string `json:"to"`
 	CC             []string `json:"cc,omitempty"`
@@ -167,7 +167,7 @@ type MessageSummaryView struct {
 	Subject        string   `json:"subject"`
 	ConversationID string   `json:"conversation_id,omitempty"`
 	Status         string   `json:"status"`
-	HITLStatus     string   `json:"hitl_status,omitempty"`
+	HITLStatus     string   `json:"hitl_status,omitempty" enum:"pending_approval,sent,rejected,expired_approved,expired_rejected"`
 	WebhookStatus  string   `json:"webhook_status,omitempty"`
 	WebhookError   string   `json:"webhook_error,omitempty"`
 	// DeliveryStatus / DeliveryDetail / SentAs are the outbound delivery

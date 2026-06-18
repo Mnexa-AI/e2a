@@ -15,7 +15,7 @@ import (
 // It is generic over the item view type so each resource reuses the same
 // envelope without redefining it.
 type Page[T any] struct {
-	Items      []T     `json:"items"`
+	Items      []T     `json:"items" nullable:"false"`
 	NextCursor *string `json:"next_cursor"`
 }
 

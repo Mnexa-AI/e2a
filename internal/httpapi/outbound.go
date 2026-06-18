@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -12,11 +13,27 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 )
 
+// jsonResponse builds an extra OpenAPI response entry for an operation whose
+// handler can return a non-default status with the given body schema. The
+// schema is registered (and reused via $ref) in the API's component registry,
+// so the declared response stays in lockstep with the Go type — no hand-edits
+// to api/openapi.yaml. Used to document the 202 (HITL hold) / 412 / 409 codes
+// the typed handlers emit but Huma can't infer from the single DefaultStatus.
+func (s *Server) jsonResponse(bodyType reflect.Type, schemaName, description string) *huma.Response {
+	schema := s.API.OpenAPI().Components.Schemas.Schema(bodyType, true, schemaName)
+	return &huma.Response{
+		Description: description,
+		Content: map[string]*huma.MediaType{
+			"application/json": {Schema: schema},
+		},
+	}
+}
+
 // SendResultView is the unified outbound response: {status, message_id,
 // method} for an immediate send/loopback, or {status:"pending_approval",
 // message_id, approval_expires_at} (202) when held for HITL approval.
 type SendResultView struct {
-	Status            string     `json:"status"`
+	Status            string     `json:"status" enum:"sent,pending_approval"`
 	MessageID         string     `json:"message_id"`
 	Method            string     `json:"method,omitempty"`
 	ApprovalExpiresAt *time.Time `json:"approval_expires_at,omitempty"`
@@ -26,6 +43,27 @@ type SendResultView struct {
 // matches the legacy 25 MB limit so attachments keep working — Huma's default
 // is only 1 MiB, which would silently reject anything but tiny mail.
 const maxOutboundBytes = 25 * 1024 * 1024
+
+// maxRecipients caps the combined to+cc+bcc fan-out of a single outbound
+// message. A body-size ceiling alone doesn't bound recipient count, so a tiny
+// body could still address thousands of addresses; this keeps a single send
+// from becoming a blast. Over the cap is a 400 too_many_recipients.
+const maxRecipients = 50
+
+// recipientCountError returns a too_many_recipients envelope when the combined
+// to+cc+bcc count exceeds maxRecipients, else nil.
+func recipientCountError(groups ...[]string) *ErrorEnvelope {
+	total := 0
+	for _, g := range groups {
+		total += len(g)
+	}
+	if total > maxRecipients {
+		return NewError(http.StatusBadRequest, "too_many_recipients",
+			"too many recipients — at most 50 across to, cc and bcc combined").
+			WithDetails(map[string]any{"max_recipients": maxRecipients, "provided": total})
+	}
+	return nil
+}
 
 // SendEmailRequest mirrors the legacy /send body.
 type SendEmailRequest struct {
@@ -53,12 +91,21 @@ type sendOutput struct {
 }
 
 func (s *Server) registerOutbound() {
+	// 202 Accepted is the HITL-hold outcome of every outbound op: the message
+	// is queued as a pending_approval draft rather than sent. Declared
+	// explicitly because Huma infers only the single DefaultStatus (200).
+	held202 := func() *huma.Response {
+		return s.jsonResponse(reflect.TypeOf(SendResultView{}), "SendResultView",
+			"Accepted — held for human approval (status=pending_approval).")
+	}
+
 	huma.Register(s.API, huma.Operation{
 		OperationID: "sendMessage", Method: http.MethodPost, Path: "/v1/agents/{address}/messages",
 		Summary: "Send a new email", Tags: []string{"messages"},
 		Description:  "Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
+		Responses:    map[string]*huma.Response{"202": held202()},
 	}, s.handleCreateMessage)
 
 	huma.Register(s.API, huma.Operation{
@@ -67,6 +114,7 @@ func (s *Server) registerOutbound() {
 		Description:  "Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
+		Responses:    map[string]*huma.Response{"202": held202()},
 	}, s.handleReply)
 
 	huma.Register(s.API, huma.Operation{
@@ -75,6 +123,7 @@ func (s *Server) registerOutbound() {
 		Description:  "Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
+		Responses:    map[string]*huma.Response{"202": held202()},
 	}, s.handleForward)
 
 	huma.Register(s.API, huma.Operation{
@@ -82,6 +131,7 @@ func (s *Server) registerOutbound() {
 		Summary: "Send a test email to the agent's own address", Tags: []string{"agents"},
 		Description: "Send a platform test email to the agent's own address to confirm inbound delivery. 202 when held for HITL.",
 		Security:    []map[string][]string{{"bearer": {}}},
+		Responses:   map[string]*huma.Response{"202": held202()},
 	}, s.handleTestSend)
 }
 
@@ -172,6 +222,9 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 	}
 	// Validate only the user-supplied CC/BCC; the implicit To comes from the
 	// (already-validated) inbound message — mirrors the legacy handler.
+	if env := recipientCountError(b.CC, b.BCC); env != nil {
+		return nil, env
+	}
 	if e := agent.ValidateRecipients(b.CC, b.BCC); e != nil {
 		return nil, NewError(http.StatusBadRequest, "invalid_recipient", e.Error())
 	}
@@ -233,6 +286,9 @@ func (s *Server) handleForward(ctx context.Context, in *forwardInput) (*sendOutp
 	if len(b.To) == 0 && len(b.CC) == 0 {
 		return nil, NewError(http.StatusBadRequest, "invalid_request", "at least one recipient in to or cc is required")
 	}
+	if env := recipientCountError(b.To, b.CC, b.BCC); env != nil {
+		return nil, env
+	}
 	if e := agent.ValidateRecipients(b.To, b.CC, b.BCC); e != nil {
 		return nil, NewError(http.StatusBadRequest, "invalid_recipient", e.Error())
 	}
@@ -265,6 +321,9 @@ func (s *Server) validateOutboundBody(subject, body string, to, cc, bcc []string
 	}
 	if len(to) == 0 && len(cc) == 0 {
 		return NewError(http.StatusBadRequest, "invalid_request", "at least one recipient in to or cc is required")
+	}
+	if env := recipientCountError(to, cc, bcc); env != nil {
+		return env
 	}
 	if err := agent.ValidateRecipients(to, cc, bcc); err != nil {
 		return NewError(http.StatusBadRequest, "invalid_recipient", err.Error())

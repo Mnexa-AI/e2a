@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -124,7 +125,7 @@ type VerifyDomainView struct {
 
 type listDomainsOutput struct {
 	Body struct {
-		Domains []DomainView `json:"domains"`
+		Domains []DomainView `json:"domains" nullable:"false"`
 	}
 }
 type domainOutput struct{ Body DomainView }
@@ -153,6 +154,10 @@ func (s *Server) registerDomains() {
 		OperationID: "registerDomain", Method: http.MethodPost, Path: "/v1/domains",
 		Summary: "Register a domain", Tags: []string{"domains"},
 		Security: []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusCreated,
+		Responses: map[string]*huma.Response{
+			"409": s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
+				"Conflict — the domain is already claimed by another account (code domain_taken)."),
+		},
 	}, s.handleRegisterDomain)
 
 	huma.Register(s.API, huma.Operation{
@@ -172,6 +177,10 @@ func (s *Server) registerDomains() {
 		Summary: "Verify a domain", Tags: []string{"domains"},
 		Description: "Probe the domain's published DNS and, when the verification TXT is present, mark it verified. Returns the per-record diagnostic; a missing TXT yields 412.",
 		Security:    []map[string][]string{{"bearer": {}}},
+		Responses: map[string]*huma.Response{
+			"412": s.jsonResponse(reflect.TypeOf(VerifyDomainView{}), "VerifyDomainView",
+				"Precondition Failed — the verification TXT record is not yet published."),
+		},
 	}, s.handleVerifyDomain)
 }
 
@@ -293,7 +302,13 @@ func (s *Server) handleRegisterDomain(ctx context.Context, in *registerDomainInp
 		}
 	}
 	d, err := s.deps.ClaimDomain(ctx, normalized, user.ID)
-	if err != nil || d == nil {
+	if err != nil {
+		if errors.Is(err, identity.ErrDomainTaken) {
+			return nil, NewError(http.StatusConflict, "domain_taken", "domain is already claimed by another account")
+		}
+		return nil, NewError(http.StatusBadRequest, "domain_unavailable", "failed to register domain")
+	}
+	if d == nil {
 		return nil, NewError(http.StatusBadRequest, "domain_unavailable", "failed to register domain")
 	}
 	return &domainCreateOutput{Body: s.domainView(d)}, nil

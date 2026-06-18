@@ -608,6 +608,10 @@ components:
           format: int64
           type: integer
         status:
+          enum:
+            - pending
+            - processed
+            - no_match
           type: string
         type:
           enum:
@@ -731,9 +735,7 @@ components:
         agents:
           items:
             $ref: "#/components/schemas/AgentView"
-          type:
-            - array
-            - "null"
+          type: array
       required:
         - agents
       type: object
@@ -743,9 +745,7 @@ components:
         domains:
           items:
             $ref: "#/components/schemas/DomainView"
-          type:
-            - array
-            - "null"
+          type: array
       required:
         - domains
       type: object
@@ -755,9 +755,7 @@ components:
         webhooks:
           items:
             $ref: "#/components/schemas/WebhookView"
-          type:
-            - array
-            - "null"
+          type: array
       required:
         - webhooks
       type: object
@@ -932,6 +930,9 @@ components:
             - failed
           type: string
         direction:
+          enum:
+            - inbound
+            - outbound
           type: string
         flag_reason:
           type: string
@@ -940,6 +941,12 @@ components:
         from:
           type: string
         hitl_status:
+          enum:
+            - pending_approval
+            - sent
+            - rejected
+            - expired_approved
+            - expired_rejected
           type: string
         labels:
           items:
@@ -1025,6 +1032,9 @@ components:
             - failed
           type: string
         direction:
+          enum:
+            - inbound
+            - outbound
           type: string
         flag_reason:
           type: string
@@ -1033,6 +1043,12 @@ components:
         from:
           type: string
         hitl_status:
+          enum:
+            - pending_approval
+            - sent
+            - rejected
+            - expired_approved
+            - expired_rejected
           type: string
         labels:
           items:
@@ -1119,9 +1135,7 @@ components:
         items:
           items:
             $ref: "#/components/schemas/ConversationSummaryView"
-          type:
-            - array
-            - "null"
+          type: array
         next_cursor:
           type:
             - string
@@ -1136,9 +1150,7 @@ components:
         items:
           items:
             $ref: "#/components/schemas/EventJSON"
-          type:
-            - array
-            - "null"
+          type: array
         next_cursor:
           type:
             - string
@@ -1153,9 +1165,7 @@ components:
         items:
           items:
             $ref: "#/components/schemas/MessageSummaryView"
-          type:
-            - array
-            - "null"
+          type: array
         next_cursor:
           type:
             - string
@@ -1170,9 +1180,7 @@ components:
         items:
           items:
             $ref: "#/components/schemas/WebhookDeliveryView"
-          type:
-            - array
-            - "null"
+          type: array
         next_cursor:
           type:
             - string
@@ -1189,6 +1197,9 @@ components:
         reason:
           type: string
         status:
+          enum:
+            - pending
+            - skipped
           type: string
         webhook_id:
           type: string
@@ -1216,6 +1227,9 @@ components:
         event_id:
           type: string
         status:
+          enum:
+            - pending
+            - scheduled
           type: string
         webhook_id:
           type: string
@@ -1352,6 +1366,9 @@ components:
         method:
           type: string
         status:
+          enum:
+            - sent
+            - pending_approval
           type: string
       required:
         - status
@@ -1396,9 +1413,7 @@ components:
         suppressions:
           items:
             $ref: "#/components/schemas/Suppression"
-          type:
-            - array
-            - "null"
+          type: array
       required:
         - suppressions
       type: object
@@ -1615,6 +1630,7 @@ components:
           format: int64
           type: integer
         created_at:
+          format: date-time
           type: string
         event_type:
           enum:
@@ -1634,6 +1650,7 @@ components:
         id:
           type: string
         last_attempt_at:
+          format: date-time
           type: string
         last_error:
           type: string
@@ -1641,8 +1658,13 @@ components:
           format: int64
           type: integer
         next_retry_at:
+          format: date-time
           type: string
         status:
+          enum:
+            - pending
+            - delivered
+            - failed
           type: string
       required:
         - id
@@ -1678,8 +1700,10 @@ components:
       additionalProperties: false
       properties:
         auto_disabled_at:
+          format: date-time
           type: string
         created_at:
+          format: date-time
           type: string
         description:
           type: string
@@ -1696,8 +1720,7 @@ components:
         id:
           type: string
         last_delivered_at:
-          type: string
-        previous_secret_expires_at:
+          format: date-time
           type: string
         signing_secret:
           type: string
@@ -2220,12 +2243,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: OK
-        default:
+        "202":
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
+                $ref: "#/components/schemas/SendResultView"
+          description: Accepted — held for human approval (status=pending_approval).
       security:
         - bearer: []
       summary: Send a new email
@@ -2391,12 +2414,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: OK
-        default:
+        "202":
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
+                $ref: "#/components/schemas/SendResultView"
+          description: Accepted — held for human approval (status=pending_approval).
       security:
         - bearer: []
       summary: Forward a message
@@ -2478,12 +2501,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: OK
-        default:
+        "202":
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
+                $ref: "#/components/schemas/SendResultView"
+          description: Accepted — held for human approval (status=pending_approval).
       security:
         - bearer: []
       summary: Reply to a message
@@ -2508,12 +2531,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: OK
-        default:
+        "202":
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
+                $ref: "#/components/schemas/SendResultView"
+          description: Accepted — held for human approval (status=pending_approval).
       security:
         - bearer: []
       summary: Send a test email to the agent's own address
@@ -2555,12 +2578,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/DomainView"
           description: Created
-        default:
+        "409":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
+          description: Conflict — the domain is already claimed by another account (code domain_taken).
       security:
         - bearer: []
       summary: Register a domain
@@ -2664,12 +2687,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/VerifyDomainView"
           description: OK
-        default:
+        "412":
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
+                $ref: "#/components/schemas/VerifyDomainView"
+          description: Precondition Failed — the verification TXT record is not yet published.
       security:
         - bearer: []
       summary: Verify a domain

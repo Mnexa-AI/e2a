@@ -88,7 +88,7 @@ func agentViewFromIdentity(ag *identity.AgentIdentity) AgentView {
 
 type listAgentsOutput struct {
 	Body struct {
-		Agents []AgentView `json:"agents"`
+		Agents []AgentView `json:"agents" nullable:"false"`
 	}
 }
 

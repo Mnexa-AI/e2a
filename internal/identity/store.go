@@ -397,7 +397,7 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 		return existing, nil // verified + same user
 	}
 
-	return nil, fmt.Errorf("domain not available")
+	return nil, ErrDomainTaken
 }
 
 // nullIfEmpty returns nil for empty strings so we can write SQL NULL
@@ -686,6 +686,12 @@ var ErrDomainHasAgents = fmt.Errorf("cannot delete domain: agents still exist")
 
 // ErrDomainNotFound is returned when a domain is not found or not owned by the user.
 var ErrDomainNotFound = fmt.Errorf("domain not found or not owned by user")
+
+// ErrDomainTaken is returned by ClaimOrCreateDomain when the domain row exists
+// and is owned by a different user (verified, or an unverified claim that must
+// not be squatted). The API layer maps it to 409 conflict, distinct from the
+// 400 used for malformed input.
+var ErrDomainTaken = fmt.Errorf("domain not available: already claimed by another account")
 
 // DeleteDomain deletes a domain only if owned by the user.
 // The handler should check for existing agents first.

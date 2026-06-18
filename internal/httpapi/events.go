@@ -73,18 +73,22 @@ func (s *Server) registerEvents() {
 
 // RedeliverView mirrors the legacy redeliverResponse.
 type RedeliverView struct {
-	DeliveryID string              `json:"delivery_id,omitempty"`
-	EventID    string              `json:"event_id"`
-	WebhookID  string              `json:"webhook_id,omitempty"`
-	Status     string              `json:"status"`
+	DeliveryID string `json:"delivery_id,omitempty"`
+	EventID    string `json:"event_id"`
+	WebhookID  string `json:"webhook_id,omitempty"`
+	// Status is "pending" for a single-webhook replay (one scheduled delivery)
+	// or "scheduled" for a bulk fan-out (see Deliveries for per-subscriber state).
+	Status     string              `json:"status" enum:"pending,scheduled"`
 	Deliveries []RedeliverDelivery `json:"deliveries,omitempty"`
 }
 
 type RedeliverDelivery struct {
 	WebhookID  string `json:"webhook_id"`
 	DeliveryID string `json:"delivery_id,omitempty"`
-	Status     string `json:"status"`
-	Reason     string `json:"reason,omitempty"`
+	// Status is "pending" when the replay was scheduled, or "skipped" when this
+	// subscriber's delivery could not be enqueued (see Reason).
+	Status string `json:"status" enum:"pending,skipped"`
+	Reason string `json:"reason,omitempty"`
 }
 
 type RedeliverEventInput struct {

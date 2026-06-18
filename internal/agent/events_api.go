@@ -39,7 +39,7 @@ type eventJSON struct {
 	AgentID        *string                `json:"agent_id,omitempty"`
 	ConversationID *string                `json:"conversation_id,omitempty"`
 	MessageID      *string                `json:"message_id,omitempty"`
-	Status         string                 `json:"status"`
+	Status         string                 `json:"status" enum:"pending,processed,no_match"`
 	Data           map[string]interface{} `json:"data"`
 	DeliveryStatus *deliveryStatusJSON    `json:"delivery_status,omitempty"`
 }

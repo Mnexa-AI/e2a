@@ -72,7 +72,7 @@ func (s *Server) registerAccount() {
 
 type suppressionsOutput struct {
 	Body struct {
-		Suppressions []identity.Suppression `json:"suppressions"`
+		Suppressions []identity.Suppression `json:"suppressions" nullable:"false"`
 	}
 }
 

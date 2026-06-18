@@ -151,6 +151,9 @@ func testServer(t *testing.T) *httptest.Server {
 			return []identity.Domain{{Domain: "acme.com", Verified: true, VerificationToken: "e2a-verify=tok", IsPrimary: true, AgentCount: 2}}, nil
 		},
 		ClaimDomain: func(ctx context.Context, domain, userID string) (*identity.Domain, error) {
+			if domain == "taken.com" {
+				return nil, identity.ErrDomainTaken
+			}
 			return &identity.Domain{Domain: domain, Verified: false, VerificationToken: "e2a-verify=new"}, nil
 		},
 		EnforceDomainCreate: func(ctx context.Context, userID string) error {

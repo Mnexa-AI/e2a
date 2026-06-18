@@ -1799,3 +1799,54 @@ unified `main`); F1's SDK pickup (mechanical `oag` regen against the F1 spec onc
 #231 lands and the SDK branches rebase). F5 is the next slice; F8/F9 are recorded
 decisions. None block the legacy `/api/v1` deletion (8e), still gated on merging
 the consumer PRs.
+
+### 12.3 Endpoint-by-endpoint type review (round 2) — TDD'd
+
+A second, deeper pass reviewed every `/v1` endpoint's request/response types
+against the Go handlers + store (not just the spec). It found **four more
+F1-class correctness bugs** (a field declared/required on the wire but
+unpopulated or inconsistent across paths) plus a batch of contract-honesty gaps.
+Every fix was **test-first**: a contract/store test was written and confirmed to
+**fail for the documented reason**, then fixed to green.
+
+**Correctness bugs (all fixed, commit `1a80730`):**
+- **B1** — outbound messages returned `from: ""`: the two outbound INSERTs never
+  wrote the `sender` column. Now persist `sender = agent id` (== email).
+  (`TestOutboundMessageHasSender`.)
+- **B2** — `status` meant the delivery rollup on the detail view but the inbox
+  read-state on the list, so an outbound message's **required** `status` changed
+  on re-fetch. The detail view now reads `InboxStatus` (matching the summary);
+  the rollup stays in `delivery_status`, the HITL state in `hitl_status`.
+  (`TestMessageStatusConsistentAcrossViews`.)
+- **B3** — `EventJSON.data` (a required object) serialized as JSON `null` when a
+  stored envelope's `data` was null/absent. Both list + get now coalesce
+  `nil → {}`. (`TestEventData_NeverNull_GetAndList`.)
+- **B4a** — event `delivery_status` was populated on get but not list; `listEvents`
+  now enriches each event (parity with `getEvent`). (`TestEventDeliveryStatus_*`.)
+- **B4b** — conversation-thread messages dropped `webhook_status`/`webhook_error`
+  the standalone list carries; `GetConversationByID` now `LEFT JOIN`s
+  `webhook_deliveries`. (`TestConversationMessagesCarryWebhookStatus`.)
+
+**Contract-honesty fixes (all fixed, TDD via `spec_review_test.go` + handler tests):**
+- **MED-1/2** — declare the runtime `202` (outbound HITL hold) and `412`
+  (domain verify "TXT not published") responses that Huma omitted, so SDK
+  codegen models them.
+- **MED-3** — duplicate-domain registration now returns **`409 domain_taken`**
+  (was `400`) via a typed `identity.ErrDomainTaken` sentinel.
+- **MED-4** — a **recipient-count cap** (≤ 50 total to+cc+bcc) on
+  send/reply/forward → `400 too_many_recipients`.
+- **MED-5** — added `enum`s on `direction`, `hitl_status`, `SendResultView.status`,
+  `EventJSON.status`, `RedeliverView.status`, `WebhookDeliveryView.status`.
+  (The message-view `status` was deliberately **left open** — it carries the
+  inbox read-state, which includes `""` for outbound, not a closed set.)
+- **MED-6** — list arrays (`items` + the single-page wrappers) are no longer
+  declared nullable; they always emit `[]`, so the spec now matches the runtime.
+- **LOW-1** — removed the vestigial, never-populated
+  `WebhookView.previous_secret_expires_at` (the rotate-secret response keeps it).
+- **LOW-2** — added `format: date-time` to the webhook view timestamps.
+
+**Deliberately not changed** (recorded decisions): `error.details` stays open
+`any`; the `ApproveRequest` `body_text`/`body_html` rename (breaking — left);
+`VerifyDomainView` shape divergence (doc-only); `LimitsView` `0`=zero is the
+documented meaning (no `unlimited` sentinel — consistent with the finite-caps
+policy).

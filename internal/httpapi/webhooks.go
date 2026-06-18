@@ -41,11 +41,10 @@ type WebhookView struct {
 	Events                  []string           `json:"events"`
 	Filters                 WebhookFiltersView `json:"filters"`
 	SigningSecret           string             `json:"signing_secret,omitempty"`
-	PreviousSecretExpiresAt string             `json:"previous_secret_expires_at,omitempty"`
 	Enabled                 bool               `json:"enabled"`
-	AutoDisabledAt          string             `json:"auto_disabled_at,omitempty"`
-	CreatedAt               string             `json:"created_at"`
-	LastDeliveredAt         string             `json:"last_delivered_at,omitempty"`
+	AutoDisabledAt          string             `json:"auto_disabled_at,omitempty" format:"date-time"`
+	CreatedAt               string             `json:"created_at" format:"date-time"`
+	LastDeliveredAt         string             `json:"last_delivered_at,omitempty" format:"date-time"`
 }
 
 func webhookView(wh *identity.Webhook, includeSecret bool) WebhookView {
@@ -170,7 +169,7 @@ type webhookOutput struct{ Body WebhookView }
 type webhookCreateOutput struct{ Body WebhookView }
 type listWebhooksOutput struct {
 	Body struct {
-		Webhooks []WebhookView `json:"webhooks"`
+		Webhooks []WebhookView `json:"webhooks" nullable:"false"`
 	}
 }
 
@@ -300,13 +299,13 @@ func (s *Server) handleTestWebhook(ctx context.Context, in *testWebhookInput) (*
 type WebhookDeliveryView struct {
 	ID             string `json:"id"`
 	EventType      string `json:"event_type" enum:"email.received,email.sent,email.pending_approval,email.approved,email.rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged"`
-	Status         string `json:"status"`
+	Status         string `json:"status" enum:"pending,delivered,failed"`
 	Attempts       int    `json:"attempts"`
 	LastError      string `json:"last_error,omitempty"`
 	LastStatusCode *int   `json:"last_status_code,omitempty"`
-	LastAttemptAt  string `json:"last_attempt_at,omitempty"`
-	NextRetryAt    string `json:"next_retry_at"`
-	CreatedAt      string `json:"created_at"`
+	LastAttemptAt  string `json:"last_attempt_at,omitempty" format:"date-time"`
+	NextRetryAt    string `json:"next_retry_at" format:"date-time"`
+	CreatedAt      string `json:"created_at" format:"date-time"`
 }
 
 type ListDeliveriesInput struct {
