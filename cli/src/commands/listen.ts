@@ -1,5 +1,5 @@
 import type { E2AClient, WSNotification } from "@e2a/sdk/v1";
-import { createClient } from "../sdk.js";
+import { createClient, requireAgentEmail } from "../sdk.js";
 
 export interface ListenOptions {
   agent?: string;
@@ -10,22 +10,14 @@ export interface ListenOptions {
 
 export async function listen(opts: ListenOptions): Promise<void> {
   const client = createClient({ from: opts.agent });
-
-  if (!client.agentEmail) {
-    process.stderr.write(
-      "No agent email. Use --agent or run: e2a register <slug>\n",
-    );
-    process.exit(1);
-  }
-
-  const agentEmail = client.agentEmail;
+  const agentEmail = requireAgentEmail(opts.agent);
 
   process.stderr.write(`Listening for emails to ${agentEmail}...\n`);
 
   // client.listen() returns a WSStream — both AsyncIterable<WSNotification>
   // and EventEmitter. We use both: events for connection lifecycle, the
   // for-await loop for the happy path.
-  const stream = client.listen({ agentEmail });
+  const stream = client.listen(agentEmail);
 
   stream.on("open", () => {
     process.stderr.write("Connected.\n");
@@ -64,7 +56,7 @@ export async function handleNotification(
   opts: Pick<ListenOptions, "json" | "forward" | "forwardToken">,
 ): Promise<void> {
   if (opts.json) {
-    const full = await client.api.getMessage(agentEmail, notification.message_id);
+    const full = await client.messages.get(agentEmail, notification.message_id);
     process.stdout.write(JSON.stringify(full) + "\n");
     return;
   }
@@ -102,8 +94,8 @@ export async function forwardMessage(
   forwardUrl: string,
   forwardToken?: string,
 ): Promise<void> {
-  // Fetch full message (raw JSON shape for forwarding)
-  const full = await client.api.getMessage(agentEmail, notification.message_id);
+  // Fetch full message (MessageView).
+  const full = await client.messages.get(agentEmail, notification.message_id);
 
   let fetchBody: string;
   const headers: Record<string, string> = {
@@ -111,11 +103,12 @@ export async function forwardMessage(
   };
 
   if (isOpenClawUrl(forwardUrl)) {
-    // Decode raw_message to extract text body for OpenClaw
-    let body = "";
-    if (full.raw_message) {
+    // Prefer the server's parsed/plain-text body; fall back to decoding
+    // the raw RFC 2822 message for OpenClaw.
+    let body = full.parsed?.text || full.body?.text || "";
+    if (!body && full.rawMessage) {
       try {
-        const decoded = Buffer.from(full.raw_message, "base64").toString("utf-8");
+        const decoded = Buffer.from(full.rawMessage, "base64").toString("utf-8");
         body = extractTextFromRaw(decoded);
       } catch {
         // Fall back to empty body
@@ -162,7 +155,9 @@ export async function forwardMessage(
     const responseText = await extractResponseText(res);
     if (responseText) {
       try {
-        await client.reply(notification.message_id, responseText);
+        await client.messages.reply(agentEmail, notification.message_id, {
+          body: responseText,
+        });
         process.stderr.write(
           `Replied to ${notification.from} (${notification.message_id})\n`,
         );

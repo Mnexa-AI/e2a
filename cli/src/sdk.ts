@@ -1,11 +1,10 @@
 import { E2AClient } from "@e2a/sdk/v1";
 import { loadConfig, requireApiKey } from "./config.js";
 
-export function createClient(opts?: { from?: string }): E2AClient {
+export function createClient(_opts?: { from?: string }): E2AClient {
   const config = loadConfig();
   const apiKey = requireApiKey(config);
-  const agentEmail = opts?.from || config.agent_email;
-  return new E2AClient({ apiKey, baseUrl: config.api_url, agentEmail });
+  return new E2AClient({ apiKey, baseUrl: config.api_url });
 }
 
 export function requireAgentEmail(fromOverride?: string): string {

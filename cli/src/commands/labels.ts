@@ -1,4 +1,5 @@
-import { createClient } from "../sdk.js";
+import type { UpdateMessageRequest } from "@e2a/sdk/v1";
+import { createClient, requireAgentEmail } from "../sdk.js";
 
 export async function labels(
   messageId: string | undefined,
@@ -20,18 +21,14 @@ export async function labels(
   }
 
   const client = createClient({ from: opts.from });
+  const address = requireAgentEmail(opts.from);
 
-  if (!client.agentEmail) {
-    process.stderr.write(
-      "No agent email configured. Run 'e2a register' first or use --agent.\n",
-    );
-    process.exit(1);
-  }
-
-  const res = await client.updateMessageLabels(messageId, {
+  const body: UpdateMessageRequest = {
     addLabels: opts.add.length ? opts.add : undefined,
     removeLabels: opts.remove.length ? opts.remove : undefined,
-  });
+  };
 
-  process.stdout.write(`${res.message_id}: ${(res.labels ?? []).join(", ") || "(none)"}\n`);
+  const res = await client.messages.updateLabels(address, messageId, body);
+
+  process.stdout.write(`${res.messageId}: ${(res.labels ?? []).join(", ") || "(none)"}\n`);
 }

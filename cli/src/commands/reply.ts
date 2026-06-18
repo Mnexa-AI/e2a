@@ -1,4 +1,5 @@
-import { createClient } from "../sdk.js";
+import type { ReplyRequest, RequestOptions } from "@e2a/sdk/v1";
+import { createClient, requireAgentEmail } from "../sdk.js";
 
 export async function reply(
   messageId: string | undefined,
@@ -24,21 +25,20 @@ export async function reply(
   }
 
   const client = createClient({ from: opts.from });
+  const address = requireAgentEmail(opts.from);
 
-  if (!client.agentEmail) {
-    process.stderr.write(
-      "No agent email configured. Run 'e2a register' first or use --agent.\n",
-    );
-    process.exit(1);
-  }
-
-  const res = await client.reply(messageId, body, {
+  const reqBody: ReplyRequest = {
+    body,
     htmlBody: opts.htmlBody,
     replyAll: opts.replyAll,
     cc: opts.cc?.length ? opts.cc : undefined,
     bcc: opts.bcc?.length ? opts.bcc : undefined,
-    idempotencyKey: opts.idempotencyKey,
-  });
+  };
+  const reqOpts: RequestOptions | undefined = opts.idempotencyKey
+    ? { idempotencyKey: opts.idempotencyKey }
+    : undefined;
 
-  process.stdout.write(`Sent: ${res.message_id}\n`);
+  const res = await client.messages.reply(address, messageId, reqBody, reqOpts);
+
+  process.stdout.write(`Sent: ${res.messageId}\n`);
 }

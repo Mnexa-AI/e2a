@@ -1,4 +1,4 @@
-import { createClient } from "../sdk.js";
+import { createClient, requireAgentEmail } from "../sdk.js";
 
 export async function read(messageId: string | undefined, from: string | undefined): Promise<void> {
   if (!messageId) {
@@ -7,38 +7,43 @@ export async function read(messageId: string | undefined, from: string | undefin
   }
 
   const client = createClient({ from });
+  const address = requireAgentEmail(from);
 
-  if (!client.agentEmail) {
-    process.stderr.write("No agent email. Set one with: e2a config set agent_email <email>\n");
-    process.exit(1);
-  }
+  // messages.get returns a MessageView (the bearer token already
+  // authenticated the channel) — no `verifySignature` step needed, no
+  // second roundtrip for the raw detail.
+  const msg = await client.messages.get(address, messageId);
 
-  // getMessage returns a pre-verified InboundEmail (the bearer token
-  // already authenticated the channel) — no `verifySignature` step
-  // needed, no second roundtrip for the raw detail.
-  const email = await client.getMessage(messageId);
+  const recipient = msg.recipient ?? "";
+  const to = msg.to ?? [];
+  const cc = msg.cc ?? [];
+  const replyTo = msg.replyTo ?? [];
 
-  process.stdout.write(`Message ID: ${email.messageId}\n`);
-  process.stdout.write(`From: ${email.sender}\n`);
-  process.stdout.write(`To: ${email.recipient}\n`);
+  process.stdout.write(`Message ID: ${msg.messageId}\n`);
+  process.stdout.write(`From: ${msg._from}\n`);
+  process.stdout.write(`To: ${recipient}\n`);
   // Other addresses from the original To: header (the message may have been
   // addressed to several agents at once; this row is one of those fan-outs).
-  const recipientLower = email.recipient.toLowerCase();
-  const otherTo = email.to.filter((a) => a.toLowerCase() !== recipientLower);
+  const recipientLower = recipient.toLowerCase();
+  const otherTo = to.filter((a) => a.toLowerCase() !== recipientLower);
   if (otherTo.length > 0) {
     process.stdout.write(`Also-To: ${otherTo.join(", ")}\n`);
   }
-  if (email.cc.length > 0) {
-    process.stdout.write(`Cc: ${email.cc.join(", ")}\n`);
+  if (cc.length > 0) {
+    process.stdout.write(`Cc: ${cc.join(", ")}\n`);
   }
-  if (email.replyTo.length > 0) {
-    process.stdout.write(`Reply-To: ${email.replyTo.join(", ")}\n`);
+  if (replyTo.length > 0) {
+    process.stdout.write(`Reply-To: ${replyTo.join(", ")}\n`);
   }
-  process.stdout.write(`Date: ${email.receivedAt ?? "unknown"}\n`);
-  process.stdout.write(`Subject: ${email.subject}\n`);
+  const received = msg.createdAt instanceof Date ? msg.createdAt.toISOString() : (msg.createdAt ?? null);
+  process.stdout.write(`Date: ${received ?? "unknown"}\n`);
+  process.stdout.write(`Subject: ${msg.subject}\n`);
   process.stdout.write("\n");
 
-  if (email.textBody) {
-    process.stdout.write(email.textBody + "\n");
+  // Prefer the parsed (best-effort plain-text) body, falling back to the
+  // raw text body the server extracted.
+  const textBody = msg.parsed?.text || msg.body?.text;
+  if (textBody) {
+    process.stdout.write(textBody + "\n");
   }
 }
