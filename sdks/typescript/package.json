@@ -51,12 +51,12 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
-    "@types/node": "^25.9.2",
+    "@types/node": "^25.9.3",
     "@types/ws": "^8.18.1",
     "openapi-typescript": "^7.13.0",
     "swagger2openapi": "^7.0.8",
     "typescript": "^5.4",
-    "vitest": "^4.1.8",
+    "vitest": "^4.1.9",
     "yaml": "^2.9.0"
   }
 }
