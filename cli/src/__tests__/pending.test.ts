@@ -1,21 +1,26 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// Mock the high-level SDK methods the CLI now calls. Each test installs a
-// fresh resolved value so we can assert exactly what the CLI sent and
-// renders what the server would return.
-const mockListPending = vi.fn();
-const mockGetPending = vi.fn();
+// Mock the namespaced messages resource the CLI now calls. Pending drafts
+// surface as outbound messages with status="pending_approval".
+const mockList = vi.fn();
+const mockGet = vi.fn();
 const mockApprove = vi.fn();
 const mockReject = vi.fn();
 
+function pager(items: unknown[]) {
+  return { toArray: vi.fn(async () => items) };
+}
+
 vi.mock("../sdk.js", () => ({
   createClient: vi.fn(() => ({
-    agentEmail: "bot@agents.e2a.dev",
-    listPendingMessages: mockListPending,
-    getPendingMessage: mockGetPending,
-    approveMessage: mockApprove,
-    rejectMessage: mockReject,
+    messages: {
+      list: mockList,
+      get: mockGet,
+      approve: mockApprove,
+      reject: mockReject,
+    },
   })),
+  requireAgentEmail: vi.fn(() => "bot@agents.e2a.dev"),
 }));
 
 vi.mock("../config.js", () => ({
@@ -40,7 +45,7 @@ describe("pendingList", () => {
 
   beforeEach(() => {
     stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    mockListPending.mockReset();
+    mockList.mockReset();
   });
   afterEach(() => {
     stdout.mockRestore();
@@ -48,32 +53,38 @@ describe("pendingList", () => {
   });
 
   it("prints a line per pending message", async () => {
-    mockListPending.mockResolvedValueOnce({
-      messages: [
+    mockList.mockReturnValue(
+      pager([
         {
-          id: "msg_abc",
-          agent_id: "bot@x.com",
+          messageId: "msg_abc",
+          _from: "bot@x.com",
           subject: "hello",
-          type: "send",
           to: ["alice@example.com"],
           status: "pending_approval",
-          approval_expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
-          created_at: new Date().toISOString(),
         },
-      ],
-    });
+        // A sent outbound message should be filtered out.
+        {
+          messageId: "msg_sent",
+          _from: "bot@x.com",
+          subject: "already sent",
+          to: ["bob@example.com"],
+          status: "sent",
+        },
+      ]),
+    );
 
     await pendingList();
-    expect(mockListPending).toHaveBeenCalled();
+    expect(mockList).toHaveBeenCalledWith("bot@agents.e2a.dev", { direction: "outbound" });
     const output = stdout.mock.calls.map((c: unknown[]) => String(c[0])).join("");
     expect(output).toContain("msg_abc");
     expect(output).toContain("bot@x.com");
     expect(output).toContain("alice@example.com");
     expect(output).toContain("hello");
+    expect(output).not.toContain("msg_sent");
   });
 
   it('shows "no pending" message when list is empty', async () => {
-    mockListPending.mockResolvedValueOnce({ messages: [] });
+    mockList.mockReturnValue(pager([]));
     await pendingList();
     expect(stdout).toHaveBeenCalledWith("No messages pending approval.\n");
   });
@@ -90,7 +101,7 @@ describe("pendingShow", () => {
     mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
     });
-    mockGetPending.mockReset();
+    mockGet.mockReset();
   });
   afterEach(() => {
     stdout.mockRestore();
@@ -105,20 +116,19 @@ describe("pendingShow", () => {
   });
 
   it("prints all headers + body for a pending message", async () => {
-    mockGetPending.mockResolvedValueOnce({
-      id: "msg_x",
-      agent_id: "bot@x.com",
+    mockGet.mockResolvedValueOnce({
+      messageId: "msg_x",
+      _from: "bot@x.com",
       subject: "hello",
-      type: "send",
       to: ["alice@example.com"],
       cc: ["carol@example.com"],
       status: "pending_approval",
-      body_text: "hi there",
-      created_at: new Date().toISOString(),
+      body: { text: "hi there", html: "" },
+      parsed: { text: "hi there", truncated: false },
     });
 
     await pendingShow("msg_x");
-    expect(mockGetPending).toHaveBeenCalledWith("msg_x");
+    expect(mockGet).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_x");
     const output = stdout.mock.calls.map((c: unknown[]) => String(c[0])).join("");
     expect(output).toContain("ID:");
     expect(output).toContain("msg_x");
@@ -140,7 +150,7 @@ describe("pendingApprove", () => {
       throw new Error("process.exit");
     });
     mockApprove.mockReset();
-    mockGetPending.mockReset();
+    mockGet.mockReset();
   });
   afterEach(() => {
     stdout.mockRestore();
@@ -154,30 +164,25 @@ describe("pendingApprove", () => {
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining("Usage"));
   });
 
-  it("approve-as-is fetches the pending detail for agent_id, then approves", async () => {
-    // CLI now always fetches the message first to discover the owning
-    // agent (needed for the agent-scoped /agents/{email}/messages/...
-    // endpoint). Approve-as-is still sends an empty override object.
-    mockGetPending.mockResolvedValueOnce({
-      id: "msg_x",
-      agent_id: "bot@agents.e2a.dev",
+  it("approve-as-is fetches the message to confirm it is held, then approves", async () => {
+    mockGet.mockResolvedValueOnce({
+      messageId: "msg_x",
       status: "pending_approval",
       subject: "hi",
-      type: "send",
       to: ["alice@example.com"],
     });
     mockApprove.mockResolvedValueOnce({
       status: "sent",
-      message_id: "msg_x",
-      provider_message_id: "<ses-id@amazonses.com>",
+      messageId: "msg_x",
+      providerMessageId: "<ses-id@amazonses.com>",
       method: "smtp",
       edited: false,
     });
 
     await pendingApprove("msg_x", {});
 
-    expect(mockGetPending).toHaveBeenCalledWith("msg_x");
-    expect(mockApprove).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_x", {});
+    expect(mockGet).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_x");
+    expect(mockApprove).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_x", {}, undefined);
     const out = stdout.mock.calls.map((c: unknown[]) => String(c[0])).join("");
     expect(out).toContain("Approved: msg_x");
     expect(out).toContain("<ses-id@amazonses.com>");
@@ -185,18 +190,16 @@ describe("pendingApprove", () => {
   });
 
   it('annotates "with edits" when server reports edited', async () => {
-    mockGetPending.mockResolvedValueOnce({
-      id: "msg_x",
-      agent_id: "bot@agents.e2a.dev",
+    mockGet.mockResolvedValueOnce({
+      messageId: "msg_x",
       status: "pending_approval",
       subject: "hi",
-      type: "send",
       to: ["alice@example.com"],
     });
     mockApprove.mockResolvedValueOnce({
       status: "sent",
-      message_id: "msg_x",
-      provider_message_id: "<ses@amazonses.com>",
+      messageId: "msg_x",
+      providerMessageId: "<ses@amazonses.com>",
       method: "smtp",
       edited: true,
     });
@@ -207,12 +210,10 @@ describe("pendingApprove", () => {
   });
 
   it("refuses to approve when the row has already transitioned", async () => {
-    mockGetPending.mockResolvedValueOnce({
-      id: "msg_x",
-      agent_id: "bot@agents.e2a.dev",
+    mockGet.mockResolvedValueOnce({
+      messageId: "msg_x",
       status: "sent",
       subject: "hi",
-      type: "send",
       to: ["alice@example.com"],
     });
 
@@ -234,7 +235,6 @@ describe("pendingReject", () => {
       throw new Error("process.exit");
     });
     mockReject.mockReset();
-    mockGetPending.mockReset();
   });
   afterEach(() => {
     stdout.mockRestore();
@@ -248,38 +248,21 @@ describe("pendingReject", () => {
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining("Usage"));
   });
 
-  it("looks up the owning agent then forwards the reason to the SDK", async () => {
-    mockGetPending.mockResolvedValueOnce({
-      id: "msg_x",
-      agent_id: "bot@agents.e2a.dev",
-      status: "pending_approval",
-      subject: "hi",
-      type: "send",
-      to: ["alice@example.com"],
-    });
+  it("forwards the reason to the SDK for the active agent", async () => {
     mockReject.mockResolvedValueOnce({
       status: "rejected",
-      message_id: "msg_x",
-      rejection_reason: "nope",
+      messageId: "msg_x",
+      rejectionReason: "nope",
     });
 
     await pendingReject("msg_x", "nope");
-    expect(mockGetPending).toHaveBeenCalledWith("msg_x");
-    expect(mockReject).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_x", "nope");
+    expect(mockReject).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_x", { reason: "nope" });
     expect(stdout).toHaveBeenCalledWith("Rejected: msg_x\n");
   });
 
   it("passes an empty reason when omitted", async () => {
-    mockGetPending.mockResolvedValueOnce({
-      id: "msg_x",
-      agent_id: "bot@agents.e2a.dev",
-      status: "pending_approval",
-      subject: "hi",
-      type: "send",
-      to: ["alice@example.com"],
-    });
-    mockReject.mockResolvedValueOnce({ status: "rejected", message_id: "msg_x" });
+    mockReject.mockResolvedValueOnce({ status: "rejected", messageId: "msg_x" });
     await pendingReject("msg_x", undefined);
-    expect(mockReject).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_x", "");
+    expect(mockReject).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_x", { reason: "" });
   });
 });

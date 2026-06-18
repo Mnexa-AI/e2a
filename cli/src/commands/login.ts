@@ -1,7 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import { E2AApi, E2AApiError } from "@e2a/sdk";
 import { loadConfig, saveConfig } from "../config.js";
 
 /**
@@ -239,32 +238,34 @@ async function waitForBrowserLogin(apiUrl: string, timeoutMs = LOGIN_TIMEOUT_MS)
 export async function login(): Promise<void> {
   const config = loadConfig();
 
-  // Preflight: hit /api/v1/info before opening the browser. Two wins —
+  // Preflight: hit the deployment's public info endpoint before opening
+  // the browser. Two wins —
   //   1. Fast-fail when the server is unreachable instead of opening a
   //      browser tab that loads nothing and timing out 2 minutes later.
   //   2. Captures shared_domain in the same request so we don't need a
   //      separate fetch after login completes.
-  // Distinguish E2AApiError (server up, /info absent — older deployment)
-  // from other errors (connection refused, DNS, timeout): only the
-  // latter should abort login.
+  // `/v1/info` is unauthenticated and login runs before we have a key, so we
+  // probe it with a raw fetch rather than the SDK client (which requires an
+  // apiKey to construct). Distinguish a connection failure (refused, DNS,
+  // timeout) — which should abort — from an HTTP-level error (server up, /info
+  // absent on an older deployment), which should let login continue.
   let discoveredSharedDomain: string | undefined;
   try {
-    const info = await E2AApi.fetchInfo(config.api_url);
-    if (info.shared_domain) {
-      discoveredSharedDomain = info.shared_domain;
+    const resp = await fetch(`${config.api_url.replace(/\/+$/, "")}/v1/info`);
+    if (resp.ok) {
+      const info = (await resp.json()) as { shared_domain?: string };
+      if (info.shared_domain) {
+        discoveredSharedDomain = info.shared_domain;
+      }
     }
+    // A non-ok response means the server is up but /info is unavailable
+    // (older deployment) — continue with login without shared_domain.
   } catch (err) {
-    if (!(err instanceof E2AApiError)) {
-      const detail = err instanceof Error ? err.message : String(err);
-      throw new Error(
-        `could not reach ${config.api_url}: ${detail}. ` +
-          `Check the server is running and E2A_URL is correct.`,
-      );
-    }
-    // Server responded with non-2xx — it's up, just doesn't expose /info
-    // (older deployment). Continue with login; we just won't discover
-    // shared_domain. Users on this path can still set it manually via
-    // E2A_SHARED_DOMAIN or `e2a config set shared_domain ...`.
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `could not reach ${config.api_url}: ${detail}. ` +
+        `Check the server is running and E2A_URL is correct.`,
+    );
   }
 
   const { apiKey, agentEmail } = await waitForBrowserLogin(config.api_url);

@@ -137,10 +137,7 @@ describe("listen notification handling", () => {
 
   it("prints a human-readable notification by default", async () => {
     const client = {
-      api: {
-        getMessage: vi.fn(),
-      },
-      reply: vi.fn(),
+      messages: { get: vi.fn(), reply: vi.fn() },
     } as any;
 
     await handleNotification(
@@ -153,22 +150,19 @@ describe("listen notification handling", () => {
     expect(mockStdout).toHaveBeenCalledWith(
       expect.stringContaining("From: alice@example.com | Subject: Hello"),
     );
-    expect(client.api.getMessage).not.toHaveBeenCalled();
+    expect(client.messages.get).not.toHaveBeenCalled();
   });
 
   it("fetches and prints raw JSON for --json mode", async () => {
     const full = {
-      message_id: "msg_123",
-      from: "alice@example.com",
-      to: "bot@agents.e2a.dev",
+      messageId: "msg_123",
+      _from: "alice@example.com",
+      recipient: "bot@agents.e2a.dev",
       subject: "Hello",
-      raw_message: "U3ViamVjdDogSGVsbG8NCg0KSGkgdGhlcmUh",
+      rawMessage: "U3ViamVjdDogSGVsbG8NCg0KSGkgdGhlcmUh",
     };
     const client = {
-      api: {
-        getMessage: vi.fn().mockResolvedValue(full),
-      },
-      reply: vi.fn(),
+      messages: { get: vi.fn().mockResolvedValue(full), reply: vi.fn() },
     } as any;
 
     await handleNotification(
@@ -178,17 +172,17 @@ describe("listen notification handling", () => {
       { json: true },
     );
 
-    expect(client.api.getMessage).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_123");
+    expect(client.messages.get).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_123");
     expect(mockStdout).toHaveBeenCalledWith(`${JSON.stringify(full)}\n`);
   });
 
   it("forwards exact raw JSON to a generic webhook", async () => {
     const full = {
-      message_id: "msg_123",
-      from: "alice@example.com",
-      to: "bot@agents.e2a.dev",
+      messageId: "msg_123",
+      _from: "alice@example.com",
+      recipient: "bot@agents.e2a.dev",
       subject: "Hello",
-      raw_message: "U3ViamVjdDogSGVsbG8NCg0KSGkgdGhlcmUh",
+      rawMessage: "U3ViamVjdDogSGVsbG8NCg0KSGkgdGhlcmUh",
     };
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -198,10 +192,7 @@ describe("listen notification handling", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const client = {
-      api: {
-        getMessage: vi.fn().mockResolvedValue(full),
-      },
-      reply: vi.fn(),
+      messages: { get: vi.fn().mockResolvedValue(full), reply: vi.fn() },
     } as any;
 
     await forwardMessage(
@@ -212,7 +203,7 @@ describe("listen notification handling", () => {
       "secret",
     );
 
-    expect(client.api.getMessage).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_123");
+    expect(client.messages.get).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_123");
     expect(fetchMock).toHaveBeenCalledWith(
       "https://example.com/webhook",
       expect.objectContaining({
@@ -224,20 +215,23 @@ describe("listen notification handling", () => {
         body: JSON.stringify(full),
       }),
     );
-    expect(client.reply).not.toHaveBeenCalled();
+    expect(client.messages.reply).not.toHaveBeenCalled();
     expect(mockStderr).toHaveBeenCalledWith(
       "Forwarded msg_123 to https://example.com/webhook\n",
     );
   });
 
   it("forwards to OpenClaw and auto-replies when text is returned", async () => {
+    // No parsed/body text — exercise the rawMessage decode fallback.
     const raw = "Subject: Hello\r\n\r\nHi there!";
     const full = {
-      message_id: "msg_123",
-      from: "alice@example.com",
-      to: "bot@agents.e2a.dev",
+      messageId: "msg_123",
+      _from: "alice@example.com",
+      recipient: "bot@agents.e2a.dev",
       subject: "Hello",
-      raw_message: Buffer.from(raw, "utf-8").toString("base64"),
+      body: { text: "", html: "" },
+      parsed: { text: "", truncated: false },
+      rawMessage: Buffer.from(raw, "utf-8").toString("base64"),
     };
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -256,13 +250,13 @@ describe("listen notification handling", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const client = {
-      api: {
-        getMessage: vi.fn().mockResolvedValue(full),
+      messages: {
+        get: vi.fn().mockResolvedValue(full),
+        reply: vi.fn().mockResolvedValue({
+          status: "sent",
+          messageId: "msg_reply_1",
+        }),
       },
-      reply: vi.fn().mockResolvedValue({
-        status: "sent",
-        message_id: "msg_reply_1",
-      }),
     } as any;
 
     await forwardMessage(
@@ -287,7 +281,11 @@ describe("listen notification handling", () => {
         }),
       }),
     );
-    expect(client.reply).toHaveBeenCalledWith("msg_123", "Thanks for the email.");
+    expect(client.messages.reply).toHaveBeenCalledWith(
+      "bot@agents.e2a.dev",
+      "msg_123",
+      { body: "Thanks for the email." },
+    );
     expect(mockStderr).toHaveBeenCalledWith(
       "Replied to alice@example.com (msg_123)\n",
     );

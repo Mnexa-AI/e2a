@@ -5,7 +5,8 @@ const mockExecFile = vi.fn();
 const mockLoadConfig = vi.fn();
 const mockSaveConfig = vi.fn();
 const mockCreateServer = vi.fn();
-const mockFetchInfo = vi.fn();
+const mockFetch = vi.fn();
+const originalFetch = globalThis.fetch;
 
 let currentServerHandler: ((req: any, res: any) => void | Promise<void>) | null = null;
 
@@ -42,19 +43,15 @@ vi.mock("../config.js", () => ({
   saveConfig: mockSaveConfig,
 }));
 
-// Stub out the SDK so login's preflight /info fetch doesn't hit a real
-// network. Each test that cares about the discovered shared_domain sets
-// the resolved value via mockFetchInfo.
-vi.mock("@e2a/sdk", async () => {
-  const actual = await vi.importActual<typeof import("@e2a/sdk")>("@e2a/sdk");
+// login probes GET /v1/info with a raw fetch (pre-auth, before a key exists),
+// so we stub the global fetch. infoResponse() builds the success shape; tests
+// override per scenario (unreachable -> reject; older deployment -> ok:false).
+function infoResponse(sharedDomain: string) {
   return {
-    ...actual,
-    E2AApi: {
-      ...actual.E2AApi,
-      fetchInfo: mockFetchInfo,
-    },
+    ok: true,
+    json: async () => ({ shared_domain: sharedDomain, slug_registration_enabled: true }),
   };
-});
+}
 
 async function simulateBrowserCallback(payload: Record<string, string>) {
   if (!currentServerHandler) {
@@ -102,13 +99,11 @@ describe("login", () => {
     mockSaveConfig.mockReset();
     mockExecFile.mockReset();
     mockCreateServer.mockClear();
-    mockFetchInfo.mockReset();
-    // Default: deployment exposes the hosted shared domain. Override
-    // per-test for self-host / older-deployment / unreachable scenarios.
-    mockFetchInfo.mockResolvedValue({
-      shared_domain: "agents.e2a.dev",
-      slug_registration_enabled: true,
-    });
+    mockFetch.mockReset();
+    // Default: deployment exposes the hosted shared domain. Override per-test
+    // for self-host / older-deployment / unreachable scenarios.
+    mockFetch.mockResolvedValue(infoResponse("agents.e2a.dev"));
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
 
     mockLoadConfig.mockReturnValue({
       api_key: "",
@@ -121,6 +116,7 @@ describe("login", () => {
   afterEach(() => {
     mockStdout.mockRestore();
     mockStderr.mockRestore();
+    globalThis.fetch = originalFetch;
     vi.clearAllMocks();
   });
 
@@ -201,10 +197,10 @@ describe("login", () => {
   });
 
   it("fast-fails before opening the browser when the server is unreachable", async () => {
-    // Simulate a network failure (connection refused, DNS, etc.) — fetch
-    // throws TypeError, which is NOT an E2AApiError, so login() should
-    // abort before kicking off the browser flow.
-    mockFetchInfo.mockRejectedValueOnce(new TypeError("fetch failed"));
+    // Simulate a network failure (connection refused, DNS, etc.) — info()
+    // throws E2AConnectionError, so login() should abort before kicking off
+    // the browser flow.
+    mockFetch.mockRejectedValueOnce(new TypeError("fetch failed"));
 
     const { login } = await import("../commands/login.js");
     await expect(login()).rejects.toThrow(/could not reach https:\/\/e2a\.dev/);
@@ -213,11 +209,10 @@ describe("login", () => {
     expect(mockSaveConfig).not.toHaveBeenCalled();
   });
 
-  it("continues login when /info responds with non-2xx (older deployment)", async () => {
-    // Server is reachable but doesn't expose /info. Login should proceed
-    // and just skip the shared_domain field in saveConfig.
-    const { E2AApiError } = await import("@e2a/sdk");
-    mockFetchInfo.mockRejectedValueOnce(new E2AApiError(404, "not found"));
+  it("continues login when info() responds with an HTTP error (older deployment)", async () => {
+    // Server is reachable but doesn't expose the info endpoint. Login
+    // should proceed and just skip the shared_domain field in saveConfig.
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) });
     mockExecFile.mockImplementation((_cmd: string, args: string[], cb?: (err: Error | null) => void) => {
       const loginUrl = new URL(args[args.length - 1]);
       const cliState = loginUrl.searchParams.get("cli_state");
@@ -270,10 +265,7 @@ describe("login", () => {
   });
 
   it("confirms the discovered shared domain in the success output", async () => {
-    mockFetchInfo.mockResolvedValueOnce({
-      shared_domain: "agents.acme.test",
-      slug_registration_enabled: true,
-    });
+    mockFetch.mockResolvedValueOnce(infoResponse("agents.acme.test"));
     mockLoadConfig.mockReturnValue({
       api_key: "",
       api_url: "https://e2a.acme.test",

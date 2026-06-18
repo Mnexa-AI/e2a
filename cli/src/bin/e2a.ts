@@ -45,7 +45,7 @@ Usage:
   e2a login                         Log in via browser and save config
   e2a agents list                   List your agents
   e2a agents register <slug>        Register an agent on the deployment's shared domain
-  e2a agents update <email> ...     Update agent settings (HITL, webhook)
+  e2a agents update <email> ...     Update agent settings (HITL)
   e2a agents delete <email>         Delete an agent
   e2a pending list                  List messages held for human approval
   e2a pending show <id>             Show a held message's full detail
@@ -172,7 +172,6 @@ async function main() {
           hitlEnabled,
           hitlTTLSeconds,
           hitlExpirationAction,
-          webhookUrl: getFlag(args, "--webhook-url"),
         });
       } else if (sub === "delete") {
         await agentsDelete(args[1]);
@@ -185,9 +184,9 @@ async function main() {
     case "pending": {
       const sub = args[0];
       if (sub === "list") {
-        await pendingList();
+        await pendingList(getFlag(args, "--agent"));
       } else if (sub === "show") {
-        await pendingShow(args[1]);
+        await pendingShow(args[1], getFlag(args, "--agent"));
       } else if (sub === "approve") {
         // Default the idempotency key to the message_id when the user
         // doesn't pass one. Approve fires SES, and a fresh per-call
@@ -200,9 +199,10 @@ async function main() {
         await pendingApprove(args[1], {
           edit: hasFlag(args, "--edit"),
           idempotencyKey: getFlag(args, "--idempotency-key") ?? args[1],
+          from: getFlag(args, "--agent"),
         });
       } else if (sub === "reject") {
-        await pendingReject(args[1], getFlag(args, "--reason"));
+        await pendingReject(args[1], getFlag(args, "--reason"), getFlag(args, "--agent"));
       } else {
         process.stderr.write("Usage: e2a pending [list|show|approve|reject]\n");
         process.exit(1);

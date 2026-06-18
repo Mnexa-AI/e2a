@@ -2,17 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mockSend = vi.fn();
 const mockReply = vi.fn();
-const mockRegisterAgent = vi.fn();
+const mockCreate = vi.fn();
 
 vi.mock("../sdk.js", () => ({
   createClient: vi.fn(() => ({
-    agentEmail: "bot@agents.e2a.dev",
-    send: mockSend,
-    reply: mockReply,
-    api: {
-      registerAgent: mockRegisterAgent,
-    },
+    messages: { send: mockSend, reply: mockReply },
+    agents: { create: mockCreate },
   })),
+  requireAgentEmail: vi.fn(() => "bot@agents.e2a.dev"),
 }));
 
 vi.mock("../config.js", () => ({
@@ -20,6 +17,7 @@ vi.mock("../config.js", () => ({
     api_key: "e2a_testkey",
     api_url: "https://e2a.dev",
     agent_email: "bot@agents.e2a.dev",
+    shared_domain: "agents.e2a.dev",
   })),
   requireApiKey: vi.fn(() => "e2a_testkey"),
   saveConfig: vi.fn(),
@@ -55,27 +53,43 @@ describe("send", () => {
   });
 
   it("sends email via SDK", async () => {
-    mockSend.mockResolvedValue({ status: "sent", message_id: "msg_sent_1" });
+    mockSend.mockResolvedValue({ status: "sent", messageId: "msg_sent_1" });
 
     const { send } = await import("../commands/send.js");
     await send(["user@example.com"], "Hello", "Body text", {});
 
     expect(mockSend).toHaveBeenCalledWith(
-      ["user@example.com"], "Hello", "Body text",
-      { htmlBody: undefined, cc: undefined, bcc: undefined },
+      "bot@agents.e2a.dev",
+      {
+        to: ["user@example.com"],
+        subject: "Hello",
+        body: "Body text",
+        htmlBody: undefined,
+        cc: undefined,
+        bcc: undefined,
+      },
+      undefined,
     );
     expect(mockStdout).toHaveBeenCalledWith("Sent: msg_sent_1\n");
   });
 
   it("allows CC-only send (no --to)", async () => {
-    mockSend.mockResolvedValue({ status: "sent", message_id: "msg_cc_1" });
+    mockSend.mockResolvedValue({ status: "sent", messageId: "msg_cc_1" });
 
     const { send } = await import("../commands/send.js");
     await send([], "Hello", "Body", { cc: ["alice@example.com"] });
 
     expect(mockSend).toHaveBeenCalledWith(
-      [], "Hello", "Body",
-      { htmlBody: undefined, cc: ["alice@example.com"], bcc: undefined },
+      "bot@agents.e2a.dev",
+      {
+        to: undefined,
+        subject: "Hello",
+        body: "Body",
+        htmlBody: undefined,
+        cc: ["alice@example.com"],
+        bcc: undefined,
+      },
+      undefined,
     );
     expect(mockStdout).toHaveBeenCalledWith("Sent: msg_cc_1\n");
   });
@@ -115,14 +129,23 @@ describe("reply", () => {
   });
 
   it("sends reply via SDK", async () => {
-    mockReply.mockResolvedValue({ status: "sent", message_id: "msg_reply_1" });
+    mockReply.mockResolvedValue({ status: "sent", messageId: "msg_reply_1" });
 
     const { reply } = await import("../commands/reply.js");
     await reply("msg_123", "Thanks!", {});
 
-    expect(mockReply).toHaveBeenCalledWith("msg_123", "Thanks!", {
-      htmlBody: undefined, replyAll: undefined, cc: undefined, bcc: undefined,
-    });
+    expect(mockReply).toHaveBeenCalledWith(
+      "bot@agents.e2a.dev",
+      "msg_123",
+      {
+        body: "Thanks!",
+        htmlBody: undefined,
+        replyAll: undefined,
+        cc: undefined,
+        bcc: undefined,
+      },
+      undefined,
+    );
     expect(mockStdout).toHaveBeenCalledWith("Sent: msg_reply_1\n");
   });
 });
@@ -138,7 +161,7 @@ describe("register", () => {
     mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
     });
-    mockRegisterAgent.mockReset();
+    mockCreate.mockReset();
   });
 
   afterEach(() => {
@@ -149,7 +172,7 @@ describe("register", () => {
   });
 
   it("registers agent and saves email to config", async () => {
-    mockRegisterAgent.mockResolvedValue({
+    mockCreate.mockResolvedValue({
       id: "agent_123",
       email: "my-bot@agents.e2a.dev",
       domain: "agents.e2a.dev",
@@ -158,9 +181,9 @@ describe("register", () => {
     const { agentsRegister } = await import("../commands/agents.js");
     await agentsRegister("my-bot");
 
-    expect(mockRegisterAgent).toHaveBeenCalledWith({
+    expect(mockCreate).toHaveBeenCalledWith({
       slug: "my-bot",
-      agent_mode: "local",
+      name: undefined,
     });
     expect(saveConfig).toHaveBeenCalledWith({ agent_email: "my-bot@agents.e2a.dev" });
     expect(mockStdout).toHaveBeenCalledWith("Registered: my-bot@agents.e2a.dev\n");

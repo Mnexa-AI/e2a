@@ -1,18 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const mockListAgents = vi.fn();
-const mockRegisterAgent = vi.fn();
-const mockDeleteAgent = vi.fn();
-const mockUpdateAgent = vi.fn();
+const mockList = vi.fn();
+const mockCreate = vi.fn();
+const mockDelete = vi.fn();
+const mockUpdate = vi.fn();
+const mockInfo = vi.fn();
+
+// AutoPager stub: list() returns an object exposing toArray().
+function pager(items: unknown[]) {
+  return { toArray: vi.fn(async () => items) };
+}
 
 vi.mock("../sdk.js", () => ({
   createClient: vi.fn(() => ({
-    agentEmail: "bot@agents.e2a.dev",
-    updateAgent: mockUpdateAgent,
-    api: {
-      listAgents: mockListAgents,
-      registerAgent: mockRegisterAgent,
-      deleteAgent: mockDeleteAgent,
+    info: mockInfo,
+    agents: {
+      list: mockList,
+      create: mockCreate,
+      update: mockUpdate,
+      delete: mockDelete,
     },
   })),
 }));
@@ -43,7 +49,7 @@ describe("agentsList", () => {
   beforeEach(() => {
     mockStdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     mockStderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    mockListAgents.mockReset();
+    mockList.mockReset();
   });
 
   afterEach(() => {
@@ -53,21 +59,21 @@ describe("agentsList", () => {
   });
 
   it("lists agents with active marker", async () => {
-    mockListAgents.mockResolvedValue({
-      agents: [
-        { email: "bot@agents.e2a.dev", agent_mode: "local" },
-        { email: "other@agents.e2a.dev", agent_mode: "cloud" },
-      ],
-    });
+    mockList.mockReturnValue(
+      pager([
+        { email: "bot@agents.e2a.dev", hitlEnabled: false },
+        { email: "other@agents.e2a.dev", hitlEnabled: true },
+      ]),
+    );
 
     await agentsList(undefined);
 
-    expect(mockStdout).toHaveBeenCalledWith("bot@agents.e2a.dev  local (active)\n");
-    expect(mockStdout).toHaveBeenCalledWith("other@agents.e2a.dev  cloud\n");
+    expect(mockStdout).toHaveBeenCalledWith("bot@agents.e2a.dev  no-hitl (active)\n");
+    expect(mockStdout).toHaveBeenCalledWith("other@agents.e2a.dev  hitl\n");
   });
 
   it("shows message when no agents exist", async () => {
-    mockListAgents.mockResolvedValue({ agents: [] });
+    mockList.mockReturnValue(pager([]));
 
     await agentsList(undefined);
 
@@ -88,7 +94,7 @@ describe("agentsRegister", () => {
     mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
     });
-    mockRegisterAgent.mockReset();
+    mockCreate.mockReset();
   });
 
   afterEach(() => {
@@ -104,7 +110,7 @@ describe("agentsRegister", () => {
   });
 
   it("registers agent and saves email", async () => {
-    mockRegisterAgent.mockResolvedValue({
+    mockCreate.mockResolvedValue({
       id: "agent_123",
       email: "my-bot@agents.e2a.dev",
       domain: "agents.e2a.dev",
@@ -112,9 +118,9 @@ describe("agentsRegister", () => {
 
     await agentsRegister("my-bot");
 
-    expect(mockRegisterAgent).toHaveBeenCalledWith({
+    expect(mockCreate).toHaveBeenCalledWith({
       slug: "my-bot",
-      agent_mode: "local",
+      name: undefined,
     });
     expect(saveConfig).toHaveBeenCalledWith({ agent_email: "my-bot@agents.e2a.dev" });
     expect(mockStdout).toHaveBeenCalledWith("Registered: my-bot@agents.e2a.dev\n");
@@ -132,7 +138,7 @@ describe("agentsDelete", () => {
     mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
     });
-    mockDeleteAgent.mockReset();
+    mockDelete.mockReset();
   });
 
   afterEach(() => {
@@ -148,34 +154,34 @@ describe("agentsDelete", () => {
   });
 
   it("deletes agent and confirms", async () => {
-    mockDeleteAgent.mockResolvedValue(undefined);
+    mockDelete.mockResolvedValue(undefined);
 
     await agentsDelete("other@agents.e2a.dev");
 
-    expect(mockDeleteAgent).toHaveBeenCalledWith("other@agents.e2a.dev");
+    expect(mockDelete).toHaveBeenCalledWith("other@agents.e2a.dev");
     expect(mockStdout).toHaveBeenCalledWith("Deleted: other@agents.e2a.dev\n");
   });
 
   it("expands slug to full email for shared domain", async () => {
-    mockDeleteAgent.mockResolvedValue(undefined);
+    mockDelete.mockResolvedValue(undefined);
 
     await agentsDelete("my-bot");
 
-    expect(mockDeleteAgent).toHaveBeenCalledWith("my-bot@agents.e2a.dev");
+    expect(mockDelete).toHaveBeenCalledWith("my-bot@agents.e2a.dev");
     expect(mockStdout).toHaveBeenCalledWith("Deleted: my-bot@agents.e2a.dev\n");
   });
 
   it("preserves full email for custom domains", async () => {
-    mockDeleteAgent.mockResolvedValue(undefined);
+    mockDelete.mockResolvedValue(undefined);
 
     await agentsDelete("support@custom.example.com");
 
-    expect(mockDeleteAgent).toHaveBeenCalledWith("support@custom.example.com");
+    expect(mockDelete).toHaveBeenCalledWith("support@custom.example.com");
     expect(mockStdout).toHaveBeenCalledWith("Deleted: support@custom.example.com\n");
   });
 
   it("clears config when deleting active agent", async () => {
-    mockDeleteAgent.mockResolvedValue(undefined);
+    mockDelete.mockResolvedValue(undefined);
 
     await agentsDelete("bot@agents.e2a.dev");
 
@@ -195,7 +201,7 @@ describe("agentsUpdate", () => {
     mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
     });
-    mockUpdateAgent.mockReset();
+    mockUpdate.mockReset();
   });
 
   afterEach(() => {
@@ -213,12 +219,11 @@ describe("agentsUpdate", () => {
   });
 
   it("sends HITL enable + settings and prints the confirmed state", async () => {
-    mockUpdateAgent.mockResolvedValueOnce({
+    mockUpdate.mockResolvedValueOnce({
       email: "my-bot@agents.e2a.dev",
-      agent_mode: "local",
-      hitl_enabled: true,
-      hitl_ttl_seconds: 3600,
-      hitl_expiration_action: "approve",
+      hitlEnabled: true,
+      hitlTtlSeconds: 3600,
+      hitlExpirationAction: "approve",
     });
 
     await agentsUpdate("my-bot", {
@@ -227,14 +232,11 @@ describe("agentsUpdate", () => {
       hitlExpirationAction: "approve",
     });
 
-    expect(mockUpdateAgent).toHaveBeenCalledWith(
-      {
-        hitl_enabled: true,
-        hitl_ttl_seconds: 3600,
-        hitl_expiration_action: "approve",
-      },
-      { agentEmail: "my-bot@agents.e2a.dev" },
-    );
+    expect(mockUpdate).toHaveBeenCalledWith("my-bot@agents.e2a.dev", {
+      hitlEnabled: true,
+      hitlTtlSeconds: 3600,
+      hitlExpirationAction: "approve",
+    });
     const out = mockStdout.mock.calls.map((c: unknown[]) => String(c[0])).join("");
     expect(out).toContain("Updated: my-bot@agents.e2a.dev");
     expect(out).toContain("enabled");
@@ -242,25 +244,25 @@ describe("agentsUpdate", () => {
   });
 
   it("expands bare slug to shared-domain email", async () => {
-    mockUpdateAgent.mockResolvedValueOnce({
+    mockUpdate.mockResolvedValueOnce({
       email: "abc@agents.e2a.dev",
-      hitl_enabled: false,
+      hitlEnabled: false,
     });
 
     await agentsUpdate("abc", { hitlEnabled: false });
 
-    const [, ctx] = mockUpdateAgent.mock.calls[0];
-    expect(ctx).toEqual({ agentEmail: "abc@agents.e2a.dev" });
+    const [address] = mockUpdate.mock.calls[0];
+    expect(address).toBe("abc@agents.e2a.dev");
   });
 
   it("preserves full email for custom domains", async () => {
-    mockUpdateAgent.mockResolvedValueOnce({
+    mockUpdate.mockResolvedValueOnce({
       email: "support@acme.com",
-      hitl_enabled: true,
+      hitlEnabled: true,
     });
 
     await agentsUpdate("support@acme.com", { hitlEnabled: true });
-    const [, ctx] = mockUpdateAgent.mock.calls[0];
-    expect(ctx).toEqual({ agentEmail: "support@acme.com" });
+    const [address] = mockUpdate.mock.calls[0];
+    expect(address).toBe("support@acme.com");
   });
 });

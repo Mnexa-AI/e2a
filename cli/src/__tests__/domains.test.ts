@@ -1,17 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const mockListDomains = vi.fn();
-const mockRegisterDomain = vi.fn();
-const mockVerifyDomain = vi.fn();
-const mockDeleteDomain = vi.fn();
+const mockList = vi.fn();
+const mockCreate = vi.fn();
+const mockVerify = vi.fn();
+const mockDelete = vi.fn();
+
+function pager(items: unknown[]) {
+  return { toArray: vi.fn(async () => items) };
+}
 
 vi.mock("../sdk.js", () => ({
   createClient: vi.fn(() => ({
-    api: {
-      listDomains: mockListDomains,
-      registerDomain: mockRegisterDomain,
-      verifyDomain: mockVerifyDomain,
-      deleteDomain: mockDeleteDomain,
+    domains: {
+      list: mockList,
+      create: mockCreate,
+      verify: mockVerify,
+      delete: mockDelete,
     },
   })),
 }));
@@ -39,7 +43,7 @@ describe("domainsList", () => {
   beforeEach(() => {
     mockStdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     mockStderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    mockListDomains.mockReset();
+    mockList.mockReset();
   });
 
   afterEach(() => {
@@ -49,12 +53,12 @@ describe("domainsList", () => {
   });
 
   it("lists domains with verification status", async () => {
-    mockListDomains.mockResolvedValue({
-      domains: [
+    mockList.mockReturnValue(
+      pager([
         { domain: "mycompany.com", verified: true },
         { domain: "staging.dev", verified: false },
-      ],
-    });
+      ]),
+    );
 
     await domainsList();
 
@@ -63,7 +67,7 @@ describe("domainsList", () => {
   });
 
   it("shows message when no domains", async () => {
-    mockListDomains.mockResolvedValue({ domains: [] });
+    mockList.mockReturnValue(pager([]));
 
     await domainsList();
 
@@ -84,7 +88,7 @@ describe("domainsRegister", () => {
     mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
     });
-    mockRegisterDomain.mockReset();
+    mockCreate.mockReset();
   });
 
   afterEach(() => {
@@ -100,9 +104,9 @@ describe("domainsRegister", () => {
   });
 
   it("registers domain and shows DNS records", async () => {
-    mockRegisterDomain.mockResolvedValue({
+    mockCreate.mockResolvedValue({
       domain: "mycompany.com",
-      dns_records: {
+      dnsRecords: {
         mx: { host: "mycompany.com", value: "mx.e2a.dev", priority: 10 },
         txt: { host: "mycompany.com", value: "e2a-verify=abc123" },
       },
@@ -110,7 +114,7 @@ describe("domainsRegister", () => {
 
     await domainsRegister("mycompany.com");
 
-    expect(mockRegisterDomain).toHaveBeenCalledWith({ domain: "mycompany.com" });
+    expect(mockCreate).toHaveBeenCalledWith({ domain: "mycompany.com" });
     expect(mockStdout).toHaveBeenCalledWith("Registered: mycompany.com\n");
     expect(mockStdout).toHaveBeenCalledWith(
       expect.stringContaining("MX"),
@@ -132,7 +136,7 @@ describe("domainsVerify", () => {
     mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
     });
-    mockVerifyDomain.mockReset();
+    mockVerify.mockReset();
   });
 
   afterEach(() => {
@@ -147,7 +151,7 @@ describe("domainsVerify", () => {
   });
 
   it("shows verified status", async () => {
-    mockVerifyDomain.mockResolvedValue({ domain: "mycompany.com", verified: true });
+    mockVerify.mockResolvedValue({ domain: "mycompany.com", verified: true });
 
     await domainsVerify("mycompany.com");
 
@@ -155,7 +159,7 @@ describe("domainsVerify", () => {
   });
 
   it("shows not-yet-verified status", async () => {
-    mockVerifyDomain.mockResolvedValue({ domain: "mycompany.com", verified: false });
+    mockVerify.mockResolvedValue({ domain: "mycompany.com", verified: false });
 
     await domainsVerify("mycompany.com");
 
@@ -174,7 +178,7 @@ describe("domainsDelete", () => {
     mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit");
     });
-    mockDeleteDomain.mockReset();
+    mockDelete.mockReset();
   });
 
   afterEach(() => {
@@ -189,11 +193,11 @@ describe("domainsDelete", () => {
   });
 
   it("deletes domain and confirms", async () => {
-    mockDeleteDomain.mockResolvedValue(undefined);
+    mockDelete.mockResolvedValue(undefined);
 
     await domainsDelete("mycompany.com");
 
-    expect(mockDeleteDomain).toHaveBeenCalledWith("mycompany.com");
+    expect(mockDelete).toHaveBeenCalledWith("mycompany.com");
     expect(mockStdout).toHaveBeenCalledWith("Deleted: mycompany.com\n");
   });
 });

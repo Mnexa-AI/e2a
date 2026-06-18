@@ -3,8 +3,7 @@ import { createClient } from "../sdk.js";
 export async function domainsList(): Promise<void> {
   const client = createClient();
 
-  const res = await client.api.listDomains();
-  const domains = res.domains || [];
+  const domains = await client.domains.list().toArray({ limit: 1000 });
 
   if (domains.length === 0) {
     process.stderr.write("No domains registered. Run: e2a domains register <domain>\n");
@@ -26,14 +25,14 @@ export async function domainsRegister(domain: string | undefined): Promise<void>
 
   const client = createClient();
 
-  const res = await client.api.registerDomain({ domain });
+  const res = await client.domains.create({ domain });
 
   process.stdout.write(`Registered: ${res.domain}\n`);
 
-  if (res.dns_records) {
+  if (res.dnsRecords) {
     process.stdout.write("\nAdd these DNS records to verify ownership:\n\n");
-    const mx = res.dns_records.mx;
-    const txt = res.dns_records.txt;
+    const mx = res.dnsRecords.mx;
+    const txt = res.dnsRecords.txt;
     if (mx) {
       process.stdout.write(`  MX  ${mx.host}  ${mx.value}  (priority ${mx.priority ?? 10})\n`);
     }
@@ -52,7 +51,7 @@ export async function domainsVerify(domain: string | undefined): Promise<void> {
 
   const client = createClient();
 
-  const res = await client.api.verifyDomain(domain);
+  const res = await client.domains.verify(domain);
 
   if (res.verified) {
     process.stdout.write(`Verified: ${res.domain}\n`);
@@ -70,7 +69,7 @@ export async function domainsDelete(domain: string | undefined): Promise<void> {
 
   const client = createClient();
 
-  await client.api.deleteDomain(domain);
+  await client.domains.delete(domain);
 
   process.stdout.write(`Deleted: ${domain}\n`);
 }
