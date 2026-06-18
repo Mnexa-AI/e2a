@@ -8,250 +8,172 @@ TypeScript/Node.js SDK for [e2a](https://e2a.dev) — email for AI agents.
 npm install @e2a/sdk
 ```
 
-## Upgrading from 1.x to 2.0
+## Upgrading from 2.x to 3.0
 
-Webhook-parsed emails now refuse to expose claim fields (`sender`, `subject`, `textBody`, …) until the HMAC signature is verified — `email.sender` throws `UnverifiedEmailError` instead of silently returning attacker-controllable data. The one-line fix is to switch `client.parse(body)` → `client.parseWebhook(body)`:
+3.0 is a breaking redesign. The SDK now wraps a generated `/v1` client behind a
+namespaced, resource-oriented surface, with a typed error hierarchy, automatic
+retries + idempotency, and auto-pagination.
+
+- **Namespaced resources.** Flat methods are gone. `client.getMessages()` →
+  `client.messages.list(address)`, `client.getMessage(id)` →
+  `client.messages.get(address, id)`, `client.send(...)` →
+  `client.messages.send(address, body)`, etc. Per-agent calls take an explicit
+  `address` — the SDK no longer infers it.
+- **Webhook verification.** `client.parse` / `client.parseWebhook` /
+  `InboundEmail` are removed. Verify and parse a delivery with the standalone
+  `constructEvent(rawBody, header, secret)`, which returns a typed
+  `WebhookEvent`. Signatures are per-webhook (`whsec_…`), Stripe-style.
+- **Typed errors.** Failures throw `E2AError` subclasses
+  (`E2ANotFoundError`, `E2AConflictError`, `E2AValidationError`,
+  `E2ARateLimitError`, …) carrying `.code`, `.status`, `.requestId`, and
+  `.retryable`.
 
 ```diff
-- const email = await client.parse(req.body);
-+ const email = await client.parseWebhook(req.body);
+- const { messages } = await client.getMessages({ status: "unread" });
+- const email = await client.getMessage(messages[0].messageId);
+- await email.reply("Thanks!");
++ const messages = await client.messages.list(address, { status: "unread" }).toArray({ limit: 50 });
++ await client.messages.reply(address, messages[0].messageId, { body: "Thanks!" });
 ```
-
-`parseWebhook` reads the secret from `E2A_WEBHOOK_SECRET`; set it before upgrading. If you must inspect the payload before verifying, use `email.unverifiedPayload`. REST-fetched emails (`client.getMessage`) are unaffected — they're pre-verified via the bearer token. Full background in the [PR](https://github.com/Mnexa-AI/e2a/pull/57).
 
 ## Quick Start
 
-### Webhook (cloud agents)
+```typescript
+import { E2AClient } from "@e2a/sdk/v1";
 
-Webhook payloads are HMAC-signed. The SDK gates field access behind verification — accessing `email.sender`, `email.subject`, etc. on an unverified payload throws `UnverifiedEmailError`. Use `client.parseWebhook(...)` to parse + verify in one call:
+const client = new E2AClient(); // reads E2A_API_KEY; baseUrl defaults to https://api.e2a.dev
+const address = "my-agent@agents.e2a.dev";
+```
+
+### Poll an inbox
 
 ```typescript
-import { E2AClient } from "@e2a/sdk";
+// List endpoints return an AutoPager: iterate, or collect with a required limit.
+for await (const m of client.messages.list(address, { status: "unread" })) {
+  const email = await client.messages.get(address, m.messageId);
+  console.log(email.subject, email.body?.text);
+  await client.messages.reply(address, m.messageId, { body: "Got it!" });
+}
+```
 
-const client = new E2AClient(); // uses E2A_API_KEY env var
+### Send mail
 
-app.post("/webhook", async (req, res) => {
-  let email;
+```typescript
+await client.messages.send(address, {
+  to: ["alice@example.com"],
+  subject: "Hello",
+  body: "Hi from my agent!",
+  html_body: "<p>Hi!</p>",
+  cc: ["carol@example.com"],
+});
+```
+
+Unsafe writes (`send` / `reply` / `forward` / `approve`) auto-mint an
+`Idempotency-Key` and reuse it across retries, so a network blip can't
+double-send. Supply a stable key to also survive a process restart:
+
+```typescript
+await client.messages.send(address, body, { idempotencyKey: deriveFromEvent(evt) });
+```
+
+### Verify a webhook
+
+Each subscription is signed with its own `whsec_…` secret. `constructEvent`
+verifies the `X-E2A-Signature` header (replay-protected) and returns a typed
+event in one call. **Pass the raw request body** — re-stringified JSON won't
+match the signature.
+
+```typescript
+import { constructEvent, E2AWebhookSignatureError } from "@e2a/sdk/v1";
+
+app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
+  let event;
   try {
-    email = await client.parseWebhook(req.body); // reads E2A_WEBHOOK_SECRET
-  } catch {
-    return res.status(401).end();
+    event = constructEvent(req.body, req.header("X-E2A-Signature"), process.env.E2A_WEBHOOK_SECRET);
+  } catch (e) {
+    if (e instanceof E2AWebhookSignatureError) return res.status(400).end();
+    throw e;
   }
-  console.log(`From: ${email.sender}, Subject: ${email.subject}`);
-  await email.reply("Got it!");
+  if (event.type === "email.received") {
+    // event.data carries the message payload
+  }
   res.json({ ok: true });
 });
 ```
 
-Get a signing secret from the dashboard's **Webhook secrets** page (or `POST /api/v1/users/me/signing-secrets`). Set it as `E2A_WEBHOOK_SECRET` so `parseWebhook` picks it up automatically, or pass it explicitly: `client.parseWebhook(body, "whsec_...")`.
+During a secret rotation you can pass an array of secrets — a delivery is
+accepted if any one matches: `constructEvent(body, header, [oldSecret, newSecret])`.
 
-### Polling
+## Resources
 
-```typescript
-import { E2AClient } from "@e2a/sdk";
-
-const client = new E2AClient({
-  apiKey: "e2a_...",
-  agentEmail: "my-agent@agents.e2a.dev",
-});
-
-// List unread messages
-const { messages } = await client.getMessages({ status: "unread" });
-
-// Read a specific message
-const email = await client.getMessage(messages[0].messageId);
-console.log(email.textBody);
-
-// Reply
-await email.reply("Thanks!");
-```
-
-### Send a new email
-
-```typescript
-await client.send(["alice@example.com"], "Hello", "Hi from my agent!");
-
-// With CC, BCC, and HTML body
-await client.send(["alice@example.com", "bob@example.com"], "Hello", "Hi!", {
-  htmlBody: "<p>Hi!</p>",
-  cc: ["carol@example.com"],
-  bcc: ["dave@example.com"],
-});
-```
-
-## API
+`client.agents`, `client.messages`, `client.conversations`, `client.domains`,
+`client.events`, `client.webhooks`, `client.account` (with
+`client.account.suppressions`), plus `client.info()`. Each method maps to a
+`/v1` operation; per-agent methods take the agent `address` as the first
+argument.
 
 ### `new E2AClient(options?)`
 
-| Option       | Type     | Default                | Description                    |
-|-------------|----------|------------------------|--------------------------------|
-| `apiKey`    | `string` | `E2A_API_KEY` env var  | Your API key                   |
-| `agentEmail`| `string` | `E2A_AGENT_EMAIL` env  | Agent email address            |
-| `baseUrl`   | `string` | `https://e2a.dev`      | API base URL                   |
-| `timeout`   | `number` | `30000`                | Request timeout in ms          |
+| Option         | Type     | Default                 | Description                              |
+|----------------|----------|-------------------------|------------------------------------------|
+| `apiKey`       | `string` | `E2A_API_KEY` env       | Account (`e2a_acct_`) or agent key/token |
+| `baseUrl`      | `string` | `https://api.e2a.dev`   | API base URL (override for self-host)    |
+| `maxRetries`   | `number` | `2`                     | Retries on 429/5xx/connection            |
+| `maxElapsedMs` | `number` | —                       | Optional total deadline across attempts  |
 
-### `client.parseWebhook(body, secret?)` → `Promise<InboundEmail>`
+### Errors
 
-Parse + HMAC-verify a webhook payload in one call. Reads `E2A_WEBHOOK_SECRET` if `secret` is omitted; throws on bad signature. Recommended entry point for webhook handlers.
+Every failure throws an `E2AError` (or subclass) with `.code` (the stable
+machine code from the response envelope), `.status`, `.requestId`, and
+`.retryable`. Subclasses: `E2AAuthError` (401), `E2APermissionError` (403),
+`E2ANotFoundError` (404), `E2AConflictError` (409), `E2AValidationError` (422),
+`E2AIdempotencyError`, `E2ARateLimitError` (429), `E2AServerError` (5xx),
+`E2AConnectionError` (no response), `E2AWebhookSignatureError` (local verify
+failure).
 
-### `client.parse(body)` → `Promise<InboundEmail>`
+> Note: e2a hides the existence of agents you don't own — `agents.get` of an
+> unknown address returns `403` (`E2APermissionError`), not `404`.
 
-**Deprecated since 2.2 — will be removed in 3.0.** Use `parseWebhook` for webhook handlers, or call `parseWebhook` and read `email.unverifiedPayload` after the verification failure for inspection without verification. Calling `parse` logs a one-time deprecation warning to `console.warn`.
+### Pagination
 
-Parses a webhook payload (Buffer, string, or object) into an `InboundEmail` and returns it in the unverified state — accessing claim fields like `sender` or `subject` throws `UnverifiedEmailError` until `email.verifySignature()` succeeds.
-
-### `client.getMessages(opts?)` → `Promise<MessageList>`
-
-Fetch messages. Options: `status` ("unread", "read", "all"), `pageSize`, `token`.
-
-### `client.getMessage(messageId)` → `Promise<InboundEmail>`
-
-Fetch a single message with full content. Returns a pre-verified email (the bearer token already authenticated the channel) — no `verifySignature` step needed.
-
-### `client.reply(messageId, body, opts?)` → `Promise<SendResult>`
-
-Reply to a message. Options: `htmlBody`, `replyAll`, `cc`, `bcc`, `conversationId`, `attachments`.
-
-### `client.send(to, subject, body, opts?)` → `Promise<SendResult>`
-
-Send a new email. `to` is `string[]`. Options: `htmlBody`, `cc`, `bcc`, `conversationId`, `attachments`.
-
-### `InboundEmail`
-
-| Property         | Type              | Description                        |
-|-----------------|-------------------|------------------------------------|
-| `messageId`     | `string`          | Unique message ID                  |
-| `conversationId`| `string \| null`  | Thread/conversation ID (see below) |
-| `sender`        | `string`          | Sender email address               |
-| `recipient`     | `string`          | Per-delivery target — your agent's address |
-| `to`            | `string[]`        | Parsed `To:` header — every address from the original message |
-| `cc`            | `string[]`        | Parsed `Cc:` header (empty when no CCs) |
-| `replyTo`       | `string[]`        | Parsed `Reply-To:` header — empty when absent (never falls back to `sender`). Useful when `sender` is a no-reply notifications address (Granola, GitHub CI bots, etc.) and the real correspondent is in Reply-To. |
-| `subject`       | `string`          | Email subject                      |
-| `textBody`      | `string`          | Plain-text body                    |
-| `htmlBody`      | `string \| null`  | HTML body                          |
-| `attachments`   | `Attachment[]`    | File attachments                   |
-| `auth`          | `AuthHeaders`     | Authentication headers             |
-| `isVerified`    | `boolean`         | Whether sender identity is verified|
-| `unverifiedPayload` | `WebhookPayload` | Raw payload pre-verification — escape hatch for inspection; treat as untrusted |
-| `reply(body)`   | method            | Reply to this email                |
-
-All claim fields above (everything except `auth`, `rawMessage`, `verified`, `isVerified`, `unverifiedPayload`) are gated — accessing them on an unverified webhook payload throws `UnverifiedEmailError`. Call `email.verifySignature(secret?)` first (reads `E2A_WEBHOOK_SECRET` by default), or use `client.parseWebhook(body)` which combines parse + verify. `email.unverifiedPayload` is an escape hatch for inspection before verifying — treat its contents as untrusted.
-
-Exported error class: `UnverifiedEmailError extends Error`.
-
-## Conversation threading
-
-`conversationId` is an opaque string that lets your agent tie multiple
-emails to a single thread across the email boundary. Pass it on any
-`send()` / `reply()`, and e2a surfaces it on the recipient's inbound —
-whether the recipient is a human (via `In-Reply-To` threading) or another
-e2a agent (via a custom `X-E2A-Conversation-Id` header, honored only for
-same-platform mail so external senders cannot forge it).
-
-```ts
-client.on("message", async (email) => {
-  const convId = email.conversationId ?? generateId();
-
-  const reply = await buildReply(email);
-  await email.reply(reply.text, {
-    conversationId: convId,
-    htmlBody: reply.html,
-  });
-});
-```
-
-### When is `conversationId` populated?
-
-| Inbound type | Sender passed `conversationId`? | What you see |
-|---|---|---|
-| First email from a human | n/a — humans don't pass it | `null` — **assign one yourself** if you want to thread |
-| Human reply to your prior outbound | n/a | The id you passed on your outbound |
-| Another e2a agent's new send | **yes, recommended** | The sender's asserted id |
-| Another e2a agent's new send | no | `null` |
-| Another e2a agent's reply | either way | Your earlier outbound's id unless the sender asserted another |
-
-Rules of thumb:
-
-- **Always pass `conversationId`** when tagging an outbound as part of a
-  known thread. It's the only way the recipient's webhook sees it.
-- On first contact from a human, assign a new id yourself before replying.
-- Handle `null` — it happens on first contact from humans and from external
-  senders you haven't interacted with before.
-- `conversationId` is not a security boundary. For sender identity, check
-  `email.auth` / `email.isVerified`.
-
-### Agent-to-agent threads
-
-For e2a-to-e2a traffic, `conversationId` arrives on the very first message
-with no prior round trip required:
-
-```ts
-await agentA.send(["bob@agent.acme.com"], "Can you handle this?", bodyText, {
-  conversationId: "task-2026-04-19-7f3a",
-});
-// Agent B's webhook immediately sees conversationId="task-2026-04-19-7f3a"
-```
+List methods return an `AutoPager<T>` — an `AsyncIterable` that threads the
+cursor for you. Use `for await`, or `.toArray({ limit })` (the limit is
+required, to bound memory on a large inbox), or `.forEach(fn)` (return `false`
+to stop early).
 
 ## WebSocket (real-time delivery for local agents)
 
-Local-mode agents can receive notifications in real time over a
-WebSocket. No public URL needed; auth happens via the `?token=` query
-parameter.
+Local-mode agents receive lightweight notifications over a WebSocket; auth is
+via the `?token=` query parameter — no public URL needed.
 
-```ts
-import { E2AClient } from "@e2a/sdk";
+```typescript
+import { E2AClient } from "@e2a/sdk/v1";
 
 const client = new E2AClient({ apiKey: "e2a_..." });
 
-for await (const notif of client.listen({ agentEmail: "bot@agents.e2a.dev" })) {
-  // The notification is lightweight metadata only — no body, no REST call.
-  console.log(`From: ${notif.from}, Subject: ${notif.subject}`);
-
-  // Fetch the full email when you actually want it.
-  const detail = await client.api.getMessage(notif.recipient, notif.message_id);
-  // ...
+for await (const notif of client.listen("bot@agents.e2a.dev")) {
+  // Lightweight metadata only — fetch the body when you want it.
+  const email = await client.messages.get(notif.recipient, notif.message_id);
+  console.log(notif.from, notif.subject);
 }
 ```
 
-`client.listen()` returns a [`WSStream`](src/v1/ws.ts) which is **both**
-an `AsyncIterable<WSNotification>` and an `EventEmitter` — pick whichever
-access pattern fits.
+`client.listen(address)` (address falls back to `E2A_AGENT_EMAIL`) returns a
+`WSStream` that is **both** an `AsyncIterable<WSNotification>` and an
+`EventEmitter` — use `.on("error" | "close", …)` for connection-level events
+and `.close()` to stop. Reconnects with exponential backoff (1s → 30s,
+configurable via `maxBackoffMs`). The lower-level `WSListener` is also exported
+for advanced use.
 
-```ts
-const stream = client.listen({ agentEmail: "bot@agents.e2a.dev" });
-stream.on("error", (err) => console.error("WS error:", err));
-stream.on("close", (code, reason) => console.log("WS closed:", code, reason));
+## Conversation threading
 
-for await (const notif of stream) {
-  // ...
-}
-
-// Call stream.close() to terminate iteration cleanly.
-```
-
-`WSNotification` mirrors the Python SDK's dataclass and the server's
-wire shape:
-
-| Field | Type | Notes |
-|---|---|---|
-| `message_id` | `string` | Pass to `client.api.getMessage(...)` for the body |
-| `from` | `string` | Sender |
-| `recipient` | `string` | Per-delivery target (your agent's address) |
-| `subject` | `string` | |
-| `received_at` | `string` | RFC 3339 timestamp |
-| `conversation_id` | `string?` | Threading; absent on first contact |
-
-Reconnects with exponential backoff (1s → 30s by default,
-configurable via `maxBackoffMs`). The protocol is server-to-client
-only; the client never sends application frames.
-
-### Lower-level `WSListener`
-
-Prefer `client.listen()`. The underlying [`WSListener`](src/v1/ws.ts)
-class is also exported for advanced use (e.g. wiring up a custom
-EventEmitter pattern without iteration), but most consumers should use
-`client.listen()`.
+`conversationId` is an opaque string that ties multiple emails to one thread
+across the email boundary. Pass it on any `send` / `reply` and e2a surfaces it
+on the recipient's inbound — via `In-Reply-To` for humans, or a forge-resistant
+`X-E2A-Conversation-Id` header for same-platform agent-to-agent mail. It is not
+a security boundary; for sender identity check the message's `auth`. On first
+contact from a human it arrives `null` — assign one yourself if you want to
+thread.
 
 ## License
 
