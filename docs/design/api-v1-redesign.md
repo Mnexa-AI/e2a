@@ -1725,10 +1725,13 @@ warrant their own change. *Lands:* SDK error fields now; server headers tracked.
 
 **F4 — MEDIUM (DX consistency): uniform list ergonomics.** `.list()` returns a
 cursor `AutoPager` for messages/events but a single-page pager (agents, domains,
-webhooks, suppressions) or even a plain array (Python `conversations.list`) for
-the rest — three mental models for "list." **Decision:** every `.list()` returns
-an `AutoPager` (single-page ones simply terminate after page 1), uniformly
-across TS + Python. *Lands:* TS `client.ts` (#227) + Python `client.py` (#228).
+webhooks, suppressions) or a plain array (`conversations.list`) for the rest —
+three mental models for "list." **Decision:** every `.list()` returns an
+`AutoPager` (single-page ones terminate after page 1). **Deferred to post-merge:**
+this changes `conversations.list`'s return type, which **ripples to the cli/mcp
+consumers (#229)** — a SDK-only change would break their build. Best done as a
+small lockstep change (SDK + cli + mcp) once #227/#228/#229 are unified on
+`main`. Tracked, not in this pass.
 
 **F5 — MEDIUM (DX / parity, ROADMAP): inbound ergonomics — typed event payloads
 + stripped reply body.** `WebhookEvent.data` is `unknown` in both SDKs and the
@@ -1780,10 +1783,19 @@ the pattern. No adoption of Svix now. Recorded as decision; no code change.
 
 ### 12.2 Sequencing
 
-F1, F3, F7 are **server + spec** changes (this hardening pass, mergeable to
-`main` independently of the open SDK PRs). F2, F4, F6 are **SDK-internal** and
-land on the open SDK PR branches (#227/#228). F1's SDK side is mechanical — the
-fields appear once each SDK's `oag` base is regenerated against the updated spec
-(after the server change lands / the SDK branch rebases). F5 is the next slice;
-F8/F9 are recorded decisions. None block the legacy `/api/v1` deletion (8e),
-which remains gated on merging the four consumer PRs.
+**Server + spec (this hardening pass, PR #231, mergeable independently):** F1
+(done), F7 (doc reconciliation), F3 server-side (tracked §11 #4).
+
+**SDK-internal, land now on the open SDK branches (#227 TS / #228 Python):** F2
+(code-first error mapping, additively — preserve existing status→class results),
+F3-SDK (`E2AError` reads `details.retry_after_seconds` as a `Retry-After`
+fallback), F6 (Python `WSStream` surfaces a fatal auth/4xx as a typed error and
+stops the reconnect loop; both SDKs document the `?token=` query-auth
+limitation).
+
+**Deferred to post-merge (cross-branch / spec-dependent):** F4 (uniform
+`AutoPager` — ripples to #229 cli/mcp consumers; do as a lockstep change on a
+unified `main`); F1's SDK pickup (mechanical `oag` regen against the F1 spec once
+#231 lands and the SDK branches rebase). F5 is the next slice; F8/F9 are recorded
+decisions. None block the legacy `/api/v1` deletion (8e), still gated on merging
+the consumer PRs.
