@@ -12,6 +12,7 @@ import { CounterpartyAvatar } from "./CounterpartyAvatar";
 import { ThreadBubble } from "./ThreadBubble";
 import { PendingCallout } from "./PendingCallout";
 import { formatRelativeAge } from "../../../lib/relativeTime";
+import type { MessageSummary } from "../types";
 import type { Thread } from "./threading";
 
 const STATE_CHIP: Record<Thread["state"], { tone: "warn" | "info" | "accent" | "neutral"; label: string; dot: boolean }> = {
@@ -29,8 +30,11 @@ export function ThreadDetail({
 }: {
   thread: Thread | null;
   agentEmail: string;
-  onOpenMessage: (messageId: string) => void;
-  onOpenHeaders: (messageId: string) => void;
+  // Pass the whole row so the focus page can thread direction +
+  // pending-state through the URL (the detail endpoint can't recover
+  // either from its MessageView payload).
+  onOpenMessage: (message: MessageSummary) => void;
+  onOpenHeaders: (message: MessageSummary) => void;
 }) {
   if (!thread) {
     return (
@@ -156,7 +160,7 @@ export function ThreadDetail({
           <PendingCallout
             draftedBy="agent"
             expiresInLabel={null}
-            onReview={() => onOpenMessage(pendingDraft.message_id)}
+            onReview={() => onOpenMessage(pendingDraft)}
           />
         )}
       </div>

@@ -20,16 +20,20 @@ global.fetch = mockFetch;
 
 // In /v1 the pending list is aggregated client-side: GET /v1/agents,
 // then GET /v1/agents/{address}/messages?direction=outbound per agent,
-// keeping the status=pending_approval rows. Mock both legs.
+// keeping rows whose `hitl_status === "pending_approval"`. REAL wire
+// shape: outbound rows have empty `status` (delivery rollup) and carry
+// the HITL lifecycle in `hitl_status`; the count would be 0 if the
+// filter keyed off `status` (Bug 1). Mock both legs.
 function mockPendingCount(count: number) {
   const items = Array.from({ length: count }, (_, i) => ({
     message_id: `msg_${i}`,
     direction: "outbound",
-    from: "ag_1@agents.e2a.dev",
+    from: "",
     to: [],
     recipient: "",
     subject: `S${i}`,
-    status: "pending_approval",
+    status: "",
+    hitl_status: "pending_approval",
     created_at: new Date().toISOString(),
   }));
   mockFetch.mockImplementation((url: string) => {

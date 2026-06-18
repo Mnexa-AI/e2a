@@ -320,14 +320,20 @@ export async function getPendingMessage(
 }
 
 // Combined detail fetch for the focus page. `/v1` returns one MessageView
-// for both directions; there's no `direction` field on it, so we derive
-// it by comparing the sender to the agent's own address: a message
-// `from` the agent is outbound, anything else is inbound. Returns both
-// projections under a discriminated `direction` so the focus page can
-// keep its existing inbound/outbound branches.
+// for both directions, and that detail shape has NO `direction` field —
+// it also drops `from`/`status` to empty strings on outbound rows, so the
+// direction CANNOT be recovered from the detail payload. The authoritative
+// direction lives on the MessageSummaryView list row, so the focus page
+// threads it in (via the `?direction=` query param) and passes it here.
+// When the caller can't supply a direction (a deep link with no param),
+// we fall back to inbound — the safe default that never offers
+// approve/reject on a message we can't prove is a held outbound draft.
+// Returns both projections under a discriminated `direction` so the focus
+// page can keep its existing inbound/outbound branches.
 export async function getMessageDetail(
   email: string,
   id: string,
+  direction: "inbound" | "outbound" = "inbound",
 ):
   | Promise<
       | { direction: "outbound"; data: PendingMessageDetail }
@@ -339,8 +345,7 @@ export async function getMessageDetail(
       "/messages/" +
       encodeURIComponent(id),
   );
-  const isOutbound = (w.from ?? "").toLowerCase() === email.toLowerCase();
-  if (isOutbound) {
+  if (direction === "outbound") {
     return { direction: "outbound", data: projectPending(email, w) };
   }
   return {
@@ -384,9 +389,12 @@ type AgentViewWire = {
 };
 
 // `/v1` has no cross-account pending endpoint. Pending drafts are
-// outbound messages with status="pending_approval", scoped per agent.
-// We fan out over the account's agents, list each agent's outbound
-// messages, keep the pending_approval rows, and tag each with the
+// outbound messages whose HITL lifecycle is "pending_approval", scoped
+// per agent. NOTE: on MessageSummaryView the pending state lives in
+// `hitl_status`, NOT `status` — the wire `status` on an outbound row is
+// the delivery rollup (often empty for a held draft). We fan out over
+// the account's agents, list each agent's outbound messages, keep the
+// rows whose `hitl_status === "pending_approval"`, and tag each with the
 // owning agent's address so the detail/approve/reject calls can be
 // addressed. Aggregated newest-first.
 export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
@@ -404,7 +412,7 @@ export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
           pageSize: 100,
         });
         return page.items
-          .filter((m) => m.status === "pending_approval")
+          .filter((m) => m.hitl_status === "pending_approval")
           .map<PendingMessageSummary>((m) => ({
             id: m.message_id,
             agent_email: a.email,
@@ -413,7 +421,10 @@ export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
             conversation_id: m.conversation_id,
             to: m.to ?? [],
             cc: m.cc,
-            status: m.status,
+            // Surface the HITL lifecycle value as the row's `status` —
+            // the wire `status` is the (empty) delivery rollup for a
+            // held draft, so the pending UI keys off hitl_status here.
+            status: m.hitl_status ?? "",
             created_at: m.created_at,
           }));
       } catch {

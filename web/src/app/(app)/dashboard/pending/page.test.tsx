@@ -1,8 +1,11 @@
 // Pending queue contract: the page must subscribe to the shared
 // `pendingMessagesKey` SWR cache so a single fetch is shared with
 // the Sidebar badge (usePendingCount). In /v1 the queue is aggregated
-// client-side from GET /v1/agents + per-agent outbound message lists
-// (rows with status=pending_approval).
+// client-side from GET /v1/agents + per-agent outbound message lists,
+// keeping rows whose `hitl_status === "pending_approval"`. NOTE: on the
+// real wire (MessageSummaryView) the pending state is in `hitl_status`,
+// and `status` is the (empty) delivery rollup — filtering on `status`
+// would surface nothing.
 
 import {
   render,
@@ -24,16 +27,21 @@ global.fetch = mockFetch;
 
 const AGENT_EMAIL = "ag_1@agents.e2a.dev";
 
-// MessageSummaryView row (PageMessageSummaryView.items) for the agent's
-// outbound message list — a held pending_approval draft.
+// REAL MessageSummaryView row (PageMessageSummaryView.items) for the
+// agent's outbound message list — a held draft. Per the server: outbound
+// rows carry the HITL lifecycle in `hitl_status`; the `status` field is
+// the delivery rollup and is EMPTY for a held draft. `from` is also empty
+// on outbound. This is the shape the old `status === "pending_approval"`
+// filter would have silently dropped.
 const SAMPLE_ROW = {
   message_id: "msg_1",
   direction: "outbound",
-  from: AGENT_EMAIL,
+  from: "",
   to: ["alice@example.com"],
   recipient: "alice@example.com",
   subject: "Sample pending subject",
-  status: "pending_approval",
+  status: "",
+  hitl_status: "pending_approval",
   created_at: "2026-05-23T00:00:00Z",
 };
 
@@ -71,7 +79,14 @@ beforeEach(async () => {
 });
 
 describe("PendingPage SWR subscription", () => {
-  it("reflects external mutate() to pendingMessagesKey (proves the page is a SWR subscriber, not local-state)", async () => {
+  // The SAMPLE_ROW staged here is the REAL wire shape for a held draft:
+  // `status:""` + `hitl_status:"pending_approval"`. This is also the
+  // Bug 1 regression — the pre-fix queue filtered on
+  // `status === "pending_approval"`, which would have DROPPED this row
+  // and rendered the empty state. The first `waitFor` below (the row's
+  // subject is visible, i.e. NOT the empty state) fails against the old
+  // `status` filter and passes only with the `hitl_status` filter.
+  it("reflects external mutate() to pendingMessagesKey (proves the page is a SWR subscriber, not local-state), and surfaces a status:'' + hitl_status:'pending_approval' row (Bug 1)", async () => {
     stagePendingFetch();
 
     render(<PendingPage />);
@@ -79,6 +94,11 @@ describe("PendingPage SWR subscription", () => {
     await waitFor(() => {
       expect(screen.getByText("Sample pending subject")).toBeInTheDocument();
     });
+    // Bug 1 guard: the held draft (status:"") is surfaced, not the
+    // empty state.
+    expect(
+      screen.queryByText(/No messages are waiting for approval/),
+    ).not.toBeInTheDocument();
 
     // External mutate to the shared key — if PendingPage is subscribed
     // via useSWR(pendingMessagesKey), it re-renders against the new

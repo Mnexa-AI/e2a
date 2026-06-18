@@ -3,10 +3,14 @@
 // redirects, ⌘↵ triggers Approve, missing params surface an error.
 //
 // In /v1 there's one agent-scoped detail endpoint
-// (GET /v1/agents/{address}/messages/{id} → MessageView). The page
-// derives direction by comparing the sender to the agent address: a
-// message `from` the agent (=?email=) is outbound, anything else is
-// inbound.
+// (GET /v1/agents/{address}/messages/{id} → MessageView). That detail
+// shape carries NEITHER `direction` NOR `hitl_status`, and on outbound
+// rows the wire `from` and `status` come back as EMPTY strings — so the
+// page CANNOT recover direction or pending-state from the fetch. The
+// list/pending rows (MessageSummaryView) carry both, so they thread the
+// authoritative values into the URL: `?direction=<inbound|outbound>` and
+// `&pending=1`. A deep link with no params defaults to inbound /
+// not-pending (no approve/reject), which we also assert below.
 
 import { render, screen, waitFor } from "../../../../../../test-utils/swr";
 import { render as rawRender } from "@testing-library/react";
@@ -61,19 +65,21 @@ const minutesAgo = (n: number) =>
 
 const AGENT_EMAIL = "support@acme.io";
 
-// MessageView wire (GET /v1/agents/{address}/messages/{id}). The page
-// reads `from === AGENT_EMAIL` to classify it as outbound. Body comes
-// through `body.text`.
+// REAL MessageView wire (GET /v1/agents/{address}/messages/{id}) for a
+// held outbound draft. Per the server: the detail view has NO `direction`
+// and NO `hitl_status`, and on an outbound row `from` and `status` are
+// EMPTY strings. Direction + pending-state are NOT recoverable here —
+// they're threaded via the URL params. Body comes through `body.text`.
 const OUTBOUND_PENDING = {
   message_id: "msg_pending",
-  from: AGENT_EMAIL,
+  from: "",
   to: ["maya@stripe.com"],
   cc: [],
   reply_to: [],
   recipient: "maya@stripe.com",
   subject: "Re: Q3 contract renewal",
   conversation_id: "conv_K3p9aQ",
-  status: "pending_approval",
+  status: "",
   created_at: minutesAgo(13),
   body: {
     text: "Hi Maya,\n\nThanks for sending over the renewal draft…\n\nBest,\nAcme Support",
@@ -156,7 +162,7 @@ afterEach(() => {
 
 describe("AgentMessageFocusPage", () => {
   it("renders the outbound pending detail with subject, identity row, and action card", async () => {
-    setSearchParams({ email: "support@acme.io", id: "msg_pending" });
+    setSearchParams({ email: "support@acme.io", id: "msg_pending", direction: "outbound", pending: "1" });
     mockDetail(OUTBOUND_PENDING);
 
     render(<AgentMessageFocusPage />);
@@ -172,7 +178,7 @@ describe("AgentMessageFocusPage", () => {
   });
 
   it("renders the headers section open when ?headers=1", async () => {
-    setSearchParams({ email: "support@acme.io", id: "msg_pending", headers: "1" });
+    setSearchParams({ email: "support@acme.io", id: "msg_pending", direction: "outbound", pending: "1", headers: "1" });
     mockDetail(OUTBOUND_PENDING);
 
     render(<AgentMessageFocusPage />);
@@ -185,8 +191,8 @@ describe("AgentMessageFocusPage", () => {
     expect(headerButton).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("renders an inbound message (sender ≠ agent address) via the agent-scoped detail endpoint", async () => {
-    setSearchParams({ email: "support@acme.io", id: "msg_in1" });
+  it("renders an inbound message (?direction=inbound) via the agent-scoped detail endpoint", async () => {
+    setSearchParams({ email: "support@acme.io", id: "msg_in1", direction: "inbound" });
     mockDetail(INBOUND_DETAIL);
 
     render(<AgentMessageFocusPage />);
@@ -209,7 +215,7 @@ describe("AgentMessageFocusPage", () => {
   // was free (every navigation refetched the inbox); post-SWR it
   // needs an explicit cache invalidation.
   it("invalidates the per-agent inbox cache after a successful inbound load", async () => {
-    setSearchParams({ email: "support@acme.io", id: "msg_in1" });
+    setSearchParams({ email: "support@acme.io", id: "msg_in1", direction: "inbound" });
     mockDetail(INBOUND_DETAIL);
 
     render(<AgentMessageFocusPage />);
@@ -225,7 +231,7 @@ describe("AgentMessageFocusPage", () => {
   });
 
   it("clicking Approve POSTs to /v1/agents/{address}/messages/{id}/approve and redirects to the thread", async () => {
-    setSearchParams({ email: "support@acme.io", id: "msg_pending" });
+    setSearchParams({ email: "support@acme.io", id: "msg_pending", direction: "outbound", pending: "1" });
     const countCalls = mockApproveSuccess();
     const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
 
@@ -245,7 +251,7 @@ describe("AgentMessageFocusPage", () => {
   });
 
   it("⌘↵ keyboard shortcut triggers Approve when status is pending", async () => {
-    setSearchParams({ email: "support@acme.io", id: "msg_pending" });
+    setSearchParams({ email: "support@acme.io", id: "msg_pending", direction: "outbound", pending: "1" });
     const countCalls = mockApproveSuccess();
 
     render(<AgentMessageFocusPage />);
@@ -261,6 +267,47 @@ describe("AgentMessageFocusPage", () => {
     await waitFor(() => {
       expect(countCalls()).toBe(1);
     });
+  });
+
+  // Regression (Bug 2 + Bug 3): the detail MessageView for an outbound
+  // row has `from:""` and `status:""` and no direction/hitl_status. A
+  // deep link with NO `?direction=`/`&pending=` params must therefore
+  // default to inbound + not-pending — render WITHOUT crashing and
+  // WITHOUT offering approve/reject. (The old code derived direction
+  // from `from === email`; with `from:""` it would have classified this
+  // as inbound too, but the load-bearing guarantee now is the explicit
+  // default + no action card.)
+  it("deep link with no direction/pending params renders as inbound, no approve/reject", async () => {
+    setSearchParams({ email: "support@acme.io", id: "msg_pending" });
+    mockDetail(OUTBOUND_PENDING);
+
+    render(<AgentMessageFocusPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("message-focus")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("message-focus").dataset.direction).toBe("inbound");
+    expect(screen.queryByTestId("action-card")).not.toBeInTheDocument();
+  });
+
+  // Regression (Bug 2 + Bug 3): the SAME wire payload (from:"", status:"")
+  // surfaces the approve/reject action card ONLY because direction +
+  // pending are threaded in via the URL. The pre-fix code gated on the
+  // detail `status === "pending_approval"` (always false here) so the
+  // action card never appeared on the focus page.
+  it("threaded ?direction=outbound&pending=1 surfaces approve/reject even though wire from/status are empty", async () => {
+    setSearchParams({ email: "support@acme.io", id: "msg_pending", direction: "outbound", pending: "1" });
+    mockDetail(OUTBOUND_PENDING);
+
+    render(<AgentMessageFocusPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("message-focus")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("message-focus").dataset.direction).toBe("outbound");
+    expect(screen.getByTestId("message-focus").dataset.status).toBe("pending_approval");
+    expect(screen.getByTestId("action-card")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Approve & send/i })).toBeInTheDocument();
   });
 
   it("surfaces a clear error when ?email or ?id is missing", async () => {
@@ -298,7 +345,7 @@ describe("AgentMessageFocusPage", () => {
   });
 
   it("submits the edited body_text in the approve overrides when Edit + Approve is used", async () => {
-    setSearchParams({ email: "support@acme.io", id: "msg_pending" });
+    setSearchParams({ email: "support@acme.io", id: "msg_pending", direction: "outbound", pending: "1" });
     const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     let approveBody: string | null = null;
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
@@ -352,7 +399,7 @@ describe("AgentMessageFocusPage", () => {
   // would observe data via the cache but never fire onSuccess, so
   // the textarea would be empty and the assertion would fail.
   it("seeds the textarea from pre-populated SWR cache without firing a fetch (true cache-hit regression)", async () => {
-    setSearchParams({ email: "support@acme.io", id: "msg_pending" });
+    setSearchParams({ email: "support@acme.io", id: "msg_pending", direction: "outbound", pending: "1" });
     // Pre-seed both caches the page subscribes to. The
     // jest.setup.ts afterEach nukes the module-level cache between
     // tests, so these seeds are isolated to this test. The agents
@@ -405,7 +452,7 @@ describe("AgentMessageFocusPage", () => {
   // `${email}|${id}`, an edit-in-progress on A would bleed into B's
   // view and the user would see A's stale draft superimposed on B.
   it("resets per-message state when ?id changes (no draft bleed across navigation)", async () => {
-    setSearchParams({ email: "support@acme.io", id: "msg_pending" });
+    setSearchParams({ email: "support@acme.io", id: "msg_pending", direction: "outbound", pending: "1" });
     const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
 
     const OTHER = {
@@ -441,7 +488,7 @@ describe("AgentMessageFocusPage", () => {
     expect(screen.getByDisplayValue(/stale draft body/)).toBeInTheDocument();
 
     // Navigate to message B by updating the URL params and rerendering.
-    setSearchParams({ email: "support@acme.io", id: "msg_other" });
+    setSearchParams({ email: "support@acme.io", id: "msg_other", direction: "outbound", pending: "1" });
     rerender(<AgentMessageFocusPage />);
 
     // Message B's body must show, and the stale draft from A must not.
@@ -452,7 +499,7 @@ describe("AgentMessageFocusPage", () => {
   });
 
   it("Reject confirm flow posts the reason and redirects to the thread", async () => {
-    setSearchParams({ email: "support@acme.io", id: "msg_pending" });
+    setSearchParams({ email: "support@acme.io", id: "msg_pending", direction: "outbound", pending: "1" });
     const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     let rejectBody: string | null = null;
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {

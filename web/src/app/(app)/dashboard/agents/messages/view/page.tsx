@@ -126,11 +126,23 @@ function FocusPageRouter() {
   const email = searchParams.get("email") ?? "";
   const id = searchParams.get("id") ?? "";
   const initialHeadersOpen = searchParams.get("headers") === "1";
+  // The `/v1` detail endpoint (MessageView) carries NEITHER `direction`
+  // nor `hitl_status`, and blanks `from`/`status` on outbound rows — so
+  // direction and pending-state can't be recovered from the fetch. The
+  // list/pending rows (MessageSummaryView) have both, so they thread the
+  // authoritative values in via query params. Missing → inbound /
+  // not-pending: a deep link can't prove a held outbound draft, so we
+  // default to the safe shape that hides approve/reject.
+  const direction: "inbound" | "outbound" =
+    searchParams.get("direction") === "outbound" ? "outbound" : "inbound";
+  const pending = searchParams.get("pending") === "1";
   return (
     <FocusContent
       key={`${email}|${id}`}
       email={email}
       id={id}
+      direction={direction}
+      pending={pending}
       initialHeadersOpen={initialHeadersOpen}
     />
   );
@@ -139,10 +151,14 @@ function FocusPageRouter() {
 function FocusContent({
   email,
   id,
+  direction: threadedDirection,
+  pending: threadedPending,
   initialHeadersOpen,
 }: {
   email: string;
   id: string;
+  direction: "inbound" | "outbound";
+  pending: boolean;
   initialHeadersOpen: boolean;
 }) {
   const router = useRouter();
@@ -163,13 +179,15 @@ function FocusContent({
   const hasUserEditedRef = useRef(false);
 
   // Single agent-scoped fetch (GET /v1/agents/{address}/messages/{id}).
-  // `getMessageDetail` derives the direction from the sender and returns
-  // the right projection. Opts out of `keepPreviousData` so navigating
-  // between focus pages (different `?id=`) doesn't briefly render the
-  // previous message under the new URL.
+  // The detail MessageView has no `direction`, so we pass the threaded
+  // direction (from the list row's MessageSummaryView) into
+  // `getMessageDetail` to pick the right projection. Opts out of
+  // `keepPreviousData` so navigating between focus pages (different
+  // `?id=`) doesn't briefly render the previous message under the new
+  // URL.
   const detailSWR = useSWR(
     email && id ? pendingMessageKey(email, id) : null,
-    () => getMessageDetail(email, id),
+    () => getMessageDetail(email, id, threadedDirection),
     {
       shouldRetryOnError: false,
       keepPreviousData: false,
@@ -208,7 +226,13 @@ function FocusContent({
     setDraftBody(outboundData.body_text ?? "");
   }, [outboundData]);
 
-  const isPending = msg?.direction === "outbound" && msg.data.status === "pending_approval";
+  // The detail MessageView's `status` is the DELIVERY rollup
+  // (queued/sent/…), never the HITL lifecycle — "pending_approval" only
+  // ever lives in `hitl_status` on the summary view, which the detail
+  // doesn't return. So we gate the approve/reject affordances on the
+  // `pending` flag threaded from the list/pending row (alongside
+  // `direction`). Absent param → not pending → approve/reject hidden.
+  const isPending = msg?.direction === "outbound" && threadedPending;
 
   const inboxLink = `/dashboard/agents/messages?email=${encodeURIComponent(email)}`;
   const convLink = msg?.direction === "outbound"
@@ -341,16 +365,25 @@ function FocusContent({
           parentId: msg.data.email_message_id,
         }
       : null;
+  // `/v1` exposes NO approval expiry: `approval_expires_at` is on neither
+  // MessageView (detail) nor MessageSummaryView (list). It's read here only
+  // for forward-compat; today it's always undefined so `formatExpiresIn`
+  // returns null and the TTL affordances degrade to empty. Surfacing a real
+  // expiry would need a server change (add the field to the view).
   const expiresIn =
     direction === "outbound"
       ? formatExpiresIn(msg.data.approval_expires_at)
       : null;
 
+  // The detail MessageView's `status` is the delivery rollup; the HITL
+  // "pending_approval" state is threaded in, not present on the wire.
+  const statusAttr = isPending ? "pending_approval" : msg.data.status;
+
   return (
     <div
       data-testid="message-focus"
       data-direction={direction}
-      data-status={msg.data.status}
+      data-status={statusAttr}
       className="flex-1 min-h-0 overflow-y-auto"
       style={{ padding: "24px 28px 32px" }}
     >
@@ -479,6 +512,7 @@ function FocusContent({
         <div className="flex flex-col gap-4">
           <BodyCard
             msg={msg}
+            isPending={isPending}
             editingDraft={editingDraft}
             draftBody={draftBody}
             onChangeDraft={(v) => {
@@ -542,6 +576,7 @@ function FocusContent({
 
 function BodyCard({
   msg,
+  isPending,
   editingDraft,
   draftBody,
   onChangeDraft,
@@ -549,6 +584,9 @@ function BodyCard({
   onCancelEdit,
 }: {
   msg: LoadedMessage;
+  // Threaded HITL-pending flag (the detail MessageView can't tell us —
+  // its `status` is the delivery rollup, not the HITL lifecycle).
+  isPending: boolean;
   editingDraft: boolean;
   draftBody: string;
   onChangeDraft: (v: string) => void;
@@ -561,10 +599,10 @@ function BodyCard({
   }, [msg]);
 
   const isOutbound = msg.direction === "outbound";
-  const isTerminal =
-    isOutbound &&
-    msg.data.status !== "pending_approval" &&
-    !msg.data.body_text;
+  // A non-pending outbound row with no body_text is a sent/scrubbed
+  // draft — its body is no longer available. Keyed off the threaded
+  // pending flag rather than the (delivery-rollup) detail `status`.
+  const isTerminal = isOutbound && !isPending && !msg.data.body_text;
   const wordCount = bodyText.trim() ? bodyText.trim().split(/\s+/).length : 0;
   const bytes = bodyText.length;
 
@@ -660,7 +698,7 @@ function BodyCard({
               save draft (n/a)
             </span>
           </>
-        ) : isOutbound && msg.data.status === "pending_approval" ? (
+        ) : isOutbound && isPending ? (
           <>
             <button
               type="button"

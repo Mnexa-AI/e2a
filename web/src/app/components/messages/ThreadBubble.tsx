@@ -34,10 +34,12 @@ export function ThreadBubble({
   message: MessageSummary;
   counterparty: Counterparty;
   agentEmail: string;
-  /** Click on the bubble body — navigate to the focus page. */
-  onOpen: (messageId: string) => void;
+  /** Click on the bubble body — navigate to the focus page. Receives the
+   *  whole row so the caller can thread direction + pending-state into
+   *  the focus-page URL (the MessageView detail can't recover them). */
+  onOpen: (message: MessageSummary) => void;
   /** Click on the bubble footer's `headers` link — focus page w/ headers open. */
-  onOpenHeaders: (messageId: string) => void;
+  onOpenHeaders: (message: MessageSummary) => void;
 }) {
   const isInbound = message.direction === "inbound";
   const pending = message.hitl_status === "pending_approval";
@@ -134,7 +136,7 @@ export function ThreadBubble({
         {/* Bubble body — clicking navigates to the focus page */}
         <button
           type="button"
-          onClick={() => onOpen(message.message_id)}
+          onClick={() => onOpen(message)}
           className="text-left"
           style={{
             background: isInbound ? "var(--bg-panel)" : "var(--accent-soft)",
@@ -186,7 +188,7 @@ export function ThreadBubble({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onOpenHeaders(message.message_id);
+              onOpenHeaders(message);
             }}
             style={{
               color: "var(--accent-strong)",
