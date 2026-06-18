@@ -54,12 +54,12 @@ npm run build   # static export
 
 ### Code generation
 ```bash
-make swagger        # regenerate OpenAPI spec from Go annotations (needs swag)
-make generate-sdk   # regenerate TS + Python types from OpenAPI spec
+make spec           # regenerate api/openapi.yaml from the live /v1 Huma handlers
+make generate-sdk   # regenerate the TS + Python SDK bases from api/openapi.yaml (OpenAPI Generator)
 make generate       # both of the above
 ```
 
-After changing API annotations in Go code, run `make generate` and commit the regenerated files in `sdks/typescript/src/v1/generated/` and `sdks/python/src/e2a/v1/generated/`. CI checks that generated code is up to date.
+After changing a `/v1` handler, run `make generate` and commit the regenerated `api/openapi.yaml` plus the SDK bases in `sdks/typescript/src/v1/generated/` and `sdks/python/src/e2a/v1/generated/`. CI (`spec-check` + `generate-sdk-check`) fails if either is stale. (`make swagger` regenerates the legacy `web/public/openapi.yaml` for the dashboard's API-reference page only; it no longer feeds the SDKs.)
 
 ## Architecture
 
@@ -90,18 +90,28 @@ the typed handlers. `make spec` regenerates the committed copy at
 live handlers emit, so it can never lag the server. Regenerate + commit
 `api/openapi.yaml` after any `/v1` handler change.
 
-### SDK type generation pipeline (legacy — being migrated to `api/openapi.yaml`)
+### SDK type generation pipeline
+
+The SDK base clients are generated from the canonical Huma spec by OpenAPI
+Generator (`openapitools/openapi-generator-cli`), no swag step:
 
 ```
-Go annotations → swag → web/public/openapi.yaml (Swagger 2.0)
-  → swagger2openapi → /tmp/e2a-openapi3.yaml (OpenAPI 3.0)
-  → openapi-typescript → sdks/typescript/src/v1/generated/types.ts
-  → datamodel-codegen  → sdks/python/src/e2a/v1/generated/
+api/openapi.yaml (Huma 3.1)
+  → openapi-generator (typescript) → sdks/typescript/src/v1/generated/   (the oag base)
+  → openapi-generator (python)     → sdks/python/src/e2a/v1/generated/    (package e2a.v1.generated)
 ```
 
-This swag-annotation pipeline still feeds the SDK codegen. Switching codegen to
-consume the Huma-generated `api/openapi.yaml` (and retiring the swag step) is a
-tracked follow-up; until then, regenerate SDKs via `make generate-sdk` as before.
+`make generate-sdk` (= `generate-sdk-ts` + `generate-sdk-py`) regenerates both
+bases via `sdks/*/scripts/generate-oag.sh`; `make generate-sdk-check`
+(and CI) is the drift gate. Over each generated base sits a hand-written
+ergonomic layer (`client.ts` / `client.py` etc.) wired up via
+`.openapi-generator-ignore`. Regenerate + commit the `generated/` trees after
+any `/v1` handler change.
+
+The old swag-annotation pipeline (`make swagger` → `web/public/openapi.yaml`,
+Swagger 2.0) no longer feeds the SDKs and is unwired from `make generate`.
+`web/public/openapi.yaml` is retained only because the dashboard's API-reference
+page (`web/public/scalar.html`) renders it; it is frozen and not CI-checked.
 
 ### TypeScript SDK (`sdks/typescript/`)
 

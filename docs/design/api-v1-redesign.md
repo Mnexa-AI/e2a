@@ -1850,3 +1850,52 @@ Every fix was **test-first**: a contract/store test was written and confirmed to
 `VerifyDomainView` shape divergence (doc-only); `LimitsView` `0`=zero is the
 documented meaning (no `unlimited` sentinel — consistent with the finite-caps
 policy).
+
+## 13. Slice 8e — retire the legacy `/api/v1` surface + flatten the SDK `oag/` subpath (2026-06)
+
+With every consumer (web, CLI, MCP, both SDKs) cut over to `/v1`, the legacy
+`gorilla/mux` `/api/v1` strangler residue was deleted and the generated SDK base
+was un-nested. Done as one PR.
+
+### 13.1 Server — legacy `/api/v1` deleted
+The chi root is the process handler; Huma `/v1` operations are mounted on it and
+any unmatched route falls back to the legacy mux. By this slice the only `/api/v1`
+routes left on that mux were residue. Decision per endpoint (consumer-verified —
+no in-repo caller hits any of these):
+
+- **Already covered by `/v1` → deleted the legacy route + handler:**
+  `/api/v1/agents/{email}/ws` (real WS is `/v1/agents/{address}/ws`),
+  `PATCH /api/v1/agents/{email}/messages/{id}` (label update → `/v1` `updateMessage`),
+  `GET /api/v1/messages/{id}` (flat outbound detail → agent-scoped `/v1`),
+  `GET /api/v1/pending` (clients build the cross-agent pending view client-side
+  from `GET /v1/agents` + per-agent message lists filtered to `pending_approval`).
+- **Dropped (no `/v1` equivalent, no consumer):** account-level
+  `/api/v1/users/me/signing-secrets` (superseded by per-webhook `whsec_` /
+  `/v1/webhooks/{id}/rotate-secret`) and bulk
+  `POST /api/v1/webhooks/{id}/redeliver-since` (`/v1` has per-event redeliver).
+  Shared replay helpers (`loadEventForReplay`/`insertReplayDelivery`, used by the
+  `/v1` per-event redeliver via `events_export.go`) were preserved.
+- **Moved to `/v1`:** the HITL magic-link pages `approve`/`reject` →
+  `/v1/approve`, `/v1/reject` (raw token-gated HTML, served via the chi root's
+  fallback to the mux; the notifier email link + the rendered form action now emit
+  the `/v1` path). The single-event redeliver, agent CRUD, send/reply/forward,
+  conversations, etc. had already moved in earlier slices.
+
+`RegisterWSRoute` and its three call sites were removed (the `/v1` WS is wired via
+`apiserver.Params.WSHandle`). The Huma spec (`api/openapi.yaml`) is unchanged —
+none of the deleted routes were Huma operations — so `spec-check` stays green.
+Obsolete legacy tests (`hitl_approval_api_test.go`, `hitl_agent_scoped_routes_test.go`,
+`labels_api_test.go`, `signing_secrets_api_test.go`) were removed; their `/v1`
+equivalents are covered under `internal/httpapi`. The bearer-auth test was
+repointed to `GET /v1/agents` (the chi layer reuses `agent.API.AuthenticateUser`).
+
+### 13.2 SDK — `oag/` flattened to `generated/`, legacy codegen deleted
+The OpenAPI-Generator base moved `src/v1/oag/` → `src/v1/generated/` in both SDKs
+(reusing the slot freed by deleting the dead legacy codegen); the hand-written
+ergonomic layer's imports + the `generate-oag.sh` scripts + `.openapi-generator-ignore`
+were updated so regeneration is reproducible (`generate-sdk-check` stays clean).
+Deleted dead legacy codegen: the TS `openapi-typescript` output
+(`src/v1/generated/types.ts`), the Python `datamodel-codegen` module, and the
+swag→TS npm scripts/devDeps. The `make swagger` target + `web/public/openapi.yaml`
+are kept (the dashboard's `scalar.html` API-reference page renders the file) but
+unwired from `make generate`/`generate-check`.
