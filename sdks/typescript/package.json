@@ -20,9 +20,6 @@
   ],
   "scripts": {
     "build": "tsc",
-    "generate:openapi3": "swagger2openapi ../../web/public/openapi.yaml -o /tmp/e2a-openapi3.yaml -y",
-    "generate:types": "openapi-typescript /tmp/e2a-openapi3.yaml -o src/v1/generated/types.ts",
-    "generate": "npm run generate:openapi3 && npm run generate:types",
     "test": "npm run test:unit",
     "test:unit": "vitest run test/v1/client.test.ts test/v1/ws.test.ts test/v1/webhook-signature.test.ts test/v1/errors.test.ts test/v1/retry.test.ts test/v1/pagination.test.ts",
     "test:contract": "vitest run test/v1/contract.test.ts",
@@ -53,8 +50,6 @@
   "devDependencies": {
     "@types/node": "^25.9.2",
     "@types/ws": "^8.18.1",
-    "openapi-typescript": "^7.13.0",
-    "swagger2openapi": "^7.0.8",
     "typescript": "^5.4",
     "vitest": "^4.1.8",
     "yaml": "^2.9.0"

@@ -26,7 +26,7 @@ classifiers = [
 dependencies = [
     "httpx>=0.24",
     "pydantic>=2.12,<3",
-    # Runtime deps of the OpenAPI-Generator /v1 client base (e2a.v1.oag, httpx
+    # Runtime deps of the OpenAPI-Generator /v1 client base (e2a.v1.generated, httpx
     # library): date parsing, the Retry type in configuration, and Self on the
     # generated pydantic v2 models.
     "python-dateutil>=2.8",

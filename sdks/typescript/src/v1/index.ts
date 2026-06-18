@@ -1,13 +1,13 @@
 // Public surface of the e2a v1 SDK.
 //
-// The canonical request/response types are the generated `oag/` models; the
-// hand-written ergonomic layer (E2AClient + resources, errors, retry,
-// pagination, webhook verification, WS) wraps them. The legacy hand-written
-// `api.ts` / `inbound-email.ts` surface and the swag-generated `generated/`
-// types have been retired in favour of this.
+// The canonical request/response types are the OpenAPI-Generator `generated/`
+// models; the hand-written ergonomic layer (E2AClient + resources, errors,
+// retry, pagination, webhook verification, WS) wraps them. The legacy
+// hand-written `api.ts` / `inbound-email.ts` surface and the old
+// swag-generated types have been retired in favour of this.
 
 // Generated request/response models (types + the small value classes).
-export * from "./oag/models/all.js";
+export * from "./generated/models/all.js";
 
 // High-level client and its per-resource parameter types.
 export { E2AClient } from "./client.js";
@@ -58,7 +58,7 @@ import type {
   MessageSummaryView,
   SendResultView,
   DeploymentInfoView,
-} from "./oag/index.js";
+} from "./generated/index.js";
 export type MessageList = PageMessageSummaryView;
 export type MessageSummary = MessageSummaryView;
 export type SendResult = SendResultView;

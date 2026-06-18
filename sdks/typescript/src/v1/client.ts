@@ -1,15 +1,15 @@
 // The e2a high-level client (Slice 8b). A thin, namespaced ergonomic layer over
-// the generated `oag/` base: resource sub-clients (`client.agents`,
+// the generated `generated/` base: resource sub-clients (`client.agents`,
 // `.messages`, …) wrap the generated `Promise*Api` classes (composition, never
 // inheritance), map the generated `ApiException` to the typed `E2AError`
 // hierarchy, unwrap envelope output bodies, and expose cursor lists as an
 // `AutoPager`. The generated base supplies transport (the retry-wrapped
 // `HttpLibrary`), bearer auth, models, and `ApiException`.
 
-import { createConfiguration } from "./oag/configuration.js";
-import { ServerConfiguration } from "./oag/servers.js";
-import { IsomorphicFetchHttpLibrary } from "./oag/http/isomorphic-fetch.js";
-import { ApiException } from "./oag/apis/exception.js";
+import { createConfiguration } from "./generated/configuration.js";
+import { ServerConfiguration } from "./generated/servers.js";
+import { IsomorphicFetchHttpLibrary } from "./generated/http/isomorphic-fetch.js";
+import { ApiException } from "./generated/apis/exception.js";
 import {
   PromiseAgentsApi,
   PromiseMessagesApi,
@@ -19,7 +19,7 @@ import {
   PromiseWebhooksApi,
   PromiseAccountApi,
   PromiseMetaApi,
-} from "./oag/types/PromiseAPI.js";
+} from "./generated/types/PromiseAPI.js";
 import type {
   AgentView,
   CreateAgentRequest,
@@ -58,7 +58,7 @@ import type {
   DeleteUserDataResult,
   Suppression,
   DeploymentInfoView,
-} from "./oag/index.js";
+} from "./generated/index.js";
 import { RetryHttpLibrary, type RetryOptions } from "./retry.js";
 import { E2AError, fromApiException, connectionError } from "./errors.js";
 import { AutoPager } from "./pagination.js";

@@ -4,9 +4,9 @@ import {
   HttpMethod,
   RequestContext,
   ResponseContext,
-} from "../../src/v1/oag/http/http.js";
-import type { HttpLibrary } from "../../src/v1/oag/http/http.js";
-import { from, Observable } from "../../src/v1/oag/rxjsStub.js";
+} from "../../src/v1/generated/http/http.js";
+import type { HttpLibrary } from "../../src/v1/generated/http/http.js";
+import { from, Observable } from "../../src/v1/generated/rxjsStub.js";
 
 type Step = { status?: number; headers?: Record<string, string>; throw?: unknown };
 

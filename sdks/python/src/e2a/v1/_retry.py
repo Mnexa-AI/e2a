@@ -29,10 +29,10 @@ from .errors import (
     from_api_exception,
     is_retryable_status,
 )
-from .oag.exceptions import ApiException
+from .generated.exceptions import ApiException
 
 # make_coro receives the per-attempt extra headers (the minted Idempotency-Key,
-# or None for reads) and returns the awaitable oag call.
+# or None for reads) and returns the awaitable generated call.
 MakeCoro = Callable[[Optional["dict[str, str]"]], Awaitable[Any]]
 
 IDEMPOTENCY_HEADER = "Idempotency-Key"
@@ -102,7 +102,7 @@ async def request_with_retry(
     idempotency: bool,
     idempotency_key: Optional[str] = None,
 ) -> Any:
-    """Execute an oag call with retry + idempotency.
+    """Execute a generated call with retry + idempotency.
 
     :param retryable: whether a retryable failure (429/5xx/connection) should be
         retried. False for non-idempotent POSTs.

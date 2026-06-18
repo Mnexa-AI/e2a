@@ -15,7 +15,7 @@ import {
   connectionError,
   isRetryableStatus,
 } from "../../src/v1/errors.js";
-import { ApiException } from "../../src/v1/oag/apis/exception.js";
+import { ApiException } from "../../src/v1/generated/apis/exception.js";
 
 describe("toE2AError status → class mapping", () => {
   const cases: Array<[number, any, boolean]> = [

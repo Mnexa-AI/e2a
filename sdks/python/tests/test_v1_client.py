@@ -1,6 +1,6 @@
 """Unit tests for the namespaced async E2AClient (Slice 8c-2).
 
-Mocks httpx (the layer the generated oag base uses) so these exercise the full
+Mocks httpx (the layer the generated base uses) so these exercise the full
 stack: namespaced resource -> generated *Api -> bearer auth -> retry layer ->
 httpx -> envelope unwrap -> typed-error mapping.
 """
@@ -15,7 +15,7 @@ from e2a.v1.errors import (
     E2ANotFoundError,
     E2AValidationError,
 )
-from e2a.v1.oag.models import (
+from e2a.v1.generated.models import (
     AgentView,
     CreateAgentResponse,
     MessageSummaryView,

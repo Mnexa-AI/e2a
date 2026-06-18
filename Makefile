@@ -1,14 +1,9 @@
 .PHONY: build run test test-unit test-integration test-e2e clean docker-up docker-down migrate swagger swagger-check spec spec-check generate generate-check generate-sdk generate-sdk-check generate-sdk-ts generate-sdk-py
 
-OPENAPI3_SPEC := /tmp/e2a-openapi3.yaml
-# OpenAPI Generator for the /v1 SDK base (consumer port / Slice 8). Pinned to a
-# released tag (never :latest/SNAPSHOT) so output is reproducible for the drift
-# gate. Run via Docker — no local Java needed.
+# OpenAPI Generator for the /v1 SDK base. Pinned to a released tag (never
+# :latest/SNAPSHOT) so output is reproducible for the drift gate. Run via
+# Docker — no local Java needed.
 OAG_IMAGE := openapitools/openapi-generator-cli:v7.16.0
-PY_CODEGEN_VENV := sdks/python/.venv-codegen
-PY_CODEGEN_REQUIREMENTS := sdks/python/codegen-requirements.txt
-PY_CODEGEN_PIP := $(PY_CODEGEN_VENV)/bin/pip
-PY_CODEGEN := $(PY_CODEGEN_VENV)/bin/datamodel-codegen
 
 build:
 	go build -o bin/e2a ./cmd/e2a
@@ -66,42 +61,16 @@ spec:
 spec-check:
 	go test ./internal/httpapi/ -run TestSpecGoldenNoDrift -count=1
 
-generate: swagger generate-sdk
+generate: spec generate-sdk
 
-generate-sdk:
-	@echo "==> Converting Swagger 2.0 → OpenAPI 3.0"
-	cd sdks/typescript && npm run generate:openapi3
-	@echo "==> Generating TypeScript types"
-	cd sdks/typescript && npm run generate:types
-	@echo "==> Setting up Python codegen venv"
-	@current_reqs="$$(mktemp)"; \
-	if test -d $(PY_CODEGEN_VENV); then \
-		$(PY_CODEGEN_PIP) freeze 2>/dev/null | sort > "$$current_reqs"; \
-		if diff -u $(PY_CODEGEN_REQUIREMENTS) "$$current_reqs" >/dev/null; then \
-			echo "==> Reusing pinned Python codegen venv"; \
-		else \
-			echo "==> Installing pinned Python codegen dependencies"; \
-			$(PY_CODEGEN_PIP) install -q --upgrade -r $(PY_CODEGEN_REQUIREMENTS); \
-		fi; \
-	else \
-		echo "==> Installing pinned Python codegen dependencies"; \
-		python3 -m venv $(PY_CODEGEN_VENV); \
-		$(PY_CODEGEN_PIP) install -q --upgrade -r $(PY_CODEGEN_REQUIREMENTS); \
-	fi; \
-	rm -f "$$current_reqs"
-	@echo "==> Generating Python Pydantic models"
-	$(PY_CODEGEN) \
-		--input $(OPENAPI3_SPEC) \
-		--input-file-type openapi \
-		--output sdks/python/src/e2a/v1/generated/ \
-		--output-model-type pydantic_v2.BaseModel \
-		--target-python-version 3.10 \
-		--snake-case-field \
-		--allow-population-by-field-name \
-		--enum-field-as-literal all \
-		--disable-timestamp
+# generate-sdk regenerates both /v1 SDK client bases from the canonical
+# api/openapi.yaml via OpenAPI Generator (the `generate-sdk-ts` /
+# `generate-sdk-py` targets below). The retired swag + datamodel-codegen
+# pipeline (Swagger 2.0 → OpenAPI 3.0 → openapi-typescript / datamodel-codegen)
+# has been removed; the hand-written ergonomic layer wraps the OAG output.
+generate-sdk: generate-sdk-ts generate-sdk-py
 
-generate-check: swagger-check generate-sdk-check
+generate-check: spec-check generate-sdk-check
 
 generate-sdk-check: generate-sdk
 	@echo "==> Checking generated code is up to date"
@@ -110,13 +79,13 @@ generate-sdk-check: generate-sdk
 # generate-sdk-ts regenerates the TypeScript /v1 client base from the canonical
 # api/openapi.yaml using OpenAPI Generator's `typescript` generator (NOT
 # typescript-fetch, which fails TS2590 on wide models — see Slice 8). Output
-# lands in sdks/typescript/src/v1/oag/; the hand-written ergonomic layer wraps
-# it (next slice). Package scaffolding is suppressed via .openapi-generator-ignore.
+# lands in sdks/typescript/src/v1/generated/; the hand-written ergonomic layer
+# wraps it. Package scaffolding is suppressed via .openapi-generator-ignore.
 generate-sdk-ts:
 	@echo "==> Generating TS /v1 client base via $(OAG_IMAGE)"
 	bash sdks/typescript/scripts/generate-oag.sh
 
-# generate-sdk-py regenerates the Python /v1 client base (package e2a.v1.oag)
+# generate-sdk-py regenerates the Python /v1 client base (package e2a.v1.generated)
 # from api/openapi.yaml using OpenAPI Generator's `python` generator with the
 # httpx library (async-native, matches async-only Python + the hand-written
 # layer's HTTP client). Output is the leaf package only; see the script.

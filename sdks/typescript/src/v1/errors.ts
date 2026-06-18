@@ -13,8 +13,8 @@
 // 409→Conflict, 422→Validation, 429→RateLimit, 5xx/408→Server) so a NEW server
 // code still lands in the right family.
 
-import { ApiException } from "./oag/apis/exception.js";
-import type { ErrorEnvelope } from "./oag/models/ErrorEnvelope.js";
+import { ApiException } from "./generated/apis/exception.js";
+import type { ErrorEnvelope } from "./generated/models/ErrorEnvelope.js";
 
 export interface E2AErrorFields {
   /** Stable machine code from the envelope (e.g. "domain_not_verified"). */
@@ -209,7 +209,7 @@ export function toE2AError(args: {
   });
 }
 
-/** Map a generated `ApiException<ErrorEnvelope>` (thrown by the oag `*Api`
+/** Map a generated `ApiException<ErrorEnvelope>` (thrown by the generated `*Api`
  *  classes on a non-2xx response) to a typed E2AError. */
 export function fromApiException(e: ApiException<unknown>): E2AError {
   const headers = (e.headers ?? {}) as Record<string, string>;

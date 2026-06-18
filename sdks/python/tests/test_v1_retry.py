@@ -5,7 +5,7 @@ import pytest
 
 from e2a.v1._retry import RetryConfig, request_with_retry
 from e2a.v1.errors import E2AConnectionError, E2ANotFoundError, E2AServerError
-from e2a.v1.oag.exceptions import ApiException
+from e2a.v1.generated.exceptions import ApiException
 
 
 class Script:

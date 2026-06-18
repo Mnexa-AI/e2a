@@ -1,6 +1,6 @@
 """The e2a high-level async client (Slice 8c).
 
-A thin, namespaced ergonomic layer over the generated ``oag/`` base: resource
+A thin, namespaced ergonomic layer over the generated ``generated/`` base: resource
 sub-clients (``client.agents``, ``client.messages``, …) wrap the generated
 ``*Api`` classes (composition, never inheritance), map the generated
 ``ApiException`` to the typed :mod:`e2a.v1.errors` hierarchy, and expose cursor
@@ -16,17 +16,17 @@ from pydantic import ValidationError
 
 from ._retry import RetryConfig, request_with_retry
 from .errors import E2AError, E2AValidationError
-from .oag.api.account_api import AccountApi
-from .oag.api.agents_api import AgentsApi
-from .oag.api.conversations_api import ConversationsApi
-from .oag.api.domains_api import DomainsApi
-from .oag.api.events_api import EventsApi
-from .oag.api.messages_api import MessagesApi
-from .oag.api.meta_api import MetaApi
-from .oag.api.webhooks_api import WebhooksApi
-from .oag.api_client import ApiClient
-from .oag.configuration import Configuration
-from .oag.models import (
+from .generated.api.account_api import AccountApi
+from .generated.api.agents_api import AgentsApi
+from .generated.api.conversations_api import ConversationsApi
+from .generated.api.domains_api import DomainsApi
+from .generated.api.events_api import EventsApi
+from .generated.api.messages_api import MessagesApi
+from .generated.api.meta_api import MetaApi
+from .generated.api.webhooks_api import WebhooksApi
+from .generated.api_client import ApiClient
+from .generated.configuration import Configuration
+from .generated.models import (
     AgentView,
     ApproveRequest,
     ApproveResultView,

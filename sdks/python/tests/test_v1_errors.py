@@ -15,7 +15,7 @@ from e2a.v1.errors import (
     from_api_exception,
     is_retryable_status,
 )
-from e2a.v1.oag.exceptions import ApiException
+from e2a.v1.generated.exceptions import ApiException
 
 
 def _exc(status, body=None, headers=None):

@@ -1,15 +1,15 @@
 // Retry + idempotency for the e2a SDK (Slice 8b-1).
 //
-// Implemented as a wrapping HttpLibrary rather than oag middleware: middleware
+// Implemented as a wrapping HttpLibrary rather than generated middleware: middleware
 // can transform a request/response but cannot re-send, and re-sending is the
 // whole point. Because we re-send the SAME RequestContext, the Idempotency-Key
 // header and the already-serialized body are reused verbatim across attempts —
 // which is exactly what makes a POST retry safe (the server dedupes on the key
 // and hashes the raw bytes). The key is minted ONCE, before the first attempt.
 
-import { from, Observable } from "./oag/rxjsStub.js";
-import { HttpMethod } from "./oag/http/http.js";
-import type { HttpLibrary, RequestContext, ResponseContext } from "./oag/http/http.js";
+import { from, Observable } from "./generated/rxjsStub.js";
+import { HttpMethod } from "./generated/http/http.js";
+import type { HttpLibrary, RequestContext, ResponseContext } from "./generated/http/http.js";
 import { isRetryableStatus } from "./errors.js";
 
 export interface RetryOptions {

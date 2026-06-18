@@ -22,7 +22,7 @@ import json
 from email.utils import parsedate_to_datetime
 from typing import Any, Mapping, Optional
 
-from .oag.exceptions import ApiException
+from .generated.exceptions import ApiException
 
 __all__ = [
     "E2AError",
@@ -276,7 +276,7 @@ def to_e2a_error(
 
 
 def from_api_exception(exc: ApiException) -> E2AError:
-    """Map a generated ``ApiException`` (raised by the oag ``*Api`` classes on a
+    """Map a generated ``ApiException`` (raised by the generated ``*Api`` classes on a
     non-2xx response) to a typed :class:`E2AError`."""
     headers = _normalize_headers(getattr(exc, "headers", None))
     request_id = _header_get(headers, "x-request-id")

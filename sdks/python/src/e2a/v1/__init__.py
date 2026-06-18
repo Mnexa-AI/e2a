@@ -1,15 +1,15 @@
 """Public surface of the e2a v1 SDK (async-only).
 
-The canonical request/response types are the generated ``oag`` models; the
-hand-written ergonomic layer (:class:`E2AClient` + resources, the typed error
-hierarchy, retry/pagination, webhook verification, WS) wraps them. The legacy
-flat/sync ``api`` / ``client`` / ``handler`` surface and the swag-generated
-``generated`` types have been retired in favour of this.
+The canonical request/response types are the OpenAPI-Generator ``generated``
+models; the hand-written ergonomic layer (:class:`E2AClient` + resources, the
+typed error hierarchy, retry/pagination, webhook verification, WS) wraps them.
+The legacy flat/sync ``api`` / ``client`` / ``handler`` surface and the old
+swag-generated Pydantic types have been retired in favour of this.
 """
 
 # Generated request/response models (the canonical types).
-from e2a.v1.oag import models  # noqa: F401
-from e2a.v1.oag.models import *  # noqa: F401,F403
+from e2a.v1.generated import models  # noqa: F401
+from e2a.v1.generated.models import *  # noqa: F401,F403
 
 # High-level async client.
 from e2a.v1.client import E2AClient  # noqa: F401
