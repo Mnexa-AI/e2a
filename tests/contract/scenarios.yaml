@@ -1,11 +1,9 @@
 # Shared behavioral contract scenarios for the /v1 public API.
 #
-# The typed Huma /v1 surface (internal/httpapi) is the source of truth. A few
-# endpoints have not been ported off the legacy gorilla/mux surface yet and
-# are still served at /api/v1 via the chi root's legacy fallback; those are
-# called out inline where they appear (account-wide HITL queue at
-# /api/v1/pending, flat outbound detail at /api/v1/messages/{id}, signing
-# secrets under /api/v1/users/me/signing-secrets).
+# The typed Huma /v1 surface (internal/httpapi) is the source of truth. The
+# legacy gorilla/mux /api/v1 surface has been fully retired (Slice 8e), so every
+# scenario here exercises /v1. The HITL magic-link pages moved to /v1/approve
+# and /v1/reject (raw HTML, served via the chi root's fallback to the mux).
 #
 # Each scenario is a sequence of steps executed against a live test server.
 # The Go runner (contract_test.go) consumes this file directly. TypeScript
@@ -440,22 +438,6 @@ scenarios:
           body_match:
             status: pending_approval
 
-      - id: list_pending
-        # The account-wide HITL queue is NOT yet ported to /v1; it is still
-        # served by the legacy fallback at /api/v1/pending and returns the
-        # legacy {"messages":[...]} envelope (items keyed by `id`, with
-        # `direction`/`status`/`subject`).
-        action: request
-        method: GET
-        path: /api/v1/pending?status=pending_approval
-        expect:
-          status: 200
-          body_match:
-            "messages.length": 1
-            "messages[0].status": pending_approval
-            "messages[0].direction": outbound
-            "messages[0].subject": Hold me
-
   - name: hitl_reject_records_reason
     description: >
       Reject endpoint accepts a reason in the body and the detail GET
@@ -501,19 +483,6 @@ scenarios:
         path: /v1/agents/{agent_email}/messages/{held_id}/reject
         body:
           reason: off-topic for this audience
-        expect:
-          status: 200
-          body_match:
-            status: rejected
-            rejection_reason: off-topic for this audience
-
-      - id: detail_round_trip
-        # Flat outbound-message detail is NOT yet ported to /v1; still served
-        # by the legacy fallback at /api/v1/messages/{id}. Confirms the
-        # rejection reason persisted (the chunked-body regression guard).
-        action: request
-        method: GET
-        path: /api/v1/messages/{held_id}
         expect:
           status: 200
           body_match:
@@ -577,86 +546,6 @@ scenarios:
             "items[0].hitl_status": pending_approval
             "items[1].direction": inbound
 
-  - name: signing_secrets_crud_cap
-    description: >
-      Per-user webhook signing secrets cap at 5 (including the
-      "default" one auto-created at user signup; see
-      EnsureUserHasSigningSecret). Creating beyond cap 400s. List
-      returns the full plaintext for every row — deliberate posture,
-      see SigningSecretSummary docstring.
-    setup:
-      - register_domain: signing.test.dev
-      - verify_domain: signing.test.dev
-    steps:
-      - id: create_1
-        action: request
-        method: POST
-        path: /api/v1/users/me/signing-secrets
-        body:
-          name: first
-        expect:
-          status: 201
-          body_contains:
-            - id
-            - name
-            - secret
-            - secret_prefix
-
-      - id: create_2
-        action: request
-        method: POST
-        path: /api/v1/users/me/signing-secrets
-        body:
-          name: second
-        expect:
-          status: 201
-
-      - id: create_3
-        action: request
-        method: POST
-        path: /api/v1/users/me/signing-secrets
-        body:
-          name: third
-        expect:
-          status: 201
-
-      - id: create_4_reaches_cap
-        action: request
-        method: POST
-        path: /api/v1/users/me/signing-secrets
-        body:
-          name: fourth
-        expect:
-          status: 201
-
-      - id: create_5_fails_cap
-        # User already has 1 default + 4 created = 5 (cap). 6th creation
-        # must 400 with the documented cap error.
-        action: request
-        method: POST
-        path: /api/v1/users/me/signing-secrets
-        body:
-          name: would-be-fifth
-        expect:
-          status: 400
-
-      - id: list_returns_plaintext
-        action: request
-        method: GET
-        path: /api/v1/users/me/signing-secrets
-        expect:
-          status: 200
-          body_contains:
-            - secrets
-          # The plaintext `secret` field IS in the list response by
-          # design (different posture from API keys). The `create_1`
-          # step above already validates that the create call returns
-          # `secret` + `secret_prefix`; this assertion locks down the
-          # count so a future "redact on list" change would have to
-          # break the contract test.
-          body_match:
-            "secrets.length": 5
-
   - name: info_unauthenticated_shape
     description: >
       GET /v1/info is the deployment-discovery endpoint — works
@@ -673,45 +562,6 @@ scenarios:
           body_contains:
             - shared_domain
             - slug_registration_enabled
-
-  - name: pending_messages_status_filter_strict
-    description: >
-      The account-wide HITL queue (legacy fallback at /api/v1/pending,
-      not yet ported to /v1) only accepts status=pending_approval. Any
-      other status value (or "all") returns 400. Pins the documented
-      behavior so the "filterable by status" claim is either fixed or the
-      handler is broadened.
-    setup:
-      - register_domain: pstatus.test.dev
-      - verify_domain: pstatus.test.dev
-    steps:
-      - id: default_is_pending
-        action: request
-        method: GET
-        path: /api/v1/pending
-        expect:
-          status: 200
-
-      - id: explicit_pending_ok
-        action: request
-        method: GET
-        path: /api/v1/pending?status=pending_approval
-        expect:
-          status: 200
-
-      - id: sent_filter_rejected
-        action: request
-        method: GET
-        path: /api/v1/pending?status=sent
-        expect:
-          status: 400
-
-      - id: all_filter_rejected
-        action: request
-        method: GET
-        path: /api/v1/pending?status=all
-        expect:
-          status: 400
 
   - name: ws_auth_rejection
     description: WebSocket endpoint rejects missing or invalid query-param tokens

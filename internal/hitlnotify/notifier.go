@@ -113,8 +113,8 @@ func (n *Notifier) NotifyPendingApproval(ctx context.Context, msg *identity.Mess
 	subject := fmt.Sprintf("[e2a] approve outbound from %s: %s",
 		agent.EmailAddress(), truncate(msg.Subject, 60))
 
-	approveURL := n.magicURL("/api/v1/approve", approveTok)
-	rejectURL := n.magicURL("/api/v1/reject", rejectTok)
+	approveURL := n.magicURL("/v1/approve", approveTok)
+	rejectURL := n.magicURL("/v1/reject", rejectTok)
 	dashboardURL := n.dashboardURL(msg.ID)
 
 	text := renderText(msg, agent, approveURL, rejectURL, dashboardURL)

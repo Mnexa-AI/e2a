@@ -123,7 +123,7 @@ func TestMagicLinkGETDoesNotExecute(t *testing.T) {
 	msg := issuePending(t, store, a.ID)
 
 	tok, _ := signer.Sign(msg.ID, approvaltoken.ActionApprove, time.Now().Add(1*time.Hour))
-	resp, err := http.Get(server.URL + "/api/v1/approve?t=" + url.QueryEscape(tok))
+	resp, err := http.Get(server.URL + "/v1/approve?t=" + url.QueryEscape(tok))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,12 +152,12 @@ func TestMagicApproveGETRendersConfirmForm(t *testing.T) {
 	msg := issuePending(t, store, a.ID)
 
 	tok, _ := signer.Sign(msg.ID, approvaltoken.ActionApprove, time.Now().Add(1*time.Hour))
-	resp, _ := http.Get(server.URL + "/api/v1/approve?t=" + url.QueryEscape(tok))
+	resp, _ := http.Get(server.URL + "/v1/approve?t=" + url.QueryEscape(tok))
 	body := readBody(t, resp)
 
 	for _, needle := range []string{
 		`method="POST"`,
-		`action="/api/v1/approve"`,
+		`action="/v1/approve"`,
 		`name="t"`,
 		tok, // token echoed into the hidden input
 		"alice@example.com", // recipient shown
@@ -187,12 +187,12 @@ func TestMagicRejectGETRendersConfirmFormWithReasonField(t *testing.T) {
 	msg := issuePending(t, store, a.ID)
 
 	tok, _ := signer.Sign(msg.ID, approvaltoken.ActionReject, time.Now().Add(1*time.Hour))
-	resp, _ := http.Get(server.URL + "/api/v1/reject?t=" + url.QueryEscape(tok))
+	resp, _ := http.Get(server.URL + "/v1/reject?t=" + url.QueryEscape(tok))
 	body := readBody(t, resp)
 
 	for _, needle := range []string{
 		`method="POST"`,
-		`action="/api/v1/reject"`,
+		`action="/v1/reject"`,
 		`name="t"`,
 		`name="reason"`, // optional rejection reason input
 		"Reject",
@@ -211,7 +211,7 @@ func TestMagicApprovePOSTSends(t *testing.T) {
 	msg := issuePending(t, store, a.ID)
 
 	tok, _ := signer.Sign(msg.ID, approvaltoken.ActionApprove, time.Now().Add(1*time.Hour))
-	resp := postForm(t, server.URL+"/api/v1/approve", map[string]string{"t": tok})
+	resp := postForm(t, server.URL+"/v1/approve", map[string]string{"t": tok})
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("POST approve: status = %d, body: %s", resp.StatusCode, readBody(t, resp))
@@ -255,7 +255,7 @@ func TestMagicApprovePOSTSelfSendDeliversViaLoopback(t *testing.T) {
 	}
 
 	tok, _ := signer.Sign(held.ID, approvaltoken.ActionApprove, time.Now().Add(1*time.Hour))
-	resp := postForm(t, server.URL+"/api/v1/approve", map[string]string{"t": tok})
+	resp := postForm(t, server.URL+"/v1/approve", map[string]string{"t": tok})
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("POST approve (self-send): status = %d, body: %s", resp.StatusCode, readBody(t, resp))
@@ -308,7 +308,7 @@ func TestMagicRejectPOSTWithReason(t *testing.T) {
 	msg := issuePending(t, store, a.ID)
 
 	tok, _ := signer.Sign(msg.ID, approvaltoken.ActionReject, time.Now().Add(1*time.Hour))
-	resp := postForm(t, server.URL+"/api/v1/reject", map[string]string{
+	resp := postForm(t, server.URL+"/v1/reject", map[string]string{
 		"t":      tok,
 		"reason": "not the right tone",
 	})
@@ -336,7 +336,7 @@ func TestMagicRejectPOSTWithoutReasonUsesDefault(t *testing.T) {
 	msg := issuePending(t, store, a.ID)
 
 	tok, _ := signer.Sign(msg.ID, approvaltoken.ActionReject, time.Now().Add(1*time.Hour))
-	resp := postForm(t, server.URL+"/api/v1/reject", map[string]string{"t": tok})
+	resp := postForm(t, server.URL+"/v1/reject", map[string]string{"t": tok})
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d", resp.StatusCode)
@@ -354,7 +354,7 @@ func TestMagicLinkGETMissingToken(t *testing.T) {
 	server, _, _, smtpDone := setupMagicLinkAPI(t)
 	defer smtpDone()
 
-	resp, _ := http.Get(server.URL + "/api/v1/approve")
+	resp, _ := http.Get(server.URL + "/v1/approve")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", resp.StatusCode)
@@ -365,7 +365,7 @@ func TestMagicLinkPOSTMissingToken(t *testing.T) {
 	server, _, _, smtpDone := setupMagicLinkAPI(t)
 	defer smtpDone()
 
-	resp := postForm(t, server.URL+"/api/v1/approve", map[string]string{})
+	resp := postForm(t, server.URL+"/v1/approve", map[string]string{})
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", resp.StatusCode)
@@ -376,7 +376,7 @@ func TestMagicLinkGETInvalidToken(t *testing.T) {
 	server, _, _, smtpDone := setupMagicLinkAPI(t)
 	defer smtpDone()
 
-	resp, _ := http.Get(server.URL + "/api/v1/approve?t=gibberish")
+	resp, _ := http.Get(server.URL + "/v1/approve?t=gibberish")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", resp.StatusCode)
@@ -387,7 +387,7 @@ func TestMagicLinkPOSTInvalidToken(t *testing.T) {
 	server, _, _, smtpDone := setupMagicLinkAPI(t)
 	defer smtpDone()
 
-	resp := postForm(t, server.URL+"/api/v1/approve", map[string]string{"t": "gibberish"})
+	resp := postForm(t, server.URL+"/v1/approve", map[string]string{"t": "gibberish"})
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", resp.StatusCode)
@@ -403,12 +403,12 @@ func TestMagicLinkExpiredToken(t *testing.T) {
 	tok, _ := signer.Sign(msg.ID, approvaltoken.ActionApprove, time.Now().Add(-1*time.Second))
 
 	// GET and POST both reject expired tokens with 410.
-	getResp, _ := http.Get(server.URL + "/api/v1/approve?t=" + url.QueryEscape(tok))
+	getResp, _ := http.Get(server.URL + "/v1/approve?t=" + url.QueryEscape(tok))
 	getResp.Body.Close()
 	if getResp.StatusCode != http.StatusGone {
 		t.Errorf("GET expired: status = %d, want 410", getResp.StatusCode)
 	}
-	postResp := postForm(t, server.URL+"/api/v1/approve", map[string]string{"t": tok})
+	postResp := postForm(t, server.URL+"/v1/approve", map[string]string{"t": tok})
 	postResp.Body.Close()
 	if postResp.StatusCode != http.StatusGone {
 		t.Errorf("POST expired: status = %d, want 410", postResp.StatusCode)
@@ -425,12 +425,12 @@ func TestMagicApproveTokenRejectedAtRejectEndpoint(t *testing.T) {
 	msg := issuePending(t, store, a.ID)
 
 	tok, _ := signer.Sign(msg.ID, approvaltoken.ActionApprove, time.Now().Add(1*time.Hour))
-	getResp, _ := http.Get(server.URL + "/api/v1/reject?t=" + url.QueryEscape(tok))
+	getResp, _ := http.Get(server.URL + "/v1/reject?t=" + url.QueryEscape(tok))
 	getResp.Body.Close()
 	if getResp.StatusCode != http.StatusBadRequest {
 		t.Errorf("GET wrong action: status = %d, want 400", getResp.StatusCode)
 	}
-	postResp := postForm(t, server.URL+"/api/v1/reject", map[string]string{"t": tok})
+	postResp := postForm(t, server.URL+"/v1/reject", map[string]string{"t": tok})
 	postResp.Body.Close()
 	if postResp.StatusCode != http.StatusBadRequest {
 		t.Errorf("POST wrong action: status = %d, want 400", postResp.StatusCode)
@@ -444,7 +444,7 @@ func TestMagicRejectTokenRejectedAtApproveEndpoint(t *testing.T) {
 	msg := issuePending(t, store, a.ID)
 
 	tok, _ := signer.Sign(msg.ID, approvaltoken.ActionReject, time.Now().Add(1*time.Hour))
-	postResp := postForm(t, server.URL+"/api/v1/approve", map[string]string{"t": tok})
+	postResp := postForm(t, server.URL+"/v1/approve", map[string]string{"t": tok})
 	postResp.Body.Close()
 	if postResp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", postResp.StatusCode)
@@ -457,13 +457,13 @@ func TestMagicLinkSecondPOSTReturns409(t *testing.T) {
 	msg := issuePending(t, store, a.ID)
 
 	tok, _ := signer.Sign(msg.ID, approvaltoken.ActionApprove, time.Now().Add(1*time.Hour))
-	resp1 := postForm(t, server.URL+"/api/v1/approve", map[string]string{"t": tok})
+	resp1 := postForm(t, server.URL+"/v1/approve", map[string]string{"t": tok})
 	resp1.Body.Close()
 	if resp1.StatusCode != http.StatusOK {
 		t.Fatalf("first POST: status = %d", resp1.StatusCode)
 	}
 
-	resp2 := postForm(t, server.URL+"/api/v1/approve", map[string]string{"t": tok})
+	resp2 := postForm(t, server.URL+"/v1/approve", map[string]string{"t": tok})
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusConflict {
 		t.Errorf("second POST: status = %d, want 409", resp2.StatusCode)
@@ -489,7 +489,7 @@ func TestMagicLinkGETRendersConflictForNonPending(t *testing.T) {
 	}
 
 	tok, _ := signer.Sign(msg.ID, approvaltoken.ActionApprove, time.Now().Add(1*time.Hour))
-	resp, _ := http.Get(server.URL + "/api/v1/approve?t=" + url.QueryEscape(tok))
+	resp, _ := http.Get(server.URL + "/v1/approve?t=" + url.QueryEscape(tok))
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusConflict {
 		t.Errorf("status = %d, want 409", resp.StatusCode)
@@ -501,7 +501,7 @@ func TestMagicLinkNotFoundForBogusMessageID(t *testing.T) {
 	defer smtpDone()
 
 	tok, _ := signer.Sign("msg_doesnotexist", approvaltoken.ActionApprove, time.Now().Add(1*time.Hour))
-	resp, _ := http.Get(server.URL + "/api/v1/approve?t=" + url.QueryEscape(tok))
+	resp, _ := http.Get(server.URL + "/v1/approve?t=" + url.QueryEscape(tok))
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", resp.StatusCode)
@@ -520,12 +520,12 @@ func TestMagicLinkDisabledWhenSignerMissing(t *testing.T) {
 	defer server.Close()
 
 	// Both GET and POST should 404 when the signer is absent.
-	getResp, _ := http.Get(server.URL + "/api/v1/approve?t=anything")
+	getResp, _ := http.Get(server.URL + "/v1/approve?t=anything")
 	getResp.Body.Close()
 	if getResp.StatusCode != http.StatusNotFound {
 		t.Errorf("GET no signer: status = %d, want 404", getResp.StatusCode)
 	}
-	postResp := postForm(t, server.URL+"/api/v1/approve", map[string]string{"t": "anything"})
+	postResp := postForm(t, server.URL+"/v1/approve", map[string]string{"t": "anything"})
 	postResp.Body.Close()
 	if postResp.StatusCode != http.StatusNotFound {
 		t.Errorf("POST no signer: status = %d, want 404", postResp.StatusCode)
@@ -540,7 +540,7 @@ func TestMagicLinkNoCacheAndSecurityHeaders(t *testing.T) {
 	tok, _ := signer.Sign(msg.ID, approvaltoken.ActionApprove, time.Now().Add(1*time.Hour))
 
 	for _, path := range []string{
-		server.URL + "/api/v1/approve?t=" + url.QueryEscape(tok),
+		server.URL + "/v1/approve?t=" + url.QueryEscape(tok),
 	} {
 		resp, _ := http.Get(path)
 		resp.Body.Close()
@@ -581,7 +581,7 @@ func TestMagicApprove_VerifiesWithUserSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp := postForm(t, server.URL+"/api/v1/approve", map[string]string{"t": tok})
+	resp := postForm(t, server.URL+"/v1/approve", map[string]string{"t": tok})
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("approve via user-secret token: status %d, body=%s", resp.StatusCode, readBody(t, resp))
@@ -604,7 +604,7 @@ func TestMagicApprove_FallsBackToDeploymentSigner(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp := postForm(t, server.URL+"/api/v1/approve", map[string]string{"t": tok})
+	resp := postForm(t, server.URL+"/v1/approve", map[string]string{"t": tok})
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("approve via deployment-signed token: status %d, body=%s", resp.StatusCode, readBody(t, resp))
@@ -624,7 +624,7 @@ func TestMagicApprove_RejectsForeignSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp := postForm(t, server.URL+"/api/v1/approve", map[string]string{"t": tok})
+	resp := postForm(t, server.URL+"/v1/approve", map[string]string{"t": tok})
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusOK {
 		t.Fatalf("foreign-secret token MUST be rejected, got %d", resp.StatusCode)
@@ -659,7 +659,7 @@ func TestMagicApprove_OldUserSecretStillVerifiesAfterRotation(t *testing.T) {
 	// is the new one). The verifier should still accept the old token
 	// because it tries all of the user's secrets.
 
-	resp := postForm(t, server.URL+"/api/v1/approve", map[string]string{"t": tok})
+	resp := postForm(t, server.URL+"/v1/approve", map[string]string{"t": tok})
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("old-secret token must verify until that secret is deleted, got %d body=%s",

@@ -122,10 +122,9 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 	api.SetUsageStore(usageStore)
 	api.RegisterRoutes(router)
 
-	// WebSocket live-tail route, open to any agent
+	// WebSocket live-tail transport — wired as a /v1 route via WSHandle below.
 	wsHub := ws.NewHub()
 	wsHandler := ws.NewHandler(wsHub, store)
-	api.RegisterWSRoute(router, wsHandler.Handle)
 
 	// Wrap the legacy mux with the typed /v1 surface (the same apiserver
 	// builder prod + StartContractServer use) so e2e exercises the real /v1

@@ -8,15 +8,21 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/agent"
+	"github.com/Mnexa-AI/e2a/internal/apiserver"
 	"github.com/Mnexa-AI/e2a/internal/auth"
 	"github.com/Mnexa-AI/e2a/internal/config"
+	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
 	"github.com/Mnexa-AI/e2a/internal/usage"
+	"github.com/Mnexa-AI/e2a/internal/webhook"
+	"github.com/Mnexa-AI/e2a/internal/ws"
 
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -67,7 +73,34 @@ func newConsentFixture(t *testing.T) *consentFixture {
 
 	router := mux.NewRouter()
 	api.RegisterRoutes(router)
-	server := httptest.NewServer(router)
+
+	// Wrap the legacy mux with the typed /v1 surface so /v1/agents is
+	// routable (bearer auth tests hit it). Mirrors testutil.TestServer's
+	// apiserver wiring; the /oauth2/* + /consent routes fall through to
+	// the legacy mux via chi's NotFound handler.
+	usageStore := usage.NewStore(pool)
+	enforcer := limits.NewEnforcer(limits.NewStore(pool), usageStore, limits.Defaults{
+		PlanCode: "test", MaxAgents: 100000, MaxDomains: 100000,
+		MaxMessagesMonth: 100000, MaxStorageBytes: 1 << 40,
+	}, time.Minute)
+	subscriberStore := webhook.NewSubscriberStore(pool)
+	idempotencyStore := idempotency.NewStore(pool)
+	api.SetIdempotencyStore(idempotencyStore)
+	api.SetSubscriberStore(subscriberStore)
+	api.SetEnforcer(enforcer)
+	api.SetUsageStore(usageStore)
+	wsHub := ws.NewHub()
+	wsHandler := ws.NewHandler(wsHub, store)
+	t.Cleanup(wsHub.Close)
+
+	v1 := apiserver.New(apiserver.Params{
+		API: api, Store: store, Enforcer: enforcer, UsageStore: usageStore,
+		SubscriberStore: subscriberStore, Idempotency: idempotencyStore, Pool: pool,
+		SMTPDomain: "test.e2a.dev", SharedDomain: "agents.e2a.dev",
+		PublicURL: "https://test.e2a.dev", Production: false,
+		Legacy: router, WSHandle: wsHandler.ServeWithEmail,
+	})
+	server := httptest.NewServer(v1)
 	t.Cleanup(server.Close)
 
 	// Seed a user + an active session.

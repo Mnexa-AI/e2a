@@ -8,14 +8,20 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/agent"
+	"github.com/Mnexa-AI/e2a/internal/apiserver"
 	"github.com/Mnexa-AI/e2a/internal/config"
+	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
 	"github.com/Mnexa-AI/e2a/internal/usage"
+	"github.com/Mnexa-AI/e2a/internal/webhook"
+	"github.com/Mnexa-AI/e2a/internal/ws"
 
 	"github.com/gorilla/mux"
 )
@@ -69,14 +75,14 @@ func mintTokensForFixture(t *testing.T, f *consentFixture) (accessToken, refresh
 	return body.AccessToken, body.RefreshToken
 }
 
-// callAPIWithBearer hits /api/v1/pending with the given Authorization
+// callAPIWithBearer hits /v1/agents with the given Authorization
 // value. Returns the status code and the WWW-Authenticate header.
-// /api/v1/pending is a simple authed endpoint that returns 200 (an
+// /v1/agents is a simple authed endpoint that returns 200 (an
 // empty pending list) for any valid credential and 401 with the
 // RFC 6750 challenge for an invalid one.
 func callAPIWithBearer(t *testing.T, serverURL, bearer string) (int, string) {
 	t.Helper()
-	req, _ := http.NewRequest("GET", serverURL+"/api/v1/pending", nil)
+	req, _ := http.NewRequest("GET", serverURL+"/v1/agents", nil)
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
@@ -195,7 +201,7 @@ func TestBearer_OAuthToken_LowercaseBearer(t *testing.T) {
 	f := newConsentFixture(t)
 	access, _ := mintTokensForFixture(t, f)
 
-	req, _ := http.NewRequest("GET", f.server.URL+"/api/v1/pending", nil)
+	req, _ := http.NewRequest("GET", f.server.URL+"/v1/agents", nil)
 	req.Header.Set("Authorization", "bearer "+access) // lowercase scheme
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -297,7 +303,33 @@ func TestBearer_OAuthToken_ProviderNotWired(t *testing.T) {
 		"e2a.dev", "test.e2a.dev", "agents.e2a.dev", "https://test.e2a.dev", false)
 	router := mux.NewRouter()
 	api.RegisterRoutes(router)
-	server := httptest.NewServer(router)
+
+	// Serve /v1/agents through apiserver (same as the consent fixture) but
+	// WITHOUT calling SetOAuthProvider — that omission is the point of the
+	// test: an ate2a_ bearer must fail closed at dispatch.
+	usageStore := usage.NewStore(pool)
+	enforcer := limits.NewEnforcer(limits.NewStore(pool), usageStore, limits.Defaults{
+		PlanCode: "test", MaxAgents: 100000, MaxDomains: 100000,
+		MaxMessagesMonth: 100000, MaxStorageBytes: 1 << 40,
+	}, time.Minute)
+	subscriberStore := webhook.NewSubscriberStore(pool)
+	idempotencyStore := idempotency.NewStore(pool)
+	api.SetIdempotencyStore(idempotencyStore)
+	api.SetSubscriberStore(subscriberStore)
+	api.SetEnforcer(enforcer)
+	api.SetUsageStore(usageStore)
+	wsHub := ws.NewHub()
+	wsHandler := ws.NewHandler(wsHub, store)
+	defer wsHub.Close()
+
+	v1 := apiserver.New(apiserver.Params{
+		API: api, Store: store, Enforcer: enforcer, UsageStore: usageStore,
+		SubscriberStore: subscriberStore, Idempotency: idempotencyStore, Pool: pool,
+		SMTPDomain: "test.e2a.dev", SharedDomain: "agents.e2a.dev",
+		PublicURL: "https://test.e2a.dev", Production: false,
+		Legacy: router, WSHandle: wsHandler.ServeWithEmail,
+	})
+	server := httptest.NewServer(v1)
 	defer server.Close()
 
 	status, wa := callAPIWithBearer(t, server.URL, oauth.AccessTokenPrefix+"whatever.x")

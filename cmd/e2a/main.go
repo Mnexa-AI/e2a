@@ -391,11 +391,12 @@ func main() {
 	deliveryVerifier := delivery.NewVerifier(cfg.DeliveryFeedback.SNSTopicARNs, delivery.HTTPCertFetcher)
 	router.HandleFunc("/api/internal/ses/notifications", delivery.Handler(deliveryVerifier, deliveryConsumer)).Methods(http.MethodPost)
 
-	// WebSocket live-tail route, open to any agent
+	// WebSocket live-tail transport. Registered as a first-class /v1 route
+	// on the chi root via WSHandle below (see apiserver.Params); the hub +
+	// handler are constructed here and threaded in.
 	wsHub := ws.NewHub()
 	defer wsHub.Close()
 	wsHandler := ws.NewHandler(wsHub, store)
-	api.RegisterWSRoute(router, wsHandler.Handle)
 
 	// v1 contract layer (api-v1-redesign Slice 1). The new chi + Huma surface
 	// owns the `/v1` prefix (OpenAPI-as-source-of-truth, standardized error

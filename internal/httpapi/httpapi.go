@@ -79,7 +79,13 @@ type (
 type Deps struct {
 	Authenticator          Authenticator
 	PrincipalAuthenticator PrincipalAuthenticator
-	ListAgents             AgentLister
+	// AuthChallenge builds the RFC 6750 §3 WWW-Authenticate header value for a
+	// request that failed authentication. Injected so the v1 surface advertises
+	// the Bearer scheme (and OAuth error params) on every 401 exactly like the
+	// legacy mux did, from the same definition (agent.API.WWWAuthenticateChallenge).
+	// Optional — nil disables the challenge header.
+	AuthChallenge func(r *http.Request) string
+	ListAgents    AgentLister
 	GetAgent               AgentGetter
 	GetMessage             MessageGetter
 	ListMessages           MessageLister
@@ -218,6 +224,7 @@ func New(deps Deps) *Server {
 	root := chi.NewRouter()
 	root.Use(requestID)
 	root.Use(securityHeaders)
+	root.Use(authChallenge(deps.AuthChallenge))
 	root.Use(withRawRequest)
 
 	config := huma.DefaultConfig("e2a API", "1.0.0")

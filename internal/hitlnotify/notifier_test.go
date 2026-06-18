@@ -111,8 +111,8 @@ func TestNotifierSendsEmailToOwner(t *testing.T) {
 		"alice@example.com",            // recipient
 		"carol@example.com",            // cc
 		"Important draft",              // subject
-		"/api/v1/approve?t=",           // magic approve link
-		"/api/v1/reject?t=",            // magic reject link
+		"/v1/approve?t=",           // magic approve link
+		"/v1/reject?t=",            // magic reject link
 		"/dashboard/pending/" + msg.ID, // dashboard link
 	} {
 		if !strings.Contains(data, needle) {
@@ -143,8 +143,8 @@ func TestNotifierMagicLinksAreVerifiable(t *testing.T) {
 	}
 	data := smtpDone()[0].Data
 
-	approveTok := extractToken(t, data, "/api/v1/approve?t=")
-	rejectTok := extractToken(t, data, "/api/v1/reject?t=")
+	approveTok := extractToken(t, data, "/v1/approve?t=")
+	rejectTok := extractToken(t, data, "/v1/reject?t=")
 
 	// Tokens are signed with the agent owner's per-account secret (most
 	// recently created). Pull those from the store, plus include the
@@ -198,7 +198,7 @@ func TestNotifierBuildsAbsoluteURLs(t *testing.T) {
 		t.Fatal(err)
 	}
 	data := smtpDone()[0].Data
-	if !strings.Contains(data, publicURL+"/api/v1/approve?t=") {
+	if !strings.Contains(data, publicURL+"/v1/approve?t=") {
 		t.Errorf("approve URL should be absolute under %q, got:\n%s", publicURL, data)
 	}
 	if !strings.Contains(data, publicURL+"/dashboard/pending/") {

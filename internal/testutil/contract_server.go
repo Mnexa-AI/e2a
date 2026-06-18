@@ -69,7 +69,6 @@ func StartContractServer(ctx context.Context, dbURL string) (*ContractServer, er
 
 	wsHub := ws.NewHub()
 	wsHandler := ws.NewHandler(wsHub, store)
-	api.RegisterWSRoute(router, wsHandler.Handle)
 
 	// Wrap the legacy mux with the typed /v1 surface using the SAME builder
 	// the production binary uses, so contract scenarios hit the real /v1

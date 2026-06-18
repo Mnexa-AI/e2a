@@ -716,14 +716,14 @@ func writeConfirmPage(w http.ResponseWriter, status int, action, token string, m
 	var actionPath, submitLabel, eyebrow, title, lede, submitClass string
 	switch action {
 	case approvaltoken.ActionApprove:
-		actionPath = "/api/v1/approve"
+		actionPath = "/v1/approve"
 		submitLabel = "Approve & send"
 		submitClass = "btn btn-primary"
 		eyebrow = "Pending · approve"
 		title = "Approve message"
 		lede = "This message will be sent from your agent immediately."
 	case approvaltoken.ActionReject:
-		actionPath = "/api/v1/reject"
+		actionPath = "/v1/reject"
 		submitLabel = "Reject"
 		submitClass = "btn btn-danger"
 		eyebrow = "Pending · reject"

@@ -533,25 +533,6 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	})
 
-	// --- Legacy /api/v1 surface (strangler residue) ---
-	//
-	// The bearer-authenticated /api/v1 contract has been cut over to the
-	// typed Huma /v1 surface (internal/httpapi). Only the routes that do
-	// NOT yet have a /v1 equivalent remain registered here; everything
-	// ported (agents, messages read/send/reply/forward, conversations,
-	// domains, webhooks, events, account, HITL approve/reject, info, test)
-	// is served exclusively under /v1 now. The chi root owns /v1 and falls
-	// back to this mux for the routes below.
-	//
-	// Still legacy-only (no /v1 port yet — keep until separately ported):
-	//   - PATCH /api/v1/agents/{email}/messages/{id}      (label update)
-	//   - GET   /api/v1/messages/{id}                      (outbound detail, flat path)
-	//   - GET   /api/v1/pending                            (account-wide HITL queue)
-	//   - POST  /api/v1/webhooks/{id}/redeliver-since      (bulk webhook replay)
-	//   - GET/POST/DELETE /api/v1/users/me/signing-secrets (webhook signing keys)
-	//   - GET/POST /api/v1/approve, /api/v1/reject         (magic-link HITL pages)
-	r.HandleFunc("/api/v1/agents/{email}/messages/{id}", a.handleUpdateMessage).Methods("PATCH")
-
 	// Internal machine-to-machine endpoint: the external limits
 	// provisioner (hosted billing sidecar) calls this to bust the
 	// in-process limits cache for a given user immediately after it
@@ -559,36 +540,17 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	// request body; deliberately not advertised in OpenAPI.
 	r.HandleFunc("/api/internal/limits/invalidate", a.handleInvalidateLimits).Methods("POST")
 
-	// Per-user webhook signing secrets — multi-secret rotation, fully
-	// user-managed (create + delete; no auto-rotation, no TTL).
-	r.HandleFunc("/api/v1/users/me/signing-secrets", a.handleListSigningSecrets).Methods("GET")
-	r.HandleFunc("/api/v1/users/me/signing-secrets", a.handleCreateSigningSecret).Methods("POST")
-	r.HandleFunc("/api/v1/users/me/signing-secrets/{id}", a.handleDeleteSigningSecret).Methods("DELETE")
-
-	// HITL pending queue — scoped to the user (not a single agent) so
-	// reviewers can see pending messages across all their agents at
-	// once. The endpoint is user-scoped because the review workflow
-	// is account-level; per-agent filtering lives on
-	// /api/v1/agents/{email}/messages instead.
-	r.HandleFunc("/api/v1/pending", a.handleListMessages).Methods("GET")
-	// Bulk webhook replay — no /v1 equivalent yet.
-	r.HandleFunc("/api/v1/webhooks/{id}/redeliver-since", a.handleRedeliverSince).Methods("POST")
-
-	// GET /messages/{id} (outbound detail) still lives at the flat path —
-	// unifying it with the inbound GET at /agents/{email}/messages/{id}
-	// is a separate concern (different response shapes) tracked as a
-	// follow-up. Until then the SDK falls back through both paths.
-	r.HandleFunc("/api/v1/messages/{id}", a.handleGetOutboundMessage).Methods("GET")
-
-	// Magic-link endpoints. GET renders a token-gated confirmation page
-	// with a POST form; POST executes the action. Splitting this way
+	// HITL magic-link pages. Human-facing token-gated HTML (not the JSON
+	// API), opened from the approval email. GET renders a confirmation
+	// page with a POST form; POST executes the action. Splitting this way
 	// keeps email-client URL scanners (Gmail, Outlook Safe Links,
 	// corporate mail gateways) from triggering side effects just by
-	// previewing the link.
-	r.HandleFunc("/api/v1/approve", a.handleApproveMagicLinkGet).Methods("GET")
-	r.HandleFunc("/api/v1/approve", a.handleApproveMagicLinkPost).Methods("POST")
-	r.HandleFunc("/api/v1/reject", a.handleRejectMagicLinkGet).Methods("GET")
-	r.HandleFunc("/api/v1/reject", a.handleRejectMagicLinkPost).Methods("POST")
+	// previewing the link. Served under /v1 via the chi root's fallback to
+	// this mux (these are raw HTML routes, not Huma operations).
+	r.HandleFunc("/v1/approve", a.handleApproveMagicLinkGet).Methods("GET")
+	r.HandleFunc("/v1/approve", a.handleApproveMagicLinkPost).Methods("POST")
+	r.HandleFunc("/v1/reject", a.handleRejectMagicLinkGet).Methods("GET")
+	r.HandleFunc("/v1/reject", a.handleRejectMagicLinkPost).Methods("POST")
 
 	// --- Non-versioned operational endpoints ---
 	r.HandleFunc("/api/health", a.handleHealth).Methods("GET", "HEAD")
@@ -633,11 +595,6 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 		r.HandleFunc("/api/keys", a.userAuth.HandleListAPIKeys).Methods("GET")
 		r.HandleFunc("/api/keys/{id}", a.userAuth.HandleDeleteAPIKey).Methods("DELETE")
 	}
-}
-
-// RegisterWSRoute registers the WebSocket live-tail endpoint, open to any agent.
-func (a *API) RegisterWSRoute(r *mux.Router, handle http.HandlerFunc) {
-	r.HandleFunc("/api/v1/agents/{email}/ws", handle)
 }
 
 // errOAuthBearerInvalid is returned by authenticateUser when an
@@ -805,19 +762,41 @@ func (a *API) lookupUserByOAuthToken(r *http.Request, bearer string) (*identity.
 // metadata document lands, add `resource_metadata="<url>"` here so MCP
 // clients can auto-discover the authorization server.
 func (a *API) writeAuthError(w http.ResponseWriter, r *http.Request, err error) {
+	w.Header().Set("WWW-Authenticate", a.authChallenge(r, err))
+	http.Error(w, "authentication required", http.StatusUnauthorized)
+}
+
+// authChallenge builds the RFC 6750 §3 WWW-Authenticate value for a 401 on a
+// Bearer-accepting endpoint, given the request and the auth error that caused
+// the rejection. Every 401 advertises the bare `Bearer realm="e2a"`; OAuth-
+// bearer failures additionally carry the §3.1 error params (see writeAuthError
+// docstring for the existence-oracle rationale). Shared by the legacy mux
+// (writeAuthError) and the v1 surface (WWWAuthenticateChallenge) so both
+// surfaces emit byte-identical challenges from one definition.
+func (a *API) authChallenge(r *http.Request, err error) string {
 	bearer := stripBearerScheme(r.Header.Get("Authorization"))
 	isOAuthFailure := errors.Is(err, errOAuthBearerInvalid) || strings.HasPrefix(bearer, oauth.AccessTokenPrefix)
-
-	challenge := `Bearer realm="e2a"`
-	if isOAuthFailure {
-		desc := "the access token is invalid"
-		if errors.Is(err, fosite.ErrTokenExpired) {
-			desc = "the access token has expired"
-		}
-		challenge = `Bearer realm="e2a", error="invalid_token", error_description="` + desc + `"`
+	if !isOAuthFailure {
+		return `Bearer realm="e2a"`
 	}
-	w.Header().Set("WWW-Authenticate", challenge)
-	http.Error(w, "authentication required", http.StatusUnauthorized)
+	desc := "the access token is invalid"
+	if errors.Is(err, fosite.ErrTokenExpired) {
+		desc = "the access token has expired"
+	}
+	return `Bearer realm="e2a", error="invalid_token", error_description="` + desc + `"`
+}
+
+// WWWAuthenticateChallenge is the v1-surface seam (internal/httpapi) for the
+// RFC 6750 challenge. The legacy mux had the auth error in hand at the 401 site
+// (writeAuthError); the v1 layer rejects via the canonical envelope and reaches
+// this from a response wrapper that only knows the status was 401, so we re-run
+// the same credential resolution to recover the typed error and classify the
+// challenge identically (expired vs invalid). 401s are rare, so the extra
+// resolution is cheap, and routing it through the one auth path keeps the
+// surfaces from diverging.
+func (a *API) WWWAuthenticateChallenge(r *http.Request) string {
+	_, err := a.authenticatePrincipal(r)
+	return a.authChallenge(r, err)
 }
 
 // resolveAgentForUser loads an agent by email address and verifies the user owns it.
@@ -1203,111 +1182,6 @@ type ForwardRequest struct {
 	HTMLBody       string                `json:"html_body,omitempty"`
 	ConversationID string                `json:"conversation_id,omitempty"`
 	Attachments    []outbound.Attachment `json:"attachments,omitempty"`
-}
-
-// --- Polling API ---
-
-// updateMessageRequest is the JSON body for
-// PATCH /api/v1/agents/{email}/messages/{id}. The only supported
-// mutation today is the labels delta — passing both lists empty is a
-// no-op that still returns the current label set, so callers can use
-// the endpoint as a read for the labels alone if convenient.
-type updateMessageRequest struct {
-	AddLabels    []string `json:"add_labels,omitempty"`
-	RemoveLabels []string `json:"remove_labels,omitempty"`
-}
-
-// handleUpdateMessage modifies a message in-place. Currently scoped to
-// the labels delta — `add_labels` / `remove_labels` arrays — but the
-// PATCH path is shaped so future fields (read/unread toggle, archive
-// flag) can be added without a new endpoint.
-// @Summary      Update a message (labels)
-// @Description  Apply a delta to a message's labels. Pass `add_labels` and/or `remove_labels` — each capped at 50 entries per request. Labels are lowercase strings drawn from `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for server-applied system labels and rejected on user writes. The total label count per message is capped at 100. A label appearing in both add and remove is removed (remove wins). Returns the post-update label set so callers can echo state without a fetch.
-// @Tags         Email
-// @Accept       json
-// @Produce      json
-// @Security     BearerAuth
-// @Param        email path string true "Agent email address" example(my-bot@example.com)
-// @Param        id    path string true "Message ID" example(msg_abc123)
-// @Param        request body UpdateMessageRequest true "Label delta"
-// @Success      200 {object} UpdateMessageResponse
-// @Failure      400 {string} string "Invalid label or per-message cap exceeded"
-// @Failure      401 {string} string "Missing or invalid API key"
-// @Failure      404 {string} string "Message not found or does not belong to this agent"
-// @Router       /api/v1/agents/{email}/messages/{id} [patch]
-func (a *API) handleUpdateMessage(w http.ResponseWriter, r *http.Request) {
-	user, err := a.AuthenticateUser(r)
-	if err != nil {
-		a.writeAuthError(w, r, err)
-		return
-	}
-
-	if ok, retryAfter := a.pollLimit.AllowWithRetryAfter(user.ID); !ok {
-		writeTooManyRequests(w, retryAfter, "rate limit exceeded — max 60 requests per minute per user")
-		return
-	}
-
-	vars := mux.Vars(r)
-	email := normalizeEmail(vars["email"])
-	msgID := vars["id"]
-
-	agent, err := a.resolveAgentForUser(r, email, user)
-	if err != nil {
-		http.Error(w, "agent not found", http.StatusNotFound)
-		return
-	}
-
-	// 64 KB cap is plenty for a labels delta — the per-op cap of 50
-	// labels × 64 chars + JSON overhead is well under a KB. Without
-	// this cap a client could ship multi-MB bodies and the per-op
-	// validation only kicks in after full JSON allocation.
-	var req updateMessageRequest
-	if err := readJSON(w, r, &req, maxRequestBytesSmall); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	addLabels, err := NormalizeAndValidateLabelList(req.AddLabels, "add")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	removeLabels, err := NormalizeAndValidateLabelList(req.RemoveLabels, "remove")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	final, err := a.store.ModifyMessageLabels(r.Context(), msgID, agent.ID, addLabels, removeLabels)
-	if err != nil {
-		switch {
-		case errors.Is(err, identity.ErrMessageNotFound):
-			http.Error(w, "message not found", http.StatusNotFound)
-		case errors.Is(err, identity.ErrLabelLimitExceeded):
-			http.Error(w, fmt.Sprintf("label limit exceeded — a message may carry at most %d labels", identity.MaxLabelsPerMessage), http.StatusBadRequest)
-		default:
-			log.Printf("[api] ModifyMessageLabels error: agent=%s msg=%s err=%v", agent.ID, msgID, err)
-			http.Error(w, "failed to update labels", http.StatusInternalServerError)
-		}
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	writeJSON(w, map[string]interface{}{
-		"message_id": msgID,
-		"labels":     orEmptySlice(final),
-	})
-}
-
-// orEmptySlice returns s if non-nil, otherwise an empty []string. We marshal
-// the To: list as an always-present array (no omitempty) so SDK clients can
-// rely on it being present, even for messages stored before the column was
-// populated for inbound.
-func orEmptySlice(s []string) []string {
-	if s == nil {
-		return []string{}
-	}
-	return s
 }
 
 func (a *API) handleHealth(w http.ResponseWriter, r *http.Request) {

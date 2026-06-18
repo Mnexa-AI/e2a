@@ -68,6 +68,7 @@ func BuildDeps(p Params) httpapi.Deps {
 	return httpapi.Deps{
 		Authenticator:          p.API.AuthenticateUser,
 		PrincipalAuthenticator: p.API.AuthenticatePrincipal,
+		AuthChallenge:          p.API.WWWAuthenticateChallenge,
 		ListAgents:             p.Store.ListAgentsByUser,
 		GetAgent:               p.Store.GetAgentByEmail,
 		GetMessage:             p.Store.GetMessageWithContent,

@@ -21,26 +21,18 @@ func postRevoke(t *testing.T, serverURL string, form url.Values) *http.Response 
 }
 
 // probeBearer reports whether the given bearer is still usable, plus
-// the WWW-Authenticate challenge the API advertises when it isn't. It
-// replaces the removed /api/v1/agents probe the revoke tests used to
-// rely on.
+// the WWW-Authenticate challenge the API advertises when it isn't.
 //
-// Two still-registered endpoints are combined because no single kept
-// route both returns 200 on success AND emits the RFC 6750 §3.1 OAuth
-// challenge on failure:
-//
-//   - GET /api/v1/pending decides the status: 200 for a valid bearer,
-//     401 for a revoked/invalid one (clean 200-vs-401 signal).
-//   - PATCH /api/v1/agents/{email}/messages/{id} routes its 401 through
-//     writeAuthError, which sets `error="invalid_token"` for ate2a_
-//     bearers — so we read the WWW-Authenticate header from there. (A
-//     valid bearer 404s on the nonexistent message, carrying no
-//     challenge header, which is exactly what we want: an empty string
-//     for a still-valid token.)
+// A single GET /v1/agents call now suffices: the v1 surface returns 200
+// for a valid bearer and 401 with the RFC 6750 §3.1 OAuth challenge for a
+// revoked/invalid one (the challenge is set by the apiserver's auth-
+// challenge middleware, the same builder the legacy mux used). A valid
+// bearer's 200 carries no WWW-Authenticate header — an empty string for a
+// still-valid token, exactly what the callers expect.
 func probeBearer(t *testing.T, serverURL, bearer string) (status int, wwwAuth string) {
 	t.Helper()
 
-	req, _ := http.NewRequest("GET", serverURL+"/api/v1/pending", nil)
+	req, _ := http.NewRequest("GET", serverURL+"/v1/agents", nil)
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
@@ -49,21 +41,8 @@ func probeBearer(t *testing.T, serverURL, bearer string) (status int, wwwAuth st
 		t.Fatal(err)
 	}
 	status = resp.StatusCode
+	wwwAuth = resp.Header.Get("WWW-Authenticate")
 	resp.Body.Close()
-
-	// Read the OAuth challenge header from an endpoint that emits it.
-	chReq, _ := http.NewRequest("PATCH",
-		serverURL+"/api/v1/agents/probe@example.com/messages/msg_probe", strings.NewReader("{}"))
-	if bearer != "" {
-		chReq.Header.Set("Authorization", "Bearer "+bearer)
-	}
-	chReq.Header.Set("Content-Type", "application/json")
-	chResp, err := http.DefaultClient.Do(chReq)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wwwAuth = chResp.Header.Get("WWW-Authenticate")
-	chResp.Body.Close()
 
 	return status, wwwAuth
 }
