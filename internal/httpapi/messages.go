@@ -30,7 +30,15 @@ type MessageView struct {
 	Recipient      string   `json:"recipient"`
 	Subject        string   `json:"subject"`
 	ConversationID string   `json:"conversation_id"`
-	Status         string   `json:"status"`
+	// Direction (inbound|outbound) — mirrors MessageSummaryView so a client
+	// fetching a single message keeps the full trust-axis context (review F1).
+	Direction string `json:"direction"`
+	Status    string `json:"status"`
+	// HITLStatus is the human-in-the-loop lifecycle (e.g. pending_approval) —
+	// outbound only, mirroring MessageSummaryView. Distinct from `status`
+	// (the delivery rollup) so a held draft is identifiable on the detail view
+	// without re-deriving it (review F1).
+	HITLStatus string `json:"hitl_status,omitempty"`
 	// DeliveryStatus is the outbound delivery rollup (migration 031:
 	// 'sent', 'delivered', 'bounced', …) — the worst recipient status by
 	// precedence. Outbound-only; omitted on inbound messages.
@@ -90,6 +98,7 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		Recipient:      m.Recipient,
 		Subject:        m.Subject,
 		ConversationID: m.ConversationID,
+		Direction:      m.Direction,
 		Status:         m.DeliveryStatus,
 		Labels:         orEmptyStrings(m.Labels),
 		CreatedAt:      m.CreatedAt.UTC().Format(time.RFC3339),
@@ -106,6 +115,9 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		v.DeliveryStatus = m.DeliveryStatus
 		v.DeliveryDetail = m.DeliveryDetail
 		v.SentAs = m.SentAs
+		// HITL lifecycle (status column) — outbound only, mirroring the summary
+		// view; on inbound rows `status` is not the HITL value (review F1).
+		v.HITLStatus = m.Status
 	}
 	// Parsed view (decision 9): inbound-only, derived from the raw message.
 	if m.Direction == "inbound" && len(m.RawMessage) > 0 {

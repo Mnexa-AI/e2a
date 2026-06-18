@@ -1709,12 +1709,19 @@ codes degrade by family, and align the docstring with reality. *Lands:* TS
 `errors.ts` (#227) + Python `errors.py` (#228).
 
 **F3 — MEDIUM (observability): rate-limit headers consistent + in the spec.**
-`RateLimit-Limit/Remaining/Reset` are emitted only on the poll/registration
-subset (the send-path 429 omits them — §11 follow-up #4) and are **absent from
-the OpenAPI spec**. **Decision:** stamp the IETF `RateLimit-*` (+ `Retry-After`)
-headers across all rate-limited responses including the send-path 429, document
-them in the spec, and surface `retry_after`/`reset` on `E2ARateLimitError` in
-both SDKs. *Lands:* server (`ratelimit.go` + spec) + SDK error fields.
+`RateLimit-Limit/Remaining/Reset` are emitted on the poll/registration subset
+via the Huma middleware, but the **send-path 429** carries its retry hint in the
+error **`details.retry_after_seconds`** rather than the `Retry-After` *header*
+(Huma error responses can't set headers directly — `checkSendLimit`,
+`outbound.go:314`), and the headers are **absent from the OpenAPI spec**.
+**Decisions:** (a) **SDK fix (done here):** `E2AError`/`E2ARateLimitError` now
+reads `details.retry_after_seconds` as a fallback when the `Retry-After` header
+is absent, so the retry layer honors the send-path limit regardless of
+header-vs-body. (b) **Server follow-up (tracked, §11 #4):** emitting the IETF
+`RateLimit-*` + `Retry-After` *headers* uniformly (incl. the send path) and
+declaring them in the spec is deferred — it requires moving the send limit past
+`EnforceMessageSend` on the hot path and a Huma header-on-error mechanism, which
+warrant their own change. *Lands:* SDK error fields now; server headers tracked.
 
 **F4 — MEDIUM (DX consistency): uniform list ergonomics.** `.list()` returns a
 cursor `AutoPager` for messages/events but a single-page pager (agents, domains,
@@ -1743,15 +1750,18 @@ query-token auth is documented as a known limitation with a planned move to a
 header or short-lived ticket (server change, separate). *Lands:* Python
 `websocket.py` (#228) now; the header/ticket auth is a tracked server follow-up.
 
-**F7 — LOW (contract hygiene).** (a) A stale legacy `Message` schema is
-over-exposed in `components` next to the clean `MessageView`/`MessageSummaryView`;
-(b) `error.details` is typed `any` (varies array-vs-object by source);
-(c) `request_id` lives in both the envelope and the `X-Request-Id` header while
-the SDKs read only the header. **Decision:** remove the leaked `Message` schema
-from the public surface; keep `request_id` canonical in **both** (envelope is the
-contract, header is the convenience) and document that the SDKs read the header;
-leave `details` as open `any` deliberately (it carries heterogeneous
-validation/handler context) but document its two shapes. *Lands:* server/spec.
+**F7 — LOW (contract hygiene).** Investigated; mostly false-positive / docs-only:
+(a) The `Message` schema flagged as a "leak" is **not** a leak — it is the
+`identity.UserExport.messages` shape behind `GET /v1/account/export`
+(`account.go:122`), i.e. the deliberate full-row dump for GDPR-style data
+export (which legitimately includes internal columns like `approval_expires_at`,
+`reviewed_by_user_id`, raw attachments). Kept as-is; removing it would break the
+export contract. (b) `error.details` stays open `any` **deliberately** — it
+carries heterogeneous context (a `[]` of field errors from Huma validation, or
+a handler `{}` like `{retry_after_seconds}`); documented, not narrowed.
+(c) `request_id` is canonical in **both** the envelope and the `X-Request-Id`
+header; the SDKs read the header (the convenience copy) — documented, no change.
+**Net:** no code change; this entry corrects the review's assumption.
 
 **F8 — STRATEGIC (versioning).** `/v1` + the drift gate is strong, but there is
 no written evolution policy. **Decision:** **additive-only on `/v1`** — new

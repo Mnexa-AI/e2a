@@ -1024,11 +1024,15 @@ components:
             - deferred
             - failed
           type: string
+        direction:
+          type: string
         flag_reason:
           type: string
         flagged:
           type: boolean
         from:
+          type: string
+        hitl_status:
           type: string
         labels:
           items:
@@ -1075,6 +1079,7 @@ components:
         - recipient
         - subject
         - conversation_id
+        - direction
         - status
         - labels
         - created_at

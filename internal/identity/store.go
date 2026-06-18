@@ -2354,9 +2354,9 @@ func (s *Store) GetMessageWithContent(ctx context.Context, messageID, agentID st
 	err := s.pool.QueryRow(ctx,
 		`UPDATE messages SET inbox_status = CASE WHEN inbox_status = 'unread' THEN 'read' ELSE inbox_status END
 		 WHERE id = $1 AND agent_id = $2 AND expires_at > now()
-		 RETURNING id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, conversation_id, COALESCE(inbox_status, ''), raw_message, auth_headers, auth_verdict, COALESCE(flagged, false), COALESCE(flag_reason, ''), created_at, expires_at, labels, COALESCE(delivery_status, ''), COALESCE(delivery_detail, ''), COALESCE(sent_as, ''), COALESCE(body_text, ''), COALESCE(body_html, '')`,
+		 RETURNING id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, conversation_id, COALESCE(inbox_status, ''), raw_message, auth_headers, auth_verdict, COALESCE(flagged, false), COALESCE(flag_reason, ''), created_at, expires_at, labels, COALESCE(delivery_status, ''), COALESCE(delivery_detail, ''), COALESCE(sent_as, ''), COALESCE(body_text, ''), COALESCE(body_html, ''), COALESCE(status, '')`,
 		messageID, agentID,
-	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.InboxStatus, &m.RawMessage, &authHeadersJSON, &authVerdict, &m.Flagged, &m.FlagReason, &m.CreatedAt, &m.ExpiresAt, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &m.BodyText, &m.BodyHTML)
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.InboxStatus, &m.RawMessage, &authHeadersJSON, &authVerdict, &m.Flagged, &m.FlagReason, &m.CreatedAt, &m.ExpiresAt, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &m.BodyText, &m.BodyHTML, &m.Status)
 	if err != nil {
 		return nil, err
 	}
