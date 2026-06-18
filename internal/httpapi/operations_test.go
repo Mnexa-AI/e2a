@@ -115,13 +115,17 @@ func testServer(t *testing.T) *httptest.Server {
 			if agentID == "support@acme.com" && messageID == "msg_1" {
 				return &identity.Message{
 					ID:             "msg_1",
+					Direction:      "inbound",
 					Sender:         "alice@example.com",
 					ToRecipients:   []string{"support@acme.com"},
 					Recipient:      "support@acme.com",
 					Subject:        "Help",
 					ConversationID: "conv_1",
-					DeliveryStatus: "unread",
-					CreatedAt:      time.Unix(1700000000, 0).UTC(),
+					// Real inbound rows carry the read-state in inbox_status; the
+					// store mirrors it into DeliveryStatus for inbound. `status`
+					// on the detail view is the inbox read-state (B2).
+					InboxStatus: "unread",
+					CreatedAt:   time.Unix(1700000000, 0).UTC(),
 					AuthHeaders:    map[string]string{"spf": "pass"},
 					RawMessage:     []byte("raw"),
 				}, nil

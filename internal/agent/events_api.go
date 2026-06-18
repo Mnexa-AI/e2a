@@ -125,14 +125,31 @@ func listEvents(ctx context.Context, pool *pgxpool.Pool, userID, eventType, agen
 		var env struct {
 			Data map[string]interface{} `json:"data"`
 		}
-		if err := json.Unmarshal(envelopeRaw, &env); err != nil {
-			// Tolerate older envelope shapes — return empty data.
+		// Tolerate older/malformed envelopes AND a valid envelope whose `data`
+		// is null/absent — `data` is a required object on the wire, so it must
+		// never serialize as JSON null (B3).
+		if err := json.Unmarshal(envelopeRaw, &env); err != nil || env.Data == nil {
 			env.Data = map[string]interface{}{}
 		}
 		ej.Data = env.Data
 		out = append(out, ej)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	// Surface delivery_status on the list too, matching getEvent — otherwise the
+	// same event has a roll-up by id but not in the list (B4a). Bounded by the
+	// page limit; a single GROUP-BY batch is a possible perf follow-up.
+	for i := range out {
+		ds, derr := loadDeliveryStatus(ctx, pool, out[i].ID)
+		if derr != nil {
+			log.Printf("[events] loadDeliveryStatus(list): %v", derr)
+			continue
+		}
+		out[i].DeliveryStatus = ds
+	}
+	return out, nil
 }
 
 var (
@@ -170,8 +187,8 @@ func getEvent(ctx context.Context, pool *pgxpool.Pool, userID, eventID string) (
 	var env struct {
 		Data map[string]interface{} `json:"data"`
 	}
-	if err := json.Unmarshal(envelopeRaw, &env); err != nil {
-		env.Data = map[string]interface{}{}
+	if err := json.Unmarshal(envelopeRaw, &env); err != nil || env.Data == nil {
+		env.Data = map[string]interface{}{} // never serialize required `data` as null (B3)
 	}
 	ej.Data = env.Data
 

@@ -1192,11 +1192,14 @@ func (s *Store) CreateOutboundMessage(ctx context.Context, agentID string, toRec
 		ToRecipients:      toRecipients,
 		CC:                cc,
 		BCC:               bcc,
+		// The sender of an outbound message is the agent itself (agent ID == email).
+		// Persist it so the `from` wire field isn't empty for outbound (B1).
+		Sender: agentID,
 	}
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO messages (id, agent_id, direction, recipient, subject, message_type, method, provider_message_id, conversation_id, created_at, expires_at, to_recipients, cc, bcc, status)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-		m.ID, m.AgentID, m.Direction, m.Recipient, m.Subject, m.Type, m.Method, m.ProviderMessageID, m.ConversationID, m.CreatedAt, m.ExpiresAt, m.ToRecipients, m.CC, m.BCC, MessageStatusSent,
+		`INSERT INTO messages (id, agent_id, direction, recipient, subject, message_type, method, provider_message_id, conversation_id, created_at, expires_at, to_recipients, cc, bcc, status, sender)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+		m.ID, m.AgentID, m.Direction, m.Recipient, m.Subject, m.Type, m.Method, m.ProviderMessageID, m.ConversationID, m.CreatedAt, m.ExpiresAt, m.ToRecipients, m.CC, m.BCC, MessageStatusSent, m.Sender,
 	)
 	if err != nil {
 		return nil, err
@@ -1258,6 +1261,9 @@ func (s *Store) CreatePendingOutboundMessage(ctx context.Context, agentID string
 		BodyText:          bodyText,
 		BodyHTML:          bodyHTML,
 		AttachmentsJSON:   json.RawMessage(attachmentsJSON),
+		// Sender is the agent itself (agent ID == email) so `from` isn't empty
+		// on a held draft's detail/list view (B1).
+		Sender: agentID,
 	}
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO messages (
@@ -1265,17 +1271,17 @@ func (s *Store) CreatePendingOutboundMessage(ctx context.Context, agentID string
 		    conversation_id, created_at, expires_at,
 		    to_recipients, cc, bcc,
 		    status, approval_expires_at,
-		    body_text, body_html, attachments_json)
+		    body_text, body_html, attachments_json, sender)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7,
 		         $8, $9, $10,
 		         $11, $12, $13,
 		         $14, $15,
-		         $16, $17, $18)`,
+		         $16, $17, $18, $19)`,
 		m.ID, m.AgentID, m.Direction, m.Recipient, m.Subject, m.EmailMessageID, m.Type,
 		m.ConversationID, m.CreatedAt, m.ExpiresAt,
 		m.ToRecipients, m.CC, m.BCC,
 		m.Status, m.ApprovalExpiresAt,
-		nullIfEmptyString(m.BodyText), nullIfEmptyString(m.BodyHTML), attachmentsArg,
+		nullIfEmptyString(m.BodyText), nullIfEmptyString(m.BodyHTML), attachmentsArg, m.Sender,
 	)
 	if err != nil {
 		return nil, err
@@ -2672,8 +2678,10 @@ func (s *Store) GetConversationByID(ctx context.Context, agentID, conversationID
 		        m.created_at, m.expires_at,
 		        m.labels,
 		        COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, ''), m.auth_verdict,
-		        COALESCE(m.flagged, false), COALESCE(m.flag_reason, '')
+		        COALESCE(m.flagged, false), COALESCE(m.flag_reason, ''),
+		        COALESCE(wd.status, ''), COALESCE(wd.last_error, '')
 		 FROM messages m
+		 LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
 		 WHERE m.agent_id = $1
 		   AND m.conversation_id = $2
 		   AND m.expires_at > now()
@@ -2704,6 +2712,7 @@ func (s *Store) GetConversationByID(ctx context.Context, agentID, conversationID
 			&m.Labels,
 			&outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &authVerdict,
 			&m.Flagged, &m.FlagReason,
+			&m.WebhookStatus, &m.WebhookError,
 		); err != nil {
 			return nil, err
 		}

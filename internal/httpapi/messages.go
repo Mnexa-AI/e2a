@@ -99,8 +99,13 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		Subject:        m.Subject,
 		ConversationID: m.ConversationID,
 		Direction:      m.Direction,
-		Status:         m.DeliveryStatus,
-		Labels:         orEmptyStrings(m.Labels),
+		// `status` is the inbox read-state, identical to the summary view (B2);
+		// the outbound delivery rollup lives in `delivery_status`, the HITL
+		// lifecycle in `hitl_status`. (The store resolves m.DeliveryStatus to
+		// inbox_status for inbound and the rollup for outbound, so the detail
+		// view must read InboxStatus to agree with the summary.)
+		Status: m.InboxStatus,
+		Labels: orEmptyStrings(m.Labels),
 		CreatedAt:      m.CreatedAt.UTC().Format(time.RFC3339),
 		AuthHeaders:    m.AuthHeaders,
 		Auth:           m.Auth,
