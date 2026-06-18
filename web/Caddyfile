@@ -26,6 +26,16 @@
         reverse_proxy {$E2A_BACKEND:http://e2a:8080}
     }
 
+    # The typed /v1 contract surface (Huma) + the /v1 WebSocket live-tail +
+    # the HITL magic-link confirmation pages (/v1/approve, /v1/reject) are all
+    # backend-owned and NOT under /api/*. The dashboard issues same-origin
+    # /v1/* fetches and HITL emails link to {public_url}/v1/approve, so without
+    # this rule those 404 against the static front. reverse_proxy transparently
+    # upgrades the /v1/agents/{address}/ws WebSocket.
+    handle /v1/* {
+        reverse_proxy {$E2A_BACKEND:http://e2a:8080}
+    }
+
     # OAuth 2.1 surface (Slice 5b renamed it from /api/oauth/* to /oauth2/*,
     # which the /api/* rule above no longer covers). Authorize / token /
     # consent / revoke / register / clients all live here and must reach the
