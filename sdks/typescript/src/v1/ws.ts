@@ -52,6 +52,12 @@ export interface WSListenerEvents {
  * `"notification"` events with lightweight metadata. The protocol is
  * server→client only — the client never sends application frames.
  *
+ * Auth note: the API key currently rides in the `?token=` query parameter.
+ * Query strings can leak into access logs and proxy traces, so this is a
+ * known logged-credential limitation; moving auth to a header or a
+ * short-lived connect ticket is a planned server-side change. No client
+ * behavior changes when that lands — only this URL construction.
+ *
  * For modern code, prefer {@link E2AClient.listen} which wraps this
  * class with an async-iteration-friendly API while still exposing the
  * EventEmitter interface for `error` / `open` / `close`.

@@ -3,10 +3,15 @@
 // The /v1 surface returns a uniform envelope `{ error: { code, message,
 // request_id } }` (internal/httpapi/errors.go). We map it to typed errors so a
 // caller can branch with `instanceof` and read `.code` / `.status` /
-// `.requestId` / `.retryable` without parsing bodies. The class is chosen
-// primarily from the semantic `error.code`, falling back to the HTTP status
-// bucket — so a NEW server code degrades to the right family rather than a bare
-// base error.
+// `.requestId` / `.retryable` without parsing bodies.
+//
+// Class selection is code-first: a known, stable server `code` (CODE_TABLE
+// below) maps to its family regardless of the HTTP status it arrives on, so a
+// code that shows up on an unexpected status no longer degrades to the bare
+// base error. An unknown code falls back to the HTTP status bucket, which
+// preserves every status→class outcome (401→Auth, 403→Permission, 404→NotFound,
+// 409→Conflict, 422→Validation, 429→RateLimit, 5xx/408→Server) so a NEW server
+// code still lands in the right family.
 
 import { ApiException } from "./oag/apis/exception.js";
 import type { ErrorEnvelope } from "./oag/models/ErrorEnvelope.js";
@@ -70,33 +75,69 @@ export function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 429 || (status >= 500 && status <= 599);
 }
 
-// The two idempotency-conflict codes from internal/httpapi/idempotency.go.
-// in_flight is safe to retry (same key, server dedupes); key_reuse is a caller
-// bug (same key, different body) and must not be retried.
-const IDEMPOTENCY_RETRYABLE = "idempotency_in_flight";
-const IDEMPOTENCY_CODES = new Set([IDEMPOTENCY_RETRYABLE, "idempotency_key_reuse"]);
-
 type Make = (f: E2AErrorFields) => E2AError;
 
+const mkAuth: Make = (f) => new E2AAuthError(f);
+const mkPermission: Make = (f) => new E2APermissionError(f);
+const mkNotFound: Make = (f) => new E2ANotFoundError(f);
+const mkConflict: Make = (f) => new E2AConflictError(f);
+const mkValidation: Make = (f) => new E2AValidationError(f);
+const mkIdempotency: Make = (f) => new E2AIdempotencyError(f);
+const mkRateLimit: Make = (f) => new E2ARateLimitError(f);
+const mkServer: Make = (f) => new E2AServerError(f);
+
+// Code-first table: a stable server `code` maps to its family regardless of the
+// status it rides on. Seeded from internal/httpapi (defaultCodeForStatus + the
+// NewError call sites). Idempotency: in_flight is safe to retry (server dedupes
+// the same key); key_reuse is a caller bug (same key, different body) — never
+// retry. Keep this small and documented; unknown codes fall back to the status
+// bucket in resolve().
+const CODE_TABLE: Record<string, { make: Make; retryable: boolean }> = {
+  // 401
+  unauthorized: { make: mkAuth, retryable: false },
+  // 403
+  forbidden: { make: mkPermission, retryable: false },
+  // 404
+  not_found: { make: mkNotFound, retryable: false },
+  // 409
+  conflict: { make: mkConflict, retryable: false },
+  // 400/422 — input/semantic validation
+  invalid_request: { make: mkValidation, retryable: false },
+  bad_request: { make: mkValidation, retryable: false },
+  unprocessable_entity: { make: mkValidation, retryable: false },
+  invalid_cursor: { make: mkValidation, retryable: false },
+  domain_not_verified: { make: mkValidation, retryable: false },
+  // 429
+  rate_limited: { make: mkRateLimit, retryable: true },
+  // idempotency (internal/httpapi/idempotency.go)
+  idempotency_in_flight: { make: mkIdempotency, retryable: true },
+  idempotency_key_reuse: { make: mkIdempotency, retryable: false },
+};
+
 function resolve(status: number, code: string): { make: Make; retryable: boolean } {
-  if (IDEMPOTENCY_CODES.has(code)) {
-    return { make: (f) => new E2AIdempotencyError(f), retryable: code === IDEMPOTENCY_RETRYABLE };
+  // Code-first: a known code wins over the status bucket.
+  if (code) {
+    const byCode = CODE_TABLE[code];
+    if (byCode) return byCode;
+    // Pattern families the server may add (e.g. agent_not_found, slug_exists).
+    if (code.endsWith("_not_found")) return { make: mkNotFound, retryable: false };
+    if (code.endsWith("_exists")) return { make: mkConflict, retryable: false };
   }
   switch (status) {
     case 401:
-      return { make: (f) => new E2AAuthError(f), retryable: false };
+      return { make: mkAuth, retryable: false };
     case 403:
-      return { make: (f) => new E2APermissionError(f), retryable: false };
+      return { make: mkPermission, retryable: false };
     case 404:
-      return { make: (f) => new E2ANotFoundError(f), retryable: false };
+      return { make: mkNotFound, retryable: false };
     case 409:
-      return { make: (f) => new E2AConflictError(f), retryable: false };
+      return { make: mkConflict, retryable: false };
     case 422:
-      return { make: (f) => new E2AValidationError(f), retryable: false };
+      return { make: mkValidation, retryable: false };
     case 429:
-      return { make: (f) => new E2ARateLimitError(f), retryable: true };
+      return { make: mkRateLimit, retryable: true };
   }
-  if (isRetryableStatus(status)) return { make: (f) => new E2AServerError(f), retryable: true };
+  if (isRetryableStatus(status)) return { make: mkServer, retryable: true };
   return { make: (f) => new E2AError(f), retryable: false };
 }
 
@@ -117,6 +158,18 @@ function parseRetryAfter(headers: Record<string, string> | undefined): number | 
   // RFC 9110 §10.2.3 also allows an HTTP-date (common behind CDNs).
   const at = Date.parse(v);
   if (Number.isFinite(at)) return Math.max(0, Math.round((at - Date.now()) / 1000));
+  return undefined;
+}
+
+// The send-path 429 carries its retry hint in `details.retry_after_seconds`
+// rather than a Retry-After header (a Huma constraint — see
+// internal/httpapi/outbound.go). Read it as a fallback so the surfaced error
+// still exposes `retryAfterSeconds` even when the header is absent.
+function retryAfterFromDetails(details: unknown): number | undefined {
+  if (details && typeof details === "object") {
+    const v = (details as Record<string, unknown>).retry_after_seconds;
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0) return v;
+  }
   return undefined;
 }
 
@@ -149,7 +202,9 @@ export function toE2AError(args: {
     requestId: args.requestId,
     details: args.details,
     retryable: m.retryable,
-    retryAfterSeconds: parseRetryAfter(args.headers),
+    // Prefer the Retry-After header; fall back to details.retry_after_seconds
+    // (the send-path 429 carries its hint there — F3).
+    retryAfterSeconds: parseRetryAfter(args.headers) ?? retryAfterFromDetails(args.details),
     cause: args.cause,
   });
 }

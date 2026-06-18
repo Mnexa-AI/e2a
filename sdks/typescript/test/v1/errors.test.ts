@@ -86,6 +86,75 @@ describe("envelope details + headers", () => {
   });
 });
 
+describe("code-first class selection (F2)", () => {
+  it("maps a known code by code even on an unexpected status", () => {
+    // `forbidden` arriving on a 400 must still be a permission error, not
+    // validation (the status bucket) and not a bare E2AError.
+    const err = toE2AError({ status: 400, code: "forbidden", message: "nope" });
+    expect(err).toBeInstanceOf(E2APermissionError);
+    expect(err.code).toBe("forbidden");
+  });
+
+  it("maps idempotency codes by code regardless of status", () => {
+    const inFlight = toE2AError({ status: 200, code: "idempotency_in_flight", message: "x" });
+    expect(inFlight).toBeInstanceOf(E2AIdempotencyError);
+    expect(inFlight.retryable).toBe(true);
+    const reuse = toE2AError({ status: 200, code: "idempotency_key_reuse", message: "x" });
+    expect(reuse).toBeInstanceOf(E2AIdempotencyError);
+    expect(reuse.retryable).toBe(false);
+  });
+
+  it("maps *_not_found / *_exists code families by pattern", () => {
+    expect(toE2AError({ status: 400, code: "agent_not_found", message: "x" })).toBeInstanceOf(
+      E2ANotFoundError,
+    );
+    expect(toE2AError({ status: 200, code: "slug_exists", message: "x" })).toBeInstanceOf(
+      E2AConflictError,
+    );
+  });
+
+  it("unknown code falls back to the status bucket (regression: mappings unchanged)", () => {
+    const cases: Array<[number, any]> = [
+      [401, E2AAuthError],
+      [403, E2APermissionError],
+      [404, E2ANotFoundError],
+      [409, E2AConflictError],
+      [422, E2AValidationError],
+      [429, E2ARateLimitError],
+      [500, E2AServerError],
+    ];
+    for (const [status, ctor] of cases) {
+      const err = toE2AError({ status, code: "totally_unknown_code", message: "m" });
+      expect(err).toBeInstanceOf(ctor);
+      expect(err.code).toBe("totally_unknown_code");
+    }
+  });
+});
+
+describe("retry_after from details (F3)", () => {
+  it("reads details.retry_after_seconds when the header is absent", () => {
+    const err = toE2AError({
+      status: 429,
+      code: "rate_limited",
+      message: "slow down",
+      details: { retry_after_seconds: 30 },
+    });
+    expect(err).toBeInstanceOf(E2ARateLimitError);
+    expect(err.retryAfterSeconds).toBe(30);
+  });
+
+  it("prefers the Retry-After header over details when both are present", () => {
+    const err = toE2AError({
+      status: 429,
+      code: "rate_limited",
+      message: "slow down",
+      details: { retry_after_seconds: 30 },
+      headers: { "retry-after": "5" },
+    });
+    expect(err.retryAfterSeconds).toBe(5);
+  });
+});
+
 describe("fromApiException", () => {
   it("parses the {error:{code,message}} envelope + x-request-id header", () => {
     const apiEx = new ApiException(
