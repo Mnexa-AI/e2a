@@ -73,6 +73,8 @@ models/TestWebhookOutputBody.ts
 models/TestWebhookRequest.ts
 models/UpdateAgentRequest.ts
 models/UpdateDomainRequest.ts
+models/UpdateMessageRequest.ts
+models/UpdateMessageResultView.ts
 models/UpdateWebhookRequest.ts
 models/UsageEventEntry.ts
 models/UserExport.ts

@@ -19,6 +19,8 @@ import { RejectResultView } from '../models/RejectResultView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
+import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
+import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
 
 /**
  * no description
@@ -526,6 +528,70 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
         return requestContext;
     }
 
+    /**
+     * Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.
+     * Update a message (labels)
+     * @param address 
+     * @param id 
+     * @param updateMessageRequest 
+     */
+    public async updateMessage(address: string, id: string, updateMessageRequest: UpdateMessageRequest, _options?: Configuration): Promise<RequestContext> {
+        let _config = _options || this.configuration;
+
+        // verify required parameter 'address' is not null or undefined
+        if (address === null || address === undefined) {
+            throw new RequiredError("MessagesApi", "updateMessage", "address");
+        }
+
+
+        // verify required parameter 'id' is not null or undefined
+        if (id === null || id === undefined) {
+            throw new RequiredError("MessagesApi", "updateMessage", "id");
+        }
+
+
+        // verify required parameter 'updateMessageRequest' is not null or undefined
+        if (updateMessageRequest === null || updateMessageRequest === undefined) {
+            throw new RequiredError("MessagesApi", "updateMessage", "updateMessageRequest");
+        }
+
+
+        // Path Params
+        const localVarPath = '/v1/agents/{address}/messages/{id}'
+            .replace('{' + 'address' + '}', encodeURIComponent(String(address)))
+            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+
+        // Make Request Context
+        const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.PATCH);
+        requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+
+        // Body Params
+        const contentType = ObjectSerializer.getPreferredMediaType([
+            "application/json"
+        ]);
+        requestContext.setHeaderParam("Content-Type", contentType);
+        const serializedBody = ObjectSerializer.stringify(
+            ObjectSerializer.serialize(updateMessageRequest, "UpdateMessageRequest", ""),
+            contentType
+        );
+        requestContext.setBody(serializedBody);
+
+        let authMethod: SecurityAuthentication | undefined;
+        // Apply auth methods
+        authMethod = _config.authMethods["bearer"]
+        if (authMethod?.applySecurityAuthentication) {
+            await authMethod?.applySecurityAuthentication(requestContext);
+        }
+        
+        const defaultAuth: SecurityAuthentication | undefined = _config?.authMethods?.default
+        if (defaultAuth?.applySecurityAuthentication) {
+            await defaultAuth?.applySecurityAuthentication(requestContext);
+        }
+
+        return requestContext;
+    }
+
 }
 
 export class MessagesApiResponseProcessor {
@@ -776,6 +842,42 @@ export class MessagesApiResponseProcessor {
                 ObjectSerializer.parse(await response.body.text(), contentType),
                 "SendResultView", ""
             ) as SendResultView;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+
+        throw new ApiException<string | Blob | undefined>(response.httpStatusCode, "Unknown API Status Code!", await response.getBodyAsAny(), response.headers);
+    }
+
+    /**
+     * Unwraps the actual response sent by the server from the response context and deserializes the response content
+     * to the expected objects
+     *
+     * @params response Response returned by the server for a request to updateMessage
+     * @throws ApiException if the response code was not in [200, 299]
+     */
+     public async updateMessageWithHttpInfo(response: ResponseContext): Promise<HttpInfo<UpdateMessageResultView >> {
+        const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
+        if (isCodeInRange("200", response.httpStatusCode)) {
+            const body: UpdateMessageResultView = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "UpdateMessageResultView", ""
+            ) as UpdateMessageResultView;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+        if (isCodeInRange("0", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error", body, response.headers);
+        }
+
+        // Work around for missing responses in specification, e.g. for petstore.yaml
+        if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
+            const body: UpdateMessageResultView = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "UpdateMessageResultView", ""
+            ) as UpdateMessageResultView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

@@ -3,8 +3,10 @@
 Do not edit by hand. Regenerate with `make generate-sdk-ts`
 (`sdks/typescript/scripts/generate-oag.sh`): OpenAPI Generator's `typescript`
 generator against the canonical `api/openapi.yaml` (pinned image
-`openapitools/openapi-generator-cli:v7.16.0`), then `.js` appended to relative
-imports for Node16/ESM.
+`openapitools/openapi-generator-cli:v7.16.0`, `importFileExtension=.js` for
+native ESM imports). The generator's `whatwg-fetch` polyfill import is stripped
+so the base uses the runtime's native global `fetch` (Node 18+, browsers,
+edge/Workers) — no fetch dependency.
 
 Generated transport + models + typed `ApiException<ErrorEnvelope>`. The
 hand-written ergonomic layer (`client.ts`, `ws.ts`, `webhook-signature.ts`,

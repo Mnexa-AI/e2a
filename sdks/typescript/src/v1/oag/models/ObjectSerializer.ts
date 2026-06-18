@@ -56,6 +56,8 @@ export * from '../models/TestWebhookOutputBody.js';
 export * from '../models/TestWebhookRequest.js';
 export * from '../models/UpdateAgentRequest.js';
 export * from '../models/UpdateDomainRequest.js';
+export * from '../models/UpdateMessageRequest.js';
+export * from '../models/UpdateMessageResultView.js';
 export * from '../models/UpdateWebhookRequest.js';
 export * from '../models/UsageEventEntry.js';
 export * from '../models/UserExport.js';
@@ -123,6 +125,8 @@ import { TestWebhookOutputBody } from '../models/TestWebhookOutputBody.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 import { UpdateDomainRequest } from '../models/UpdateDomainRequest.js';
+import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
+import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
 import { UpdateWebhookRequest } from '../models/UpdateWebhookRequest.js';
 import { UsageEventEntry } from '../models/UsageEventEntry.js';
 import { UserExport } from '../models/UserExport.js';
@@ -215,6 +219,8 @@ let typeMap: {[index: string]: any} = {
     "TestWebhookRequest": TestWebhookRequest,
     "UpdateAgentRequest": UpdateAgentRequest,
     "UpdateDomainRequest": UpdateDomainRequest,
+    "UpdateMessageRequest": UpdateMessageRequest,
+    "UpdateMessageResultView": UpdateMessageResultView,
     "UpdateWebhookRequest": UpdateWebhookRequest,
     "UsageEventEntry": UsageEventEntry,
     "UserExport": UserExport,

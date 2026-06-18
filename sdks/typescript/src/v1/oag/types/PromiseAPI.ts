@@ -60,6 +60,8 @@ import { TestWebhookOutputBody } from '../models/TestWebhookOutputBody.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 import { UpdateDomainRequest } from '../models/UpdateDomainRequest.js';
+import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
+import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
 import { UpdateWebhookRequest } from '../models/UpdateWebhookRequest.js';
 import { UsageEventEntry } from '../models/UsageEventEntry.js';
 import { UserExport } from '../models/UserExport.js';
@@ -868,6 +870,32 @@ export class PromiseMessagesApi {
     public sendMessage(address: string, sendEmailRequest: SendEmailRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.sendMessage(address, sendEmailRequest, idempotencyKey, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.
+     * Update a message (labels)
+     * @param address
+     * @param id
+     * @param updateMessageRequest
+     */
+    public updateMessageWithHttpInfo(address: string, id: string, updateMessageRequest: UpdateMessageRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<UpdateMessageResultView>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.updateMessageWithHttpInfo(address, id, updateMessageRequest, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.
+     * Update a message (labels)
+     * @param address
+     * @param id
+     * @param updateMessageRequest
+     */
+    public updateMessage(address: string, id: string, updateMessageRequest: UpdateMessageRequest, _options?: PromiseConfigurationOptions): Promise<UpdateMessageResultView> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.updateMessage(address, id, updateMessageRequest, observableOptions);
         return result.toPromise();
     }
 

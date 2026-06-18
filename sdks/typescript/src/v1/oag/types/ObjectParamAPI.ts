@@ -60,6 +60,8 @@ import { TestWebhookOutputBody } from '../models/TestWebhookOutputBody.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 import { UpdateDomainRequest } from '../models/UpdateDomainRequest.js';
+import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
+import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
 import { UpdateWebhookRequest } from '../models/UpdateWebhookRequest.js';
 import { UsageEventEntry } from '../models/UsageEventEntry.js';
 import { UserExport } from '../models/UserExport.js';
@@ -1040,6 +1042,29 @@ export interface MessagesApiSendMessageRequest {
     idempotencyKey?: string
 }
 
+export interface MessagesApiUpdateMessageRequest {
+    /**
+     * 
+     * Defaults to: undefined
+     * @type string
+     * @memberof MessagesApiupdateMessage
+     */
+    address: string
+    /**
+     * 
+     * Defaults to: undefined
+     * @type string
+     * @memberof MessagesApiupdateMessage
+     */
+    id: string
+    /**
+     * 
+     * @type UpdateMessageRequest
+     * @memberof MessagesApiupdateMessage
+     */
+    updateMessageRequest: UpdateMessageRequest
+}
+
 export class ObjectMessagesApi {
     private api: ObservableMessagesApi
 
@@ -1171,6 +1196,24 @@ export class ObjectMessagesApi {
      */
     public sendMessage(param: MessagesApiSendMessageRequest, options?: ConfigurationOptions): Promise<SendResultView> {
         return this.api.sendMessage(param.address, param.sendEmailRequest, param.idempotencyKey,  options).toPromise();
+    }
+
+    /**
+     * Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.
+     * Update a message (labels)
+     * @param param the request object
+     */
+    public updateMessageWithHttpInfo(param: MessagesApiUpdateMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<UpdateMessageResultView>> {
+        return this.api.updateMessageWithHttpInfo(param.address, param.id, param.updateMessageRequest,  options).toPromise();
+    }
+
+    /**
+     * Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.
+     * Update a message (labels)
+     * @param param the request object
+     */
+    public updateMessage(param: MessagesApiUpdateMessageRequest, options?: ConfigurationOptions): Promise<UpdateMessageResultView> {
+        return this.api.updateMessage(param.address, param.id, param.updateMessageRequest,  options).toPromise();
     }
 
 }
