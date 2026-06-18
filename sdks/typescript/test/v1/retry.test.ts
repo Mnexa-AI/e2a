@@ -103,3 +103,57 @@ describe("RetryHttpLibrary idempotency", () => {
     expect(fake.seenKeys).toEqual(["caller-key", "caller-key"]);
   });
 });
+
+// Regression tests for the independent + adversarial review findings.
+describe("RetryHttpLibrary review fixes", () => {
+  it("aborting the signal stops the retry loop (no further attempt)", async () => {
+    const ctl = new AbortController();
+    const req = post();
+    req.setSignal(ctl.signal);
+    const fake = new FakeHttp([{ status: 500 }, { status: 200 }]);
+    // The injected backoff aborts; the next loop iteration must throw, not retry.
+    const retry = new RetryHttpLibrary(fake, { sleep: async () => { ctl.abort(); }, maxRetries: 3 });
+    await expect(retry.send(req).toPromise()).rejects.toBeDefined();
+    expect(fake.methods.length).toBe(1); // only the first attempt ran
+  });
+
+  it("clamps an oversized Retry-After to maxRetryAfterMs", async () => {
+    const delays: number[] = [];
+    const fake = new FakeHttp([{ status: 503, headers: { "retry-after": "99999999" } }, { status: 200 }]);
+    const retry = new RetryHttpLibrary(fake, {
+      sleep: async (ms) => { delays.push(ms); },
+      maxRetries: 1,
+      maxRetryAfterMs: 5000,
+    });
+    await retry.send(post()).toPromise();
+    expect(delays).toEqual([5000]); // not ~3 years
+  });
+
+  it("honors an HTTP-date Retry-After", async () => {
+    const FIXED = 1700000000000;
+    const dateHeader = new Date(FIXED + 2000).toUTCString();
+    const delays: number[] = [];
+    const fake = new FakeHttp([{ status: 503, headers: { "retry-after": dateHeader } }, { status: 200 }]);
+    const retry = new RetryHttpLibrary(fake, {
+      sleep: async (ms) => { delays.push(ms); },
+      maxRetries: 1,
+      now: () => FIXED,
+    });
+    await retry.send(post()).toPromise();
+    expect(delays).toEqual([2000]);
+  });
+
+  it("stops once the total deadline (maxElapsedMs) would be exceeded", async () => {
+    const fake = new FakeHttp([{ status: 503 }, { status: 503 }, { status: 503 }]);
+    const retry = new RetryHttpLibrary(fake, {
+      sleep: noSleep,
+      random: () => 1, // max jitter → backoff(0) = 200ms
+      now: () => 1000, // frozen clock: elapsed stays 0, but delay 200 > 100
+      maxElapsedMs: 100,
+      maxRetries: 5,
+    });
+    const resp = await retry.send(post()).toPromise();
+    expect(resp.httpStatusCode).toBe(503);
+    expect(fake.methods.length).toBe(1); // deadline blocked the first retry
+  });
+});

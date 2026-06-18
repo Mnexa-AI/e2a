@@ -74,6 +74,16 @@ describe("envelope details + headers", () => {
     expect(err).toBeInstanceOf(E2ANotFoundError);
     expect(err.code).toBe("recipient_unknown");
   });
+
+  it("parses an HTTP-date Retry-After into retryAfterSeconds", () => {
+    const err = toE2AError({
+      status: 429,
+      headers: { "retry-after": new Date(Date.now() + 10_000).toUTCString() },
+    });
+    // ~10s out, allowing for second-truncation + test timing.
+    expect(err.retryAfterSeconds).toBeGreaterThanOrEqual(8);
+    expect(err.retryAfterSeconds).toBeLessThanOrEqual(11);
+  });
 });
 
 describe("fromApiException", () => {

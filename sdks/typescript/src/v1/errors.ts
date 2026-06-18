@@ -113,7 +113,11 @@ function parseRetryAfter(headers: Record<string, string> | undefined): number | 
   const v = headerGet(headers, "retry-after");
   if (!v) return undefined;
   const secs = Number(v);
-  return Number.isFinite(secs) && secs >= 0 ? secs : undefined;
+  if (Number.isFinite(secs) && secs >= 0) return secs;
+  // RFC 9110 §10.2.3 also allows an HTTP-date (common behind CDNs).
+  const at = Date.parse(v);
+  if (Number.isFinite(at)) return Math.max(0, Math.round((at - Date.now()) / 1000));
+  return undefined;
 }
 
 const DEFAULT_CODE: Record<number, string> = {

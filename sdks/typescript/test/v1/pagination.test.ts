@@ -59,4 +59,17 @@ describe("AutoPager", () => {
     const out = await pager.toArray({ limit: 100 });
     expect(out).toEqual([7]);
   });
+
+  // Adversarial finding: a never-repeating, never-null cursor defeats the
+  // repeated-cursor guard; the page-count ceiling must backstop it.
+  it("aborts an ever-advancing cursor at maxPages", async () => {
+    let n = 0;
+    const pager = new AutoPager<number>(async () => ({ items: [n], next_cursor: `c${++n}` }), {
+      maxPages: 5,
+    });
+    const run = async () => {
+      for await (const _ of pager) { /* drain */ }
+    };
+    await expect(run()).rejects.toThrow(/exceeded 5 pages/);
+  });
 });

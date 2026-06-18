@@ -14,24 +14,44 @@ export interface Page<T> {
 
 export type FetchPage<T> = (cursor: string | undefined) => Promise<Page<T>>;
 
+export interface AutoPagerOptions {
+  /** Hard ceiling on pages fetched, to bound a server that returns an
+   *  ever-advancing (never-repeating, never-null) cursor — which the
+   *  repeated-cursor guard alone can't catch. Default 10000. */
+  maxPages?: number;
+}
+
 export class AutoPager<T> implements AsyncIterable<T> {
-  constructor(private readonly fetchPage: FetchPage<T>) {}
+  private readonly maxPages: number;
+  constructor(
+    private readonly fetchPage: FetchPage<T>,
+    opts: AutoPagerOptions = {},
+  ) {
+    this.maxPages = opts.maxPages ?? 10000;
+  }
 
   async *[Symbol.asyncIterator](): AsyncIterator<T> {
     let cursor: string | undefined;
-    const seen = new Set<string>();
+    let prev: string | undefined;
+    let pages = 0;
     for (;;) {
+      if (pages >= this.maxPages) {
+        throw new Error(
+          `e2a pagination: exceeded ${this.maxPages} pages; aborting (cursor never terminated)`,
+        );
+      }
       const page = await this.fetchPage(cursor);
+      pages += 1;
       for (const item of page.items ?? []) yield item;
 
       const next = page.next_cursor ?? undefined;
       if (!next) return; // null / empty → the last page
-      if (next === cursor || seen.has(next)) {
+      if (next === cursor || next === prev) {
         throw new Error(
           "e2a pagination: next_cursor did not advance; aborting to avoid an infinite loop",
         );
       }
-      seen.add(next);
+      prev = cursor;
       cursor = next;
     }
   }
