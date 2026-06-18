@@ -104,14 +104,14 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		// lifecycle in `hitl_status`. (The store resolves m.DeliveryStatus to
 		// inbox_status for inbound and the rollup for outbound, so the detail
 		// view must read InboxStatus to agree with the summary.)
-		Status: m.InboxStatus,
-		Labels: orEmptyStrings(m.Labels),
-		CreatedAt:      m.CreatedAt.UTC().Format(time.RFC3339),
-		AuthHeaders:    m.AuthHeaders,
-		Auth:           m.Auth,
-		RawMessage:     m.RawMessage,
-		Flagged:        m.Flagged,
-		FlagReason:     m.FlagReason,
+		Status:      m.InboxStatus,
+		Labels:      orEmptyStrings(m.Labels),
+		CreatedAt:   m.CreatedAt.UTC().Format(time.RFC3339),
+		AuthHeaders: m.AuthHeaders,
+		Auth:        m.Auth,
+		RawMessage:  m.RawMessage,
+		Flagged:     m.Flagged,
+		FlagReason:  m.FlagReason,
 	}
 	// Outbound delivery feedback (migration 031). On outbound rows
 	// identity.Message.DeliveryStatus carries the delivery rollup; on
@@ -330,8 +330,9 @@ type updateMessageOutput struct {
 	Body UpdateMessageResultView
 }
 
-// handleUpdateMessage applies a labels delta (ports the legacy
-// PATCH /api/v1/agents/{email}/messages/{id}). This is a per-agent operation,
+// handleUpdateMessage applies a labels delta (PATCH
+// /v1/agents/{address}/messages/{id}; replaced the now-removed legacy
+// /api/v1 PATCH). This is a per-agent operation,
 // so an agent-scoped credential may label its own messages — it goes through
 // resolveOwnedAgent (which pins an agent-scoped credential to its bound agent),
 // NOT requireAccountScope. Label rules are validated via the shared

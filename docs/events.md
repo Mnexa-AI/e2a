@@ -1,6 +1,6 @@
 # Events API & reconciliation
 
-e2a maintains a durable log of every event it emits to webhook subscribers — `email.received`, `email.sent`, `email.pending_approval`, `email.approved`, `email.rejected`. The log is queryable via `/api/v1/events` for 30 days and is the source of truth for replay.
+e2a maintains a durable log of every event it emits to webhook subscribers — `email.received`, `email.sent`, `email.pending_approval`, `email.approved`, `email.rejected`. The log is queryable via `/v1/events` for 30 days and is the source of truth for replay.
 
 This guide is for customers who:
 
@@ -13,15 +13,15 @@ This guide is for customers who:
 ```bash
 # List the most recent events for your account.
 curl -H "Authorization: Bearer $E2A_API_KEY" \
-  https://e2a.dev/api/v1/events
+  https://e2a.dev/v1/events
 
 # Filter by event type and time window.
 curl -H "Authorization: Bearer $E2A_API_KEY" \
-  "https://e2a.dev/api/v1/events?type=email.received&since=2026-06-01T00:00:00Z"
+  "https://e2a.dev/v1/events?type=email.received&since=2026-06-01T00:00:00Z"
 
 # Fetch one event in detail (includes delivery_status).
 curl -H "Authorization: Bearer $E2A_API_KEY" \
-  https://e2a.dev/api/v1/events/evt_abc123
+  https://e2a.dev/v1/events/evt_abc123
 ```
 
 In TypeScript:
@@ -70,18 +70,18 @@ for e in res.events:
 
 ## Cursor pagination
 
-`GET /api/v1/events` returns a `next_token` when more pages are available. Pass it back via `?token=…` to walk forward in time. Use `since` / `until` (RFC3339) to bracket a specific window — both are optional and stack with the cursor.
+`GET /v1/events` returns a `next_token` when more pages are available. Pass it back via `?token=…` to walk forward in time. Use `since` / `until` (RFC3339) to bracket a specific window — both are optional and stack with the cursor.
 
 ```bash
 # Get the first page.
 RESP=$(curl -s -H "Authorization: Bearer $E2A_API_KEY" \
-  "https://e2a.dev/api/v1/events?page_size=50")
+  "https://e2a.dev/v1/events?page_size=50")
 TOKEN=$(echo "$RESP" | jq -r '.next_token')
 
 # Walk forward.
 while [ "$TOKEN" != "null" ] && [ -n "$TOKEN" ]; do
   RESP=$(curl -s -H "Authorization: Bearer $E2A_API_KEY" \
-    "https://e2a.dev/api/v1/events?page_size=50&token=$TOKEN")
+    "https://e2a.dev/v1/events?page_size=50&token=$TOKEN")
   # process events…
   TOKEN=$(echo "$RESP" | jq -r '.next_token')
 done
@@ -96,7 +96,7 @@ If your webhook receiver went down for an hour, the steps to reconcile are:
 1. Pick a `since` timestamp covering the outage (with a buffer).
 2. List events filtered to the affected window — `GET /events?since=…&until=…`.
 3. Compare event IDs against what your receiver actually processed.
-4. For any gaps, use `POST /events/{id}/redeliver` to re-fire one event, or `POST /webhooks/{id}/redeliver-since` for the whole window.
+4. For any gaps, use `POST /events/{id}/redeliver` to re-fire one event.
 
 ```python
 # Pseudocode for the reconciliation flow.
@@ -116,35 +116,16 @@ for e in res.events:
 curl -X POST -H "Authorization: Bearer $E2A_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"webhook_id": "wh_aaa"}' \
-  https://e2a.dev/api/v1/events/evt_abc123/redeliver
+  https://e2a.dev/v1/events/evt_abc123/redeliver
 
 # Empty body = replay to every webhook that originally matched.
 curl -X POST -H "Authorization: Bearer $E2A_API_KEY" \
-  https://e2a.dev/api/v1/events/evt_abc123/redeliver
+  https://e2a.dev/v1/events/evt_abc123/redeliver
 ```
 
 The replay reuses the original event id (`evt_abc123`). Customer-side receivers that dedupe on event id will discard the replay if they've already processed it — by design. **Replay is recovery, not re-delivery.** If you want your handler to run twice for real, you need to call the underlying API again, not replay.
 
-### Bulk replay
-
-```bash
-# Re-fire every event for wh_my_handler since 2026-06-02T08:00:00Z.
-curl -X POST -H "Authorization: Bearer $E2A_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"since": "2026-06-02T08:00:00Z"}' \
-  https://e2a.dev/api/v1/webhooks/wh_my_handler/redeliver-since
-```
-
-The `since` window is capped at **7 days**. The handler skips events that already have a pending delivery for this webhook, so calling it twice is idempotent. Response includes the count scheduled and the count skipped:
-
-```json
-{
-  "webhook_id": "wh_my_handler",
-  "since": "2026-06-02T08:00:00Z",
-  "scheduled": 47,
-  "skipped_already_pending": 2
-}
-```
+To reconcile a whole window after an outage, walk `GET /v1/events?since=…&until=…` and redeliver each missing event id individually (see the reconciliation flow above).
 
 ## CLI
 

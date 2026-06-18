@@ -25,7 +25,6 @@ jobs:
           cache: "pip"
           cache-dependency-path: |
             sdks/python/pyproject.toml
-            sdks/python/codegen-requirements.txt
       - run: pip install -e ".[dev]"
       - run: pytest tests/ -v
 
@@ -48,7 +47,6 @@ jobs:
           cache: "pip"
           cache-dependency-path: |
             sdks/python/pyproject.toml
-            sdks/python/codegen-requirements.txt
 
       - name: Install build tools
         run: pip install build

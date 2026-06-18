@@ -52,27 +52,6 @@ func (req approveRequest) toEdit() (identity.PendingApprovalEdit, error) {
 	return e, nil
 }
 
-// handleApprovePendingMessage serves POST /api/v1/agents/{email}/messages/{id}/approve.
-// Applies any overrides from the request body, sends via SES, and
-// transitions the row to 'sent' with body scrubbed.
-// @Summary      Approve a held outbound message
-// @Description  Sends a pending-approval message via the upstream SMTP relay and transitions it to `sent`. The request body is optional — passing any subset of subject / body_text / body_html / to / cc / bcc / attachments overrides the stored draft before send. An empty body approves the draft as-is. On successful send, the server scrubs body columns and records the provider-assigned Message-ID.
-// @Tags         HITL
-// @Accept       json
-// @Produce      json
-// @Security     BearerAuth
-// @Param        email path string true "Owning agent email" example(bot@agents.e2a.dev)
-// @Param        id path string true "Message ID" example(msg_abc123)
-// @Param        request body ApprovePendingMessageRequest false "Optional field overrides"
-// @Success      200 {object} ApprovePendingMessageResponse
-// @Failure      400 {string} string "Invalid request or SMTP validation error"
-// @Failure      401 {string} string "Missing or invalid API key"
-// @Failure      403 {string} string "Agent domain not verified"
-// @Failure      404 {string} string "Message not found, not owned by this user, or {email} doesn't match the message's owning agent"
-// @Failure      409 {string} string "Message is no longer pending approval, or another request with this Idempotency-Key is in progress"
-// @Failure      422 {string} string "Idempotency-Key reused with a different request body"
-// @Param        Idempotency-Key header string false "Caller-generated unique key (recommend UUIDv4). Approve fires a real outbound send (SES); on retry with the same key + same body the server replays the original response instead of double-sending. A different body returns 422."
-// @Router       /api/v1/agents/{email}/messages/{id}/approve [post]
 // ApproveOverrides are the optional reviewer edits applied on approve
 // (exported alias of the internal body type so the v1 httpapi layer can build
 // them).

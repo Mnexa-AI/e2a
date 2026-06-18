@@ -1913,6 +1913,24 @@ unwired from `make generate`/`generate-check`.
   per-webhook `whsec_` (`/v1/webhooks/{id}/rotate-secret`) the forward path. This
   is an accepted deprecation, not a regression in signing behavior; the store
   schema + relay read path are intentionally left intact for in-place secrets.
+  **Operational cost (security review):** a tenant who suspects their per-user
+  relay-signing secret is compromised now has no self-serve rotation path (the
+  webhook `rotate-secret` op is a *different*, per-webhook key). Until a `/v1`
+  account surface or dashboard control is added, rotation is an operator task.
+- **Magic-link `/v1/*` proxying (fixed here).** Moving the HITL pages from
+  `/api/v1/approve` to `/v1/approve` would have 404'd behind the web front, which
+  proxied `/api/*` but had no `/v1/*` rule — so `web/Caddyfile` + `web/next.config.ts`
+  now proxy `/v1/*` to the backend (this also covers the dashboard's own same-origin
+  `/v1` fetches + the `/v1` WebSocket, which had the same missing rule since the
+  web `/v1` repoint). Found by the adversarial review; masked in CI because tests
+  mount the Go handler directly with no proxy.
+- **Doc sweep follow-up.** `web/public/openapi.yaml` (rendered by the dashboard's
+  `scalar.html` reference page) is frozen and still lists the deleted endpoints; it
+  needs a `make swagger` regen once a swag version is pinned. `docs/api.md` predates
+  the v1 redesign and still documents the old flat paths (now flagged inline with a
+  pointer to `api/openapi.yaml`); a full agent-scoped rewrite is tracked. README,
+  `docs/api.md` (deleted signing-secrets section), and `docs/events.md` (deleted
+  `redeliver-since`) were corrected in this PR.
 - **Required pre-deploy follow-up: migrate `tests/e2e-prod` to `/v1`.** The manual
   post-deploy verification suite (run against `https://e2a.dev`, not CI-gated)
   still calls `/api/v1/*` (~243 refs across ~15 files). It works against prod

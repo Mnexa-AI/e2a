@@ -19,12 +19,10 @@ import (
 )
 
 // NewEventsAPIHarness spins up a minimal httptest server with the
-// agent.API wired for the slice 6/7 events API. The legacy gorilla/mux
-// surface is wrapped by the typed /v1 chi root (the same apiserver
-// builder prod + TestServer use), so the e2e events tests can hit the
-// real /v1 handlers for ported routes (events, webhooks, agents) while
-// still-legacy routes (e.g. /api/v1/webhooks/{id}/redeliver-since) fall
-// through to the mux.
+// agent.API wired for the slice 6/7 events API. The non-/v1 mux surface
+// (OAuth, magic-link pages, health, etc.) is wrapped by the typed /v1 chi
+// root (the same apiserver builder prod + TestServer use), so the e2e
+// events tests hit the real /v1 handlers for events, webhooks, and agents.
 //
 // Returns the *httptest.Server; caller must Close() on cleanup.
 func NewEventsAPIHarness(t *testing.T, pool *pgxpool.Pool, store *identity.Store, outbox webhookpub.Outbox) *httptest.Server {

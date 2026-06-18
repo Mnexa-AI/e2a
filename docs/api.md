@@ -1,6 +1,8 @@
 # API Reference
 
-All endpoints are under `/api/v1` unless noted. Auth is `Authorization: Bearer <api_key>` except where called out. Path parameters containing `@` (agent emails) must be URL-encoded.
+All endpoints are under `/v1` unless noted. Auth is `Authorization: Bearer <api_key>` except where called out. Path parameters containing `@` (agent emails) must be URL-encoded.
+
+> **Note:** the canonical, authoritative `/v1` surface is the generated OpenAPI spec at [`api/openapi.yaml`](../api/openapi.yaml). This hand-written overview predates the v1 redesign and still lists some pre-redesign flat paths (e.g. `/send`, `/messages/{id}`) that are now agent-scoped (`/v1/agents/{address}/messages…`); a full rewrite is tracked separately. Use the OpenAPI spec when in doubt.
 
 For the machine-readable spec, see [`web/public/openapi.yaml`](../web/public/openapi.yaml).
 
@@ -53,13 +55,11 @@ Both endpoints require a valid API key or session. The export omits internal ide
 
 ### Webhook signing secrets
 
-Per-user HMAC secrets used to sign inbound webhook payloads. Up to 5 active per user (including the `default` row auto-created at user signup). The list endpoint returns the full plaintext `secret` on every read — this is intentional, see the `SigningSecretSummary` Go doc; SDKs depend on it.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/users/me/signing-secrets` | List the user's signing secrets. Returns `id`, `name`, **`secret`** (full plaintext), `secret_prefix`, `created_at`, `last_signed_at`. |
-| `POST` | `/users/me/signing-secrets` | Create a new signing secret. Returns the plaintext exactly once (in the `secret` field) — store it immediately. Body: `{"name": "..."}`. Returns `400` if the user already has 5 secrets. |
-| `DELETE` | `/users/me/signing-secrets/{id}` | Delete a signing secret. Returns `400` if it's the user's last remaining secret; rotate by creating a new one first, switching consumers over, then deleting the old one. |
+A per-user HMAC secret signs inbound webhook payloads; one is auto-provisioned at
+signup, and the relay falls back to the deployment-wide signer if a user has none.
+The standalone per-user management API (`/users/me/signing-secrets`) was retired in
+the v1 cutover — webhooks-as-a-resource now carry their own per-webhook secret,
+rotatable via `POST /v1/webhooks/{id}/rotate-secret`.
 
 The SDKs read the secret from `E2A_WEBHOOK_SECRET` by default (with `E2A_HMAC_SECRET` accepted as a deprecated alias for SDK 2.0 users) — `client.parse_webhook(body)` / `client.parseWebhook(body)` does parse + verify in one call. See [sdks/python/README.md](../sdks/python/README.md#quick-start) and [sdks/typescript/README.md](../sdks/typescript/README.md#webhook-cloud-agents).
 
@@ -98,5 +98,5 @@ Fetch full content via `GET /agents/{email}/messages/{id}`. The full payload inc
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/api/health` | none | Health check |
-| `GET` | `/api/v1/info` | none | Deployment discovery — returns `shared_domain`, `slug_registration_enabled`, and `public_url`. CLIs/SDKs hit this to self-configure from a single base URL. |
+| `GET` | `/v1/info` | none | Deployment discovery — returns `shared_domain`, `slug_registration_enabled`, and `public_url`. CLIs/SDKs hit this to self-configure from a single base URL. |
 | `POST` | `/api/feedback` | none | Submit feedback (rate-limited per-IP) |

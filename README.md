@@ -88,11 +88,11 @@ Save the key — it's only shown once. Register an agent and confirm it works:
 
 ```bash
 KEY=e2a_...
-curl -X POST http://localhost:8080/api/v1/agents \
+curl -X POST http://localhost:8080/v1/agents \
   -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
   -d '{"slug":"my-bot","agent_mode":"local"}'
 
-curl -H "Authorization: Bearer $KEY" http://localhost:8080/api/v1/agents
+curl -H "Authorization: Bearer $KEY" http://localhost:8080/v1/agents
 ```
 
 To receive real inbound mail, point a domain's MX record at your relay host:
@@ -148,7 +148,7 @@ The MAC binds to **both** `message_id` and a SHA-256 of the raw message body. Su
 
 #### Verifying the signature
 
-The `X-E2A-Auth-Verified` field is the *server's claim* — anyone who can reach your webhook URL can set it. To make a security decision, **verify the signature** with one of your account's signing secrets (manage them in the dashboard's **Webhook secrets** page, or via `/api/v1/users/me/signing-secrets`).
+The `X-E2A-Auth-Verified` field is the *server's claim* — anyone who can reach your webhook URL can set it. To make a security decision, **verify the signature** with your webhook's signing secret (manage per-webhook secrets in the dashboard's **Webhook secrets** page, or rotate via `POST /v1/webhooks/{id}/rotate-secret`).
 
 The SDKs gate field access behind verification by default — accessing `email.sender`, `email.subject`, etc. on an unverified webhook payload raises `UnverifiedEmailError`, so you can't accidentally trust attacker-controllable fields. The one-call shortcut:
 
@@ -183,15 +183,15 @@ When an agent has HITL enabled, outbound `send` and `reply` calls do **not** dis
 
 Reviewers can approve or reject via:
 
-- **Dashboard / API** — `POST /api/v1/messages/{id}/approve` or `/reject`
-- **Magic-link email** — sent automatically when HITL fires; one-click `GET /api/v1/approve?token=…` and `/reject?token=…` URLs (requires `E2A_PUBLIC_URL` and outbound SMTP configured)
+- **Dashboard / API** — `POST /v1/agents/{email}/messages/{id}/approve` or `/reject`
+- **Magic-link email** — sent automatically when HITL fires; one-click `GET /v1/approve?t=…` and `/v1/reject?t=…` URLs (requires `E2A_PUBLIC_URL` and outbound SMTP configured)
 - **CLI** — `e2a pending` lists held messages
 
-Enable HITL on an agent via `PUT /api/v1/agents/{email}` with `hitl_enabled: true` and an optional `hitl_expiration_action` and TTL.
+Enable HITL on an agent via `PUT /v1/agents/{email}` with `hitl_enabled: true` and an optional `hitl_expiration_action` and TTL.
 
 ## API
 
-All endpoints are under `/api/v1` unless noted. Auth is `Authorization: Bearer <api_key>` except for `/api/health`, `/api/v1/info`, `/api/feedback`, and the HITL magic-link routes. Path parameters containing `@` (agent emails) must be URL-encoded.
+All endpoints are under `/v1` unless noted. Auth is `Authorization: Bearer <api_key>` except for `/api/health`, `/v1/info`, `/api/feedback`, and the HITL magic-link routes. Path parameters containing `@` (agent emails) must be URL-encoded.
 
 The surface covers domain registration + verification, agent CRUD, inbound/outbound messages, HITL approve/reject (API key or signed magic-link token), GDPR-style export and deletion, and a WebSocket channel for local-mode agents.
 
@@ -305,7 +305,7 @@ See [docs/data-handling.md](docs/data-handling.md) for the full retention table,
 
 Four things that aren't possible to bolt on without significant rework:
 
-1. **Local-mode agents with no public URL.** Agents authenticate with their API key, open a WebSocket to `/api/v1/agents/{email}/ws`, and inbound mail arrives as JSON over that connection — no webhook URL, no ngrok, no port forward. Useful for agents on developer laptops, edge devices, or behind corporate firewalls. SendGrid/Resend are webhook-only by design. A polling REST API is available as fallback.
+1. **Local-mode agents with no public URL.** Agents authenticate with their API key, open a WebSocket to `/v1/agents/{email}/ws`, and inbound mail arrives as JSON over that connection — no webhook URL, no ngrok, no port forward. Useful for agents on developer laptops, edge devices, or behind corporate firewalls. SendGrid/Resend are webhook-only by design. A polling REST API is available as fallback.
 
 2. **Conversation threading on every reply.** Whether a human replies from Gmail or another e2a agent replies via the API, the inbound message arrives at the agent with a stable `conversation_id` already mapped to the original thread. For human senders, the relay does standard `In-Reply-To` / `References` lookup scoped to the recipient agent's own messages. For agent-to-agent where both sides are on e2a, it also trusts an `X-E2A-Conversation-Id` header it controls (envelope-from is its own domain), which survives clients that rewrite threading headers. SendGrid/Resend never see inbound mail — they aren't receivers — so neither path is available without you building both yourself.
 

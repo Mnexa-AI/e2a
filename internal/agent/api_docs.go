@@ -64,24 +64,6 @@ type ReplyToMessageRequest struct {
 	Attachments    []Attachment `json:"attachments,omitempty"`
 } // @name ReplyToMessageRequest
 
-// UpdateMessageRequest is the request body for PATCH /api/v1/agents/{email}/messages/{id}.
-// Currently the only supported mutation is the labels delta — passing
-// an empty body is a no-op. Both add_labels and remove_labels may be
-// set in one request; on overlap the remove wins (the union is applied
-// first, then the difference, mirroring Gmail's semantics).
-type UpdateMessageRequest struct {
-	AddLabels    []string `json:"add_labels,omitempty" example:"urgent"`
-	RemoveLabels []string `json:"remove_labels,omitempty" example:"unread"`
-} // @name UpdateMessageRequest
-
-// UpdateMessageResponse is the response shape for label mutations.
-// Returns the post-update label set so callers can echo state without
-// a separate fetch.
-type UpdateMessageResponse struct {
-	MessageID string   `json:"message_id" example:"msg_abc123"`
-	Labels    []string `json:"labels"`
-} // @name UpdateMessageResponse
-
 // ForwardMessageRequest is the request body for forwarding a message.
 // Body and html_body are the caller's optional comment to prepend; the
 // server appends a quoted block with the original headers and body. A
@@ -169,17 +151,17 @@ type UpdateWebhookRequest struct {
 // — every other endpoint omits it so a stolen API key cannot exfiltrate
 // secrets via list/get.
 type WebhookResponse struct {
-	ID                       string         `json:"id" example:"wh_abc123"`
-	URL                      string         `json:"url"`
-	Description              string         `json:"description"`
-	Events                   []string       `json:"events"`
-	Filters                  WebhookFilters `json:"filters"`
-	SigningSecret            string         `json:"signing_secret,omitempty"` // ONLY on create + rotate
-	PreviousSecretExpiresAt  string         `json:"previous_secret_expires_at,omitempty"` // ONLY on rotate
-	Enabled                  bool           `json:"enabled"`
-	AutoDisabledAt           string         `json:"auto_disabled_at,omitempty"`
-	CreatedAt                string         `json:"created_at"`
-	LastDeliveredAt          string         `json:"last_delivered_at,omitempty"`
+	ID                      string         `json:"id" example:"wh_abc123"`
+	URL                     string         `json:"url"`
+	Description             string         `json:"description"`
+	Events                  []string       `json:"events"`
+	Filters                 WebhookFilters `json:"filters"`
+	SigningSecret           string         `json:"signing_secret,omitempty"`             // ONLY on create + rotate
+	PreviousSecretExpiresAt string         `json:"previous_secret_expires_at,omitempty"` // ONLY on rotate
+	Enabled                 bool           `json:"enabled"`
+	AutoDisabledAt          string         `json:"auto_disabled_at,omitempty"`
+	CreatedAt               string         `json:"created_at"`
+	LastDeliveredAt         string         `json:"last_delivered_at,omitempty"`
 } // @name WebhookResponse
 
 // ListWebhooksResponse wraps the list endpoint.
@@ -244,15 +226,15 @@ type ListConversationsResponse struct {
 //
 //   - Status (inbound):       "unread" | "read"; empty string for outbound rows.
 //   - HITLStatus (outbound):  the outbound delivery state ("pending_approval",
-//                              "sent", "rejected", "expired_*"); empty for inbound.
+//     "sent", "rejected", "expired_*"); empty for inbound.
 //   - WebhookStatus (outbound): delivery state of the most recent webhook
-//                              attempt ("delivered", "pending", "failed");
-//                              empty for inbound.
+//     attempt ("delivered", "pending", "failed");
+//     empty for inbound.
 //   - WebhookError (outbound): last webhook delivery error text when
-//                              WebhookStatus is "failed"; empty otherwise.
+//     WebhookStatus is "failed"; empty otherwise.
 //   - SizeBytes:               raw message length in bytes (best-effort,
-//                              0 when the row was migrated from a pre-sizing
-//                              build).
+//     0 when the row was migrated from a pre-sizing
+//     build).
 type MessageSummary struct {
 	MessageID      string   `json:"message_id" example:"msg_abc123"`
 	Direction      string   `json:"direction" example:"inbound" enums:"inbound,outbound"`
@@ -268,17 +250,17 @@ type MessageSummary struct {
 	// gate on `Direction == "inbound"` first. The enum was removed from
 	// the swag annotation deliberately so SDK generators don't emit a
 	// `Literal["unread", "read"]` that breaks at runtime.
-	Status         string   `json:"status"`
-	HITLStatus     string   `json:"hitl_status,omitempty" example:"sent" enums:"pending_approval,sent,rejected,expired_approved,expired_rejected"`
-	WebhookStatus  string   `json:"webhook_status,omitempty" example:"delivered" enums:"pending,delivered,failed"`
-	WebhookError   string   `json:"webhook_error,omitempty"`
-	SizeBytes      int      `json:"size_bytes,omitempty" example:"4231"`
+	Status        string `json:"status"`
+	HITLStatus    string `json:"hitl_status,omitempty" example:"sent" enums:"pending_approval,sent,rejected,expired_approved,expired_rejected"`
+	WebhookStatus string `json:"webhook_status,omitempty" example:"delivered" enums:"pending,delivered,failed"`
+	WebhookError  string `json:"webhook_error,omitempty"`
+	SizeBytes     int    `json:"size_bytes,omitempty" example:"4231"`
 	// Labels are caller-applied string tags. Always lowercase, charset
 	// `[a-z0-9:_-]+`, ≤ 64 chars each, ≤ 100 per message. The `e2a:`
 	// prefix is reserved for server-applied system labels. Empty array
 	// when no labels are set — never null.
-	Labels         []string `json:"labels"`
-	CreatedAt      string   `json:"created_at" example:"2025-01-15T10:30:00Z"`
+	Labels    []string `json:"labels"`
+	CreatedAt string   `json:"created_at" example:"2025-01-15T10:30:00Z"`
 } // @name MessageSummary
 
 // MessageDetail is the full message content returned by GET /api/v1/agents/{email}/messages/{id},
@@ -288,22 +270,22 @@ type MessageSummary struct {
 // can identify the intended reply mailbox for forwarded / notification mail
 // (e.g. From: notifications@..., Reply-To: <real-user>).
 type MessageDetail struct {
-	MessageID      string            `json:"message_id" example:"msg_abc123"`
-	From           string            `json:"from" example:"alice@example.com"`
-	To             []string          `json:"to" example:"my-bot@example.com"`
-	CC             []string          `json:"cc,omitempty"`
-	ReplyTo        []string          `json:"reply_to,omitempty"`
-	Recipient      string            `json:"recipient" example:"my-bot@example.com"`
-	Subject        string            `json:"subject" example:"Hello"`
-	ConversationID string            `json:"conversation_id,omitempty"`
-	Status         string            `json:"status" example:"read"`
+	MessageID      string   `json:"message_id" example:"msg_abc123"`
+	From           string   `json:"from" example:"alice@example.com"`
+	To             []string `json:"to" example:"my-bot@example.com"`
+	CC             []string `json:"cc,omitempty"`
+	ReplyTo        []string `json:"reply_to,omitempty"`
+	Recipient      string   `json:"recipient" example:"my-bot@example.com"`
+	Subject        string   `json:"subject" example:"Hello"`
+	ConversationID string   `json:"conversation_id,omitempty"`
+	Status         string   `json:"status" example:"read"`
 	// Labels are caller-applied string tags. See MessageSummary.Labels
 	// for the validation rules. Empty array when no labels are set —
 	// never null.
-	Labels         []string          `json:"labels"`
-	CreatedAt      string            `json:"created_at"`
-	AuthHeaders    map[string]string `json:"auth_headers"`
-	RawMessage     string            `json:"raw_message"`
+	Labels      []string          `json:"labels"`
+	CreatedAt   string            `json:"created_at"`
+	AuthHeaders map[string]string `json:"auth_headers"`
+	RawMessage  string            `json:"raw_message"`
 } // @name MessageDetail
 
 // --- Domain types ---
@@ -421,7 +403,7 @@ type DeploymentInfo struct {
 // reached transitively and don't need aliases; their @name directives in
 // the identity package keep them in the OpenAPI spec under clean names.
 
-type UserExport = identity.UserExport                 // @name UserExport
+type UserExport = identity.UserExport                     // @name UserExport
 type DeleteUserDataResult = identity.DeleteUserDataResult // @name DeleteUserDataResult
 
 // --- Webhook types ---
@@ -519,20 +501,20 @@ type PendingMessageDetail struct {
 	// SPF/DKIM/DMARC provenance + sender/subject of the inbound message
 	// being replied to so the review panel can render the context pane.
 	InboundContext *PendingMessageInboundContext `json:"inbound,omitempty"`
-	ReviewedAt     string       `json:"reviewed_at,omitempty" example:"2025-01-15T10:35:00Z"`
+	ReviewedAt     string                        `json:"reviewed_at,omitempty" example:"2025-01-15T10:35:00Z"`
 	// ReviewedByUserID identifies the human reviewer for approved or
 	// rejected messages. NULL on TTL-expired transitions (worker
 	// auto-approve / auto-reject) where no human reviewed the message.
-	ReviewedByUserID  *string      `json:"reviewed_by_user_id,omitempty" example:"usr_abc123"`
+	ReviewedByUserID *string `json:"reviewed_by_user_id,omitempty" example:"usr_abc123"`
 	// ReviewedByName is the JOIN'd display name from the reviewer's
 	// users row. NULL when reviewed_by_user_id is null (worker) or when
 	// the reviewer's user account has since been deleted (the FK has
 	// ON DELETE SET NULL specifically so this doesn't poison the audit
 	// trail).
-	ReviewedByName    *string      `json:"reviewed_by_name,omitempty" example:"Jamie"`
-	RejectionReason   string       `json:"rejection_reason,omitempty"`
-	ProviderMessageID string       `json:"provider_message_id,omitempty"`
-	Method            string       `json:"method,omitempty" example:"smtp"`
+	ReviewedByName    *string `json:"reviewed_by_name,omitempty" example:"Jamie"`
+	RejectionReason   string  `json:"rejection_reason,omitempty"`
+	ProviderMessageID string  `json:"provider_message_id,omitempty"`
+	Method            string  `json:"method,omitempty" example:"smtp"`
 } // @name PendingMessageDetail
 
 // PendingMessageInboundContext is the inlined inbound-row preview
@@ -540,9 +522,9 @@ type PendingMessageDetail struct {
 // (the inbound's raw_message is RFC 5322 bytes; the review panel
 // surfaces only the headers + auth_headers).
 type PendingMessageInboundContext struct {
-	Sender      string            `json:"sender" example:"alice@gmail.com"`
-	Subject     string            `json:"subject" example:"contract details"`
-	CreatedAt   string            `json:"created_at" example:"2025-01-15T10:25:00Z"`
+	Sender    string `json:"sender" example:"alice@gmail.com"`
+	Subject   string `json:"subject" example:"contract details"`
+	CreatedAt string `json:"created_at" example:"2025-01-15T10:25:00Z"`
 	// AuthHeaders carries the SPF/DKIM/DMARC validation results captured
 	// at inbound time. Keys are conventionally "spf", "dkim", "dmarc"
 	// each with values "pass" | "fail" | "neutral" | etc. The dashboard
@@ -607,19 +589,6 @@ type RedeliverResponse struct {
 	Status     string                    `json:"status"`
 	Deliveries []RedeliverDeliveryResult `json:"deliveries,omitempty"`
 } // @name RedeliverResponse
-
-// RedeliverSinceRequest is the body of POST /webhooks/{id}/redeliver-since.
-type RedeliverSinceRequest struct {
-	Since string `json:"since"`
-} // @name RedeliverSinceRequest
-
-// RedeliverSinceResponse wraps the result of a bulk-replay request.
-type RedeliverSinceResponse struct {
-	WebhookID             string `json:"webhook_id"`
-	Since                 string `json:"since"`
-	Scheduled             int    `json:"scheduled"`
-	SkippedAlreadyPending int    `json:"skipped_already_pending"`
-} // @name RedeliverSinceResponse
 
 // ApprovePendingMessageRequest is the optional body for
 // POST /api/v1/messages/{id}/approve. Any field present overrides the

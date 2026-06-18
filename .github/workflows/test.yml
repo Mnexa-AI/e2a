@@ -216,7 +216,6 @@ jobs:
           cache: "pip"
           cache-dependency-path: |
             sdks/python/pyproject.toml
-            sdks/python/codegen-requirements.txt
       - run: pip install -e ".[dev]"
       - run: pytest tests/ -v
 
@@ -253,7 +252,6 @@ jobs:
           cache: "pip"
           cache-dependency-path: |
             sdks/python/pyproject.toml
-            sdks/python/codegen-requirements.txt
       - run: pip install -e ".[dev]"
       - name: Build contract server helper
         run: |
@@ -322,7 +320,6 @@ jobs:
           cache: "pip"
           cache-dependency-path: |
             sdks/python/pyproject.toml
-            sdks/python/codegen-requirements.txt
       - name: Install TS SDK dependencies
         run: npm install --package-lock=false
       - name: Check generated code is up to date
