@@ -24,7 +24,7 @@
     "generate:types": "openapi-typescript /tmp/e2a-openapi3.yaml -o src/v1/generated/types.ts",
     "generate": "npm run generate:openapi3 && npm run generate:types",
     "test": "npm run test:unit",
-    "test:unit": "vitest run test/v1/api.test.ts test/v1/client.test.ts test/v1/verify.test.ts test/v1/ws.test.ts test/v1/idempotency.test.ts test/v1/webhook-signature.test.ts test/v1/events.test.ts",
+    "test:unit": "vitest run test/v1/api.test.ts test/v1/client.test.ts test/v1/verify.test.ts test/v1/ws.test.ts test/v1/idempotency.test.ts test/v1/webhook-signature.test.ts test/v1/events.test.ts test/v1/errors.test.ts test/v1/retry.test.ts test/v1/pagination.test.ts",
     "test:contract": "vitest run test/v1/contract.test.ts",
     "test:live": "vitest run test/e2e.test.ts",
     "prepublishOnly": "npm run build"
