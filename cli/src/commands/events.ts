@@ -17,6 +17,9 @@ export async function listEvents(opts: {
 }): Promise<void> {
   const client = createClient({});
   const limit = opts.limit ?? 20;
+  if (!Number.isFinite(limit) || limit < 1) {
+    throw new Error("--limit must be a positive integer");
+  }
   const events = await client.events
     .list({
       type: opts.type,

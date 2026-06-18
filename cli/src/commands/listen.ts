@@ -126,7 +126,10 @@ export async function forwardMessage(
       headers["Authorization"] = `Bearer ${forwardToken}`;
     }
   } else {
-    // Generic forward — send exact raw JSON
+    // Generic forward — POST the full v1 MessageView as JSON. NOTE: in 3.0 this
+    // is the SDK's camelCase model shape (messageId, createdAt, …), not the
+    // legacy snake_case wire JSON; --forward consumers updating to the 3.0 CLI
+    // should read the v1 field names.
     fetchBody = JSON.stringify(full);
     if (forwardToken) {
       headers["Authorization"] = `Bearer ${forwardToken}`;
