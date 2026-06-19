@@ -195,7 +195,7 @@ All endpoints are under `/v1` unless noted. Auth is `Authorization: Bearer <api_
 
 The surface covers domain registration + verification, agent CRUD, inbound/outbound messages, HITL approve/reject (API key or signed magic-link token), GDPR-style export and deletion, and a WebSocket channel for local-mode agents.
 
-See [docs/api.md](docs/api.md) for the full endpoint reference, or [`web/public/openapi.yaml`](web/public/openapi.yaml) for the machine-readable spec.
+See [docs/api.md](docs/api.md) for the full endpoint reference, or [`api/openapi.yaml`](api/openapi.yaml) for the machine-readable spec.
 
 ## CLI
 
@@ -295,7 +295,7 @@ Report security issues privately — see [SECURITY.md](SECURITY.md) for the disc
 
 ## Data handling
 
-Message envelopes and inbound bodies live in Postgres for 30 days by default; outbound bodies are scrubbed at terminal HITL transition; API keys are stored as hashes; attachments go in JSONB rows (no S3/GCS). Application logs include sender/recipient addresses (standard MTA practice) but never bodies, attachments, raw keys, or HMAC secrets. Users can self-export (`GET /users/me/export`) and self-delete (`DELETE /users/me`) for GDPR Art. 15 / Art. 17 / CCPA.
+Message envelopes and inbound bodies live in Postgres for 10 days by default; outbound bodies are scrubbed at terminal HITL transition; API keys are stored as hashes; attachments go in JSONB rows (no S3/GCS). Application logs include sender/recipient addresses (standard MTA practice) but never bodies, attachments, raw keys, or HMAC secrets. Users can self-export (`GET /v1/account/export`) and self-delete (`DELETE /v1/account?confirm=DELETE`) for GDPR Art. 15 / Art. 17 / CCPA.
 
 See [docs/data-handling.md](docs/data-handling.md) for the full retention table, log fields, user-rights endpoints, and the operator-side responsibilities (backups, TLS, at-rest encryption, log redaction, compliance).
 

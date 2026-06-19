@@ -14,10 +14,10 @@ e2a relay
     v  HTTPS POST /webhook (signed)
 this app
     |
-    +-- parse_webhook (parse + verify HMAC)
+    +-- construct_event (verify HMAC + decode to a typed event)
     +-- look up / create ADK session keyed by conversation_id
     +-- runner.run_async(...)
-    +-- email.reply(text, conversation_id=...)
+    +-- client.messages.reply(address, message_id, {body, conversation_id})
     |
     v
 e2a relay -> SMTP -> human
@@ -69,14 +69,19 @@ ngrok http 18080
 # Forwarding  https://abc123.ngrok.io -> http://localhost:18080
 ```
 
-Set that public URL on your agent (replace `<YOUR_AGENT_EMAIL>` and
-`<YOUR_API_KEY>`):
+Subscribe that public URL to your agent's inbound mail. Webhooks are a separate
+resource (`/v1/webhooks`) — pass the agent's address as a filter (replace
+`<YOUR_AGENT_EMAIL>` and `<YOUR_API_KEY>`):
 
 ```bash
-curl -X PUT https://e2a.dev/api/v1/agents/<YOUR_AGENT_EMAIL> \
+curl -X POST https://e2a.dev/v1/webhooks \
   -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
-  -d '{"webhook_url":"https://abc123.ngrok.io/webhook"}'
+  -d '{
+    "url": "https://abc123.ngrok.io/webhook",
+    "events": ["email.received"],
+    "filters": {"agent_ids": ["<YOUR_AGENT_EMAIL>"]}
+  }'
 ```
 
 ## Try it
@@ -95,9 +100,10 @@ propagating an opaque `conversation_id` through each round-trip:
 1. **First inbound** has `conversation_id = None` (the human just
    started a thread). The webhook mints `conv_<random>` and uses it as
    the ADK `session_id` when creating the session.
-2. The webhook calls `email.reply(text, conversation_id=conv_<random>)`.
-   e2a stamps `X-E2A-Conversation-Id: conv_<random>` on the outbound
-   message and remembers the binding to the message ID.
+2. The webhook calls `client.messages.reply(address, message_id,
+   {"body": text, "conversation_id": "conv_<random>"})`. e2a stamps
+   `X-E2A-Conversation-Id: conv_<random>` on the outbound message and
+   remembers the binding to the message ID.
 3. **Subsequent inbound** (the human replies in their mail client) lands
    with the same `conversation_id` set — recovered from `In-Reply-To` /
    `References` lookup. The webhook calls `get_session` with that ID and
@@ -122,10 +128,13 @@ field on the parsed payload.
   SQLite) — see [ADK sessions docs](https://adk.dev/sessions/session/).
 - **Tools.** The agent has no tools beyond text generation. Add them to
   `agent.py` once the email loop works end-to-end.
-- **Attachments.** `email.attachments` is exposed by the SDK but ignored
-  here. ADK's `Content` supports inline data parts if you want to feed
-  attachments to a vision model.
+- **Attachments.** Attachment metadata lives on the `MessageView` you
+  fetch with `client.messages.get(address, message_id)` (the typed event
+  from `construct_event` carries the message payload); this example
+  ignores it. ADK's `Content` supports inline data parts if you want to
+  feed attachments to a vision model.
 - **HITL.** The agent replies immediately. If you want human approval
   before the reply goes out, enable HITL on the agent
   ([docs](https://github.com/Mnexa-AI/e2a/blob/main/README.md)) and the
-  `email.reply()` call returns 202 with the reply held for review.
+  `client.messages.reply(...)` call returns `status: "pending_approval"`
+  with the reply held for review.

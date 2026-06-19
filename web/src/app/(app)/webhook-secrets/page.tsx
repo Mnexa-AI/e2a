@@ -144,9 +144,8 @@ export default function WebhooksPage() {
       subtitle={
         <>
           <span style={{ display: "block" }}>
-            <strong style={{ color: "var(--fg)" }}>For cloud agents only.</strong>{" "}
-            When your agent runs behind a webhook
-            (<code style={inlineCodeStyle}>agent_mode=cloud</code>), e2a
+            <strong style={{ color: "var(--fg)" }}>For webhook delivery.</strong>{" "}
+            When your agent receives mail via a webhook subscription, e2a
             HMAC-signs every payload it POSTs to the endpoint with that
             webhook&apos;s signing secret so your handler can confirm the
             request really came from e2a.
@@ -154,7 +153,8 @@ export default function WebhooksPage() {
           <span style={{ display: "block", marginTop: 10 }}>
             The signing secret is shown <strong style={{ color: "var(--fg)" }}>once</strong>{" "}
             when you create or rotate a webhook — copy it then. Pass it to{" "}
-            <code style={inlineCodeStyle}>verify_signature()</code> in the
+            <code style={inlineCodeStyle}>constructEvent()</code> /{" "}
+            <code style={inlineCodeStyle}>construct_event()</code> in the
             SDK to validate. Rotation keeps the previous secret valid for a
             short overlap so you can swap it in without dropping deliveries.
           </span>
@@ -364,7 +364,7 @@ function RevealedSecretBanner({
             borderRadius: "var(--r-sm)",
           }}
         >
-          E2A_HMAC_SECRET
+          E2A_WEBHOOK_SECRET
         </code>
         ).
       </p>

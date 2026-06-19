@@ -55,14 +55,14 @@ e2a login
 
 `e2a login` opens a browser, drops you through OAuth, and writes your API key to `~/.e2a/config.json`. That's the only setup the CLI needs.
 
-## Step 2: Register a local-mode agent
+## Step 2: Register the agent
 
 ```bash
 e2a agents register research
-# → Registered: research@agents.e2a.dev (agent_mode=local)
+# → Registered: research@agents.e2a.dev
 ```
 
-The slug becomes the local-part of your agent's address. `local` mode tells e2a to hold mail server-side and push it over WebSocket when your listener connects, instead of POSTing to a webhook URL. That's what keeps the whole setup public-URL-free.
+The slug becomes the local-part of your agent's address. There's no cloud-vs-local "mode" — webhook vs WebSocket is just a delivery choice. Here we never subscribe a webhook; instead `e2a listen` opens a WebSocket, so e2a holds mail server-side and pushes it down the stream when your listener connects. That's what keeps the whole setup public-URL-free.
 
 ## Step 3: Grab your OpenClaw gateway token
 

@@ -16,8 +16,9 @@ For vulnerability reporting and the security model, see [SECURITY.md](../SECURIT
 | API keys | Postgres `api_keys`, **hash only** (SHA over the plaintext) | Until revoked or the user is deleted; plaintext exists only in the create response and is never persisted |
 | OAuth sessions | Postgres `user_sessions` | 30 days; cleanup worker removes expired rows hourly |
 | Usage events / summaries (only when `E2A_USAGE_TRACKING=true`) | Postgres `usage_events`, `usage_summaries` | Indefinite by default — operator can purge or override |
-| Per-user webhook signing secrets | Postgres `webhook_signing_secrets`, **plaintext** (the relay needs the value to sign — hashing them like API keys would break HMAC). Up to 5 per user. | Until the user explicitly deletes the secret or the account. Plaintext is returned exactly once at creation; subsequent reads only see a 12-char prefix. |
-| Deployment-wide HMAC signing secret (legacy fallback) | Operator's env (`E2A_HMAC_SECRET`); never written to DB | Lifetime of the deployment. Used only as a verify-side fallback for HITL approval tokens issued before the per-user-secret migration; new tokens use the user's own secret. |
+| Per-user inbound-webhook signing secret | Postgres `webhook_signing_secrets`, **plaintext** (the relay needs the value to sign — hashing them like API keys would break HMAC). Auto-provisioned at signup; the relay falls back to the deployment-wide signer if a user has none. | Until the account is deleted. There is no per-user signing-secrets management API. |
+| Per-webhook signing secret (`whsec_…`) | Postgres, **plaintext** | Until the webhook is deleted. Returned once at creation; rotate via `POST /v1/webhooks/{id}/rotate-secret` (the previous secret stays valid for a 24h grace window). |
+| Deployment-wide HMAC signing secret (operator key / legacy fallback) | Operator's env (`E2A_HMAC_SECRET`); never written to DB | Lifetime of the deployment. The operator's deployment key; also the verify-side fallback when a user has no per-user secret. SDKs verify inbound deliveries with `E2A_WEBHOOK_SECRET`, not this. |
 
 ## What's logged
 
@@ -31,8 +32,8 @@ Application logs do **not** include message bodies, attachment contents, raw API
 
 The API exposes the two operations that GDPR Art. 15 / Art. 17 (and CCPA equivalents) require:
 
-- **`GET /api/v1/users/me/export`** — returns a JSON dump of everything the authenticated user owns. Profile, agents, domains, API key metadata, all messages with bodies, usage events. Internal identifiers (Google subject, key hashes, session tokens) are excluded.
-- **`DELETE /api/v1/users/me?confirm=DELETE`** — wipes the user and every related row in a single Postgres transaction (cascade through `agent_identities → messages → webhook_deliveries`, plus explicit deletion of `usage_events` which has `ON DELETE SET NULL` rather than CASCADE so it survives by default). Returns per-table row counts so the caller can audit what was removed.
+- **`GET /v1/account/export`** — returns a JSON dump of everything the authenticated account owns. Profile, agents, domains, API key metadata, all messages with bodies, usage events. Internal identifiers (Google subject, key hashes, session tokens) are excluded.
+- **`DELETE /v1/account?confirm=DELETE`** — wipes the account and every related row in a single Postgres transaction (cascade through `agent_identities → messages → webhook_deliveries`, plus explicit deletion of `usage_events` which has `ON DELETE SET NULL` rather than CASCADE so it survives by default). Returns per-table row counts so the caller can audit what was removed.
 
 Both are scoped to the authenticated user — there's no path to target someone else's data.
 

@@ -43,7 +43,7 @@ The whole webhook is ~30 lines of business logic. ADK does the memory work; e2a 
 ## Prerequisites
 
 - Python 3.10+
-- A free e2a account at [e2a.dev](https://e2a.dev) — you'll register a **cloud-mode** agent (one that receives mail via HTTPS webhook, not WebSocket).
+- A free e2a account at [e2a.dev](https://e2a.dev) — you'll register an agent and subscribe a **webhook** so it receives mail via HTTPS POST (rather than a WebSocket stream).
 - A Google AI Studio API key — [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
 - [ngrok](https://ngrok.com/) or [cloudflared](https://github.com/cloudflare/cloudflared) for exposing the local webhook during development.
 
@@ -57,11 +57,11 @@ pip install -e .
 cp .env.example .env
 ```
 
-The `pyproject.toml` pulls in `google-adk>=1.31`, `e2a>=1.4`, and FastAPI. Edit `.env` with your three secrets when prompted.
+The `pyproject.toml` pulls in `google-adk>=1.31`, `e2a>=3.0`, and FastAPI. Edit `.env` with your three secrets when prompted.
 
-## Step 2: Register a cloud-mode agent
+## Step 2: Register the agent
 
-In the e2a dashboard, register an agent with `agent_mode: cloud`. You'll get an email address (e.g. `assistant@agents.e2a.dev`) and an API key. The webhook URL field can stay empty for now — we'll fill it in once we have a public URL.
+In the e2a dashboard (or `POST /v1/agents`), register an agent. You'll get an email address (e.g. `assistant@agents.e2a.dev`) and an API key. There's no cloud-vs-local "mode" — whether the agent receives over a webhook or a WebSocket is just a delivery choice you make next. We'll subscribe a webhook once we have a public URL.
 
 ## Step 3: Run the webhook locally
 
@@ -83,14 +83,16 @@ ngrok http 18080
 # Forwarding  https://abc123.ngrok.io -> http://localhost:18080
 ```
 
-Set that public URL on your agent (replace `<EMAIL>` and `<API_KEY>`; the `@` in `EMAIL` must be URL-encoded as `%40`):
+Subscribe a webhook at that public URL (replace `<API_KEY>`). Webhooks are an account-level resource — one subscription can fan out to every agent you own, filtered by event type:
 
 ```bash
-curl -X PATCH "https://e2a.dev/v1/agents/assistant%40agents.e2a.dev" \
+curl -X POST "https://api.e2a.dev/v1/webhooks" \
   -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
-  -d '{"webhook_url":"https://abc123.ngrok.io/webhook"}'
+  -d '{"url":"https://abc123.ngrok.io/webhook","events":["email.received"]}'
 ```
+
+The response includes a signing secret (`whsec_...`). Save it as `E2A_WEBHOOK_SECRET` — you'll verify each delivery against it below.
 
 ## Step 5: Send the first email
 
@@ -137,7 +139,7 @@ session = sessions.create_session(..., session_id=conv_<random>)
 runner.run_async(...)                       # ADK records turn 1
         │
         v
-email.reply(text, conversation_id=conv_<random>)
+client.messages.reply(addr, msg_id, {"body": text, "conversation_id": conv_<random>})
         │       e2a stamps X-E2A-Conversation-Id on the outbound
         v
 ... human replies in their mail client ...
@@ -155,7 +157,7 @@ runner.run_async(...)                       # ADK has full prior context
 The webhook does the binding in two lines:
 
 ```python
-conversation_id = email.conversation_id or f"conv_{uuid.uuid4().hex[:12]}"
+conversation_id = msg.get("conversation_id") or f"conv_{uuid.uuid4().hex[:12]}"
 
 session = await sessions.get_session(app_name=APP_NAME, user_id=user_id, session_id=conversation_id)
 if session is None:
@@ -166,21 +168,29 @@ That's it. Any agent framework that lets you supply your own session ID can be w
 
 ## Always verify the HMAC
 
-The first thing the webhook does after parsing the payload is:
+The first thing the webhook does — before reading anything off the payload — is verify the signature with `construct_event`, passing the **raw** request body:
 
 ```python
-if not email.verify_signature(HMAC_SECRET):
+from e2a.v1 import construct_event
+from e2a.v1.errors import E2AWebhookSignatureError
+
+raw = await request.body()
+try:
+    event = construct_event(raw, request.headers["X-E2A-Signature"], E2A_WEBHOOK_SECRET)
+except E2AWebhookSignatureError:
     raise HTTPException(status_code=401, detail="bad signature")
+
+msg = event.data  # the verified inbound message payload
 ```
 
-This isn't optional. Anyone on the internet can POST to your public webhook URL — the HMAC signature is what proves the payload came from your e2a relay and not from someone trying to inject a fake email into your agent's session. If you skip the verify, every claim on the payload (sender, recipient, message id, body) becomes attacker-controlled. The SDK's `verify_signature` checks the HMAC against the body hash and rejects replays older than 5 minutes, all in one call.
+This isn't optional. Anyone on the internet can POST to your public webhook URL — the HMAC signature is what proves the payload came from your e2a relay and not from someone trying to inject a fake email into your agent's session. If you skip the verify, every claim on the payload (sender, recipient, message id, body) becomes attacker-controlled. `construct_event` checks the HMAC over `{timestamp}.{raw_body}`, rejects replays older than 5 minutes, and parses the verified envelope — all in one call. Pass the raw bytes; re-serializing parsed JSON changes the whitespace and the signature won't match.
 
 ## What this example deliberately doesn't show
 
 - **Persistence + multi-worker safety.** `InMemorySessionService` loses everything on restart. It also lives in *one* Python process — running `uvicorn ... --workers 4` shards sessions per-worker. For anything beyond the demo, use `DatabaseSessionService` (Postgres / SQLite) — see [ADK sessions docs](https://adk.dev/sessions/session/).
 - **Tools.** The agent has no tools — just text generation. Add them in `agent.py` once the email loop works.
-- **Attachments.** `email.attachments` is exposed by the SDK but ignored here. ADK's `Content` supports inline data parts if you want to feed PDFs or images to a vision model.
-- **Human-in-the-loop.** The agent replies immediately. If you want approval before each outbound, [enable HITL on the agent](/blog/human-in-the-loop-for-agent-email) and the `email.reply()` call returns 202 with the message held for review.
+- **Attachments.** The fetched `MessageView.attachments` are exposed by the SDK but ignored here. ADK's `Content` supports inline data parts if you want to feed PDFs or images to a vision model.
+- **Human-in-the-loop.** The agent replies immediately. If you want approval before each outbound, [enable HITL on the agent](/blog/human-in-the-loop-for-agent-email) and the `client.messages.reply(...)` call returns 202 with the message held for review.
 
 ## What to build next
 

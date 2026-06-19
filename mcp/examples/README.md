@@ -12,7 +12,7 @@ End-to-end demos showing how to wire the e2a MCP surface into popular agent fram
 
 ## Two transports, same tool surface
 
-Each example exercises the same 18 e2a tools. The Python framework examples ship two scripts; the Codex example ships two TOML blocks (Codex is itself the agent, so you configure it instead of writing a script).
+Each example exercises the same 33 e2a tools. The Python framework examples ship two scripts; the Codex example ships two TOML blocks (Codex is itself the agent, so you configure it instead of writing a script).
 
 - **Stdio variant** consumes the published [@e2a/mcp-server](https://www.npmjs.com/package/@e2a/mcp-server) from npm via `npx -y` — no local build needed. Best for laptop / local dev.
 - **Hosted variant** connects to `https://mcp.e2a.dev/mcp` over Streamable HTTP with your API key in the `Authorization` header. Best when:

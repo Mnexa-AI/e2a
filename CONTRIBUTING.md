@@ -85,7 +85,7 @@ it later (only the hash is stored).
 curl http://localhost:8080/api/health
 # → {"status":"ok"}
 
-curl -H "Authorization: Bearer <your-key>" http://localhost:8080/api/v1/agents
+curl -H "Authorization: Bearer <your-key>" http://localhost:8080/v1/agents
 # → {"agents":[]}
 ```
 
@@ -188,17 +188,22 @@ change: the Go handler, OpenAPI spec, TypeScript SDK (raw + high-level),
 Python SDK sync (raw + high-level), Python SDK async (raw + high-level),
 CLI, MCP server, and the web dashboard. Each surface has its own tests.
 
-Generated code lives in `sdks/{typescript,python}/.../generated/`.
-After editing Go swag annotations:
+The `/v1` OpenAPI document at `api/openapi.yaml` is emitted directly
+from the live Huma handlers, and generated SDK code lives in
+`sdks/{typescript,python}/.../generated/`. After changing a `/v1`
+handler:
 
 ```bash
-make swagger        # regenerates web/public/openapi.yaml
-make generate-sdk   # regenerates generated/ for TS + Python
-make generate       # both
+make spec           # regenerates api/openapi.yaml from the live handlers
+make generate-sdk   # regenerates generated/ for TS + Python from the spec
+make generate       # both of the above
 ```
 
-CI fails the PR if these are out of date — run them and commit the
-diff. The PR template ([`.github/pull_request_template.md`](.github/pull_request_template.md))
+Commit `api/openapi.yaml` and the regenerated `sdks/**/generated/`
+bases. CI gates this with `spec-check` (the committed spec must
+byte-equal what the handlers emit) and `generate-sdk-check` — run
+`make generate` and commit the diff or the PR fails. The PR template
+([`.github/pull_request_template.md`](.github/pull_request_template.md))
 includes a checkbox list of every client surface; tick what's in scope
 and explain anything intentionally skipped.
 

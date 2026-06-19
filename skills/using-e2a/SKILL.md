@@ -10,7 +10,7 @@ version: 10
 e2a is an authenticated email gateway for AI agents. It gives an agent a real email address (`agent@agents.e2a.dev` or `agent@your-domain.com`), verifies sender identity (SPF/DKIM), threads conversations, and optionally pauses outbound mail for human review.
 
 This skill works two ways:
-- **Via the Claude Code plugin (MCP).** Tools appear in the menu as `mcp__e2a__*` — 18 of them covering agents, messages, HITL, and domains.
+- **Via the Claude Code plugin (MCP).** Tools appear in the menu as `mcp__e2a__*` — 33 of them covering agents, messages, HITL, attachments, domains, events, and webhooks.
 - **Via the `e2a` CLI / SDKs.** Same operations, different surface: `e2a` commands on the shell, or the TypeScript / Python SDK in your own webhook handler.
 
 The mental model and gotchas are identical across both surfaces. Workflow steps below call out the MCP tool name and the CLI equivalent — pick whichever fits the current session.
@@ -146,29 +146,35 @@ pip install e2a
 ```
 
 ```python
-import e2a
+import os
+
+from e2a.v1 import E2AClient, construct_event, E2AWebhookSignatureError
 from fastapi import FastAPI, HTTPException, Request
 
 app = FastAPI()
+SECRET = os.environ["E2A_WEBHOOK_SECRET"]  # whsec_…
 
-# agent_email is optional — auto-resolves from the payload in webhook mode.
-client = e2a.E2AClient(api_key="e2a_...")  # or set E2A_API_KEY
+# The SDK is async-only and namespaced. There is no agent_email constructor arg.
+client = E2AClient(api_key=os.environ["E2A_API_KEY"])  # or E2AClient() reads E2A_API_KEY
 
 @app.post("/webhook")
 async def webhook(request: Request):
-    # parse_webhook = parse + HMAC-verify in one call.
-    # Reads E2A_WEBHOOK_SECRET from the env — set it or first request raises.
+    # construct_event = verify the X-E2A-Signature header + decode to a typed
+    # event in one call. Pass the RAW body — re-serialized JSON won't match.
     try:
-        email = client.parse_webhook(await request.body())
-    except PermissionError:
-        raise HTTPException(401, "bad signature")
+        event = construct_event(
+            await request.body(), request.headers["X-E2A-Signature"], SECRET
+        )
+    except E2AWebhookSignatureError:
+        raise HTTPException(400, "bad signature")
 
-    print(f"From: {email.sender}")
-    print(f"Subject: {email.subject}")
-    print(f"Body: {email.text_body}")
+    if event.type == "email.received":
+        msg = event.data  # the inbound message payload
+        print(f"From: {msg.from_}")
+        print(f"Subject: {msg.subject}")
 
-    # Threaded reply — agent_email auto-resolves from email.recipient
-    email.reply("Thanks for your email!")
+        # Threaded reply — pass the agent address explicitly.
+        await client.messages.reply(msg.recipient, msg.message_id, {"body": "Thanks for your email!"})
     return {"ok": True}
 ```
 
@@ -179,23 +185,28 @@ npm install @e2a/sdk
 ```
 
 ```typescript
-import { E2AClient } from "@e2a/sdk";
+import { E2AClient, constructEvent, E2AWebhookSignatureError } from "@e2a/sdk/v1";
 import express from "express";
 
 const app = express();
-app.use(express.json());
 
 const client = new E2AClient({ apiKey: process.env.E2A_API_KEY! });
+const SECRET = process.env.E2A_WEBHOOK_SECRET!; // whsec_…
 
-app.post("/webhook", async (req, res) => {
-  let email;
+// Use the raw body parser — re-stringified JSON won't match the signature.
+app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  let event;
   try {
-    email = await client.parseWebhook(req.body);
-  } catch {
-    return res.status(401).end();
+    event = constructEvent(req.body, req.header("X-E2A-Signature"), SECRET);
+  } catch (e) {
+    if (e instanceof E2AWebhookSignatureError) return res.status(400).end();
+    throw e;
   }
-  console.log(`From: ${email.sender} — ${email.subject}`);
-  await email.reply("Thanks for your email!");
+  if (event.type === "email.received") {
+    const msg = event.data; // the inbound message payload
+    console.log(`From: ${msg.from} — ${msg.subject}`);
+    await client.messages.reply(msg.recipient, msg.messageId, { body: "Thanks for your email!" });
+  }
   res.json({ ok: true });
 });
 
@@ -222,7 +233,7 @@ Inbound payload shape:
 }
 ```
 
-`to` and `cc` are the parsed headers from the original message; `recipient` is this delivery's per-agent target. The SDK gates field access behind verification — accessing `email.sender` etc. on an unverified payload raises `UnverifiedEmailError`. `parse_webhook` / `parseWebhook` handles the verify step. `client.parse(...)` returns an unverified email and requires `email.verify_signature()` / `email.verifySignature()` before claim fields are readable. Check `email.is_verified` / `email.isVerified` to confirm.
+`to` and `cc` are the parsed headers from the original message; `recipient` is this delivery's per-agent target. `construct_event` / `constructEvent` verifies the `X-E2A-Signature` header against your `whsec_…` secret and **throws** (`E2AWebhookSignatureError`) on a bad signature — so if it returns, the payload is authentic and you can read its fields directly. There is no separate "verify then read" gate and no unverified-email type; verification and decoding happen in the one call. During a secret rotation you can pass a list/array of secrets — accepted if any matches.
 
 ### Local agent with WebSocket bridge (optional)
 
@@ -255,9 +266,9 @@ There's no MCP equivalent — this is a CLI-only pattern. Useful for local devel
 ## Reference
 
 - Config file (CLI): `~/.e2a/config.json` — JSON with `api_key`, `api_url`, `agent_email`, `shared_domain`.
-- Env vars that override config: `E2A_API_KEY`, `E2A_URL`, `E2A_SHARED_DOMAIN` (CLI). `E2A_AGENT_EMAIL` is honored by the Python/TS SDK constructors when you don't pass `agent_email` explicitly. `E2A_WEBHOOK_SECRET` is read by `parse_webhook` / `parseWebhook` and `verify_signature()` / `verifySignature()` for inbound HMAC verification.
+- Env vars that override config: `E2A_API_KEY`, `E2A_URL`, `E2A_SHARED_DOMAIN` (CLI). `E2A_AGENT_EMAIL` is honored by `client.listen(...)` as the default agent address when you don't pass one — it is NOT a constructor argument. `E2A_WEBHOOK_SECRET` holds the `whsec_…` signing secret you pass to `construct_event` / `constructEvent` for inbound HMAC verification.
 - Plugin homepage: https://e2a.dev
-- 18 MCP tools: agents (5), messages (5), HITL (4), domains (4), plus `get_attachment_data` (shared).
+- 33 MCP tools spanning agents, messages, HITL, attachments, domains, events, and webhooks.
 - Tool descriptions teach behavior; this skill teaches the mental model. When in doubt, read the tool's own `description` for the precise contract.
 - CLI: https://www.npmjs.com/package/@e2a/cli
 - TypeScript SDK: https://www.npmjs.com/package/@e2a/sdk

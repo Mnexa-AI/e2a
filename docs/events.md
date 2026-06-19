@@ -31,16 +31,13 @@ import { E2AClient } from "@e2a/sdk/v1";
 const client = new E2AClient({ apiKey: process.env.E2A_API_KEY });
 
 // Walk the last 24h of email.received events.
-let token: string | undefined;
-do {
-  const res = await client.api.listEvents({
+const events = await client.events
+  .list({
     type: "email.received",
     since: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
-    token,
-  });
-  for (const e of res.events) console.log(e.id, e.type, e.created_at);
-  token = res.next_token;
-} while (token);
+  })
+  .toArray(); // auto-pages via next_cursor
+for (const e of events) console.log(e.id, e.type, e.created_at);
 ```
 
 In Python:
@@ -50,8 +47,7 @@ from e2a.v1 import E2AClient
 import os
 
 client = E2AClient(api_key=os.environ["E2A_API_KEY"])
-res = client.api.list_events(type="email.received", page_size=20)
-for e in res.events:
+for e in client.events.list(type="email.received", limit=20):
     print(e.id, e.type, e.created_at)
 ```
 
@@ -70,24 +66,24 @@ for e in res.events:
 
 ## Cursor pagination
 
-`GET /v1/events` returns a `next_token` when more pages are available. Pass it back via `?token=…` to walk forward in time. Use `since` / `until` (RFC3339) to bracket a specific window — both are optional and stack with the cursor.
+`GET /v1/events` returns a `next_cursor` when more pages are available. Pass it back via `?cursor=…` to walk forward in time. Use `since` / `until` (RFC3339) to bracket a specific window — both are optional and stack with the cursor.
 
 ```bash
 # Get the first page.
 RESP=$(curl -s -H "Authorization: Bearer $E2A_API_KEY" \
-  "https://e2a.dev/v1/events?page_size=50")
-TOKEN=$(echo "$RESP" | jq -r '.next_token')
+  "https://e2a.dev/v1/events?limit=50")
+CURSOR=$(echo "$RESP" | jq -r '.next_cursor')
 
 # Walk forward.
-while [ "$TOKEN" != "null" ] && [ -n "$TOKEN" ]; do
+while [ "$CURSOR" != "null" ] && [ -n "$CURSOR" ]; do
   RESP=$(curl -s -H "Authorization: Bearer $E2A_API_KEY" \
-    "https://e2a.dev/v1/events?page_size=50&token=$TOKEN")
+    "https://e2a.dev/v1/events?limit=50&cursor=$CURSOR")
   # process events…
-  TOKEN=$(echo "$RESP" | jq -r '.next_token')
+  CURSOR=$(echo "$RESP" | jq -r '.next_cursor')
 done
 ```
 
-Page size is 1–100 (default 50). Events past the 30-day retention boundary are not returned; querying their id directly returns **410 Gone**.
+Page size (`limit`) is 1–200 (default 50). Events past the 30-day retention boundary are not returned; querying their id directly returns **410 Gone**.
 
 ## Reconciliation pattern
 
@@ -101,10 +97,9 @@ If your webhook receiver went down for an hour, the steps to reconcile are:
 ```python
 # Pseudocode for the reconciliation flow.
 processed = set(load_processed_event_ids_from_my_db())
-res = client.api.list_events(since=outage_start, until=outage_end)
-for e in res.events:
+for e in client.events.list(since=outage_start, until=outage_end):
     if e.id not in processed:
-        client.api.redeliver_event(e.id, webhook_id="wh_my_handler")
+        client.events.redeliver(e.id, webhook_id="wh_my_handler")
 ```
 
 ## Replay
@@ -145,5 +140,5 @@ Replay requires the source event to still exist. If you need a longer reconcilia
 
 ## See also
 
-- [Webhooks overview](webhooks.md) — subscriber model, signing, retry policy.
+- [API reference — Webhooks](api.md#webhook-signing-secrets) — subscriber model, signing, retry policy.
 - [Design: Stripe-tier webhooks](design/2026-06-01-stripe-tier-webhooks.md) — full rationale for the outbox + event log architecture.

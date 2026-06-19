@@ -2,7 +2,7 @@
 
 [Codex CLI](https://github.com/openai/codex) is OpenAI's terminal coding agent (peer to Claude Code). It speaks MCP natively — you declare servers in `~/.codex/config.toml` and Codex connects to them at session start, then surfaces their tools to whatever model you're running.
 
-Unlike the [LangChain](../langchain/), [Google ADK](../adk/), and [OpenAI Agents SDK](../openai-agents/) examples — which are Python scripts you run — Codex is itself the agent. The "example" here is the TOML you paste into your Codex config to add e2a's 18 MCP tools.
+Unlike the [LangChain](../langchain/), [Google ADK](../adk/), and [OpenAI Agents SDK](../openai-agents/) examples — which are Python scripts you run — Codex is itself the agent. The "example" here is the TOML you paste into your Codex config to add e2a's 33 MCP tools.
 
 Two transport options, both first-class in Codex:
 

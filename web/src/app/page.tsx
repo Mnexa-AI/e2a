@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useAuth } from "./components/AuthProvider";
 import { Eyebrow } from "./components/loft/Eyebrow";
-import { SITE_URL, AGENTS_DOMAIN } from "../lib/site";
+import { AGENTS_DOMAIN } from "../lib/site";
 
 type Tab = "cli" | "claude" | "python" | "webhook";
 
@@ -556,31 +556,38 @@ export default function Home() {
             {activeTab === "python" && (
               <>
                 <Line>
-                  <Tok c="keyword">from</Tok> e2a.v1 <Tok c="keyword">import</Tok> AsyncE2AClient
+                  <Tok c="keyword">from</Tok> e2a.v1 <Tok c="keyword">import</Tok> E2AClient
                 </Line>
                 <Line>&nbsp;</Line>
+                <Line c="comment"># conversation_id threads multi-turn replies</Line>
                 <Line>
-                  client = <Tok c="fn">AsyncE2AClient</Tok>(api_key=<Tok c="string">&quot;e2a_…&quot;</Tok>)
-                </Line>
-                <Line>&nbsp;</Line>
-                <Line c="comment"># sender identity verified; conversation_id threads multi-turn replies</Line>
-                <Line>
-                  <Tok c="keyword">async for</Tok> msg <Tok c="keyword">in</Tok> client.<Tok c="fn">listen</Tok>(<Tok c="string">{`"my-agent@${exampleAgentDomain}"`}</Tok>):
+                  <Tok c="keyword">async with</Tok> <Tok c="fn">E2AClient</Tok>(api_key=<Tok c="string">&quot;e2a_…&quot;</Tok>) <Tok c="keyword">as</Tok> client:
                 </Line>
                 <Line>
-                  &nbsp;&nbsp;<Tok c="fn">print</Tok>(msg.is_verified, msg.subject, msg.conversation_id)
+                  &nbsp;&nbsp;<Tok c="keyword">async for</Tok> n <Tok c="keyword">in</Tok> client.<Tok c="fn">listen</Tok>(<Tok c="string">{`"my-agent@${exampleAgentDomain}"`}</Tok>):
                 </Line>
                 <Line>
-                  &nbsp;&nbsp;<Tok c="keyword">await</Tok> msg.<Tok c="fn">reply</Tok>(<Tok c="string">&quot;Got it, on it.&quot;</Tok>, conversation_id=msg.conversation_id)
+                  &nbsp;&nbsp;&nbsp;&nbsp;msg = <Tok c="keyword">await</Tok> client.messages.<Tok c="fn">get</Tok>(n.recipient, n.message_id)
+                </Line>
+                <Line>
+                  &nbsp;&nbsp;&nbsp;&nbsp;<Tok c="fn">print</Tok>(msg.subject, n.conversation_id)
+                </Line>
+                <Line>
+                  &nbsp;&nbsp;&nbsp;&nbsp;<Tok c="keyword">await</Tok> client.messages.<Tok c="fn">reply</Tok>(n.recipient, n.message_id, {`{`}<Tok c="string">&quot;body&quot;</Tok>: <Tok c="string">&quot;Got it, on it.&quot;</Tok>{`}`})
                 </Line>
               </>
             )}
             {activeTab === "webhook" && (
               <>
-                <Line c="comment"># register a cloud agent with a webhook URL</Line>
-                <Line>curl -X POST {SITE_URL}/v1/agents \</Line>
+                <Line c="comment"># 1. create the agent</Line>
+                <Line>curl -X POST https://api.e2a.dev/v1/agents \</Line>
                 <Line>&nbsp;&nbsp;-H <Tok c="string">{`"Authorization: Bearer $E2A_API_KEY"`}</Tok> \</Line>
-                <Line>&nbsp;&nbsp;-d <Tok c="string">{`'{"slug":"my-agent","webhook_url":"https://your-app.com/inbox"}'`}</Tok></Line>
+                <Line>&nbsp;&nbsp;-d <Tok c="string">{`'{"slug":"my-agent"}'`}</Tok></Line>
+                <Line>&nbsp;</Line>
+                <Line c="comment"># 2. subscribe a webhook to receive inbound mail</Line>
+                <Line>curl -X POST https://api.e2a.dev/v1/webhooks \</Line>
+                <Line>&nbsp;&nbsp;-H <Tok c="string">{`"Authorization: Bearer $E2A_API_KEY"`}</Tok> \</Line>
+                <Line>&nbsp;&nbsp;-d <Tok c="string">{`'{"url":"https://your-app.com/inbox","events":["email.received"]}'`}</Tok></Line>
                 <Line>&nbsp;</Line>
                 <Line c="comment"># e2a POSTs verified payloads to your endpoint with HMAC signature</Line>
               </>

@@ -1,5 +1,41 @@
 # Changelog
 
+## 3.0.0
+
+Breaking redesign. The SDK is now a namespaced, **async-only** `E2AClient`
+wrapping a generated client over the agent-scoped `/v1` API surface, with a
+typed error hierarchy, automatic retries + idempotency, and async
+auto-pagination.
+
+### Changed
+- **Namespaced, async-only surface.** Resources are grouped under the client:
+  `client.agents`, `client.messages`, `client.conversations`, `client.domains`,
+  `client.events`, `client.webhooks`, `client.account`. Per-agent methods take
+  the agent `address` as the first argument
+  (`await client.messages.send(address, {...})`,
+  `await client.messages.list(address).to_list(limit=...)`,
+  `await client.messages.get(address, id)`,
+  `await client.messages.reply(address, id, {...})`). Use the client as an async
+  context manager (`async with E2AClient() as client:`).
+- **Webhook verification.** Verify and decode a delivery with the standalone
+  `construct_event(raw_body, signature_header, secret)`, which checks the
+  `X-E2A-Signature` header and returns a typed event (raising
+  `E2AWebhookSignatureError` on a bad signature). Per-webhook `whsec_…` secrets,
+  Stripe-style.
+- **Typed errors.** Failures raise `E2AError` subclasses (`E2ANotFoundError`,
+  `E2AConflictError`, `E2AValidationError`, `E2ARateLimitError`,
+  `E2AWebhookSignatureError`, …) carrying `.code`, `.status`, `.request_id`, and
+  `.retryable`.
+
+### Removed
+- The flat methods `send` / `reply` / `get_messages` / `get_message` and the
+  per-call `agent_email` inference. Pass the agent `address` explicitly.
+- The lower-level `E2AApi` class.
+- The synchronous client — the SDK is async-only.
+- `InboundEmail` / `AsyncInboundEmail` and the `parse_webhook` / `parse` +
+  `verify_signature()` flow. Replaced by `construct_event`. There is no
+  unverified-email type and no field-access gating.
+
 ## 2.5.0
 
 ### Added

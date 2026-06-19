@@ -4,7 +4,7 @@ You are an agent that wants to use e2a — the authenticated email gateway for A
 
 Two hosts are relevant:
 
-- **API** — `https://e2a.dev` — the resource server you will call (`/api/v1/...`).
+- **API** — `https://e2a.dev` — the resource server you will call (`/v1/...`).
 - **Dashboard** — `https://e2a.dev` — where the user manages agents, domains, API keys, and billing.
 
 ## Current state
@@ -25,7 +25,7 @@ If any of these is already configured, use it and stop. Do not ask the user for 
 
 ## Credentials
 
-e2a accepts two credential shapes at every `/api/v1/...` endpoint, dispatched by token prefix:
+e2a accepts two credential shapes at every `/v1/...` endpoint, dispatched by token prefix:
 
 - **OAuth access token** (`ate2a_…`) — issued by the e2a OAuth server to a registered client after the user consents in a browser. Use this if you are an MCP client.
 - **API key** (`e2a_…`) — issued by the user directly from the dashboard, supplied to your environment out of band. Use this if you are a CLI, script, server-side integration, or direct API consumer.
@@ -42,7 +42,7 @@ If you are an MCP client, you do not need an API key. Run the standard discovery
 4. **Token exchange** — `POST` `code` + `code_verifier` to `token_endpoint`. You receive `access_token` (prefix `ate2a_…`) and `refresh_token`.
 5. **Use** — present the access token as a bearer; refresh with the refresh token before `expires_in`.
 
-Access tokens carry the user identity that consented to your client; every `/api/v1/...` call is scoped to that user.
+Access tokens carry the user identity that consented to your client; every `/v1/...` call is scoped to that user.
 
 ### Path B — Direct API consumer via API key
 
@@ -70,17 +70,16 @@ API keys do not expire on their own. Treat a `401` on a previously-working key a
 
 ### How to use the credential
 
-Whether `access_token` or `api_key`, present it as a bearer token. Example send:
+Whether `access_token` or `api_key`, present it as a bearer token. The message surface is agent-scoped — the sending agent is in the path (URL-encode the `@`), so there is no `from` field in the body. Example send:
 
 ```http
-POST /api/v1/send HTTP/1.1
+POST /v1/agents/bot%40agents.e2a.dev/messages HTTP/1.1
 Host: e2a.dev
 Authorization: Bearer $CREDENTIAL
 Content-Type: application/json
 Idempotency-Key: <UUIDv4>
 
 {
-  "from": "bot@agents.e2a.dev",
   "to": ["alice@example.com"],
   "subject": "Hello from your agent",
   "body": "Plain-text body. Required.",
@@ -92,11 +91,11 @@ The plain-text body field is `body` (required). The HTML alternative is `html_bo
 
 Read the credential from the environment at the moment of the call. Do not copy it into variables you log, do not echo it back to the user, do not include it in commit messages, PR descriptions, error reports, or screenshots. If you are running a shell command, never interpolate the credential inline — reference the environment variable so it does not appear in command history.
 
-Set an `Idempotency-Key` (UUIDv4 recommended) per logical operation on side-effectful calls (`/send`, replies, HITL approve). Reuse the **same** key on transport retries (network failures, timeouts) — the server replays the original response. Same key with a different body returns `422`; a genuinely new operation needs a fresh key.
+Set an `Idempotency-Key` (UUIDv4 recommended) per logical operation on side-effectful calls (sends, replies, HITL approve). Reuse the **same** key on transport retries (network failures, timeouts) — the server replays the original response. Same key with a different body returns `422`; a genuinely new operation needs a fresh key.
 
 ### HITL: handling 202 pending_approval
 
-If the agent owner has enabled human-in-the-loop review, `/api/v1/send` (and `/reply`) will return **`202 Accepted`** with `status: "pending_approval"` instead of dispatching the message:
+If the agent owner has enabled human-in-the-loop review, a send (and `reply`/`forward`) will return **`202 Accepted`** with `status: "pending_approval"` instead of dispatching the message:
 
 ```json
 {
@@ -106,19 +105,19 @@ If the agent owner has enabled human-in-the-loop review, `/api/v1/send` (and `/r
 }
 ```
 
-The message is held until a human approves it via the dashboard, CLI, or magic link, or until `approval_expires_at` fires the configured expiration action. Do not retry the send — that would queue a duplicate. To learn the outcome, poll `GET /api/v1/messages/{id}` (status transitions to `sent`, `rejected`, or `expired`), or surface the situation to the calling user and stop.
+The message is held until a human approves it via the dashboard, CLI, or magic link, or until `approval_expires_at` fires the configured expiration action. Do not retry the send — that would queue a duplicate. To learn the outcome, poll `GET /v1/agents/{address}/messages/{id}` (status transitions to `sent`, `rejected`, or `expired`), or surface the situation to the calling user and stop.
 
 ### Errors
 
 | Status | Where | Meaning | What to do |
 | --- | --- | --- | --- |
-| `400` | `/send`, `/reply` | Missing `subject` or `body`; malformed recipient; CRLF in subject. | Fix the payload before retrying. |
+| `400` | send, reply | Missing `subject` or `body`; malformed recipient; CRLF in subject. | Fix the payload before retrying. |
 | `401` first use | any | Credential missing, malformed, revoked, or for a different environment. | Ask the user to confirm the value in their `E2A_API_KEY` / config is current and active in the dashboard. MCP clients should restart at discovery. |
 | `401` on previously-working credential | any | Revoked or rotated. | Drop the cached value. API-key consumers re-read from the same source you loaded it from. MCP clients refresh, then re-run the authorization-code flow if refresh fails. |
-| `403` | `/send`, `/reply` | Agent's sending domain is not verified. | Ask the user to register and verify the domain in the dashboard (`POST /api/v1/domains` then `POST /api/v1/domains/{domain}/verify`). |
-| `409` | `/send`, `/reply`, `/messages/{id}/approve` | An in-flight request with this `Idempotency-Key` is still being processed, or the message is no longer in the expected state. | Wait and re-poll `GET /api/v1/messages/{id}`. |
-| `422` | `/send`, `/reply` | `Idempotency-Key` reused with a different body. | Mint a fresh key for the new payload. |
-| `429` | any | Rate limited (60 sends/agent/minute on `/send`; 200 agent registrations/IP/hour on `/agents`). | Back off; honor `Retry-After` (delay-seconds form). |
+| `403` | send, reply | Agent's sending domain is not verified. | Ask the user to register and verify the domain in the dashboard (`POST /v1/domains` then `POST /v1/domains/{domain}/verify`). |
+| `409` | send, reply, approve | An in-flight request with this `Idempotency-Key` is still being processed, or the message is no longer in the expected state. | Wait and re-poll `GET /v1/agents/{address}/messages/{id}`. |
+| `422` | send, reply | `Idempotency-Key` reused with a different body. | Mint a fresh key for the new payload. |
+| `429` | any | Rate limited (60 sends/agent/minute; 200 agent registrations/IP/hour on `/v1/agents`). | Back off; honor `Retry-After` (delay-seconds form). |
 
 The `WWW-Authenticate` header on 401 responses tells you whether the failing credential was an OAuth token (carries RFC 6750 §3.1 `error="invalid_token"` params) or an API key (bare `Bearer realm="e2a"`). MCP clients should branch on this.
 
@@ -160,7 +159,7 @@ No code reading, no copy-paste, no transcript leakage. This is uniquely possible
 What e2a publishes today:
 
 - **RFC 8414 authorization-server metadata** at [`https://e2a.dev/.well-known/oauth-authorization-server`](https://e2a.dev/.well-known/oauth-authorization-server) — advertises `authorization_endpoint`, `token_endpoint`, `registration_endpoint`, `revocation_endpoint`, supported grants (`authorization_code`, `refresh_token`), PKCE (`S256`), scopes (`agent`, `account`), and the RFC 9207 `iss` parameter.
-- **RFC 6750 Bearer challenges** on every 401 from `/api/v1/...` — `WWW-Authenticate: Bearer realm="e2a"` for unknown/missing credentials, plus RFC 6750 §3.1 error params for OAuth-bearer failures.
+- **RFC 6750 Bearer challenges** on every 401 from `/v1/...` — `WWW-Authenticate: Bearer realm="e2a"` for unknown/missing credentials, plus RFC 6750 §3.1 error params for OAuth-bearer failures.
 
 What's missing for full auth.md compliance:
 

@@ -146,6 +146,69 @@ e2a send --to alice@example.com --subject "Hello" --body "Hi Alice!"
 e2a send --to alice@example.com --subject "Hello" --body "..." --agent bot@agents.e2a.dev
 ```
 
+### `e2a forward <message-id>`
+
+Forward an inbound message to another address, preserving the original content.
+
+```bash
+e2a forward msg_abc123 --to alice@example.com
+e2a forward msg_abc123 --to alice@example.com --cc bob@example.com --body "FYI"
+```
+
+### `e2a labels <message-id>`
+
+Add or remove labels on a message.
+
+```bash
+e2a labels msg_abc123 --add important --add follow-up
+e2a labels msg_abc123 --remove follow-up
+```
+
+### `e2a pending`
+
+Manage outbound mail held for human approval (HITL).
+
+```bash
+e2a pending list                      # List pending messages
+e2a pending show <message-id>         # Show a held draft in full
+e2a pending approve <message-id>      # Send a held message (use --edit to revise first)
+e2a pending reject <message-id> --reason "..."  # Discard a held message
+```
+
+### `e2a conversations`
+
+List and inspect conversation threads.
+
+```bash
+e2a conversations list                # List conversations
+e2a conversations show <conversation-id>  # Show messages in a thread
+```
+
+### `e2a events`
+
+Inspect and redeliver webhook events.
+
+```bash
+e2a events list                       # List recent events
+e2a events get <event-id>             # Show one event
+e2a events redeliver <event-id>       # Re-send a webhook event
+```
+
+### `e2a webhooks`
+
+Manage webhook subscriptions.
+
+```bash
+e2a webhooks list                     # List webhook subscriptions
+e2a webhooks create --url <url> --events <event> [--events <event> ...]
+e2a webhooks get <id>                 # Show one subscription
+e2a webhooks update <id> [--url ...] [--events ...] [--enable|--disable]
+e2a webhooks delete <id>              # Remove a subscription
+e2a webhooks rotate-secret <id>       # Rotate the signing secret
+e2a webhooks test <id> [--event <event>]  # Send a test delivery
+e2a webhooks deliveries <id> [--limit N] [--status pending|delivered|failed]
+```
+
 ### `e2a domains list`
 
 List your custom domains and their verification status.
@@ -211,7 +274,7 @@ Config is stored in `~/.e2a/config.json` as JSON. Environment variables override
 The `listen` command connects to e2a's WebSocket endpoint:
 
 ```
-wss://e2a.dev/api/v1/agents/{email}/ws?token={api_key}
+wss://e2a.dev/v1/agents/{email}/ws?token={api_key}
 ```
 
 The server sends lightweight JSON notifications (message_id, from, subject, received_at) when emails arrive. The CLI fetches full message content via the REST API as needed (`--json` and `--forward` modes). This keeps the WebSocket connection fast and avoids large attachments blocking notifications.

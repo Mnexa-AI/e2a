@@ -2,9 +2,9 @@
 
 All endpoints are under `/v1` unless noted. Auth is `Authorization: Bearer <api_key>` except where called out. Path parameters containing `@` (agent emails) must be URL-encoded.
 
-> **Note:** the canonical, authoritative `/v1` surface is the generated OpenAPI spec at [`api/openapi.yaml`](../api/openapi.yaml). This hand-written overview predates the v1 redesign and still lists some pre-redesign flat paths (e.g. `/send`, `/messages/{id}`) that are now agent-scoped (`/v1/agents/{address}/messages…`); a full rewrite is tracked separately. Use the OpenAPI spec when in doubt.
+> **Note:** the canonical, authoritative `/v1` surface is the generated OpenAPI spec at [`api/openapi.yaml`](../api/openapi.yaml). This hand-written overview is a convenience summary; if anything here disagrees with the spec, the spec wins.
 
-For the machine-readable spec, see [`web/public/openapi.yaml`](../web/public/openapi.yaml).
+For the machine-readable spec, see [`api/openapi.yaml`](../api/openapi.yaml).
 
 ## Domains
 
@@ -19,37 +19,33 @@ For the machine-readable spec, see [`web/public/openapi.yaml`](../web/public/ope
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/agents` | Register an agent. Use `email` for a custom domain (must be verified) or `slug` for a shared-domain registration (only when the deployment has `shared_domain` configured) |
+| `POST` | `/agents` | Register an agent. Body `{email \| slug, name?}` — use `email` for a custom domain (must be verified) or `slug` for a shared-domain registration (only when the deployment has `shared_domain` configured) |
 | `GET` | `/agents` | List agents owned by the authenticated user |
-| `GET` | `/agents/{email}` | Get agent details |
-| `PUT` | `/agents/{email}` | Update agent (webhook URL, mode, HITL settings) |
-| `DELETE` | `/agents/{email}` | Delete an agent |
-| `POST` | `/agents/{email}/test` | Send a test email through the agent |
+| `GET` | `/agents/{address}` | Get agent details |
+| `PATCH` | `/agents/{address}` | Update an agent's HITL settings |
+| `DELETE` | `/agents/{address}` | Delete an agent |
+| `POST` | `/agents/{address}/test` | Send a test email to the agent's own address |
 
-## Messages — inbound (per-agent)
+## Messages (per-agent)
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/agents/{email}/messages` | List inbound messages for the agent |
-| `GET` | `/agents/{email}/messages/{id}` | Fetch a single inbound message. Side effect: any `unread` row flips to `read` on read, regardless of agent mode. |
-| `POST` | `/agents/{email}/messages/{id}/reply` | Reply to an inbound message |
-
-## Messages — outbound / HITL
+The message surface is agent-scoped: every message endpoint hangs off `/agents/{address}/messages`. Sending is `POST` to the collection (the agent in the path is the sender — there is no `from` field); `reply`, `forward`, `approve`, and `reject` are sub-resources of a single message.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/send` | Send an email (held with `202 Accepted` if HITL enabled on the agent) |
-| `GET` | `/messages` | List outbound messages owned by the user. Only `status=pending_approval` is accepted (the default); any other value returns `400`. |
-| `GET` | `/messages/{id}` | Get a single outbound message |
-| `POST` | `/messages/{id}/approve` | Approve a `pending_approval` message |
-| `POST` | `/messages/{id}/reject` | Reject a `pending_approval` message |
+| `GET` | `/agents/{address}/messages` | List the agent's messages (inbound + outbound). Filters: `direction`, `status`, `cursor`, `limit` (max 200, default 50). Returns `{items, next_cursor}`. Held outbound drafts appear as `status=pending_approval`. |
+| `POST` | `/agents/{address}/messages` | Send a new email from the agent (a new thread). Body `{to, subject, body, html_body?, cc?, bcc?}` — no `from`. Held with `202 Accepted` if HITL is enabled on the agent. |
+| `GET` | `/agents/{address}/messages/{id}` | Fetch a single message (inbound or outbound). Side effect: any `unread` inbound row flips to `read` on read, regardless of agent mode. |
+| `POST` | `/agents/{address}/messages/{id}/reply` | Reply to an inbound message |
+| `POST` | `/agents/{address}/messages/{id}/forward` | Forward a message to new recipients |
+| `POST` | `/agents/{address}/messages/{id}/approve` | Approve a `pending_approval` message |
+| `POST` | `/agents/{address}/messages/{id}/reject` | Reject a `pending_approval` message |
 
-## User (data rights)
+## Account (data rights)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/users/me/export` | Returns a JSON dump of the authenticated user's profile, agents, domains, API key metadata, messages, and usage events. Right-of-access export (GDPR Art. 15 / CCPA equivalent). |
-| `DELETE` | `/users/me?confirm=DELETE` | Permanently deletes the authenticated user and all associated data in one Postgres transaction. Right-of-deletion (GDPR Art. 17 / CCPA "Do Not Sell or Share"). Requires `confirm=DELETE` query parameter as a guardrail; returns per-table row counts so the caller can audit the cascade. |
+| `GET` | `/account/export` | Returns a JSON dump of the authenticated account's profile, agents, domains, API key metadata, messages, and usage events. Right-of-access export (GDPR Art. 15 / CCPA equivalent). |
+| `DELETE` | `/account?confirm=DELETE` | Permanently deletes the authenticated account and all associated data in one Postgres transaction. Right-of-deletion (GDPR Art. 17 / CCPA "Do Not Sell or Share"). Requires `confirm=DELETE` query parameter as a guardrail; returns per-table row counts so the caller can audit the cascade. |
 
 Both endpoints require a valid API key or session. The export omits internal identifiers (Google subject, API key hashes, session tokens) — see [data-handling.md](data-handling.md) for the full data model.
 
@@ -65,18 +61,18 @@ The SDKs read the secret from `E2A_WEBHOOK_SECRET` by default (with `E2A_HMAC_SE
 
 ## HITL magic links
 
-These endpoints accept a signed `token` query parameter (from notification emails) instead of an API key, so reviewers can approve from any mail client without auth.
+These endpoints accept a signed `t` query parameter (from notification emails) instead of an API key, so reviewers can approve from any mail client without auth.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET`/`POST` | `/approve?token=…` | Approve a pending message via signed token |
-| `GET`/`POST` | `/reject?token=…` | Reject a pending message via signed token |
+| `GET`/`POST` | `/approve?t=…` | Approve a pending message via signed token |
+| `GET`/`POST` | `/reject?t=…` | Reject a pending message via signed token |
 
 ## Real-time delivery
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/agents/{email}/ws?token={api_key}` | WebSocket for local-mode agents. Auth via query param (WebSocket clients can't set headers during upgrade). |
+| `GET` | `/agents/{address}/ws?token={api_key}` | WebSocket for local-mode agents. Auth via query param (WebSocket clients can't set headers during upgrade). |
 
 The server pushes lightweight JSON notifications (metadata only):
 
@@ -91,7 +87,7 @@ The server pushes lightweight JSON notifications (metadata only):
 }
 ```
 
-Fetch full content via `GET /agents/{email}/messages/{id}`. The full payload includes the parsed `to` (list), `cc` (list), and `reply_to` (list) headers from the original message; the lightweight notification omits them since the agent fetches the body anyway. `reply_to` is the addresses the sender wants replies sent to — useful when `from` is a no-reply notifications mailbox; empty list when the header was absent (the server never silently falls back to `from`). On connect, all unread messages are drained as notifications automatically.
+Fetch full content via `GET /agents/{address}/messages/{id}`. The full payload includes the parsed `to` (list), `cc` (list), and `reply_to` (list) headers from the original message; the lightweight notification omits them since the agent fetches the body anyway. `reply_to` is the addresses the sender wants replies sent to — useful when `from` is a no-reply notifications mailbox; empty list when the header was absent (the server never silently falls back to `from`). On connect, all unread messages are drained as notifications automatically.
 
 ## Other
 
