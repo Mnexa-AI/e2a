@@ -1,8 +1,17 @@
 # Stripe-tier webhook system for e2a
 
-**Status:** Draft — awaiting review
+**Status:** Partially superseded by the `/v1` redesign (2026-06-01 design).
 **Date:** 2026-06-01
 **Builds on:** PR #180 (`feat/webhooks-resource`), now merged with the four blocker fixes.
+
+> **⚠️ Predates the `/v1` redesign.** The outbox *architecture* (§4.1–4.5) is the
+> shipped mechanism, but the API-surface details here are stale: endpoints are
+> `/v1/events`·`/v1/webhooks` (not `/api/v1/...`); pagination is `cursor`/`limit`/
+> `next_cursor` (not `page_size`/`token`); errors use the JSON envelope
+> `{error:{code,message,details,request_id}}` (not plain-text bodies); the bulk
+> `redeliver-since` endpoint (§4.6) was **dropped** (only per-event
+> `POST /v1/events/{id}/redeliver` ships); and `WEBHOOKS_OUTBOX_ENABLED` is now
+> permanently on. The `email.rejected` event name shipped as written.
 
 ---
 

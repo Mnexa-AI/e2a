@@ -1,8 +1,13 @@
 # Outbound `/v1` — `deliverOutbound` extraction plan
 
+> **✅ Shipped — historical plan.** The `DeliverOutbound` core extraction landed,
+> and `send` ships nested at `POST /v1/agents/{address}/messages` (the unified
+> shape this doc framed as "Slice 2"). Kept as the original extraction plan; see
+> api-v1-redesign §9/§11 for the as-built.
+
 | | |
 |---|---|
-| **Status** | Planned (gated on focused execution) |
+| **Status** | Done (shipped 2026-06) |
 | **Part of** | Slice 1 (api-v1-redesign), PR #208 |
 | **Risk** | HIGH — live email/SES (money), HITL owner-notification, idempotency |
 

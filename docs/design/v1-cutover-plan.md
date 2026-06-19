@@ -1,8 +1,13 @@
 # Slice 1 — `/v1` cutover plan (finish Slice 1)
 
+> **✅ Shipped — historical plan.** Every phase below completed: the `/v1`
+> cutover, legacy `/api/v1` removal, and SDK 3.0 consumer port all landed. See
+> `api-v1-redesign.md` §11 (as-built) + §13 (legacy retire) for the shipped
+> state; this file is kept as the original execution plan.
+
 | | |
 |---|---|
-| **Status** | Planned |
+| **Status** | Done (shipped 2026-06) — superseded by api-v1-redesign §11/§13 |
 | **Depends on** | PR #208 (the additive `/v1` surface) |
 | **Branch** | `feat/api-v1-cutover` (stacked on `feat/api-v1-slice1-contract`) |
 | **Breaking** | YES — removes legacy `/api/v1`, breaks the internal AgentDrive consumer |

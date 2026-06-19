@@ -2,11 +2,30 @@
 
 | | |
 |---|---|
-| **Status** | Proposed |
-| **Date** | 2026-06-13 |
+| **Status** | Implemented & shipped (2026-06). Legacy `/api/v1` retired (§13). |
+| **Date** | 2026-06-13 (design) · 2026-06 (as-built §11/§13) |
 | **Audience** | e2a maintainers; SDK + MCP authors; downstream agent developers |
 | **Role** | Reshape the existing `/api/v1` surface into one clean, consistent, agent-first contract — with the OpenAPI spec as the single source of truth that the MCP server, SDKs, and docs are generated from and drift-tested against. |
-| **Related** | `docs/api.md` (current REST surface) · `docs/events.md` (webhook events) · PR #206 (MCP↔API drift) |
+| **Related** | `docs/api.md` (REST surface) · `docs/events.md` (webhook events) · PR #206 (MCP↔API drift) |
+
+> **⚠️ As-built note (read first).** This document was written across the
+> redesign; §1–§12 capture the design *as it evolved* and contain interim
+> "strangler residue / deferred / remains on legacy `/api/v1`" language that the
+> final implementation **superseded**. For the shipped state, **§13 and
+> `api/openapi.yaml` are authoritative.** Since those earlier sections were
+> written: the legacy `/api/v1` surface was **fully retired**; the HITL
+> magic-link pages moved to **`/v1/approve`·`/v1/reject`**; the account-wide
+> `pending` list, the flat `GET /messages/{id}`, and the per-user signing-secrets
+> management API were **dropped**; `send` ships **nested** at
+> `POST /v1/agents/{address}/messages` (no top-level `/v1/send`); HITL ships as
+> the two routes **`…/approve` + `…/reject`** (not a single `approval`
+> sub-resource); and decisions 4/9/10 **shipped**. **Still pending:** the MCP
+> tool-surface re-curation to the §6a target (the SDK *transport* was repointed
+> onto `/v1`, but the tool names/args in `mcp/src/tools/` remain the pre-redesign
+> set — tracked as a separate round) and F4 (uniform `AutoPager` —
+> `conversations.list` still returns a plain array). The event name
+> `email.rejected` shipped as-is (decision 9's `email.approval_rejected` rename
+> did not land).
 
 ## 1. Problem statement
 
@@ -282,9 +301,10 @@ relative to that base):
    GET** — email scanners/link-prefetchers would auto-approve/reject. Short-TTL
    capability; **single-use is enforced by the state machine** (the message
    leaves `pending_approval` on the first decision; a second 409s), not by the
-   token. **Status: the nested `approve`/`reject` ship on `/v1` today; the
-   magic-link pages + the account-wide `pending` list remain on legacy `/api/v1`
-   pending a separate port (they are human-facing HTML / a list, not agent JSON).**
+   token. **Status (as-built, §13): the nested `approve`/`reject` ship on `/v1`;
+   the magic-link pages moved to `/v1/approve`·`/v1/reject` (token-gated HTML);
+   the account-wide `pending` list was dropped — clients compose it from
+   `GET /v1/agents` + per-agent message lists.**
 6. **One error envelope** (audit current handlers and standardize):
    `{ "error": { "code": "MACHINE_BRANCHABLE", "message": "human text",
    "details": {…} } }`, with stable `code` values documented in the spec.
@@ -1117,10 +1137,10 @@ Applying 1 + 6: a runtime agent sees ~13 tools; the full self-host surface 31.
 | `POST /send` | **move** | `POST /agents/{address}/messages` (new-thread case — nest under the agent) |
 | `POST /agents/{e}/messages/{id}/reply` | **keep (re-place)** | `POST /agents/{address}/messages/{id}/reply` — explicit reply op (target in path), not folded into the send body |
 | `POST /agents/{e}/messages/{id}/forward` | **keep (re-place)** | `POST /agents/{address}/messages/{id}/forward` — explicit forward op (target in path) |
-| `GET /messages/{id}` (flat) | **remove (deferred → Slice 4b)** | use `GET /agents/{address}/messages/{id}`. Held drafts store the body as `body_text`/`body_html` columns (mutable, reviewable, scrubbed on terminal transition), while sent/inbound carry `raw_message` — so the unified read must expose BOTH representations. That message-read shape is decision 9 / Slice 4b territory (the parsed view); removing the flat path before then would design the shape twice. Until 4b, the flat `/api/v1/messages/{id}` stays as strangler residue. |
+| `GET /messages/{id}` (flat) | **removed (Slice 8e)** ✅ | use `GET /agents/{address}/messages/{id}`. Held drafts store the body as `body_text`/`body_html` columns (mutable, reviewable, scrubbed on terminal transition), while sent/inbound carry `raw_message`, so the unified read exposes BOTH (the parsed view, Slice 4b-3). The flat `/api/v1/messages/{id}` was deleted in 8e once 4b-3 shipped the read shape. |
 | host + prefix `…/api/v1/*` | **move** | dedicated host `api.e2a.dev`, prefix `/v1` (base `https://api.e2a.dev/v1`) |
-| `GET/POST /approve`, `/reject`, `/pending` | **collapse** | `POST …/messages/{id}/approval` + magic-link GET alias |
-| `POST …/messages/{id}/approve|reject` | **collapse** | same `approval` sub-resource |
+| `GET/POST /approve`, `/reject`, `/pending` | **shipped (Slice 8e)** ✅ | the JSON HITL decision is two agent-scoped routes `…/messages/{id}/approve` + `…/reject` (NOT the single `approval` sub-resource this row originally proposed); the human magic-link moved to `/v1/approve`·`/v1/reject`; `/pending` was dropped (compose from per-agent lists). |
+| `POST …/messages/{id}/approve|reject` | **shipped as two routes** ✅ | `…/approve` + `…/reject` (`approveMessage`/`rejectMessage`). |
 | `GET /users/me/limits` | **rename** | `GET /account` (identity + plan + limits + usage) |
 | `GET /info` | **keep** | stays a separate **public** deployment-discovery endpoint — NOT folded into `/account` |
 | `/users/me/*` | **rename** | `/account/*` (`/account/export`, `DELETE /account`) |
@@ -1597,6 +1617,14 @@ exact backoff schedule + signature-rotation grace window for webhooks.
 
 ## 11. Cutover — as built (2026-06)
 
+> **⚠️ Snapshot of the `feat/api-v1-cutover` branch (≈ Slice 1), superseded by
+> §13.** Everything this section lists as "NOT fully built yet" / "unbuilt" /
+> "target spec, not shipped" subsequently **shipped**: `send` is now nested at
+> `POST /v1/agents/{address}/messages` (no top-level `/v1/send`), HITL ships as
+> `…/approve` + `…/reject`, and decisions 4/9/10 (sender identity, delivery
+> feedback + structured inbound `auth`, inbound policy) landed. Read the rest of
+> §11 as historical record; §13 + `api/openapi.yaml` are the as-built truth.
+
 Reconciles this design to what shipped on the `feat/api-v1-cutover` branch.
 
 **Scope, stated plainly:** the shipped `/v1` is the **contract + host/strangler
@@ -1853,9 +1881,19 @@ policy).
 
 ## 13. Slice 8e — retire the legacy `/api/v1` surface + flatten the SDK `oag/` subpath (2026-06)
 
-With every consumer (web, CLI, MCP, both SDKs) cut over to `/v1`, the legacy
-`gorilla/mux` `/api/v1` strangler residue was deleted and the generated SDK base
-was un-nested. Done as one PR.
+With every consumer (web, CLI, MCP, both SDKs) cut over to `/v1` at the
+**transport** layer (the cli + MCP server were repointed onto the 3.0 SDK in
+#232), the legacy `gorilla/mux` `/api/v1` strangler residue was deleted and the
+generated SDK base was un-nested. Done as one PR.
+
+> **Note — MCP *tool surface* re-curation still pending.** "MCP cut over" above
+> means the MCP server now calls `/v1` via the 3.0 SDK. The MCP **tool catalogue**
+> (`mcp/src/tools/`) has NOT yet been re-curated to the §6a target: it still ships
+> the pre-redesign tool names/args (`send_email`, `list_pending_messages`,
+> `approve_pending_message`, `create_agent` with `slug`/`agent_mode`/`webhook_url`,
+> `E2A_AGENT_EMAIL` auto-resolve), some of which send fields the Slice-3 backend
+> already dropped (migration 029). Re-curating the tool interface to §6a is a
+> tracked separate round.
 
 ### 13.1 Server — legacy `/api/v1` deleted
 The chi root is the process handler; Huma `/v1` operations are mounted on it and
