@@ -4,7 +4,10 @@
   "private": true,
   "license": "Apache-2.0",
   "scripts": {
+    "sync-openapi": "cp ../api/openapi.yaml public/openapi.yaml",
+    "predev": "npm run sync-openapi",
     "dev": "next dev",
+    "prebuild": "npm run sync-openapi",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

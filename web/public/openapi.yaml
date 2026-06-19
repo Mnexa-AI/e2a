@@ -1,3307 +1,3092 @@
-basePath: /
-definitions:
-  APIKeyExportEntry:
-    properties:
-      created_at:
-        type: string
-      id:
-        type: string
-      key_prefix:
-        type: string
-      last_used_at:
-        type: string
-      name:
-        type: string
-      revoked_at:
-        type: string
-    type: object
-  Agent:
-    properties:
-      agent_mode:
-        enum:
-        - cloud
-        - local
-        example: cloud
-        type: string
-      created_at:
-        type: string
-      domain:
-        example: agents.example.com
-        type: string
-      domain_verified:
-        type: boolean
-      email:
-        example: my-bot@example.com
-        type: string
-      hitl_enabled:
-        type: boolean
-      hitl_expiration_action:
-        enum:
-        - approve
-        - reject
-        example: reject
-        type: string
-      hitl_ttl_seconds:
-        example: 604800
-        type: integer
-      id:
-        example: ag_abc123
-        type: string
-      name:
-        example: My Bot
-        type: string
-      webhook_url:
-        type: string
-    type: object
-  ApprovePendingMessageRequest:
-    properties:
-      attachments:
-        items:
-          $ref: '#/definitions/internal_agent.Attachment'
-        type: array
-      bcc:
-        items:
+components:
+  schemas:
+    APIKeyExportEntry:
+      additionalProperties: false
+      properties:
+        created_at:
+          format: date-time
           type: string
-        type: array
-      body_html:
-        type: string
-      body_text:
-        type: string
-      cc:
-        items:
+        id:
           type: string
-        type: array
-      subject:
-        type: string
-      to:
-        items:
+        key_prefix:
           type: string
-        type: array
-    type: object
-  ApprovePendingMessageResponse:
-    properties:
-      edited:
-        type: boolean
-      message_id:
-        type: string
-      method:
-        example: smtp
-        type: string
-      provider_message_id:
-        type: string
-      status:
-        example: sent
-        type: string
-    type: object
-  ConversationDetail:
-    properties:
-      conversation_id:
-        example: conv_abc123
-        type: string
-      first_message_at:
-        example: "2026-05-20T10:00:00Z"
-        type: string
-      has_unread:
-        description: |-
-          HasUnread is true iff at least one INBOUND member of this
-          conversation is in inbox_status='unread'. Outbound rows do
-          NOT contribute — a thread containing only your sent messages
-          (or only HITL-pending outbound) returns false. This is the
-          agent's mailbox view, not the reviewer's HITL queue.
-        example: true
-        type: boolean
-      inbound_count:
-        example: 2
-        type: integer
-      labels:
-        items:
+        last_used_at:
+          format: date-time
           type: string
-        type: array
-      last_message_at:
-        example: "2026-05-28T12:00:00Z"
-        type: string
-      latest_sender:
-        example: alice@example.com
-        type: string
-      latest_subject:
-        example: 'Re: Quarterly report'
-        type: string
-      message_count:
-        example: 4
-        type: integer
-      messages:
-        items:
-          $ref: '#/definitions/MessageSummary'
-        type: array
-      outbound_count:
-        example: 2
-        type: integer
-      participants:
-        items:
+        name:
           type: string
-        type: array
-    type: object
-  ConversationSummary:
-    properties:
-      conversation_id:
-        example: conv_abc123
-        type: string
-      first_message_at:
-        example: "2026-05-20T10:00:00Z"
-        type: string
-      has_unread:
-        description: |-
-          HasUnread is true iff at least one INBOUND member of this
-          conversation is in inbox_status='unread'. Outbound rows do
-          NOT contribute — a thread containing only your sent messages
-          (or only HITL-pending outbound) returns false. This is the
-          agent's mailbox view, not the reviewer's HITL queue.
-        example: true
-        type: boolean
-      inbound_count:
-        example: 2
-        type: integer
-      last_message_at:
-        example: "2026-05-28T12:00:00Z"
-        type: string
-      latest_sender:
-        example: alice@example.com
-        type: string
-      latest_subject:
-        example: 'Re: Quarterly report'
-        type: string
-      message_count:
-        example: 4
-        type: integer
-      outbound_count:
-        example: 2
-        type: integer
-    type: object
-  CreateSigningSecretResponse:
-    properties:
-      created_at:
-        type: string
-      id:
-        type: string
-      name:
-        type: string
-      secret:
-        type: string
-      secret_prefix:
-        type: string
-    type: object
-  CreateWebhookRequest:
-    properties:
-      description:
-        example: main inbox handler
-        type: string
-      events:
-        example:
-        - email.received
-        items:
+        revoked_at:
+          format: date-time
           type: string
-        type: array
-      filters:
-        $ref: '#/definitions/WebhookFilters'
-      url:
-        example: https://example.com/e2a/hook
-        type: string
-    type: object
-  DNSRecord:
-    properties:
-      host:
-        example: '@'
-        type: string
-      priority:
-        example: 10
-        type: integer
-      value:
-        example: mx.example.com
-        type: string
-    type: object
-  DNSRecords:
-    properties:
-      dkim:
-        $ref: '#/definitions/DNSRecord'
-      mx:
-        $ref: '#/definitions/DNSRecord'
-      txt:
-        $ref: '#/definitions/DNSRecord'
-    type: object
-  DeleteUserDataResult:
-    properties:
-      agents_deleted:
-        type: integer
-      api_keys_deleted:
-        type: integer
-      domains_deleted:
-        type: integer
-      messages_deleted:
-        type: integer
-      oauth_access_tokens_deleted:
-        type: integer
-      oauth_auth_codes_deleted:
-        type: integer
-      oauth_refresh_tokens_deleted:
-        type: integer
-      sessions_deleted:
-        type: integer
-      usage_events_deleted:
-        type: integer
-      usage_summaries_deleted:
-        type: integer
-      user_deleted:
-        type: boolean
-    type: object
-  DeliveryStatus:
-    properties:
-      delivered:
-        type: integer
-      failed:
-        type: integer
-      matched_webhooks:
-        type: integer
-      pending:
-        type: integer
-    type: object
-  DeploymentInfo:
-    properties:
-      public_url:
-        description: |-
-          PublicURL is the externally visible base URL of the API itself —
-          the same value the operator sets in `http.public_url`. Empty when
-          not configured.
-        example: https://e2a.example.com
-        type: string
-      shared_domain:
-        description: |-
-          SharedDomain is the mail domain backing slug-based agent registration
-          on this deployment (e.g. "agents.example.com"). Empty when the
-          operator hasn't configured one — in that case slug registration is
-          disabled and every agent must use a custom domain.
-        example: agents.example.com
-        type: string
-      slug_registration_enabled:
-        description: |-
-          SlugRegistrationEnabled mirrors `shared_domain != ""` for clients
-          that prefer a boolean. Equivalent to checking SharedDomain directly.
-        example: true
-        type: boolean
-    type: object
-  Domain:
-    properties:
-      agent_count:
-        description: |-
-          AgentCount is populated by list endpoints. Single-domain endpoints
-          (register, verify) leave it zero — the count would require an
-          extra query that callers can derive from the agents list anyway.
-        type: integer
-      created_at:
-        type: string
-      dns_records:
-        $ref: '#/definitions/DNSRecords'
-      domain:
-        example: yourdomain.com
-        type: string
-      is_primary:
-        description: |-
-          IsPrimary marks the user's default domain — at most one per
-          user, enforced server-side via SetDomainPrimary. The redesign's
-          Domains list renders this as a "Primary" chip.
-        type: boolean
-      last_checked_at:
-        description: |-
-          LastCheckedAt is the timestamp of the most recent
-          /api/v1/domains/{domain}/verify probe (success or failure).
-          Distinct from VerifiedAt, which only updates on success.
-        type: string
-      verification_token:
-        example: e2a-verify=abc123
-        type: string
-      verified:
-        type: boolean
-      verified_at:
-        type: string
-    type: object
-  ForwardMessageRequest:
-    properties:
-      attachments:
-        items:
-          $ref: '#/definitions/internal_agent.Attachment'
-        type: array
-      bcc:
-        example:
-        - carol@example.com
-        items:
+      required:
+        - id
+        - name
+        - key_prefix
+        - created_at
+      type: object
+    AgentIdentity:
+      additionalProperties: false
+      properties:
+        created_at:
+          format: date-time
           type: string
-        type: array
-      body:
-        example: FYI — see below
-        type: string
-      cc:
-        example:
-        - bob@example.com
-        items:
+        domain:
           type: string
-        type: array
-      conversation_id:
-        type: string
-      html_body:
-        example: <p>FYI — see below</p>
-        type: string
-      to:
-        example:
-        - alice@example.com
-        items:
+        domain_verified:
+          type: boolean
+        email:
           type: string
-        type: array
-    type: object
-  LimitsCaps:
-    properties:
-      max_agents:
-        type: integer
-      max_domains:
-        type: integer
-      max_messages_month:
-        type: integer
-      max_storage_bytes:
-        type: integer
-    type: object
-  LimitsInfo:
-    properties:
-      limits:
-        $ref: '#/definitions/LimitsCaps'
-      plan_code:
-        type: string
-      upgrade_url:
-        type: string
-      usage:
-        $ref: '#/definitions/LimitsUsage'
-    type: object
-  LimitsUsage:
-    properties:
-      agents:
-        type: integer
-      domains:
-        type: integer
-      messages_month:
-        type: integer
-      storage_bytes:
-        type: integer
-    type: object
-  ListAgentsResponse:
-    properties:
-      agents:
-        items:
-          $ref: '#/definitions/Agent'
-        type: array
-    type: object
-  ListConversationsResponse:
-    properties:
-      conversations:
-        items:
-          $ref: '#/definitions/ConversationSummary'
-        type: array
-    type: object
-  ListDomainsResponse:
-    properties:
-      domains:
-        items:
-          $ref: '#/definitions/Domain'
-        type: array
-    type: object
-  ListEventsResponse:
-    properties:
-      events:
-        items:
-          $ref: '#/definitions/WebhookEvent'
-        type: array
-      next_token:
-        type: string
-    type: object
-  ListMessagesResponse:
-    properties:
-      messages:
-        items:
-          $ref: '#/definitions/MessageSummary'
-        type: array
-      next_token:
-        type: string
-    type: object
-  ListPendingMessagesResponse:
-    properties:
-      messages:
-        items:
-          $ref: '#/definitions/PendingMessageSummary'
-        type: array
-    type: object
-  ListSigningSecretsResponse:
-    properties:
-      secrets:
-        items:
-          $ref: '#/definitions/SigningSecretSummary'
-        type: array
-    type: object
-  ListWebhookDeliveriesResponse:
-    properties:
-      deliveries:
-        items:
-          $ref: '#/definitions/WebhookDeliveryResponse'
-        type: array
-    type: object
-  ListWebhooksResponse:
-    properties:
-      webhooks:
-        items:
-          $ref: '#/definitions/WebhookResponse'
-        type: array
-    type: object
-  MessageDetail:
-    properties:
-      auth_headers:
-        additionalProperties:
+        hitl_enabled:
+          type: boolean
+        hitl_expiration_action:
           type: string
-        type: object
-      cc:
-        items:
+        hitl_mode:
           type: string
-        type: array
-      conversation_id:
-        type: string
-      created_at:
-        type: string
-      from:
-        example: alice@example.com
-        type: string
-      labels:
-        description: |-
-          Labels are caller-applied string tags. See MessageSummary.Labels
-          for the validation rules. Empty array when no labels are set —
-          never null.
-        items:
+        hitl_ttl_seconds:
+          format: int64
+          type: integer
+        id:
           type: string
-        type: array
-      message_id:
-        example: msg_abc123
-        type: string
-      raw_message:
-        type: string
-      recipient:
-        example: my-bot@example.com
-        type: string
-      reply_to:
-        items:
+        inbound_7d:
+          format: int64
+          type: integer
+        inbound_allowlist:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        inbound_policy:
           type: string
-        type: array
-      status:
-        example: read
-        type: string
-      subject:
-        example: Hello
-        type: string
-      to:
-        example:
-        - my-bot@example.com
-        items:
+        last_delivery_at:
+          format: date-time
           type: string
-        type: array
-    type: object
-  MessageSummary:
-    properties:
-      cc:
-        items:
+        name:
           type: string
-        type: array
-      conversation_id:
-        type: string
-      created_at:
-        example: "2025-01-15T10:30:00Z"
-        type: string
-      direction:
-        enum:
-        - inbound
-        - outbound
-        example: inbound
-        type: string
-      from:
-        example: alice@example.com
-        type: string
-      hitl_status:
-        enum:
-        - pending_approval
-        - sent
-        - rejected
-        - expired_approved
-        - expired_rejected
-        example: sent
-        type: string
-      labels:
-        description: |-
-          Labels are caller-applied string tags. Always lowercase, charset
-          `[a-z0-9:_-]+`, ≤ 64 chars each, ≤ 100 per message. The `e2a:`
-          prefix is reserved for server-applied system labels. Empty array
-          when no labels are set — never null.
-        items:
+        outbound_7d:
+          format: int64
+          type: integer
+        pending_count:
+          format: int64
+          type: integer
+        public:
+          type: boolean
+        user_id:
           type: string
-        type: array
-      message_id:
-        example: msg_abc123
-        type: string
-      recipient:
-        example: my-bot@example.com
-        type: string
-      reply_to:
-        items:
+        webhook_healthy:
+          type: boolean
+      required:
+        - id
+        - domain
+        - email
+        - name
+        - domain_verified
+        - public
+        - created_at
+        - user_id
+        - hitl_enabled
+        - hitl_ttl_seconds
+        - hitl_expiration_action
+        - hitl_mode
+        - inbound_7d
+        - outbound_7d
+        - pending_count
+        - webhook_healthy
+        - inbound_policy
+      type: object
+    AgentView:
+      additionalProperties: false
+      properties:
+        created_at:
+          format: date-time
           type: string
-        type: array
-      size_bytes:
-        example: 4231
-        type: integer
-      status:
-        description: |-
-          Status carries the inbound inbox_status value (`unread` | `read`).
-          Empty string for outbound rows — clients filtering on Status must
-          gate on `Direction == "inbound"` first. The enum was removed from
-          the swag annotation deliberately so SDK generators don't emit a
-          `Literal["unread", "read"]` that breaks at runtime.
-        type: string
-      subject:
-        example: Hello
-        type: string
-      to:
-        example:
-        - my-bot@example.com
-        items:
+        domain:
           type: string
-        type: array
-      webhook_error:
-        type: string
-      webhook_status:
-        enum:
-        - pending
+        domain_verified:
+          type: boolean
+        email:
+          type: string
+        hitl_enabled:
+          type: boolean
+        hitl_expiration_action:
+          enum:
+            - approve
+            - reject
+          type: string
+        hitl_mode:
+          enum:
+            - all
+            - high_impact
+          type: string
+        hitl_ttl_seconds:
+          format: int64
+          type: integer
+        id:
+          type: string
+        inbound_allowlist:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        inbound_policy:
+          enum:
+            - open
+            - allowlist
+            - domain
+            - verified_only
+          type: string
+        name:
+          type: string
+      required:
+        - id
+        - domain
+        - email
+        - name
+        - domain_verified
+        - created_at
+        - hitl_enabled
+        - hitl_ttl_seconds
+        - hitl_expiration_action
+        - hitl_mode
+        - inbound_policy
+      type: object
+    ApproveRequest:
+      additionalProperties: false
+      properties:
+        attachments:
+          items:
+            $ref: "#/components/schemas/Attachment"
+          type: array
+        bcc:
+          items:
+            type: string
+          type: array
+        body_html:
+          type: string
+        body_text:
+          type: string
+        cc:
+          items:
+            type: string
+          type: array
+        subject:
+          type: string
+        to:
+          items:
+            type: string
+          type: array
+      type: object
+    ApproveResultView:
+      additionalProperties: false
+      properties:
+        edited:
+          type: boolean
+        message_id:
+          type: string
+        method:
+          type: string
+        provider_message_id:
+          type: string
+        status:
+          type: string
+      required:
+        - status
+        - message_id
+        - edited
+      type: object
+    Attachment:
+      additionalProperties: false
+      properties:
+        content_type:
+          examples:
+            - application/pdf
+          type: string
+        data:
+          examples:
+            - base64-encoded-content
+          type: string
+        filename:
+          examples:
+            - report.pdf
+          type: string
+      required:
+        - filename
+        - content_type
+        - data
+      type: object
+    CheckResult:
+      additionalProperties: false
+      properties:
+        detail:
+          type: string
+        status:
+          type: string
+      required:
+        - status
+      type: object
+    ConversationDetailView:
+      additionalProperties: false
+      properties:
+        conversation_id:
+          type: string
+        first_message_at:
+          type: string
+        has_unread:
+          type: boolean
+        inbound_count:
+          format: int64
+          type: integer
+        labels:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        last_message_at:
+          type: string
+        latest_sender:
+          type: string
+        latest_subject:
+          type: string
+        message_count:
+          format: int64
+          type: integer
+        messages:
+          items:
+            $ref: "#/components/schemas/MessageSummaryView"
+          type:
+            - array
+            - "null"
+        outbound_count:
+          format: int64
+          type: integer
+        participants:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+      required:
+        - participants
+        - labels
+        - messages
+        - conversation_id
+        - last_message_at
+        - first_message_at
+        - message_count
+        - inbound_count
+        - outbound_count
+        - has_unread
+        - latest_subject
+        - latest_sender
+      type: object
+    ConversationSummaryView:
+      additionalProperties: false
+      properties:
+        conversation_id:
+          type: string
+        first_message_at:
+          type: string
+        has_unread:
+          type: boolean
+        inbound_count:
+          format: int64
+          type: integer
+        last_message_at:
+          type: string
+        latest_sender:
+          type: string
+        latest_subject:
+          type: string
+        message_count:
+          format: int64
+          type: integer
+        outbound_count:
+          format: int64
+          type: integer
+      required:
+        - conversation_id
+        - last_message_at
+        - first_message_at
+        - message_count
+        - inbound_count
+        - outbound_count
+        - has_unread
+        - latest_subject
+        - latest_sender
+      type: object
+    CreateAgentRequest:
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+      type: object
+    CreateAgentResponse:
+      additionalProperties: false
+      properties:
+        domain:
+          type: string
+        email:
+          type: string
+        id:
+          type: string
+      required:
+        - id
+        - domain
+        - email
+      type: object
+    CreateWebhookRequest:
+      additionalProperties: false
+      properties:
+        description:
+          type: string
+        events:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        filters:
+          $ref: "#/components/schemas/WebhookFiltersView"
+        url:
+          type: string
+      type: object
+    DNSRecordView:
+      additionalProperties: false
+      properties:
+        host:
+          type: string
+        priority:
+          format: int64
+          type: integer
+        value:
+          type: string
+      required:
+        - host
+        - value
+      type: object
+    DNSRecordsView:
+      additionalProperties: false
+      properties:
+        dkim:
+          $ref: "#/components/schemas/DNSRecordView"
+        mx:
+          $ref: "#/components/schemas/DNSRecordView"
+        txt:
+          $ref: "#/components/schemas/DNSRecordView"
+      required:
+        - mx
+        - txt
+      type: object
+    DeleteAgentOutputBody:
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+      required:
+        - status
+      type: object
+    DeleteUserDataResult:
+      additionalProperties: false
+      properties:
+        agents_deleted:
+          format: int64
+          type: integer
+        api_keys_deleted:
+          format: int64
+          type: integer
+        domains_deleted:
+          format: int64
+          type: integer
+        messages_deleted:
+          format: int64
+          type: integer
+        oauth_access_tokens_deleted:
+          format: int64
+          type: integer
+        oauth_auth_codes_deleted:
+          format: int64
+          type: integer
+        oauth_refresh_tokens_deleted:
+          format: int64
+          type: integer
+        sessions_deleted:
+          format: int64
+          type: integer
+        usage_events_deleted:
+          format: int64
+          type: integer
+        usage_summaries_deleted:
+          format: int64
+          type: integer
+        user_deleted:
+          type: boolean
+      required:
+        - usage_events_deleted
+        - usage_summaries_deleted
+        - messages_deleted
+        - agents_deleted
+        - domains_deleted
+        - api_keys_deleted
+        - sessions_deleted
+        - user_deleted
+      type: object
+    DeliveryStatusJSON:
+      additionalProperties: false
+      properties:
+        delivered:
+          format: int64
+          type: integer
+        failed:
+          format: int64
+          type: integer
+        matched_webhooks:
+          format: int64
+          type: integer
+        pending:
+          format: int64
+          type: integer
+      required:
+        - matched_webhooks
         - delivered
+        - pending
         - failed
-        example: delivered
-        type: string
-    type: object
-  OAuthConnectionEntry:
-    properties:
-      agent_email:
-        type: string
-      client_id:
-        type: string
-      client_name:
-        type: string
-      expires_at:
-        type: string
-      issued_at:
-        type: string
-      revoked_at:
-        type: string
-      scope:
-        type: string
-    type: object
-  PendingMessageDetail:
-    properties:
-      agent_id:
-        example: my-bot@example.com
-        type: string
-      approval_expires_at:
-        example: "2025-01-15T10:30:00Z"
-        type: string
-      attachments:
-        items:
-          $ref: '#/definitions/internal_agent.Attachment'
-        type: array
-      bcc:
-        items:
+      type: object
+    DeploymentInfoView:
+      additionalProperties: false
+      properties:
+        public_url:
           type: string
-        type: array
-      body_html:
-        type: string
-      body_text:
-        type: string
-      cc:
-        items:
+        shared_domain:
           type: string
-        type: array
-      conversation_id:
-        type: string
-      created_at:
-        type: string
-      direction:
-        example: outbound
-        type: string
-      edited:
-        type: boolean
-      email_message_id:
-        example: <orig@gmail.com>
-        type: string
-      id:
-        example: msg_abc123
-        type: string
-      inbound:
-        allOf:
-        - $ref: '#/definitions/PendingMessageInboundContext'
-        description: |-
-          InboundContext is attached when this is a reply — provides the
-          SPF/DKIM/DMARC provenance + sender/subject of the inbound message
-          being replied to so the review panel can render the context pane.
-      method:
-        example: smtp
-        type: string
-      provider_message_id:
-        type: string
-      rejection_reason:
-        type: string
-      reviewed_at:
-        example: "2025-01-15T10:35:00Z"
-        type: string
-      reviewed_by_name:
-        description: |-
-          ReviewedByName is the JOIN'd display name from the reviewer's
-          users row. NULL when reviewed_by_user_id is null (worker) or when
-          the reviewer's user account has since been deleted (the FK has
-          ON DELETE SET NULL specifically so this doesn't poison the audit
-          trail).
-        example: Jamie
-        type: string
-      reviewed_by_user_id:
-        description: |-
-          ReviewedByUserID identifies the human reviewer for approved or
-          rejected messages. NULL on TTL-expired transitions (worker
-          auto-approve / auto-reject) where no human reviewed the message.
-        example: usr_abc123
-        type: string
-      status:
-        enum:
-        - sent
-        - pending_approval
-        - rejected
-        - expired_approved
-        - expired_rejected
-        example: pending_approval
-        type: string
-      subject:
-        example: 'Re: contract details'
-        type: string
-      to:
-        example:
-        - alice@example.com
-        items:
-          type: string
-        type: array
-      type:
-        enum:
-        - send
-        - reply
-        - test
-        - forward
-        example: send
-        type: string
-    type: object
-  PendingMessageInboundContext:
-    properties:
-      auth_headers:
-        additionalProperties:
-          type: string
-        description: |-
-          AuthHeaders carries the SPF/DKIM/DMARC validation results captured
-          at inbound time. Keys are conventionally "spf", "dkim", "dmarc"
-          each with values "pass" | "fail" | "neutral" | etc. The dashboard
-          renders these as found/missing chips on the provenance pane.
-        type: object
-      created_at:
-        example: "2025-01-15T10:25:00Z"
-        type: string
-      sender:
-        example: alice@gmail.com
-        type: string
-      subject:
-        example: contract details
-        type: string
-    type: object
-  PendingMessageSummary:
-    properties:
-      agent_id:
-        example: my-bot@example.com
-        type: string
-      approval_expires_at:
-        example: "2025-01-15T10:30:00Z"
-        type: string
-      bcc:
-        items:
-          type: string
-        type: array
-      cc:
-        items:
-          type: string
-        type: array
-      conversation_id:
-        type: string
-      created_at:
-        type: string
-      direction:
-        example: outbound
-        type: string
-      id:
-        example: msg_abc123
-        type: string
-      status:
-        enum:
-        - sent
-        - pending_approval
-        - rejected
-        - expired_approved
-        - expired_rejected
-        example: pending_approval
-        type: string
-      subject:
-        example: 'Re: contract details'
-        type: string
-      to:
-        example:
-        - alice@example.com
-        items:
-          type: string
-        type: array
-      type:
-        enum:
-        - send
-        - reply
-        - test
-        - forward
-        example: send
-        type: string
-    type: object
-  RedeliverDeliveryResult:
-    properties:
-      delivery_id:
-        type: string
-      reason:
-        type: string
-      status:
-        type: string
-      webhook_id:
-        type: string
-    type: object
-  RedeliverRequest:
-    properties:
-      webhook_id:
-        type: string
-    type: object
-  RedeliverResponse:
-    properties:
-      deliveries:
-        items:
-          $ref: '#/definitions/RedeliverDeliveryResult'
-        type: array
-      delivery_id:
-        type: string
-      event_id:
-        type: string
-      status:
-        type: string
-      webhook_id:
-        type: string
-    type: object
-  RedeliverSinceRequest:
-    properties:
-      since:
-        type: string
-    type: object
-  RedeliverSinceResponse:
-    properties:
-      scheduled:
-        type: integer
-      since:
-        type: string
-      skipped_already_pending:
-        type: integer
-      webhook_id:
-        type: string
-    type: object
-  RegisterAgentRequest:
-    properties:
-      agent_mode:
-        description: AgentMode selects how inbound mail is delivered. Required; must
-          be "local" or "cloud". See the type-level docs for the difference.
-        enum:
-        - local
-        - cloud
-        example: local
-        type: string
-      email:
-        example: my-bot@yourdomain.com
-        type: string
-      name:
-        example: My Bot
-        type: string
-      slug:
-        example: my-bot
-        type: string
-      webhook_url:
-        example: https://example.com/e2a/webhook
-        type: string
-    required:
-    - agent_mode
-    type: object
-  RegisterAgentResponse:
-    properties:
-      domain:
-        type: string
-      email:
-        type: string
-      id:
-        type: string
-    type: object
-  RegisterDomainRequest:
-    properties:
-      domain:
-        example: yourdomain.com
-        type: string
-    type: object
-  RejectPendingMessageRequest:
-    properties:
-      reason:
-        example: wrong recipient
-        type: string
-    type: object
-  RejectPendingMessageResponse:
-    properties:
-      message_id:
-        type: string
-      rejection_reason:
-        type: string
-      status:
-        example: rejected
-        type: string
-    type: object
-  ReplyToMessageRequest:
-    properties:
-      attachments:
-        items:
-          $ref: '#/definitions/internal_agent.Attachment'
-        type: array
-      bcc:
-        example:
-        - carol@example.com
-        items:
-          type: string
-        type: array
-      body:
-        example: Thanks for your email!
-        type: string
-      cc:
-        example:
-        - bob@example.com
-        items:
-          type: string
-        type: array
-      conversation_id:
-        type: string
-      html_body:
-        example: <p>Thanks for your email!</p>
-        type: string
-      reply_all:
-        example: false
-        type: boolean
-    type: object
-  RotateWebhookSecretResponse:
-    properties:
-      previous_secret_expires_at:
-        type: string
-      signing_secret:
-        type: string
-    type: object
-  SendEmailRequest:
-    properties:
-      attachments:
-        items:
-          $ref: '#/definitions/internal_agent.Attachment'
-        type: array
-      bcc:
-        example:
-        - carol@example.com
-        items:
-          type: string
-        type: array
-      body:
-        example: Hi Alice, this is my agent reaching out.
-        type: string
-      cc:
-        example:
-        - bob@example.com
-        items:
-          type: string
-        type: array
-      conversation_id:
-        example: conv_abc123
-        type: string
-      from:
-        example: my-bot@example.com
-        type: string
-      html_body:
-        example: <p>Hi Alice</p>
-        type: string
-      subject:
-        example: Hello from my agent
-        type: string
-      to:
-        example:
-        - alice@example.com
-        items:
-          type: string
-        type: array
-    type: object
-  SendEmailResponse:
-    properties:
-      approval_expires_at:
-        example: "2025-01-15T10:30:00Z"
-        type: string
-      message_id:
-        example: msg_abc123
-        type: string
-      method:
-        example: smtp
-        type: string
-      status:
-        enum:
-        - sent
-        - pending_approval
-        example: sent
-        type: string
-    type: object
-  SigningSecretSummary:
-    properties:
-      created_at:
-        type: string
-      id:
-        type: string
-      last_signed_at:
-        type: string
-      name:
-        type: string
-      secret:
-        type: string
-      secret_prefix:
-        type: string
-    type: object
-  TestWebhookRequest:
-    properties:
-      data:
-        additionalProperties: true
-        type: object
-      event:
-        example: email.received
-        type: string
-    type: object
-  TestWebhookResponse:
-    properties:
-      delivery_id:
-        type: string
-    type: object
-  UpdateAgentRequest:
-    properties:
-      agent_mode:
-        enum:
-        - cloud
-        - local
-        type: string
-      hitl_enabled:
-        type: boolean
-      hitl_expiration_action:
-        enum:
-        - approve
-        - reject
-        type: string
-      hitl_ttl_seconds:
-        example: 604800
-        type: integer
-      webhook_url:
-        type: string
-    type: object
-  UpdateDomainRequest:
-    properties:
-      is_primary:
-        type: boolean
-    type: object
-  UpdateMessageRequest:
-    properties:
-      add_labels:
-        example:
-        - urgent
-        items:
-          type: string
-        type: array
-      remove_labels:
-        example:
-        - unread
-        items:
-          type: string
-        type: array
-    type: object
-  UpdateMessageResponse:
-    properties:
-      labels:
-        items:
-          type: string
-        type: array
-      message_id:
-        example: msg_abc123
-        type: string
-    type: object
-  UpdateWebhookRequest:
-    properties:
-      description:
-        type: string
-      enabled:
-        type: boolean
-      events:
-        items:
-          type: string
-        type: array
-      filters:
-        $ref: '#/definitions/WebhookFilters'
-      url:
-        type: string
-    type: object
-  UsageEventEntry:
-    properties:
-      agent_id:
-        type: string
-      created_at:
-        type: string
-      direction:
-        type: string
-      domain:
-        type: string
-      event_type:
-        type: string
-      id:
-        type: string
-    type: object
-  UserExport:
-    properties:
-      agents:
-        items:
-          $ref: '#/definitions/github_com_Mnexa-AI_e2a_internal_identity.AgentIdentity'
-        type: array
-      api_keys:
-        items:
-          $ref: '#/definitions/APIKeyExportEntry'
-        type: array
-      domains:
-        items:
-          $ref: '#/definitions/github_com_Mnexa-AI_e2a_internal_identity.Domain'
-        type: array
-      generated_at:
-        type: string
-      messages:
-        items:
-          $ref: '#/definitions/github_com_Mnexa-AI_e2a_internal_identity.Message'
-        type: array
-      oauth_connections:
-        items:
-          $ref: '#/definitions/OAuthConnectionEntry'
-        type: array
-      schema_version:
-        type: string
-      usage_events:
-        items:
-          $ref: '#/definitions/UsageEventEntry'
-        type: array
-      user:
-        $ref: '#/definitions/UserExportUser'
-    type: object
-  UserExportUser:
-    properties:
-      created_at:
-        type: string
-      email:
-        type: string
-      id:
-        type: string
-      name:
-        type: string
-    type: object
-  VerifyDomainResponse:
-    properties:
-      dkim:
-        description: |-
-          DKIM status: "found" iff the published TXT record at
-          "{selector}._domainkey.{domain}" matches the per-domain public
-          key stored at registration time. "missing" iff a keypair is
-          stored but the TXT record isn't published yet. "deferred" iff
-          no keypair is stored — pre-migration rows that haven't been
-          re-claimed since #5 shipped. A fresh-claimed domain always has
-          a keypair, so "deferred" only appears on legacy data.
-        enum:
-        - found
-        - missing
-        - deferred
-        example: found
-        type: string
-      domain:
-        example: yourdomain.com
-        type: string
-      mx:
-        description: |-
-          MX status: "found" iff at least one MX record points at the
-          deployment's smtp domain. "missing" otherwise.
-        enum:
-        - found
-        - missing
-        example: found
-        type: string
-      spf:
-        description: |-
-          SPF status: "found" iff a v=spf1 TXT record includes the
-          deployment's send domain. "missing" otherwise.
-        enum:
-        - found
-        - missing
-        example: found
-        type: string
-      verified:
-        type: boolean
-      verified_at:
-        type: string
-    type: object
-  WebhookDeliveryResponse:
-    properties:
-      attempts:
-        type: integer
-      created_at:
-        type: string
-      event_type:
-        type: string
-      id:
-        type: string
-      last_attempt_at:
-        type: string
-      last_error:
-        type: string
-      last_status_code:
-        type: integer
-      next_retry_at:
-        type: string
-      status:
-        type: string
-    type: object
-  WebhookEvent:
-    properties:
-      agent_id:
-        type: string
-      conversation_id:
-        type: string
-      created_at:
-        type: string
-      data:
-        additionalProperties: true
-        type: object
-      delivery_status:
-        $ref: '#/definitions/DeliveryStatus'
-      id:
-        type: string
-      message_id:
-        type: string
-      schema_version:
-        type: integer
-      status:
-        type: string
-      type:
-        type: string
-    type: object
-  WebhookFilters:
-    properties:
-      agent_ids:
-        items:
-          type: string
-        type: array
-      conversation_ids:
-        items:
-          type: string
-        type: array
-      labels:
-        items:
-          type: string
-        type: array
-    type: object
-  WebhookResponse:
-    properties:
-      auto_disabled_at:
-        type: string
-      created_at:
-        type: string
-      description:
-        type: string
-      enabled:
-        type: boolean
-      events:
-        items:
-          type: string
-        type: array
-      filters:
-        $ref: '#/definitions/WebhookFilters'
-      id:
-        example: wh_abc123
-        type: string
-      last_delivered_at:
-        type: string
-      previous_secret_expires_at:
-        description: ONLY on rotate
-        type: string
-      signing_secret:
-        description: ONLY on create + rotate
-        type: string
-      url:
-        type: string
-    type: object
-  github_com_Mnexa-AI_e2a_internal_identity.AgentIdentity:
-    properties:
-      agent_mode:
-        type: string
-      created_at:
-        type: string
-      domain:
-        type: string
-      domain_verified:
-        type: boolean
-      email:
-        type: string
-      hitl_enabled:
-        type: boolean
-      hitl_expiration_action:
-        type: string
-      hitl_ttl_seconds:
-        type: integer
-      id:
-        type: string
-      inbound_7d:
-        description: |-
-          Dashboard enrichment fields. Computed at read
-          time by ListAgentsByUser via correlated subqueries — other load
-          paths (GetAgentByID / GetAgentByEmail) leave them at zero values,
-          same pattern as Domain.AgentCount. Switch to denormalized columns
-          if the read cost ever bites.
-        type: integer
-      last_delivery_at:
-        type: string
-      name:
-        type: string
-      outbound_7d:
-        type: integer
-      pending_count:
-        type: integer
-      public:
-        type: boolean
-      user_id:
-        type: string
-      webhook_healthy:
-        description: |-
-          WebhookHealthy is false iff there's been a failed webhook delivery
-          in the last 24h. Defaults to true for agents with no deliveries
-          yet — avoids painting fresh agents red. Meaningless for
-          agent_mode='local'; the frontend hides the badge in that case.
-        type: boolean
-      webhook_url:
-        type: string
-    type: object
-  github_com_Mnexa-AI_e2a_internal_identity.Domain:
-    properties:
-      agent_count:
-        description: |-
-          AgentCount is computed at read time by ListDomainsByUser and is
-          not a persisted column. Single-domain LookupDomain leaves it at
-          the zero value — callers that need the count call the list path
-          (this column-versus-aggregate split avoids changing every store
-          signature to thread an agent-counter through).
-        type: integer
-      created_at:
-        type: string
-      dkim_public_key:
-        type: string
-      dkim_selector:
-        description: |-
-          DKIM keypair fields. The selector + public key
-          are user-facing — the dashboard shows them so users can copy the
-          DNS TXT record. The private key is intentionally NOT in the JSON
-          shape; it's only read by the outbound signer via
-          GetDKIMKey(domain). Domains created before migration 014 ran
-          keep all three NULL until the next ClaimOrCreate or backfill.
-        type: string
-      domain:
-        type: string
-      is_primary:
-        description: |-
-          IsPrimary marks the user's default domain. At most one TRUE per
-          user (enforced by a partial unique index in migration 013).
-        type: boolean
-      last_checked_at:
-        description: |-
-          LastCheckedAt is updated whenever the verification probe runs,
-          successful or not. NULL until the first probe — distinct from
-          "probed and failed" which is captured by `verified=false` + a
-          non-null LastCheckedAt.
-        type: string
-      user_id:
-        type: string
-      verification_token:
-        type: string
-      verified:
-        type: boolean
-      verified_at:
-        type: string
-    type: object
-  github_com_Mnexa-AI_e2a_internal_identity.Message:
-    properties:
-      agent_id:
-        type: string
-      approval_expires_at:
-        type: string
-      attachments:
-        items:
+        slug_registration_enabled:
+          type: boolean
+      required:
+        - shared_domain
+        - slug_registration_enabled
+      type: object
+    Domain:
+      additionalProperties: false
+      properties:
+        agent_count:
+          format: int64
           type: integer
-        type: array
-      auth_headers:
-        additionalProperties:
+        created_at:
+          format: date-time
           type: string
-        type: object
-      bcc:
-        items:
+        dkim_public_key:
           type: string
-        type: array
-      body_html:
-        type: string
-      body_text:
-        type: string
-      cc:
-        items:
+        dkim_selector:
           type: string
-        type: array
-      conversation_id:
-        type: string
-      created_at:
-        type: string
-      delivery_status:
-        type: string
-      direction:
-        type: string
-      edited:
-        type: boolean
-      email_message_id:
-        type: string
-      expires_at:
-        type: string
-      id:
-        type: string
-      inbox_status:
-        description: |-
-          InboxStatus mirrors messages.inbox_status ('unread' | 'read') for
-          inbound rows. Kept separate from DeliveryStatus (which currently
-          carries the same value under a confusing JSON key — see line 161)
-          so the dashboard's inbox can read it under a non-overloaded key.
-          Empty on outbound rows. Populated by GetMessagesByAgent.
-        type: string
-      labels:
-        description: |-
-          Labels are user-applied string tags (`urgent`, `follow-up`, …).
-          Always lowercase, charset `[a-z0-9:_-]+`, ≤ 64 chars per label,
-          capped at 100 per message. Empty slice means no labels — the DB
-          default is `'{}'` so this is never null on read. Labels with the
-          `e2a:` prefix are reserved for server-applied system labels;
-          caller writes that try to set them are rejected at the API layer.
-        items:
+        domain:
           type: string
-        type: array
-      method:
-        type: string
-      provider_message_id:
-        type: string
-      raw_message:
-        items:
+        is_primary:
+          type: boolean
+        last_checked_at:
+          format: date-time
+          type: string
+        sending_error:
+          type: string
+        sending_last_checked_at:
+          format: date-time
+          type: string
+        sending_status:
+          type: string
+        user_id:
+          type: string
+        verification_token:
+          type: string
+        verified:
+          type: boolean
+        verified_at:
+          format: date-time
+          type: string
+      required:
+        - domain
+        - verified
+        - verification_token
+        - created_at
+        - is_primary
+        - agent_count
+        - sending_status
+      type: object
+    DomainView:
+      additionalProperties: false
+      properties:
+        agent_count:
+          format: int64
           type: integer
-        type: array
-      recipient:
-        type: string
-      rejection_reason:
-        type: string
-      reply_to:
-        description: |-
-          ReplyTo is the parsed Reply-To: header on inbound messages — empty
-          when the header was absent. Distinct from Sender so consumers can
-          recover the original From: of forwarded / notification mail whose
-          Reply-To points at a different mailbox. Outbound-irrelevant.
-        items:
+        created_at:
+          format: date-time
           type: string
-        type: array
-      reviewed_at:
-        type: string
-      reviewed_by_name:
-        description: |-
-          ReviewedByName is the JOIN'd display name from the reviewer's
-          users row, populated only by GetOutboundMessageForUser. List
-          endpoints leave this empty to avoid a join-per-row cost — the
-          pending-detail page is where reviewer attribution matters.
-        type: string
-      reviewed_by_user_id:
-        description: |-
-          ReviewedByUserID identifies the human reviewer who approved or
-          rejected this message. NULL on worker-triggered transitions
-          (TTL auto-approve / auto-reject) — operator-visible signal "no
-          human looked at this." Set by ApproveAndSend and RejectPending,
-          left null by ExpireApproveAndSend / ExpireReject.
-        type: string
-      sender:
-        type: string
-      size_bytes:
-        description: |-
-          SizeBytes is the byte length of raw_message. Populated by load paths
-          that compute it (e.g. GetMessagesByAgent for the dashboard inbox).
-          Zero on load paths that don't — the inbox renders "—" in that case.
-        type: integer
-      status:
-        description: |-
-          HITL approval fields. Status defaults to 'sent'; body and attachments
-          are populated only while a message is in 'pending_approval', and are
-          scrubbed on any terminal transition.
-        type: string
-      subject:
-        type: string
-      to_recipients:
-        description: |-
-          Multi-recipient fields. For outbound, these are the addressed
-          To/Cc/Bcc recipients of the send. For inbound, ToRecipients and CC
-          are the parsed To: and Cc: headers of the original message (the
-          per-delivery target for this row is in Recipient). BCC is
-          outbound-only.
-        items:
+        dns_records:
+          $ref: "#/components/schemas/DNSRecordsView"
+        domain:
           type: string
-        type: array
-      type:
-        type: string
-      webhook_attempts:
-        type: integer
-      webhook_error:
-        type: string
-      webhook_status:
-        type: string
-    type: object
-  internal_agent.Attachment:
-    properties:
-      content_type:
-        example: application/pdf
-        type: string
-      data:
-        description: base64-encoded
-        example: base64-encoded-content
-        type: string
-      filename:
-        example: report.pdf
-        type: string
-    type: object
-  internal_agent.CreateSigningSecretRequest:
-    properties:
-      name:
-        description: |-
-          Optional human-readable label so users can tell secrets apart in
-          the dashboard (e.g. "prod", "staging", "rollover-2026-04").
-        type: string
-    type: object
-host: localhost:8080
+        is_primary:
+          type: boolean
+        last_checked_at:
+          format: date-time
+          type: string
+        sending_dns_records:
+          items:
+            $ref: "#/components/schemas/SendingDNSRecordView"
+          type:
+            - array
+            - "null"
+        sending_error:
+          type: string
+        sending_last_checked_at:
+          format: date-time
+          type: string
+        sending_status:
+          type: string
+        verification_token:
+          type: string
+        verified:
+          type: boolean
+        verified_at:
+          format: date-time
+          type: string
+      required:
+        - domain
+        - verified
+        - verification_token
+        - dns_records
+        - created_at
+        - is_primary
+        - agent_count
+        - sending_status
+      type: object
+    ErrorBody:
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+        details: {}
+        message:
+          type: string
+        request_id:
+          type: string
+      required:
+        - code
+        - message
+      type: object
+    ErrorEnvelope:
+      additionalProperties: false
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorBody"
+      required:
+        - error
+      type: object
+    EventJSON:
+      additionalProperties: false
+      properties:
+        agent_id:
+          type: string
+        conversation_id:
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        data:
+          additionalProperties: {}
+          type: object
+        delivery_status:
+          $ref: "#/components/schemas/DeliveryStatusJSON"
+        id:
+          type: string
+        message_id:
+          type: string
+        schema_version:
+          format: int64
+          type: integer
+        status:
+          enum:
+            - pending
+            - processed
+            - no_match
+          type: string
+        type:
+          enum:
+            - email.received
+            - email.sent
+            - email.pending_approval
+            - email.approved
+            - email.rejected
+            - domain.sending_verified
+            - domain.sending_failed
+            - email.delivered
+            - email.bounced
+            - email.complained
+            - domain.suppression_added
+            - email.flagged
+          type: string
+      required:
+        - id
+        - type
+        - schema_version
+        - created_at
+        - status
+        - data
+      type: object
+    ForwardRequest:
+      additionalProperties: false
+      properties:
+        attachments:
+          items:
+            $ref: "#/components/schemas/Attachment"
+          type:
+            - array
+            - "null"
+        bcc:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        body:
+          type: string
+        cc:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        conversation_id:
+          type: string
+        html_body:
+          type: string
+        to:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+      type: object
+    LimitsCapsView:
+      additionalProperties: false
+      properties:
+        max_agents:
+          format: int64
+          type: integer
+        max_domains:
+          format: int64
+          type: integer
+        max_messages_month:
+          format: int64
+          type: integer
+        max_storage_bytes:
+          format: int64
+          type: integer
+      required:
+        - max_agents
+        - max_domains
+        - max_messages_month
+        - max_storage_bytes
+      type: object
+    LimitsUsageView:
+      additionalProperties: false
+      properties:
+        agents:
+          format: int64
+          type: integer
+        domains:
+          format: int64
+          type: integer
+        messages_month:
+          format: int64
+          type: integer
+        storage_bytes:
+          format: int64
+          type: integer
+      required:
+        - agents
+        - domains
+        - messages_month
+        - storage_bytes
+      type: object
+    LimitsView:
+      additionalProperties: false
+      properties:
+        limits:
+          $ref: "#/components/schemas/LimitsCapsView"
+        plan_code:
+          type: string
+        upgrade_url:
+          type: string
+        usage:
+          $ref: "#/components/schemas/LimitsUsageView"
+      required:
+        - plan_code
+        - limits
+        - usage
+        - upgrade_url
+      type: object
+    ListAgentsOutputBody:
+      additionalProperties: false
+      properties:
+        agents:
+          items:
+            $ref: "#/components/schemas/AgentView"
+          type: array
+      required:
+        - agents
+      type: object
+    ListDomainsOutputBody:
+      additionalProperties: false
+      properties:
+        domains:
+          items:
+            $ref: "#/components/schemas/DomainView"
+          type: array
+      required:
+        - domains
+      type: object
+    ListWebhooksOutputBody:
+      additionalProperties: false
+      properties:
+        webhooks:
+          items:
+            $ref: "#/components/schemas/WebhookView"
+          type: array
+      required:
+        - webhooks
+      type: object
+    Message:
+      additionalProperties: false
+      properties:
+        agent_id:
+          type: string
+        approval_expires_at:
+          format: date-time
+          type: string
+        attachments: {}
+        auth:
+          $ref: "#/components/schemas/Result"
+        auth_headers:
+          additionalProperties:
+            type: string
+          type: object
+        bcc:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        body_html:
+          type: string
+        body_text:
+          type: string
+        cc:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        conversation_id:
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        delivery_detail:
+          type: string
+        delivery_status:
+          type: string
+        direction:
+          type: string
+        edited:
+          type: boolean
+        email_message_id:
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+        flag_reason:
+          type: string
+        flagged:
+          type: boolean
+        id:
+          type: string
+        inbox_status:
+          type: string
+        labels:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        method:
+          type: string
+        provider_message_id:
+          type: string
+        raw_message:
+          contentEncoding: base64
+          type: string
+        recipient:
+          type: string
+        rejection_reason:
+          type: string
+        reply_to:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        reviewed_at:
+          format: date-time
+          type: string
+        reviewed_by_name:
+          type: string
+        reviewed_by_user_id:
+          type: string
+        sender:
+          type: string
+        sent_as:
+          type: string
+        size_bytes:
+          format: int64
+          type: integer
+        status:
+          type: string
+        subject:
+          type: string
+        to_recipients:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        type:
+          type: string
+        webhook_attempts:
+          format: int64
+          type: integer
+        webhook_error:
+          type: string
+        webhook_status:
+          type: string
+      required:
+        - id
+        - agent_id
+        - direction
+        - sender
+        - recipient
+        - subject
+        - created_at
+        - expires_at
+      type: object
+    MessageBodyView:
+      additionalProperties: false
+      properties:
+        html:
+          type: string
+        text:
+          type: string
+      type: object
+    MessageParsedView:
+      additionalProperties: false
+      properties:
+        text:
+          type: string
+        truncated:
+          type: boolean
+      required:
+        - text
+        - truncated
+      type: object
+    MessageSummaryView:
+      additionalProperties: false
+      properties:
+        auth:
+          $ref: "#/components/schemas/Result"
+        cc:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        conversation_id:
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        delivery_detail:
+          type: string
+        delivery_status:
+          enum:
+            - queued
+            - sent
+            - delivered
+            - bounced
+            - complained
+            - deferred
+            - failed
+          type: string
+        direction:
+          enum:
+            - inbound
+            - outbound
+          type: string
+        flag_reason:
+          type: string
+        flagged:
+          type: boolean
+        from:
+          type: string
+        hitl_status:
+          enum:
+            - pending_approval
+            - sent
+            - rejected
+            - expired_approved
+            - expired_rejected
+          type: string
+        labels:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        message_id:
+          type: string
+        recipient:
+          type: string
+        reply_to:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        sent_as:
+          enum:
+            - own_address
+            - relay
+          type: string
+        size_bytes:
+          format: int64
+          type: integer
+        status:
+          type: string
+        subject:
+          type: string
+        to:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        webhook_error:
+          type: string
+        webhook_status:
+          type: string
+      required:
+        - message_id
+        - direction
+        - from
+        - to
+        - recipient
+        - subject
+        - status
+        - labels
+        - created_at
+      type: object
+    MessageView:
+      additionalProperties: false
+      properties:
+        auth:
+          $ref: "#/components/schemas/Result"
+        auth_headers:
+          additionalProperties:
+            type: string
+          type: object
+        body:
+          $ref: "#/components/schemas/MessageBodyView"
+        cc:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        conversation_id:
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        delivery_detail:
+          type: string
+        delivery_status:
+          enum:
+            - queued
+            - sent
+            - delivered
+            - bounced
+            - complained
+            - deferred
+            - failed
+          type: string
+        direction:
+          enum:
+            - inbound
+            - outbound
+          type: string
+        flag_reason:
+          type: string
+        flagged:
+          type: boolean
+        from:
+          type: string
+        hitl_status:
+          enum:
+            - pending_approval
+            - sent
+            - rejected
+            - expired_approved
+            - expired_rejected
+          type: string
+        labels:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        message_id:
+          type: string
+        parsed:
+          $ref: "#/components/schemas/MessageParsedView"
+        raw_message:
+          contentEncoding: base64
+          type: string
+        recipient:
+          type: string
+        reply_to:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        sent_as:
+          enum:
+            - own_address
+            - relay
+          type: string
+        status:
+          type: string
+        subject:
+          type: string
+        to:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+      required:
+        - message_id
+        - from
+        - to
+        - cc
+        - reply_to
+        - recipient
+        - subject
+        - conversation_id
+        - direction
+        - status
+        - labels
+        - created_at
+        - auth_headers
+        - raw_message
+      type: object
+    OAuthConnectionEntry:
+      additionalProperties: false
+      properties:
+        agent_email:
+          type: string
+        client_id:
+          type: string
+        client_name:
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+        issued_at:
+          format: date-time
+          type: string
+        revoked_at:
+          format: date-time
+          type: string
+        scope:
+          type: string
+      required:
+        - client_id
+        - client_name
+        - agent_email
+        - scope
+        - issued_at
+      type: object
+    PageConversationSummaryView:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/ConversationSummaryView"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
+    PageEventJSON:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/EventJSON"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
+    PageMessageSummaryView:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/MessageSummaryView"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
+    PageWebhookDeliveryView:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/WebhookDeliveryView"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
+    RedeliverDelivery:
+      additionalProperties: false
+      properties:
+        delivery_id:
+          type: string
+        reason:
+          type: string
+        status:
+          enum:
+            - pending
+            - skipped
+          type: string
+        webhook_id:
+          type: string
+      required:
+        - webhook_id
+        - status
+      type: object
+    RedeliverEventInputBody:
+      additionalProperties: false
+      properties:
+        webhook_id:
+          type: string
+      type: object
+    RedeliverView:
+      additionalProperties: false
+      properties:
+        deliveries:
+          items:
+            $ref: "#/components/schemas/RedeliverDelivery"
+          type:
+            - array
+            - "null"
+        delivery_id:
+          type: string
+        event_id:
+          type: string
+        status:
+          enum:
+            - pending
+            - scheduled
+          type: string
+        webhook_id:
+          type: string
+      required:
+        - event_id
+        - status
+      type: object
+    RegisterDomainRequest:
+      additionalProperties: false
+      properties:
+        domain:
+          type: string
+      type: object
+    RejectInputBody:
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+      type: object
+    RejectResultView:
+      additionalProperties: false
+      properties:
+        message_id:
+          type: string
+        rejection_reason:
+          type: string
+        status:
+          type: string
+      required:
+        - status
+        - message_id
+      type: object
+    ReplyRequest:
+      additionalProperties: false
+      properties:
+        attachments:
+          items:
+            $ref: "#/components/schemas/Attachment"
+          type:
+            - array
+            - "null"
+        bcc:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        body:
+          type: string
+        cc:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        conversation_id:
+          type: string
+        html_body:
+          type: string
+        reply_all:
+          type: boolean
+      type: object
+    Result:
+      additionalProperties: false
+      properties:
+        dkim:
+          $ref: "#/components/schemas/CheckResult"
+        dmarc:
+          $ref: "#/components/schemas/CheckResult"
+        spf:
+          $ref: "#/components/schemas/CheckResult"
+      required:
+        - spf
+        - dkim
+        - dmarc
+      type: object
+    RotateSecretOutputBody:
+      additionalProperties: false
+      properties:
+        previous_secret_expires_at:
+          type: string
+        signing_secret:
+          type: string
+      required:
+        - signing_secret
+        - previous_secret_expires_at
+      type: object
+    SendEmailRequest:
+      additionalProperties: false
+      properties:
+        attachments:
+          items:
+            $ref: "#/components/schemas/Attachment"
+          type:
+            - array
+            - "null"
+        bcc:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        body:
+          type: string
+        cc:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        conversation_id:
+          type: string
+        from:
+          type: string
+        html_body:
+          type: string
+        subject:
+          type: string
+        to:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+      type: object
+    SendResultView:
+      additionalProperties: false
+      properties:
+        approval_expires_at:
+          format: date-time
+          type: string
+        message_id:
+          type: string
+        method:
+          type: string
+        status:
+          enum:
+            - sent
+            - pending_approval
+          type: string
+      required:
+        - status
+        - message_id
+      type: object
+    SendingDNSRecordView:
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        value:
+          type: string
+      required:
+        - type
+        - name
+        - value
+      type: object
+    Suppression:
+      additionalProperties: false
+      properties:
+        address:
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        reason:
+          type: string
+        source:
+          type: string
+        source_message_id:
+          type: string
+      required:
+        - address
+        - source
+        - created_at
+      type: object
+    SuppressionsOutputBody:
+      additionalProperties: false
+      properties:
+        suppressions:
+          items:
+            $ref: "#/components/schemas/Suppression"
+          type: array
+      required:
+        - suppressions
+      type: object
+    TestWebhookOutputBody:
+      additionalProperties: false
+      properties:
+        delivery_id:
+          type: string
+      required:
+        - delivery_id
+      type: object
+    TestWebhookRequest:
+      additionalProperties: false
+      properties:
+        data:
+          additionalProperties: {}
+          type: object
+        event:
+          type: string
+      type: object
+    UpdateAgentRequest:
+      additionalProperties: false
+      properties:
+        hitl_enabled:
+          type: boolean
+        hitl_expiration_action:
+          type: string
+        hitl_mode:
+          type: string
+        hitl_ttl_seconds:
+          format: int64
+          type: integer
+        inbound_allowlist:
+          items:
+            type: string
+          type: array
+        inbound_policy:
+          type: string
+      type: object
+    UpdateDomainRequest:
+      additionalProperties: false
+      properties:
+        is_primary:
+          type: boolean
+      type: object
+    UpdateMessageRequest:
+      additionalProperties: false
+      properties:
+        add_labels:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        remove_labels:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+      type: object
+    UpdateMessageResultView:
+      additionalProperties: false
+      properties:
+        labels:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        message_id:
+          type: string
+      required:
+        - message_id
+        - labels
+      type: object
+    UpdateWebhookRequest:
+      additionalProperties: false
+      properties:
+        description:
+          type: string
+        enabled:
+          type: boolean
+        events:
+          items:
+            type: string
+          type: array
+        filters:
+          $ref: "#/components/schemas/WebhookFiltersView"
+        url:
+          type: string
+      type: object
+    UsageEventEntry:
+      additionalProperties: false
+      properties:
+        agent_id:
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        direction:
+          type: string
+        domain:
+          type: string
+        event_type:
+          type: string
+        id:
+          type: string
+      required:
+        - id
+        - agent_id
+        - domain
+        - direction
+        - event_type
+        - created_at
+      type: object
+    UserExport:
+      additionalProperties: false
+      properties:
+        agents:
+          items:
+            $ref: "#/components/schemas/AgentIdentity"
+          type:
+            - array
+            - "null"
+        api_keys:
+          items:
+            $ref: "#/components/schemas/APIKeyExportEntry"
+          type:
+            - array
+            - "null"
+        domains:
+          items:
+            $ref: "#/components/schemas/Domain"
+          type:
+            - array
+            - "null"
+        generated_at:
+          format: date-time
+          type: string
+        messages:
+          items:
+            $ref: "#/components/schemas/Message"
+          type:
+            - array
+            - "null"
+        oauth_connections:
+          items:
+            $ref: "#/components/schemas/OAuthConnectionEntry"
+          type:
+            - array
+            - "null"
+        schema_version:
+          type: string
+        usage_events:
+          items:
+            $ref: "#/components/schemas/UsageEventEntry"
+          type:
+            - array
+            - "null"
+        user:
+          $ref: "#/components/schemas/UserExportUser"
+      required:
+        - generated_at
+        - schema_version
+        - user
+        - domains
+        - agents
+        - api_keys
+        - messages
+      type: object
+    UserExportUser:
+      additionalProperties: false
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        email:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+      required:
+        - id
+        - email
+        - name
+        - created_at
+      type: object
+    VerifyDomainView:
+      additionalProperties: false
+      properties:
+        dkim:
+          type: string
+        domain:
+          type: string
+        mx:
+          type: string
+        spf:
+          type: string
+        verified:
+          type: boolean
+        verified_at:
+          format: date-time
+          type: string
+      required:
+        - domain
+        - verified
+      type: object
+    WebhookDeliveryView:
+      additionalProperties: false
+      properties:
+        attempts:
+          format: int64
+          type: integer
+        created_at:
+          format: date-time
+          type: string
+        event_type:
+          enum:
+            - email.received
+            - email.sent
+            - email.pending_approval
+            - email.approved
+            - email.rejected
+            - domain.sending_verified
+            - domain.sending_failed
+            - email.delivered
+            - email.bounced
+            - email.complained
+            - domain.suppression_added
+            - email.flagged
+          type: string
+        id:
+          type: string
+        last_attempt_at:
+          format: date-time
+          type: string
+        last_error:
+          type: string
+        last_status_code:
+          format: int64
+          type: integer
+        next_retry_at:
+          format: date-time
+          type: string
+        status:
+          enum:
+            - pending
+            - delivered
+            - failed
+          type: string
+      required:
+        - id
+        - event_type
+        - status
+        - attempts
+        - next_retry_at
+        - created_at
+      type: object
+    WebhookFiltersView:
+      additionalProperties: false
+      properties:
+        agent_ids:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        conversation_ids:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        labels:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+      type: object
+    WebhookView:
+      additionalProperties: false
+      properties:
+        auto_disabled_at:
+          format: date-time
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        events:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        filters:
+          $ref: "#/components/schemas/WebhookFiltersView"
+        id:
+          type: string
+        last_delivered_at:
+          format: date-time
+          type: string
+        signing_secret:
+          type: string
+        url:
+          type: string
+      required:
+        - id
+        - url
+        - description
+        - events
+        - filters
+        - enabled
+        - created_at
+      type: object
+  securitySchemes:
+    bearer:
+      description: "API key (e2a_…) or OAuth 2.1 access token, sent as `Authorization: Bearer <token>`."
+      scheme: bearer
+      type: http
 info:
-  contact:
-    url: https://github.com/Mnexa-AI/e2a
-  description: |-
-    Email for AI agents. e2a delivers emails to your agent via webhooks or WebSocket and lets your agent send emails back.
-
-    ## Authentication
-
-    All requests require your API key as a Bearer token:
-
-    ```
-    Authorization: Bearer e2a_your_api_key
-    ```
-
-    Create an API key on the API Keys page of the e2a instance you are connecting to.
-
-    ## How it works
-
-    **Cloud agents** (webhook delivery):
-    1. Register your agent and set a webhook URL
-    2. When someone emails your agent, e2a POSTs a webhook to your endpoint
-    3. Reply via the API or send new emails
-
-    **Local agents** (WebSocket delivery):
-    1. Register your agent with a slug on the deployment's shared domain (when slug registration is enabled)
-    2. Connect via WebSocket to receive real-time notifications
-    3. Fetch full message content via the API, reply or send new emails
+  description: e2a — authenticated email gateway for AI agents. v1 contract.
   title: e2a API
-  version: "1.0"
+  version: 1.0.0
+openapi: 3.1.0
 paths:
-  /api/v1/agents:
-    get:
-      description: Returns all agents owned by the authenticated user.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/ListAgentsResponse'
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: List your registered agents
-      tags:
-      - Agents
-    post:
-      consumes:
-      - application/json
-      description: Register a new agent with a custom domain or, on deployments where
-        slug registration is enabled, a slug on the shared domain. Use `slug` for
-        instant onboarding (no DNS needed), or `email` for a custom domain (requires
-        domain to be registered and verified first). `agent_mode` is required and
-        must be "local" (inbound delivered via WebSocket / pollable REST) or "cloud"
-        (inbound POSTed to `webhook_url`). Rate limited to 200 registrations per source
-        IP per hour; 429 responses carry a `Retry-After` header in delay-seconds form.
-      parameters:
-      - description: Agent registration details
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/RegisterAgentRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/RegisterAgentResponse'
-        "400":
-          description: Invalid request
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "409":
-          description: Agent already exists
-          schema:
-            type: string
-        "429":
-          description: Rate limit exceeded — see Retry-After header
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Register a new agent
-      tags:
-      - Agents
-  /api/v1/agents/{email}:
+  /v1/account:
     delete:
-      description: Delete an agent owned by the authenticated user. The agent email
-        is cleared from any local config.
+      description: Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
+      operationId: deleteAccount
       parameters:
-      - description: Agent email address
-        example: my-bot@example.com
-        in: path
-        name: email
-        required: true
-        type: string
-      produces:
-      - application/json
+        - description: Must be DELETE — this is irreversible.
+          explode: false
+          in: query
+          name: confirm
+          schema:
+            description: Must be DELETE — this is irreversible.
+            type: string
       responses:
         "200":
-          description: 'status: deleted'
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "403":
-          description: Agent not owned by this user
-          schema:
-            type: string
-        "500":
-          description: Internal server error
-          schema:
-            type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteUserDataResult"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
       security:
-      - BearerAuth: []
-      summary: Delete an agent
+        - bearer: []
+      summary: Delete your account + all data (irreversible)
       tags:
-      - Agents
+        - account
     get:
-      description: Fetch details for a specific agent owned by the authenticated user.
-      parameters:
-      - description: Agent email address
-        example: my-bot@example.com
-        in: path
-        name: email
-        required: true
-        type: string
-      produces:
-      - application/json
+      description: The authenticated account's plan caps and current usage. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+      operationId: getAccount
       responses:
         "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LimitsView"
           description: OK
-          schema:
-            $ref: '#/definitions/Agent'
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "403":
-          description: Agent not owned by this user
-          schema:
-            type: string
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
       security:
-      - BearerAuth: []
-      summary: Get agent details
+        - bearer: []
+      summary: "Get account: plan limits + usage"
       tags:
-      - Agents
-    put:
-      consumes:
-      - application/json
-      description: Updates an agent you own. Fields are optional; only the ones you
-        send are applied, so callers can PATCH a single setting (for example, toggle
-        HITL on) without re-supplying the others. When changing to cloud mode, webhook_url
-        becomes required. HITL TTL is server-capped at 604800 seconds (7 days). Returns
-        the post-update agent state so callers can confirm what landed.
-      parameters:
-      - description: Agent email address
-        example: my-bot@example.com
-        in: path
-        name: email
-        required: true
-        type: string
-      - description: Fields to update
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/UpdateAgentRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/Agent'
-        "400":
-          description: Validation error (e.g. bad agent_mode, TTL out of range)
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "403":
-          description: Agent not owned by this user
-          schema:
-            type: string
-        "404":
-          description: Agent not found
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Update an agent
-      tags:
-      - Agents
-  /api/v1/agents/{email}/conversations:
+        - account
+  /v1/account/export:
     get:
-      description: Returns conversation summaries for an agent — one row per non-empty
-        conversation_id, with aggregated counts and the latest message's subject/sender.
-        Sorted by `last_message_at` descending. The response is hard-capped at 100
-        conversations (pagination is intentionally deferred for slice 1). Use `since`
-        / `until` to bracket the active window. Messages with empty `conversation_id`
-        are NOT in any conversation — they remain individually visible via the messages
-        list.
-      parameters:
-      - description: Agent email address
-        example: my-bot@example.com
-        in: path
-        name: email
-        required: true
-        type: string
-      - description: RFC3339 timestamp; only conversations whose latest message is
-          >= since
-        example: "2026-05-01T00:00:00Z"
-        in: query
-        name: since
-        type: string
-      - description: RFC3339 timestamp; only conversations whose latest message is
-          < until
-        in: query
-        name: until
-        type: string
-      - default: 100
-        description: Max conversations to return (server clamps to 100)
-        in: query
-        maximum: 100
-        minimum: 1
-        name: page_size
-        type: integer
-      produces:
-      - application/json
+      description: A JSON dump of every record the authenticated account owns.
+      operationId: exportAccount
       responses:
         "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserExport"
           description: OK
-          schema:
-            $ref: '#/definitions/ListConversationsResponse'
-        "400":
-          description: Invalid since/until
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "404":
-          description: Agent not found or not owned by this user
-          schema:
-            type: string
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
       security:
-      - BearerAuth: []
-      summary: List conversations for an agent
+        - bearer: []
+      summary: Export your data (GDPR right-of-access)
       tags:
-      - Email
-  /api/v1/agents/{email}/conversations/{id}:
+        - account
+  /v1/account/suppressions:
     get:
-      description: Returns the full conversation — aggregate counts, participant union,
-        label union, and every member message (oldest-first). Messages share the schema
-        of `MessageSummary` from the list endpoint. Returns 404 when no non-expired
-        messages exist for `(agent, conversation_id)`; cross-agent access is indistinguishable
-        from not-found.
-      parameters:
-      - description: Agent email address
-        example: my-bot@example.com
-        in: path
-        name: email
-        required: true
-        type: string
-      - description: Conversation ID
-        example: conv_abc123
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
+      description: Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.
+      operationId: listSuppressions
       responses:
         "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuppressionsOutputBody"
           description: OK
-          schema:
-            $ref: '#/definitions/ConversationDetail'
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "404":
-          description: Conversation not found
-          schema:
-            type: string
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
       security:
-      - BearerAuth: []
-      summary: Get a conversation
+        - bearer: []
+      summary: List suppressed recipient addresses
       tags:
-      - Email
-  /api/v1/agents/{email}/messages:
-    get:
-      description: Fetch messages for an agent. Returns lightweight summaries (no
-        raw message content). Supports opaque token-based pagination via `page_size`
-        and `token`. **Default sort is newest-first** across all directions — pass
-        `?sort=asc` to flip to oldest-first when you need FIFO polling semantics (drain
-        the inbox in arrival order). `direction` defaults to `inbound` for SDK back-compat.
-        **Search filters** (`from`, `subject_contains`, `conversation_id`, `since`,
-        `until`) narrow the result set server-side; substring filters are case-insensitive
-        (Postgres ILIKE). Filter values are encoded into `next_token`, so continuation
-        requests must keep the same filters or restart the query.
-      parameters:
-      - description: Agent email address
-        example: my-bot@example.com
-        in: path
-        name: email
-        required: true
-        type: string
-      - default: inbound
-        description: Filter by message direction
-        enum:
-        - inbound
-        - outbound
-        - all
-        in: query
-        name: direction
-        type: string
-      - default: unread
-        description: Filter by inbox status (only meaningful when direction includes
-          inbound)
-        enum:
-        - unread
-        - read
-        - all
-        in: query
-        name: status
-        type: string
-      - default: 50
-        description: Number of messages per page (1-100)
-        in: query
-        maximum: 100
-        minimum: 1
-        name: page_size
-        type: integer
-      - default: desc
-        description: Sort order by created_at. Default `desc` (newest first); pass
-          `asc` for FIFO polling.
-        enum:
-        - asc
-        - desc
-        in: query
-        name: sort
-        type: string
-      - description: Case-insensitive substring match on the sender column. Max 200
-          chars.
-        in: query
-        name: from
-        type: string
-      - description: Case-insensitive substring match on the subject column. Max 200
-          chars.
-        in: query
-        name: subject_contains
-        type: string
-      - description: Exact match on conversation_id — narrow to a single thread.
-        in: query
-        name: conversation_id
-        type: string
-      - description: RFC3339 timestamp; only messages with created_at >= since are
-          returned.
-        in: query
-        name: since
-        type: string
-      - description: RFC3339 timestamp; only messages with created_at < until are
-          returned.
-        in: query
-        name: until
-        type: string
-      - description: Opaque pagination token from a previous response's next_token
-        in: query
-        name: token
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/ListMessagesResponse'
-        "400":
-          description: Invalid status, pagination token, or filter mismatch
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "404":
-          description: Agent not found or not owned by this user
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: List messages for an agent
-      tags:
-      - Email
-  /api/v1/agents/{email}/messages/{id}:
-    get:
-      description: Fetch full message content including raw RFC 2822 email and auth
-        headers. If the message is unread, this request marks it as read.
-      parameters:
-      - description: Agent email address
-        example: my-bot@example.com
-        in: path
-        name: email
-        required: true
-        type: string
-      - description: Message ID
-        example: msg_abc123
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/MessageDetail'
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "404":
-          description: Message not found
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Get a single message
-      tags:
-      - Email
-    patch:
-      consumes:
-      - application/json
-      description: Apply a delta to a message's labels. Pass `add_labels` and/or `remove_labels`
-        — each capped at 50 entries per request. Labels are lowercase strings drawn
-        from `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for server-applied
-        system labels and rejected on user writes. The total label count per message
-        is capped at 100. A label appearing in both add and remove is removed (remove
-        wins). Returns the post-update label set so callers can echo state without
-        a fetch.
-      parameters:
-      - description: Agent email address
-        example: my-bot@example.com
-        in: path
-        name: email
-        required: true
-        type: string
-      - description: Message ID
-        example: msg_abc123
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Label delta
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/UpdateMessageRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/UpdateMessageResponse'
-        "400":
-          description: Invalid label or per-message cap exceeded
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "404":
-          description: Message not found or does not belong to this agent
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Update a message (labels)
-      tags:
-      - Email
-  /api/v1/agents/{email}/messages/{id}/approve:
-    post:
-      consumes:
-      - application/json
-      description: Sends a pending-approval message via the upstream SMTP relay and
-        transitions it to `sent`. The request body is optional — passing any subset
-        of subject / body_text / body_html / to / cc / bcc / attachments overrides
-        the stored draft before send. An empty body approves the draft as-is. On successful
-        send, the server scrubs body columns and records the provider-assigned Message-ID.
-      parameters:
-      - description: Owning agent email
-        example: bot@agents.e2a.dev
-        in: path
-        name: email
-        required: true
-        type: string
-      - description: Message ID
-        example: msg_abc123
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Optional field overrides
-        in: body
-        name: request
-        schema:
-          $ref: '#/definitions/ApprovePendingMessageRequest'
-      - description: Caller-generated unique key (recommend UUIDv4). Approve fires
-          a real outbound send (SES); on retry with the same key + same body the server
-          replays the original response instead of double-sending. A different body
-          returns 422.
-        in: header
-        name: Idempotency-Key
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/ApprovePendingMessageResponse'
-        "400":
-          description: Invalid request or SMTP validation error
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "403":
-          description: Agent domain not verified
-          schema:
-            type: string
-        "404":
-          description: Message not found, not owned by this user, or {email} doesn't
-            match the message's owning agent
-          schema:
-            type: string
-        "409":
-          description: Message is no longer pending approval, or another request with
-            this Idempotency-Key is in progress
-          schema:
-            type: string
-        "422":
-          description: Idempotency-Key reused with a different request body
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Approve a held outbound message
-      tags:
-      - HITL
-  /api/v1/agents/{email}/messages/{id}/forward:
-    post:
-      consumes:
-      - application/json
-      description: Forward a previously received email to one or more new recipients.
-        The server prepends the caller's optional comment, then a Gmail-style "Forwarded
-        message" block with the original headers and best-effort extracted body. A
-        forward is treated as a NEW thread — no In-Reply-To/References headers are
-        emitted; pass conversation_id to bind it to an existing thread explicitly.
-        Rate limited to 60 sends per agent per minute; 429 responses carry a `Retry-After`
-        header in delay-seconds form. When the owning agent has HITL enabled, the
-        server returns 202 Accepted with status="pending_approval".
-      parameters:
-      - description: Agent email address
-        example: my-bot@example.com
-        in: path
-        name: email
-        required: true
-        type: string
-      - description: Message ID from the inbound payload
-        example: msg_abc123
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Forward content
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/ForwardMessageRequest'
-      - description: Caller-generated unique key (recommend UUIDv4). Retries with
-          the same key + same body replay the original response; with a different
-          body return 422.
-        in: header
-        name: Idempotency-Key
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Forward sent immediately
-          schema:
-            $ref: '#/definitions/SendEmailResponse'
-        "202":
-          description: Forward held for human approval
-          schema:
-            $ref: '#/definitions/SendEmailResponse'
-        "400":
-          description: Missing or invalid fields
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "403":
-          description: Agent domain not verified
-          schema:
-            type: string
-        "404":
-          description: Message not found or does not belong to this agent
-          schema:
-            type: string
-        "409":
-          description: Another request with this Idempotency-Key is in progress
-          schema:
-            type: string
-        "422":
-          description: Idempotency-Key reused with a different request body
-          schema:
-            type: string
-        "429":
-          description: Rate limit exceeded
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Forward an inbound email
-      tags:
-      - Email
-  /api/v1/agents/{email}/messages/{id}/reject:
-    post:
-      consumes:
-      - application/json
-      description: Transitions a pending-approval message to `rejected`; the message
-        is never sent. Body columns are scrubbed. An optional reason is stored for
-        audit purposes. Returns 409 if the message has already been sent, rejected,
-        or expired.
-      parameters:
-      - description: Message ID
-        example: msg_abc123
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Optional rejection reason
-        in: body
-        name: request
-        schema:
-          $ref: '#/definitions/RejectPendingMessageRequest'
-      - description: Owning agent email
-        example: bot@agents.e2a.dev
-        in: path
-        name: email
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/RejectPendingMessageResponse'
-        "400":
-          description: Invalid request body
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "404":
-          description: Message not found, not owned by this user, or {email} doesn't
-            match the message's owning agent
-          schema:
-            type: string
-        "409":
-          description: Message is no longer pending approval
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Reject a held outbound message
-      tags:
-      - HITL
-  /api/v1/agents/{email}/messages/{id}/reply:
-    post:
-      consumes:
-      - application/json
-      description: Reply to a previously received email using its message ID. The
-        reply is sent as a real email back to the original sender, with proper threading
-        headers (In-Reply-To, References). Pass conversation_id to tag the reply with
-        your thread ID — the recipient will see it on their inbound payload. Rate
-        limited to 60 sends per agent per minute; 429 responses carry a `Retry-After`
-        header in delay-seconds form. When the owning agent has HITL enabled, the
-        server returns 202 Accepted and status="pending_approval" instead of sending
-        immediately.
-      parameters:
-      - description: Agent email address
-        example: my-bot@example.com
-        in: path
-        name: email
-        required: true
-        type: string
-      - description: Message ID from the inbound payload
-        example: msg_abc123
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Reply content
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/ReplyToMessageRequest'
-      - description: Caller-generated unique key (recommend UUIDv4). Retries with
-          the same key + same body replay the original response; with a different
-          body return 422.
-        in: header
-        name: Idempotency-Key
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Reply sent immediately
-          schema:
-            $ref: '#/definitions/SendEmailResponse'
-        "202":
-          description: Reply held for human approval
-          schema:
-            $ref: '#/definitions/SendEmailResponse'
-        "400":
-          description: Missing body
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "403":
-          description: Agent domain not verified
-          schema:
-            type: string
-        "404":
-          description: Message not found or does not belong to this agent
-          schema:
-            type: string
-        "409":
-          description: Another request with this Idempotency-Key is in progress
-          schema:
-            type: string
-        "422":
-          description: Idempotency-Key reused with a different request body
-          schema:
-            type: string
-        "429":
-          description: Rate limit exceeded
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Reply to an inbound email
-      tags:
-      - Email
-  /api/v1/agents/{email}/test:
-    post:
-      description: Send a test email from the platform to the agent's own address.
-        Useful for verifying inbound delivery is wired up correctly. Requires the
-        agent's domain to be verified. If the agent has HITL enabled the message is
-        held for approval and the response is 202.
-      parameters:
-      - description: Agent email address
-        example: my-bot@example.com
-        in: path
-        name: email
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: status and message_id
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "202":
-          description: message_id (held for HITL approval)
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "403":
-          description: Agent domain not verified
-          schema:
-            type: string
-        "404":
-          description: Agent not found
-          schema:
-            type: string
-        "500":
-          description: Failed to send test email
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Send a test email
-      tags:
-      - Agents
-  /api/v1/domains:
-    get:
-      description: Returns all domains owned by the authenticated user.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/ListDomainsResponse'
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: List your domains
-      tags:
-      - Domains
-    post:
-      consumes:
-      - application/json
-      description: Register a custom domain for use with agents. Returns DNS records
-        to configure and a verification token.
-      parameters:
-      - description: Domain to register
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/RegisterDomainRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/Domain'
-        "400":
-          description: Invalid request
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Register a domain
-      tags:
-      - Domains
-  /api/v1/domains/{domain}:
+        - account
+  /v1/account/suppressions/{address}:
     delete:
-      description: Delete a domain. Fails if agents still exist on this domain.
+      description: Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed).
+      operationId: deleteSuppression
       parameters:
-      - description: Domain name
-        in: path
-        name: domain
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "204":
-          description: Domain deleted
-        "400":
-          description: Agents still exist on this domain
+        - in: path
+          name: address
+          required: true
           schema:
             type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "404":
-          description: Domain not found
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Delete a domain
-      tags:
-      - Domains
-    get:
-      description: Returns the authenticated user's view of a single domain
-      parameters:
-      - description: Domain name
-        in: path
-        name: domain
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/Domain'
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "404":
-          description: Domain not found
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Get a domain
-      tags:
-      - Domains
-    patch:
-      consumes:
-      - application/json
-      description: Update mutable fields on a domain. The only supported field today
-        is `is_primary` — passing `true` promotes this domain and clears the flag
-        from any previously-primary domain in a single transaction. Passing `false`
-        is a no-op (use SetDomainPrimary on a different domain to demote this one).
-      parameters:
-      - description: Domain name
-        in: path
-        name: domain
-        required: true
-        type: string
-      - description: Fields to update
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/UpdateDomainRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/Domain'
-        "400":
-          description: Invalid request
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "404":
-          description: Domain not found
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Update a domain
-      tags:
-      - Domains
-  /api/v1/domains/{domain}/verify:
-    post:
-      description: Verify domain ownership (TXT record) and run per-record probes
-        for MX/SPF/DKIM. Returns 200 with the per-record breakdown when ownership
-        is verified, 412 when the TXT token is missing. DKIM reports "found" or "missing"
-        against the per-domain public key registered at claim time; "deferred" is
-        returned only for pre-migration domains that have no stored keypair yet.
-      parameters:
-      - description: Domain name
-        in: path
-        name: domain
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/VerifyDomainResponse'
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "404":
-          description: Domain not found
-          schema:
-            type: string
-        "412":
-          description: TXT record not found — body includes per-record diagnostic
-          schema:
-            $ref: '#/definitions/VerifyDomainResponse'
-      security:
-      - BearerAuth: []
-      summary: Verify domain ownership + DNS diagnostic
-      tags:
-      - Domains
-  /api/v1/events:
-    get:
-      description: Returns webhook events in reverse-chronological order. Cursor-paginated
-        via `token` / `next_token`. Events past the 30-day retention are not returned.
-      parameters:
-      - description: Exact event-type filter (e.g. email.received)
-        in: query
-        name: type
-        type: string
-      - description: Filter to events for a specific agent
-        in: query
-        name: agent_id
-        type: string
-      - description: Filter to events on one conversation
-        in: query
-        name: conversation_id
-        type: string
-      - description: Filter to events on one message
-        in: query
-        name: message_id
-        type: string
-      - description: RFC3339 timestamp; only events with created_at >= since
-        in: query
-        name: since
-        type: string
-      - description: RFC3339 timestamp; only events with created_at < until
-        in: query
-        name: until
-        type: string
-      - description: Page size 1-100; default 50
-        in: query
-        name: page_size
-        type: integer
-      - description: Opaque cursor from a previous response's next_token
-        in: query
-        name: token
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/ListEventsResponse'
-        "400":
-          description: Invalid query parameter
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: List webhook events
-      tags:
-      - Events
-  /api/v1/events/{id}:
-    get:
-      description: Returns the full webhook event including delivery_status counts.
-        410 Gone when the event is past the 30-day retention boundary.
-      parameters:
-      - description: Event ID (evt_<32hex>)
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/WebhookEvent'
-        "404":
-          description: Event not found or not owned by caller
-          schema:
-            type: string
-        "410":
-          description: Event past 30-day retention
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Get a single event
-      tags:
-      - Events
-  /api/v1/events/{id}/redeliver:
-    post:
-      consumes:
-      - application/json
-      description: Replay an event to one webhook (body `{webhook_id}`) or to every
-        originally-matched webhook (empty body). Reuses the original event id so consumer
-        dedup discards the replay if already processed.
-      parameters:
-      - description: Event ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: '{webhook_id} for targeted replay; empty for fan-out'
-        in: body
-        name: body
-        schema:
-          $ref: '#/definitions/RedeliverRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/RedeliverResponse'
-        "404":
-          description: Event not found
-          schema:
-            type: string
-        "409":
-          description: Webhook not in originally-matched set
-          schema:
-            type: string
-        "410":
-          description: Event past retention
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Replay a webhook event
-      tags:
-      - Events
-  /api/v1/info:
-    get:
-      description: Returns deployment-specific configuration (shared domain, etc.)
-        so CLI/SDK clients can self-configure. Unauthenticated.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/DeploymentInfo'
-      summary: Deployment info
-      tags:
-      - System
-  /api/v1/messages/{id}:
-    get:
-      description: Returns the full pending-approval detail — recipients, subject,
-        body, attachments, and HITL metadata — for one of the authenticated user's
-        outbound messages. After terminal transitions (sent, rejected, expired_*)
-        the server scrubs body columns, so this endpoint returns the headers without
-        content for non-pending rows.
-      parameters:
-      - description: Message ID
-        example: msg_abc123
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/PendingMessageDetail'
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "404":
-          description: Message not found or not owned by this user
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Fetch a held outbound message
-      tags:
-      - HITL
-  /api/v1/pending:
-    get:
-      description: Returns all pending_approval messages across every agent owned
-        by the authenticated user, sorted by expiring-soonest first. Body and attachments
-        are omitted — use the detail endpoint for full content. This is the only status
-        value supported on this endpoint today.
-      parameters:
-      - description: Filter by status (only pending_approval is supported)
-        enum:
-        - pending_approval
-        in: query
-        name: status
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/ListPendingMessagesResponse'
-        "400":
-          description: Unsupported status
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: List messages waiting for HITL approval
-      tags:
-      - HITL
-  /api/v1/send:
-    post:
-      consumes:
-      - application/json
-      description: Send an email from your agent to any recipient. Your agent must
-        be domain-verified. Messages are delivered via SMTP. Rate limited to 60 sends
-        per agent per minute; 429 responses carry a `Retry-After` header in delay-seconds
-        form. Pass conversation_id to tag the message as part of a thread. When the
-        owning agent has HITL (human-in-the-loop) enabled, the server responds with
-        202 Accepted and status="pending_approval" instead — the message is held until
-        a reviewer approves it via the dashboard, CLI, or magic link, or until the
-        approval TTL expires and the configured expiration action fires.
-      parameters:
-      - description: Email to send
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/SendEmailRequest'
-      - description: Caller-generated unique key (recommend UUIDv4). Retries with
-          the same key + same body replay the original response; with a different
-          body return 422.
-        in: header
-        name: Idempotency-Key
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Message sent immediately
-          schema:
-            $ref: '#/definitions/SendEmailResponse'
-        "202":
-          description: Message held for human approval
-          schema:
-            $ref: '#/definitions/SendEmailResponse'
-        "400":
-          description: Missing required fields
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "403":
-          description: Agent domain not verified
-          schema:
-            type: string
-        "409":
-          description: Another request with this Idempotency-Key is in progress
-          schema:
-            type: string
-        "422":
-          description: Idempotency-Key reused with a different request body
-          schema:
-            type: string
-        "429":
-          description: Rate limit exceeded
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Send a new email
-      tags:
-      - Email
-  /api/v1/users/me:
-    delete:
-      description: Permanently deletes the authenticated user along with their agents,
-        domains, messages, API keys, sessions, and usage data. **Irreversible.** Requires
-        `confirm=DELETE` query parameter as a guardrail. Returns per-table counts
-        of removed rows so the caller can audit the cascade.
-      parameters:
-      - description: Must equal 'DELETE' to proceed
-        in: query
-        name: confirm
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/DeleteUserDataResult'
-        "400":
-          description: Missing or invalid confirm parameter
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Delete your account and all associated data
-      tags:
-      - User
-  /api/v1/users/me/export:
-    get:
-      description: 'Returns a JSON dump of every record the authenticated user owns:
-        profile, agents, domains, API key metadata, messages (with bodies), and usage
-        events. API key plaintexts are not included — they were never stored. Internal
-        identifiers (google_subject, session tokens, key hashes) are excluded.'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/UserExport'
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Export your data
-      tags:
-      - User
-  /api/v1/users/me/limits:
-    get:
-      description: Returns the resolved per-user caps (from account_limits or operator
-        defaults) plus the user's current usage. Dashboard uses this to render the
-        upgrade affordance and the "you've used X of Y" surface.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/LimitsInfo'
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "503":
-          description: Limits subsystem not configured
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Get the current user's limits and usage
-      tags:
-      - Users
-  /api/v1/users/me/signing-secrets:
-    get:
-      description: Returns the authenticated user's webhook signing secrets (metadata,
-        12-char prefix, and full plaintext secret). Sorted most-recent-first; the
-        most-recent secret is what the e2a relay uses for new signatures.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/ListSigningSecretsResponse'
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: List your webhook signing secrets
-      tags:
-      - User
-    post:
-      consumes:
-      - application/json
-      description: Mints a new HMAC signing secret for the authenticated user. The
-        full plaintext `secret` is returned only in this response — save it now, you
-        cannot retrieve it later. Hard cap is 5 active secrets per user; delete one
-        before creating another.
-      parameters:
-      - description: Optional name/label
-        in: body
-        name: body
-        schema:
-          $ref: '#/definitions/internal_agent.CreateSigningSecretRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/CreateSigningSecretResponse'
-        "400":
-          description: Bad request (e.g. cap reached)
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Create a new webhook signing secret
-      tags:
-      - User
-  /api/v1/users/me/signing-secrets/{id}:
-    delete:
-      description: Deletes the named secret. Refuses if it would leave the user with
-        zero secrets — create a replacement first. After delete, any in-flight HITL
-        approval magic-link tokens signed under the deleted secret stop verifying.
-      parameters:
-      - description: Signing secret ID (e.g. wsec_abc123...)
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
       responses:
         "204":
           description: No Content
-          schema:
-            type: string
-        "400":
-          description: Cannot delete last secret
-          schema:
-            type: string
-        "401":
-          description: Missing or invalid API key
-          schema:
-            type: string
-        "404":
-          description: Secret not found
-          schema:
-            type: string
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
       security:
-      - BearerAuth: []
-      summary: Delete a webhook signing secret
+        - bearer: []
+      summary: Remove an address from the suppression list
       tags:
-      - User
-  /api/v1/webhooks/{id}/redeliver-since:
-    post:
-      consumes:
-      - application/json
-      description: Re-fires every event the webhook originally matched since `since`
-        (RFC3339). Window capped at 7 days. Skips events that already have a pending
-        delivery for this webhook.
-      parameters:
-      - description: Webhook ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Replay window
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/RedeliverSinceRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/RedeliverSinceResponse'
-        "400":
-          description: since out of window or malformed
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Bulk-replay events for a webhook
-      tags:
-      - Webhooks
-  /webhooks:
+        - account
+  /v1/agents:
     get:
-      description: Returns every webhook (enabled + disabled) owned by the caller.
-        signing_secret is omitted.
-      produces:
-      - application/json
+      description: List the agents owned by the authenticated account.
+      operationId: listAgents
       responses:
         "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListAgentsOutputBody"
           description: OK
-          schema:
-            $ref: '#/definitions/ListWebhooksResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            type: string
-        "429":
-          description: Rate limited
-          schema:
-            type: string
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
       security:
-      - BearerAuth: []
-      summary: List webhook subscribers
+        - bearer: []
+      summary: List agents
       tags:
-      - webhooks
+        - agents
     post:
-      consumes:
-      - application/json
-      description: Creates a top-level webhook subscriber. The plaintext signing_secret
-        is returned ONCE in this response and never echoed by any later GET. URL must
-        be HTTPS and must resolve to a public IP. Per-user cap defaults to 50.
-      parameters:
-      - description: Webhook spec
-        in: body
-        name: body
+      description: Register an agent on a verified domain the caller owns (or, when slug registration is enabled, on the shared domain).
+      operationId: createAgent
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAgentRequest"
         required: true
-        schema:
-          $ref: '#/definitions/CreateWebhookRequest'
-      produces:
-      - application/json
       responses:
         "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateAgentResponse"
           description: Created
-          schema:
-            $ref: '#/definitions/WebhookResponse'
-        "400":
-          description: validation error or cap reached
-          schema:
-            type: string
-        "401":
-          description: Unauthorized
-          schema:
-            type: string
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
       security:
-      - BearerAuth: []
-      summary: Create webhook subscriber
+        - bearer: []
+      summary: Create an agent
       tags:
-      - webhooks
-  /webhooks/{id}:
+        - agents
+  /v1/agents/{address}:
     delete:
-      description: Removes the webhook and cascades pending deliveries.
+      description: Delete an agent the caller owns.
+      operationId: deleteAgent
       parameters:
-      - description: Webhook ID
-        in: path
-        name: id
+        - description: The agent's full email address, e.g. support@acme.com.
+          in: path
+          name: address
+          required: true
+          schema:
+            description: The agent's full email address, e.g. support@acme.com.
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteAgentOutputBody"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Delete an agent
+      tags:
+        - agents
+    get:
+      description: Fetch a single agent the authenticated account owns, by full email address.
+      operationId: getAgent
+      parameters:
+        - description: The agent's full email address, e.g. support@acme.com.
+          in: path
+          name: address
+          required: true
+          schema:
+            description: The agent's full email address, e.g. support@acme.com.
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Get an agent
+      tags:
+        - agents
+    patch:
+      description: Patch an agent's HITL settings. Returns the post-update agent.
+      operationId: updateAgent
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAgentRequest"
         required: true
-        type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Update an agent
+      tags:
+        - agents
+  /v1/agents/{address}/conversations:
+    get:
+      description: List an agent's conversation threads (derived from messages.conversation_id).
+      operationId: listConversations
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+        - description: RFC3339.
+          explode: false
+          in: query
+          name: since
+          schema:
+            description: RFC3339.
+            type: string
+        - description: RFC3339.
+          explode: false
+          in: query
+          name: until
+          schema:
+            description: RFC3339.
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            default: 100
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageConversationSummaryView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: List conversations
+      tags:
+        - conversations
+  /v1/agents/{address}/conversations/{id}:
+    get:
+      description: Fetch a single conversation thread with its participants, labels, and member messages.
+      operationId: getConversation
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationDetailView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Get a conversation
+      tags:
+        - conversations
+  /v1/agents/{address}/messages:
+    get:
+      description: List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.
+      operationId: listMessages
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+        - description: Defaults to inbound.
+          explode: false
+          in: query
+          name: direction
+          schema:
+            description: Defaults to inbound.
+            enum:
+              - inbound
+              - outbound
+              - all
+            type: string
+        - description: Inbound only. Defaults to unread for inbound, all otherwise.
+          explode: false
+          in: query
+          name: status
+          schema:
+            description: Inbound only. Defaults to unread for inbound, all otherwise.
+            enum:
+              - unread
+              - read
+              - all
+            type: string
+        - description: Defaults to desc (newest first).
+          explode: false
+          in: query
+          name: sort
+          schema:
+            description: Defaults to desc (newest first).
+            enum:
+              - asc
+              - desc
+            type: string
+        - description: Case-insensitive substring match on sender.
+          explode: false
+          in: query
+          name: from
+          schema:
+            description: Case-insensitive substring match on sender.
+            type: string
+        - description: Case-insensitive substring match on subject.
+          explode: false
+          in: query
+          name: subject_contains
+          schema:
+            description: Case-insensitive substring match on subject.
+            type: string
+        - explode: false
+          in: query
+          name: conversation_id
+          schema:
+            type: string
+        - description: Repeatable; AND-matched.
+          explode: false
+          in: query
+          name: labels
+          schema:
+            description: Repeatable; AND-matched.
+            items:
+              type: string
+            type:
+              - array
+              - "null"
+        - description: RFC3339; created_at >= since.
+          explode: false
+          in: query
+          name: since
+          schema:
+            description: RFC3339; created_at >= since.
+            type: string
+        - description: RFC3339; created_at < until.
+          explode: false
+          in: query
+          name: until
+          schema:
+            description: RFC3339; created_at < until.
+            type: string
+        - explode: false
+          in: query
+          name: cursor
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageMessageSummaryView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: List messages
+      tags:
+        - messages
+    post:
+      description: Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.
+      operationId: sendMessage
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: Idempotency-Key
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendEmailRequest"
+          application/octet-stream:
+            schema:
+              contentMediaType: application/octet-stream
+              format: binary
+              type: string
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResultView"
+          description: OK
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResultView"
+          description: Accepted — held for human approval (status=pending_approval).
+      security:
+        - bearer: []
+      summary: Send a new email
+      tags:
+        - messages
+  /v1/agents/{address}/messages/{id}:
+    get:
+      description: Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.
+      operationId: getMessage
+      parameters:
+        - description: The agent's full email address.
+          in: path
+          name: address
+          required: true
+          schema:
+            description: The agent's full email address.
+            type: string
+        - description: The message id, e.g. msg_abc123.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: The message id, e.g. msg_abc123.
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Get a message
+      tags:
+        - messages
+    patch:
+      description: Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.
+      operationId: updateMessage
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMessageRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateMessageResultView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Update a message (labels)
+      tags:
+        - messages
+  /v1/agents/{address}/messages/{id}/approve:
+    post:
+      description: Approve a pending_approval draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
+      operationId: approveMessage
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: Idempotency-Key
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveRequest"
+          application/octet-stream:
+            schema:
+              contentMediaType: application/octet-stream
+              format: binary
+              type: string
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApproveResultView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Approve a held message
+      tags:
+        - messages
+  /v1/agents/{address}/messages/{id}/forward:
+    post:
+      description: Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.
+      operationId: forwardMessage
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: Idempotency-Key
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForwardRequest"
+          application/octet-stream:
+            schema:
+              contentMediaType: application/octet-stream
+              format: binary
+              type: string
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResultView"
+          description: OK
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResultView"
+          description: Accepted — held for human approval (status=pending_approval).
+      security:
+        - bearer: []
+      summary: Forward a message
+      tags:
+        - messages
+  /v1/agents/{address}/messages/{id}/reject:
+    post:
+      description: Reject a pending_approval draft so it is never sent.
+      operationId: rejectMessage
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RejectResultView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Reject a held message
+      tags:
+        - messages
+  /v1/agents/{address}/messages/{id}/reply:
+    post:
+      description: Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.
+      operationId: replyToMessage
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: Idempotency-Key
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplyRequest"
+          application/octet-stream:
+            schema:
+              contentMediaType: application/octet-stream
+              format: binary
+              type: string
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResultView"
+          description: OK
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResultView"
+          description: Accepted — held for human approval (status=pending_approval).
+      security:
+        - bearer: []
+      summary: Reply to a message
+      tags:
+        - messages
+  /v1/agents/{address}/test:
+    post:
+      description: Send a platform test email to the agent's own address to confirm inbound delivery. 202 when held for HITL.
+      operationId: testAgent
+      parameters:
+        - description: The agent's full email address, e.g. support@acme.com.
+          in: path
+          name: address
+          required: true
+          schema:
+            description: The agent's full email address, e.g. support@acme.com.
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResultView"
+          description: OK
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResultView"
+          description: Accepted — held for human approval (status=pending_approval).
+      security:
+        - bearer: []
+      summary: Send a test email to the agent's own address
+      tags:
+        - agents
+  /v1/domains:
+    get:
+      operationId: listDomains
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListDomainsOutputBody"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: List domains
+      tags:
+        - domains
+    post:
+      operationId: registerDomain
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterDomainRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DomainView"
+          description: Created
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Conflict — the domain is already claimed by another account (code domain_taken).
+      security:
+        - bearer: []
+      summary: Register a domain
+      tags:
+        - domains
+  /v1/domains/{domain}:
+    delete:
+      operationId: deleteDomain
+      parameters:
+        - in: path
+          name: domain
+          required: true
+          schema:
+            type: string
       responses:
         "204":
-          description: No content
-        "401":
-          description: Unauthorized
-          schema:
-            type: string
-        "404":
-          description: Not found
-          schema:
-            type: string
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
       security:
-      - BearerAuth: []
-      summary: Delete webhook subscriber
+        - bearer: []
+      summary: Delete a domain
       tags:
-      - webhooks
+        - domains
     get:
+      operationId: getDomain
       parameters:
-      - description: Webhook ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
+        - in: path
+          name: domain
+          required: true
+          schema:
+            type: string
       responses:
         "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DomainView"
           description: OK
-          schema:
-            $ref: '#/definitions/WebhookResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            type: string
-        "404":
-          description: Not found
-          schema:
-            type: string
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
       security:
-      - BearerAuth: []
-      summary: Get webhook subscriber
+        - bearer: []
+      summary: Get a domain
       tags:
-      - webhooks
+        - domains
     patch:
-      consumes:
-      - application/json
-      description: Partial update. Fields not present are unchanged. url / events
-        / filters are full-replace when present (no array-merge). Re-enable within
-        5 minutes of auto_disabled_at returns 409.
+      operationId: updateDomain
       parameters:
-      - description: Webhook ID
-        in: path
-        name: id
+        - in: path
+          name: domain
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDomainRequest"
         required: true
-        type: string
-      - description: Patch body
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/UpdateWebhookRequest'
-      produces:
-      - application/json
       responses:
         "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DomainView"
           description: OK
-          schema:
-            $ref: '#/definitions/WebhookResponse'
-        "400":
-          description: Validation error
-          schema:
-            type: string
-        "401":
-          description: Unauthorized
-          schema:
-            type: string
-        "404":
-          description: Not found
-          schema:
-            type: string
-        "409":
-          description: Re-enable cooldown
-          schema:
-            type: string
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
       security:
-      - BearerAuth: []
-      summary: Update webhook subscriber
+        - bearer: []
+      summary: Update a domain (set primary)
       tags:
-      - webhooks
-  /webhooks/{id}/deliveries:
+        - domains
+  /v1/domains/{domain}/verify:
+    post:
+      description: Probe the domain's published DNS and, when the verification TXT is present, mark it verified. Returns the per-record diagnostic; a missing TXT yields 412.
+      operationId: verifyDomain
+      parameters:
+        - in: path
+          name: domain
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyDomainView"
+          description: OK
+        "412":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyDomainView"
+          description: Precondition Failed — the verification TXT record is not yet published.
+      security:
+        - bearer: []
+      summary: Verify a domain
+      tags:
+        - domains
+  /v1/events:
     get:
-      description: Returns the most recent delivery attempts for the webhook (capped
-        at 100). Optional status query restricts to pending|delivered|failed.
+      description: The webhook-event delivery log, filterable by type/agent/conversation/message and time range, with cursor pagination.
+      operationId: listEvents
       parameters:
-      - description: Webhook ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Page size (default 20, max 100)
-        in: query
-        name: limit
-        type: integer
-      - description: 'Filter by status: pending|delivered|failed'
-        in: query
-        name: status
-        type: string
-      produces:
-      - application/json
+        - explode: false
+          in: query
+          name: type
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: agent_id
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: conversation_id
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: message_id
+          schema:
+            type: string
+        - description: RFC3339.
+          explode: false
+          in: query
+          name: since
+          schema:
+            description: RFC3339.
+            type: string
+        - description: RFC3339.
+          explode: false
+          in: query
+          name: until
+          schema:
+            description: RFC3339.
+            type: string
+        - explode: false
+          in: query
+          name: cursor
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
       responses:
         "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageEventJSON"
           description: OK
-          schema:
-            $ref: '#/definitions/ListWebhookDeliveriesResponse'
-        "400":
-          description: Bad query
-          schema:
-            type: string
-        "401":
-          description: Unauthorized
-          schema:
-            type: string
-        "404":
-          description: Not found
-          schema:
-            type: string
-        "429":
-          description: Rate limited
-          schema:
-            type: string
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
       security:
-      - BearerAuth: []
-      summary: List recent webhook deliveries
+        - bearer: []
+      summary: List events
       tags:
-      - webhooks
-  /webhooks/{id}/rotate-secret:
+        - events
+  /v1/events/{id}:
+    get:
+      operationId: getEvent
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventJSON"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Get an event
+      tags:
+        - events
+  /v1/events/{id}/redeliver:
     post:
-      description: Generates a new signing secret and moves the current one into a
-        24h grace window during which the worker dual-signs each delivery.
+      description: Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
+      operationId: redeliverEvent
       parameters:
-      - description: Webhook ID
-        in: path
-        name: id
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RedeliverEventInputBody"
         required: true
-        type: string
-      produces:
-      - application/json
       responses:
         "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RedeliverView"
           description: OK
-          schema:
-            $ref: '#/definitions/RotateWebhookSecretResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            type: string
-        "404":
-          description: Not found
-          schema:
-            type: string
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
       security:
-      - BearerAuth: []
-      summary: Rotate webhook signing secret
+        - bearer: []
+      summary: Redeliver an event
       tags:
-      - webhooks
-  /webhooks/{id}/test:
+        - events
+  /v1/info:
+    get:
+      description: "Public deployment metadata: the shared agent domain (if slug registration is enabled) and the public base URL. Unauthenticated."
+      operationId: getInfo
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentInfoView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      summary: Deployment info
+      tags:
+        - meta
+  /v1/webhooks:
+    get:
+      operationId: listWebhooks
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListWebhooksOutputBody"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: List webhooks
+      tags:
+        - webhooks
     post:
-      consumes:
-      - application/json
-      description: Schedules a one-off delivery to the webhook with a synthetic envelope,
-        bypassing filter matching. Returns the delivery_id so the caller can correlate
-        it in /deliveries. Returns 409 when the webhook is disabled.
+      operationId: createWebhook
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWebhookRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookView"
+          description: Created
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Create a webhook
+      tags:
+        - webhooks
+  /v1/webhooks/{id}:
+    delete:
+      operationId: deleteWebhook
       parameters:
-      - description: Webhook ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Synthetic event
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/TestWebhookRequest'
-      produces:
-      - application/json
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Delete a webhook
+      tags:
+        - webhooks
+    get:
+      operationId: getWebhook
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
       responses:
         "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookView"
           description: OK
-          schema:
-            $ref: '#/definitions/TestWebhookResponse'
-        "400":
-          description: Bad request
-          schema:
-            type: string
-        "401":
-          description: Unauthorized
-          schema:
-            type: string
-        "404":
-          description: Not found
-          schema:
-            type: string
-        "409":
-          description: Webhook disabled
-          schema:
-            type: string
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
       security:
-      - BearerAuth: []
-      summary: Fire a synthetic webhook event for development
+        - bearer: []
+      summary: Get a webhook
       tags:
-      - webhooks
-securityDefinitions:
-  BearerAuth:
-    description: 'API key from the API Keys page (starts with `e2a_`). Format: `Bearer
-      e2a_your_key`'
-    in: header
-    name: Authorization
-    type: apiKey
-swagger: "2.0"
+        - webhooks
+    patch:
+      description: Partial update. url/events/filters are full-replace when present. Re-enabling within the auto-disable cooldown returns 409.
+      operationId: updateWebhook
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWebhookRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Update a webhook
+      tags:
+        - webhooks
+  /v1/webhooks/{id}/deliveries:
+    get:
+      description: The per-webhook delivery log (read-only debug view).
+      operationId: listWebhookDeliveries
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: status
+          schema:
+            enum:
+              - pending
+              - delivered
+              - failed
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageWebhookDeliveryView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: List webhook deliveries
+      tags:
+        - webhooks
+  /v1/webhooks/{id}/rotate-secret:
+    post:
+      description: Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once).
+      operationId: rotateWebhookSecret
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RotateSecretOutputBody"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Rotate a webhook signing secret
+      tags:
+        - webhooks
+  /v1/webhooks/{id}/test:
+    post:
+      description: Schedule a one-off synthetic delivery to this webhook for development. Returns the delivery id.
+      operationId: testWebhook
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestWebhookRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestWebhookOutputBody"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Fire a synthetic event
+      tags:
+        - webhooks
+servers:
+  - description: Production
+    url: https://api.e2a.dev

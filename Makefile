@@ -1,4 +1,4 @@
-.PHONY: build run test test-unit test-integration test-e2e clean docker-up docker-down migrate swagger swagger-check spec spec-check generate generate-check generate-sdk generate-sdk-check generate-sdk-ts generate-sdk-py
+.PHONY: build run test test-unit test-integration test-e2e clean docker-up docker-down migrate spec spec-check generate generate-check generate-sdk generate-sdk-check generate-sdk-ts generate-sdk-py
 
 # OpenAPI Generator for the /v1 SDK base. Pinned to a released tag (never
 # :latest/SNAPSHOT) so output is reproducible for the drift gate. Run via
@@ -38,19 +38,11 @@ migrate:
 		psql "postgres://e2a:e2a@localhost:5433/e2a?sslmode=disable" -f "$$f"; \
 	done
 
-swagger:
-	swag init --generalInfo cmd/e2a/main.go --parseDependency --parseInternal --output web/public --outputTypes yaml
-	mv web/public/swagger.yaml web/public/openapi.yaml
-
-swagger-check:
-	swag init --generalInfo cmd/e2a/main.go --parseDependency --parseInternal --output /tmp/swag-check --outputTypes yaml
-	diff -u web/public/openapi.yaml /tmp/swag-check/swagger.yaml
-
 # spec regenerates the /v1 OpenAPI 3.1 document (api/openapi.yaml) directly
-# from the live Huma handlers — the source of truth for SDK codegen + docs.
-# This replaces the legacy swag-annotation pipeline (the `swagger` target
-# above) as resources finish moving onto /v1; the SDK-codegen switchover to
-# this file is tracked separately.
+# from the live Huma handlers — the single source of truth for SDK codegen and
+# the rendered API reference. (The dashboard's API-reference page copies
+# api/openapi.yaml into web/public/openapi.yaml at build time via the web
+# `sync-openapi` script. The old swag-annotation pipeline has been removed.)
 spec:
 	go test ./internal/httpapi/ -run TestSpecGoldenNoDrift -update-spec -count=1
 	@echo "==> Regenerated api/openapi.yaml from the /v1 handlers"

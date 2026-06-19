@@ -21,16 +21,8 @@ import (
 // CCPA equivalent). Output is deterministic-ordered (created_at) so a
 // caller diffing exports across time gets stable results.
 //
-// @Summary      Export your data
-// @Description  Returns a JSON dump of every record the authenticated user owns: profile, agents, domains, API key metadata, messages (with bodies), and usage events. API key plaintexts are not included — they were never stored. Internal identifiers (google_subject, session tokens, key hashes) are excluded.
-// @Tags         User
-// @Produce      json
-// @Security     BearerAuth
-// @Success      200 {object} UserExport
-// @Failure      401 {string} string "Missing or invalid API key"
-// @Router       /api/v1/users/me/export [get]
 // ExportUserDataCore assembles the full user-data export (store export +
-// OAuth connections). HTTP-free; shared by the legacy handler and the v1 layer.
+// OAuth connections). HTTP-free; serves GET /v1/account/export.
 func (a *API) ExportUserDataCore(ctx context.Context, userID string) (*identity.UserExport, error) {
 	dump, err := a.store.ExportUserData(ctx, userID)
 	if err != nil {
@@ -69,19 +61,9 @@ func (a *API) ExportUserDataCore(ctx context.Context, userID string) (*identity.
 // confirmation matches the pattern other destructive APIs use
 // (Stripe's account close, GitHub's repo delete).
 //
-// @Summary      Delete your account and all associated data
-// @Description  Permanently deletes the authenticated user along with their agents, domains, messages, API keys, sessions, and usage data. **Irreversible.** Requires `confirm=DELETE` query parameter as a guardrail. Returns per-table counts of removed rows so the caller can audit the cascade.
-// @Tags         User
-// @Produce      json
-// @Security     BearerAuth
-// @Param        confirm query string true "Must equal 'DELETE' to proceed"
-// @Success      200 {object} DeleteUserDataResult
-// @Failure      400 {string} string "Missing or invalid confirm parameter"
-// @Failure      401 {string} string "Missing or invalid API key"
-// @Router       /api/v1/users/me [delete]
 // DeleteUserDataCore counts OAuth rows for the audit line, best-effort
 // notifies the external billing hook, then runs the cascading delete and
-// merges the counts. HTTP-free; shared by the legacy handler and the v1 layer.
+// merges the counts. HTTP-free; serves DELETE /v1/account?confirm=DELETE.
 func (a *API) DeleteUserDataCore(ctx context.Context, user *identity.User) (*identity.DeleteUserDataResult, error) {
 	// Count OAuth token rows BEFORE the DELETE so the audit report is correct
 	// (small benign race vs CASCADE accepted, per the original handler).
