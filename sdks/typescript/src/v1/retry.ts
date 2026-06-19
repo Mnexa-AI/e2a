@@ -32,14 +32,6 @@ export interface RetryOptions {
   now?: () => number;
 }
 
-// Unsafe methods get an auto idempotency key when the caller didn't supply one.
-const UNSAFE_METHODS = new Set<HttpMethod>([
-  HttpMethod.POST,
-  HttpMethod.PATCH,
-  HttpMethod.PUT,
-  HttpMethod.DELETE,
-]);
-
 const IDEMPOTENCY_HEADER = "Idempotency-Key";
 
 function defaultSleep(ms: number): Promise<void> {
@@ -70,7 +62,11 @@ export class RetryHttpLibrary implements HttpLibrary {
   }
 
   private async sendWithRetry(request: RequestContext): Promise<ResponseContext> {
-    this.ensureIdempotencyKey(request);
+    // Decide retry-safety BEFORE mutating headers — it depends on whether the
+    // generated layer already emitted an Idempotency-Key stub (server-deduped
+    // POSTs) which ensureIdempotencyKey would otherwise fill in and obscure.
+    const retrySafe = this.isRetrySafe(request);
+    if (retrySafe) this.ensureIdempotencyKey(request);
     const max = this.opts.maxRetries ?? 2;
     const now = this.opts.now ?? Date.now;
     const start = now();
@@ -89,7 +85,7 @@ export class RetryHttpLibrary implements HttpLibrary {
       }
 
       const isConn = resp === undefined;
-      const retryable = isConn || isRetryableStatus(resp!.httpStatusCode);
+      const retryable = retrySafe && (isConn || isRetryableStatus(resp!.httpStatusCode));
       if (!retryable || attempt >= max) {
         if (resp !== undefined) return resp;
         throw connErr;
@@ -106,24 +102,77 @@ export class RetryHttpLibrary implements HttpLibrary {
     }
   }
 
-  // Mint an Idempotency-Key once, before the first attempt, for an unsafe
-  // method the caller didn't already key. Setting it on the shared
-  // RequestContext means every retry of this request reuses the same key.
+  // Whether this request may be safely re-sent after a transient failure.
   //
-  // The generated layer unconditionally calls setHeaderParam("Idempotency-Key",
-  // serialize(undefined)) on send/reply/forward/approve, leaving the header
-  // *present but empty* when the caller passed no key. So "present" isn't enough
-  // to mean "caller-supplied" — only a non-empty value counts; otherwise we mint
-  // (overwriting the empty stub).
-  private ensureIdempotencyKey(request: RequestContext): void {
-    if (!UNSAFE_METHODS.has(request.getHttpMethod())) return;
+  // Retrying a non-idempotent POST after an ambiguous failure can double-create
+  // a resource: the server commits the write, then the connection drops or a 5xx
+  // is returned, and a blind retry creates a SECOND row. So we only retry:
+  //   - reads (GET/HEAD/OPTIONS) — no side effects;
+  //   - HTTP-idempotent writes (PUT/PATCH/DELETE) — repeating reaches the same
+  //     end state — EXCEPT account deletion, which is irreversible and whose
+  //     post-success retry would surface a spurious 404 to the caller;
+  //   - server-deduped POSTs (send/reply/forward/approve), recognised by the
+  //     Idempotency-Key header the generated layer emits ONLY for those ops —
+  //     the server replays the first result on a keyed retry.
+  // Every other POST (create agent/domain/webhook, reject, verify, redeliver,
+  // test, rotate-secret) carries no server-honored key and is NOT retried.
+  // Mirrors the Python SDK's per-operation retry gating.
+  private isRetrySafe(request: RequestContext): boolean {
+    const method = request.getHttpMethod();
+    switch (method) {
+      case HttpMethod.GET:
+      case HttpMethod.HEAD:
+      case HttpMethod.OPTIONS:
+        return true;
+      case HttpMethod.PUT:
+      case HttpMethod.PATCH:
+        return true;
+      case HttpMethod.DELETE:
+        return !this.isAccountDeletion(request.getUrl());
+      case HttpMethod.POST:
+        return this.hasIdempotencyHeader(request);
+      default:
+        return false;
+    }
+  }
+
+  // The generated layer sets an Idempotency-Key header param (possibly an empty
+  // stub) on exactly the four server-deduped POSTs. Its mere presence — not its
+  // value — marks an op the server will dedupe, hence safe to retry.
+  private hasIdempotencyHeader(request: RequestContext): boolean {
     const headers = request.getHeaders();
     for (const k of Object.keys(headers)) {
+      if (k.toLowerCase() === IDEMPOTENCY_HEADER.toLowerCase()) return true;
+    }
+    return false;
+  }
+
+  // DELETE /v1/account (account deletion) — irreversible; exclude from retry.
+  private isAccountDeletion(url: string): boolean {
+    const path = url.split("?")[0];
+    return path.endsWith("/v1/account") || path.endsWith("/account");
+  }
+
+  // Mint an Idempotency-Key once, before the first attempt, for a server-deduped
+  // POST the caller didn't already key. Setting it on the shared RequestContext
+  // means every retry of this request reuses the same key.
+  //
+  // The generated layer calls setHeaderParam("Idempotency-Key", serialize(undefined))
+  // on send/reply/forward/approve, leaving the header *present but empty* when the
+  // caller passed no key. So "present" isn't enough to mean "caller-supplied" —
+  // only a non-empty value counts; otherwise we mint (overwriting the empty stub).
+  private ensureIdempotencyKey(request: RequestContext): void {
+    if (request.getHttpMethod() !== HttpMethod.POST) return;
+    const headers = request.getHeaders();
+    let present = false;
+    for (const k of Object.keys(headers)) {
       if (k.toLowerCase() !== IDEMPOTENCY_HEADER.toLowerCase()) continue;
+      present = true;
       const v = headers[k];
       if (v != null && String(v).trim() !== "") return; // genuine caller-supplied key wins
       break; // present-but-empty generated stub → fall through and mint
     }
+    if (!present) return; // not a server-keyed op (no stub) — never seen here when gated
     request.setHeaderParam(IDEMPOTENCY_HEADER, (this.opts.genIdempotencyKey ?? defaultUuid)());
   }
 

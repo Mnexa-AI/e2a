@@ -57,7 +57,7 @@ The standalone per-user management API (`/users/me/signing-secrets`) was retired
 the v1 cutover — webhooks-as-a-resource now carry their own per-webhook secret,
 rotatable via `POST /v1/webhooks/{id}/rotate-secret`.
 
-The SDKs read the secret from `E2A_WEBHOOK_SECRET` by default (with `E2A_HMAC_SECRET` accepted as a deprecated alias for SDK 2.0 users) — `client.parse_webhook(body)` / `client.parseWebhook(body)` does parse + verify in one call. See [sdks/python/README.md](../sdks/python/README.md#quick-start) and [sdks/typescript/README.md](../sdks/typescript/README.md#webhook-cloud-agents).
+Pass your webhook's signing secret to the SDK helper — `construct_event(body, header, secret)` / `constructEvent(body, header, secret)` does parse + verify in one call. See [sdks/python/README.md](../sdks/python/README.md#quick-start) and [sdks/typescript/README.md](../sdks/typescript/README.md#webhook-cloud-agents).
 
 ## HITL magic links
 

@@ -29,19 +29,20 @@ import { ForwardRequest } from '../models/ForwardRequest.js';
 import { LimitsCapsView } from '../models/LimitsCapsView.js';
 import { LimitsUsageView } from '../models/LimitsUsageView.js';
 import { LimitsView } from '../models/LimitsView.js';
-import { ListAgentsOutputBody } from '../models/ListAgentsOutputBody.js';
-import { ListDomainsOutputBody } from '../models/ListDomainsOutputBody.js';
-import { ListWebhooksOutputBody } from '../models/ListWebhooksOutputBody.js';
 import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
 import { MessageSummaryView } from '../models/MessageSummaryView.js';
 import { MessageView } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
+import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
+import { PageDomainView } from '../models/PageDomainView.js';
 import { PageEventJSON } from '../models/PageEventJSON.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
+import { PageSuppression } from '../models/PageSuppression.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
+import { PageWebhookView } from '../models/PageWebhookView.js';
 import { RedeliverDelivery } from '../models/RedeliverDelivery.js';
 import { RedeliverEventInputBody } from '../models/RedeliverEventInputBody.js';
 import { RedeliverView } from '../models/RedeliverView.js';
@@ -50,12 +51,11 @@ import { RejectInputBody } from '../models/RejectInputBody.js';
 import { RejectResultView } from '../models/RejectResultView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
-import { RotateSecretOutputBody } from '../models/RotateSecretOutputBody.js';
+import { RotateSecretBody } from '../models/RotateSecretBody.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
 import { SendingDNSRecordView } from '../models/SendingDNSRecordView.js';
 import { Suppression } from '../models/Suppression.js';
-import { SuppressionsOutputBody } from '../models/SuppressionsOutputBody.js';
 import { TestWebhookOutputBody } from '../models/TestWebhookOutputBody.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
@@ -223,7 +223,7 @@ export class ObservableAccountApi {
      * Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.
      * List suppressed recipient addresses
      */
-    public listSuppressionsWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<SuppressionsOutputBody>> {
+    public listSuppressionsWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageSuppression>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.listSuppressions(_config);
@@ -247,8 +247,8 @@ export class ObservableAccountApi {
      * Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.
      * List suppressed recipient addresses
      */
-    public listSuppressions(_options?: ConfigurationOptions): Observable<SuppressionsOutputBody> {
-        return this.listSuppressionsWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<SuppressionsOutputBody>) => apiResponse.data));
+    public listSuppressions(_options?: ConfigurationOptions): Observable<PageSuppression> {
+        return this.listSuppressionsWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageSuppression>) => apiResponse.data));
     }
 
 }
@@ -375,7 +375,7 @@ export class ObservableAgentsApi {
      * List the agents owned by the authenticated account.
      * List agents
      */
-    public listAgentsWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<ListAgentsOutputBody>> {
+    public listAgentsWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageAgentView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.listAgents(_config);
@@ -399,8 +399,8 @@ export class ObservableAgentsApi {
      * List the agents owned by the authenticated account.
      * List agents
      */
-    public listAgents(_options?: ConfigurationOptions): Observable<ListAgentsOutputBody> {
-        return this.listAgentsWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<ListAgentsOutputBody>) => apiResponse.data));
+    public listAgents(_options?: ConfigurationOptions): Observable<PageAgentView> {
+        return this.listAgentsWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageAgentView>) => apiResponse.data));
     }
 
     /**
@@ -652,7 +652,7 @@ export class ObservableDomainsApi {
     /**
      * List domains
      */
-    public listDomainsWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<ListDomainsOutputBody>> {
+    public listDomainsWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageDomainView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.listDomains(_config);
@@ -675,8 +675,8 @@ export class ObservableDomainsApi {
     /**
      * List domains
      */
-    public listDomains(_options?: ConfigurationOptions): Observable<ListDomainsOutputBody> {
-        return this.listDomainsWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<ListDomainsOutputBody>) => apiResponse.data));
+    public listDomains(_options?: ConfigurationOptions): Observable<PageDomainView> {
+        return this.listDomainsWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageDomainView>) => apiResponse.data));
     }
 
     /**
@@ -1462,7 +1462,7 @@ export class ObservableWebhooksApi {
     /**
      * List webhooks
      */
-    public listWebhooksWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<ListWebhooksOutputBody>> {
+    public listWebhooksWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageWebhookView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.listWebhooks(_config);
@@ -1485,19 +1485,20 @@ export class ObservableWebhooksApi {
     /**
      * List webhooks
      */
-    public listWebhooks(_options?: ConfigurationOptions): Observable<ListWebhooksOutputBody> {
-        return this.listWebhooksWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<ListWebhooksOutputBody>) => apiResponse.data));
+    public listWebhooks(_options?: ConfigurationOptions): Observable<PageWebhookView> {
+        return this.listWebhooksWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageWebhookView>) => apiResponse.data));
     }
 
     /**
-     * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once).
+     * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
      * Rotate a webhook signing secret
      * @param id
+     * @param [idempotencyKey]
      */
-    public rotateWebhookSecretWithHttpInfo(id: string, _options?: ConfigurationOptions): Observable<HttpInfo<RotateSecretOutputBody>> {
+    public rotateWebhookSecretWithHttpInfo(id: string, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<RotateSecretBody>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.rotateWebhookSecret(id, _config);
+        const requestContextPromise = this.requestFactory.rotateWebhookSecret(id, idempotencyKey, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1515,12 +1516,13 @@ export class ObservableWebhooksApi {
     }
 
     /**
-     * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once).
+     * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
      * Rotate a webhook signing secret
      * @param id
+     * @param [idempotencyKey]
      */
-    public rotateWebhookSecret(id: string, _options?: ConfigurationOptions): Observable<RotateSecretOutputBody> {
-        return this.rotateWebhookSecretWithHttpInfo(id, _options).pipe(map((apiResponse: HttpInfo<RotateSecretOutputBody>) => apiResponse.data));
+    public rotateWebhookSecret(id: string, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<RotateSecretBody> {
+        return this.rotateWebhookSecretWithHttpInfo(id, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<RotateSecretBody>) => apiResponse.data));
     }
 
     /**

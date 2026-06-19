@@ -17,18 +17,19 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict
-from typing import Any, ClassVar, Dict, List
+from pydantic import BaseModel, ConfigDict, StrictStr
+from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.agent_view import AgentView
 from typing import Optional, Set
 from typing_extensions import Self
 
-class ListAgentsOutputBody(BaseModel):
+class PageAgentView(BaseModel):
     """
-    ListAgentsOutputBody
+    PageAgentView
     """ # noqa: E501
-    agents: List[AgentView]
-    __properties: ClassVar[List[str]] = ["agents"]
+    items: List[AgentView]
+    next_cursor: Optional[StrictStr]
+    __properties: ClassVar[List[str]] = ["items", "next_cursor"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -48,7 +49,7 @@ class ListAgentsOutputBody(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of ListAgentsOutputBody from a JSON string"""
+        """Create an instance of PageAgentView from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -69,18 +70,23 @@ class ListAgentsOutputBody(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of each item in agents (list)
+        # override the default output from pydantic by calling `to_dict()` of each item in items (list)
         _items = []
-        if self.agents:
-            for _item_agents in self.agents:
-                if _item_agents:
-                    _items.append(_item_agents.to_dict())
-            _dict['agents'] = _items
+        if self.items:
+            for _item_items in self.items:
+                if _item_items:
+                    _items.append(_item_items.to_dict())
+            _dict['items'] = _items
+        # set to None if next_cursor (nullable) is None
+        # and model_fields_set contains the field
+        if self.next_cursor is None and "next_cursor" in self.model_fields_set:
+            _dict['next_cursor'] = None
+
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of ListAgentsOutputBody from a dict"""
+        """Create an instance of PageAgentView from a dict"""
         if obj is None:
             return None
 
@@ -88,7 +94,8 @@ class ListAgentsOutputBody(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "agents": [AgentView.from_dict(_item) for _item in obj["agents"]] if obj.get("agents") is not None else None
+            "items": [AgentView.from_dict(_item) for _item in obj["items"]] if obj.get("items") is not None else None,
+            "next_cursor": obj.get("next_cursor")
         })
         return _obj
 

@@ -326,8 +326,8 @@ func TestPublisher_EnvelopeShape(t *testing.T) {
 	if err := json.Unmarshal(ins.inserted[0].envelope, &env); err != nil {
 		t.Fatalf("unmarshal envelope: %v", err)
 	}
-	if env.Event != EventEmailReceived {
-		t.Errorf("envelope.event = %q, want %q", env.Event, EventEmailReceived)
+	if env.Type != EventEmailReceived {
+		t.Errorf("envelope.type = %q, want %q", env.Type, EventEmailReceived)
 	}
 	if env.ID == "" {
 		t.Error("envelope.id is empty")

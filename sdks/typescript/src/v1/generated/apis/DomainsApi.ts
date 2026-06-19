@@ -10,7 +10,7 @@ import {SecurityAuthentication} from '../auth/auth.js';
 
 import { DomainView } from '../models/DomainView.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
-import { ListDomainsOutputBody } from '../models/ListDomainsOutputBody.js';
+import { PageDomainView } from '../models/PageDomainView.js';
 import { RegisterDomainRequest } from '../models/RegisterDomainRequest.js';
 import { UpdateDomainRequest } from '../models/UpdateDomainRequest.js';
 import { VerifyDomainView } from '../models/VerifyDomainView.js';
@@ -342,13 +342,13 @@ export class DomainsApiResponseProcessor {
      * @params response Response returned by the server for a request to listDomains
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async listDomainsWithHttpInfo(response: ResponseContext): Promise<HttpInfo<ListDomainsOutputBody >> {
+     public async listDomainsWithHttpInfo(response: ResponseContext): Promise<HttpInfo<PageDomainView >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
         if (isCodeInRange("200", response.httpStatusCode)) {
-            const body: ListDomainsOutputBody = ObjectSerializer.deserialize(
+            const body: PageDomainView = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "ListDomainsOutputBody", ""
-            ) as ListDomainsOutputBody;
+                "PageDomainView", ""
+            ) as PageDomainView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
@@ -361,10 +361,10 @@ export class DomainsApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: ListDomainsOutputBody = ObjectSerializer.deserialize(
+            const body: PageDomainView = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "ListDomainsOutputBody", ""
-            ) as ListDomainsOutputBody;
+                "PageDomainView", ""
+            ) as PageDomainView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

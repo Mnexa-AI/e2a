@@ -404,15 +404,19 @@ func TestListAgentsAuthorized(t *testing.T) {
 		t.Fatalf("status: %d body=%s", resp.StatusCode, b)
 	}
 	var body struct {
-		Agents []AgentView `json:"agents"`
+		Items      []AgentView `json:"items"`
+		NextCursor *string     `json:"next_cursor"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Agents) != 1 {
-		t.Fatalf("want 1 agent, got %d", len(body.Agents))
+	if len(body.Items) != 1 {
+		t.Fatalf("want 1 agent, got %d", len(body.Items))
 	}
-	a := body.Agents[0]
+	if body.NextCursor != nil {
+		t.Fatalf("want null next_cursor on single page, got %q", *body.NextCursor)
+	}
+	a := body.Items[0]
 	if a.Email != "support@acme.com" || a.Domain != "acme.com" || !a.DomainVerified {
 		t.Fatalf("unexpected agent view: %+v", a)
 	}

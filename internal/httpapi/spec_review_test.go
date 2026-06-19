@@ -170,25 +170,12 @@ func TestSpecStatusEnums(t *testing.T) {
 	}
 }
 
-// MED-6 — single-page wrapper arrays + Page.items must NOT be nullable.
+// MED-6 — Page.items must NOT be nullable. (As of GA blocker #3 every list —
+// agents/domains/webhooks/suppressions included — uses the shared Page[T]
+// envelope, so the per-resource wrapper schemas are gone; the generic items
+// check below now covers all of them.)
 func TestSpecListArraysNotNullable(t *testing.T) {
 	doc := renderSpec(t)
-	cases := []struct {
-		schema string
-		field  string
-	}{
-		// single-page wrappers (Huma-named *OutputBody schemas)
-		{"ListAgentsOutputBody", "agents"},
-		{"ListDomainsOutputBody", "domains"},
-		{"ListWebhooksOutputBody", "webhooks"},
-		{"SuppressionsOutputBody", "suppressions"},
-	}
-	for _, c := range cases {
-		props := schemaProps(t, doc, c.schema)
-		if typeIsNullable(props, c.field) {
-			t.Errorf("%s.%s is declared nullable but the handler always emits []", c.schema, c.field)
-		}
-	}
 	// Page[*].items — find every schema with an "items" + "next_cursor" pair.
 	comps, _ := doc["components"].(map[string]any)
 	schemas, _ := comps["schemas"].(map[string]any)

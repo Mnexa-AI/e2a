@@ -13,8 +13,9 @@
 import { AgentView } from '../models/AgentView.js';
 import { HttpFile } from '../http/http.js';
 
-export class ListAgentsOutputBody {
-    'agents': Array<AgentView>;
+export class PageAgentView {
+    'items': Array<AgentView>;
+    'nextCursor': string | null;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -22,14 +23,20 @@ export class ListAgentsOutputBody {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "agents",
-            "baseName": "agents",
+            "name": "items",
+            "baseName": "items",
             "type": "Array<AgentView>",
+            "format": ""
+        },
+        {
+            "name": "nextCursor",
+            "baseName": "next_cursor",
+            "type": "string",
             "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return ListAgentsOutputBody.attributeTypeMap;
+        return PageAgentView.attributeTypeMap;
     }
 
     public constructor() {

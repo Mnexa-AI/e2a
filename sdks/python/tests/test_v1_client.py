@@ -136,7 +136,9 @@ async def test_create_agent_posts_body(httpx_mock):
 
 @pytest.mark.anyio
 async def test_agents_list_autopager(httpx_mock):
-    httpx_mock.add_response(json={"agents": [_valid(AgentView, id="ag_1", email="bot@test.dev")]})
+    httpx_mock.add_response(
+        json={"items": [_valid(AgentView, id="ag_1", email="bot@test.dev")], "next_cursor": None}
+    )
     async with _client() as c:
         items = await c.agents.list().to_list(limit=10)
     assert [a.email for a in items] == ["bot@test.dev"]

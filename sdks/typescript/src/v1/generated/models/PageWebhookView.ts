@@ -10,11 +10,12 @@
  * Do not edit the class manually.
  */
 
-import { DomainView } from '../models/DomainView.js';
+import { WebhookView } from '../models/WebhookView.js';
 import { HttpFile } from '../http/http.js';
 
-export class ListDomainsOutputBody {
-    'domains': Array<DomainView>;
+export class PageWebhookView {
+    'items': Array<WebhookView>;
+    'nextCursor': string | null;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -22,14 +23,20 @@ export class ListDomainsOutputBody {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "domains",
-            "baseName": "domains",
-            "type": "Array<DomainView>",
+            "name": "items",
+            "baseName": "items",
+            "type": "Array<WebhookView>",
+            "format": ""
+        },
+        {
+            "name": "nextCursor",
+            "baseName": "next_cursor",
+            "type": "string",
             "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return ListDomainsOutputBody.attributeTypeMap;
+        return PageWebhookView.attributeTypeMap;
     }
 
     public constructor() {

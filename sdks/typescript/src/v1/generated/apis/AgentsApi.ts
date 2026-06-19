@@ -12,7 +12,7 @@ import { AgentView } from '../models/AgentView.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
 import { CreateAgentResponse } from '../models/CreateAgentResponse.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
-import { ListAgentsOutputBody } from '../models/ListAgentsOutputBody.js';
+import { PageAgentView } from '../models/PageAgentView.js';
 import { SendResultView } from '../models/SendResultView.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 
@@ -384,13 +384,13 @@ export class AgentsApiResponseProcessor {
      * @params response Response returned by the server for a request to listAgents
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async listAgentsWithHttpInfo(response: ResponseContext): Promise<HttpInfo<ListAgentsOutputBody >> {
+     public async listAgentsWithHttpInfo(response: ResponseContext): Promise<HttpInfo<PageAgentView >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
         if (isCodeInRange("200", response.httpStatusCode)) {
-            const body: ListAgentsOutputBody = ObjectSerializer.deserialize(
+            const body: PageAgentView = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "ListAgentsOutputBody", ""
-            ) as ListAgentsOutputBody;
+                "PageAgentView", ""
+            ) as PageAgentView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
@@ -403,10 +403,10 @@ export class AgentsApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: ListAgentsOutputBody = ObjectSerializer.deserialize(
+            const body: PageAgentView = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "ListAgentsOutputBody", ""
-            ) as ListAgentsOutputBody;
+                "PageAgentView", ""
+            ) as PageAgentView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

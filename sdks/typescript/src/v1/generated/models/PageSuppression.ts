@@ -13,8 +13,9 @@
 import { Suppression } from '../models/Suppression.js';
 import { HttpFile } from '../http/http.js';
 
-export class SuppressionsOutputBody {
-    'suppressions': Array<Suppression>;
+export class PageSuppression {
+    'items': Array<Suppression>;
+    'nextCursor': string | null;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -22,14 +23,20 @@ export class SuppressionsOutputBody {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "suppressions",
-            "baseName": "suppressions",
+            "name": "items",
+            "baseName": "items",
             "type": "Array<Suppression>",
+            "format": ""
+        },
+        {
+            "name": "nextCursor",
+            "baseName": "next_cursor",
+            "type": "string",
             "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return SuppressionsOutputBody.attributeTypeMap;
+        return PageSuppression.attributeTypeMap;
     }
 
     public constructor() {

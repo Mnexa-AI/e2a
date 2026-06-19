@@ -11,7 +11,7 @@ function sign(secret: string, t: string, body: string): string {
 
 describe("verifyWebhookSignature", () => {
   it("accepts a correctly signed envelope", () => {
-    const body = '{"event":"email.received"}';
+    const body = '{"type":"email.received"}';
     const t = Math.floor(Date.now() / 1000).toString();
     const v1 = sign(SECRET, t, body);
     const ok = verifyWebhookSignature({
@@ -23,11 +23,11 @@ describe("verifyWebhookSignature", () => {
   });
 
   it("rejects a tampered body", () => {
-    const body = '{"event":"email.received"}';
+    const body = '{"type":"email.received"}';
     const t = Math.floor(Date.now() / 1000).toString();
     const v1 = sign(SECRET, t, body);
     const ok = verifyWebhookSignature({
-      rawBody: '{"event":"email.received","tampered":true}',
+      rawBody: '{"type":"email.received","tampered":true}',
       header: `t=${t},v1=${v1}`,
       secret: SECRET,
     });

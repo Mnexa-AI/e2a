@@ -150,23 +150,29 @@ The MAC binds to **both** `message_id` and a SHA-256 of the raw message body. Su
 
 The `X-E2A-Auth-Verified` field is the *server's claim* — anyone who can reach your webhook URL can set it. To make a security decision, **verify the signature** with your webhook's signing secret (manage per-webhook secrets in the dashboard's **Webhook secrets** page, or rotate via `POST /v1/webhooks/{id}/rotate-secret`).
 
-The SDKs gate field access behind verification by default — accessing `email.sender`, `email.subject`, etc. on an unverified webhook payload raises `UnverifiedEmailError`, so you can't accidentally trust attacker-controllable fields. The one-call shortcut:
+The one-call shortcut parses **and** verifies a delivery, returning a typed event — use it instead of trusting any field on an unverified payload:
 
 ```python
-from e2a.v1 import E2AClient
-client = E2AClient()  # reads E2A_API_KEY
-email = client.parse_webhook(request_body)  # reads E2A_WEBHOOK_SECRET; raises on bad signature
-# safe to use email.sender, email.subject, …
+from e2a.v1 import construct_event, E2AWebhookSignatureError
+
+# raw request body + the X-E2A-Signature header + your whsec_… secret
+event = construct_event(request_body, signature_header, webhook_secret)  # raises on bad signature
+if event.type == "email.received":
+    msg = event.data   # the message payload
 ```
 
 ```typescript
-import { E2AClient } from "@e2a/sdk";
-const email = await client.parseWebhook(req.body); // throws on bad signature
+import { constructEvent, E2AWebhookSignatureError } from "@e2a/sdk/v1";
+
+const event = constructEvent(req.body, req.header("X-E2A-Signature")!, webhookSecret); // throws on bad signature
+if (event.type === "email.received") {
+  const msg = event.data; // the message payload
+}
 ```
 
-Both forms read the secret from `E2A_WEBHOOK_SECRET` by default; pass it explicitly as a second argument if you keep it elsewhere. Under the hood the verify step checks, in order: body_hash matches the raw message bytes, HMAC matches the canonical auth string, and timestamp is within a 5-minute replay window.
+`construct_event` / `constructEvent` checks that the HMAC matches the canonical signing string and the timestamp is within a 5-minute replay window. Pass an array of secrets to accept either during a rotation: `constructEvent(body, header, [oldSecret, newSecret])`.
 
-Emails returned by `client.get_message(...)` are pre-verified — the bearer token already authenticated the channel — so field access works directly without a verify step. (Listing endpoints like `get_messages` / `listMessages` return lightweight summaries, not `InboundEmail`, so the gate doesn't apply.)
+Messages fetched over an authenticated channel — `client.messages.get(address, id)` or the `client.listen(...)` stream — are already trusted (the bearer token authenticated the call), so no verify step is needed there.
 
 ### Conversation threading
 
@@ -183,11 +189,11 @@ When an agent has HITL enabled, outbound `send` and `reply` calls do **not** dis
 
 Reviewers can approve or reject via:
 
-- **Dashboard / API** — `POST /v1/agents/{email}/messages/{id}/approve` or `/reject`
+- **Dashboard / API** — `POST /v1/agents/{address}/messages/{id}/approve` or `/reject`
 - **Magic-link email** — sent automatically when HITL fires; one-click `GET /v1/approve?t=…` and `/v1/reject?t=…` URLs (requires `E2A_PUBLIC_URL` and outbound SMTP configured)
 - **CLI** — `e2a pending` lists held messages
 
-Enable HITL on an agent via `PUT /v1/agents/{email}` with `hitl_enabled: true` and an optional `hitl_expiration_action` and TTL.
+Enable HITL on an agent via `PATCH /v1/agents/{address}` with `hitl_enabled: true` and an optional `hitl_expiration_action` and TTL.
 
 ## API
 
@@ -238,24 +244,26 @@ pip install 'e2a[ws]'      # adds WebSocket support
 ```
 
 ```python
-from e2a.v1 import E2AClient
+from e2a.v1 import E2AClient, construct_event
 
-client = E2AClient()                          # reads E2A_API_KEY
-email = client.parse_webhook(request_body)    # parse + HMAC-verify (reads E2A_WEBHOOK_SECRET)
-print(email.sender, email.subject)
-email.reply("Got it!", conversation_id="conv_123")
+client = E2AClient()                                       # reads E2A_API_KEY
+event = construct_event(request_body, signature_header, webhook_secret)  # parse + HMAC-verify
+if event.type == "email.received":
+    msg = event.data
+    await client.messages.reply(msg["recipient"], msg["message_id"],
+                                {"body": "Got it!", "conversation_id": "conv_123"})
 ```
 
 WebSocket (local agents):
 
 ```python
-from e2a.v1 import AsyncE2AClient
+from e2a.v1 import E2AClient
 
-async with AsyncE2AClient(api_key="e2a_…") as client:
-    async for notif in client.listen("bot@your-domain.com"):
+async with E2AClient(api_key="e2a_…") as client:
+    async for notif in client.listen("bot@your-domain.com"):  # falls back to E2A_AGENT_EMAIL
         # notif is lightweight metadata — fetch the body when you want it
-        email = await client.get_message(notif.message_id)
-        await email.reply("Got it!")
+        email = await client.messages.get(notif.recipient, notif.message_id)
+        await client.messages.reply(notif.recipient, notif.message_id, {"body": "Got it!"})
 ```
 
 See [sdks/python/README.md](sdks/python/README.md).
@@ -305,7 +313,7 @@ See [docs/data-handling.md](docs/data-handling.md) for the full retention table,
 
 Four things that aren't possible to bolt on without significant rework:
 
-1. **Local-mode agents with no public URL.** Agents authenticate with their API key, open a WebSocket to `/v1/agents/{email}/ws`, and inbound mail arrives as JSON over that connection — no webhook URL, no ngrok, no port forward. Useful for agents on developer laptops, edge devices, or behind corporate firewalls. SendGrid/Resend are webhook-only by design. A polling REST API is available as fallback.
+1. **Local-mode agents with no public URL.** Agents authenticate with their API key, open a WebSocket to `/v1/agents/{address}/ws`, and inbound mail arrives as JSON over that connection — no webhook URL, no ngrok, no port forward. Useful for agents on developer laptops, edge devices, or behind corporate firewalls. SendGrid/Resend are webhook-only by design. A polling REST API is available as fallback.
 
 2. **Conversation threading on every reply.** Whether a human replies from Gmail or another e2a agent replies via the API, the inbound message arrives at the agent with a stable `conversation_id` already mapped to the original thread. For human senders, the relay does standard `In-Reply-To` / `References` lookup scoped to the recipient agent's own messages. For agent-to-agent where both sides are on e2a, it also trusts an `X-E2A-Conversation-Id` header it controls (envelope-from is its own domain), which survives clients that rewrite threading headers. SendGrid/Resend never see inbound mail — they aren't receivers — so neither path is available without you building both yourself.
 
@@ -325,7 +333,7 @@ e2a doesn't replace webhooks — agents *receive* email via webhooks. It bridges
 
 The relay strips any incoming `X-E2A-Auth-*` from inbound messages and re-signs with HMAC-SHA256 against `signing.hmac_secret`. The signed canonical binds `Sender + Verified + Body-Hash + Message-Id` together — replay attempts, body swaps, and sender-only forgery all fail validation. Each delivery is bound to *that specific message body*, not just the sender claim, so a captured `(headers, signature)` tuple can't be lifted onto a different message.
 
-Receivers verify with the SDK — `client.parse_webhook(body)` / `client.parseWebhook(body)` does parse + HMAC verify in one call (or `email.verify_signature(secret)` if you parsed first). No API call back to e2a needed. If a signing secret leaks, rotate it via the dashboard and old signatures stop verifying. If it's *stolen from the relay*, the attacker has bigger access than headers anyway.
+Receivers verify with the SDK — `construct_event(body, header, secret)` / `constructEvent(body, header, secret)` does parse + HMAC verify in one call (or `verify_webhook_signature(...)` / `verifyWebhookSignature(...)` if you only need the boolean check). No API call back to e2a needed. If a signing secret leaks, rotate it via the dashboard and old signatures stop verifying. If it's *stolen from the relay*, the attacker has bigger access than headers anyway.
 
 ### Isn't this just SMTP with extra steps?
 

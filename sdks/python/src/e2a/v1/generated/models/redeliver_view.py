@@ -34,13 +34,6 @@ class RedeliverView(BaseModel):
     webhook_id: Optional[StrictStr] = None
     __properties: ClassVar[List[str]] = ["deliveries", "delivery_id", "event_id", "status", "webhook_id"]
 
-    @field_validator('status')
-    def status_validate_enum(cls, value):
-        """Validates the enum"""
-        if value not in set(['pending', 'scheduled']):
-            raise ValueError("must be one of enum values ('pending', 'scheduled')")
-        return value
-
     model_config = ConfigDict(
         populate_by_name=True,
         validate_assignment=True,

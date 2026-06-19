@@ -18,7 +18,7 @@ from typing_extensions import Annotated
 
 from pydantic import StrictStr
 from e2a.v1.generated.models.domain_view import DomainView
-from e2a.v1.generated.models.list_domains_output_body import ListDomainsOutputBody
+from e2a.v1.generated.models.page_domain_view import PageDomainView
 from e2a.v1.generated.models.register_domain_request import RegisterDomainRequest
 from e2a.v1.generated.models.update_domain_request import UpdateDomainRequest
 from e2a.v1.generated.models.verify_domain_view import VerifyDomainView
@@ -572,7 +572,7 @@ class DomainsApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ListDomainsOutputBody:
+    ) -> PageDomainView:
         """List domains
 
 
@@ -606,7 +606,7 @@ class DomainsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "ListDomainsOutputBody",
+            '200': "PageDomainView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -634,7 +634,7 @@ class DomainsApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[ListDomainsOutputBody]:
+    ) -> ApiResponse[PageDomainView]:
         """List domains
 
 
@@ -668,7 +668,7 @@ class DomainsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "ListDomainsOutputBody",
+            '200': "PageDomainView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -730,7 +730,7 @@ class DomainsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "ListDomainsOutputBody",
+            '200': "PageDomainView",
         }
         response_data = await self.api_client.call_api(
             *_param,

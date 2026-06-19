@@ -41,27 +41,6 @@ class AgentView(BaseModel):
     name: StrictStr
     __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "hitl_enabled", "hitl_expiration_action", "hitl_mode", "hitl_ttl_seconds", "id", "inbound_allowlist", "inbound_policy", "name"]
 
-    @field_validator('hitl_expiration_action')
-    def hitl_expiration_action_validate_enum(cls, value):
-        """Validates the enum"""
-        if value not in set(['approve', 'reject']):
-            raise ValueError("must be one of enum values ('approve', 'reject')")
-        return value
-
-    @field_validator('hitl_mode')
-    def hitl_mode_validate_enum(cls, value):
-        """Validates the enum"""
-        if value not in set(['all', 'high_impact']):
-            raise ValueError("must be one of enum values ('all', 'high_impact')")
-        return value
-
-    @field_validator('inbound_policy')
-    def inbound_policy_validate_enum(cls, value):
-        """Validates the enum"""
-        if value not in set(['open', 'allowlist', 'domain', 'verified_only']):
-            raise ValueError("must be one of enum values ('open', 'allowlist', 'domain', 'verified_only')")
-        return value
-
     model_config = ConfigDict(
         populate_by_name=True,
         validate_assignment=True,

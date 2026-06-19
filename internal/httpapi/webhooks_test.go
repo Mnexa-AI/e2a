@@ -86,7 +86,7 @@ func TestListWebhooksHidesSecret(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("status %d", code)
 	}
-	hooks, _ := body["webhooks"].([]any)
+	hooks, _ := body["items"].([]any)
 	if len(hooks) != 1 {
 		t.Fatalf("want 1 webhook, got %d", len(hooks))
 	}

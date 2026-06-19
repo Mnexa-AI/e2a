@@ -13,7 +13,7 @@ dependencies = [
   # google-adk 2.0 is in pre-release as of writing and may reorganize imports.
   # Pin to the 1.x line until 2.0 ships and the code is verified against it.
   "google-adk>=1.31,<2",
-  "e2a>=1.4,<2",
+  "e2a>=3,<4",
   "fastapi>=0.115",
   "uvicorn[standard]>=0.30",
   "python-dotenv>=1.0",

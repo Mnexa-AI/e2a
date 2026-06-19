@@ -49,7 +49,7 @@ import type {
   WebhookView,
   CreateWebhookRequest,
   UpdateWebhookRequest,
-  RotateSecretOutputBody,
+  RotateSecretBody,
   TestWebhookRequest,
   TestWebhookOutputBody,
   WebhookDeliveryView,
@@ -176,7 +176,7 @@ export class E2AClient {
 class AgentsResource {
   constructor(private readonly api: PromiseAgentsApi) {}
   list(): AutoPager<AgentView> {
-    return new AutoPager(async () => ({ items: (await call(() => this.api.listAgents())).agents ?? [] }));
+    return new AutoPager(async () => ({ items: (await call(() => this.api.listAgents())).items ?? [] }));
   }
   get(address: string): Promise<AgentView> {
     return call(() => this.api.getAgent(address));
@@ -262,7 +262,7 @@ class ConversationsResource {
 class DomainsResource {
   constructor(private readonly api: PromiseDomainsApi) {}
   list(): AutoPager<DomainView> {
-    return new AutoPager(async () => ({ items: (await call(() => this.api.listDomains())).domains ?? [] }));
+    return new AutoPager(async () => ({ items: (await call(() => this.api.listDomains())).items ?? [] }));
   }
   get(domain: string): Promise<DomainView> {
     return call(() => this.api.getDomain(domain));
@@ -313,7 +313,7 @@ class EventsResource {
 class WebhooksResource {
   constructor(private readonly api: PromiseWebhooksApi) {}
   list(): AutoPager<WebhookView> {
-    return new AutoPager(async () => ({ items: (await call(() => this.api.listWebhooks())).webhooks ?? [] }));
+    return new AutoPager(async () => ({ items: (await call(() => this.api.listWebhooks())).items ?? [] }));
   }
   get(id: string): Promise<WebhookView> {
     return call(() => this.api.getWebhook(id));
@@ -327,7 +327,7 @@ class WebhooksResource {
   async delete(id: string): Promise<void> {
     await call(() => this.api.deleteWebhook(id));
   }
-  rotateSecret(id: string): Promise<RotateSecretOutputBody> {
+  rotateSecret(id: string): Promise<RotateSecretBody> {
     return call(() => this.api.rotateWebhookSecret(id));
   }
   test(id: string, body: TestWebhookRequest = {}): Promise<TestWebhookOutputBody> {
@@ -347,7 +347,7 @@ class WebhooksResource {
 class SuppressionsResource {
   constructor(private readonly api: PromiseAccountApi) {}
   list(): AutoPager<Suppression> {
-    return new AutoPager(async () => ({ items: (await call(() => this.api.listSuppressions())).suppressions ?? [] }));
+    return new AutoPager(async () => ({ items: (await call(() => this.api.listSuppressions())).items ?? [] }));
   }
   async delete(address: string): Promise<void> {
     await call(() => this.api.deleteSuppression(address));

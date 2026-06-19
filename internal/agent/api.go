@@ -123,8 +123,8 @@ func ValidateWebhookURL(rawURL string) error {
 		return fmt.Errorf("cannot resolve webhook host %q: %w", host, err)
 	}
 	for _, ip := range ips {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-			return fmt.Errorf("webhook URL must not resolve to a private/loopback address")
+		if webhook.IsDisallowedWebhookIP(ip) {
+			return fmt.Errorf("webhook URL must not resolve to a private/loopback/link-local address")
 		}
 	}
 

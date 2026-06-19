@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -29,23 +30,40 @@ type SubscriberDeliverer struct {
 // NewSubscriberDeliverer constructs the deliverer with the 15s
 // per-attempt timeout chosen in design decision #6.
 //
-// requireHTTPS gates against plaintext URLs in production. The
-// existing ValidateWebhookURL helper at registration time also
-// enforces this; the deliverer's check is the second line of defense
-// in case validation drifts or DNS resolves a registered hostname to
-// an internal IP after the fact.
+// requireHTTPS gates against plaintext URLs in production. The same flag
+// installs a dial-time IP guard (guardedDialControl): registration-time
+// ValidateWebhookURL validates DNS once, but a hostname can re-resolve to an
+// internal IP before delivery (DNS rebinding). The guard re-checks the actual
+// resolved IP at connect time, closing that window. It is gated to production
+// so local/CI deliveries to 127.0.0.1 still work.
 func NewSubscriberDeliverer(requireHTTPS bool) *SubscriberDeliverer {
-	return &SubscriberDeliverer{
-		client: &http.Client{
-			Timeout: 15 * time.Second,
-			// Refuse redirects to prevent SSRF — same defense the
-			// legacy Deliverer uses. A registered HTTPS URL that
-			// 301s to 127.0.0.1 would otherwise let an attacker
-			// reach internal services.
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		// Refuse redirects to prevent SSRF — same defense the
+		// legacy Deliverer uses. A registered HTTPS URL that
+		// 301s to 127.0.0.1 would otherwise let an attacker
+		// reach internal services.
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
 		},
+	}
+	if requireHTTPS {
+		client.Transport = &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   10 * time.Second,
+				KeepAlive: 30 * time.Second,
+				Control:   guardedDialControl,
+			}).DialContext,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		}
+	}
+	return &SubscriberDeliverer{
+		client:       client,
 		requireHTTPS: requireHTTPS,
 	}
 }

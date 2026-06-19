@@ -1,0 +1,28 @@
+# go-test-coverage config (github.com/vladopajic/go-test-coverage).
+# Reads a cover.out profile and fails CI when a gated package drops below its
+# floor. Floors are set just under current coverage to lock it in and prevent
+# regression — ratchet them UP over time, never down.
+#
+# Measure locally with `make cover` (needs Postgres on :5433), then
+# `make cover-check`. Regenerate floors only when intentionally adding tests.
+profile: cover.out
+local-prefix: "github.com/Mnexa-AI/e2a"
+
+# No global floor — we gate specific packages, not the whole tree (many
+# packages are thin wiring or main()). Add packages here as their suites grow.
+threshold:
+  file: 0
+  package: 0
+  total: 0
+
+  # Paths are matched with local-prefix stripped, i.e. `internal/...`.
+override:
+  # Webhook delivery + publish path — security-sensitive (SSRF guard, signing,
+  # retry/backoff) and the area we want extensively covered for GA.
+  - threshold: 60
+    path: ^internal/webhook$
+  - threshold: 60
+    path: ^internal/webhookpub$
+  # /v1 HTTP handlers (includes the webhook endpoints + idempotency).
+  - threshold: 73
+    path: ^internal/httpapi$

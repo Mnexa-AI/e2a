@@ -10,11 +10,12 @@
  * Do not edit the class manually.
  */
 
+import { DomainView } from '../models/DomainView.js';
 import { HttpFile } from '../http/http.js';
 
-export class RotateSecretOutputBody {
-    'previousSecretExpiresAt': Date;
-    'signingSecret': string;
+export class PageDomainView {
+    'items': Array<DomainView>;
+    'nextCursor': string | null;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -22,20 +23,20 @@ export class RotateSecretOutputBody {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "previousSecretExpiresAt",
-            "baseName": "previous_secret_expires_at",
-            "type": "Date",
-            "format": "date-time"
+            "name": "items",
+            "baseName": "items",
+            "type": "Array<DomainView>",
+            "format": ""
         },
         {
-            "name": "signingSecret",
-            "baseName": "signing_secret",
+            "name": "nextCursor",
+            "baseName": "next_cursor",
             "type": "string",
             "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return RotateSecretOutputBody.attributeTypeMap;
+        return PageDomainView.attributeTypeMap;
     }
 
     public constructor() {

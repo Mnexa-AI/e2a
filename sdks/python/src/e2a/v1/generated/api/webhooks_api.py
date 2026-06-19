@@ -20,9 +20,9 @@ from pydantic import Field, StrictStr, field_validator
 from typing import Optional
 from typing_extensions import Annotated
 from e2a.v1.generated.models.create_webhook_request import CreateWebhookRequest
-from e2a.v1.generated.models.list_webhooks_output_body import ListWebhooksOutputBody
 from e2a.v1.generated.models.page_webhook_delivery_view import PageWebhookDeliveryView
-from e2a.v1.generated.models.rotate_secret_output_body import RotateSecretOutputBody
+from e2a.v1.generated.models.page_webhook_view import PageWebhookView
+from e2a.v1.generated.models.rotate_secret_body import RotateSecretBody
 from e2a.v1.generated.models.test_webhook_output_body import TestWebhookOutputBody
 from e2a.v1.generated.models.test_webhook_request import TestWebhookRequest
 from e2a.v1.generated.models.update_webhook_request import UpdateWebhookRequest
@@ -1143,7 +1143,7 @@ class WebhooksApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ListWebhooksOutputBody:
+    ) -> PageWebhookView:
         """List webhooks
 
 
@@ -1177,7 +1177,7 @@ class WebhooksApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "ListWebhooksOutputBody",
+            '200': "PageWebhookView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1205,7 +1205,7 @@ class WebhooksApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[ListWebhooksOutputBody]:
+    ) -> ApiResponse[PageWebhookView]:
         """List webhooks
 
 
@@ -1239,7 +1239,7 @@ class WebhooksApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "ListWebhooksOutputBody",
+            '200': "PageWebhookView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1301,7 +1301,7 @@ class WebhooksApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "ListWebhooksOutputBody",
+            '200': "PageWebhookView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1375,6 +1375,7 @@ class WebhooksApi:
     async def rotate_webhook_secret(
         self,
         id: StrictStr,
+        idempotency_key: Optional[StrictStr] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1387,13 +1388,15 @@ class WebhooksApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> RotateSecretOutputBody:
+    ) -> RotateSecretBody:
         """Rotate a webhook signing secret
 
-        Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once).
+        Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
 
         :param id: (required)
         :type id: str
+        :param idempotency_key:
+        :type idempotency_key: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1418,6 +1421,7 @@ class WebhooksApi:
 
         _param = self._rotate_webhook_secret_serialize(
             id=id,
+            idempotency_key=idempotency_key,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1425,7 +1429,7 @@ class WebhooksApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "RotateSecretOutputBody",
+            '200': "RotateSecretBody",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1442,6 +1446,7 @@ class WebhooksApi:
     async def rotate_webhook_secret_with_http_info(
         self,
         id: StrictStr,
+        idempotency_key: Optional[StrictStr] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1454,13 +1459,15 @@ class WebhooksApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[RotateSecretOutputBody]:
+    ) -> ApiResponse[RotateSecretBody]:
         """Rotate a webhook signing secret
 
-        Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once).
+        Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
 
         :param id: (required)
         :type id: str
+        :param idempotency_key:
+        :type idempotency_key: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1485,6 +1492,7 @@ class WebhooksApi:
 
         _param = self._rotate_webhook_secret_serialize(
             id=id,
+            idempotency_key=idempotency_key,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1492,7 +1500,7 @@ class WebhooksApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "RotateSecretOutputBody",
+            '200': "RotateSecretBody",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1509,6 +1517,7 @@ class WebhooksApi:
     async def rotate_webhook_secret_without_preload_content(
         self,
         id: StrictStr,
+        idempotency_key: Optional[StrictStr] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1524,10 +1533,12 @@ class WebhooksApi:
     ) -> RESTResponseType:
         """Rotate a webhook signing secret
 
-        Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once).
+        Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
 
         :param id: (required)
         :type id: str
+        :param idempotency_key:
+        :type idempotency_key: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1552,6 +1563,7 @@ class WebhooksApi:
 
         _param = self._rotate_webhook_secret_serialize(
             id=id,
+            idempotency_key=idempotency_key,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1559,7 +1571,7 @@ class WebhooksApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "RotateSecretOutputBody",
+            '200': "RotateSecretBody",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1571,6 +1583,7 @@ class WebhooksApi:
     def _rotate_webhook_secret_serialize(
         self,
         id,
+        idempotency_key,
         _request_auth,
         _content_type,
         _headers,
@@ -1596,6 +1609,8 @@ class WebhooksApi:
             _path_params['id'] = id
         # process the query parameters
         # process the header parameters
+        if idempotency_key is not None:
+            _header_params['Idempotency-Key'] = idempotency_key
         # process the form parameters
         # process the body parameter
 

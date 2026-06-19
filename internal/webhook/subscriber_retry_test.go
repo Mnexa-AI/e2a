@@ -35,7 +35,7 @@ func TestSubscriberRetryWorker_TickDeliversAndMarksSuccess(t *testing.T) {
 	}
 
 	// Seed a pending delivery row.
-	envelope, _ := json.Marshal(map[string]any{"event": "email.received", "id": "evt_x"})
+	envelope, _ := json.Marshal(map[string]any{"type": "email.received", "id": "evt_x"})
 	_, err = pool.Exec(ctx,
 		`INSERT INTO webhook_subscriber_deliveries (id, webhook_id, event_type, event_payload, status)
 		 VALUES ($1, $2, 'email.received', $3, 'pending')`,
@@ -79,7 +79,7 @@ func TestSubscriberRetryWorker_TickRecordsHTTPFailure(t *testing.T) {
 	user, _ := istore.CreateOrGetUser(ctx, "wsd-tickfail@example.com", "Owner", "google-wsd-tickfail")
 	wh, _ := istore.CreateWebhook(ctx, user.ID, srv.URL, "", []string{"email.received"}, identity.WebhookFilters{})
 
-	envelope, _ := json.Marshal(map[string]any{"event": "email.received"})
+	envelope, _ := json.Marshal(map[string]any{"type": "email.received"})
 	_, _ = pool.Exec(ctx,
 		`INSERT INTO webhook_subscriber_deliveries (id, webhook_id, event_type, event_payload, status)
 		 VALUES ($1, $2, 'email.received', $3, 'pending')`,
@@ -127,7 +127,7 @@ func TestSubscriberRetryWorker_SkipsDisabledWebhook(t *testing.T) {
 	// Disable directly via UPDATE (slice 2 will add the PATCH path).
 	_, _ = pool.Exec(ctx, `UPDATE webhooks SET enabled = false WHERE id = $1`, wh.ID)
 
-	envelope, _ := json.Marshal(map[string]any{"event": "email.received"})
+	envelope, _ := json.Marshal(map[string]any{"type": "email.received"})
 	_, _ = pool.Exec(ctx,
 		`INSERT INTO webhook_subscriber_deliveries (id, webhook_id, event_type, event_payload, status)
 		 VALUES ($1, $2, 'email.received', $3, 'pending')`,
@@ -154,9 +154,9 @@ func TestSubscriberRetryWorker_SkipsDisabledWebhook(t *testing.T) {
 }
 
 // TestSubscriberStore_RecordAttemptFailureClimbsToFailed exercises
-// the failure-counting path without depending on the worker: 5 calls
-// to RecordAttemptFailure (matching the default max_attempts) flip
-// the row from pending → failed at exactly the boundary.
+// the failure-counting path without depending on the worker: with
+// max_attempts pinned to 5 on the row, 5 calls to RecordAttemptFailure
+// flip the row from pending → failed at exactly the boundary.
 func TestSubscriberStore_RecordAttemptFailureClimbsToFailed(t *testing.T) {
 	pool := testutil.TestDB(t)
 	istore := identity.NewStore(pool)
@@ -165,10 +165,13 @@ func TestSubscriberStore_RecordAttemptFailureClimbsToFailed(t *testing.T) {
 	user, _ := istore.CreateOrGetUser(ctx, "wsd-climb@example.com", "Owner", "google-wsd-climb")
 	wh, _ := istore.CreateWebhook(ctx, user.ID, "https://example.com/hook", "", []string{"email.received"}, identity.WebhookFilters{})
 
-	envelope, _ := json.Marshal(map[string]any{"event": "email.received"})
+	// Pin max_attempts to 5 explicitly rather than relying on the column
+	// default (migration 027 bumped that default 5→8) so the climb-to-failed
+	// threshold this test asserts is self-contained and schema-default-proof.
+	envelope, _ := json.Marshal(map[string]any{"type": "email.received"})
 	_, _ = pool.Exec(ctx,
-		`INSERT INTO webhook_subscriber_deliveries (id, webhook_id, event_type, event_payload, status)
-		 VALUES ($1, $2, 'email.received', $3, 'pending')`,
+		`INSERT INTO webhook_subscriber_deliveries (id, webhook_id, event_type, event_payload, status, max_attempts)
+		 VALUES ($1, $2, 'email.received', $3, 'pending', 5)`,
 		"whd_climb_"+wh.ID, wh.ID, envelope,
 	)
 
@@ -208,7 +211,7 @@ func TestSubscriberStore_MarkDeliveredBumpsLastDeliveredAt(t *testing.T) {
 	user, _ := istore.CreateOrGetUser(ctx, "wsd-bump@example.com", "Owner", "google-wsd-bump")
 	wh, _ := istore.CreateWebhook(ctx, user.ID, "https://example.com/hook", "", []string{"email.received"}, identity.WebhookFilters{})
 
-	envelope, _ := json.Marshal(map[string]any{"event": "email.received"})
+	envelope, _ := json.Marshal(map[string]any{"type": "email.received"})
 	_, _ = pool.Exec(ctx,
 		`INSERT INTO webhook_subscriber_deliveries (id, webhook_id, event_type, event_payload, status)
 		 VALUES ($1, $2, 'email.received', $3, 'pending')`,
@@ -254,7 +257,7 @@ func TestSubscriberRetryWorker_PerWebhookInflightCap(t *testing.T) {
 	wh, _ := istore.CreateWebhook(ctx, user.ID, srv.URL, "", []string{"email.received"}, identity.WebhookFilters{})
 
 	// Seed 5 pending rows for the same webhook.
-	envelope, _ := json.Marshal(map[string]any{"event": "email.received"})
+	envelope, _ := json.Marshal(map[string]any{"type": "email.received"})
 	for i := 0; i < 5; i++ {
 		id := "whd_cap_" + wh.ID + "_" + string(rune('a'+i))
 		_, _ = pool.Exec(ctx,
@@ -310,7 +313,7 @@ func TestSubscriberRetryWorker_DifferentWebhooksParallelize(t *testing.T) {
 	defer srv.Close()
 
 	user, _ := istore.CreateOrGetUser(ctx, "wsd-parallel@example.com", "Owner", "google-wsd-parallel")
-	envelope, _ := json.Marshal(map[string]any{"event": "email.received"})
+	envelope, _ := json.Marshal(map[string]any{"type": "email.received"})
 	// 4 distinct webhooks, one pending delivery each — workers can
 	// run all 4 in parallel (each acquires its own per-webhook lock).
 	for i := 0; i < 4; i++ {

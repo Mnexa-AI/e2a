@@ -21,7 +21,7 @@ from typing_extensions import Annotated
 from e2a.v1.generated.models.agent_view import AgentView
 from e2a.v1.generated.models.create_agent_request import CreateAgentRequest
 from e2a.v1.generated.models.create_agent_response import CreateAgentResponse
-from e2a.v1.generated.models.list_agents_output_body import ListAgentsOutputBody
+from e2a.v1.generated.models.page_agent_view import PageAgentView
 from e2a.v1.generated.models.send_result_view import SendResultView
 from e2a.v1.generated.models.update_agent_request import UpdateAgentRequest
 
@@ -854,7 +854,7 @@ class AgentsApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ListAgentsOutputBody:
+    ) -> PageAgentView:
         """List agents
 
         List the agents owned by the authenticated account.
@@ -889,7 +889,7 @@ class AgentsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "ListAgentsOutputBody",
+            '200': "PageAgentView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -917,7 +917,7 @@ class AgentsApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[ListAgentsOutputBody]:
+    ) -> ApiResponse[PageAgentView]:
         """List agents
 
         List the agents owned by the authenticated account.
@@ -952,7 +952,7 @@ class AgentsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "ListAgentsOutputBody",
+            '200': "PageAgentView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1015,7 +1015,7 @@ class AgentsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "ListAgentsOutputBody",
+            '200': "PageAgentView",
         }
         response_data = await self.api_client.call_api(
             *_param,

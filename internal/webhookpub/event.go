@@ -142,8 +142,12 @@ func NewEvent(eventType, userID string, data any) Event {
 // subscribers. Stable across retries — the event_payload JSON column
 // stores the envelope verbatim and the delivery worker POSTs it
 // unchanged.
+// Type is the event-type discriminator. Named `type` on the wire to match
+// the /v1/events REST resource (EventJSON.type) and the Stripe-style SDK
+// `construct_event` helper — a webhook delivery body is the same shape as a
+// GET /v1/events/{id} object, so consumers handle both identically.
 type Envelope struct {
-	Event     string    `json:"event"`
+	Type      string    `json:"type"`
 	ID        string    `json:"id"`
 	CreatedAt time.Time `json:"created_at"`
 	Data      any       `json:"data"`
@@ -152,7 +156,7 @@ type Envelope struct {
 // AsEnvelope returns the wire shape for serialization.
 func (e Event) AsEnvelope() Envelope {
 	return Envelope{
-		Event:     e.Type,
+		Type:      e.Type,
 		ID:        e.ID,
 		CreatedAt: e.CreatedAt,
 		Data:      e.Data,

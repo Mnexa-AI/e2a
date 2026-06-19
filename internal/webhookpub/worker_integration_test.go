@@ -68,7 +68,7 @@ func TestOutboxWorker_Integration_FanOutDeliveries(t *testing.T) {
 	// Seed a pending webhook_events row.
 	eventID := webhookpub.DeterministicEventID("msg_worker_1", webhookpub.EventEmailReceived)
 	envelope := webhookpub.Envelope{
-		Event:     webhookpub.EventEmailReceived,
+		Type:      webhookpub.EventEmailReceived,
 		ID:        eventID,
 		CreatedAt: time.Now().UTC(),
 		Data:      map[string]any{"hello": "world"},

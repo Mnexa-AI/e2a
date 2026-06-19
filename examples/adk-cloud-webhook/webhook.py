@@ -2,21 +2,27 @@
 
 Pipeline per request:
 
-    POST /webhook (raw e2a payload)
+    POST /webhook (raw e2a delivery)
         |
         v
-    parse_webhook (parse + verify HMAC)  <-- rejects unsigned/replayed payloads
+    construct_event(body, X-E2A-Signature, secret)  <-- parse + verify HMAC;
+        |                                                rejects unsigned/replayed
+        v
+    event.type == "email.received" -> event.data (message_id, recipient, from, …)
         |
         v
-    map (sender, conversation_id) -> ADK (user_id, session_id)
-        |                               first contact: conv_id is None;
-        |                               we mint one and use it as session_id
+    client.messages.get(recipient, message_id)  <-- fetch parsed subject/body
+        |
+        v
+    map (from, conversation_id) -> ADK (user_id, session_id)
+        |                            first contact: conv_id is None;
+        |                            we mint one and use it as session_id
         v
     Runner.run_async(...)        <-- multi-turn memory via ADK sessions
         |
         v
-    email.reply(text, conversation_id=...)  <-- echoes our id back so the
-                                                next inbound matches
+    client.messages.reply(recipient, message_id, {body, conversation_id})
+                                 <-- echoes our id back so the next inbound matches
 
 The conversation_id <-> session_id binding is what lets ADK accumulate
 context across email turns even though SMTP itself is stateless.
@@ -36,7 +42,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from e2a.v1 import E2AClient, InboundEmail
+from e2a.v1 import E2AClient, construct_event, E2AWebhookSignatureError
 
 from agent import APP_NAME, agent
 
@@ -55,11 +61,11 @@ def _require_env(name: str) -> str:
     return val
 
 
-# Both E2A_API_KEY (for E2AClient) and E2A_WEBHOOK_SECRET (for parse_webhook)
-# are consumed implicitly by the SDK. We just assert presence here so a
-# missing secret fails fast at startup rather than on the first request.
+# E2A_API_KEY authenticates the E2AClient (fetch + reply); E2A_WEBHOOK_SECRET
+# is passed to construct_event to verify each delivery. Assert presence here so
+# a missing value fails fast at startup rather than on the first request.
 _require_env("E2A_API_KEY")
-_require_env("E2A_WEBHOOK_SECRET")
+WEBHOOK_SECRET = _require_env("E2A_WEBHOOK_SECRET")
 _require_env("GOOGLE_API_KEY")
 
 
@@ -85,30 +91,37 @@ async def health() -> dict[str, str]:
 @app.post("/webhook")
 async def webhook(request: Request) -> dict[str, str]:
     body = await request.body()
-    # parse_webhook does parse + HMAC-verify in one call. Reads
-    # E2A_WEBHOOK_SECRET from the env, raises PermissionError on bad signature.
-    # Anyone can reach a public webhook URL; this is what proves the payload
-    # came from your e2a relay.
+    # construct_event does parse + HMAC-verify in one call and raises
+    # E2AWebhookSignatureError on a bad signature or replay. Anyone can reach a
+    # public webhook URL; this verification is what proves the payload came from
+    # your e2a relay (the signature binds to the sender claim e2a verified via
+    # SPF/DKIM), so trust event.data only *after* it succeeds.
     try:
-        email: InboundEmail = request.app.state.e2a.parse_webhook(body)
-    except PermissionError:
+        event = construct_event(body, request.headers.get("X-E2A-Signature", ""), WEBHOOK_SECRET)
+    except E2AWebhookSignatureError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="bad signature")
+
+    # We only act on inbound mail; ignore other event types (sent/approved/…).
+    if event.type != "email.received":
+        return {"status": "ignored", "type": event.type}
+
+    client: E2AClient = request.app.state.e2a
+    data = event.data  # WebhookPayload: message_id, recipient, from, conversation_id, …
+    recipient = data["recipient"]
+    message_id = data["message_id"]
+
+    # The inbound webhook payload is metadata; fetch the parsed message for the
+    # subject + body to feed the agent.
+    inbound = await client.messages.get(recipient, message_id)
 
     # First contact has no conversation_id — mint one so this thread has an
     # ID we can echo back on every reply. The same id becomes the ADK
     # session_id, keying multi-turn memory.
-    conversation_id = email.conversation_id or f"conv_{uuid.uuid4().hex[:12]}"
+    conversation_id = data.get("conversation_id") or f"conv_{uuid.uuid4().hex[:12]}"
 
     # user_id scopes a session to a particular human counterpart. Different
     # senders get isolated session histories even on the same agent.
-    #
-    # Safety note: email.sender is only trustworthy *because* parse_webhook
-    # verified the HMAC — that signature binds to the sender claim e2a
-    # verified via SPF/DKIM. The SDK enforces this by raising
-    # UnverifiedEmailError on field access until verification succeeds, so
-    # accidentally swapping in client.parse(body) here would surface as a
-    # runtime error rather than a silent session-poisoning vector.
-    user_id = email.sender
+    user_id = data["from"]
 
     sessions = request.app.state.sessions
     session = await sessions.get_session(
@@ -119,15 +132,15 @@ async def webhook(request: Request) -> dict[str, str]:
             app_name=APP_NAME, user_id=user_id, session_id=conversation_id
         )
 
-    msg = types.Content(
+    prompt = types.Content(
         role="user",
-        parts=[types.Part(text=_format_email_for_agent(email))],
+        parts=[types.Part(text=_format_email_for_agent(inbound))],
     )
 
     runner: Runner = request.app.state.runner
     reply_text = ""
     async for event in runner.run_async(
-        user_id=user_id, session_id=conversation_id, new_message=msg
+        user_id=user_id, session_id=conversation_id, new_message=prompt
     ):
         if event.is_final_response() and event.content and event.content.parts:
             reply_text = event.content.parts[0].text or ""
@@ -138,27 +151,30 @@ async def webhook(request: Request) -> dict[str, str]:
         # operator can investigate why the run finished without text.
         log.warning(
             "agent produced no reply text user=%s conv=%s msg=%s",
-            user_id, conversation_id, email.message_id,
+            user_id, conversation_id, message_id,
         )
         return {"status": "no_reply", "conversation_id": conversation_id}
 
     log.info(
         "replying user=%s conv=%s msg=%s reply_chars=%d",
-        user_id, conversation_id, email.message_id, len(reply_text),
+        user_id, conversation_id, message_id, len(reply_text),
     )
-    email.reply(reply_text, conversation_id=conversation_id)
+    await client.messages.reply(
+        recipient, message_id, {"body": reply_text, "conversation_id": conversation_id}
+    )
     return {"status": "replied", "conversation_id": conversation_id}
 
 
-def _format_email_for_agent(email: InboundEmail) -> str:
-    """Flatten the email into a single text block for the agent.
+def _format_email_for_agent(inbound) -> str:
+    """Flatten the parsed message into a single text block for the agent.
 
     A more sophisticated agent could be given the headers as a separate
     structured tool call. For a tutorial, plain prose is enough.
     """
+    body = inbound.parsed.text if inbound.parsed else ""
     return (
-        f"From: {email.sender}\n"
-        f"Subject: {email.subject}\n"
+        f"From: {inbound.var_from}\n"
+        f"Subject: {inbound.subject}\n"
         f"\n"
-        f"{email.text_body}"
+        f"{body}"
     )

@@ -70,10 +70,12 @@ func (s *Server) registerAccount() {
 	}, s.handleDeleteSuppression)
 }
 
+// suppressionsOutput uses the shared Page[T] envelope (items + next_cursor);
+// next_cursor is null at launch. Suppressions auto-grow on every bounce/
+// complaint, so the pagination slot matters most here. See listAgentsOutput.
+// (GA blocker #3.)
 type suppressionsOutput struct {
-	Body struct {
-		Suppressions []identity.Suppression `json:"suppressions" nullable:"false"`
-	}
+	Body Page[identity.Suppression]
 }
 
 func (s *Server) handleListSuppressions(ctx context.Context, _ *struct{}) (*suppressionsOutput, error) {
@@ -88,10 +90,7 @@ func (s *Server) handleListSuppressions(ctx context.Context, _ *struct{}) (*supp
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list suppressions")
 	}
-	out := &suppressionsOutput{}
-	out.Body.Suppressions = make([]identity.Suppression, 0, len(list))
-	out.Body.Suppressions = append(out.Body.Suppressions, list...)
-	return out, nil
+	return &suppressionsOutput{Body: NewPage(list, "")}, nil
 }
 
 type deleteSuppressionInput struct {

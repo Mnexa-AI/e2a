@@ -28,8 +28,21 @@ class FakeHttp implements HttpLibrary {
 }
 
 const noSleep = async () => {};
-const post = () => new RequestContext("https://api.e2a.dev/v1/agents/a@x.com/messages", HttpMethod.POST);
+// A server-deduped POST (send/reply/forward/approve): the generated layer emits
+// an empty Idempotency-Key stub, which marks the op safe to retry.
+const post = () => {
+  const r = new RequestContext("https://api.e2a.dev/v1/agents/a@x.com/messages", HttpMethod.POST);
+  r.setHeaderParam("Idempotency-Key", ""); // empty generated stub
+  return r;
+};
+// A bare, non-idempotent POST (create agent/domain/webhook, reject, redeliver,
+// verify, test, rotate-secret): no server-honored key — must NOT be retried.
+const barePost = (url = "https://api.e2a.dev/v1/agents") =>
+  new RequestContext(url, HttpMethod.POST);
 const get = () => new RequestContext("https://api.e2a.dev/v1/agents/a@x.com/messages", HttpMethod.GET);
+const del = (url: string) => new RequestContext(url, HttpMethod.DELETE);
+const patch = (url = "https://api.e2a.dev/v1/agents/a@x.com") =>
+  new RequestContext(url, HttpMethod.PATCH);
 
 describe("RetryHttpLibrary retry behavior", () => {
   it("retries a 500 then returns the 200", async () => {
@@ -167,5 +180,52 @@ describe("RetryHttpLibrary review fixes", () => {
     const resp = await retry.send(post()).toPromise();
     expect(resp.httpStatusCode).toBe(503);
     expect(fake.methods.length).toBe(1); // deadline blocked the first retry
+  });
+});
+
+// Per-operation gating: only reads, HTTP-idempotent writes, and server-deduped
+// (keyed) POSTs are retried. Non-idempotent POSTs and account deletion are not —
+// retrying them after an ambiguous failure could double-create or re-fire an
+// irreversible delete. Mirrors the Python SDK's executor gating.
+describe("RetryHttpLibrary per-operation gating", () => {
+  it("does NOT retry a bare (non-idempotent) POST create on 500", async () => {
+    const fake = new FakeHttp([{ status: 500 }]);
+    const retry = new RetryHttpLibrary(fake, { sleep: noSleep });
+    const resp = await retry.send(barePost()).toPromise();
+    expect(resp.httpStatusCode).toBe(500);
+    expect(fake.methods.length).toBe(1); // not retried — avoids double-create
+  });
+
+  it("does NOT mint an Idempotency-Key for a bare POST create", async () => {
+    const fake = new FakeHttp([{ status: 200 }]);
+    const retry = new RetryHttpLibrary(fake, { sleep: noSleep, genIdempotencyKey: () => "x" });
+    await retry.send(barePost()).toPromise();
+    expect(fake.seenKeys[0]).toBeUndefined(); // no useless key the server would ignore
+  });
+
+  it("does NOT retry DELETE /v1/account (irreversible)", async () => {
+    const fake = new FakeHttp([{ status: 500 }]);
+    const retry = new RetryHttpLibrary(fake, { sleep: noSleep });
+    const resp = await retry
+      .send(del("https://api.e2a.dev/v1/account?confirm=DELETE"))
+      .toPromise();
+    expect(resp.httpStatusCode).toBe(500);
+    expect(fake.methods.length).toBe(1);
+  });
+
+  it("DOES retry an idempotent DELETE (webhook) on 500", async () => {
+    const fake = new FakeHttp([{ status: 500 }, { status: 204 }]);
+    const retry = new RetryHttpLibrary(fake, { sleep: noSleep });
+    const resp = await retry.send(del("https://api.e2a.dev/v1/webhooks/wh_1")).toPromise();
+    expect(resp.httpStatusCode).toBe(204);
+    expect(fake.methods.length).toBe(2);
+  });
+
+  it("DOES retry an idempotent PATCH on 500", async () => {
+    const fake = new FakeHttp([{ status: 500 }, { status: 200 }]);
+    const retry = new RetryHttpLibrary(fake, { sleep: noSleep });
+    const resp = await retry.send(patch()).toPromise();
+    expect(resp.httpStatusCode).toBe(200);
+    expect(fake.methods.length).toBe(2);
   });
 });

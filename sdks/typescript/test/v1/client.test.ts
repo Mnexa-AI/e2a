@@ -112,7 +112,7 @@ describe("E2AClient", () => {
   });
 
   it("agents.list returns an AutoPager over the agents array", async () => {
-    globalThis.fetch = mockFetch(200, { agents: [{ id: "ag_1", email: "bot@test.dev" }] });
+    globalThis.fetch = mockFetch(200, { items: [{ id: "ag_1", email: "bot@test.dev" }], next_cursor: null });
     const items = await client.agents.list().toArray({ limit: 10 });
     expect(items).toHaveLength(1);
     expect(items[0].email).toBe("bot@test.dev");
@@ -230,7 +230,7 @@ describe("E2AClient", () => {
     await client.account.get();
     expect(lastCall().url).toContain("/v1/account");
 
-    globalThis.fetch = mockFetch(200, { suppressions: [{ address: "blocked@x.com" }] });
+    globalThis.fetch = mockFetch(200, { items: [{ address: "blocked@x.com" }], next_cursor: null });
     const supp = await client.account.suppressions.list().toArray({ limit: 10 });
     expect(supp).toHaveLength(1);
     expect(lastCall().url).toContain("/v1/account/suppressions");

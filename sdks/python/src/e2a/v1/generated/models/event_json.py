@@ -41,20 +41,6 @@ class EventJSON(BaseModel):
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["agent_id", "conversation_id", "created_at", "data", "delivery_status", "id", "message_id", "schema_version", "status", "type"]
 
-    @field_validator('status')
-    def status_validate_enum(cls, value):
-        """Validates the enum"""
-        if value not in set(['pending', 'processed', 'no_match']):
-            raise ValueError("must be one of enum values ('pending', 'processed', 'no_match')")
-        return value
-
-    @field_validator('type')
-    def type_validate_enum(cls, value):
-        """Validates the enum"""
-        if value not in set(['email.received', 'email.sent', 'email.pending_approval', 'email.approved', 'email.rejected', 'domain.sending_verified', 'domain.sending_failed', 'email.delivered', 'email.bounced', 'email.complained', 'domain.suppression_added', 'email.flagged']):
-            raise ValueError("must be one of enum values ('email.received', 'email.sent', 'email.pending_approval', 'email.approved', 'email.rejected', 'domain.sending_verified', 'domain.sending_failed', 'email.delivered', 'email.bounced', 'email.complained', 'domain.suppression_added', 'email.flagged')")
-        return value
-
     model_config = ConfigDict(
         populate_by_name=True,
         validate_assignment=True,

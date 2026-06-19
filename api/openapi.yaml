@@ -713,36 +713,6 @@ components:
         - usage
         - upgrade_url
       type: object
-    ListAgentsOutputBody:
-      additionalProperties: false
-      properties:
-        agents:
-          items:
-            $ref: "#/components/schemas/AgentView"
-          type: array
-      required:
-        - agents
-      type: object
-    ListDomainsOutputBody:
-      additionalProperties: false
-      properties:
-        domains:
-          items:
-            $ref: "#/components/schemas/DomainView"
-          type: array
-      required:
-        - domains
-      type: object
-    ListWebhooksOutputBody:
-      additionalProperties: false
-      properties:
-        webhooks:
-          items:
-            $ref: "#/components/schemas/WebhookView"
-          type: array
-      required:
-        - webhooks
-      type: object
     Message:
       additionalProperties: false
       properties:
@@ -1120,12 +1090,42 @@ components:
         - scope
         - issued_at
       type: object
+    PageAgentView:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/AgentView"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
     PageConversationSummaryView:
       additionalProperties: false
       properties:
         items:
           items:
             $ref: "#/components/schemas/ConversationSummaryView"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
+    PageDomainView:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/DomainView"
           type: array
         next_cursor:
           type:
@@ -1165,12 +1165,42 @@ components:
         - items
         - next_cursor
       type: object
+    PageSuppression:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/Suppression"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
     PageWebhookDeliveryView:
       additionalProperties: false
       properties:
         items:
           items:
             $ref: "#/components/schemas/WebhookDeliveryView"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
+    PageWebhookView:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/WebhookView"
           type: array
         next_cursor:
           type:
@@ -1293,7 +1323,7 @@ components:
         - dkim
         - dmarc
       type: object
-    RotateSecretOutputBody:
+    RotateSecretBody:
       additionalProperties: false
       properties:
         previous_secret_expires_at:
@@ -1386,16 +1416,6 @@ components:
         - address
         - source
         - created_at
-      type: object
-    SuppressionsOutputBody:
-      additionalProperties: false
-      properties:
-        suppressions:
-          items:
-            $ref: "#/components/schemas/Suppression"
-          type: array
-      required:
-        - suppressions
       type: object
     TestWebhookOutputBody:
       additionalProperties: false
@@ -1808,7 +1828,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SuppressionsOutputBody"
+                $ref: "#/components/schemas/PageSuppression"
           description: OK
         default:
           content:
@@ -1854,7 +1874,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ListAgentsOutputBody"
+                $ref: "#/components/schemas/PageAgentView"
           description: OK
         default:
           content:
@@ -2522,7 +2542,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ListDomainsOutputBody"
+                $ref: "#/components/schemas/PageDomainView"
           description: OK
         default:
           content:
@@ -2830,7 +2850,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ListWebhooksOutputBody"
+                $ref: "#/components/schemas/PageWebhookView"
           description: OK
         default:
           content:
@@ -2999,7 +3019,7 @@ paths:
         - webhooks
   /v1/webhooks/{id}/rotate-secret:
     post:
-      description: Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once).
+      description: Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
       operationId: rotateWebhookSecret
       parameters:
         - in: path
@@ -3007,12 +3027,16 @@ paths:
           required: true
           schema:
             type: string
+        - in: header
+          name: Idempotency-Key
+          schema:
+            type: string
       responses:
         "200":
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/RotateSecretOutputBody"
+                $ref: "#/components/schemas/RotateSecretBody"
           description: OK
         default:
           content:

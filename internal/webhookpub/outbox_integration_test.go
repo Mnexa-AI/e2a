@@ -128,8 +128,8 @@ func TestOutbox_Integration_HappyPath_RowCommitsWithExpectedFields(t *testing.T)
 	if err := json.Unmarshal(gotEnvelopeJSON, &env); err != nil {
 		t.Fatalf("unmarshal envelope: %v", err)
 	}
-	if env.Event != webhookpub.EventEmailReceived {
-		t.Errorf("envelope.event = %s, want email.received", env.Event)
+	if env.Type != webhookpub.EventEmailReceived {
+		t.Errorf("envelope.type = %s, want email.received", env.Type)
 	}
 	if env.ID != event.ID {
 		t.Errorf("envelope.id = %s, want %s", env.ID, event.ID)

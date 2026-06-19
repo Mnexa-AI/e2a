@@ -30,4 +30,10 @@ docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$ROOT:/work" "$IMG" 
 rm -rf "$DEST"
 cp -r "$TMP/e2a/v1/generated" "$DEST"
 rm -rf "$TMP"
+
+# Strip the generator's `*_validate_enum` validators so the client tolerates
+# unknown enum values (forward-compat: a new server enum value must not crash a
+# deployed client). Matches the TypeScript SDK's passthrough behavior.
+python3 "$ROOT/sdks/python/scripts/strip-enum-validators.py" "$DEST"
+
 echo "Python /v1 client base regenerated at sdks/python/src/e2a/v1/generated"

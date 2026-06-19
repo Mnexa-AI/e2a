@@ -38,20 +38,6 @@ class WebhookDeliveryView(BaseModel):
     status: StrictStr
     __properties: ClassVar[List[str]] = ["attempts", "created_at", "event_type", "id", "last_attempt_at", "last_error", "last_status_code", "next_retry_at", "status"]
 
-    @field_validator('event_type')
-    def event_type_validate_enum(cls, value):
-        """Validates the enum"""
-        if value not in set(['email.received', 'email.sent', 'email.pending_approval', 'email.approved', 'email.rejected', 'domain.sending_verified', 'domain.sending_failed', 'email.delivered', 'email.bounced', 'email.complained', 'domain.suppression_added', 'email.flagged']):
-            raise ValueError("must be one of enum values ('email.received', 'email.sent', 'email.pending_approval', 'email.approved', 'email.rejected', 'domain.sending_verified', 'domain.sending_failed', 'email.delivered', 'email.bounced', 'email.complained', 'domain.suppression_added', 'email.flagged')")
-        return value
-
-    @field_validator('status')
-    def status_validate_enum(cls, value):
-        """Validates the enum"""
-        if value not in set(['pending', 'delivered', 'failed']):
-            raise ValueError("must be one of enum values ('pending', 'delivered', 'failed')")
-        return value
-
     model_config = ConfigDict(
         populate_by_name=True,
         validate_assignment=True,

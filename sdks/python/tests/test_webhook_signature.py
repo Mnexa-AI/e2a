@@ -23,7 +23,7 @@ def _sign(secret: str, t: str, body: str) -> str:
 
 
 def test_accepts_valid_signature() -> None:
-    body = '{"event":"email.received"}'
+    body = '{"type":"email.received"}'
     t = str(int(time.time()))
     v1 = _sign(SECRET, t, body)
     assert verify_webhook_signature(
@@ -32,11 +32,11 @@ def test_accepts_valid_signature() -> None:
 
 
 def test_rejects_tampered_body() -> None:
-    body = '{"event":"email.received"}'
+    body = '{"type":"email.received"}'
     t = str(int(time.time()))
     v1 = _sign(SECRET, t, body)
     assert not verify_webhook_signature(
-        '{"event":"email.received","tampered":true}',
+        '{"type":"email.received","tampered":true}',
         f"t={t},v1={v1}",
         SECRET,
     )

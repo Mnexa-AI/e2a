@@ -48,7 +48,7 @@ from .generated.models import (
     RegisterDomainRequest,
     RejectInputBody,
     ReplyRequest,
-    RotateSecretOutputBody,
+    RotateSecretBody,
     SendEmailRequest,
     SendResultView,
     Suppression,
@@ -208,7 +208,7 @@ class AgentsResource:
     def list(self) -> AutoPager[AgentView]:
         async def fetch(_cursor: Optional[str]) -> Page:
             resp = await self._c._read(lambda h: self._api.list_agents(_headers=h))
-            return _page(resp.agents)
+            return _page(resp.items)
 
         return AutoPager(fetch)
 
@@ -371,7 +371,7 @@ class DomainsResource:
     def list(self) -> AutoPager[DomainView]:
         async def fetch(_cursor: Optional[str]) -> Page:
             resp = await self._c._read(lambda h: self._api.list_domains(_headers=h))
-            return _page(resp.domains)
+            return _page(resp.items)
 
         return AutoPager(fetch)
 
@@ -447,7 +447,7 @@ class WebhooksResource:
     def list(self) -> AutoPager[WebhookView]:
         async def fetch(_cursor: Optional[str]) -> Page:
             resp = await self._c._read(lambda h: self._api.list_webhooks(_headers=h))
-            return _page(resp.webhooks)
+            return _page(resp.items)
 
         return AutoPager(fetch)
 
@@ -467,7 +467,7 @@ class WebhooksResource:
     async def delete(self, webhook_id: str) -> None:
         await self._c._write_idempotent(lambda h: self._api.delete_webhook(webhook_id, _headers=h))
 
-    async def rotate_secret(self, webhook_id: str) -> RotateSecretOutputBody:
+    async def rotate_secret(self, webhook_id: str) -> RotateSecretBody:
         return await self._c._write_unsafe(
             lambda h: self._api.rotate_webhook_secret(webhook_id, _headers=h)
         )
@@ -501,7 +501,7 @@ class SuppressionsResource:
     def list(self) -> AutoPager[Suppression]:
         async def fetch(_cursor: Optional[str]) -> Page:
             resp = await self._c._read(lambda h: self._api.list_suppressions(_headers=h))
-            return _page(resp.suppressions)
+            return _page(resp.items)
 
         return AutoPager(fetch)
 

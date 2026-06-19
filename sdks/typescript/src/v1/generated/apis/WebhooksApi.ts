@@ -10,9 +10,9 @@ import {SecurityAuthentication} from '../auth/auth.js';
 
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
-import { ListWebhooksOutputBody } from '../models/ListWebhooksOutputBody.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
-import { RotateSecretOutputBody } from '../models/RotateSecretOutputBody.js';
+import { PageWebhookView } from '../models/PageWebhookView.js';
+import { RotateSecretBody } from '../models/RotateSecretBody.js';
 import { TestWebhookOutputBody } from '../models/TestWebhookOutputBody.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
 import { UpdateWebhookRequest } from '../models/UpdateWebhookRequest.js';
@@ -226,17 +226,19 @@ export class WebhooksApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once).
+     * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
      * Rotate a webhook signing secret
      * @param id 
+     * @param idempotencyKey 
      */
-    public async rotateWebhookSecret(id: string, _options?: Configuration): Promise<RequestContext> {
+    public async rotateWebhookSecret(id: string, idempotencyKey?: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'id' is not null or undefined
         if (id === null || id === undefined) {
             throw new RequiredError("WebhooksApi", "rotateWebhookSecret", "id");
         }
+
 
 
         // Path Params
@@ -246,6 +248,9 @@ export class WebhooksApiRequestFactory extends BaseAPIRequestFactory {
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.POST);
         requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+        // Header Params
+        requestContext.setHeaderParam("Idempotency-Key", ObjectSerializer.serialize(idempotencyKey, "string", ""));
 
 
         let authMethod: SecurityAuthentication | undefined;
@@ -526,13 +531,13 @@ export class WebhooksApiResponseProcessor {
      * @params response Response returned by the server for a request to listWebhooks
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async listWebhooksWithHttpInfo(response: ResponseContext): Promise<HttpInfo<ListWebhooksOutputBody >> {
+     public async listWebhooksWithHttpInfo(response: ResponseContext): Promise<HttpInfo<PageWebhookView >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
         if (isCodeInRange("200", response.httpStatusCode)) {
-            const body: ListWebhooksOutputBody = ObjectSerializer.deserialize(
+            const body: PageWebhookView = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "ListWebhooksOutputBody", ""
-            ) as ListWebhooksOutputBody;
+                "PageWebhookView", ""
+            ) as PageWebhookView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
@@ -545,10 +550,10 @@ export class WebhooksApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: ListWebhooksOutputBody = ObjectSerializer.deserialize(
+            const body: PageWebhookView = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "ListWebhooksOutputBody", ""
-            ) as ListWebhooksOutputBody;
+                "PageWebhookView", ""
+            ) as PageWebhookView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 
@@ -562,13 +567,13 @@ export class WebhooksApiResponseProcessor {
      * @params response Response returned by the server for a request to rotateWebhookSecret
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async rotateWebhookSecretWithHttpInfo(response: ResponseContext): Promise<HttpInfo<RotateSecretOutputBody >> {
+     public async rotateWebhookSecretWithHttpInfo(response: ResponseContext): Promise<HttpInfo<RotateSecretBody >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
         if (isCodeInRange("200", response.httpStatusCode)) {
-            const body: RotateSecretOutputBody = ObjectSerializer.deserialize(
+            const body: RotateSecretBody = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "RotateSecretOutputBody", ""
-            ) as RotateSecretOutputBody;
+                "RotateSecretBody", ""
+            ) as RotateSecretBody;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
@@ -581,10 +586,10 @@ export class WebhooksApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: RotateSecretOutputBody = ObjectSerializer.deserialize(
+            const body: RotateSecretBody = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "RotateSecretOutputBody", ""
-            ) as RotateSecretOutputBody;
+                "RotateSecretBody", ""
+            ) as RotateSecretBody;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

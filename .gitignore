@@ -39,3 +39,6 @@ sdks/python/.pytest_cache/
 
 # Docs
 docs/originals/
+
+# Go coverage profile (make cover)
+cover.out

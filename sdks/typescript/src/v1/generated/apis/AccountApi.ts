@@ -11,7 +11,7 @@ import {SecurityAuthentication} from '../auth/auth.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { LimitsView } from '../models/LimitsView.js';
-import { SuppressionsOutputBody } from '../models/SuppressionsOutputBody.js';
+import { PageSuppression } from '../models/PageSuppression.js';
 import { UserExport } from '../models/UserExport.js';
 
 /**
@@ -335,13 +335,13 @@ export class AccountApiResponseProcessor {
      * @params response Response returned by the server for a request to listSuppressions
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async listSuppressionsWithHttpInfo(response: ResponseContext): Promise<HttpInfo<SuppressionsOutputBody >> {
+     public async listSuppressionsWithHttpInfo(response: ResponseContext): Promise<HttpInfo<PageSuppression >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
         if (isCodeInRange("200", response.httpStatusCode)) {
-            const body: SuppressionsOutputBody = ObjectSerializer.deserialize(
+            const body: PageSuppression = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "SuppressionsOutputBody", ""
-            ) as SuppressionsOutputBody;
+                "PageSuppression", ""
+            ) as PageSuppression;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
@@ -354,10 +354,10 @@ export class AccountApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: SuppressionsOutputBody = ObjectSerializer.deserialize(
+            const body: PageSuppression = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "SuppressionsOutputBody", ""
-            ) as SuppressionsOutputBody;
+                "PageSuppression", ""
+            ) as PageSuppression;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

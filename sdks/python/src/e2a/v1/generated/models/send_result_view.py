@@ -33,13 +33,6 @@ class SendResultView(BaseModel):
     status: StrictStr
     __properties: ClassVar[List[str]] = ["approval_expires_at", "message_id", "method", "status"]
 
-    @field_validator('status')
-    def status_validate_enum(cls, value):
-        """Validates the enum"""
-        if value not in set(['sent', 'pending_approval']):
-            raise ValueError("must be one of enum values ('sent', 'pending_approval')")
-        return value
-
     model_config = ConfigDict(
         populate_by_name=True,
         validate_assignment=True,

@@ -167,10 +167,10 @@ func (s *Server) assertAgentsOwned(ctx context.Context, userID string, agentIDs 
 
 type webhookOutput struct{ Body WebhookView }
 type webhookCreateOutput struct{ Body WebhookView }
+// listWebhooksOutput uses the shared Page[T] envelope (items + next_cursor);
+// next_cursor is null at launch. See listAgentsOutput. (GA blocker #3.)
 type listWebhooksOutput struct {
-	Body struct {
-		Webhooks []WebhookView `json:"webhooks" nullable:"false"`
-	}
+	Body Page[WebhookView]
 }
 
 // CreateWebhookRequest mirrors the legacy body.
@@ -222,7 +222,7 @@ func (s *Server) registerWebhooks() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "rotateWebhookSecret", Method: http.MethodPost, Path: "/v1/webhooks/{id}/rotate-secret",
 		Summary: "Rotate a webhook signing secret", Tags: []string{"webhooks"},
-		Description: "Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once).",
+		Description: "Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleRotateWebhookSecret)
 
@@ -426,29 +426,49 @@ func (s *Server) handleUpdateWebhook(ctx context.Context, in *updateWebhookInput
 	return &webhookOutput{Body: webhookView(wh, false)}, nil
 }
 
-type rotateSecretOutput struct {
-	Body struct {
-		SigningSecret           string `json:"signing_secret"`
-		PreviousSecretExpiresAt string `json:"previous_secret_expires_at" format:"date-time"`
-	}
+type rotateSecretBody struct {
+	SigningSecret           string `json:"signing_secret"`
+	PreviousSecretExpiresAt string `json:"previous_secret_expires_at" format:"date-time"`
 }
 
-func (s *Server) handleRotateWebhookSecret(ctx context.Context, in *WebhookIDParam) (*rotateSecretOutput, error) {
+type rotateSecretOutput struct {
+	Body rotateSecretBody
+}
+
+// rotateSecretInput carries an optional Idempotency-Key so a retried rotate
+// replays the first secret instead of minting a second one — without it, a
+// network retry would rotate twice within the grace window and silently drop
+// the secret the caller already stored. Rotate has no request body; the
+// idempotency dedup hashes the route (which includes the webhook id) alone.
+type rotateSecretInput struct {
+	ID             string `path:"id"`
+	IdempotencyKey string `header:"Idempotency-Key"`
+}
+
+func (s *Server) handleRotateWebhookSecret(ctx context.Context, in *rotateSecretInput) (*rotateSecretOutput, error) {
 	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
-	secret, prevExpires, err := s.deps.RotateSecret(ctx, in.ID, user.ID)
+	_, body, err := runIdempotent(s, ctx, user.ID, in.IdempotencyKey,
+		"/v1/webhooks/"+in.ID+"/rotate-secret", nil,
+		func() (int, rotateSecretBody, error) {
+			secret, prevExpires, rerr := s.deps.RotateSecret(ctx, in.ID, user.ID)
+			if rerr != nil {
+				if errors.Is(rerr, identity.ErrWebhookNotFound) {
+					return 0, rotateSecretBody{}, NewError(http.StatusNotFound, "not_found", "webhook not found")
+				}
+				return 0, rotateSecretBody{}, NewError(http.StatusInternalServerError, "internal_error", "failed to rotate webhook secret")
+			}
+			return http.StatusOK, rotateSecretBody{
+				SigningSecret:           secret,
+				PreviousSecretExpiresAt: prevExpires.UTC().Format(time.RFC3339),
+			}, nil
+		})
 	if err != nil {
-		if errors.Is(err, identity.ErrWebhookNotFound) {
-			return nil, NewError(http.StatusNotFound, "not_found", "webhook not found")
-		}
-		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to rotate webhook secret")
+		return nil, err
 	}
-	out := &rotateSecretOutput{}
-	out.Body.SigningSecret = secret
-	out.Body.PreviousSecretExpiresAt = prevExpires.UTC().Format(time.RFC3339)
-	return out, nil
+	return &rotateSecretOutput{Body: body}, nil
 }
 
 func (s *Server) handleCreateWebhook(ctx context.Context, in *createWebhookInput) (*webhookCreateOutput, error) {
@@ -486,12 +506,11 @@ func (s *Server) handleListWebhooks(ctx context.Context, _ *struct{}) (*listWebh
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list webhooks")
 	}
-	out := &listWebhooksOutput{}
-	out.Body.Webhooks = make([]WebhookView, 0, len(hooks))
+	items := make([]WebhookView, 0, len(hooks))
 	for i := range hooks {
-		out.Body.Webhooks = append(out.Body.Webhooks, webhookView(&hooks[i], false))
+		items = append(items, webhookView(&hooks[i], false))
 	}
-	return out, nil
+	return &listWebhooksOutput{Body: NewPage(items, "")}, nil
 }
 
 func (s *Server) handleGetWebhook(ctx context.Context, in *WebhookIDParam) (*webhookOutput, error) {

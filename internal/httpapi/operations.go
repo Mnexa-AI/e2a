@@ -86,10 +86,12 @@ func agentViewFromIdentity(ag *identity.AgentIdentity) AgentView {
 	}
 }
 
+// listAgentsOutput uses the shared Page[T] envelope (items + next_cursor) so
+// the list has a pagination slot from GA day one. next_cursor is null at launch
+// (all agents are returned in one page); wiring real cursoring + a server-side
+// limit later is additive — no response-shape change. (GA blocker #3.)
 type listAgentsOutput struct {
-	Body struct {
-		Agents []AgentView `json:"agents" nullable:"false"`
-	}
+	Body Page[AgentView]
 }
 
 // AddressParam is the shared path input for per-agent operations. The
@@ -121,12 +123,11 @@ func (s *Server) registerAgents() {
 		if err != nil {
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list agents")
 		}
-		out := &listAgentsOutput{}
-		out.Body.Agents = make([]AgentView, 0, len(agents))
+		items := make([]AgentView, 0, len(agents))
 		for i := range agents {
-			out.Body.Agents = append(out.Body.Agents, agentViewFromIdentity(&agents[i]))
+			items = append(items, agentViewFromIdentity(&agents[i]))
 		}
-		return out, nil
+		return &listAgentsOutput{Body: NewPage(items, "")}, nil
 	})
 
 	huma.Register(s.API, huma.Operation{

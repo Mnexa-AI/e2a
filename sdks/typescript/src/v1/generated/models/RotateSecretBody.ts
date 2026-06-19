@@ -10,11 +10,11 @@
  * Do not edit the class manually.
  */
 
-import { WebhookView } from '../models/WebhookView.js';
 import { HttpFile } from '../http/http.js';
 
-export class ListWebhooksOutputBody {
-    'webhooks': Array<WebhookView>;
+export class RotateSecretBody {
+    'previousSecretExpiresAt': Date;
+    'signingSecret': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -22,14 +22,20 @@ export class ListWebhooksOutputBody {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "webhooks",
-            "baseName": "webhooks",
-            "type": "Array<WebhookView>",
+            "name": "previousSecretExpiresAt",
+            "baseName": "previous_secret_expires_at",
+            "type": "Date",
+            "format": "date-time"
+        },
+        {
+            "name": "signingSecret",
+            "baseName": "signing_secret",
+            "type": "string",
             "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return ListWebhooksOutputBody.attributeTypeMap;
+        return RotateSecretBody.attributeTypeMap;
     }
 
     public constructor() {

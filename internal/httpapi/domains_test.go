@@ -11,7 +11,7 @@ func TestListDomains(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("status %d body %v", code, body)
 	}
-	doms, _ := body["domains"].([]any)
+	doms, _ := body["items"].([]any)
 	if len(doms) != 1 {
 		t.Fatalf("want 1 domain, got %d", len(doms))
 	}

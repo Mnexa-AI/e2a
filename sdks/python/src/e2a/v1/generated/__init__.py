@@ -61,19 +61,20 @@ __all__ = [
     "LimitsCapsView",
     "LimitsUsageView",
     "LimitsView",
-    "ListAgentsOutputBody",
-    "ListDomainsOutputBody",
-    "ListWebhooksOutputBody",
     "Message",
     "MessageBodyView",
     "MessageParsedView",
     "MessageSummaryView",
     "MessageView",
     "OAuthConnectionEntry",
+    "PageAgentView",
     "PageConversationSummaryView",
+    "PageDomainView",
     "PageEventJSON",
     "PageMessageSummaryView",
+    "PageSuppression",
     "PageWebhookDeliveryView",
+    "PageWebhookView",
     "RedeliverDelivery",
     "RedeliverEventInputBody",
     "RedeliverView",
@@ -82,12 +83,11 @@ __all__ = [
     "RejectResultView",
     "ReplyRequest",
     "Result",
-    "RotateSecretOutputBody",
+    "RotateSecretBody",
     "SendEmailRequest",
     "SendResultView",
     "SendingDNSRecordView",
     "Suppression",
-    "SuppressionsOutputBody",
     "TestWebhookOutputBody",
     "TestWebhookRequest",
     "UpdateAgentRequest",
@@ -152,19 +152,20 @@ from e2a.v1.generated.models.forward_request import ForwardRequest as ForwardReq
 from e2a.v1.generated.models.limits_caps_view import LimitsCapsView as LimitsCapsView
 from e2a.v1.generated.models.limits_usage_view import LimitsUsageView as LimitsUsageView
 from e2a.v1.generated.models.limits_view import LimitsView as LimitsView
-from e2a.v1.generated.models.list_agents_output_body import ListAgentsOutputBody as ListAgentsOutputBody
-from e2a.v1.generated.models.list_domains_output_body import ListDomainsOutputBody as ListDomainsOutputBody
-from e2a.v1.generated.models.list_webhooks_output_body import ListWebhooksOutputBody as ListWebhooksOutputBody
 from e2a.v1.generated.models.message import Message as Message
 from e2a.v1.generated.models.message_body_view import MessageBodyView as MessageBodyView
 from e2a.v1.generated.models.message_parsed_view import MessageParsedView as MessageParsedView
 from e2a.v1.generated.models.message_summary_view import MessageSummaryView as MessageSummaryView
 from e2a.v1.generated.models.message_view import MessageView as MessageView
 from e2a.v1.generated.models.o_auth_connection_entry import OAuthConnectionEntry as OAuthConnectionEntry
+from e2a.v1.generated.models.page_agent_view import PageAgentView as PageAgentView
 from e2a.v1.generated.models.page_conversation_summary_view import PageConversationSummaryView as PageConversationSummaryView
+from e2a.v1.generated.models.page_domain_view import PageDomainView as PageDomainView
 from e2a.v1.generated.models.page_event_json import PageEventJSON as PageEventJSON
 from e2a.v1.generated.models.page_message_summary_view import PageMessageSummaryView as PageMessageSummaryView
+from e2a.v1.generated.models.page_suppression import PageSuppression as PageSuppression
 from e2a.v1.generated.models.page_webhook_delivery_view import PageWebhookDeliveryView as PageWebhookDeliveryView
+from e2a.v1.generated.models.page_webhook_view import PageWebhookView as PageWebhookView
 from e2a.v1.generated.models.redeliver_delivery import RedeliverDelivery as RedeliverDelivery
 from e2a.v1.generated.models.redeliver_event_input_body import RedeliverEventInputBody as RedeliverEventInputBody
 from e2a.v1.generated.models.redeliver_view import RedeliverView as RedeliverView
@@ -173,12 +174,11 @@ from e2a.v1.generated.models.reject_input_body import RejectInputBody as RejectI
 from e2a.v1.generated.models.reject_result_view import RejectResultView as RejectResultView
 from e2a.v1.generated.models.reply_request import ReplyRequest as ReplyRequest
 from e2a.v1.generated.models.result import Result as Result
-from e2a.v1.generated.models.rotate_secret_output_body import RotateSecretOutputBody as RotateSecretOutputBody
+from e2a.v1.generated.models.rotate_secret_body import RotateSecretBody as RotateSecretBody
 from e2a.v1.generated.models.send_email_request import SendEmailRequest as SendEmailRequest
 from e2a.v1.generated.models.send_result_view import SendResultView as SendResultView
 from e2a.v1.generated.models.sending_dns_record_view import SendingDNSRecordView as SendingDNSRecordView
 from e2a.v1.generated.models.suppression import Suppression as Suppression
-from e2a.v1.generated.models.suppressions_output_body import SuppressionsOutputBody as SuppressionsOutputBody
 from e2a.v1.generated.models.test_webhook_output_body import TestWebhookOutputBody as TestWebhookOutputBody
 from e2a.v1.generated.models.test_webhook_request import TestWebhookRequest as TestWebhookRequest
 from e2a.v1.generated.models.update_agent_request import UpdateAgentRequest as UpdateAgentRequest

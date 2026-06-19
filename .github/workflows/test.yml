@@ -43,6 +43,40 @@ jobs:
           cache: true
       - run: go test ./...
 
+  go-coverage:
+    name: Go coverage gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: e2a
+          POSTGRES_PASSWORD: e2a
+          POSTGRES_DB: e2a_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U e2a -d e2a_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache: true
+      # Generate the coverage profile with the test DB available (the webhook
+      # delivery/publish + httpapi suites are DB-backed; -p 1 avoids cross-
+      # package test-DB contention). Floors live in .testcoverage.yml.
+      - name: Generate coverage profile
+        run: make cover
+      - name: Enforce per-package coverage floors
+        uses: vladopajic/go-test-coverage@v2
+        with:
+          config: ./.testcoverage.yml
+
   web:
     name: Web tests
     runs-on: ubuntu-latest

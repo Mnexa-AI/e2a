@@ -17,18 +17,19 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict
-from typing import Any, ClassVar, Dict, List
+from pydantic import BaseModel, ConfigDict, StrictStr
+from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.domain_view import DomainView
 from typing import Optional, Set
 from typing_extensions import Self
 
-class ListDomainsOutputBody(BaseModel):
+class PageDomainView(BaseModel):
     """
-    ListDomainsOutputBody
+    PageDomainView
     """ # noqa: E501
-    domains: List[DomainView]
-    __properties: ClassVar[List[str]] = ["domains"]
+    items: List[DomainView]
+    next_cursor: Optional[StrictStr]
+    __properties: ClassVar[List[str]] = ["items", "next_cursor"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -48,7 +49,7 @@ class ListDomainsOutputBody(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of ListDomainsOutputBody from a JSON string"""
+        """Create an instance of PageDomainView from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -69,18 +70,23 @@ class ListDomainsOutputBody(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of each item in domains (list)
+        # override the default output from pydantic by calling `to_dict()` of each item in items (list)
         _items = []
-        if self.domains:
-            for _item_domains in self.domains:
-                if _item_domains:
-                    _items.append(_item_domains.to_dict())
-            _dict['domains'] = _items
+        if self.items:
+            for _item_items in self.items:
+                if _item_items:
+                    _items.append(_item_items.to_dict())
+            _dict['items'] = _items
+        # set to None if next_cursor (nullable) is None
+        # and model_fields_set contains the field
+        if self.next_cursor is None and "next_cursor" in self.model_fields_set:
+            _dict['next_cursor'] = None
+
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of ListDomainsOutputBody from a dict"""
+        """Create an instance of PageDomainView from a dict"""
         if obj is None:
             return None
 
@@ -88,7 +94,8 @@ class ListDomainsOutputBody(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "domains": [DomainView.from_dict(_item) for _item in obj["domains"]] if obj.get("domains") is not None else None
+            "items": [DomainView.from_dict(_item) for _item in obj["items"]] if obj.get("items") is not None else None,
+            "next_cursor": obj.get("next_cursor")
         })
         return _obj
 

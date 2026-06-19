@@ -52,43 +52,6 @@ class MessageSummaryView(BaseModel):
     webhook_status: Optional[StrictStr] = None
     __properties: ClassVar[List[str]] = ["auth", "cc", "conversation_id", "created_at", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "hitl_status", "labels", "message_id", "recipient", "reply_to", "sent_as", "size_bytes", "status", "subject", "to", "webhook_error", "webhook_status"]
 
-    @field_validator('delivery_status')
-    def delivery_status_validate_enum(cls, value):
-        """Validates the enum"""
-        if value is None:
-            return value
-
-        if value not in set(['queued', 'sent', 'delivered', 'bounced', 'complained', 'deferred', 'failed']):
-            raise ValueError("must be one of enum values ('queued', 'sent', 'delivered', 'bounced', 'complained', 'deferred', 'failed')")
-        return value
-
-    @field_validator('direction')
-    def direction_validate_enum(cls, value):
-        """Validates the enum"""
-        if value not in set(['inbound', 'outbound']):
-            raise ValueError("must be one of enum values ('inbound', 'outbound')")
-        return value
-
-    @field_validator('hitl_status')
-    def hitl_status_validate_enum(cls, value):
-        """Validates the enum"""
-        if value is None:
-            return value
-
-        if value not in set(['pending_approval', 'sent', 'rejected', 'expired_approved', 'expired_rejected']):
-            raise ValueError("must be one of enum values ('pending_approval', 'sent', 'rejected', 'expired_approved', 'expired_rejected')")
-        return value
-
-    @field_validator('sent_as')
-    def sent_as_validate_enum(cls, value):
-        """Validates the enum"""
-        if value is None:
-            return value
-
-        if value not in set(['own_address', 'relay']):
-            raise ValueError("must be one of enum values ('own_address', 'relay')")
-        return value
-
     model_config = ConfigDict(
         populate_by_name=True,
         validate_assignment=True,

@@ -123,10 +123,10 @@ type VerifyDomainView struct {
 	DKIM       string     `json:"dkim,omitempty"`
 }
 
+// listDomainsOutput uses the shared Page[T] envelope (items + next_cursor);
+// next_cursor is null at launch. See listAgentsOutput. (GA blocker #3.)
 type listDomainsOutput struct {
-	Body struct {
-		Domains []DomainView `json:"domains" nullable:"false"`
-	}
+	Body Page[DomainView]
 }
 type domainOutput struct{ Body DomainView }
 type domainCreateOutput struct{ Body DomainView }
@@ -250,12 +250,11 @@ func (s *Server) handleListDomains(ctx context.Context, _ *struct{}) (*listDomai
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list domains")
 	}
-	out := &listDomainsOutput{}
-	out.Body.Domains = make([]DomainView, 0, len(domains))
+	items := make([]DomainView, 0, len(domains))
 	for i := range domains {
-		out.Body.Domains = append(out.Body.Domains, s.domainView(&domains[i]))
+		items = append(items, s.domainView(&domains[i]))
 	}
-	return out, nil
+	return &listDomainsOutput{Body: NewPage(items, "")}, nil
 }
 
 func (s *Server) handleGetDomain(ctx context.Context, in *DomainParam) (*domainOutput, error) {

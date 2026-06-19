@@ -1,4 +1,4 @@
-.PHONY: build run test test-unit test-integration test-e2e clean docker-up docker-down migrate spec spec-check generate generate-check generate-sdk generate-sdk-check generate-sdk-ts generate-sdk-py
+.PHONY: build run test test-unit test-integration test-e2e cover cover-check clean docker-up docker-down migrate spec spec-check generate generate-check generate-sdk generate-sdk-check generate-sdk-ts generate-sdk-py
 
 # OpenAPI Generator for the /v1 SDK base. Pinned to a released tag (never
 # :latest/SNAPSHOT) so output is reproducible for the drift gate. Run via
@@ -22,6 +22,17 @@ test-integration:
 
 test-e2e:
 	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -tags integration -p 1 ./internal/e2e/
+
+# cover writes a coverage profile across the internal packages (needs Postgres
+# on :5433, like `make test`; -p 1 avoids cross-package test-DB contention).
+# cover-check enforces the per-package floors in .testcoverage.yml. CI runs the
+# same gate via the vladopajic/go-test-coverage action.
+GO_TEST_COVERAGE_VERSION ?= v2.14.3
+cover:
+	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -p 1 -covermode=atomic -coverprofile=cover.out ./internal/...
+
+cover-check: cover
+	go run github.com/vladopajic/go-test-coverage/v2@$(GO_TEST_COVERAGE_VERSION) --config=.testcoverage.yml
 
 clean:
 	rm -rf bin/
