@@ -15,12 +15,12 @@ import { HttpFile } from '../http/http.js';
 
 export class ForwardRequest {
     'attachments'?: Array<Attachment> | null;
-    'bcc'?: Array<string> | null;
+    'bcc'?: Array<string>;
     'body'?: string;
-    'cc'?: Array<string> | null;
+    'cc'?: Array<string>;
     'conversationId'?: string;
     'htmlBody'?: string;
-    'to'?: Array<string> | null;
+    'to'?: Array<string>;
 
     static readonly discriminator: string | undefined = undefined;
 

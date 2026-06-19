@@ -87,16 +87,6 @@ class ReplyRequest(BaseModel):
         if self.attachments is None and "attachments" in self.model_fields_set:
             _dict['attachments'] = None
 
-        # set to None if bcc (nullable) is None
-        # and model_fields_set contains the field
-        if self.bcc is None and "bcc" in self.model_fields_set:
-            _dict['bcc'] = None
-
-        # set to None if cc (nullable) is None
-        # and model_fields_set contains the field
-        if self.cc is None and "cc" in self.model_fields_set:
-            _dict['cc'] = None
-
         return _dict
 
     @classmethod

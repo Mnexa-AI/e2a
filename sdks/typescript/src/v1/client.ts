@@ -246,10 +246,13 @@ class MessagesResource {
 
 class ConversationsResource {
   constructor(private readonly api: PromiseConversationsApi) {}
-  async list(address: string, params: { since?: string; until?: string; limit?: number } = {}): Promise<ConversationSummaryView[]> {
-    // listConversations has no cursor param — single page by contract.
-    const page = await call(() => this.api.listConversations(address, params.since, params.until, params.limit));
-    return page.items ?? [];
+  // Returns an AutoPager for ergonomic consistency with every other `.list()`.
+  // The conversations endpoint has no cursor param (single page by contract),
+  // so the pager yields one page and terminates — same shape as agents/domains.
+  list(address: string, params: { since?: string; until?: string; limit?: number } = {}): AutoPager<ConversationSummaryView> {
+    return new AutoPager(async () => ({
+      items: (await call(() => this.api.listConversations(address, params.since, params.until, params.limit))).items ?? [],
+    }));
   }
   get(address: string, id: string): Promise<ConversationDetailView> {
     return call(() => this.api.getConversation(address, id));

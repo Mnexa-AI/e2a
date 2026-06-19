@@ -337,21 +337,25 @@ class ConversationsResource:
         self._api = api
         self._c = client
 
-    async def list(
+    def list(
         self,
         address: str,
         *,
         since: Optional[str] = None,
         until: Optional[str] = None,
         limit: Optional[int] = None,
-    ) -> List[ConversationSummaryView]:
-        # No cursor param — single page by contract.
-        resp = await self._c._read(
-            lambda h: self._api.list_conversations(
-                address, since=since, until=until, limit=limit, _headers=h
+    ) -> AutoPager[ConversationSummaryView]:
+        # No cursor param — single page by contract; AutoPager for ergonomic
+        # consistency with every other .list() (yields one page, terminates).
+        async def fetch(_cursor: Optional[str]) -> Page:
+            resp = await self._c._read(
+                lambda h: self._api.list_conversations(
+                    address, since=since, until=until, limit=limit, _headers=h
+                )
             )
-        )
-        return list(resp.items or [])
+            return _page(resp.items)
+
+        return AutoPager(fetch)
 
     async def get(self, address: str, conversation_id: str) -> ConversationDetailView:
         return await self._c._read(

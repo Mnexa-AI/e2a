@@ -28,7 +28,6 @@ models/CreateAgentResponse.ts
 models/CreateWebhookRequest.ts
 models/DNSRecordView.ts
 models/DNSRecordsView.ts
-models/DeleteAgentOutputBody.ts
 models/DeleteUserDataResult.ts
 models/DeliveryStatusJSON.ts
 models/DeploymentInfoView.ts

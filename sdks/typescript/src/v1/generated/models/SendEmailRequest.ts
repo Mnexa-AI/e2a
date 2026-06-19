@@ -15,14 +15,13 @@ import { HttpFile } from '../http/http.js';
 
 export class SendEmailRequest {
     'attachments'?: Array<Attachment> | null;
-    'bcc'?: Array<string> | null;
+    'bcc'?: Array<string>;
     'body'?: string;
-    'cc'?: Array<string> | null;
+    'cc'?: Array<string>;
     'conversationId'?: string;
-    '_from'?: string;
     'htmlBody'?: string;
     'subject'?: string;
-    'to'?: Array<string> | null;
+    'to'?: Array<string>;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -56,12 +55,6 @@ export class SendEmailRequest {
         {
             "name": "conversationId",
             "baseName": "conversation_id",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "_from",
-            "baseName": "from",
             "type": "string",
             "format": ""
         },

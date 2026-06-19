@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr
+from pydantic import BaseModel, ConfigDict, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.attachment import Attachment
 from typing import Optional, Set
@@ -32,11 +32,10 @@ class SendEmailRequest(BaseModel):
     body: Optional[StrictStr] = None
     cc: Optional[List[StrictStr]] = None
     conversation_id: Optional[StrictStr] = None
-    var_from: Optional[StrictStr] = Field(default=None, alias="from")
     html_body: Optional[StrictStr] = None
     subject: Optional[StrictStr] = None
     to: Optional[List[StrictStr]] = None
-    __properties: ClassVar[List[str]] = ["attachments", "bcc", "body", "cc", "conversation_id", "from", "html_body", "subject", "to"]
+    __properties: ClassVar[List[str]] = ["attachments", "bcc", "body", "cc", "conversation_id", "html_body", "subject", "to"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -89,21 +88,6 @@ class SendEmailRequest(BaseModel):
         if self.attachments is None and "attachments" in self.model_fields_set:
             _dict['attachments'] = None
 
-        # set to None if bcc (nullable) is None
-        # and model_fields_set contains the field
-        if self.bcc is None and "bcc" in self.model_fields_set:
-            _dict['bcc'] = None
-
-        # set to None if cc (nullable) is None
-        # and model_fields_set contains the field
-        if self.cc is None and "cc" in self.model_fields_set:
-            _dict['cc'] = None
-
-        # set to None if to (nullable) is None
-        # and model_fields_set contains the field
-        if self.to is None and "to" in self.model_fields_set:
-            _dict['to'] = None
-
         return _dict
 
     @classmethod
@@ -121,7 +105,6 @@ class SendEmailRequest(BaseModel):
             "body": obj.get("body"),
             "cc": obj.get("cc"),
             "conversation_id": obj.get("conversation_id"),
-            "from": obj.get("from"),
             "html_body": obj.get("html_body"),
             "subject": obj.get("subject"),
             "to": obj.get("to")

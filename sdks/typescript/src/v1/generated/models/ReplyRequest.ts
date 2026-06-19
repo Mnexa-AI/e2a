@@ -15,9 +15,9 @@ import { HttpFile } from '../http/http.js';
 
 export class ReplyRequest {
     'attachments'?: Array<Attachment> | null;
-    'bcc'?: Array<string> | null;
+    'bcc'?: Array<string>;
     'body'?: string;
-    'cc'?: Array<string> | null;
+    'cc'?: Array<string>;
     'conversationId'?: string;
     'htmlBody'?: string;
     'replyAll'?: boolean;

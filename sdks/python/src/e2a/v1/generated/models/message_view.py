@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.message_body_view import MessageBodyView
 from e2a.v1.generated.models.message_parsed_view import MessageParsedView
@@ -50,10 +50,13 @@ class MessageView(BaseModel):
     recipient: StrictStr
     reply_to: Optional[List[StrictStr]]
     sent_as: Optional[StrictStr] = None
+    size_bytes: Optional[StrictInt] = None
     status: StrictStr
     subject: StrictStr
     to: Optional[List[StrictStr]]
-    __properties: ClassVar[List[str]] = ["auth", "auth_headers", "body", "cc", "conversation_id", "created_at", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "hitl_status", "labels", "message_id", "parsed", "raw_message", "recipient", "reply_to", "sent_as", "status", "subject", "to"]
+    webhook_error: Optional[StrictStr] = None
+    webhook_status: Optional[StrictStr] = None
+    __properties: ClassVar[List[str]] = ["auth", "auth_headers", "body", "cc", "conversation_id", "created_at", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "hitl_status", "labels", "message_id", "parsed", "raw_message", "recipient", "reply_to", "sent_as", "size_bytes", "status", "subject", "to", "webhook_error", "webhook_status"]
 
     @field_validator('delivery_status')
     def delivery_status_validate_enum(cls, value):
@@ -192,9 +195,12 @@ class MessageView(BaseModel):
             "recipient": obj.get("recipient"),
             "reply_to": obj.get("reply_to"),
             "sent_as": obj.get("sent_as"),
+            "size_bytes": obj.get("size_bytes"),
             "status": obj.get("status"),
             "subject": obj.get("subject"),
-            "to": obj.get("to")
+            "to": obj.get("to"),
+            "webhook_error": obj.get("webhook_error"),
+            "webhook_status": obj.get("webhook_status")
         })
         return _obj
 

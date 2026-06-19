@@ -16,7 +16,6 @@ import { CreateAgentResponse } from '../models/CreateAgentResponse.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { DNSRecordView } from '../models/DNSRecordView.js';
 import { DNSRecordsView } from '../models/DNSRecordsView.js';
-import { DeleteAgentOutputBody } from '../models/DeleteAgentOutputBody.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
 import { DeliveryStatusJSON } from '../models/DeliveryStatusJSON.js';
 import { DeploymentInfoView } from '../models/DeploymentInfoView.js';
@@ -293,7 +292,7 @@ export class ObjectAgentsApi {
      * Delete an agent
      * @param param the request object
      */
-    public deleteAgentWithHttpInfo(param: AgentsApiDeleteAgentRequest, options?: ConfigurationOptions): Promise<HttpInfo<DeleteAgentOutputBody>> {
+    public deleteAgentWithHttpInfo(param: AgentsApiDeleteAgentRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
         return this.api.deleteAgentWithHttpInfo(param.address,  options).toPromise();
     }
 
@@ -302,7 +301,7 @@ export class ObjectAgentsApi {
      * Delete an agent
      * @param param the request object
      */
-    public deleteAgent(param: AgentsApiDeleteAgentRequest, options?: ConfigurationOptions): Promise<DeleteAgentOutputBody> {
+    public deleteAgent(param: AgentsApiDeleteAgentRequest, options?: ConfigurationOptions): Promise<void> {
         return this.api.deleteAgent(param.address,  options).toPromise();
     }
 

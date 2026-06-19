@@ -36,9 +36,12 @@ export class MessageView {
     'recipient': string;
     'replyTo': Array<string> | null;
     'sentAs'?: MessageViewSentAsEnum;
+    'sizeBytes'?: number;
     'status': string;
     'subject': string;
     'to': Array<string> | null;
+    'webhookError'?: string;
+    'webhookStatus'?: string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -166,6 +169,12 @@ export class MessageView {
             "format": ""
         },
         {
+            "name": "sizeBytes",
+            "baseName": "size_bytes",
+            "type": "number",
+            "format": "int64"
+        },
+        {
             "name": "status",
             "baseName": "status",
             "type": "string",
@@ -181,6 +190,18 @@ export class MessageView {
             "name": "to",
             "baseName": "to",
             "type": "Array<string>",
+            "format": ""
+        },
+        {
+            "name": "webhookError",
+            "baseName": "webhook_error",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "webhookStatus",
+            "baseName": "webhook_status",
+            "type": "string",
             "format": ""
         }    ];
 

@@ -16,9 +16,9 @@ import { HttpFile } from '../http/http.js';
 export class ApproveRequest {
     'attachments'?: Array<Attachment>;
     'bcc'?: Array<string>;
-    'bodyHtml'?: string;
-    'bodyText'?: string;
+    'body'?: string;
     'cc'?: Array<string>;
+    'htmlBody'?: string;
     'subject'?: string;
     'to'?: Array<string>;
 
@@ -40,14 +40,8 @@ export class ApproveRequest {
             "format": ""
         },
         {
-            "name": "bodyHtml",
-            "baseName": "body_html",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "bodyText",
-            "baseName": "body_text",
+            "name": "body",
+            "baseName": "body",
             "type": "string",
             "format": ""
         },
@@ -55,6 +49,12 @@ export class ApproveRequest {
             "name": "cc",
             "baseName": "cc",
             "type": "Array<string>",
+            "format": ""
+        },
+        {
+            "name": "htmlBody",
+            "baseName": "html_body",
+            "type": "string",
             "format": ""
         },
         {

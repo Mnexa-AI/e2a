@@ -13,8 +13,8 @@
 import { HttpFile } from '../http/http.js';
 
 export class UpdateMessageRequest {
-    'addLabels'?: Array<string> | null;
-    'removeLabels'?: Array<string> | null;
+    'addLabels'?: Array<string>;
+    'removeLabels'?: Array<string>;
 
     static readonly discriminator: string | undefined = undefined;
 

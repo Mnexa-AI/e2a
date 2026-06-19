@@ -17,7 +17,6 @@ import { CreateAgentResponse } from '../models/CreateAgentResponse.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { DNSRecordView } from '../models/DNSRecordView.js';
 import { DNSRecordsView } from '../models/DNSRecordsView.js';
-import { DeleteAgentOutputBody } from '../models/DeleteAgentOutputBody.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
 import { DeliveryStatusJSON } from '../models/DeliveryStatusJSON.js';
 import { DeploymentInfoView } from '../models/DeploymentInfoView.js';
@@ -309,7 +308,7 @@ export class ObservableAgentsApi {
      * Delete an agent
      * @param address The agent\&#39;s full email address, e.g. support@acme.com.
      */
-    public deleteAgentWithHttpInfo(address: string, _options?: ConfigurationOptions): Observable<HttpInfo<DeleteAgentOutputBody>> {
+    public deleteAgentWithHttpInfo(address: string, _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.deleteAgent(address, _config);
@@ -334,8 +333,8 @@ export class ObservableAgentsApi {
      * Delete an agent
      * @param address The agent\&#39;s full email address, e.g. support@acme.com.
      */
-    public deleteAgent(address: string, _options?: ConfigurationOptions): Observable<DeleteAgentOutputBody> {
-        return this.deleteAgentWithHttpInfo(address, _options).pipe(map((apiResponse: HttpInfo<DeleteAgentOutputBody>) => apiResponse.data));
+    public deleteAgent(address: string, _options?: ConfigurationOptions): Observable<void> {
+        return this.deleteAgentWithHttpInfo(address, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
     }
 
     /**

@@ -11,7 +11,6 @@ import {SecurityAuthentication} from '../auth/auth.js';
 import { AgentView } from '../models/AgentView.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
 import { CreateAgentResponse } from '../models/CreateAgentResponse.js';
-import { DeleteAgentOutputBody } from '../models/DeleteAgentOutputBody.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { ListAgentsOutputBody } from '../models/ListAgentsOutputBody.js';
 import { SendResultView } from '../models/SendResultView.js';
@@ -317,14 +316,10 @@ export class AgentsApiResponseProcessor {
      * @params response Response returned by the server for a request to deleteAgent
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async deleteAgentWithHttpInfo(response: ResponseContext): Promise<HttpInfo<DeleteAgentOutputBody >> {
+     public async deleteAgentWithHttpInfo(response: ResponseContext): Promise<HttpInfo<void >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
-        if (isCodeInRange("200", response.httpStatusCode)) {
-            const body: DeleteAgentOutputBody = ObjectSerializer.deserialize(
-                ObjectSerializer.parse(await response.body.text(), contentType),
-                "DeleteAgentOutputBody", ""
-            ) as DeleteAgentOutputBody;
-            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        if (isCodeInRange("204", response.httpStatusCode)) {
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, undefined);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
@@ -336,10 +331,10 @@ export class AgentsApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: DeleteAgentOutputBody = ObjectSerializer.deserialize(
+            const body: void = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "DeleteAgentOutputBody", ""
-            ) as DeleteAgentOutputBody;
+                "void", ""
+            ) as void;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

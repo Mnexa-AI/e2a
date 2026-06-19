@@ -17,6 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
+from datetime import datetime
 from pydantic import BaseModel, ConfigDict, StrictStr
 from typing import Any, ClassVar, Dict, List
 from typing import Optional, Set
@@ -26,7 +27,7 @@ class RotateSecretOutputBody(BaseModel):
     """
     RotateSecretOutputBody
     """ # noqa: E501
-    previous_secret_expires_at: StrictStr
+    previous_secret_expires_at: datetime
     signing_secret: StrictStr
     __properties: ClassVar[List[str]] = ["previous_secret_expires_at", "signing_secret"]
 

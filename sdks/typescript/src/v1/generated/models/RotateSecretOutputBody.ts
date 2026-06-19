@@ -13,7 +13,7 @@
 import { HttpFile } from '../http/http.js';
 
 export class RotateSecretOutputBody {
-    'previousSecretExpiresAt': string;
+    'previousSecretExpiresAt': Date;
     'signingSecret': string;
 
     static readonly discriminator: string | undefined = undefined;
@@ -24,8 +24,8 @@ export class RotateSecretOutputBody {
         {
             "name": "previousSecretExpiresAt",
             "baseName": "previous_secret_expires_at",
-            "type": "string",
-            "format": ""
+            "type": "Date",
+            "format": "date-time"
         },
         {
             "name": "signingSecret",

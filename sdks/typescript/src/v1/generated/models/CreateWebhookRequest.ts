@@ -15,7 +15,7 @@ import { HttpFile } from '../http/http.js';
 
 export class CreateWebhookRequest {
     'description'?: string;
-    'events'?: Array<string> | null;
+    'events'?: Array<string>;
     'filters'?: WebhookFiltersView;
     'url'?: string;
 

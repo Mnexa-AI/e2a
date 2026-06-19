@@ -12,7 +12,6 @@ export * from '../models/CreateAgentResponse.js';
 export * from '../models/CreateWebhookRequest.js';
 export * from '../models/DNSRecordView.js';
 export * from '../models/DNSRecordsView.js';
-export * from '../models/DeleteAgentOutputBody.js';
 export * from '../models/DeleteUserDataResult.js';
 export * from '../models/DeliveryStatusJSON.js';
 export * from '../models/DeploymentInfoView.js';
@@ -81,7 +80,6 @@ import { CreateAgentResponse } from '../models/CreateAgentResponse.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { DNSRecordView } from '../models/DNSRecordView.js';
 import { DNSRecordsView } from '../models/DNSRecordsView.js';
-import { DeleteAgentOutputBody } from '../models/DeleteAgentOutputBody.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
 import { DeliveryStatusJSON } from '../models/DeliveryStatusJSON.js';
 import { DeploymentInfoView } from '../models/DeploymentInfoView.js';
@@ -101,7 +99,7 @@ import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
 import { MessageSummaryView     , MessageSummaryViewDeliveryStatusEnum  , MessageSummaryViewDirectionEnum     , MessageSummaryViewHitlStatusEnum      , MessageSummaryViewSentAsEnum         } from '../models/MessageSummaryView.js';
-import { MessageView       , MessageViewDeliveryStatusEnum  , MessageViewDirectionEnum     , MessageViewHitlStatusEnum        , MessageViewSentAsEnum      } from '../models/MessageView.js';
+import { MessageView       , MessageViewDeliveryStatusEnum  , MessageViewDirectionEnum     , MessageViewHitlStatusEnum        , MessageViewSentAsEnum         } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
 import { PageEventJSON } from '../models/PageEventJSON.js';
@@ -184,7 +182,6 @@ let typeMap: {[index: string]: any} = {
     "CreateWebhookRequest": CreateWebhookRequest,
     "DNSRecordView": DNSRecordView,
     "DNSRecordsView": DNSRecordsView,
-    "DeleteAgentOutputBody": DeleteAgentOutputBody,
     "DeleteUserDataResult": DeleteUserDataResult,
     "DeliveryStatusJSON": DeliveryStatusJSON,
     "DeploymentInfoView": DeploymentInfoView,
