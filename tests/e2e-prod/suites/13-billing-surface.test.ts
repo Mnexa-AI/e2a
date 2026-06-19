@@ -14,19 +14,19 @@ after(async () => {
 });
 
 // These tests verify the BILLING API CONTRACT without actually touching Stripe:
-// - The shape of /api/v1/users/me/limits (always available, dashboard depends on it)
+// - The shape of /v1/account (always available, dashboard depends on it)
 // - The HTTP method discipline on /api/billing/* (POST-only on mutating endpoints
 //   was a deliberate CSRF defense — confirm GET still 4xx's)
 // - That /pricing is statically served and reachable
 // Actual checkout/portal/webhook behavior is deferred to the live billing day.
 
-test("billing: GET /api/v1/users/me/limits returns documented LimitsInfo shape", async () => {
+test("billing: GET /v1/account returns documented AccountView shape", async () => {
   const r = await client.get<{
     plan_code?: string;
     upgrade_url?: string;
     limits?: { max_agents?: number; max_domains?: number; max_messages_month?: number; max_storage_bytes?: number };
     usage?: { agents?: number; domains?: number; messages_month?: number; storage_bytes?: number };
-  }>("/api/v1/users/me/limits");
+  }>("/v1/account");
 
   if (r.status === 503) {
     info(SUITE, "limits-503", "limits subsystem reports not configured — billing primitive not wired up on this deployment");
@@ -35,11 +35,11 @@ test("billing: GET /api/v1/users/me/limits returns documented LimitsInfo shape",
   assert.equal(r.status, 200, `expected 200, got ${r.status}: ${r.raw.slice(0, 300)}`);
   // plan_code is required for the dashboard to render the upgrade affordance.
   if (!r.body?.plan_code) {
-    fail(SUITE, "limits-missing-plan-code", `LimitsInfo missing plan_code: ${r.raw.slice(0, 300)}`);
+    fail(SUITE, "limits-missing-plan-code", `AccountView missing plan_code: ${r.raw.slice(0, 300)}`);
   }
   // limits block — required by dashboard caps panel.
   if (!r.body?.limits) {
-    fail(SUITE, "limits-missing-limits-block", `LimitsInfo missing 'limits' block: ${r.raw.slice(0, 300)}`);
+    fail(SUITE, "limits-missing-limits-block", `AccountView missing 'limits' block: ${r.raw.slice(0, 300)}`);
   } else {
     for (const k of ["max_agents", "max_domains", "max_messages_month", "max_storage_bytes"] as const) {
       if (typeof r.body.limits[k] !== "number") {
@@ -49,7 +49,7 @@ test("billing: GET /api/v1/users/me/limits returns documented LimitsInfo shape",
   }
   // usage block — required by dashboard "you've used X" surface.
   if (!r.body?.usage) {
-    fail(SUITE, "limits-missing-usage-block", "LimitsInfo missing 'usage' block — dashboard caps panel breaks");
+    fail(SUITE, "limits-missing-usage-block", "AccountView missing 'usage' block — dashboard caps panel breaks");
   } else {
     for (const k of ["agents", "domains", "messages_month", "storage_bytes"] as const) {
       if (typeof r.body.usage[k] !== "number") {
@@ -60,18 +60,18 @@ test("billing: GET /api/v1/users/me/limits returns documented LimitsInfo shape",
   info(SUITE, "limits-snapshot", `plan_code="${r.body?.plan_code}" agents ${r.body?.usage?.agents}/${r.body?.limits?.max_agents}, msgs ${r.body?.usage?.messages_month}/${r.body?.limits?.max_messages_month}, storage ${r.body?.usage?.storage_bytes}/${r.body?.limits?.max_storage_bytes}`);
 });
 
-test("billing: GET /api/v1/users/me/limits requires auth (401)", async () => {
-  const r = await client.get("/api/v1/users/me/limits", { apiKey: null });
+test("billing: GET /v1/account requires auth (401)", async () => {
+  const r = await client.get("/v1/account", { apiKey: null });
   assert.equal(r.status, 401, `expected 401, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("billing: usage.agents counts roughly match the actual /agents list", async () => {
-  const limits = await client.get<{ usage?: { agents?: number } }>("/api/v1/users/me/limits");
+  const limits = await client.get<{ usage?: { agents?: number } }>("/v1/account");
   if (limits.status !== 200 || typeof limits.body?.usage?.agents !== "number") {
     info(SUITE, "usage-skip", `limits unavailable (${limits.status}), skipping usage-vs-list check`);
     return;
   }
-  const agents = await client.get<{ agents: unknown[] }>("/api/v1/agents");
+  const agents = await client.get<{ agents: unknown[] }>("/v1/agents");
   const actual = agents.body?.agents?.length ?? 0;
   const reported = limits.body.usage.agents!;
   const drift = Math.abs(reported - actual);

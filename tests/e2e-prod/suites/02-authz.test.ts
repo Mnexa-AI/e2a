@@ -15,24 +15,24 @@ after(async () => {
 });
 
 test("authz: no Authorization header returns 401 on list agents", async () => {
-  const r = await client.get("/api/v1/agents", { apiKey: null });
+  const r = await client.get("/v1/agents", { apiKey: null });
   assert.equal(r.status, 401, `no key expected 401, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("authz: malformed Authorization header returns 401", async () => {
-  const r = await client.get("/api/v1/agents", { apiKey: null, headers: { Authorization: "NotBearer foo" } });
+  const r = await client.get("/v1/agents", { apiKey: null, headers: { Authorization: "NotBearer foo" } });
   assert.equal(r.status, 401, `bad scheme expected 401, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("authz: random API key with valid prefix returns 401", async () => {
-  const r = await client.get("/api/v1/agents", {
+  const r = await client.get("/v1/agents", {
     apiKey: "e2a_0000000000000000000000000000000000000000000000000000000000000000",
   });
   assert.equal(r.status, 401, `bogus key expected 401, got ${r.status}`);
 });
 
 test("authz: random API key without 'e2a_' prefix returns 401", async () => {
-  const r = await client.get("/api/v1/agents", { apiKey: "not-an-e2a-key" });
+  const r = await client.get("/v1/agents", { apiKey: "not-an-e2a-key" });
   assert.equal(r.status, 401, `bad prefix expected 401, got ${r.status}`);
 });
 
@@ -41,8 +41,8 @@ test("authz: 401 body does NOT leak hint about key validity", async () => {
   // is unrelated garbage. A correct auth gate must return byte-identical
   // 401 responses for both so an attacker can't distinguish "key shape
   // is right but invalid" from "completely malformed input."
-  const r1 = await client.get("/api/v1/agents", { apiKey: "e2a_00000000000000000000000000000000" });
-  const r2 = await client.get("/api/v1/agents", { apiKey: "garbage" });
+  const r1 = await client.get("/v1/agents", { apiKey: "e2a_00000000000000000000000000000000" });
+  const r2 = await client.get("/v1/agents", { apiKey: "garbage" });
   assert.equal(r1.status, 401, `r1 expected 401, got ${r1.status}`);
   assert.equal(r2.status, 401, `r2 expected 401, got ${r2.status}`);
   if (r1.raw !== r2.raw) {
@@ -58,32 +58,36 @@ test("authz: 401 body does NOT leak hint about key validity", async () => {
   info(SUITE, "401-uniform", "401 bodies are identical for malformed vs bogus-but-shaped — good (no oracle)");
 });
 
-test("authz: bogus 'from' on /send returns 4xx (cannot impersonate)", async () => {
-  const r = await client.post("/api/v1/send", {
-    body: {
-      from: "not-mine@some-random-domain-i-dont-own-987654.com",
-      to: ["blackhole@e2a.dev"],
-      subject: "spoof attempt",
-      body: "this should be rejected",
+test("authz: send as an unowned agent returns 4xx (cannot impersonate)", async () => {
+  // The sending agent is named in the path; sending as one the caller
+  // doesn't own must be rejected.
+  const r = await client.post(
+    `/v1/agents/${encodeURIComponent("not-mine@some-random-domain-i-dont-own-987654.com")}/messages`,
+    {
+      body: {
+        to: ["blackhole@e2a.dev"],
+        subject: "spoof attempt",
+        body: "this should be rejected",
+      },
     },
-  });
+  );
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("authz: GET /agents/<email-i-dont-own> returns 403 (no info leak)", async () => {
-  const r = await client.get(`/api/v1/agents/${encodeURIComponent("nobody@example.com")}`);
+  const r = await client.get(`/v1/agents/${encodeURIComponent("nobody@example.com")}`);
   assert.equal(r.status, 403, `expected 403, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("authz: PUT /agents/<email-i-dont-own> returns 403 or 4xx", async () => {
-  const r = await client.put(`/api/v1/agents/${encodeURIComponent("nobody@example.com")}`, {
+  const r = await client.put(`/v1/agents/${encodeURIComponent("nobody@example.com")}`, {
     body: { hitl_enabled: true },
   });
   assert.ok(r.status === 403 || (r.status >= 400 && r.status < 500), `expected 4xx, got ${r.status}`);
 });
 
 test("authz: DELETE /agents/<email-i-dont-own> returns 403 or 4xx (no cross-tenant delete)", async () => {
-  const r = await client.delete(`/api/v1/agents/${encodeURIComponent("nobody@example.com")}`);
+  const r = await client.delete(`/v1/agents/${encodeURIComponent("nobody@example.com")}`);
   // assert.ok throws on a non-4xx response — the explicit 200/204 check
   // that used to live below was dead code (unreachable past the assert).
   // The fail-tag is preserved for triage clarity if the assert ever fires.
@@ -95,37 +99,35 @@ test("authz: DELETE /agents/<email-i-dont-own> returns 403 or 4xx (no cross-tena
 });
 
 test("authz: GET /agents/<email>/messages of unowned agent returns 4xx", async () => {
-  const r = await client.get(`/api/v1/agents/${encodeURIComponent("nobody@example.com")}/messages`);
+  const r = await client.get(`/v1/agents/${encodeURIComponent("nobody@example.com")}/messages`);
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("authz: GET /messages/<bogus-id> returns 4xx, not 200", async () => {
-  const r = await client.get(`/api/v1/messages/msg_does_not_exist_${Date.now()}`);
+  const agent = encodeURIComponent(client.env.primaryAgentEmail);
+  const r = await client.get(`/v1/agents/${agent}/messages/msg_does_not_exist_${Date.now()}`);
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("authz: POST /messages/<bogus>/approve returns 4xx", async () => {
-  const r = await client.post(`/api/v1/messages/msg_bogus_${Date.now()}/approve`, { body: {} });
+  const agent = encodeURIComponent(client.env.primaryAgentEmail);
+  const r = await client.post(`/v1/agents/${agent}/messages/msg_bogus_${Date.now()}/approve`, { body: {} });
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}`);
 });
 
 test("authz: POST /messages/<bogus>/reject returns 4xx", async () => {
-  const r = await client.post(`/api/v1/messages/msg_bogus_${Date.now()}/reject`, { body: { reason: "n/a" } });
-  assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}`);
-});
-
-test("authz: signing-secret DELETE of bogus id returns 4xx (no cross-tenant leak)", async () => {
-  const r = await client.delete(`/api/v1/users/me/signing-secrets/sec_bogus_${Date.now()}`);
+  const agent = encodeURIComponent(client.env.primaryAgentEmail);
+  const r = await client.post(`/v1/agents/${agent}/messages/msg_bogus_${Date.now()}/reject`, { body: { reason: "n/a" } });
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}`);
 });
 
 test("authz: can act on own agent (positive control)", async () => {
   const slug = uniqueSlug("authz");
-  const c = await client.post<{ email: string }>("/api/v1/agents", {
+  const c = await client.post<{ email: string }>("/v1/agents", {
     body: { slug, name: "authz pos", agent_mode: "local" },
   });
   assert.equal(c.status, 201);
   track("agent", c.body!.email);
-  const g = await client.get(`/api/v1/agents/${encodeURIComponent(c.body!.email)}`);
+  const g = await client.get(`/v1/agents/${encodeURIComponent(c.body!.email)}`);
   assert.equal(g.status, 200);
 });

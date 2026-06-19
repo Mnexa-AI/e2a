@@ -35,13 +35,13 @@ function extractText(r: { content?: Array<{ type: string; text?: string }> }): s
 
 async function ensureHitlAgent(): Promise<string> {
   const slug = uniqueSlug("mcpe");
-  const c = await apiClient.post<{ email: string }>("/api/v1/agents", {
+  const c = await apiClient.post<{ email: string }>("/v1/agents", {
     body: { slug, name: "mcp ext", agent_mode: "local" },
   });
   if (c.status !== 201) throw new Error(`create agent: ${c.status} ${c.raw.slice(0, 200)}`);
   const email = c.body!.email;
   track("agent", email);
-  const u = await apiClient.put(`/api/v1/agents/${encodeURIComponent(email)}`, {
+  const u = await apiClient.put(`/v1/agents/${encodeURIComponent(email)}`, {
     body: { hitl_enabled: true, hitl_expiration_action: "reject", hitl_ttl_seconds: 120 },
   });
   if (u.status !== 200) throw new Error(`enable HITL: ${u.status}`);
@@ -97,7 +97,7 @@ test("mcp-ext: send_email tool happy path with HITL agent queues message", async
     info(SUITE, "mcp-send-not-pending", `expected pending_approval for HITL, got "${parsed.status}"`);
   }
   // Clean up via API.
-  await apiClient.post(`/api/v1/messages/${parsed.message_id}/reject`, { body: { reason: "e2e mcp send cleanup" } });
+  await apiClient.post(`/v1/agents/${encodeURIComponent(email)}/messages/${parsed.message_id}/reject`, { body: { reason: "e2e mcp send cleanup" } });
 });
 
 test("mcp-ext: list_pending_messages and get_pending_message round-trip", async () => {
@@ -110,8 +110,8 @@ test("mcp-ext: list_pending_messages and get_pending_message round-trip", async 
   }
   const email = await ensureHitlAgent();
   // Queue one via API (so we know we have something to inspect).
-  const s = await apiClient.post<{ message_id: string }>("/api/v1/send", {
-    body: { from: email, to: [SINK_EMAIL], subject: uniqueSubject("mcp pending"), body: "x" },
+  const s = await apiClient.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
+    body: { to: [SINK_EMAIL], subject: uniqueSubject("mcp pending"), body: "x" },
   });
   if (s.status !== 202 || !s.body?.message_id) {
     info(SUITE, "pending-setup-failed", `send returned ${s.status}, can't probe pending tools`);
@@ -146,7 +146,7 @@ test("mcp-ext: list_pending_messages and get_pending_message round-trip", async 
   }
 
   // Cleanup
-  await apiClient.post(`/api/v1/messages/${id}/reject`, { body: { reason: "e2e mcp pending cleanup" } });
+  await apiClient.post(`/v1/agents/${encodeURIComponent(email)}/messages/${id}/reject`, { body: { reason: "e2e mcp pending cleanup" } });
 });
 
 test("mcp-ext: reject_pending_message via MCP transitions the message", async () => {
@@ -156,8 +156,8 @@ test("mcp-ext: reject_pending_message via MCP transitions the message", async ()
     return;
   }
   const email = await ensureHitlAgent();
-  const s = await apiClient.post<{ message_id: string }>("/api/v1/send", {
-    body: { from: email, to: [SINK_EMAIL], subject: uniqueSubject("mcp reject"), body: "x" },
+  const s = await apiClient.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
+    body: { to: [SINK_EMAIL], subject: uniqueSubject("mcp reject"), body: "x" },
   });
   if (s.status !== 202 || !s.body?.message_id) {
     info(SUITE, "reject-setup-failed", `send returned ${s.status}`);
@@ -183,8 +183,8 @@ test("mcp-ext: approve_pending_message via MCP sends the message", async () => {
     return;
   }
   const email = await ensureHitlAgent();
-  const s = await apiClient.post<{ message_id: string }>("/api/v1/send", {
-    body: { from: email, to: [SINK_EMAIL], subject: uniqueSubject("mcp approve"), body: "x" },
+  const s = await apiClient.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
+    body: { to: [SINK_EMAIL], subject: uniqueSubject("mcp approve"), body: "x" },
   });
   if (s.status !== 202 || !s.body?.message_id) {
     info(SUITE, "approve-setup-failed", `send returned ${s.status}`);
@@ -210,16 +210,16 @@ test("mcp-ext: get_message returns shape and only own messages", async () => {
     return;
   }
   // The MCP get_message tool fetches via the AGENT-scoped endpoint
-  // GET /api/v1/agents/{agent_email}/messages/{id} — anti-enumeration
+  // GET /v1/agents/{agent_email}/messages/{id} — anti-enumeration
   // 404s on any message that doesn't belong to the pinned agent. We
   // pull candidate IDs from the same scope so the test exercises the
   // happy path instead of accidentally tripping the cross-agent guard.
   const pinnedAgent = apiClient.env.primaryAgentEmail;
-  const listMsgs = await apiClient.get<{ messages: Array<{ id: string }> }>(
-    `/api/v1/agents/${encodeURIComponent(pinnedAgent)}/messages`,
+  const listMsgs = await apiClient.get<{ items: Array<{ id: string }> }>(
+    `/v1/agents/${encodeURIComponent(pinnedAgent)}/messages`,
     { query: { limit: 1 } },
   );
-  const id = listMsgs.body?.messages?.[0]?.id;
+  const id = listMsgs.body?.items?.[0]?.id;
   if (!id) {
     info(SUITE, "get-msg-no-fixture", `no messages in agent ${pinnedAgent}'s inbox — cannot probe get_message happy path`);
     return;
@@ -259,7 +259,7 @@ test("mcp-ext: cross-tool consistency — list_agents matches API surface", asyn
   const r = await callTool(mcp, "list_agents");
   const text = extractText(r);
   const mcpAgents = (JSON.parse(text) as { agents: Array<{ email: string }> }).agents.map((a) => a.email).sort();
-  const apiResp = await apiClient.get<{ agents: Array<{ email: string }> }>("/api/v1/agents");
+  const apiResp = await apiClient.get<{ agents: Array<{ email: string }> }>("/v1/agents");
   const apiAgents = (apiResp.body?.agents ?? []).map((a) => a.email).sort();
   if (mcpAgents.length !== apiAgents.length || JSON.stringify(mcpAgents) !== JSON.stringify(apiAgents)) {
     info(
