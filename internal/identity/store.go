@@ -2363,15 +2363,26 @@ func (s *Store) GetMessageWithContent(ctx context.Context, messageID, agentID st
 	var authHeadersJSON []byte
 	var authVerdict []byte
 	var outboundDeliveryStatus string
+	// CTE so the read-marking UPDATE can still LEFT JOIN webhook_deliveries —
+	// the detail view is a superset of the summary view, so it must carry the
+	// same webhook_status/webhook_error the list exposes. Mirrors the
+	// wd.status/wd.last_error JOIN used by GetMessagesByAgent/GetConversationByID.
 	err := s.pool.QueryRow(ctx,
-		`UPDATE messages SET inbox_status = CASE WHEN inbox_status = 'unread' THEN 'read' ELSE inbox_status END
-		 WHERE id = $1 AND agent_id = $2 AND expires_at > now()
-		 RETURNING id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, conversation_id, COALESCE(inbox_status, ''), raw_message, auth_headers, auth_verdict, COALESCE(flagged, false), COALESCE(flag_reason, ''), created_at, expires_at, labels, COALESCE(delivery_status, ''), COALESCE(delivery_detail, ''), COALESCE(sent_as, ''), COALESCE(body_text, ''), COALESCE(body_html, ''), COALESCE(status, '')`,
+		`WITH upd AS (
+		   UPDATE messages SET inbox_status = CASE WHEN inbox_status = 'unread' THEN 'read' ELSE inbox_status END
+		   WHERE id = $1 AND agent_id = $2 AND expires_at > now()
+		   RETURNING id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, conversation_id, COALESCE(inbox_status, '') AS inbox_status, raw_message, auth_headers, auth_verdict, COALESCE(flagged, false) AS flagged, COALESCE(flag_reason, '') AS flag_reason, created_at, expires_at, labels, COALESCE(delivery_status, '') AS delivery_status, COALESCE(delivery_detail, '') AS delivery_detail, COALESCE(sent_as, '') AS sent_as, COALESCE(body_text, '') AS body_text, COALESCE(body_html, '') AS body_html, COALESCE(status, '') AS status
+		 )
+		 SELECT upd.id, upd.agent_id, upd.direction, upd.sender, upd.recipient, upd.to_recipients, upd.cc, upd.reply_to, upd.subject, upd.email_message_id, upd.conversation_id, upd.inbox_status, upd.raw_message, upd.auth_headers, upd.auth_verdict, upd.flagged, upd.flag_reason, upd.created_at, upd.expires_at, upd.labels, upd.delivery_status, upd.delivery_detail, upd.sent_as, upd.body_text, upd.body_html, upd.status, COALESCE(wd.status, ''), COALESCE(wd.last_error, '')
+		 FROM upd LEFT JOIN webhook_deliveries wd ON wd.message_id = upd.id`,
 		messageID, agentID,
-	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.InboxStatus, &m.RawMessage, &authHeadersJSON, &authVerdict, &m.Flagged, &m.FlagReason, &m.CreatedAt, &m.ExpiresAt, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &m.BodyText, &m.BodyHTML, &m.Status)
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.InboxStatus, &m.RawMessage, &authHeadersJSON, &authVerdict, &m.Flagged, &m.FlagReason, &m.CreatedAt, &m.ExpiresAt, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &m.BodyText, &m.BodyHTML, &m.Status, &m.WebhookStatus, &m.WebhookError)
 	if err != nil {
 		return nil, err
 	}
+	// raw_message is loaded on the detail path, so size derives from it directly
+	// (the summary path uses octet_length in SQL since it never loads the blob).
+	m.SizeBytes = len(m.RawMessage)
 	// DeliveryStatus is overloaded by direction (see Message.DeliveryStatus):
 	// inbound carries inbox_status, outbound carries the delivery rollup.
 	if m.Direction == "outbound" {

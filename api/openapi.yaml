@@ -162,14 +162,14 @@ components:
           items:
             type: string
           type: array
-        body_html:
-          type: string
-        body_text:
+        body:
           type: string
         cc:
           items:
             type: string
           type: array
+        html_body:
+          type: string
         subject:
           type: string
         to:
@@ -348,9 +348,7 @@ components:
         events:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         filters:
           $ref: "#/components/schemas/WebhookFiltersView"
         url:
@@ -382,14 +380,6 @@ components:
       required:
         - mx
         - txt
-      type: object
-    DeleteAgentOutputBody:
-      additionalProperties: false
-      properties:
-        status:
-          type: string
-      required:
-        - status
       type: object
     DeleteUserDataResult:
       additionalProperties: false
@@ -648,17 +638,13 @@ components:
         bcc:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         body:
           type: string
         cc:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         conversation_id:
           type: string
         html_body:
@@ -666,9 +652,7 @@ components:
         to:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
       type: object
     LimitsCapsView:
       additionalProperties: false
@@ -1076,6 +1060,9 @@ components:
             - own_address
             - relay
           type: string
+        size_bytes:
+          format: int64
+          type: integer
         status:
           type: string
         subject:
@@ -1086,6 +1073,10 @@ components:
           type:
             - array
             - "null"
+        webhook_error:
+          type: string
+        webhook_status:
+          type: string
       required:
         - message_id
         - from
@@ -1274,17 +1265,13 @@ components:
         bcc:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         body:
           type: string
         cc:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         conversation_id:
           type: string
         html_body:
@@ -1310,6 +1297,7 @@ components:
       additionalProperties: false
       properties:
         previous_secret_expires_at:
+          format: date-time
           type: string
         signing_secret:
           type: string
@@ -1329,20 +1317,14 @@ components:
         bcc:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         body:
           type: string
         cc:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         conversation_id:
-          type: string
-        from:
           type: string
         html_body:
           type: string
@@ -1351,9 +1333,7 @@ components:
         to:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
       type: object
     SendResultView:
       additionalProperties: false
@@ -1465,15 +1445,11 @@ components:
         add_labels:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         remove_labels:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
       type: object
     UpdateMessageResultView:
       additionalProperties: false
@@ -1931,12 +1907,8 @@ paths:
             description: The agent's full email address, e.g. support@acme.com.
             type: string
       responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DeleteAgentOutputBody"
-          description: OK
+        "204":
+          description: No Content
         default:
           content:
             application/json:

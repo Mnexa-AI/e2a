@@ -35,6 +35,25 @@ func TestMessageViewParsed(t *testing.T) {
 	}
 }
 
+// Fix #1: MessageView (detail) is a superset of MessageSummaryView (list) — it
+// must carry webhook_status, webhook_error and size_bytes for both directions.
+func TestMessageViewCarriesWebhookStatusAndSize(t *testing.T) {
+	v := messageViewFromIdentity(&identity.Message{
+		ID: "msg_wh", Direction: "inbound", Sender: "a@x.com",
+		RawMessage:    []byte("hello"),
+		WebhookStatus: "failed", WebhookError: "connection refused", SizeBytes: 5,
+	})
+	if v.WebhookStatus != "failed" {
+		t.Errorf("webhook_status = %q, want %q", v.WebhookStatus, "failed")
+	}
+	if v.WebhookError != "connection refused" {
+		t.Errorf("webhook_error = %q, want %q", v.WebhookError, "connection refused")
+	}
+	if v.SizeBytes != 5 {
+		t.Errorf("size_bytes = %d, want 5", v.SizeBytes)
+	}
+}
+
 // Held-draft (pending_approval) messages expose body_text/html via Body, the
 // second representation the unified read serves (sent/inbound use raw_message).
 func TestMessageViewHeldDraftBody(t *testing.T) {

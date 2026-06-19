@@ -75,24 +75,12 @@ func TestSendInvalidRecipient(t *testing.T) {
 	}
 }
 
-// TestSendFromMismatchRejected: the sender is the path agent; a `from` that is
-// not the agent's own address is rejected (no spoofing as another identity).
-func TestSendFromMismatchRejected(t *testing.T) {
+// TestSendSetsAgentAsSender: there is no body `from` — the sender is the path
+// agent and auth scopes it. A plain send (no `from`) succeeds.
+func TestSendSetsAgentAsSender(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"from": "stranger@x.com", "to": []string{"alice@x.com"}, "subject": "Hi", "body": "hello",
-	})
-	if code != 400 || errCode(body) != "invalid_from" {
-		t.Fatalf("want 400 invalid_from, got %d %v", code, body)
-	}
-}
-
-// TestSendFromMatchingAgentOK: a `from` equal to the agent's own address is
-// accepted (it's the default, just stated explicitly).
-func TestSendFromMatchingAgentOK(t *testing.T) {
-	srv := testServer(t)
-	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"from": "support@acme.com", "to": []string{"alice@x.com"}, "subject": "Hi", "body": "hello",
+		"to": []string{"alice@x.com"}, "subject": "Hi", "body": "hello",
 	})
 	if code != 200 || body["status"] != "sent" {
 		t.Fatalf("want 200 sent, got %d %v", code, body)

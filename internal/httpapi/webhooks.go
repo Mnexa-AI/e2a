@@ -176,7 +176,7 @@ type listWebhooksOutput struct {
 // CreateWebhookRequest mirrors the legacy body.
 type CreateWebhookRequest struct {
 	URL         string              `json:"url,omitempty"`
-	Events      []string            `json:"events,omitempty"`
+	Events      []string            `json:"events,omitempty" nullable:"false"`
 	Filters     *WebhookFiltersView `json:"filters,omitempty"`
 	Description string              `json:"description,omitempty"`
 }
@@ -429,7 +429,7 @@ func (s *Server) handleUpdateWebhook(ctx context.Context, in *updateWebhookInput
 type rotateSecretOutput struct {
 	Body struct {
 		SigningSecret           string `json:"signing_secret"`
-		PreviousSecretExpiresAt string `json:"previous_secret_expires_at"`
+		PreviousSecretExpiresAt string `json:"previous_secret_expires_at" format:"date-time"`
 	}
 }
 

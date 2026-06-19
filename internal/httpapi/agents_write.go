@@ -93,13 +93,14 @@ func (s *Server) registerAgentWrites() {
 	}, s.handleUpdateAgent)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "deleteAgent",
-		Method:      http.MethodDelete,
-		Path:        "/v1/agents/{address}",
-		Summary:     "Delete an agent",
-		Description: "Delete an agent the caller owns.",
-		Tags:        []string{"agents"},
-		Security:    []map[string][]string{{"bearer": {}}},
+		OperationID:   "deleteAgent",
+		Method:        http.MethodDelete,
+		Path:          "/v1/agents/{address}",
+		Summary:       "Delete an agent",
+		Description:   "Delete an agent the caller owns.",
+		Tags:          []string{"agents"},
+		Security:      []map[string][]string{{"bearer": {}}},
+		DefaultStatus: http.StatusNoContent,
 	}, s.handleDeleteAgent)
 }
 
@@ -200,11 +201,7 @@ func (s *Server) handleUpdateAgent(ctx context.Context, in *updateAgentInput) (*
 	return &agentOutput{Body: agentViewFromIdentity(updated)}, nil
 }
 
-type deleteAgentOutput struct {
-	Body struct {
-		Status string `json:"status"`
-	}
-}
+type deleteAgentOutput struct{}
 
 func (s *Server) handleDeleteAgent(ctx context.Context, in *AddressParam) (*deleteAgentOutput, error) {
 	// Deleting an agent is account administration — barred for agent-scoped
@@ -222,9 +219,7 @@ func (s *Server) handleDeleteAgent(ctx context.Context, in *AddressParam) (*dele
 	if err := s.deps.DeleteAgent(ctx, ag.ID, ag.UserID); err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to delete agent")
 	}
-	out := &deleteAgentOutput{}
-	out.Body.Status = "deleted"
-	return out, nil
+	return &deleteAgentOutput{}, nil
 }
 
 func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*createAgentOutput, error) {

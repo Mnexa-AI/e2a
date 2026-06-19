@@ -67,10 +67,9 @@ func recipientCountError(groups ...[]string) *ErrorEnvelope {
 
 // SendEmailRequest mirrors the legacy /send body.
 type SendEmailRequest struct {
-	From           string                `json:"from,omitempty"`
-	To             []string              `json:"to,omitempty"`
-	CC             []string              `json:"cc,omitempty"`
-	BCC            []string              `json:"bcc,omitempty"`
+	To             []string              `json:"to,omitempty" nullable:"false"`
+	CC             []string              `json:"cc,omitempty" nullable:"false"`
+	BCC            []string              `json:"bcc,omitempty" nullable:"false"`
 	Subject        string                `json:"subject,omitempty"`
 	Body           string                `json:"body,omitempty"`
 	HTMLBody       string                `json:"html_body,omitempty"`
@@ -176,8 +175,8 @@ type ReplyRequest struct {
 	Body           string                `json:"body,omitempty"`
 	HTMLBody       string                `json:"html_body,omitempty"`
 	ReplyAll       bool                  `json:"reply_all,omitempty"`
-	CC             []string              `json:"cc,omitempty"`
-	BCC            []string              `json:"bcc,omitempty"`
+	CC             []string              `json:"cc,omitempty" nullable:"false"`
+	BCC            []string              `json:"bcc,omitempty" nullable:"false"`
 	ConversationID string                `json:"conversation_id,omitempty"`
 	Attachments    []outbound.Attachment `json:"attachments,omitempty"`
 }
@@ -260,9 +259,9 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 
 // ForwardRequest mirrors the legacy forward body.
 type ForwardRequest struct {
-	To             []string              `json:"to,omitempty"`
-	CC             []string              `json:"cc,omitempty"`
-	BCC            []string              `json:"bcc,omitempty"`
+	To             []string              `json:"to,omitempty" nullable:"false"`
+	CC             []string              `json:"cc,omitempty" nullable:"false"`
+	BCC            []string              `json:"bcc,omitempty" nullable:"false"`
 	Body           string                `json:"body,omitempty"`
 	HTMLBody       string                `json:"html_body,omitempty"`
 	ConversationID string                `json:"conversation_id,omitempty"`
@@ -404,12 +403,8 @@ func (s *Server) handleCreateMessage(ctx context.Context, in *createMessageInput
 	if env := s.validateOutboundBody(b.Subject, b.Body, b.To, b.CC, b.BCC, b.ConversationID); env != nil {
 		return nil, env
 	}
-	// The sender is the path agent. A supplied `from` must be the agent's own
-	// address — never a different identity (no spoofing; decision 3: `from`
-	// defaults to the agent address). Custom-domain display From is decision 4.
-	if b.From != "" && identity.NormalizeEmail(b.From) != identity.NormalizeEmail(ag.EmailAddress()) {
-		return nil, NewError(http.StatusBadRequest, "invalid_from", "from must be the agent's own address")
-	}
+	// The sender is the path agent (decision 3) — there is no body `from`; the
+	// agent is the path and auth scopes the sender, so no spoofing is possible.
 	req := outbound.SendRequest{
 		From: ag.EmailAddress(), To: b.To, CC: b.CC, BCC: b.BCC, Subject: b.Subject,
 		Body: b.Body, HTMLBody: b.HTMLBody, ConversationID: b.ConversationID, Attachments: b.Attachments,

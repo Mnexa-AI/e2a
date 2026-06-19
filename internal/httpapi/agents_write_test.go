@@ -149,8 +149,8 @@ func TestUpdateAgentNotOwned(t *testing.T) {
 func TestDeleteAgent(t *testing.T) {
 	srv := testServer(t)
 	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com", "good", nil)
-	if code != 200 || body["status"] != "deleted" {
-		t.Fatalf("want 200 deleted, got %d %v", code, body)
+	if code != 204 || len(body) != 0 {
+		t.Fatalf("want 204 no body, got %d %v", code, body)
 	}
 }
 

@@ -39,6 +39,14 @@ type MessageView struct {
 	// (the delivery rollup) so a held draft is identifiable on the detail view
 	// without re-deriving it (review F1). Closed set = migration 003 CHECK.
 	HITLStatus string `json:"hitl_status,omitempty" enum:"pending_approval,sent,rejected,expired_approved,expired_rejected"`
+	// WebhookStatus / WebhookError mirror MessageSummaryView so the detail view
+	// is a strict superset of the list item (a client fetching one message keeps
+	// the webhook delivery context). Apply to both directions; omitempty hides
+	// the empty case.
+	WebhookStatus string `json:"webhook_status,omitempty"`
+	WebhookError  string `json:"webhook_error,omitempty"`
+	// SizeBytes is the raw_message byte length, mirroring MessageSummaryView.
+	SizeBytes int `json:"size_bytes,omitempty"`
 	// DeliveryStatus is the outbound delivery rollup (migration 031:
 	// 'sent', 'delivered', 'bounced', …) — the worst recipient status by
 	// precedence. Outbound-only; omitted on inbound messages.
@@ -113,6 +121,11 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		Flagged:     m.Flagged,
 		FlagReason:  m.FlagReason,
 	}
+	// Webhook delivery context + raw size — apply to both directions so the
+	// detail view stays a superset of the summary view (omitempty hides empties).
+	v.WebhookStatus = m.WebhookStatus
+	v.WebhookError = m.WebhookError
+	v.SizeBytes = m.SizeBytes
 	// Outbound delivery feedback (migration 031). On outbound rows
 	// identity.Message.DeliveryStatus carries the delivery rollup; on
 	// inbound rows it carries inbox_status, so these stay empty there.
@@ -309,8 +322,8 @@ func (s *Server) registerMessages() {
 // UpdateMessageRequest is the labels-delta body for PATCH …/messages/{id}.
 // A label in both add and remove is removed (remove wins, per the store).
 type UpdateMessageRequest struct {
-	AddLabels    []string `json:"add_labels,omitempty"`
-	RemoveLabels []string `json:"remove_labels,omitempty"`
+	AddLabels    []string `json:"add_labels,omitempty" nullable:"false"`
+	RemoveLabels []string `json:"remove_labels,omitempty" nullable:"false"`
 }
 
 type updateMessageInput struct {
