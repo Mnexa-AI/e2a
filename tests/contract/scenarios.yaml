@@ -82,10 +82,9 @@ scenarios:
         action: request
         method: DELETE
         path: /v1/agents/bot@crud.test.dev
-        # /v1 deleteAgent returns 200 with {"status":"deleted"} (non-empty
-        # body, so Huma's default success status is 200, not 204).
+        # /v1 deleteAgent returns 204 No Content (empty body).
         expect:
-          status: 200
+          status: 204
 
       - id: list_after_delete
         action: request
