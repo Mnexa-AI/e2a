@@ -59,9 +59,9 @@ scenarios:
         expect:
           status: 200
           body_contains:
-            - agents
+            - items
           body_match:
-            "agents[0].email": bot@crud.test.dev
+            "items[0].email": bot@crud.test.dev
 
       - id: get
         action: request
@@ -93,7 +93,7 @@ scenarios:
         expect:
           status: 200
           body_match:
-            "agents.length": 0
+            "items.length": 0
 
   - name: domain_crud
     description: Register, list, verify, delete domain with typed responses
@@ -125,7 +125,7 @@ scenarios:
         expect:
           status: 200
           body_match:
-            "domains.length": 1
+            "items.length": 1
 
       - id: verify
         action: request
@@ -225,7 +225,7 @@ scenarios:
         expect:
           status: 200
           body_match:
-            "agents[0].email": "{agent_email}"
+            "items[0].email": "{agent_email}"
 
   - name: auth_rejection
     description: Missing or invalid API keys get 401 across all endpoints

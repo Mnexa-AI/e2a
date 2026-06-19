@@ -15,7 +15,7 @@ import type {
   EventJSON,
   RedeliverView,
   WebhookView,
-  RotateSecretOutputBody,
+  RotateSecretBody,
   TestWebhookOutputBody,
   WebhookDeliveryView,
   Attachment,
@@ -347,7 +347,7 @@ export class McpClient {
     await this.sdk.webhooks.delete(id);
   }
 
-  rotateWebhookSecret(id: string): Promise<RotateSecretOutputBody> {
+  rotateWebhookSecret(id: string): Promise<RotateSecretBody> {
     return this.sdk.webhooks.rotateSecret(id);
   }
 
