@@ -109,8 +109,8 @@ func TestInboundDelivered(t *testing.T) {
 		t.Fatalf("got %d captures, want 1", len(got))
 	}
 	c := got[0]
-	if c.Envelope["event"] != "email.received" {
-		t.Errorf("event=%v want email.received", c.Envelope["event"])
+	if c.Envelope["type"] != "email.received" {
+		t.Errorf("event=%v want email.received", c.Envelope["type"])
 	}
 	data, _ := c.Envelope["data"].(map[string]any)
 

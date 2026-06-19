@@ -42,7 +42,7 @@ func setupFlaggedAgent(t *testing.T, policy string, allowlist []string, email, d
 func eventTypes(caps []testutil.SubscriberCaptured) map[string]int {
 	out := map[string]int{}
 	for _, c := range caps {
-		if et, ok := c.Envelope["event"].(string); ok {
+		if et, ok := c.Envelope["type"].(string); ok {
 			out[et]++
 		}
 	}
@@ -53,7 +53,7 @@ func eventTypes(caps []testutil.SubscriberCaptured) map[string]int {
 // type, or nil if none was captured.
 func eventData(caps []testutil.SubscriberCaptured, eventType string) map[string]any {
 	for _, c := range caps {
-		if et, _ := c.Envelope["event"].(string); et == eventType {
+		if et, _ := c.Envelope["type"].(string); et == eventType {
 			d, _ := c.Envelope["data"].(map[string]any)
 			return d
 		}

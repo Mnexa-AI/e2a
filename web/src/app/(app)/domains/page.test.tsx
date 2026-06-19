@@ -21,7 +21,7 @@ function mockDomainsAndAgents(
     if (url === "/v1/domains") {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ domains }),
+        json: () => Promise.resolve({ items: domains }),
       });
     }
     if (url === "/api/dashboard/agents") {
@@ -247,7 +247,7 @@ describe("Domains page — verify domain", () => {
           : [sampleDomain];
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ domains }),
+          json: () => Promise.resolve({ items: domains }),
         });
       }
       if (url === "/api/dashboard/agents") {
@@ -286,7 +286,7 @@ describe("Domains page — verify domain", () => {
       if (url === "/v1/domains") {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ domains: [sampleDomain] }),
+          json: () => Promise.resolve({ items: [sampleDomain] }),
         });
       }
       if (url === "/api/dashboard/agents") {
@@ -322,7 +322,7 @@ describe("Domains page — Make primary action", () => {
             ok: true,
             json: () =>
               Promise.resolve({
-                domains: [
+                items: [
                   { ...verifiedDomain, is_primary: false, agent_count: 0 },
                 ],
               }),

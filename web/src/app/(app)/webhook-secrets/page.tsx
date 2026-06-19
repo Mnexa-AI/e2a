@@ -21,7 +21,7 @@ const inlineCodeStyle: React.CSSProperties = {
   color: "var(--fg)",
 };
 
-// WebhookView (GET /v1/webhooks → { webhooks: [...] }). GET never
+// WebhookView (GET /v1/webhooks → { items: [...] }). GET never
 // returns `signing_secret` — it's only present on create / rotate
 // responses, which we surface once in the reveal banner.
 type WebhookView = {
@@ -84,7 +84,7 @@ export default function WebhooksPage() {
         return;
       }
       const body = await res.json();
-      setWebhooks(body.webhooks ?? []);
+      setWebhooks(body.items ?? []);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : String(err));
     } finally {

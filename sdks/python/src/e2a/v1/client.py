@@ -468,7 +468,10 @@ class WebhooksResource:
         await self._c._write_idempotent(lambda h: self._api.delete_webhook(webhook_id, _headers=h))
 
     async def rotate_secret(self, webhook_id: str) -> RotateSecretBody:
-        return await self._c._write_unsafe(
+        # Server-deduped via Idempotency-Key: a retried rotate replays the first
+        # secret instead of minting a second. Mint a key + retry (parity with the
+        # TS SDK, which retries rotate for the same reason).
+        return await self._c._write_idempotent(
             lambda h: self._api.rotate_webhook_secret(webhook_id, _headers=h)
         )
 

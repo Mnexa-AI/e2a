@@ -55,7 +55,7 @@ function stagePendingFetch() {
         text: () =>
           Promise.resolve(
             JSON.stringify({
-              agents: [{ email: AGENT_EMAIL, hitl_enabled: true }],
+              items: [{ email: AGENT_EMAIL, hitl_enabled: true }],
             }),
           ),
       });

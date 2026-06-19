@@ -209,8 +209,8 @@ func TestWebhooksE2E_EmailSent(t *testing.T) {
 	if c.URL != "/sent" {
 		t.Errorf("path=%q want /sent", c.URL)
 	}
-	if c.Envelope["event"] != "email.sent" {
-		t.Errorf("event=%v want email.sent", c.Envelope["event"])
+	if c.Envelope["type"] != "email.sent" {
+		t.Errorf("event=%v want email.sent", c.Envelope["type"])
 	}
 	if !verifyHMACv1(t, c.Headers, c.RawBody, wh.SigningSecret) {
 		t.Errorf("HMAC v1 verification failed: sig=%q", c.Headers.Get("X-E2A-Signature"))
@@ -248,8 +248,8 @@ func TestWebhooksE2E_HITL_PendingApproved(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("after pending: got %d captures, want 1", len(got))
 	}
-	if got[0].URL != "/pending" || got[0].Envelope["event"] != "email.pending_approval" {
-		t.Errorf("first capture path=%q event=%v", got[0].URL, got[0].Envelope["event"])
+	if got[0].URL != "/pending" || got[0].Envelope["type"] != "email.pending_approval" {
+		t.Errorf("first capture path=%q event=%v", got[0].URL, got[0].Envelope["type"])
 	}
 	if !verifyHMACv1(t, got[0].Headers, got[0].RawBody, pendingHook.SigningSecret) {
 		t.Errorf("pending HMAC verification failed")
@@ -272,8 +272,8 @@ func TestWebhooksE2E_HITL_PendingApproved(t *testing.T) {
 		t.Fatalf("after approve: got %d captures, want 2", len(got))
 	}
 	approved := got[1]
-	if approved.URL != "/approved" || approved.Envelope["event"] != "email.approved" {
-		t.Errorf("second capture path=%q event=%v", approved.URL, approved.Envelope["event"])
+	if approved.URL != "/approved" || approved.Envelope["type"] != "email.approved" {
+		t.Errorf("second capture path=%q event=%v", approved.URL, approved.Envelope["type"])
 	}
 	if !verifyHMACv1(t, approved.Headers, approved.RawBody, approvedHook.SigningSecret) {
 		t.Errorf("approved HMAC verification failed")
@@ -324,8 +324,8 @@ func TestWebhooksE2E_HITL_Rejected(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("after reject: got %d captures, want 1", len(got))
 	}
-	if got[0].URL != "/rejected" || got[0].Envelope["event"] != "email.rejected" {
-		t.Errorf("path=%q event=%v", got[0].URL, got[0].Envelope["event"])
+	if got[0].URL != "/rejected" || got[0].Envelope["type"] != "email.rejected" {
+		t.Errorf("path=%q event=%v", got[0].URL, got[0].Envelope["type"])
 	}
 	if !verifyHMACv1(t, got[0].Headers, got[0].RawBody, rejectedHook.SigningSecret) {
 		t.Errorf("rejected HMAC verification failed")
@@ -363,8 +363,8 @@ func TestWebhooksE2E_EmailReceived(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("got %d captures, want 1", len(got))
 	}
-	if got[0].URL != "/received" || got[0].Envelope["event"] != "email.received" {
-		t.Errorf("path=%q event=%v", got[0].URL, got[0].Envelope["event"])
+	if got[0].URL != "/received" || got[0].Envelope["type"] != "email.received" {
+		t.Errorf("path=%q event=%v", got[0].URL, got[0].Envelope["type"])
 	}
 	if !verifyHMACv1(t, got[0].Headers, got[0].RawBody, wh.SigningSecret) {
 		t.Errorf("received HMAC verification failed")
@@ -639,7 +639,7 @@ func TestWebhooksE2E_AutoDisableAfterFailures(t *testing.T) {
 func summarize(c []testutil.SubscriberCaptured) string {
 	parts := make([]string, 0, len(c))
 	for _, x := range c {
-		evt, _ := x.Envelope["event"].(string)
+		evt, _ := x.Envelope["type"].(string)
 		parts = append(parts, x.URL+"["+evt+"]")
 	}
 	return strings.Join(parts, " ")

@@ -311,8 +311,8 @@ func TestEventsE2E_FullOutboxRoundTrip(t *testing.T) {
 	if env.ID != eventID {
 		t.Errorf("env.id = %s, want %s", env.ID, eventID)
 	}
-	if env.Event != webhookpub.EventEmailReceived {
-		t.Errorf("env.event = %s, want email.received", env.Event)
+	if env.Type != webhookpub.EventEmailReceived {
+		t.Errorf("env.type = %s, want email.received", env.Type)
 	}
 	if !strings.HasPrefix(captured.Signature, "t=") {
 		t.Errorf("signature should start with t=; got %s", captured.Signature)

@@ -84,7 +84,7 @@ describe("Webhooks page", () => {
 
   it("lists existing webhooks (url, events, status) without exposing a secret", async () => {
     global.fetch = makeFetchMock({
-      "/v1/webhooks": () => jsonResp({ webhooks: [webhook] }),
+      "/v1/webhooks": () => jsonResp({ items: [webhook] }),
     }) as unknown as typeof fetch;
 
     render(<WebhooksPage />);
@@ -111,9 +111,9 @@ describe("Webhooks page", () => {
     global.fetch = makeFetchMock({
       "GET /v1/webhooks": () => {
         listCallCount++;
-        if (listCallCount === 1) return jsonResp({ webhooks: [webhook] });
+        if (listCallCount === 1) return jsonResp({ items: [webhook] });
         return jsonResp({
-          webhooks: [webhook, { ...created, signing_secret: undefined }],
+          items: [webhook, { ...created, signing_secret: undefined }],
         });
       },
       "POST /v1/webhooks": () => jsonResp(created, 201),
@@ -157,7 +157,7 @@ describe("Webhooks page", () => {
       signing_secret: "whsec_copyme",
     };
     global.fetch = makeFetchMock({
-      "GET /v1/webhooks": () => jsonResp({ webhooks: [webhook] }),
+      "GET /v1/webhooks": () => jsonResp({ items: [webhook] }),
       "POST /v1/webhooks": () => jsonResp(created, 201),
     }) as unknown as typeof fetch;
 
@@ -187,7 +187,7 @@ describe("Webhooks page", () => {
 
   it("shows an inline error when create fails", async () => {
     global.fetch = makeFetchMock({
-      "GET /v1/webhooks": () => jsonResp({ webhooks: [webhook] }),
+      "GET /v1/webhooks": () => jsonResp({ items: [webhook] }),
       "POST /v1/webhooks": () => errResp("invalid url", 400),
     }) as unknown as typeof fetch;
 
@@ -209,7 +209,7 @@ describe("Webhooks page", () => {
 
   it("rotates the secret and reveals the new one", async () => {
     global.fetch = makeFetchMock({
-      "GET /v1/webhooks": () => jsonResp({ webhooks: [webhook] }),
+      "GET /v1/webhooks": () => jsonResp({ items: [webhook] }),
       [`POST /v1/webhooks/${encodeURIComponent(webhook.id)}/rotate-secret`]: () =>
         jsonResp({
           signing_secret: "whsec_rotated",
@@ -243,7 +243,7 @@ describe("Webhooks page", () => {
     };
     const deletedIDs: string[] = [];
     global.fetch = makeFetchMock({
-      "GET /v1/webhooks": () => jsonResp({ webhooks: [webhook, second] }),
+      "GET /v1/webhooks": () => jsonResp({ items: [webhook, second] }),
       [`DELETE /v1/webhooks/${encodeURIComponent("wh_other")}`]: () => {
         deletedIDs.push("wh_other");
         return {

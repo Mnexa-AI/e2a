@@ -56,8 +56,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 // ── Domains ──────────────────────────────────────────────
 
 export async function listDomains(): Promise<DomainInfo[]> {
-  const data = await request<{ domains: DomainInfo[] }>("/v1/domains");
-  return data.domains ?? [];
+  const data = await request<{ items: DomainInfo[] }>("/v1/domains");
+  return data.items ?? [];
 }
 
 export async function registerDomain(domain: string): Promise<DomainInfo> {
@@ -382,7 +382,7 @@ export async function updateAgent(
 
 // ── HITL pending messages ───────────────────────────────
 
-// Wire shape of an agent row in ListAgentsOutputBody.agents (GET /v1/agents).
+// Wire shape of an agent row in PageAgentView.items (GET /v1/agents).
 type AgentViewWire = {
   email: string;
   hitl_enabled?: boolean;
@@ -398,8 +398,8 @@ type AgentViewWire = {
 // owning agent's address so the detail/approve/reject calls can be
 // addressed. Aggregated newest-first.
 export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
-  const agentsResp = await request<{ agents?: AgentViewWire[] | null }>("/v1/agents");
-  const agents = agentsResp.agents ?? [];
+  const agentsResp = await request<{ items?: AgentViewWire[] | null }>("/v1/agents");
+  const agents = agentsResp.items ?? [];
   // Only agents with HITL enabled can have pending drafts; querying
   // the rest is wasted round-trips. Fall back to querying all if the
   // flag is absent on the wire.

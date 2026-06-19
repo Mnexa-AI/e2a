@@ -83,7 +83,7 @@ const verifiedDomain = {
 function mockFreshUser() {
   mockFetch.mockImplementation((url: string) => {
     if (url === "/v1/domains") {
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ domains: [] }) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [] }) });
     }
     if (url === "/api/dashboard/agents") {
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ agents: [] }) });
@@ -104,7 +104,7 @@ beforeEach(() => {
 function mockAgentCreation(email: string) {
   mockFetch.mockImplementation((url: string, init?: RequestInit) => {
     if (url === "/v1/domains") {
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ domains: [] }) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [] }) });
     }
     if (url === "/api/dashboard/agents" && !init?.method) {
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ agents: [] }) });
@@ -123,7 +123,7 @@ function mockAgentCreation(email: string) {
 function mockAgentCreationFailure(errorMessage: string) {
   mockFetch.mockImplementation((url: string, init?: RequestInit) => {
     if (url === "/v1/domains") {
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ domains: [] }) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [] }) });
     }
     if (url === "/api/dashboard/agents" && !init?.method) {
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ agents: [] }) });
@@ -405,7 +405,7 @@ describe("Query param support", () => {
       if (url === "/v1/domains") {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ domains: [verifiedDomain] }),
+          json: () => Promise.resolve({ items: [verifiedDomain] }),
         });
       }
       return Promise.resolve({ ok: false, text: () => Promise.resolve("not found") });
@@ -426,7 +426,7 @@ describe("Query param support", () => {
       if (url === "/v1/domains") {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ domains: [] }),
+          json: () => Promise.resolve({ items: [] }),
         });
       }
       return Promise.resolve({ ok: false, text: () => Promise.resolve("not found") });
@@ -455,7 +455,7 @@ describe("Query param support", () => {
       if (url === "/v1/domains") {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ domains: [unverifiedDomainFixture] }),
+          json: () => Promise.resolve({ items: [unverifiedDomainFixture] }),
         });
       }
       return Promise.resolve({ ok: false, text: () => Promise.resolve("not found") });
@@ -497,7 +497,7 @@ function mockCustomDomainFlow() {
     if (url === "/v1/domains" && (!init?.method || init.method === "GET")) {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ domains: [] }),
+        json: () => Promise.resolve({ items: [] }),
       });
     }
     // registerDomain
@@ -639,7 +639,7 @@ describe("Custom-domain flow: existing verified domain -> create agent directly"
       if (url === "/v1/domains") {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ domains: [verifiedDomain] }),
+          json: () => Promise.resolve({ items: [verifiedDomain] }),
         });
       }
       if (url === "/v1/agents" && init?.method === "POST") {
@@ -687,7 +687,7 @@ describe("Custom-domain flow: existing unverified domain -> resume verify", () =
       if (url === "/v1/domains") {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ domains: [unverified] }),
+          json: () => Promise.resolve({ items: [unverified] }),
         });
       }
       if (url.includes("/verify") && init?.method === "POST") {
@@ -727,7 +727,7 @@ describe("Custom-domain flow: verification retry", () => {
       if (url === "/v1/domains" && (!init?.method || init.method === "GET")) {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ domains: [] }),
+          json: () => Promise.resolve({ items: [] }),
         });
       }
       if (url === "/v1/domains" && init?.method === "POST") {
@@ -778,7 +778,7 @@ describe("Plain /get-started always shows address choice", () => {
   it("shows address choice even when user has existing agents", async () => {
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (url === "/v1/domains") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ domains: [] }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [] }) });
       }
       if (url === "/api/dashboard/agents" && !init?.method) {
         return Promise.resolve({
@@ -813,7 +813,7 @@ describe("Plain /get-started always shows address choice", () => {
     };
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (url === "/v1/domains") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ domains: [unverified] }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [unverified] }) });
       }
       if (url === "/api/dashboard/agents" && !init?.method) {
         return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ agents: [] }) });
@@ -832,7 +832,7 @@ describe("Plain /get-started always shows address choice", () => {
   it("shows address choice even with verified domain and no agents", async () => {
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (url === "/v1/domains") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ domains: [verifiedDomain] }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [verifiedDomain] }) });
       }
       if (url === "/api/dashboard/agents" && !init?.method) {
         return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ agents: [] }) });
@@ -956,7 +956,7 @@ describe("URL-driven step navigation", () => {
       if (url === "/v1/domains") {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ domains: [verifiedDomain] }),
+          json: () => Promise.resolve({ items: [verifiedDomain] }),
         });
       }
       return Promise.resolve({ ok: false, text: () => Promise.resolve("not found") });

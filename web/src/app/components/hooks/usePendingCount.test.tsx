@@ -44,7 +44,7 @@ function mockPendingCount(count: number) {
         text: () =>
           Promise.resolve(
             JSON.stringify({
-              agents: [{ email: "ag_1@agents.e2a.dev", hitl_enabled: true }],
+              items: [{ email: "ag_1@agents.e2a.dev", hitl_enabled: true }],
             }),
           ),
       });
