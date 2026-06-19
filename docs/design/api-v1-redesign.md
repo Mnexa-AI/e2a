@@ -19,13 +19,16 @@
 > management API were **dropped**; `send` ships **nested** at
 > `POST /v1/agents/{address}/messages` (no top-level `/v1/send`); HITL ships as
 > the two routes **`…/approve` + `…/reject`** (not a single `approval`
-> sub-resource); and decisions 4/9/10 **shipped**. **Still pending:** the MCP
-> tool-surface re-curation to the §6a target (the SDK *transport* was repointed
-> onto `/v1`, but the tool names/args in `mcp/src/tools/` remain the pre-redesign
-> set — tracked as a separate round) and F4 (uniform `AutoPager` —
-> `conversations.list` still returns a plain array). The event name
-> `email.rejected` shipped as-is (decision 9's `email.approval_rejected` rename
-> did not land).
+> sub-resource); decisions 4/9/10 **shipped**; F4 (uniform `AutoPager`) **shipped**
+> — `conversations.list` now returns an `AutoPager` (PR #238); and Decision 3's
+> proposed `from`/`reply_to` outbound body fields did **not** land — `from` was
+> **dropped** as redundant with the route (the sender is structurally the path
+> agent; PR #238), and `reply_to` is **deferred**, not rejected. **Still
+> pending:** the MCP tool-surface re-curation to the §6a target (the SDK
+> *transport* was repointed onto `/v1`, but the tool names/args in
+> `mcp/src/tools/` remain the pre-redesign set — tracked as a separate round).
+> The event name `email.rejected` shipped as-is (decision 9's
+> `email.approval_rejected` rename did not land).
 
 ## 1. Problem statement
 
@@ -87,7 +90,9 @@ are the **current** routes being replaced.
   unsafe writes.
 * The unified, ergonomic fields we already want: agent `address`
   (local-part *or* full email), optional webhook (no `agent_mode`),
-  `from`/`reply_to` on outbound, custom-domain sender identity.
+  and custom-domain sender identity. (The originally-listed `from`/`reply_to`
+  outbound fields were revised out — see Decision 3 as-built: `from` dropped as
+  redundant with the route, `reply_to` deferred.)
 * **OpenAPI as the single source of truth**, with the MCP tools + SDKs
   generated/validated from it and a CI drift test across the Go↔TS split.
 * Auth: API key (self-host) **and** OAuth 2.1 hosted-MCP (first-class).
@@ -202,9 +207,23 @@ relative to that base):
    * **forward:** `POST /agents/{address}/messages/{id}/forward`
 
    Shared body: `to`, `subject`, `body`/`html`, `cc`/`bcc`, `attachments`,
-   `idempotency_key`, `conversation_id?`, and — new — `from` (defaults to the
-   agent address) and `reply_to` (the Reply-To header). Reply derives
+   `idempotency_key`, `conversation_id?`. Reply derives
    `to`/`subject` from the referenced message; forward requires `to`.
+
+   > **As-built (PR #238):** the originally-proposed `from` and `reply_to` body
+   > fields did **not** ship on `send`/`reply`/`forward`. `from` was **dropped
+   > deliberately** — the sender is structurally the path agent
+   > (`/agents/{address}/messages`) and the server hardcodes `From =
+   > agent.address`, so a body `from` is redundant at best and an
+   > address-spoofing vector at worst. That is exactly *this* decision's own
+   > principle (identity is explicit in the route, never inferred from an
+   > optional body field), so the addition contradicted the model and was removed
+   > from `SendEmailRequest`/`ReplyRequest`/`ForwardRequest` and both SDK bases;
+   > `from` survives only as a **response** field (the observed sender on message
+   > views). `reply_to` (the Reply-To header — genuinely useful and *independent*
+   > of the sender) is **deferred, not rejected**: it remains an open gap to add
+   > to the three outbound bodies when wanted (decision 4 already wires the
+   > server-side `Reply-To` default to the agent address).
 
    **Why explicit operations over a unified, body-discriminated endpoint
    (revised from the earlier "one endpoint" plan):** the agent-facing surface is
@@ -1003,8 +1022,8 @@ sees both tiers. The drift-gate map records each tool's tier next to its
 | `get_message` | `message_id`*,`address?` | `GET /agents/{address}/messages/{id}` | Flat `GET /messages/{id}` removed — one address. Also reads held outbound drafts. |
 | `get_attachment` | `message_id`*,`index`*,`address?` | `GET /agents/{address}/messages/{id}/attachments/{index}` | **Changed:** dedicated endpoint (was a full-message re-fetch). |
 | `update_message_labels` | `message_id`*,`add_labels?`,`remove_labels?`,`address?` | `PATCH /agents/{address}/messages/{id}` | Labels/read folded into the message PATCH. |
-| `send_message` | `to`*,`subject`*,`body`*,`html?`,`cc/bcc?`,`attachments?`,`from?`,`reply_to?`,`conversation_id?`,`idempotency_key?`,`address?` | `POST /agents/{address}/messages` | New-thread case. **Renamed** from `send_email` to match the `message` resource. **New `from`,`reply_to`** (decision 3 / #206 coverage). |
-| `reply_to_message` | `message_id`*,`body`*,`html?`,`reply_all?`,`cc/bcc?`,`attachments?`,`reply_to?`,`idempotency_key?`,`address?` | `POST /agents/{address}/messages/{id}/reply` | Referenced message is the **path param** (`{id}`) — explicit reply operation, not a body discriminator. |
+| `send_message` | `to`*,`subject`*,`body`*,`html?`,`cc/bcc?`,`attachments?`,`conversation_id?`,`idempotency_key?`,`address?` | `POST /agents/{address}/messages` | New-thread case. **Renamed** from `send_email` to match the `message` resource. (As-built: `from` dropped — sender is the path agent; `reply_to` deferred — see Decision 3 as-built banner.) |
+| `reply_to_message` | `message_id`*,`body`*,`html?`,`reply_all?`,`cc/bcc?`,`attachments?`,`idempotency_key?`,`address?` | `POST /agents/{address}/messages/{id}/reply` | Referenced message is the **path param** (`{id}`) — explicit reply operation, not a body discriminator. (As-built: `reply_to` deferred — see Decision 3.) |
 | `forward_message` | `message_id`*,`to`*,`body?`,`cc/bcc?`,`attachments?`,`idempotency_key?`,`address?` | `POST /agents/{address}/messages/{id}/forward` | Referenced message is the **path param** (`{id}`). |
 
 > send/reply/forward map to **three distinct operations** (`sendMessage`,
@@ -1074,8 +1093,9 @@ Arithmetic: **33** today − **3 removed tools** (`list_pending_messages`,
   {status:"pending_approval"}`); plus `list_webhook_deliveries` (folded into
   events). **Removed fields:** `slug`, `agent_mode`, `webhook_url`
   (create/update_agent); flat-message addressing.
-* **Added:** `from`/`reply_to` on outbound; `get_domain` (sending_status poll);
-  dedicated attachment fetch.
+* **Added:** `get_domain` (sending_status poll); dedicated attachment fetch.
+  (`from`/`reply_to` on outbound were proposed but **not added** — `from` dropped
+  as redundant with the route; `reply_to` deferred. See Decision 3 as-built.)
 * **Collapsed:** approve/reject → one `approval` operation (two tools);
   send/reply/forward → one `sendMessage` operation (three tools).
 * **Simplified:** `whoami` is now account/user-only; the **default-agent
@@ -1145,7 +1165,7 @@ Applying 1 + 6: a runtime agent sees ~13 tools; the full self-host surface 31.
 | `GET /info` | **keep** | stays a separate **public** deployment-discovery endpoint — NOT folded into `/account` |
 | `/users/me/*` | **rename** | `/account/*` (`/account/export`, `DELETE /account`) |
 | `create_agent` (slug path + `agent_mode`; MCP omitted `email` pre-#206) | **change** | full-email `address` only (drop slug), no mode |
-| `POST /send` body | **extend** | add `from`, `reply_to` |
+| `POST …/messages` (send) body | **revised** ✅ | `from` was **dropped** — sender is the path agent, hardcoded server-side, so a body `from` is redundant/spoofy (PR #238). `reply_to` **deferred** (genuinely useful, not redundant — add later). |
 | `agent_mode` column + CHECK | **drop** | no modes; inbound via poll / `ws` / `/webhooks` |
 | `agent_identities.webhook_url` (legacy per-agent webhook, already `X-E2A-Deprecation`'d) | **remove completely** | `/v1/webhooks` — the single, first-class push mechanism |
 | `/api/v1/webhooks` (subscriber resource) | **keep, elevate to first-class** | canonical push: event subscriptions, filters, HMAC, deliveries, retries |
