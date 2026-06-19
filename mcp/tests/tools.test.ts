@@ -572,10 +572,11 @@ describe("e2a MCP server", () => {
       },
     });
     // The wrapper resolves the owning agent internally, so the tool no
-    // longer passes an address; body_text → bodyText (ApproveRequest).
+    // longer passes an address; the tool's body_text input maps to the
+    // ApproveRequest `body` field (aligned with send/reply).
     expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", {
       subject: "edited subject",
-      bodyText: "edited body",
+      body: "edited body",
     });
   });
 

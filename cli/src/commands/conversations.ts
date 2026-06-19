@@ -9,11 +9,13 @@ export async function conversationsList(opts: {
   const client = createClient({ from: opts.from });
   const address = requireAgentEmail(opts.from);
 
-  const convos = await client.conversations.list(address, {
-    limit: opts.pageSize,
-    since: opts.since,
-    until: opts.until,
-  });
+  const convos = await client.conversations
+    .list(address, {
+      limit: opts.pageSize,
+      since: opts.since,
+      until: opts.until,
+    })
+    .toArray({ limit: opts.pageSize ?? 200 });
   if (convos.length === 0) {
     process.stdout.write("No conversations.\n");
     return;

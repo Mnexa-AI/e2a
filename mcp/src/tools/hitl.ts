@@ -42,8 +42,8 @@ export function registerHitlTools(server: McpServer, client: McpClient): void {
     attachments?: Array<{ filename: string; content_type: string; data: string }>;
   }) => ({
     ...(overrides.subject !== undefined ? { subject: overrides.subject } : {}),
-    ...(overrides.body_text !== undefined ? { bodyText: overrides.body_text } : {}),
-    ...(overrides.body_html !== undefined ? { bodyHtml: overrides.body_html } : {}),
+    ...(overrides.body_text !== undefined ? { body: overrides.body_text } : {}),
+    ...(overrides.body_html !== undefined ? { htmlBody: overrides.body_html } : {}),
     ...(overrides.to !== undefined ? { to: overrides.to } : {}),
     ...(overrides.cc !== undefined ? { cc: overrides.cc } : {}),
     ...(overrides.bcc !== undefined ? { bcc: overrides.bcc } : {}),

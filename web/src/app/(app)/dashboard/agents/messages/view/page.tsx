@@ -270,7 +270,7 @@ function FocusContent({
     setSubmitError("");
     try {
       const overrides = editingDraft && draftBody !== (msg.data.body_text ?? "")
-        ? { body_text: draftBody }
+        ? { body: draftBody }
         : {};
       await approvePendingMessage(email, msg.data.id, overrides);
       await refreshAfterMutation(msg.data.id);

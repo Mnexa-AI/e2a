@@ -444,8 +444,8 @@ export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
 
 export type ApprovePayload = {
   subject?: string;
-  body_text?: string;
-  body_html?: string;
+  body?: string;
+  html_body?: string;
   to?: string[];
   cc?: string[];
   bcc?: string[];

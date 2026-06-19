@@ -207,7 +207,7 @@ export class McpClient {
     params: { since?: string; until?: string; limit?: number },
     explicitAddress?: string,
   ): Promise<ConversationSummaryView[]> {
-    return this.sdk.conversations.list(this.resolveAddress(explicitAddress), params);
+    return this.sdk.conversations.list(this.resolveAddress(explicitAddress), params).toArray({ limit: params.limit ?? 200 });
   }
 
   getConversation(
@@ -269,8 +269,8 @@ export class McpClient {
     messageId: string,
     overrides: {
       subject?: string;
-      bodyText?: string;
-      bodyHtml?: string;
+      body?: string;
+      htmlBody?: string;
       to?: Array<string>;
       cc?: Array<string>;
       bcc?: Array<string>;

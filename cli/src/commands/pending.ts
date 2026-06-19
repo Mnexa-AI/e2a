@@ -139,7 +139,7 @@ function diffOverrides(
     out.subject = parsed.subject;
   }
   if (parsed.body !== undefined && parsed.body !== originalBody) {
-    out.bodyText = parsed.body;
+    out.body = parsed.body;
   }
   const arrEq = (a: string[] | undefined, b: string[] | undefined) =>
     JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
