@@ -172,6 +172,13 @@ This is the round the design (§13) already tracks as pending.
 
 Both SDKs green: TS 84 tests, Python 131 tests.
 
+**Hand-written class-by-class review (findings + fixes):**
+- **errors** — 🔴 **ERR-1 (fixed both SDKs):** the status bucket lacked `400`, so 11 of the API's 16 `400` codes (`confirmation_required`, `too_many_recipients`, `invalid_domain`, …) degraded to the bare `E2AError`; added `400 → E2AValidationError`. Else strong (code-first table, suffix families, Retry-After header+`details` fallback).
+- **pagination (AutoPager)** — ✅ clean (repeated-cursor + `max_pages` guards; memory-safe `toArray`/`to_list`). TS `toArray` vs Python `to_list` = idiomatic per language.
+- **retry** — ✅ clean (GET/HEAD/OPTIONS + PUT/PATCH retried; DELETE retried **except account**; POST only when Idempotency-Key present; `isAccountDeletion` strips the new `?confirm=` query). Python mirrors via `_write_*` wrappers.
+- **webhook-signature** — 🟡 **WH-SIG-1 (fixed both):** a missing/non-string `X-E2A-Signature` header threw a raw `TypeError`/`AttributeError` instead of returning `false`; guarded. Crypto otherwise sound (`${t}.${body}` HMAC-SHA256, constant-time compare, multi-`v1=` rotation, replay window).
+- **ws** — 🟠 **WS-1 + WS-2 (fixed TS; Python already had both):** TS injected the raw API key into `?token=` (now `encodeURIComponent`) and **reconnected forever on a fatal 4xx handshake**; TS now detects the 4xx via `unexpected-response`, surfaces a typed `E2AAuthError`/`E2APermissionError`, and stops (F6 parity with Python's `_fatal_error_for_status`). 🟢 WS-3 (noted, LOW): WSStream buffer is unbounded (slow-consumer edge). 🟢 F6 URL-token auth remains a documented known limitation (planned header/ticket server change).
+
 ## Phase 3 — MCP
 
 _(pending — tool by tool; note §6a re-curation gap; carry the `email` naming decision AG-3)_

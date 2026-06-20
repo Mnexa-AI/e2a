@@ -1,5 +1,17 @@
 import WebSocket from "ws";
 import { EventEmitter } from "node:events";
+import { E2AError, E2AAuthError, E2APermissionError } from "./errors.js";
+
+// Map a fatal (non-retryable) WebSocket handshake rejection status to a typed
+// error — mirrors the Python SDK's _fatal_error_for_status (F6). A 4xx means the
+// credential/request is wrong; reconnecting would loop forever, so the stream
+// surfaces this and stops.
+function fatalErrorForStatus(status: number): E2AError {
+  const message = `WebSocket handshake rejected: HTTP ${status}`;
+  if (status === 401) return new E2AAuthError({ code: "unauthorized", message, status, retryable: false });
+  if (status === 403) return new E2APermissionError({ code: "forbidden", message, status, retryable: false });
+  return new E2AError({ code: "websocket_rejected", message, status, retryable: false });
+}
 
 /**
  * A lightweight notification pushed by the e2a relay when new mail
@@ -75,7 +87,7 @@ export class WSListener extends EventEmitter<WSListenerEvents> {
     super();
     const base = (opts.baseUrl ?? "https://api.e2a.dev").replace(/\/+$/, "");
     const wsBase = base.replace(/^http/, "ws");
-    this.url = `${wsBase}/v1/agents/${encodeURIComponent(opts.agentEmail)}/ws?token=${opts.apiKey}`;
+    this.url = `${wsBase}/v1/agents/${encodeURIComponent(opts.agentEmail)}/ws?token=${encodeURIComponent(opts.apiKey)}`;
     this.shouldReconnect = opts.reconnect ?? true;
     this.initialDelayMs = opts.reconnectDelay ?? 1000;
     this.maxBackoffMs = opts.maxBackoffMs ?? 30_000;
@@ -100,6 +112,13 @@ export class WSListener extends EventEmitter<WSListenerEvents> {
 
   private dial(): void {
     const ws = new WebSocket(this.url);
+    // A fatal (4xx) handshake rejection — captured here, acted on in `close`.
+    // The credential/request is wrong, so reconnecting would loop forever (F6).
+    let fatal: E2AError | null = null;
+    ws.on("unexpected-response", (_req, res: { statusCode?: number }) => {
+      const status = res.statusCode ?? 0;
+      if (status >= 400 && status < 500) fatal = fatalErrorForStatus(status);
+    });
 
     ws.on("open", () => {
       // Successful connection — reset backoff so the next disconnect
@@ -121,6 +140,13 @@ export class WSListener extends EventEmitter<WSListenerEvents> {
     ws.on("close", (code: number, reason: Buffer) => {
       this.emit("close", code, reason.toString());
       this.ws = null;
+      if (fatal) {
+        // Fatal handshake (auth/4xx) — surface the typed error and STOP; a
+        // reconnect would just loop on the same rejection (F6 parity with Python).
+        this.closed = true;
+        this.emit("error", fatal);
+        return;
+      }
       if (!this.closed && this.shouldReconnect) {
         setTimeout(() => this.dial(), this.currentBackoffMs);
         // Double the delay for the next reconnect, capped. Same shape
@@ -133,7 +159,9 @@ export class WSListener extends EventEmitter<WSListenerEvents> {
     });
 
     ws.on("error", (err: Error) => {
-      this.emit("error", err);
+      // Suppress the noisy transport error that rides alongside a fatal
+      // handshake — the typed error is emitted from `close`. Surface others.
+      if (!fatal) this.emit("error", err);
     });
 
     this.ws = ws;
@@ -175,8 +203,11 @@ export class WSStream extends EventEmitter<WSListenerEvents>
     this.listener.on("close", (code, reason) => this.emit("close", code, reason));
     this.listener.on("error", (err) => {
       this.emit("error", err);
-      // Reject any in-flight iterator awaits so the for-await loop
-      // surfaces the error rather than hanging silently.
+      // A typed (fatal) error — e.g. an auth/4xx handshake rejection — ends the
+      // stream: the listener has stopped reconnecting, so mark closed too, then
+      // reject in-flight awaits so the for-await throws the typed error rather
+      // than hanging on a stream that will never deliver again (F6).
+      if (err instanceof E2AError) this.closed = true;
       this.drainWaitersWithError(err);
     });
 

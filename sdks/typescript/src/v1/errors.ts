@@ -124,6 +124,11 @@ function resolve(status: number, code: string): { make: Make; retryable: boolean
     if (code.endsWith("_exists")) return { make: mkConflict, retryable: false };
   }
   switch (status) {
+    case 400:
+      // Every 400 is a client/validation error. Maps the many 400 codes
+      // (confirmation_required, too_many_recipients, invalid_domain, …) to the
+      // validation family instead of degrading to the bare base error.
+      return { make: mkValidation, retryable: false };
     case 401:
       return { make: mkAuth, retryable: false };
     case 403:

@@ -178,6 +178,10 @@ def _resolve(status: int, code: str) -> "tuple[type[E2AError], bool]":
             return E2AConflictError, False
     # 3. Fall back to the HTTP status bucket for unknown/empty codes.
     by_status: "dict[int, tuple[type[E2AError], bool]]" = {
+        # Every 400 is a client/validation error — maps the many 400 codes
+        # (confirmation_required, too_many_recipients, invalid_domain, …) to the
+        # validation family instead of degrading to the bare base error.
+        400: (E2AValidationError, False),
         401: (E2AAuthError, False),
         403: (E2APermissionError, False),
         404: (E2ANotFoundError, False),

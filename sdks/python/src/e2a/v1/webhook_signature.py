@@ -45,6 +45,10 @@ def verify_webhook_signature(
     ``secret`` may be a single ``whsec_...`` string or a sequence of them (to
     verify one handler against several endpoints' secrets / a rotation grace).
     """
+    # Guard a missing/non-string header so a missing X-E2A-Signature is a clean
+    # False, never a raw AttributeError (WH-SIG-1).
+    if not header or not isinstance(header, str):
+        return False
     t = ""
     v1s: list[str] = []
     for part in header.split(","):

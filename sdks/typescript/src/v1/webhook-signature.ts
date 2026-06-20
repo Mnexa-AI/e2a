@@ -33,6 +33,9 @@ export interface VerifySignatureOptions {
  * failure (bad format, missing pair, signature mismatch, replay). Never throws.
  */
 export function verifyWebhookSignature(opts: VerifySignatureOptions): boolean {
+  // Guard a missing/non-string header (e.g. req.headers[...] is undefined) so a
+  // missing X-E2A-Signature is a clean `false`, never a raw TypeError (WH-SIG-1).
+  if (!opts.header || typeof opts.header !== "string") return false;
   const tolerance = opts.toleranceSeconds ?? 300;
   const nowMs = opts.now ? opts.now() : Date.now();
 
