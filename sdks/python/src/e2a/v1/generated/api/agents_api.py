@@ -17,10 +17,10 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from typing_extensions import Annotated
 
 from pydantic import Field, StrictStr
+from typing import Optional
 from typing_extensions import Annotated
 from e2a.v1.generated.models.agent_view import AgentView
 from e2a.v1.generated.models.create_agent_request import CreateAgentRequest
-from e2a.v1.generated.models.create_agent_response import CreateAgentResponse
 from e2a.v1.generated.models.page_agent_view import PageAgentView
 from e2a.v1.generated.models.send_result_view import SendResultView
 from e2a.v1.generated.models.update_agent_request import UpdateAgentRequest
@@ -59,10 +59,10 @@ class AgentsApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> CreateAgentResponse:
+    ) -> AgentView:
         """Create an agent
 
-        Register an agent on a verified domain the caller owns (or, when slug registration is enabled, on the shared domain).
+        Register an agent by full email. A custom-domain agent's domain must be a verified domain the caller owns; an email on the deployment's shared domain (e.g. xyz@agents.e2a.dev) is registered as a shared-domain agent. Returns the full agent.
 
         :param create_agent_request: (required)
         :type create_agent_request: CreateAgentRequest
@@ -97,7 +97,7 @@ class AgentsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '201': "CreateAgentResponse",
+            '201': "AgentView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -126,10 +126,10 @@ class AgentsApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[CreateAgentResponse]:
+    ) -> ApiResponse[AgentView]:
         """Create an agent
 
-        Register an agent on a verified domain the caller owns (or, when slug registration is enabled, on the shared domain).
+        Register an agent by full email. A custom-domain agent's domain must be a verified domain the caller owns; an email on the deployment's shared domain (e.g. xyz@agents.e2a.dev) is registered as a shared-domain agent. Returns the full agent.
 
         :param create_agent_request: (required)
         :type create_agent_request: CreateAgentRequest
@@ -164,7 +164,7 @@ class AgentsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '201': "CreateAgentResponse",
+            '201': "AgentView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -196,7 +196,7 @@ class AgentsApi:
     ) -> RESTResponseType:
         """Create an agent
 
-        Register an agent on a verified domain the caller owns (or, when slug registration is enabled, on the shared domain).
+        Register an agent by full email. A custom-domain agent's domain must be a verified domain the caller owns; an email on the deployment's shared domain (e.g. xyz@agents.e2a.dev) is registered as a shared-domain agent. Returns the full agent.
 
         :param create_agent_request: (required)
         :type create_agent_request: CreateAgentRequest
@@ -231,7 +231,7 @@ class AgentsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '201': "CreateAgentResponse",
+            '201': "AgentView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -320,7 +320,8 @@ class AgentsApi:
     @validate_call
     async def delete_agent(
         self,
-        address: Annotated[StrictStr, Field(description="The agent's full email address, e.g. support@acme.com.")],
+        email: StrictStr,
+        confirm: Annotated[Optional[StrictStr], Field(description="Must be DELETE — this is irreversible.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -338,8 +339,10 @@ class AgentsApi:
 
         Delete an agent the caller owns.
 
-        :param address: The agent's full email address, e.g. support@acme.com. (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
+        :param confirm: Must be DELETE — this is irreversible.
+        :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -363,7 +366,8 @@ class AgentsApi:
         """ # noqa: E501
 
         _param = self._delete_agent_serialize(
-            address=address,
+            email=email,
+            confirm=confirm,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -387,7 +391,8 @@ class AgentsApi:
     @validate_call
     async def delete_agent_with_http_info(
         self,
-        address: Annotated[StrictStr, Field(description="The agent's full email address, e.g. support@acme.com.")],
+        email: StrictStr,
+        confirm: Annotated[Optional[StrictStr], Field(description="Must be DELETE — this is irreversible.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -405,8 +410,10 @@ class AgentsApi:
 
         Delete an agent the caller owns.
 
-        :param address: The agent's full email address, e.g. support@acme.com. (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
+        :param confirm: Must be DELETE — this is irreversible.
+        :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -430,7 +437,8 @@ class AgentsApi:
         """ # noqa: E501
 
         _param = self._delete_agent_serialize(
-            address=address,
+            email=email,
+            confirm=confirm,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -454,7 +462,8 @@ class AgentsApi:
     @validate_call
     async def delete_agent_without_preload_content(
         self,
-        address: Annotated[StrictStr, Field(description="The agent's full email address, e.g. support@acme.com.")],
+        email: StrictStr,
+        confirm: Annotated[Optional[StrictStr], Field(description="Must be DELETE — this is irreversible.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -472,8 +481,10 @@ class AgentsApi:
 
         Delete an agent the caller owns.
 
-        :param address: The agent's full email address, e.g. support@acme.com. (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
+        :param confirm: Must be DELETE — this is irreversible.
+        :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -497,7 +508,8 @@ class AgentsApi:
         """ # noqa: E501
 
         _param = self._delete_agent_serialize(
-            address=address,
+            email=email,
+            confirm=confirm,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -516,7 +528,8 @@ class AgentsApi:
 
     def _delete_agent_serialize(
         self,
-        address,
+        email,
+        confirm,
         _request_auth,
         _content_type,
         _headers,
@@ -538,9 +551,13 @@ class AgentsApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if address is not None:
-            _path_params['address'] = address
+        if email is not None:
+            _path_params['email'] = email
         # process the query parameters
+        if confirm is not None:
+            
+            _query_params.append(('confirm', confirm))
+            
         # process the header parameters
         # process the form parameters
         # process the body parameter
@@ -562,7 +579,7 @@ class AgentsApi:
 
         return self.api_client.param_serialize(
             method='DELETE',
-            resource_path='/v1/agents/{address}',
+            resource_path='/v1/agents/{email}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -581,7 +598,7 @@ class AgentsApi:
     @validate_call
     async def get_agent(
         self,
-        address: Annotated[StrictStr, Field(description="The agent's full email address, e.g. support@acme.com.")],
+        email: Annotated[StrictStr, Field(description="The agent's full email address, e.g. support@acme.com.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -599,8 +616,8 @@ class AgentsApi:
 
         Fetch a single agent the authenticated account owns, by full email address.
 
-        :param address: The agent's full email address, e.g. support@acme.com. (required)
-        :type address: str
+        :param email: The agent's full email address, e.g. support@acme.com. (required)
+        :type email: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -624,7 +641,7 @@ class AgentsApi:
         """ # noqa: E501
 
         _param = self._get_agent_serialize(
-            address=address,
+            email=email,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -648,7 +665,7 @@ class AgentsApi:
     @validate_call
     async def get_agent_with_http_info(
         self,
-        address: Annotated[StrictStr, Field(description="The agent's full email address, e.g. support@acme.com.")],
+        email: Annotated[StrictStr, Field(description="The agent's full email address, e.g. support@acme.com.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -666,8 +683,8 @@ class AgentsApi:
 
         Fetch a single agent the authenticated account owns, by full email address.
 
-        :param address: The agent's full email address, e.g. support@acme.com. (required)
-        :type address: str
+        :param email: The agent's full email address, e.g. support@acme.com. (required)
+        :type email: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -691,7 +708,7 @@ class AgentsApi:
         """ # noqa: E501
 
         _param = self._get_agent_serialize(
-            address=address,
+            email=email,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -715,7 +732,7 @@ class AgentsApi:
     @validate_call
     async def get_agent_without_preload_content(
         self,
-        address: Annotated[StrictStr, Field(description="The agent's full email address, e.g. support@acme.com.")],
+        email: Annotated[StrictStr, Field(description="The agent's full email address, e.g. support@acme.com.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -733,8 +750,8 @@ class AgentsApi:
 
         Fetch a single agent the authenticated account owns, by full email address.
 
-        :param address: The agent's full email address, e.g. support@acme.com. (required)
-        :type address: str
+        :param email: The agent's full email address, e.g. support@acme.com. (required)
+        :type email: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -758,7 +775,7 @@ class AgentsApi:
         """ # noqa: E501
 
         _param = self._get_agent_serialize(
-            address=address,
+            email=email,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -777,7 +794,7 @@ class AgentsApi:
 
     def _get_agent_serialize(
         self,
-        address,
+        email,
         _request_auth,
         _content_type,
         _headers,
@@ -799,8 +816,8 @@ class AgentsApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if address is not None:
-            _path_params['address'] = address
+        if email is not None:
+            _path_params['email'] = email
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -823,7 +840,7 @@ class AgentsApi:
 
         return self.api_client.param_serialize(
             method='GET',
-            resource_path='/v1/agents/{address}',
+            resource_path='/v1/agents/{email}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -1088,7 +1105,7 @@ class AgentsApi:
     @validate_call
     async def test_agent(
         self,
-        address: Annotated[StrictStr, Field(description="The agent's full email address, e.g. support@acme.com.")],
+        email: Annotated[StrictStr, Field(description="The agent's full email address, e.g. support@acme.com.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1106,8 +1123,8 @@ class AgentsApi:
 
         Send a platform test email to the agent's own address to confirm inbound delivery. 202 when held for HITL.
 
-        :param address: The agent's full email address, e.g. support@acme.com. (required)
-        :type address: str
+        :param email: The agent's full email address, e.g. support@acme.com. (required)
+        :type email: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1131,7 +1148,7 @@ class AgentsApi:
         """ # noqa: E501
 
         _param = self._test_agent_serialize(
-            address=address,
+            email=email,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1156,7 +1173,7 @@ class AgentsApi:
     @validate_call
     async def test_agent_with_http_info(
         self,
-        address: Annotated[StrictStr, Field(description="The agent's full email address, e.g. support@acme.com.")],
+        email: Annotated[StrictStr, Field(description="The agent's full email address, e.g. support@acme.com.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1174,8 +1191,8 @@ class AgentsApi:
 
         Send a platform test email to the agent's own address to confirm inbound delivery. 202 when held for HITL.
 
-        :param address: The agent's full email address, e.g. support@acme.com. (required)
-        :type address: str
+        :param email: The agent's full email address, e.g. support@acme.com. (required)
+        :type email: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1199,7 +1216,7 @@ class AgentsApi:
         """ # noqa: E501
 
         _param = self._test_agent_serialize(
-            address=address,
+            email=email,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1224,7 +1241,7 @@ class AgentsApi:
     @validate_call
     async def test_agent_without_preload_content(
         self,
-        address: Annotated[StrictStr, Field(description="The agent's full email address, e.g. support@acme.com.")],
+        email: Annotated[StrictStr, Field(description="The agent's full email address, e.g. support@acme.com.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1242,8 +1259,8 @@ class AgentsApi:
 
         Send a platform test email to the agent's own address to confirm inbound delivery. 202 when held for HITL.
 
-        :param address: The agent's full email address, e.g. support@acme.com. (required)
-        :type address: str
+        :param email: The agent's full email address, e.g. support@acme.com. (required)
+        :type email: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1267,7 +1284,7 @@ class AgentsApi:
         """ # noqa: E501
 
         _param = self._test_agent_serialize(
-            address=address,
+            email=email,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1287,7 +1304,7 @@ class AgentsApi:
 
     def _test_agent_serialize(
         self,
-        address,
+        email,
         _request_auth,
         _content_type,
         _headers,
@@ -1309,8 +1326,8 @@ class AgentsApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if address is not None:
-            _path_params['address'] = address
+        if email is not None:
+            _path_params['email'] = email
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -1333,7 +1350,7 @@ class AgentsApi:
 
         return self.api_client.param_serialize(
             method='POST',
-            resource_path='/v1/agents/{address}/test',
+            resource_path='/v1/agents/{email}/test',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -1352,7 +1369,7 @@ class AgentsApi:
     @validate_call
     async def update_agent(
         self,
-        address: StrictStr,
+        email: StrictStr,
         update_agent_request: UpdateAgentRequest,
         _request_timeout: Union[
             None,
@@ -1371,8 +1388,8 @@ class AgentsApi:
 
         Patch an agent's HITL settings. Returns the post-update agent.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param update_agent_request: (required)
         :type update_agent_request: UpdateAgentRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -1398,7 +1415,7 @@ class AgentsApi:
         """ # noqa: E501
 
         _param = self._update_agent_serialize(
-            address=address,
+            email=email,
             update_agent_request=update_agent_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -1423,7 +1440,7 @@ class AgentsApi:
     @validate_call
     async def update_agent_with_http_info(
         self,
-        address: StrictStr,
+        email: StrictStr,
         update_agent_request: UpdateAgentRequest,
         _request_timeout: Union[
             None,
@@ -1442,8 +1459,8 @@ class AgentsApi:
 
         Patch an agent's HITL settings. Returns the post-update agent.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param update_agent_request: (required)
         :type update_agent_request: UpdateAgentRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -1469,7 +1486,7 @@ class AgentsApi:
         """ # noqa: E501
 
         _param = self._update_agent_serialize(
-            address=address,
+            email=email,
             update_agent_request=update_agent_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -1494,7 +1511,7 @@ class AgentsApi:
     @validate_call
     async def update_agent_without_preload_content(
         self,
-        address: StrictStr,
+        email: StrictStr,
         update_agent_request: UpdateAgentRequest,
         _request_timeout: Union[
             None,
@@ -1513,8 +1530,8 @@ class AgentsApi:
 
         Patch an agent's HITL settings. Returns the post-update agent.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param update_agent_request: (required)
         :type update_agent_request: UpdateAgentRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -1540,7 +1557,7 @@ class AgentsApi:
         """ # noqa: E501
 
         _param = self._update_agent_serialize(
-            address=address,
+            email=email,
             update_agent_request=update_agent_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -1560,7 +1577,7 @@ class AgentsApi:
 
     def _update_agent_serialize(
         self,
-        address,
+        email,
         update_agent_request,
         _request_auth,
         _content_type,
@@ -1583,8 +1600,8 @@ class AgentsApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if address is not None:
-            _path_params['address'] = address
+        if email is not None:
+            _path_params['email'] = email
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -1622,7 +1639,7 @@ class AgentsApi:
 
         return self.api_client.param_serialize(
             method='PATCH',
-            resource_path='/v1/agents/{address}',
+            resource_path='/v1/agents/{email}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,

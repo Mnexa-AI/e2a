@@ -18,11 +18,10 @@ export class WebhookView {
     'createdAt': Date;
     'description': string;
     'enabled': boolean;
-    'events': Array<string> | null;
+    'events': Array<WebhookViewEventsEnum>;
     'filters': WebhookFiltersView;
     'id': string;
     'lastDeliveredAt'?: Date;
-    'signingSecret'?: string;
     'url': string;
 
     static readonly discriminator: string | undefined = undefined;
@@ -57,7 +56,7 @@ export class WebhookView {
         {
             "name": "events",
             "baseName": "events",
-            "type": "Array<string>",
+            "type": "Array<WebhookViewEventsEnum>",
             "format": ""
         },
         {
@@ -79,12 +78,6 @@ export class WebhookView {
             "format": "date-time"
         },
         {
-            "name": "signingSecret",
-            "baseName": "signing_secret",
-            "type": "string",
-            "format": ""
-        },
-        {
             "name": "url",
             "baseName": "url",
             "type": "string",
@@ -98,3 +91,19 @@ export class WebhookView {
     public constructor() {
     }
 }
+
+export enum WebhookViewEventsEnum {
+    EmailReceived = 'email.received',
+    EmailSent = 'email.sent',
+    EmailPendingApproval = 'email.pending_approval',
+    EmailApprovalAccepted = 'email.approval_accepted',
+    EmailApprovalRejected = 'email.approval_rejected',
+    DomainSendingVerified = 'domain.sending_verified',
+    DomainSendingFailed = 'domain.sending_failed',
+    EmailDelivered = 'email.delivered',
+    EmailBounced = 'email.bounced',
+    EmailComplained = 'email.complained',
+    DomainSuppressionAdded = 'domain.suppression_added',
+    EmailFlagged = 'email.flagged'
+}
+

@@ -17,7 +17,6 @@ from e2a.v1.errors import (
 )
 from e2a.v1.generated.models import (
     AgentView,
-    CreateAgentResponse,
     MessageSummaryView,
 )
 
@@ -46,7 +45,7 @@ _REQUIRED_DEFAULTS = {
     "labels": [],
     "message_id": "msg_1",
     "recipient": "bot@test.dev",
-    "status": "unread",
+    "read_status": "unread",
     "subject": "s",
     "to": [],
 }
@@ -125,9 +124,9 @@ async def test_get_agent_sends_bearer_and_encodes_address(httpx_mock):
 
 @pytest.mark.anyio
 async def test_create_agent_posts_body(httpx_mock):
-    httpx_mock.add_response(status_code=201, json=_valid(CreateAgentResponse, id="ag_new", email="new@test.dev"))
+    httpx_mock.add_response(status_code=201, json=_valid(AgentView, id="ag_new", email="new@test.dev"))
     async with _client() as c:
-        res = await c.agents.create({"slug": "new", "agent_mode": "drive"})
+        res = await c.agents.create({"email": "new@test.dev"})
     assert res.id == "ag_new"
     req = httpx_mock.get_requests()[-1]
     assert req.method == "POST"
@@ -212,7 +211,8 @@ async def test_422_maps_to_validation(httpx_mock):
     )
     async with _client() as c:
         with pytest.raises(E2AValidationError):
-            await c.agents.create({"slug": ""})
+            # A coercible body so the request reaches the server, which 422s.
+            await c.agents.create({"email": "x@test.dev"})
 
 
 @pytest.mark.anyio

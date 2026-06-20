@@ -18,25 +18,27 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt, StrictStr
-from typing import Any, ClassVar, Dict, List
+from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr, field_validator
+from typing import Any, ClassVar, Dict, List, Optional
+from e2a.v1.generated.models.webhook_filters_view import WebhookFiltersView
 from typing import Optional, Set
 from typing_extensions import Self
 
-class ConversationSummaryView(BaseModel):
+class CreateWebhookResponse(BaseModel):
     """
-    ConversationSummaryView
+    CreateWebhookResponse
     """ # noqa: E501
-    conversation_id: StrictStr
-    first_message_at: datetime
-    has_unread: StrictBool
-    inbound_count: StrictInt
-    last_message_at: datetime
-    latest_sender: StrictStr
-    latest_subject: StrictStr
-    message_count: StrictInt
-    outbound_count: StrictInt
-    __properties: ClassVar[List[str]] = ["conversation_id", "first_message_at", "has_unread", "inbound_count", "last_message_at", "latest_sender", "latest_subject", "message_count", "outbound_count"]
+    auto_disabled_at: Optional[datetime] = None
+    created_at: datetime
+    description: StrictStr
+    enabled: StrictBool
+    events: List[StrictStr]
+    filters: WebhookFiltersView
+    id: StrictStr
+    last_delivered_at: Optional[datetime] = None
+    signing_secret: StrictStr
+    url: StrictStr
+    __properties: ClassVar[List[str]] = ["auto_disabled_at", "created_at", "description", "enabled", "events", "filters", "id", "last_delivered_at", "signing_secret", "url"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -56,7 +58,7 @@ class ConversationSummaryView(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of ConversationSummaryView from a JSON string"""
+        """Create an instance of CreateWebhookResponse from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -77,11 +79,14 @@ class ConversationSummaryView(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
+        # override the default output from pydantic by calling `to_dict()` of filters
+        if self.filters:
+            _dict['filters'] = self.filters.to_dict()
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of ConversationSummaryView from a dict"""
+        """Create an instance of CreateWebhookResponse from a dict"""
         if obj is None:
             return None
 
@@ -89,15 +94,16 @@ class ConversationSummaryView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "conversation_id": obj.get("conversation_id"),
-            "first_message_at": obj.get("first_message_at"),
-            "has_unread": obj.get("has_unread"),
-            "inbound_count": obj.get("inbound_count"),
-            "last_message_at": obj.get("last_message_at"),
-            "latest_sender": obj.get("latest_sender"),
-            "latest_subject": obj.get("latest_subject"),
-            "message_count": obj.get("message_count"),
-            "outbound_count": obj.get("outbound_count")
+            "auto_disabled_at": obj.get("auto_disabled_at"),
+            "created_at": obj.get("created_at"),
+            "description": obj.get("description"),
+            "enabled": obj.get("enabled"),
+            "events": obj.get("events"),
+            "filters": WebhookFiltersView.from_dict(obj["filters"]) if obj.get("filters") is not None else None,
+            "id": obj.get("id"),
+            "last_delivered_at": obj.get("last_delivered_at"),
+            "signing_secret": obj.get("signing_secret"),
+            "url": obj.get("url")
         })
         return _obj
 

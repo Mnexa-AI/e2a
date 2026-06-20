@@ -20,11 +20,10 @@ from pydantic import Field, StrictStr, field_validator
 from typing import List, Optional
 from typing_extensions import Annotated
 from e2a.v1.generated.models.approve_request import ApproveRequest
-from e2a.v1.generated.models.approve_result_view import ApproveResultView
 from e2a.v1.generated.models.forward_request import ForwardRequest
 from e2a.v1.generated.models.message_view import MessageView
 from e2a.v1.generated.models.page_message_summary_view import PageMessageSummaryView
-from e2a.v1.generated.models.reject_input_body import RejectInputBody
+from e2a.v1.generated.models.reject_request import RejectRequest
 from e2a.v1.generated.models.reject_result_view import RejectResultView
 from e2a.v1.generated.models.reply_request import ReplyRequest
 from e2a.v1.generated.models.send_email_request import SendEmailRequest
@@ -53,7 +52,7 @@ class MessagesApi:
     @validate_call
     async def approve_message(
         self,
-        address: StrictStr,
+        email: StrictStr,
         id: StrictStr,
         approve_request: ApproveRequest,
         idempotency_key: Optional[StrictStr] = None,
@@ -69,13 +68,13 @@ class MessagesApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApproveResultView:
+    ) -> SendResultView:
         """Approve a held message
 
         Approve a pending_approval draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param id: (required)
         :type id: str
         :param approve_request: (required)
@@ -105,7 +104,7 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._approve_message_serialize(
-            address=address,
+            email=email,
             id=id,
             approve_request=approve_request,
             idempotency_key=idempotency_key,
@@ -116,7 +115,7 @@ class MessagesApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "ApproveResultView",
+            '200': "SendResultView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -132,7 +131,7 @@ class MessagesApi:
     @validate_call
     async def approve_message_with_http_info(
         self,
-        address: StrictStr,
+        email: StrictStr,
         id: StrictStr,
         approve_request: ApproveRequest,
         idempotency_key: Optional[StrictStr] = None,
@@ -148,13 +147,13 @@ class MessagesApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[ApproveResultView]:
+    ) -> ApiResponse[SendResultView]:
         """Approve a held message
 
         Approve a pending_approval draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param id: (required)
         :type id: str
         :param approve_request: (required)
@@ -184,7 +183,7 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._approve_message_serialize(
-            address=address,
+            email=email,
             id=id,
             approve_request=approve_request,
             idempotency_key=idempotency_key,
@@ -195,7 +194,7 @@ class MessagesApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "ApproveResultView",
+            '200': "SendResultView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -211,7 +210,7 @@ class MessagesApi:
     @validate_call
     async def approve_message_without_preload_content(
         self,
-        address: StrictStr,
+        email: StrictStr,
         id: StrictStr,
         approve_request: ApproveRequest,
         idempotency_key: Optional[StrictStr] = None,
@@ -232,8 +231,8 @@ class MessagesApi:
 
         Approve a pending_approval draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param id: (required)
         :type id: str
         :param approve_request: (required)
@@ -263,7 +262,7 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._approve_message_serialize(
-            address=address,
+            email=email,
             id=id,
             approve_request=approve_request,
             idempotency_key=idempotency_key,
@@ -274,7 +273,7 @@ class MessagesApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "ApproveResultView",
+            '200': "SendResultView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -285,7 +284,7 @@ class MessagesApi:
 
     def _approve_message_serialize(
         self,
-        address,
+        email,
         id,
         approve_request,
         idempotency_key,
@@ -310,8 +309,8 @@ class MessagesApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if address is not None:
-            _path_params['address'] = address
+        if email is not None:
+            _path_params['email'] = email
         if id is not None:
             _path_params['id'] = id
         # process the query parameters
@@ -354,7 +353,7 @@ class MessagesApi:
 
         return self.api_client.param_serialize(
             method='POST',
-            resource_path='/v1/agents/{address}/messages/{id}/approve',
+            resource_path='/v1/agents/{email}/messages/{id}/approve',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -373,7 +372,7 @@ class MessagesApi:
     @validate_call
     async def forward_message(
         self,
-        address: StrictStr,
+        email: StrictStr,
         id: StrictStr,
         forward_request: ForwardRequest,
         idempotency_key: Optional[StrictStr] = None,
@@ -394,8 +393,8 @@ class MessagesApi:
 
         Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param id: (required)
         :type id: str
         :param forward_request: (required)
@@ -425,7 +424,7 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._forward_message_serialize(
-            address=address,
+            email=email,
             id=id,
             forward_request=forward_request,
             idempotency_key=idempotency_key,
@@ -453,7 +452,7 @@ class MessagesApi:
     @validate_call
     async def forward_message_with_http_info(
         self,
-        address: StrictStr,
+        email: StrictStr,
         id: StrictStr,
         forward_request: ForwardRequest,
         idempotency_key: Optional[StrictStr] = None,
@@ -474,8 +473,8 @@ class MessagesApi:
 
         Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param id: (required)
         :type id: str
         :param forward_request: (required)
@@ -505,7 +504,7 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._forward_message_serialize(
-            address=address,
+            email=email,
             id=id,
             forward_request=forward_request,
             idempotency_key=idempotency_key,
@@ -533,7 +532,7 @@ class MessagesApi:
     @validate_call
     async def forward_message_without_preload_content(
         self,
-        address: StrictStr,
+        email: StrictStr,
         id: StrictStr,
         forward_request: ForwardRequest,
         idempotency_key: Optional[StrictStr] = None,
@@ -554,8 +553,8 @@ class MessagesApi:
 
         Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param id: (required)
         :type id: str
         :param forward_request: (required)
@@ -585,7 +584,7 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._forward_message_serialize(
-            address=address,
+            email=email,
             id=id,
             forward_request=forward_request,
             idempotency_key=idempotency_key,
@@ -608,7 +607,7 @@ class MessagesApi:
 
     def _forward_message_serialize(
         self,
-        address,
+        email,
         id,
         forward_request,
         idempotency_key,
@@ -633,8 +632,8 @@ class MessagesApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if address is not None:
-            _path_params['address'] = address
+        if email is not None:
+            _path_params['email'] = email
         if id is not None:
             _path_params['id'] = id
         # process the query parameters
@@ -677,7 +676,7 @@ class MessagesApi:
 
         return self.api_client.param_serialize(
             method='POST',
-            resource_path='/v1/agents/{address}/messages/{id}/forward',
+            resource_path='/v1/agents/{email}/messages/{id}/forward',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -696,7 +695,7 @@ class MessagesApi:
     @validate_call
     async def get_message(
         self,
-        address: Annotated[StrictStr, Field(description="The agent's full email address.")],
+        email: Annotated[StrictStr, Field(description="The agent's full email address.")],
         id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
         _request_timeout: Union[
             None,
@@ -715,8 +714,8 @@ class MessagesApi:
 
         Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.
 
-        :param address: The agent's full email address. (required)
-        :type address: str
+        :param email: The agent's full email address. (required)
+        :type email: str
         :param id: The message id, e.g. msg_abc123. (required)
         :type id: str
         :param _request_timeout: timeout setting for this request. If one
@@ -742,7 +741,7 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._get_message_serialize(
-            address=address,
+            email=email,
             id=id,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -767,7 +766,7 @@ class MessagesApi:
     @validate_call
     async def get_message_with_http_info(
         self,
-        address: Annotated[StrictStr, Field(description="The agent's full email address.")],
+        email: Annotated[StrictStr, Field(description="The agent's full email address.")],
         id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
         _request_timeout: Union[
             None,
@@ -786,8 +785,8 @@ class MessagesApi:
 
         Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.
 
-        :param address: The agent's full email address. (required)
-        :type address: str
+        :param email: The agent's full email address. (required)
+        :type email: str
         :param id: The message id, e.g. msg_abc123. (required)
         :type id: str
         :param _request_timeout: timeout setting for this request. If one
@@ -813,7 +812,7 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._get_message_serialize(
-            address=address,
+            email=email,
             id=id,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -838,7 +837,7 @@ class MessagesApi:
     @validate_call
     async def get_message_without_preload_content(
         self,
-        address: Annotated[StrictStr, Field(description="The agent's full email address.")],
+        email: Annotated[StrictStr, Field(description="The agent's full email address.")],
         id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
         _request_timeout: Union[
             None,
@@ -857,8 +856,8 @@ class MessagesApi:
 
         Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.
 
-        :param address: The agent's full email address. (required)
-        :type address: str
+        :param email: The agent's full email address. (required)
+        :type email: str
         :param id: The message id, e.g. msg_abc123. (required)
         :type id: str
         :param _request_timeout: timeout setting for this request. If one
@@ -884,7 +883,7 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._get_message_serialize(
-            address=address,
+            email=email,
             id=id,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -904,7 +903,7 @@ class MessagesApi:
 
     def _get_message_serialize(
         self,
-        address,
+        email,
         id,
         _request_auth,
         _content_type,
@@ -927,8 +926,8 @@ class MessagesApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if address is not None:
-            _path_params['address'] = address
+        if email is not None:
+            _path_params['email'] = email
         if id is not None:
             _path_params['id'] = id
         # process the query parameters
@@ -953,7 +952,7 @@ class MessagesApi:
 
         return self.api_client.param_serialize(
             method='GET',
-            resource_path='/v1/agents/{address}/messages/{id}',
+            resource_path='/v1/agents/{email}/messages/{id}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -972,9 +971,9 @@ class MessagesApi:
     @validate_call
     async def list_messages(
         self,
-        address: StrictStr,
+        email: StrictStr,
         direction: Annotated[Optional[StrictStr], Field(description="Defaults to inbound.")] = None,
-        status: Annotated[Optional[StrictStr], Field(description="Inbound only. Defaults to unread for inbound, all otherwise.")] = None,
+        read_status: Annotated[Optional[StrictStr], Field(description="Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.")] = None,
         sort: Annotated[Optional[StrictStr], Field(description="Defaults to desc (newest first).")] = None,
         var_from: Annotated[Optional[StrictStr], Field(description="Case-insensitive substring match on sender.")] = None,
         subject_contains: Annotated[Optional[StrictStr], Field(description="Case-insensitive substring match on subject.")] = None,
@@ -1001,12 +1000,12 @@ class MessagesApi:
 
         List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param direction: Defaults to inbound.
         :type direction: str
-        :param status: Inbound only. Defaults to unread for inbound, all otherwise.
-        :type status: str
+        :param read_status: Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.
+        :type read_status: str
         :param sort: Defaults to desc (newest first).
         :type sort: str
         :param var_from: Case-insensitive substring match on sender.
@@ -1048,9 +1047,9 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._list_messages_serialize(
-            address=address,
+            email=email,
             direction=direction,
-            status=status,
+            read_status=read_status,
             sort=sort,
             var_from=var_from,
             subject_contains=subject_contains,
@@ -1083,9 +1082,9 @@ class MessagesApi:
     @validate_call
     async def list_messages_with_http_info(
         self,
-        address: StrictStr,
+        email: StrictStr,
         direction: Annotated[Optional[StrictStr], Field(description="Defaults to inbound.")] = None,
-        status: Annotated[Optional[StrictStr], Field(description="Inbound only. Defaults to unread for inbound, all otherwise.")] = None,
+        read_status: Annotated[Optional[StrictStr], Field(description="Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.")] = None,
         sort: Annotated[Optional[StrictStr], Field(description="Defaults to desc (newest first).")] = None,
         var_from: Annotated[Optional[StrictStr], Field(description="Case-insensitive substring match on sender.")] = None,
         subject_contains: Annotated[Optional[StrictStr], Field(description="Case-insensitive substring match on subject.")] = None,
@@ -1112,12 +1111,12 @@ class MessagesApi:
 
         List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param direction: Defaults to inbound.
         :type direction: str
-        :param status: Inbound only. Defaults to unread for inbound, all otherwise.
-        :type status: str
+        :param read_status: Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.
+        :type read_status: str
         :param sort: Defaults to desc (newest first).
         :type sort: str
         :param var_from: Case-insensitive substring match on sender.
@@ -1159,9 +1158,9 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._list_messages_serialize(
-            address=address,
+            email=email,
             direction=direction,
-            status=status,
+            read_status=read_status,
             sort=sort,
             var_from=var_from,
             subject_contains=subject_contains,
@@ -1194,9 +1193,9 @@ class MessagesApi:
     @validate_call
     async def list_messages_without_preload_content(
         self,
-        address: StrictStr,
+        email: StrictStr,
         direction: Annotated[Optional[StrictStr], Field(description="Defaults to inbound.")] = None,
-        status: Annotated[Optional[StrictStr], Field(description="Inbound only. Defaults to unread for inbound, all otherwise.")] = None,
+        read_status: Annotated[Optional[StrictStr], Field(description="Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.")] = None,
         sort: Annotated[Optional[StrictStr], Field(description="Defaults to desc (newest first).")] = None,
         var_from: Annotated[Optional[StrictStr], Field(description="Case-insensitive substring match on sender.")] = None,
         subject_contains: Annotated[Optional[StrictStr], Field(description="Case-insensitive substring match on subject.")] = None,
@@ -1223,12 +1222,12 @@ class MessagesApi:
 
         List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param direction: Defaults to inbound.
         :type direction: str
-        :param status: Inbound only. Defaults to unread for inbound, all otherwise.
-        :type status: str
+        :param read_status: Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.
+        :type read_status: str
         :param sort: Defaults to desc (newest first).
         :type sort: str
         :param var_from: Case-insensitive substring match on sender.
@@ -1270,9 +1269,9 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._list_messages_serialize(
-            address=address,
+            email=email,
             direction=direction,
-            status=status,
+            read_status=read_status,
             sort=sort,
             var_from=var_from,
             subject_contains=subject_contains,
@@ -1300,9 +1299,9 @@ class MessagesApi:
 
     def _list_messages_serialize(
         self,
-        address,
+        email,
         direction,
-        status,
+        read_status,
         sort,
         var_from,
         subject_contains,
@@ -1334,16 +1333,16 @@ class MessagesApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if address is not None:
-            _path_params['address'] = address
+        if email is not None:
+            _path_params['email'] = email
         # process the query parameters
         if direction is not None:
             
             _query_params.append(('direction', direction))
             
-        if status is not None:
+        if read_status is not None:
             
-            _query_params.append(('status', status))
+            _query_params.append(('read_status', read_status))
             
         if sort is not None:
             
@@ -1402,7 +1401,7 @@ class MessagesApi:
 
         return self.api_client.param_serialize(
             method='GET',
-            resource_path='/v1/agents/{address}/messages',
+            resource_path='/v1/agents/{email}/messages',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -1421,9 +1420,9 @@ class MessagesApi:
     @validate_call
     async def reject_message(
         self,
-        address: StrictStr,
+        email: StrictStr,
         id: StrictStr,
-        reject_input_body: RejectInputBody,
+        reject_request: RejectRequest,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1441,12 +1440,12 @@ class MessagesApi:
 
         Reject a pending_approval draft so it is never sent.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param id: (required)
         :type id: str
-        :param reject_input_body: (required)
-        :type reject_input_body: RejectInputBody
+        :param reject_request: (required)
+        :type reject_request: RejectRequest
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1470,9 +1469,9 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._reject_message_serialize(
-            address=address,
+            email=email,
             id=id,
-            reject_input_body=reject_input_body,
+            reject_request=reject_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1496,9 +1495,9 @@ class MessagesApi:
     @validate_call
     async def reject_message_with_http_info(
         self,
-        address: StrictStr,
+        email: StrictStr,
         id: StrictStr,
-        reject_input_body: RejectInputBody,
+        reject_request: RejectRequest,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1516,12 +1515,12 @@ class MessagesApi:
 
         Reject a pending_approval draft so it is never sent.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param id: (required)
         :type id: str
-        :param reject_input_body: (required)
-        :type reject_input_body: RejectInputBody
+        :param reject_request: (required)
+        :type reject_request: RejectRequest
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1545,9 +1544,9 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._reject_message_serialize(
-            address=address,
+            email=email,
             id=id,
-            reject_input_body=reject_input_body,
+            reject_request=reject_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1571,9 +1570,9 @@ class MessagesApi:
     @validate_call
     async def reject_message_without_preload_content(
         self,
-        address: StrictStr,
+        email: StrictStr,
         id: StrictStr,
-        reject_input_body: RejectInputBody,
+        reject_request: RejectRequest,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1591,12 +1590,12 @@ class MessagesApi:
 
         Reject a pending_approval draft so it is never sent.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param id: (required)
         :type id: str
-        :param reject_input_body: (required)
-        :type reject_input_body: RejectInputBody
+        :param reject_request: (required)
+        :type reject_request: RejectRequest
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1620,9 +1619,9 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._reject_message_serialize(
-            address=address,
+            email=email,
             id=id,
-            reject_input_body=reject_input_body,
+            reject_request=reject_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1641,9 +1640,9 @@ class MessagesApi:
 
     def _reject_message_serialize(
         self,
-        address,
+        email,
         id,
-        reject_input_body,
+        reject_request,
         _request_auth,
         _content_type,
         _headers,
@@ -1665,16 +1664,16 @@ class MessagesApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if address is not None:
-            _path_params['address'] = address
+        if email is not None:
+            _path_params['email'] = email
         if id is not None:
             _path_params['id'] = id
         # process the query parameters
         # process the header parameters
         # process the form parameters
         # process the body parameter
-        if reject_input_body is not None:
-            _body_params = reject_input_body
+        if reject_request is not None:
+            _body_params = reject_request
 
 
         # set the HTTP header `Accept`
@@ -1706,7 +1705,7 @@ class MessagesApi:
 
         return self.api_client.param_serialize(
             method='POST',
-            resource_path='/v1/agents/{address}/messages/{id}/reject',
+            resource_path='/v1/agents/{email}/messages/{id}/reject',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -1725,7 +1724,7 @@ class MessagesApi:
     @validate_call
     async def reply_to_message(
         self,
-        address: StrictStr,
+        email: StrictStr,
         id: StrictStr,
         reply_request: ReplyRequest,
         idempotency_key: Optional[StrictStr] = None,
@@ -1746,8 +1745,8 @@ class MessagesApi:
 
         Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param id: (required)
         :type id: str
         :param reply_request: (required)
@@ -1777,7 +1776,7 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._reply_to_message_serialize(
-            address=address,
+            email=email,
             id=id,
             reply_request=reply_request,
             idempotency_key=idempotency_key,
@@ -1805,7 +1804,7 @@ class MessagesApi:
     @validate_call
     async def reply_to_message_with_http_info(
         self,
-        address: StrictStr,
+        email: StrictStr,
         id: StrictStr,
         reply_request: ReplyRequest,
         idempotency_key: Optional[StrictStr] = None,
@@ -1826,8 +1825,8 @@ class MessagesApi:
 
         Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param id: (required)
         :type id: str
         :param reply_request: (required)
@@ -1857,7 +1856,7 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._reply_to_message_serialize(
-            address=address,
+            email=email,
             id=id,
             reply_request=reply_request,
             idempotency_key=idempotency_key,
@@ -1885,7 +1884,7 @@ class MessagesApi:
     @validate_call
     async def reply_to_message_without_preload_content(
         self,
-        address: StrictStr,
+        email: StrictStr,
         id: StrictStr,
         reply_request: ReplyRequest,
         idempotency_key: Optional[StrictStr] = None,
@@ -1906,8 +1905,8 @@ class MessagesApi:
 
         Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param id: (required)
         :type id: str
         :param reply_request: (required)
@@ -1937,7 +1936,7 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._reply_to_message_serialize(
-            address=address,
+            email=email,
             id=id,
             reply_request=reply_request,
             idempotency_key=idempotency_key,
@@ -1960,7 +1959,7 @@ class MessagesApi:
 
     def _reply_to_message_serialize(
         self,
-        address,
+        email,
         id,
         reply_request,
         idempotency_key,
@@ -1985,8 +1984,8 @@ class MessagesApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if address is not None:
-            _path_params['address'] = address
+        if email is not None:
+            _path_params['email'] = email
         if id is not None:
             _path_params['id'] = id
         # process the query parameters
@@ -2029,7 +2028,7 @@ class MessagesApi:
 
         return self.api_client.param_serialize(
             method='POST',
-            resource_path='/v1/agents/{address}/messages/{id}/reply',
+            resource_path='/v1/agents/{email}/messages/{id}/reply',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -2048,7 +2047,7 @@ class MessagesApi:
     @validate_call
     async def send_message(
         self,
-        address: StrictStr,
+        email: StrictStr,
         send_email_request: SendEmailRequest,
         idempotency_key: Optional[StrictStr] = None,
         _request_timeout: Union[
@@ -2068,8 +2067,8 @@ class MessagesApi:
 
         Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param send_email_request: (required)
         :type send_email_request: SendEmailRequest
         :param idempotency_key:
@@ -2097,7 +2096,7 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._send_message_serialize(
-            address=address,
+            email=email,
             send_email_request=send_email_request,
             idempotency_key=idempotency_key,
             _request_auth=_request_auth,
@@ -2124,7 +2123,7 @@ class MessagesApi:
     @validate_call
     async def send_message_with_http_info(
         self,
-        address: StrictStr,
+        email: StrictStr,
         send_email_request: SendEmailRequest,
         idempotency_key: Optional[StrictStr] = None,
         _request_timeout: Union[
@@ -2144,8 +2143,8 @@ class MessagesApi:
 
         Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param send_email_request: (required)
         :type send_email_request: SendEmailRequest
         :param idempotency_key:
@@ -2173,7 +2172,7 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._send_message_serialize(
-            address=address,
+            email=email,
             send_email_request=send_email_request,
             idempotency_key=idempotency_key,
             _request_auth=_request_auth,
@@ -2200,7 +2199,7 @@ class MessagesApi:
     @validate_call
     async def send_message_without_preload_content(
         self,
-        address: StrictStr,
+        email: StrictStr,
         send_email_request: SendEmailRequest,
         idempotency_key: Optional[StrictStr] = None,
         _request_timeout: Union[
@@ -2220,8 +2219,8 @@ class MessagesApi:
 
         Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param send_email_request: (required)
         :type send_email_request: SendEmailRequest
         :param idempotency_key:
@@ -2249,7 +2248,7 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._send_message_serialize(
-            address=address,
+            email=email,
             send_email_request=send_email_request,
             idempotency_key=idempotency_key,
             _request_auth=_request_auth,
@@ -2271,7 +2270,7 @@ class MessagesApi:
 
     def _send_message_serialize(
         self,
-        address,
+        email,
         send_email_request,
         idempotency_key,
         _request_auth,
@@ -2295,8 +2294,8 @@ class MessagesApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if address is not None:
-            _path_params['address'] = address
+        if email is not None:
+            _path_params['email'] = email
         # process the query parameters
         # process the header parameters
         if idempotency_key is not None:
@@ -2337,7 +2336,7 @@ class MessagesApi:
 
         return self.api_client.param_serialize(
             method='POST',
-            resource_path='/v1/agents/{address}/messages',
+            resource_path='/v1/agents/{email}/messages',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -2356,7 +2355,7 @@ class MessagesApi:
     @validate_call
     async def update_message(
         self,
-        address: StrictStr,
+        email: StrictStr,
         id: StrictStr,
         update_message_request: UpdateMessageRequest,
         _request_timeout: Union[
@@ -2376,8 +2375,8 @@ class MessagesApi:
 
         Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param id: (required)
         :type id: str
         :param update_message_request: (required)
@@ -2405,7 +2404,7 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._update_message_serialize(
-            address=address,
+            email=email,
             id=id,
             update_message_request=update_message_request,
             _request_auth=_request_auth,
@@ -2431,7 +2430,7 @@ class MessagesApi:
     @validate_call
     async def update_message_with_http_info(
         self,
-        address: StrictStr,
+        email: StrictStr,
         id: StrictStr,
         update_message_request: UpdateMessageRequest,
         _request_timeout: Union[
@@ -2451,8 +2450,8 @@ class MessagesApi:
 
         Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param id: (required)
         :type id: str
         :param update_message_request: (required)
@@ -2480,7 +2479,7 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._update_message_serialize(
-            address=address,
+            email=email,
             id=id,
             update_message_request=update_message_request,
             _request_auth=_request_auth,
@@ -2506,7 +2505,7 @@ class MessagesApi:
     @validate_call
     async def update_message_without_preload_content(
         self,
-        address: StrictStr,
+        email: StrictStr,
         id: StrictStr,
         update_message_request: UpdateMessageRequest,
         _request_timeout: Union[
@@ -2526,8 +2525,8 @@ class MessagesApi:
 
         Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param id: (required)
         :type id: str
         :param update_message_request: (required)
@@ -2555,7 +2554,7 @@ class MessagesApi:
         """ # noqa: E501
 
         _param = self._update_message_serialize(
-            address=address,
+            email=email,
             id=id,
             update_message_request=update_message_request,
             _request_auth=_request_auth,
@@ -2576,7 +2575,7 @@ class MessagesApi:
 
     def _update_message_serialize(
         self,
-        address,
+        email,
         id,
         update_message_request,
         _request_auth,
@@ -2600,8 +2599,8 @@ class MessagesApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if address is not None:
-            _path_params['address'] = address
+        if email is not None:
+            _path_params['email'] = email
         if id is not None:
             _path_params['id'] = id
         # process the query parameters
@@ -2641,7 +2640,7 @@ class MessagesApi:
 
         return self.api_client.param_serialize(
             method='PATCH',
-            resource_path='/v1/agents/{address}/messages/{id}',
+            resource_path='/v1/agents/{email}/messages/{id}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,

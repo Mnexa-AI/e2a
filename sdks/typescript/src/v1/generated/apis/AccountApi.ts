@@ -8,9 +8,9 @@ import {canConsumeForm, isCodeInRange} from '../util.js';
 import {SecurityAuthentication} from '../auth/auth.js';
 
 
+import { AccountView } from '../models/AccountView.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
-import { LimitsView } from '../models/LimitsView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
 import { UserExport } from '../models/UserExport.js';
 
@@ -125,8 +125,8 @@ export class AccountApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * The authenticated account\'s plan caps and current usage. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
-     * Get account: plan limits + usage
+     * The authenticated principal\'s identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+     * Get account: identity + plan limits + usage (whoami)
      */
     public async getAccount(_options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
@@ -157,9 +157,13 @@ export class AccountApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.
      * List suppressed recipient addresses
+     * @param cursor Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param limit Maximum number of items to return (1-100).
      */
-    public async listSuppressions(_options?: Configuration): Promise<RequestContext> {
+    public async listSuppressions(cursor?: string, limit?: number, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
+
+
 
         // Path Params
         const localVarPath = '/v1/account/suppressions';
@@ -167,6 +171,16 @@ export class AccountApiRequestFactory extends BaseAPIRequestFactory {
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.GET);
         requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+        // Query Params
+        if (cursor !== undefined) {
+            requestContext.setQueryParam("cursor", ObjectSerializer.serialize(cursor, "string", ""));
+        }
+
+        // Query Params
+        if (limit !== undefined) {
+            requestContext.setQueryParam("limit", ObjectSerializer.serialize(limit, "number", "int64"));
+        }
 
 
         let authMethod: SecurityAuthentication | undefined;
@@ -299,13 +313,13 @@ export class AccountApiResponseProcessor {
      * @params response Response returned by the server for a request to getAccount
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async getAccountWithHttpInfo(response: ResponseContext): Promise<HttpInfo<LimitsView >> {
+     public async getAccountWithHttpInfo(response: ResponseContext): Promise<HttpInfo<AccountView >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
         if (isCodeInRange("200", response.httpStatusCode)) {
-            const body: LimitsView = ObjectSerializer.deserialize(
+            const body: AccountView = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "LimitsView", ""
-            ) as LimitsView;
+                "AccountView", ""
+            ) as AccountView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
@@ -318,10 +332,10 @@ export class AccountApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: LimitsView = ObjectSerializer.deserialize(
+            const body: AccountView = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "LimitsView", ""
-            ) as LimitsView;
+                "AccountView", ""
+            ) as AccountView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

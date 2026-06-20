@@ -9,12 +9,13 @@ import {SecurityAuthentication} from '../auth/auth.js';
 
 
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
+import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
-import { RotateSecretBody } from '../models/RotateSecretBody.js';
-import { TestWebhookOutputBody } from '../models/TestWebhookOutputBody.js';
+import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
+import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
 import { UpdateWebhookRequest } from '../models/UpdateWebhookRequest.js';
 import { WebhookView } from '../models/WebhookView.js';
 
@@ -391,13 +392,13 @@ export class WebhooksApiResponseProcessor {
      * @params response Response returned by the server for a request to createWebhook
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async createWebhookWithHttpInfo(response: ResponseContext): Promise<HttpInfo<WebhookView >> {
+     public async createWebhookWithHttpInfo(response: ResponseContext): Promise<HttpInfo<CreateWebhookResponse >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
         if (isCodeInRange("201", response.httpStatusCode)) {
-            const body: WebhookView = ObjectSerializer.deserialize(
+            const body: CreateWebhookResponse = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "WebhookView", ""
-            ) as WebhookView;
+                "CreateWebhookResponse", ""
+            ) as CreateWebhookResponse;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
@@ -410,10 +411,10 @@ export class WebhooksApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: WebhookView = ObjectSerializer.deserialize(
+            const body: CreateWebhookResponse = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "WebhookView", ""
-            ) as WebhookView;
+                "CreateWebhookResponse", ""
+            ) as CreateWebhookResponse;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 
@@ -567,13 +568,13 @@ export class WebhooksApiResponseProcessor {
      * @params response Response returned by the server for a request to rotateWebhookSecret
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async rotateWebhookSecretWithHttpInfo(response: ResponseContext): Promise<HttpInfo<RotateSecretBody >> {
+     public async rotateWebhookSecretWithHttpInfo(response: ResponseContext): Promise<HttpInfo<RotateSecretResponse >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
         if (isCodeInRange("200", response.httpStatusCode)) {
-            const body: RotateSecretBody = ObjectSerializer.deserialize(
+            const body: RotateSecretResponse = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "RotateSecretBody", ""
-            ) as RotateSecretBody;
+                "RotateSecretResponse", ""
+            ) as RotateSecretResponse;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
@@ -586,10 +587,10 @@ export class WebhooksApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: RotateSecretBody = ObjectSerializer.deserialize(
+            const body: RotateSecretResponse = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "RotateSecretBody", ""
-            ) as RotateSecretBody;
+                "RotateSecretResponse", ""
+            ) as RotateSecretResponse;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 
@@ -603,13 +604,13 @@ export class WebhooksApiResponseProcessor {
      * @params response Response returned by the server for a request to testWebhook
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async testWebhookWithHttpInfo(response: ResponseContext): Promise<HttpInfo<TestWebhookOutputBody >> {
+     public async testWebhookWithHttpInfo(response: ResponseContext): Promise<HttpInfo<TestWebhookResponse >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
         if (isCodeInRange("200", response.httpStatusCode)) {
-            const body: TestWebhookOutputBody = ObjectSerializer.deserialize(
+            const body: TestWebhookResponse = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "TestWebhookOutputBody", ""
-            ) as TestWebhookOutputBody;
+                "TestWebhookResponse", ""
+            ) as TestWebhookResponse;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
@@ -622,10 +623,10 @@ export class WebhooksApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: TestWebhookOutputBody = ObjectSerializer.deserialize(
+            const body: TestWebhookResponse = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "TestWebhookOutputBody", ""
-            ) as TestWebhookOutputBody;
+                "TestWebhookResponse", ""
+            ) as TestWebhookResponse;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

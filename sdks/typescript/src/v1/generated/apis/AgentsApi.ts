@@ -10,7 +10,6 @@ import {SecurityAuthentication} from '../auth/auth.js';
 
 import { AgentView } from '../models/AgentView.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
-import { CreateAgentResponse } from '../models/CreateAgentResponse.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { PageAgentView } from '../models/PageAgentView.js';
 import { SendResultView } from '../models/SendResultView.js';
@@ -22,7 +21,7 @@ import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
 
     /**
-     * Register an agent on a verified domain the caller owns (or, when slug registration is enabled, on the shared domain).
+     * Register an agent by full email. A custom-domain agent\'s domain must be a verified domain the caller owns; an email on the deployment\'s shared domain (e.g. xyz@agents.e2a.dev) is registered as a shared-domain agent. Returns the full agent.
      * Create an agent
      * @param createAgentRequest 
      */
@@ -72,24 +71,31 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * Delete an agent the caller owns.
      * Delete an agent
-     * @param address The agent\&#39;s full email address, e.g. support@acme.com.
+     * @param email 
+     * @param confirm Must be DELETE — this is irreversible.
      */
-    public async deleteAgent(address: string, _options?: Configuration): Promise<RequestContext> {
+    public async deleteAgent(email: string, confirm?: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'address' is not null or undefined
-        if (address === null || address === undefined) {
-            throw new RequiredError("AgentsApi", "deleteAgent", "address");
+        // verify required parameter 'email' is not null or undefined
+        if (email === null || email === undefined) {
+            throw new RequiredError("AgentsApi", "deleteAgent", "email");
         }
 
 
+
         // Path Params
-        const localVarPath = '/v1/agents/{address}'
-            .replace('{' + 'address' + '}', encodeURIComponent(String(address)));
+        const localVarPath = '/v1/agents/{email}'
+            .replace('{' + 'email' + '}', encodeURIComponent(String(email)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.DELETE);
         requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+        // Query Params
+        if (confirm !== undefined) {
+            requestContext.setQueryParam("confirm", ObjectSerializer.serialize(confirm, "string", ""));
+        }
 
 
         let authMethod: SecurityAuthentication | undefined;
@@ -110,20 +116,20 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * Fetch a single agent the authenticated account owns, by full email address.
      * Get an agent
-     * @param address The agent\&#39;s full email address, e.g. support@acme.com.
+     * @param email The agent\&#39;s full email address, e.g. support@acme.com.
      */
-    public async getAgent(address: string, _options?: Configuration): Promise<RequestContext> {
+    public async getAgent(email: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'address' is not null or undefined
-        if (address === null || address === undefined) {
-            throw new RequiredError("AgentsApi", "getAgent", "address");
+        // verify required parameter 'email' is not null or undefined
+        if (email === null || email === undefined) {
+            throw new RequiredError("AgentsApi", "getAgent", "email");
         }
 
 
         // Path Params
-        const localVarPath = '/v1/agents/{address}'
-            .replace('{' + 'address' + '}', encodeURIComponent(String(address)));
+        const localVarPath = '/v1/agents/{email}'
+            .replace('{' + 'email' + '}', encodeURIComponent(String(email)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.GET);
@@ -178,20 +184,20 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * Send a platform test email to the agent\'s own address to confirm inbound delivery. 202 when held for HITL.
      * Send a test email to the agent\'s own address
-     * @param address The agent\&#39;s full email address, e.g. support@acme.com.
+     * @param email The agent\&#39;s full email address, e.g. support@acme.com.
      */
-    public async testAgent(address: string, _options?: Configuration): Promise<RequestContext> {
+    public async testAgent(email: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'address' is not null or undefined
-        if (address === null || address === undefined) {
-            throw new RequiredError("AgentsApi", "testAgent", "address");
+        // verify required parameter 'email' is not null or undefined
+        if (email === null || email === undefined) {
+            throw new RequiredError("AgentsApi", "testAgent", "email");
         }
 
 
         // Path Params
-        const localVarPath = '/v1/agents/{address}/test'
-            .replace('{' + 'address' + '}', encodeURIComponent(String(address)));
+        const localVarPath = '/v1/agents/{email}/test'
+            .replace('{' + 'email' + '}', encodeURIComponent(String(email)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.POST);
@@ -216,15 +222,15 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * Patch an agent\'s HITL settings. Returns the post-update agent.
      * Update an agent
-     * @param address 
+     * @param email 
      * @param updateAgentRequest 
      */
-    public async updateAgent(address: string, updateAgentRequest: UpdateAgentRequest, _options?: Configuration): Promise<RequestContext> {
+    public async updateAgent(email: string, updateAgentRequest: UpdateAgentRequest, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'address' is not null or undefined
-        if (address === null || address === undefined) {
-            throw new RequiredError("AgentsApi", "updateAgent", "address");
+        // verify required parameter 'email' is not null or undefined
+        if (email === null || email === undefined) {
+            throw new RequiredError("AgentsApi", "updateAgent", "email");
         }
 
 
@@ -235,8 +241,8 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
 
 
         // Path Params
-        const localVarPath = '/v1/agents/{address}'
-            .replace('{' + 'address' + '}', encodeURIComponent(String(address)));
+        const localVarPath = '/v1/agents/{email}'
+            .replace('{' + 'email' + '}', encodeURIComponent(String(email)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.PATCH);
@@ -280,13 +286,13 @@ export class AgentsApiResponseProcessor {
      * @params response Response returned by the server for a request to createAgent
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async createAgentWithHttpInfo(response: ResponseContext): Promise<HttpInfo<CreateAgentResponse >> {
+     public async createAgentWithHttpInfo(response: ResponseContext): Promise<HttpInfo<AgentView >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
         if (isCodeInRange("201", response.httpStatusCode)) {
-            const body: CreateAgentResponse = ObjectSerializer.deserialize(
+            const body: AgentView = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "CreateAgentResponse", ""
-            ) as CreateAgentResponse;
+                "AgentView", ""
+            ) as AgentView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
@@ -299,10 +305,10 @@ export class AgentsApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: CreateAgentResponse = ObjectSerializer.deserialize(
+            const body: AgentView = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "CreateAgentResponse", ""
-            ) as CreateAgentResponse;
+                "AgentView", ""
+            ) as AgentView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

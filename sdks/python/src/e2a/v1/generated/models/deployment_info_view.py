@@ -29,7 +29,8 @@ class DeploymentInfoView(BaseModel):
     public_url: Optional[StrictStr] = None
     shared_domain: StrictStr
     slug_registration_enabled: StrictBool
-    __properties: ClassVar[List[str]] = ["public_url", "shared_domain", "slug_registration_enabled"]
+    version: StrictStr
+    __properties: ClassVar[List[str]] = ["public_url", "shared_domain", "slug_registration_enabled", "version"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -84,7 +85,8 @@ class DeploymentInfoView(BaseModel):
         _obj = cls.model_validate({
             "public_url": obj.get("public_url"),
             "shared_domain": obj.get("shared_domain"),
-            "slug_registration_enabled": obj.get("slug_registration_enabled")
+            "slug_registration_enabled": obj.get("slug_registration_enabled"),
+            "version": obj.get("version")
         })
         return _obj
 

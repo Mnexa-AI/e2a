@@ -14,9 +14,9 @@ import { Attachment } from '../models/Attachment.js';
 import { HttpFile } from '../http/http.js';
 
 export class ReplyRequest {
-    'attachments'?: Array<Attachment> | null;
+    'attachments'?: Array<Attachment>;
     'bcc'?: Array<string>;
-    'body'?: string;
+    'body': string;
     'cc'?: Array<string>;
     'conversationId'?: string;
     'htmlBody'?: string;

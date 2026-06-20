@@ -20,15 +20,15 @@ export class ConversationsApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * Fetch a single conversation thread with its participants, labels, and member messages.
      * Get a conversation
-     * @param address 
+     * @param email 
      * @param id 
      */
-    public async getConversation(address: string, id: string, _options?: Configuration): Promise<RequestContext> {
+    public async getConversation(email: string, id: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'address' is not null or undefined
-        if (address === null || address === undefined) {
-            throw new RequiredError("ConversationsApi", "getConversation", "address");
+        // verify required parameter 'email' is not null or undefined
+        if (email === null || email === undefined) {
+            throw new RequiredError("ConversationsApi", "getConversation", "email");
         }
 
 
@@ -39,8 +39,8 @@ export class ConversationsApiRequestFactory extends BaseAPIRequestFactory {
 
 
         // Path Params
-        const localVarPath = '/v1/agents/{address}/conversations/{id}'
-            .replace('{' + 'address' + '}', encodeURIComponent(String(address)))
+        const localVarPath = '/v1/agents/{email}/conversations/{id}'
+            .replace('{' + 'email' + '}', encodeURIComponent(String(email)))
             .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
 
         // Make Request Context
@@ -66,26 +66,28 @@ export class ConversationsApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * List an agent\'s conversation threads (derived from messages.conversation_id).
      * List conversations
-     * @param address 
+     * @param email 
      * @param since RFC3339.
      * @param until RFC3339.
+     * @param cursor Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change since/until.
      * @param limit 
      */
-    public async listConversations(address: string, since?: string, until?: string, limit?: number, _options?: Configuration): Promise<RequestContext> {
+    public async listConversations(email: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'address' is not null or undefined
-        if (address === null || address === undefined) {
-            throw new RequiredError("ConversationsApi", "listConversations", "address");
+        // verify required parameter 'email' is not null or undefined
+        if (email === null || email === undefined) {
+            throw new RequiredError("ConversationsApi", "listConversations", "email");
         }
 
 
 
 
 
+
         // Path Params
-        const localVarPath = '/v1/agents/{address}/conversations'
-            .replace('{' + 'address' + '}', encodeURIComponent(String(address)));
+        const localVarPath = '/v1/agents/{email}/conversations'
+            .replace('{' + 'email' + '}', encodeURIComponent(String(email)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.GET);
@@ -99,6 +101,11 @@ export class ConversationsApiRequestFactory extends BaseAPIRequestFactory {
         // Query Params
         if (until !== undefined) {
             requestContext.setQueryParam("until", ObjectSerializer.serialize(until, "string", ""));
+        }
+
+        // Query Params
+        if (cursor !== undefined) {
+            requestContext.setQueryParam("cursor", ObjectSerializer.serialize(cursor, "string", ""));
         }
 
         // Query Params

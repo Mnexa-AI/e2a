@@ -20,11 +20,12 @@ from pydantic import Field, StrictStr, field_validator
 from typing import Optional
 from typing_extensions import Annotated
 from e2a.v1.generated.models.create_webhook_request import CreateWebhookRequest
+from e2a.v1.generated.models.create_webhook_response import CreateWebhookResponse
 from e2a.v1.generated.models.page_webhook_delivery_view import PageWebhookDeliveryView
 from e2a.v1.generated.models.page_webhook_view import PageWebhookView
-from e2a.v1.generated.models.rotate_secret_body import RotateSecretBody
-from e2a.v1.generated.models.test_webhook_output_body import TestWebhookOutputBody
+from e2a.v1.generated.models.rotate_secret_response import RotateSecretResponse
 from e2a.v1.generated.models.test_webhook_request import TestWebhookRequest
+from e2a.v1.generated.models.test_webhook_response import TestWebhookResponse
 from e2a.v1.generated.models.update_webhook_request import UpdateWebhookRequest
 from e2a.v1.generated.models.webhook_view import WebhookView
 
@@ -62,7 +63,7 @@ class WebhooksApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> WebhookView:
+    ) -> CreateWebhookResponse:
         """Create a webhook
 
 
@@ -99,7 +100,7 @@ class WebhooksApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '201': "WebhookView",
+            '201': "CreateWebhookResponse",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -128,7 +129,7 @@ class WebhooksApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[WebhookView]:
+    ) -> ApiResponse[CreateWebhookResponse]:
         """Create a webhook
 
 
@@ -165,7 +166,7 @@ class WebhooksApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '201': "WebhookView",
+            '201': "CreateWebhookResponse",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -231,7 +232,7 @@ class WebhooksApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '201': "WebhookView",
+            '201': "CreateWebhookResponse",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -838,7 +839,7 @@ class WebhooksApi:
         self,
         id: StrictStr,
         status: Optional[StrictStr] = None,
-        limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
+        limit: Optional[Annotated[int, Field(le=500, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -913,7 +914,7 @@ class WebhooksApi:
         self,
         id: StrictStr,
         status: Optional[StrictStr] = None,
-        limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
+        limit: Optional[Annotated[int, Field(le=500, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -988,7 +989,7 @@ class WebhooksApi:
         self,
         id: StrictStr,
         status: Optional[StrictStr] = None,
-        limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
+        limit: Optional[Annotated[int, Field(le=500, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1388,7 +1389,7 @@ class WebhooksApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> RotateSecretBody:
+    ) -> RotateSecretResponse:
         """Rotate a webhook signing secret
 
         Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
@@ -1429,7 +1430,7 @@ class WebhooksApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "RotateSecretBody",
+            '200': "RotateSecretResponse",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1459,7 +1460,7 @@ class WebhooksApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[RotateSecretBody]:
+    ) -> ApiResponse[RotateSecretResponse]:
         """Rotate a webhook signing secret
 
         Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
@@ -1500,7 +1501,7 @@ class WebhooksApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "RotateSecretBody",
+            '200': "RotateSecretResponse",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1571,7 +1572,7 @@ class WebhooksApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "RotateSecretBody",
+            '200': "RotateSecretResponse",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1664,7 +1665,7 @@ class WebhooksApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> TestWebhookOutputBody:
+    ) -> TestWebhookResponse:
         """Fire a synthetic event
 
         Schedule a one-off synthetic delivery to this webhook for development. Returns the delivery id.
@@ -1705,7 +1706,7 @@ class WebhooksApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "TestWebhookOutputBody",
+            '200': "TestWebhookResponse",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1735,7 +1736,7 @@ class WebhooksApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[TestWebhookOutputBody]:
+    ) -> ApiResponse[TestWebhookResponse]:
         """Fire a synthetic event
 
         Schedule a one-off synthetic delivery to this webhook for development. Returns the delivery id.
@@ -1776,7 +1777,7 @@ class WebhooksApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "TestWebhookOutputBody",
+            '200': "TestWebhookResponse",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1847,7 +1848,7 @@ class WebhooksApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "TestWebhookOutputBody",
+            '200': "TestWebhookResponse",
         }
         response_data = await self.api_client.call_api(
             *_param,

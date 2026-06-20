@@ -10,12 +10,12 @@
  * Do not edit the class manually.
  */
 
-import { Result } from '../models/Result.js';
+import { AuthVerdict } from '../models/AuthVerdict.js';
 import { HttpFile } from '../http/http.js';
 
 export class MessageSummaryView {
-    'auth'?: Result;
-    'cc'?: Array<string> | null;
+    'auth'?: AuthVerdict;
+    'cc'?: Array<string>;
     'conversationId'?: string;
     'createdAt': Date;
     'deliveryDetail'?: string;
@@ -25,15 +25,15 @@ export class MessageSummaryView {
     'flagged'?: boolean;
     '_from': string;
     'hitlStatus'?: MessageSummaryViewHitlStatusEnum;
-    'labels': Array<string> | null;
+    'labels': Array<string>;
     'messageId': string;
+    'readStatus': string;
     'recipient': string;
-    'replyTo'?: Array<string> | null;
+    'replyTo'?: Array<string>;
     'sentAs'?: MessageSummaryViewSentAsEnum;
     'sizeBytes'?: number;
-    'status': string;
     'subject': string;
-    'to': Array<string> | null;
+    'to': Array<string>;
     'webhookError'?: string;
     'webhookStatus'?: string;
 
@@ -45,7 +45,7 @@ export class MessageSummaryView {
         {
             "name": "auth",
             "baseName": "auth",
-            "type": "Result",
+            "type": "AuthVerdict",
             "format": ""
         },
         {
@@ -121,6 +121,12 @@ export class MessageSummaryView {
             "format": ""
         },
         {
+            "name": "readStatus",
+            "baseName": "read_status",
+            "type": "string",
+            "format": ""
+        },
+        {
             "name": "recipient",
             "baseName": "recipient",
             "type": "string",
@@ -143,12 +149,6 @@ export class MessageSummaryView {
             "baseName": "size_bytes",
             "type": "number",
             "format": "int64"
-        },
-        {
-            "name": "status",
-            "baseName": "status",
-            "type": "string",
-            "format": ""
         },
         {
             "name": "subject",

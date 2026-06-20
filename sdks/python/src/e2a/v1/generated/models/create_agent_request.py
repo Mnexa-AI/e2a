@@ -26,10 +26,9 @@ class CreateAgentRequest(BaseModel):
     """
     CreateAgentRequest
     """ # noqa: E501
-    email: Optional[StrictStr] = None
+    email: StrictStr
     name: Optional[StrictStr] = None
-    slug: Optional[StrictStr] = None
-    __properties: ClassVar[List[str]] = ["email", "name", "slug"]
+    __properties: ClassVar[List[str]] = ["email", "name"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -83,8 +82,7 @@ class CreateAgentRequest(BaseModel):
 
         _obj = cls.model_validate({
             "email": obj.get("email"),
-            "name": obj.get("name"),
-            "slug": obj.get("slug")
+            "name": obj.get("name")
         })
         return _obj
 

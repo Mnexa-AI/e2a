@@ -10,21 +10,31 @@
  * Do not edit the class manually.
  */
 
+import { AccountUserView } from '../models/AccountUserView.js';
 import { LimitsCapsView } from '../models/LimitsCapsView.js';
 import { LimitsUsageView } from '../models/LimitsUsageView.js';
 import { HttpFile } from '../http/http.js';
 
-export class LimitsView {
+export class AccountView {
+    'agentAddress'?: string;
     'limits': LimitsCapsView;
     'planCode': string;
+    'scope': AccountViewScopeEnum;
     'upgradeUrl': string;
     'usage': LimitsUsageView;
+    'user': AccountUserView;
 
     static readonly discriminator: string | undefined = undefined;
 
     static readonly mapping: {[index: string]: string} | undefined = undefined;
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
+        {
+            "name": "agentAddress",
+            "baseName": "agent_address",
+            "type": "string",
+            "format": ""
+        },
         {
             "name": "limits",
             "baseName": "limits",
@@ -38,6 +48,12 @@ export class LimitsView {
             "format": ""
         },
         {
+            "name": "scope",
+            "baseName": "scope",
+            "type": "AccountViewScopeEnum",
+            "format": ""
+        },
+        {
             "name": "upgradeUrl",
             "baseName": "upgrade_url",
             "type": "string",
@@ -48,12 +64,24 @@ export class LimitsView {
             "baseName": "usage",
             "type": "LimitsUsageView",
             "format": ""
+        },
+        {
+            "name": "user",
+            "baseName": "user",
+            "type": "AccountUserView",
+            "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return LimitsView.attributeTypeMap;
+        return AccountView.attributeTypeMap;
     }
 
     public constructor() {
     }
 }
+
+export enum AccountViewScopeEnum {
+    Account = 'account',
+    Agent = 'agent'
+}
+

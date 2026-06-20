@@ -12,7 +12,7 @@
 
 import { HttpFile } from '../http/http.js';
 
-export class RotateSecretBody {
+export class RotateSecretResponse {
     'previousSecretExpiresAt': Date;
     'signingSecret': string;
 
@@ -35,7 +35,7 @@ export class RotateSecretBody {
         }    ];
 
     static getAttributeTypeMap() {
-        return RotateSecretBody.attributeTypeMap;
+        return RotateSecretResponse.attributeTypeMap;
     }
 
     public constructor() {

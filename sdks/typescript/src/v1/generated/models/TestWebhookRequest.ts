@@ -14,7 +14,7 @@ import { HttpFile } from '../http/http.js';
 
 export class TestWebhookRequest {
     'data'?: any;
-    'event'?: string;
+    'event'?: TestWebhookRequestEventEnum;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -30,7 +30,7 @@ export class TestWebhookRequest {
         {
             "name": "event",
             "baseName": "event",
-            "type": "string",
+            "type": "TestWebhookRequestEventEnum",
             "format": ""
         }    ];
 
@@ -41,3 +41,19 @@ export class TestWebhookRequest {
     public constructor() {
     }
 }
+
+export enum TestWebhookRequestEventEnum {
+    EmailReceived = 'email.received',
+    EmailSent = 'email.sent',
+    EmailPendingApproval = 'email.pending_approval',
+    EmailApprovalAccepted = 'email.approval_accepted',
+    EmailApprovalRejected = 'email.approval_rejected',
+    DomainSendingVerified = 'domain.sending_verified',
+    DomainSendingFailed = 'domain.sending_failed',
+    EmailDelivered = 'email.delivered',
+    EmailBounced = 'email.bounced',
+    EmailComplained = 'email.complained',
+    DomainSuppressionAdded = 'domain.suppression_added',
+    EmailFlagged = 'email.flagged'
+}
+

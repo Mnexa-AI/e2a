@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from pydantic import BaseModel, ConfigDict, StrictStr
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -26,7 +26,7 @@ class UpdateMessageResultView(BaseModel):
     """
     UpdateMessageResultView
     """ # noqa: E501
-    labels: Optional[List[StrictStr]]
+    labels: List[StrictStr]
     message_id: StrictStr
     __properties: ClassVar[List[str]] = ["labels", "message_id"]
 
@@ -69,11 +69,6 @@ class UpdateMessageResultView(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # set to None if labels (nullable) is None
-        # and model_fields_set contains the field
-        if self.labels is None and "labels" in self.model_fields_set:
-            _dict['labels'] = None
-
         return _dict
 
     @classmethod

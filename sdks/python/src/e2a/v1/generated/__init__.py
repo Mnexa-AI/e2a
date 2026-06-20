@@ -36,17 +36,19 @@ __all__ = [
     "ApiAttributeError",
     "ApiException",
     "APIKeyExportEntry",
+    "AccountUserView",
+    "AccountView",
     "AgentIdentity",
     "AgentView",
     "ApproveRequest",
-    "ApproveResultView",
     "Attachment",
+    "AuthVerdict",
     "CheckResult",
     "ConversationDetailView",
     "ConversationSummaryView",
     "CreateAgentRequest",
-    "CreateAgentResponse",
     "CreateWebhookRequest",
+    "CreateWebhookResponse",
     "DNSRecordView",
     "DNSRecordsView",
     "DeleteUserDataResult",
@@ -60,7 +62,6 @@ __all__ = [
     "ForwardRequest",
     "LimitsCapsView",
     "LimitsUsageView",
-    "LimitsView",
     "Message",
     "MessageBodyView",
     "MessageParsedView",
@@ -76,20 +77,20 @@ __all__ = [
     "PageWebhookDeliveryView",
     "PageWebhookView",
     "RedeliverDelivery",
-    "RedeliverEventInputBody",
+    "RedeliverEventRequest",
     "RedeliverView",
     "RegisterDomainRequest",
-    "RejectInputBody",
+    "RejectRequest",
     "RejectResultView",
     "ReplyRequest",
     "Result",
-    "RotateSecretBody",
+    "RotateSecretResponse",
     "SendEmailRequest",
     "SendResultView",
     "SendingDNSRecordView",
     "Suppression",
-    "TestWebhookOutputBody",
     "TestWebhookRequest",
+    "TestWebhookResponse",
     "UpdateAgentRequest",
     "UpdateDomainRequest",
     "UpdateMessageRequest",
@@ -127,17 +128,19 @@ from e2a.v1.generated.exceptions import ApiException as ApiException
 
 # import models into sdk package
 from e2a.v1.generated.models.api_key_export_entry import APIKeyExportEntry as APIKeyExportEntry
+from e2a.v1.generated.models.account_user_view import AccountUserView as AccountUserView
+from e2a.v1.generated.models.account_view import AccountView as AccountView
 from e2a.v1.generated.models.agent_identity import AgentIdentity as AgentIdentity
 from e2a.v1.generated.models.agent_view import AgentView as AgentView
 from e2a.v1.generated.models.approve_request import ApproveRequest as ApproveRequest
-from e2a.v1.generated.models.approve_result_view import ApproveResultView as ApproveResultView
 from e2a.v1.generated.models.attachment import Attachment as Attachment
+from e2a.v1.generated.models.auth_verdict import AuthVerdict as AuthVerdict
 from e2a.v1.generated.models.check_result import CheckResult as CheckResult
 from e2a.v1.generated.models.conversation_detail_view import ConversationDetailView as ConversationDetailView
 from e2a.v1.generated.models.conversation_summary_view import ConversationSummaryView as ConversationSummaryView
 from e2a.v1.generated.models.create_agent_request import CreateAgentRequest as CreateAgentRequest
-from e2a.v1.generated.models.create_agent_response import CreateAgentResponse as CreateAgentResponse
 from e2a.v1.generated.models.create_webhook_request import CreateWebhookRequest as CreateWebhookRequest
+from e2a.v1.generated.models.create_webhook_response import CreateWebhookResponse as CreateWebhookResponse
 from e2a.v1.generated.models.dns_record_view import DNSRecordView as DNSRecordView
 from e2a.v1.generated.models.dns_records_view import DNSRecordsView as DNSRecordsView
 from e2a.v1.generated.models.delete_user_data_result import DeleteUserDataResult as DeleteUserDataResult
@@ -151,7 +154,6 @@ from e2a.v1.generated.models.event_json import EventJSON as EventJSON
 from e2a.v1.generated.models.forward_request import ForwardRequest as ForwardRequest
 from e2a.v1.generated.models.limits_caps_view import LimitsCapsView as LimitsCapsView
 from e2a.v1.generated.models.limits_usage_view import LimitsUsageView as LimitsUsageView
-from e2a.v1.generated.models.limits_view import LimitsView as LimitsView
 from e2a.v1.generated.models.message import Message as Message
 from e2a.v1.generated.models.message_body_view import MessageBodyView as MessageBodyView
 from e2a.v1.generated.models.message_parsed_view import MessageParsedView as MessageParsedView
@@ -167,20 +169,20 @@ from e2a.v1.generated.models.page_suppression import PageSuppression as PageSupp
 from e2a.v1.generated.models.page_webhook_delivery_view import PageWebhookDeliveryView as PageWebhookDeliveryView
 from e2a.v1.generated.models.page_webhook_view import PageWebhookView as PageWebhookView
 from e2a.v1.generated.models.redeliver_delivery import RedeliverDelivery as RedeliverDelivery
-from e2a.v1.generated.models.redeliver_event_input_body import RedeliverEventInputBody as RedeliverEventInputBody
+from e2a.v1.generated.models.redeliver_event_request import RedeliverEventRequest as RedeliverEventRequest
 from e2a.v1.generated.models.redeliver_view import RedeliverView as RedeliverView
 from e2a.v1.generated.models.register_domain_request import RegisterDomainRequest as RegisterDomainRequest
-from e2a.v1.generated.models.reject_input_body import RejectInputBody as RejectInputBody
+from e2a.v1.generated.models.reject_request import RejectRequest as RejectRequest
 from e2a.v1.generated.models.reject_result_view import RejectResultView as RejectResultView
 from e2a.v1.generated.models.reply_request import ReplyRequest as ReplyRequest
 from e2a.v1.generated.models.result import Result as Result
-from e2a.v1.generated.models.rotate_secret_body import RotateSecretBody as RotateSecretBody
+from e2a.v1.generated.models.rotate_secret_response import RotateSecretResponse as RotateSecretResponse
 from e2a.v1.generated.models.send_email_request import SendEmailRequest as SendEmailRequest
 from e2a.v1.generated.models.send_result_view import SendResultView as SendResultView
 from e2a.v1.generated.models.sending_dns_record_view import SendingDNSRecordView as SendingDNSRecordView
 from e2a.v1.generated.models.suppression import Suppression as Suppression
-from e2a.v1.generated.models.test_webhook_output_body import TestWebhookOutputBody as TestWebhookOutputBody
 from e2a.v1.generated.models.test_webhook_request import TestWebhookRequest as TestWebhookRequest
+from e2a.v1.generated.models.test_webhook_response import TestWebhookResponse as TestWebhookResponse
 from e2a.v1.generated.models.update_agent_request import UpdateAgentRequest as UpdateAgentRequest
 from e2a.v1.generated.models.update_domain_request import UpdateDomainRequest as UpdateDomainRequest
 from e2a.v1.generated.models.update_message_request import UpdateMessageRequest as UpdateMessageRequest

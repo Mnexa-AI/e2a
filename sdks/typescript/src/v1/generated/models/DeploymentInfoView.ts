@@ -16,6 +16,7 @@ export class DeploymentInfoView {
     'publicUrl'?: string;
     'sharedDomain': string;
     'slugRegistrationEnabled': boolean;
+    'version': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -38,6 +39,12 @@ export class DeploymentInfoView {
             "name": "slugRegistrationEnabled",
             "baseName": "slug_registration_enabled",
             "type": "boolean",
+            "format": ""
+        },
+        {
+            "name": "version",
+            "baseName": "version",
+            "type": "string",
             "format": ""
         }    ];
 

@@ -4,17 +4,19 @@ import type { Middleware } from '../middleware.js';
 import { Observable, of, from } from '../rxjsStub.js';
 import {mergeMap, map} from  '../rxjsStub.js';
 import { APIKeyExportEntry } from '../models/APIKeyExportEntry.js';
+import { AccountUserView } from '../models/AccountUserView.js';
+import { AccountView } from '../models/AccountView.js';
 import { AgentIdentity } from '../models/AgentIdentity.js';
 import { AgentView } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
-import { ApproveResultView } from '../models/ApproveResultView.js';
 import { Attachment } from '../models/Attachment.js';
+import { AuthVerdict } from '../models/AuthVerdict.js';
 import { CheckResult } from '../models/CheckResult.js';
 import { ConversationDetailView } from '../models/ConversationDetailView.js';
 import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
-import { CreateAgentResponse } from '../models/CreateAgentResponse.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
+import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
 import { DNSRecordView } from '../models/DNSRecordView.js';
 import { DNSRecordsView } from '../models/DNSRecordsView.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
@@ -28,7 +30,6 @@ import { EventJSON } from '../models/EventJSON.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
 import { LimitsCapsView } from '../models/LimitsCapsView.js';
 import { LimitsUsageView } from '../models/LimitsUsageView.js';
-import { LimitsView } from '../models/LimitsView.js';
 import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
@@ -44,20 +45,20 @@ import { PageSuppression } from '../models/PageSuppression.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
 import { RedeliverDelivery } from '../models/RedeliverDelivery.js';
-import { RedeliverEventInputBody } from '../models/RedeliverEventInputBody.js';
+import { RedeliverEventRequest } from '../models/RedeliverEventRequest.js';
 import { RedeliverView } from '../models/RedeliverView.js';
 import { RegisterDomainRequest } from '../models/RegisterDomainRequest.js';
-import { RejectInputBody } from '../models/RejectInputBody.js';
+import { RejectRequest } from '../models/RejectRequest.js';
 import { RejectResultView } from '../models/RejectResultView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
-import { RotateSecretBody } from '../models/RotateSecretBody.js';
+import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
 import { SendingDNSRecordView } from '../models/SendingDNSRecordView.js';
 import { Suppression } from '../models/Suppression.js';
-import { TestWebhookOutputBody } from '../models/TestWebhookOutputBody.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
+import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 import { UpdateDomainRequest } from '../models/UpdateDomainRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
@@ -188,10 +189,10 @@ export class ObservableAccountApi {
     }
 
     /**
-     * The authenticated account\'s plan caps and current usage. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
-     * Get account: plan limits + usage
+     * The authenticated principal\'s identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+     * Get account: identity + plan limits + usage (whoami)
      */
-    public getAccountWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<LimitsView>> {
+    public getAccountWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<AccountView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.getAccount(_config);
@@ -212,21 +213,23 @@ export class ObservableAccountApi {
     }
 
     /**
-     * The authenticated account\'s plan caps and current usage. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
-     * Get account: plan limits + usage
+     * The authenticated principal\'s identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+     * Get account: identity + plan limits + usage (whoami)
      */
-    public getAccount(_options?: ConfigurationOptions): Observable<LimitsView> {
-        return this.getAccountWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<LimitsView>) => apiResponse.data));
+    public getAccount(_options?: ConfigurationOptions): Observable<AccountView> {
+        return this.getAccountWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<AccountView>) => apiResponse.data));
     }
 
     /**
      * Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.
      * List suppressed recipient addresses
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listSuppressionsWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageSuppression>> {
+    public listSuppressionsWithHttpInfo(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageSuppression>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.listSuppressions(_config);
+        const requestContextPromise = this.requestFactory.listSuppressions(cursor, limit, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -246,9 +249,11 @@ export class ObservableAccountApi {
     /**
      * Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.
      * List suppressed recipient addresses
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listSuppressions(_options?: ConfigurationOptions): Observable<PageSuppression> {
-        return this.listSuppressionsWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageSuppression>) => apiResponse.data));
+    public listSuppressions(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageSuppression> {
+        return this.listSuppressionsWithHttpInfo(cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageSuppression>) => apiResponse.data));
     }
 
 }
@@ -270,11 +275,11 @@ export class ObservableAgentsApi {
     }
 
     /**
-     * Register an agent on a verified domain the caller owns (or, when slug registration is enabled, on the shared domain).
+     * Register an agent by full email. A custom-domain agent\'s domain must be a verified domain the caller owns; an email on the deployment\'s shared domain (e.g. xyz@agents.e2a.dev) is registered as a shared-domain agent. Returns the full agent.
      * Create an agent
      * @param createAgentRequest
      */
-    public createAgentWithHttpInfo(createAgentRequest: CreateAgentRequest, _options?: ConfigurationOptions): Observable<HttpInfo<CreateAgentResponse>> {
+    public createAgentWithHttpInfo(createAgentRequest: CreateAgentRequest, _options?: ConfigurationOptions): Observable<HttpInfo<AgentView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.createAgent(createAgentRequest, _config);
@@ -295,23 +300,24 @@ export class ObservableAgentsApi {
     }
 
     /**
-     * Register an agent on a verified domain the caller owns (or, when slug registration is enabled, on the shared domain).
+     * Register an agent by full email. A custom-domain agent\'s domain must be a verified domain the caller owns; an email on the deployment\'s shared domain (e.g. xyz@agents.e2a.dev) is registered as a shared-domain agent. Returns the full agent.
      * Create an agent
      * @param createAgentRequest
      */
-    public createAgent(createAgentRequest: CreateAgentRequest, _options?: ConfigurationOptions): Observable<CreateAgentResponse> {
-        return this.createAgentWithHttpInfo(createAgentRequest, _options).pipe(map((apiResponse: HttpInfo<CreateAgentResponse>) => apiResponse.data));
+    public createAgent(createAgentRequest: CreateAgentRequest, _options?: ConfigurationOptions): Observable<AgentView> {
+        return this.createAgentWithHttpInfo(createAgentRequest, _options).pipe(map((apiResponse: HttpInfo<AgentView>) => apiResponse.data));
     }
 
     /**
      * Delete an agent the caller owns.
      * Delete an agent
-     * @param address The agent\&#39;s full email address, e.g. support@acme.com.
+     * @param email
+     * @param [confirm] Must be DELETE — this is irreversible.
      */
-    public deleteAgentWithHttpInfo(address: string, _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
+    public deleteAgentWithHttpInfo(email: string, confirm?: string, _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.deleteAgent(address, _config);
+        const requestContextPromise = this.requestFactory.deleteAgent(email, confirm, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -331,21 +337,22 @@ export class ObservableAgentsApi {
     /**
      * Delete an agent the caller owns.
      * Delete an agent
-     * @param address The agent\&#39;s full email address, e.g. support@acme.com.
+     * @param email
+     * @param [confirm] Must be DELETE — this is irreversible.
      */
-    public deleteAgent(address: string, _options?: ConfigurationOptions): Observable<void> {
-        return this.deleteAgentWithHttpInfo(address, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
+    public deleteAgent(email: string, confirm?: string, _options?: ConfigurationOptions): Observable<void> {
+        return this.deleteAgentWithHttpInfo(email, confirm, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
     }
 
     /**
      * Fetch a single agent the authenticated account owns, by full email address.
      * Get an agent
-     * @param address The agent\&#39;s full email address, e.g. support@acme.com.
+     * @param email The agent\&#39;s full email address, e.g. support@acme.com.
      */
-    public getAgentWithHttpInfo(address: string, _options?: ConfigurationOptions): Observable<HttpInfo<AgentView>> {
+    public getAgentWithHttpInfo(email: string, _options?: ConfigurationOptions): Observable<HttpInfo<AgentView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.getAgent(address, _config);
+        const requestContextPromise = this.requestFactory.getAgent(email, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -365,10 +372,10 @@ export class ObservableAgentsApi {
     /**
      * Fetch a single agent the authenticated account owns, by full email address.
      * Get an agent
-     * @param address The agent\&#39;s full email address, e.g. support@acme.com.
+     * @param email The agent\&#39;s full email address, e.g. support@acme.com.
      */
-    public getAgent(address: string, _options?: ConfigurationOptions): Observable<AgentView> {
-        return this.getAgentWithHttpInfo(address, _options).pipe(map((apiResponse: HttpInfo<AgentView>) => apiResponse.data));
+    public getAgent(email: string, _options?: ConfigurationOptions): Observable<AgentView> {
+        return this.getAgentWithHttpInfo(email, _options).pipe(map((apiResponse: HttpInfo<AgentView>) => apiResponse.data));
     }
 
     /**
@@ -406,12 +413,12 @@ export class ObservableAgentsApi {
     /**
      * Send a platform test email to the agent\'s own address to confirm inbound delivery. 202 when held for HITL.
      * Send a test email to the agent\'s own address
-     * @param address The agent\&#39;s full email address, e.g. support@acme.com.
+     * @param email The agent\&#39;s full email address, e.g. support@acme.com.
      */
-    public testAgentWithHttpInfo(address: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
+    public testAgentWithHttpInfo(email: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.testAgent(address, _config);
+        const requestContextPromise = this.requestFactory.testAgent(email, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -431,22 +438,22 @@ export class ObservableAgentsApi {
     /**
      * Send a platform test email to the agent\'s own address to confirm inbound delivery. 202 when held for HITL.
      * Send a test email to the agent\'s own address
-     * @param address The agent\&#39;s full email address, e.g. support@acme.com.
+     * @param email The agent\&#39;s full email address, e.g. support@acme.com.
      */
-    public testAgent(address: string, _options?: ConfigurationOptions): Observable<SendResultView> {
-        return this.testAgentWithHttpInfo(address, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
+    public testAgent(email: string, _options?: ConfigurationOptions): Observable<SendResultView> {
+        return this.testAgentWithHttpInfo(email, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
     }
 
     /**
      * Patch an agent\'s HITL settings. Returns the post-update agent.
      * Update an agent
-     * @param address
+     * @param email
      * @param updateAgentRequest
      */
-    public updateAgentWithHttpInfo(address: string, updateAgentRequest: UpdateAgentRequest, _options?: ConfigurationOptions): Observable<HttpInfo<AgentView>> {
+    public updateAgentWithHttpInfo(email: string, updateAgentRequest: UpdateAgentRequest, _options?: ConfigurationOptions): Observable<HttpInfo<AgentView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.updateAgent(address, updateAgentRequest, _config);
+        const requestContextPromise = this.requestFactory.updateAgent(email, updateAgentRequest, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -466,11 +473,11 @@ export class ObservableAgentsApi {
     /**
      * Patch an agent\'s HITL settings. Returns the post-update agent.
      * Update an agent
-     * @param address
+     * @param email
      * @param updateAgentRequest
      */
-    public updateAgent(address: string, updateAgentRequest: UpdateAgentRequest, _options?: ConfigurationOptions): Observable<AgentView> {
-        return this.updateAgentWithHttpInfo(address, updateAgentRequest, _options).pipe(map((apiResponse: HttpInfo<AgentView>) => apiResponse.data));
+    public updateAgent(email: string, updateAgentRequest: UpdateAgentRequest, _options?: ConfigurationOptions): Observable<AgentView> {
+        return this.updateAgentWithHttpInfo(email, updateAgentRequest, _options).pipe(map((apiResponse: HttpInfo<AgentView>) => apiResponse.data));
     }
 
 }
@@ -494,13 +501,13 @@ export class ObservableConversationsApi {
     /**
      * Fetch a single conversation thread with its participants, labels, and member messages.
      * Get a conversation
-     * @param address
+     * @param email
      * @param id
      */
-    public getConversationWithHttpInfo(address: string, id: string, _options?: ConfigurationOptions): Observable<HttpInfo<ConversationDetailView>> {
+    public getConversationWithHttpInfo(email: string, id: string, _options?: ConfigurationOptions): Observable<HttpInfo<ConversationDetailView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.getConversation(address, id, _config);
+        const requestContextPromise = this.requestFactory.getConversation(email, id, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -520,25 +527,26 @@ export class ObservableConversationsApi {
     /**
      * Fetch a single conversation thread with its participants, labels, and member messages.
      * Get a conversation
-     * @param address
+     * @param email
      * @param id
      */
-    public getConversation(address: string, id: string, _options?: ConfigurationOptions): Observable<ConversationDetailView> {
-        return this.getConversationWithHttpInfo(address, id, _options).pipe(map((apiResponse: HttpInfo<ConversationDetailView>) => apiResponse.data));
+    public getConversation(email: string, id: string, _options?: ConfigurationOptions): Observable<ConversationDetailView> {
+        return this.getConversationWithHttpInfo(email, id, _options).pipe(map((apiResponse: HttpInfo<ConversationDetailView>) => apiResponse.data));
     }
 
     /**
      * List an agent\'s conversation threads (derived from messages.conversation_id).
      * List conversations
-     * @param address
+     * @param email
      * @param [since] RFC3339.
      * @param [until] RFC3339.
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change since/until.
      * @param [limit]
      */
-    public listConversationsWithHttpInfo(address: string, since?: string, until?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageConversationSummaryView>> {
+    public listConversationsWithHttpInfo(email: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageConversationSummaryView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.listConversations(address, since, until, limit, _config);
+        const requestContextPromise = this.requestFactory.listConversations(email, since, until, cursor, limit, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -558,13 +566,14 @@ export class ObservableConversationsApi {
     /**
      * List an agent\'s conversation threads (derived from messages.conversation_id).
      * List conversations
-     * @param address
+     * @param email
      * @param [since] RFC3339.
      * @param [until] RFC3339.
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change since/until.
      * @param [limit]
      */
-    public listConversations(address: string, since?: string, until?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageConversationSummaryView> {
-        return this.listConversationsWithHttpInfo(address, since, until, limit, _options).pipe(map((apiResponse: HttpInfo<PageConversationSummaryView>) => apiResponse.data));
+    public listConversations(email: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageConversationSummaryView> {
+        return this.listConversationsWithHttpInfo(email, since, until, cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageConversationSummaryView>) => apiResponse.data));
     }
 
 }
@@ -588,11 +597,12 @@ export class ObservableDomainsApi {
     /**
      * Delete a domain
      * @param domain
+     * @param [confirm] Must be DELETE — this is irreversible (deprovisions the domain\&#39;s sending identity).
      */
-    public deleteDomainWithHttpInfo(domain: string, _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
+    public deleteDomainWithHttpInfo(domain: string, confirm?: string, _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.deleteDomain(domain, _config);
+        const requestContextPromise = this.requestFactory.deleteDomain(domain, confirm, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -612,9 +622,10 @@ export class ObservableDomainsApi {
     /**
      * Delete a domain
      * @param domain
+     * @param [confirm] Must be DELETE — this is irreversible (deprovisions the domain\&#39;s sending identity).
      */
-    public deleteDomain(domain: string, _options?: ConfigurationOptions): Observable<void> {
-        return this.deleteDomainWithHttpInfo(domain, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
+    public deleteDomain(domain: string, confirm?: string, _options?: ConfigurationOptions): Observable<void> {
+        return this.deleteDomainWithHttpInfo(domain, confirm, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
     }
 
     /**
@@ -881,12 +892,12 @@ export class ObservableEventsApi {
      * Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
      * Redeliver an event
      * @param id
-     * @param redeliverEventInputBody
+     * @param redeliverEventRequest
      */
-    public redeliverEventWithHttpInfo(id: string, redeliverEventInputBody: RedeliverEventInputBody, _options?: ConfigurationOptions): Observable<HttpInfo<RedeliverView>> {
+    public redeliverEventWithHttpInfo(id: string, redeliverEventRequest: RedeliverEventRequest, _options?: ConfigurationOptions): Observable<HttpInfo<RedeliverView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.redeliverEvent(id, redeliverEventInputBody, _config);
+        const requestContextPromise = this.requestFactory.redeliverEvent(id, redeliverEventRequest, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -907,10 +918,10 @@ export class ObservableEventsApi {
      * Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
      * Redeliver an event
      * @param id
-     * @param redeliverEventInputBody
+     * @param redeliverEventRequest
      */
-    public redeliverEvent(id: string, redeliverEventInputBody: RedeliverEventInputBody, _options?: ConfigurationOptions): Observable<RedeliverView> {
-        return this.redeliverEventWithHttpInfo(id, redeliverEventInputBody, _options).pipe(map((apiResponse: HttpInfo<RedeliverView>) => apiResponse.data));
+    public redeliverEvent(id: string, redeliverEventRequest: RedeliverEventRequest, _options?: ConfigurationOptions): Observable<RedeliverView> {
+        return this.redeliverEventWithHttpInfo(id, redeliverEventRequest, _options).pipe(map((apiResponse: HttpInfo<RedeliverView>) => apiResponse.data));
     }
 
 }
@@ -934,15 +945,15 @@ export class ObservableMessagesApi {
     /**
      * Approve a pending_approval draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
      * Approve a held message
-     * @param address
+     * @param email
      * @param id
      * @param approveRequest
      * @param [idempotencyKey]
      */
-    public approveMessageWithHttpInfo(address: string, id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<ApproveResultView>> {
+    public approveMessageWithHttpInfo(email: string, id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.approveMessage(address, id, approveRequest, idempotencyKey, _config);
+        const requestContextPromise = this.requestFactory.approveMessage(email, id, approveRequest, idempotencyKey, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -962,27 +973,27 @@ export class ObservableMessagesApi {
     /**
      * Approve a pending_approval draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
      * Approve a held message
-     * @param address
+     * @param email
      * @param id
      * @param approveRequest
      * @param [idempotencyKey]
      */
-    public approveMessage(address: string, id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<ApproveResultView> {
-        return this.approveMessageWithHttpInfo(address, id, approveRequest, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<ApproveResultView>) => apiResponse.data));
+    public approveMessage(email: string, id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
+        return this.approveMessageWithHttpInfo(email, id, approveRequest, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
     }
 
     /**
      * Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.
      * Forward a message
-     * @param address
+     * @param email
      * @param id
      * @param forwardRequest
      * @param [idempotencyKey]
      */
-    public forwardMessageWithHttpInfo(address: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
+    public forwardMessageWithHttpInfo(email: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.forwardMessage(address, id, forwardRequest, idempotencyKey, _config);
+        const requestContextPromise = this.requestFactory.forwardMessage(email, id, forwardRequest, idempotencyKey, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1002,25 +1013,25 @@ export class ObservableMessagesApi {
     /**
      * Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.
      * Forward a message
-     * @param address
+     * @param email
      * @param id
      * @param forwardRequest
      * @param [idempotencyKey]
      */
-    public forwardMessage(address: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
-        return this.forwardMessageWithHttpInfo(address, id, forwardRequest, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
+    public forwardMessage(email: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
+        return this.forwardMessageWithHttpInfo(email, id, forwardRequest, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
     }
 
     /**
      * Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.
      * Get a message
-     * @param address The agent\&#39;s full email address.
+     * @param email The agent\&#39;s full email address.
      * @param id The message id, e.g. msg_abc123.
      */
-    public getMessageWithHttpInfo(address: string, id: string, _options?: ConfigurationOptions): Observable<HttpInfo<MessageView>> {
+    public getMessageWithHttpInfo(email: string, id: string, _options?: ConfigurationOptions): Observable<HttpInfo<MessageView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.getMessage(address, id, _config);
+        const requestContextPromise = this.requestFactory.getMessage(email, id, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1040,19 +1051,19 @@ export class ObservableMessagesApi {
     /**
      * Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.
      * Get a message
-     * @param address The agent\&#39;s full email address.
+     * @param email The agent\&#39;s full email address.
      * @param id The message id, e.g. msg_abc123.
      */
-    public getMessage(address: string, id: string, _options?: ConfigurationOptions): Observable<MessageView> {
-        return this.getMessageWithHttpInfo(address, id, _options).pipe(map((apiResponse: HttpInfo<MessageView>) => apiResponse.data));
+    public getMessage(email: string, id: string, _options?: ConfigurationOptions): Observable<MessageView> {
+        return this.getMessageWithHttpInfo(email, id, _options).pipe(map((apiResponse: HttpInfo<MessageView>) => apiResponse.data));
     }
 
     /**
      * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.
      * List messages
-     * @param address
+     * @param email
      * @param [direction] Defaults to inbound.
-     * @param [status] Inbound only. Defaults to unread for inbound, all otherwise.
+     * @param [readStatus] Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.
      * @param [sort] Defaults to desc (newest first).
      * @param [_from] Case-insensitive substring match on sender.
      * @param [subjectContains] Case-insensitive substring match on subject.
@@ -1063,10 +1074,10 @@ export class ObservableMessagesApi {
      * @param [cursor]
      * @param [limit]
      */
-    public listMessagesWithHttpInfo(address: string, direction?: 'inbound' | 'outbound' | 'all', status?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', _from?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageMessageSummaryView>> {
+    public listMessagesWithHttpInfo(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', _from?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageMessageSummaryView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.listMessages(address, direction, status, sort, _from, subjectContains, conversationId, labels, since, until, cursor, limit, _config);
+        const requestContextPromise = this.requestFactory.listMessages(email, direction, readStatus, sort, _from, subjectContains, conversationId, labels, since, until, cursor, limit, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1086,9 +1097,9 @@ export class ObservableMessagesApi {
     /**
      * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.
      * List messages
-     * @param address
+     * @param email
      * @param [direction] Defaults to inbound.
-     * @param [status] Inbound only. Defaults to unread for inbound, all otherwise.
+     * @param [readStatus] Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.
      * @param [sort] Defaults to desc (newest first).
      * @param [_from] Case-insensitive substring match on sender.
      * @param [subjectContains] Case-insensitive substring match on subject.
@@ -1099,21 +1110,21 @@ export class ObservableMessagesApi {
      * @param [cursor]
      * @param [limit]
      */
-    public listMessages(address: string, direction?: 'inbound' | 'outbound' | 'all', status?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', _from?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageMessageSummaryView> {
-        return this.listMessagesWithHttpInfo(address, direction, status, sort, _from, subjectContains, conversationId, labels, since, until, cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageMessageSummaryView>) => apiResponse.data));
+    public listMessages(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', _from?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageMessageSummaryView> {
+        return this.listMessagesWithHttpInfo(email, direction, readStatus, sort, _from, subjectContains, conversationId, labels, since, until, cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageMessageSummaryView>) => apiResponse.data));
     }
 
     /**
      * Reject a pending_approval draft so it is never sent.
      * Reject a held message
-     * @param address
+     * @param email
      * @param id
-     * @param rejectInputBody
+     * @param rejectRequest
      */
-    public rejectMessageWithHttpInfo(address: string, id: string, rejectInputBody: RejectInputBody, _options?: ConfigurationOptions): Observable<HttpInfo<RejectResultView>> {
+    public rejectMessageWithHttpInfo(email: string, id: string, rejectRequest: RejectRequest, _options?: ConfigurationOptions): Observable<HttpInfo<RejectResultView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.rejectMessage(address, id, rejectInputBody, _config);
+        const requestContextPromise = this.requestFactory.rejectMessage(email, id, rejectRequest, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1133,26 +1144,26 @@ export class ObservableMessagesApi {
     /**
      * Reject a pending_approval draft so it is never sent.
      * Reject a held message
-     * @param address
+     * @param email
      * @param id
-     * @param rejectInputBody
+     * @param rejectRequest
      */
-    public rejectMessage(address: string, id: string, rejectInputBody: RejectInputBody, _options?: ConfigurationOptions): Observable<RejectResultView> {
-        return this.rejectMessageWithHttpInfo(address, id, rejectInputBody, _options).pipe(map((apiResponse: HttpInfo<RejectResultView>) => apiResponse.data));
+    public rejectMessage(email: string, id: string, rejectRequest: RejectRequest, _options?: ConfigurationOptions): Observable<RejectResultView> {
+        return this.rejectMessageWithHttpInfo(email, id, rejectRequest, _options).pipe(map((apiResponse: HttpInfo<RejectResultView>) => apiResponse.data));
     }
 
     /**
      * Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.
      * Reply to a message
-     * @param address
+     * @param email
      * @param id
      * @param replyRequest
      * @param [idempotencyKey]
      */
-    public replyToMessageWithHttpInfo(address: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
+    public replyToMessageWithHttpInfo(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.replyToMessage(address, id, replyRequest, idempotencyKey, _config);
+        const requestContextPromise = this.requestFactory.replyToMessage(email, id, replyRequest, idempotencyKey, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1172,26 +1183,26 @@ export class ObservableMessagesApi {
     /**
      * Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.
      * Reply to a message
-     * @param address
+     * @param email
      * @param id
      * @param replyRequest
      * @param [idempotencyKey]
      */
-    public replyToMessage(address: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
-        return this.replyToMessageWithHttpInfo(address, id, replyRequest, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
+    public replyToMessage(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
+        return this.replyToMessageWithHttpInfo(email, id, replyRequest, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
     }
 
     /**
      * Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.
      * Send a new email
-     * @param address
+     * @param email
      * @param sendEmailRequest
      * @param [idempotencyKey]
      */
-    public sendMessageWithHttpInfo(address: string, sendEmailRequest: SendEmailRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
+    public sendMessageWithHttpInfo(email: string, sendEmailRequest: SendEmailRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.sendMessage(address, sendEmailRequest, idempotencyKey, _config);
+        const requestContextPromise = this.requestFactory.sendMessage(email, sendEmailRequest, idempotencyKey, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1211,25 +1222,25 @@ export class ObservableMessagesApi {
     /**
      * Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.
      * Send a new email
-     * @param address
+     * @param email
      * @param sendEmailRequest
      * @param [idempotencyKey]
      */
-    public sendMessage(address: string, sendEmailRequest: SendEmailRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
-        return this.sendMessageWithHttpInfo(address, sendEmailRequest, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
+    public sendMessage(email: string, sendEmailRequest: SendEmailRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
+        return this.sendMessageWithHttpInfo(email, sendEmailRequest, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
     }
 
     /**
      * Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.
      * Update a message (labels)
-     * @param address
+     * @param email
      * @param id
      * @param updateMessageRequest
      */
-    public updateMessageWithHttpInfo(address: string, id: string, updateMessageRequest: UpdateMessageRequest, _options?: ConfigurationOptions): Observable<HttpInfo<UpdateMessageResultView>> {
+    public updateMessageWithHttpInfo(email: string, id: string, updateMessageRequest: UpdateMessageRequest, _options?: ConfigurationOptions): Observable<HttpInfo<UpdateMessageResultView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.updateMessage(address, id, updateMessageRequest, _config);
+        const requestContextPromise = this.requestFactory.updateMessage(email, id, updateMessageRequest, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1249,12 +1260,12 @@ export class ObservableMessagesApi {
     /**
      * Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.
      * Update a message (labels)
-     * @param address
+     * @param email
      * @param id
      * @param updateMessageRequest
      */
-    public updateMessage(address: string, id: string, updateMessageRequest: UpdateMessageRequest, _options?: ConfigurationOptions): Observable<UpdateMessageResultView> {
-        return this.updateMessageWithHttpInfo(address, id, updateMessageRequest, _options).pipe(map((apiResponse: HttpInfo<UpdateMessageResultView>) => apiResponse.data));
+    public updateMessage(email: string, id: string, updateMessageRequest: UpdateMessageRequest, _options?: ConfigurationOptions): Observable<UpdateMessageResultView> {
+        return this.updateMessageWithHttpInfo(email, id, updateMessageRequest, _options).pipe(map((apiResponse: HttpInfo<UpdateMessageResultView>) => apiResponse.data));
     }
 
 }
@@ -1329,7 +1340,7 @@ export class ObservableWebhooksApi {
      * Create a webhook
      * @param createWebhookRequest
      */
-    public createWebhookWithHttpInfo(createWebhookRequest: CreateWebhookRequest, _options?: ConfigurationOptions): Observable<HttpInfo<WebhookView>> {
+    public createWebhookWithHttpInfo(createWebhookRequest: CreateWebhookRequest, _options?: ConfigurationOptions): Observable<HttpInfo<CreateWebhookResponse>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.createWebhook(createWebhookRequest, _config);
@@ -1353,8 +1364,8 @@ export class ObservableWebhooksApi {
      * Create a webhook
      * @param createWebhookRequest
      */
-    public createWebhook(createWebhookRequest: CreateWebhookRequest, _options?: ConfigurationOptions): Observable<WebhookView> {
-        return this.createWebhookWithHttpInfo(createWebhookRequest, _options).pipe(map((apiResponse: HttpInfo<WebhookView>) => apiResponse.data));
+    public createWebhook(createWebhookRequest: CreateWebhookRequest, _options?: ConfigurationOptions): Observable<CreateWebhookResponse> {
+        return this.createWebhookWithHttpInfo(createWebhookRequest, _options).pipe(map((apiResponse: HttpInfo<CreateWebhookResponse>) => apiResponse.data));
     }
 
     /**
@@ -1495,7 +1506,7 @@ export class ObservableWebhooksApi {
      * @param id
      * @param [idempotencyKey]
      */
-    public rotateWebhookSecretWithHttpInfo(id: string, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<RotateSecretBody>> {
+    public rotateWebhookSecretWithHttpInfo(id: string, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<RotateSecretResponse>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.rotateWebhookSecret(id, idempotencyKey, _config);
@@ -1521,8 +1532,8 @@ export class ObservableWebhooksApi {
      * @param id
      * @param [idempotencyKey]
      */
-    public rotateWebhookSecret(id: string, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<RotateSecretBody> {
-        return this.rotateWebhookSecretWithHttpInfo(id, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<RotateSecretBody>) => apiResponse.data));
+    public rotateWebhookSecret(id: string, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<RotateSecretResponse> {
+        return this.rotateWebhookSecretWithHttpInfo(id, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<RotateSecretResponse>) => apiResponse.data));
     }
 
     /**
@@ -1531,7 +1542,7 @@ export class ObservableWebhooksApi {
      * @param id
      * @param testWebhookRequest
      */
-    public testWebhookWithHttpInfo(id: string, testWebhookRequest: TestWebhookRequest, _options?: ConfigurationOptions): Observable<HttpInfo<TestWebhookOutputBody>> {
+    public testWebhookWithHttpInfo(id: string, testWebhookRequest: TestWebhookRequest, _options?: ConfigurationOptions): Observable<HttpInfo<TestWebhookResponse>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.testWebhook(id, testWebhookRequest, _config);
@@ -1557,8 +1568,8 @@ export class ObservableWebhooksApi {
      * @param id
      * @param testWebhookRequest
      */
-    public testWebhook(id: string, testWebhookRequest: TestWebhookRequest, _options?: ConfigurationOptions): Observable<TestWebhookOutputBody> {
-        return this.testWebhookWithHttpInfo(id, testWebhookRequest, _options).pipe(map((apiResponse: HttpInfo<TestWebhookOutputBody>) => apiResponse.data));
+    public testWebhook(id: string, testWebhookRequest: TestWebhookRequest, _options?: ConfigurationOptions): Observable<TestWebhookResponse> {
+        return this.testWebhookWithHttpInfo(id, testWebhookRequest, _options).pipe(map((apiResponse: HttpInfo<TestWebhookResponse>) => apiResponse.data));
     }
 
     /**

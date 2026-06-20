@@ -13,9 +13,9 @@
 import { HttpFile } from '../http/http.js';
 
 export class WebhookFiltersView {
-    'agentIds'?: Array<string> | null;
-    'conversationIds'?: Array<string> | null;
-    'labels'?: Array<string> | null;
+    'agentIds'?: Array<string>;
+    'conversationIds'?: Array<string>;
+    'labels'?: Array<string>;
 
     static readonly discriminator: string | undefined = undefined;
 

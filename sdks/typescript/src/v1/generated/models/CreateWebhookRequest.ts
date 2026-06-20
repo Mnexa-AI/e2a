@@ -15,9 +15,9 @@ import { HttpFile } from '../http/http.js';
 
 export class CreateWebhookRequest {
     'description'?: string;
-    'events'?: Array<string>;
+    'events': Array<CreateWebhookRequestEventsEnum>;
     'filters'?: WebhookFiltersView;
-    'url'?: string;
+    'url': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -33,7 +33,7 @@ export class CreateWebhookRequest {
         {
             "name": "events",
             "baseName": "events",
-            "type": "Array<string>",
+            "type": "Array<CreateWebhookRequestEventsEnum>",
             "format": ""
         },
         {
@@ -56,3 +56,19 @@ export class CreateWebhookRequest {
     public constructor() {
     }
 }
+
+export enum CreateWebhookRequestEventsEnum {
+    EmailReceived = 'email.received',
+    EmailSent = 'email.sent',
+    EmailPendingApproval = 'email.pending_approval',
+    EmailApprovalAccepted = 'email.approval_accepted',
+    EmailApprovalRejected = 'email.approval_rejected',
+    DomainSendingVerified = 'domain.sending_verified',
+    DomainSendingFailed = 'domain.sending_failed',
+    EmailDelivered = 'email.delivered',
+    EmailBounced = 'email.bounced',
+    EmailComplained = 'email.complained',
+    DomainSuppressionAdded = 'domain.suppression_added',
+    EmailFlagged = 'email.flagged'
+}
+

@@ -12,8 +12,8 @@
 
 import { HttpFile } from '../http/http.js';
 
-export class RejectInputBody {
-    'reason'?: string;
+export class RedeliverEventRequest {
+    'webhookId'?: string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -21,14 +21,14 @@ export class RejectInputBody {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "reason",
-            "baseName": "reason",
+            "name": "webhookId",
+            "baseName": "webhook_id",
             "type": "string",
             "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return RejectInputBody.attributeTypeMap;
+        return RedeliverEventRequest.attributeTypeMap;
     }
 
     public constructor() {

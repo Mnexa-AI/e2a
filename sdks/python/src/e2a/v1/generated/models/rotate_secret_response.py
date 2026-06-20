@@ -17,17 +17,19 @@ import pprint
 import re  # noqa: F401
 import json
 
+from datetime import datetime
 from pydantic import BaseModel, ConfigDict, StrictStr
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List
 from typing import Optional, Set
 from typing_extensions import Self
 
-class RedeliverEventInputBody(BaseModel):
+class RotateSecretResponse(BaseModel):
     """
-    RedeliverEventInputBody
+    RotateSecretResponse
     """ # noqa: E501
-    webhook_id: Optional[StrictStr] = None
-    __properties: ClassVar[List[str]] = ["webhook_id"]
+    previous_secret_expires_at: datetime
+    signing_secret: StrictStr
+    __properties: ClassVar[List[str]] = ["previous_secret_expires_at", "signing_secret"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -47,7 +49,7 @@ class RedeliverEventInputBody(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of RedeliverEventInputBody from a JSON string"""
+        """Create an instance of RotateSecretResponse from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -72,7 +74,7 @@ class RedeliverEventInputBody(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of RedeliverEventInputBody from a dict"""
+        """Create an instance of RotateSecretResponse from a dict"""
         if obj is None:
             return None
 
@@ -80,7 +82,8 @@ class RedeliverEventInputBody(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "webhook_id": obj.get("webhook_id")
+            "previous_secret_expires_at": obj.get("previous_secret_expires_at"),
+            "signing_secret": obj.get("signing_secret")
         })
         return _obj
 

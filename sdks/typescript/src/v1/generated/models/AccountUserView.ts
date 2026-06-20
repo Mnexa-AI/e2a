@@ -12,12 +12,9 @@
 
 import { HttpFile } from '../http/http.js';
 
-export class ApproveResultView {
-    'edited': boolean;
-    'messageId': string;
-    'method'?: string;
-    'providerMessageId'?: string;
-    'status': string;
+export class AccountUserView {
+    'email': string;
+    'id': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -25,38 +22,20 @@ export class ApproveResultView {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "edited",
-            "baseName": "edited",
-            "type": "boolean",
-            "format": ""
-        },
-        {
-            "name": "messageId",
-            "baseName": "message_id",
+            "name": "email",
+            "baseName": "email",
             "type": "string",
             "format": ""
         },
         {
-            "name": "method",
-            "baseName": "method",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "providerMessageId",
-            "baseName": "provider_message_id",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "status",
-            "baseName": "status",
+            "name": "id",
+            "baseName": "id",
             "type": "string",
             "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return ApproveResultView.attributeTypeMap;
+        return AccountUserView.attributeTypeMap;
     }
 
     public constructor() {

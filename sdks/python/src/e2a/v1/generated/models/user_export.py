@@ -34,11 +34,11 @@ class UserExport(BaseModel):
     """
     UserExport
     """ # noqa: E501
-    agents: Optional[List[AgentIdentity]]
-    api_keys: Optional[List[APIKeyExportEntry]]
-    domains: Optional[List[Domain]]
+    agents: List[AgentIdentity]
+    api_keys: List[APIKeyExportEntry]
+    domains: List[Domain]
     generated_at: datetime
-    messages: Optional[List[Message]]
+    messages: List[Message]
     oauth_connections: Optional[List[OAuthConnectionEntry]] = None
     schema_version: StrictStr
     usage_events: Optional[List[UsageEventEntry]] = None
@@ -129,36 +129,6 @@ class UserExport(BaseModel):
         # override the default output from pydantic by calling `to_dict()` of user
         if self.user:
             _dict['user'] = self.user.to_dict()
-        # set to None if agents (nullable) is None
-        # and model_fields_set contains the field
-        if self.agents is None and "agents" in self.model_fields_set:
-            _dict['agents'] = None
-
-        # set to None if api_keys (nullable) is None
-        # and model_fields_set contains the field
-        if self.api_keys is None and "api_keys" in self.model_fields_set:
-            _dict['api_keys'] = None
-
-        # set to None if domains (nullable) is None
-        # and model_fields_set contains the field
-        if self.domains is None and "domains" in self.model_fields_set:
-            _dict['domains'] = None
-
-        # set to None if messages (nullable) is None
-        # and model_fields_set contains the field
-        if self.messages is None and "messages" in self.model_fields_set:
-            _dict['messages'] = None
-
-        # set to None if oauth_connections (nullable) is None
-        # and model_fields_set contains the field
-        if self.oauth_connections is None and "oauth_connections" in self.model_fields_set:
-            _dict['oauth_connections'] = None
-
-        # set to None if usage_events (nullable) is None
-        # and model_fields_set contains the field
-        if self.usage_events is None and "usage_events" in self.model_fields_set:
-            _dict['usage_events'] = None
-
         return _dict
 
     @classmethod

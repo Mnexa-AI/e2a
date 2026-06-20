@@ -13,9 +13,8 @@
 import { HttpFile } from '../http/http.js';
 
 export class CreateAgentRequest {
-    'email'?: string;
+    'email': string;
     'name'?: string;
-    'slug'?: string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -31,12 +30,6 @@ export class CreateAgentRequest {
         {
             "name": "name",
             "baseName": "name",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "slug",
-            "baseName": "slug",
             "type": "string",
             "format": ""
         }    ];

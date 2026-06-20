@@ -14,10 +14,10 @@ import { HttpFile } from '../http/http.js';
 
 export class ConversationSummaryView {
     'conversationId': string;
-    'firstMessageAt': string;
+    'firstMessageAt': Date;
     'hasUnread': boolean;
     'inboundCount': number;
-    'lastMessageAt': string;
+    'lastMessageAt': Date;
     'latestSender': string;
     'latestSubject': string;
     'messageCount': number;
@@ -37,8 +37,8 @@ export class ConversationSummaryView {
         {
             "name": "firstMessageAt",
             "baseName": "first_message_at",
-            "type": "string",
-            "format": ""
+            "type": "Date",
+            "format": "date-time"
         },
         {
             "name": "hasUnread",
@@ -55,8 +55,8 @@ export class ConversationSummaryView {
         {
             "name": "lastMessageAt",
             "baseName": "last_message_at",
-            "type": "string",
-            "format": ""
+            "type": "Date",
+            "format": "date-time"
         },
         {
             "name": "latestSender",

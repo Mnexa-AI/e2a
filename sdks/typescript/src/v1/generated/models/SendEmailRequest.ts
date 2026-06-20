@@ -14,14 +14,14 @@ import { Attachment } from '../models/Attachment.js';
 import { HttpFile } from '../http/http.js';
 
 export class SendEmailRequest {
-    'attachments'?: Array<Attachment> | null;
+    'attachments'?: Array<Attachment>;
     'bcc'?: Array<string>;
-    'body'?: string;
+    'body': string;
     'cc'?: Array<string>;
     'conversationId'?: string;
     'htmlBody'?: string;
-    'subject'?: string;
-    'to'?: Array<string>;
+    'subject': string;
+    'to': Array<string>;
 
     static readonly discriminator: string | undefined = undefined;
 

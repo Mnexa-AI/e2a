@@ -21,7 +21,7 @@ from typing import Optional
 from typing_extensions import Annotated
 from e2a.v1.generated.models.event_json import EventJSON
 from e2a.v1.generated.models.page_event_json import PageEventJSON
-from e2a.v1.generated.models.redeliver_event_input_body import RedeliverEventInputBody
+from e2a.v1.generated.models.redeliver_event_request import RedeliverEventRequest
 from e2a.v1.generated.models.redeliver_view import RedeliverView
 
 from e2a.v1.generated.api_client import ApiClient, RequestSerialized
@@ -686,7 +686,7 @@ class EventsApi:
     async def redeliver_event(
         self,
         id: StrictStr,
-        redeliver_event_input_body: RedeliverEventInputBody,
+        redeliver_event_request: RedeliverEventRequest,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -706,8 +706,8 @@ class EventsApi:
 
         :param id: (required)
         :type id: str
-        :param redeliver_event_input_body: (required)
-        :type redeliver_event_input_body: RedeliverEventInputBody
+        :param redeliver_event_request: (required)
+        :type redeliver_event_request: RedeliverEventRequest
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -732,7 +732,7 @@ class EventsApi:
 
         _param = self._redeliver_event_serialize(
             id=id,
-            redeliver_event_input_body=redeliver_event_input_body,
+            redeliver_event_request=redeliver_event_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -757,7 +757,7 @@ class EventsApi:
     async def redeliver_event_with_http_info(
         self,
         id: StrictStr,
-        redeliver_event_input_body: RedeliverEventInputBody,
+        redeliver_event_request: RedeliverEventRequest,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -777,8 +777,8 @@ class EventsApi:
 
         :param id: (required)
         :type id: str
-        :param redeliver_event_input_body: (required)
-        :type redeliver_event_input_body: RedeliverEventInputBody
+        :param redeliver_event_request: (required)
+        :type redeliver_event_request: RedeliverEventRequest
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -803,7 +803,7 @@ class EventsApi:
 
         _param = self._redeliver_event_serialize(
             id=id,
-            redeliver_event_input_body=redeliver_event_input_body,
+            redeliver_event_request=redeliver_event_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -828,7 +828,7 @@ class EventsApi:
     async def redeliver_event_without_preload_content(
         self,
         id: StrictStr,
-        redeliver_event_input_body: RedeliverEventInputBody,
+        redeliver_event_request: RedeliverEventRequest,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -848,8 +848,8 @@ class EventsApi:
 
         :param id: (required)
         :type id: str
-        :param redeliver_event_input_body: (required)
-        :type redeliver_event_input_body: RedeliverEventInputBody
+        :param redeliver_event_request: (required)
+        :type redeliver_event_request: RedeliverEventRequest
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -874,7 +874,7 @@ class EventsApi:
 
         _param = self._redeliver_event_serialize(
             id=id,
-            redeliver_event_input_body=redeliver_event_input_body,
+            redeliver_event_request=redeliver_event_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -894,7 +894,7 @@ class EventsApi:
     def _redeliver_event_serialize(
         self,
         id,
-        redeliver_event_input_body,
+        redeliver_event_request,
         _request_auth,
         _content_type,
         _headers,
@@ -922,8 +922,8 @@ class EventsApi:
         # process the header parameters
         # process the form parameters
         # process the body parameter
-        if redeliver_event_input_body is not None:
-            _body_params = redeliver_event_input_body
+        if redeliver_event_request is not None:
+            _body_params = redeliver_event_request
 
 
         # set the HTTP header `Accept`

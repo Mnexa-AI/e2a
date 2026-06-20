@@ -3,17 +3,19 @@ import { Configuration, ConfigurationOptions } from '../configuration.js'
 import type { Middleware } from '../middleware.js';
 
 import { APIKeyExportEntry } from '../models/APIKeyExportEntry.js';
+import { AccountUserView } from '../models/AccountUserView.js';
+import { AccountView } from '../models/AccountView.js';
 import { AgentIdentity } from '../models/AgentIdentity.js';
 import { AgentView } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
-import { ApproveResultView } from '../models/ApproveResultView.js';
 import { Attachment } from '../models/Attachment.js';
+import { AuthVerdict } from '../models/AuthVerdict.js';
 import { CheckResult } from '../models/CheckResult.js';
 import { ConversationDetailView } from '../models/ConversationDetailView.js';
 import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
-import { CreateAgentResponse } from '../models/CreateAgentResponse.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
+import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
 import { DNSRecordView } from '../models/DNSRecordView.js';
 import { DNSRecordsView } from '../models/DNSRecordsView.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
@@ -27,7 +29,6 @@ import { EventJSON } from '../models/EventJSON.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
 import { LimitsCapsView } from '../models/LimitsCapsView.js';
 import { LimitsUsageView } from '../models/LimitsUsageView.js';
-import { LimitsView } from '../models/LimitsView.js';
 import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
@@ -43,20 +44,20 @@ import { PageSuppression } from '../models/PageSuppression.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
 import { RedeliverDelivery } from '../models/RedeliverDelivery.js';
-import { RedeliverEventInputBody } from '../models/RedeliverEventInputBody.js';
+import { RedeliverEventRequest } from '../models/RedeliverEventRequest.js';
 import { RedeliverView } from '../models/RedeliverView.js';
 import { RegisterDomainRequest } from '../models/RegisterDomainRequest.js';
-import { RejectInputBody } from '../models/RejectInputBody.js';
+import { RejectRequest } from '../models/RejectRequest.js';
 import { RejectResultView } from '../models/RejectResultView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
-import { RotateSecretBody } from '../models/RotateSecretBody.js';
+import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
 import { SendingDNSRecordView } from '../models/SendingDNSRecordView.js';
 import { Suppression } from '../models/Suppression.js';
-import { TestWebhookOutputBody } from '../models/TestWebhookOutputBody.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
+import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 import { UpdateDomainRequest } from '../models/UpdateDomainRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
@@ -100,6 +101,22 @@ export interface AccountApiGetAccountRequest {
 }
 
 export interface AccountApiListSuppressionsRequest {
+    /**
+     * Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AccountApilistSuppressions
+     */
+    cursor?: string
+    /**
+     * Maximum number of items to return (1-100).
+     * Minimum: 1
+     * Maximum: 100
+     * Defaults to: 50
+     * @type number
+     * @memberof AccountApilistSuppressions
+     */
+    limit?: number
 }
 
 export class ObjectAccountApi {
@@ -164,20 +181,20 @@ export class ObjectAccountApi {
     }
 
     /**
-     * The authenticated account\'s plan caps and current usage. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
-     * Get account: plan limits + usage
+     * The authenticated principal\'s identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+     * Get account: identity + plan limits + usage (whoami)
      * @param param the request object
      */
-    public getAccountWithHttpInfo(param: AccountApiGetAccountRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<LimitsView>> {
+    public getAccountWithHttpInfo(param: AccountApiGetAccountRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<AccountView>> {
         return this.api.getAccountWithHttpInfo( options).toPromise();
     }
 
     /**
-     * The authenticated account\'s plan caps and current usage. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
-     * Get account: plan limits + usage
+     * The authenticated principal\'s identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+     * Get account: identity + plan limits + usage (whoami)
      * @param param the request object
      */
-    public getAccount(param: AccountApiGetAccountRequest = {}, options?: ConfigurationOptions): Promise<LimitsView> {
+    public getAccount(param: AccountApiGetAccountRequest = {}, options?: ConfigurationOptions): Promise<AccountView> {
         return this.api.getAccount( options).toPromise();
     }
 
@@ -187,7 +204,7 @@ export class ObjectAccountApi {
      * @param param the request object
      */
     public listSuppressionsWithHttpInfo(param: AccountApiListSuppressionsRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<PageSuppression>> {
-        return this.api.listSuppressionsWithHttpInfo( options).toPromise();
+        return this.api.listSuppressionsWithHttpInfo(param.cursor, param.limit,  options).toPromise();
     }
 
     /**
@@ -196,7 +213,7 @@ export class ObjectAccountApi {
      * @param param the request object
      */
     public listSuppressions(param: AccountApiListSuppressionsRequest = {}, options?: ConfigurationOptions): Promise<PageSuppression> {
-        return this.api.listSuppressions( options).toPromise();
+        return this.api.listSuppressions(param.cursor, param.limit,  options).toPromise();
     }
 
 }
@@ -215,12 +232,19 @@ export interface AgentsApiCreateAgentRequest {
 
 export interface AgentsApiDeleteAgentRequest {
     /**
-     * The agent\&#39;s full email address, e.g. support@acme.com.
+     * 
      * Defaults to: undefined
      * @type string
      * @memberof AgentsApideleteAgent
      */
-    address: string
+    email: string
+    /**
+     * Must be DELETE — this is irreversible.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AgentsApideleteAgent
+     */
+    confirm?: string
 }
 
 export interface AgentsApiGetAgentRequest {
@@ -230,7 +254,7 @@ export interface AgentsApiGetAgentRequest {
      * @type string
      * @memberof AgentsApigetAgent
      */
-    address: string
+    email: string
 }
 
 export interface AgentsApiListAgentsRequest {
@@ -243,7 +267,7 @@ export interface AgentsApiTestAgentRequest {
      * @type string
      * @memberof AgentsApitestAgent
      */
-    address: string
+    email: string
 }
 
 export interface AgentsApiUpdateAgentRequest {
@@ -253,7 +277,7 @@ export interface AgentsApiUpdateAgentRequest {
      * @type string
      * @memberof AgentsApiupdateAgent
      */
-    address: string
+    email: string
     /**
      * 
      * @type UpdateAgentRequest
@@ -270,20 +294,20 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * Register an agent on a verified domain the caller owns (or, when slug registration is enabled, on the shared domain).
+     * Register an agent by full email. A custom-domain agent\'s domain must be a verified domain the caller owns; an email on the deployment\'s shared domain (e.g. xyz@agents.e2a.dev) is registered as a shared-domain agent. Returns the full agent.
      * Create an agent
      * @param param the request object
      */
-    public createAgentWithHttpInfo(param: AgentsApiCreateAgentRequest, options?: ConfigurationOptions): Promise<HttpInfo<CreateAgentResponse>> {
+    public createAgentWithHttpInfo(param: AgentsApiCreateAgentRequest, options?: ConfigurationOptions): Promise<HttpInfo<AgentView>> {
         return this.api.createAgentWithHttpInfo(param.createAgentRequest,  options).toPromise();
     }
 
     /**
-     * Register an agent on a verified domain the caller owns (or, when slug registration is enabled, on the shared domain).
+     * Register an agent by full email. A custom-domain agent\'s domain must be a verified domain the caller owns; an email on the deployment\'s shared domain (e.g. xyz@agents.e2a.dev) is registered as a shared-domain agent. Returns the full agent.
      * Create an agent
      * @param param the request object
      */
-    public createAgent(param: AgentsApiCreateAgentRequest, options?: ConfigurationOptions): Promise<CreateAgentResponse> {
+    public createAgent(param: AgentsApiCreateAgentRequest, options?: ConfigurationOptions): Promise<AgentView> {
         return this.api.createAgent(param.createAgentRequest,  options).toPromise();
     }
 
@@ -293,7 +317,7 @@ export class ObjectAgentsApi {
      * @param param the request object
      */
     public deleteAgentWithHttpInfo(param: AgentsApiDeleteAgentRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
-        return this.api.deleteAgentWithHttpInfo(param.address,  options).toPromise();
+        return this.api.deleteAgentWithHttpInfo(param.email, param.confirm,  options).toPromise();
     }
 
     /**
@@ -302,7 +326,7 @@ export class ObjectAgentsApi {
      * @param param the request object
      */
     public deleteAgent(param: AgentsApiDeleteAgentRequest, options?: ConfigurationOptions): Promise<void> {
-        return this.api.deleteAgent(param.address,  options).toPromise();
+        return this.api.deleteAgent(param.email, param.confirm,  options).toPromise();
     }
 
     /**
@@ -311,7 +335,7 @@ export class ObjectAgentsApi {
      * @param param the request object
      */
     public getAgentWithHttpInfo(param: AgentsApiGetAgentRequest, options?: ConfigurationOptions): Promise<HttpInfo<AgentView>> {
-        return this.api.getAgentWithHttpInfo(param.address,  options).toPromise();
+        return this.api.getAgentWithHttpInfo(param.email,  options).toPromise();
     }
 
     /**
@@ -320,7 +344,7 @@ export class ObjectAgentsApi {
      * @param param the request object
      */
     public getAgent(param: AgentsApiGetAgentRequest, options?: ConfigurationOptions): Promise<AgentView> {
-        return this.api.getAgent(param.address,  options).toPromise();
+        return this.api.getAgent(param.email,  options).toPromise();
     }
 
     /**
@@ -347,7 +371,7 @@ export class ObjectAgentsApi {
      * @param param the request object
      */
     public testAgentWithHttpInfo(param: AgentsApiTestAgentRequest, options?: ConfigurationOptions): Promise<HttpInfo<SendResultView>> {
-        return this.api.testAgentWithHttpInfo(param.address,  options).toPromise();
+        return this.api.testAgentWithHttpInfo(param.email,  options).toPromise();
     }
 
     /**
@@ -356,7 +380,7 @@ export class ObjectAgentsApi {
      * @param param the request object
      */
     public testAgent(param: AgentsApiTestAgentRequest, options?: ConfigurationOptions): Promise<SendResultView> {
-        return this.api.testAgent(param.address,  options).toPromise();
+        return this.api.testAgent(param.email,  options).toPromise();
     }
 
     /**
@@ -365,7 +389,7 @@ export class ObjectAgentsApi {
      * @param param the request object
      */
     public updateAgentWithHttpInfo(param: AgentsApiUpdateAgentRequest, options?: ConfigurationOptions): Promise<HttpInfo<AgentView>> {
-        return this.api.updateAgentWithHttpInfo(param.address, param.updateAgentRequest,  options).toPromise();
+        return this.api.updateAgentWithHttpInfo(param.email, param.updateAgentRequest,  options).toPromise();
     }
 
     /**
@@ -374,7 +398,7 @@ export class ObjectAgentsApi {
      * @param param the request object
      */
     public updateAgent(param: AgentsApiUpdateAgentRequest, options?: ConfigurationOptions): Promise<AgentView> {
-        return this.api.updateAgent(param.address, param.updateAgentRequest,  options).toPromise();
+        return this.api.updateAgent(param.email, param.updateAgentRequest,  options).toPromise();
     }
 
 }
@@ -389,7 +413,7 @@ export interface ConversationsApiGetConversationRequest {
      * @type string
      * @memberof ConversationsApigetConversation
      */
-    address: string
+    email: string
     /**
      * 
      * Defaults to: undefined
@@ -406,7 +430,7 @@ export interface ConversationsApiListConversationsRequest {
      * @type string
      * @memberof ConversationsApilistConversations
      */
-    address: string
+    email: string
     /**
      * RFC3339.
      * Defaults to: undefined
@@ -422,9 +446,16 @@ export interface ConversationsApiListConversationsRequest {
      */
     until?: string
     /**
+     * Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change since/until.
+     * Defaults to: undefined
+     * @type string
+     * @memberof ConversationsApilistConversations
+     */
+    cursor?: string
+    /**
      * 
      * Minimum: 1
-     * Maximum: 200
+     * Maximum: 100
      * Defaults to: 100
      * @type number
      * @memberof ConversationsApilistConversations
@@ -445,7 +476,7 @@ export class ObjectConversationsApi {
      * @param param the request object
      */
     public getConversationWithHttpInfo(param: ConversationsApiGetConversationRequest, options?: ConfigurationOptions): Promise<HttpInfo<ConversationDetailView>> {
-        return this.api.getConversationWithHttpInfo(param.address, param.id,  options).toPromise();
+        return this.api.getConversationWithHttpInfo(param.email, param.id,  options).toPromise();
     }
 
     /**
@@ -454,7 +485,7 @@ export class ObjectConversationsApi {
      * @param param the request object
      */
     public getConversation(param: ConversationsApiGetConversationRequest, options?: ConfigurationOptions): Promise<ConversationDetailView> {
-        return this.api.getConversation(param.address, param.id,  options).toPromise();
+        return this.api.getConversation(param.email, param.id,  options).toPromise();
     }
 
     /**
@@ -463,7 +494,7 @@ export class ObjectConversationsApi {
      * @param param the request object
      */
     public listConversationsWithHttpInfo(param: ConversationsApiListConversationsRequest, options?: ConfigurationOptions): Promise<HttpInfo<PageConversationSummaryView>> {
-        return this.api.listConversationsWithHttpInfo(param.address, param.since, param.until, param.limit,  options).toPromise();
+        return this.api.listConversationsWithHttpInfo(param.email, param.since, param.until, param.cursor, param.limit,  options).toPromise();
     }
 
     /**
@@ -472,7 +503,7 @@ export class ObjectConversationsApi {
      * @param param the request object
      */
     public listConversations(param: ConversationsApiListConversationsRequest, options?: ConfigurationOptions): Promise<PageConversationSummaryView> {
-        return this.api.listConversations(param.address, param.since, param.until, param.limit,  options).toPromise();
+        return this.api.listConversations(param.email, param.since, param.until, param.cursor, param.limit,  options).toPromise();
     }
 
 }
@@ -488,6 +519,13 @@ export interface DomainsApiDeleteDomainRequest {
      * @memberof DomainsApideleteDomain
      */
     domain: string
+    /**
+     * Must be DELETE — this is irreversible (deprovisions the domain\&#39;s sending identity).
+     * Defaults to: undefined
+     * @type string
+     * @memberof DomainsApideleteDomain
+     */
+    confirm?: string
 }
 
 export interface DomainsApiGetDomainRequest {
@@ -550,7 +588,7 @@ export class ObjectDomainsApi {
      * @param param the request object
      */
     public deleteDomainWithHttpInfo(param: DomainsApiDeleteDomainRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
-        return this.api.deleteDomainWithHttpInfo(param.domain,  options).toPromise();
+        return this.api.deleteDomainWithHttpInfo(param.domain, param.confirm,  options).toPromise();
     }
 
     /**
@@ -558,7 +596,7 @@ export class ObjectDomainsApi {
      * @param param the request object
      */
     public deleteDomain(param: DomainsApiDeleteDomainRequest, options?: ConfigurationOptions): Promise<void> {
-        return this.api.deleteDomain(param.domain,  options).toPromise();
+        return this.api.deleteDomain(param.domain, param.confirm,  options).toPromise();
     }
 
     /**
@@ -729,10 +767,10 @@ export interface EventsApiRedeliverEventRequest {
     id: string
     /**
      * 
-     * @type RedeliverEventInputBody
+     * @type RedeliverEventRequest
      * @memberof EventsApiredeliverEvent
      */
-    redeliverEventInputBody: RedeliverEventInputBody
+    redeliverEventRequest: RedeliverEventRequest
 }
 
 export class ObjectEventsApi {
@@ -782,7 +820,7 @@ export class ObjectEventsApi {
      * @param param the request object
      */
     public redeliverEventWithHttpInfo(param: EventsApiRedeliverEventRequest, options?: ConfigurationOptions): Promise<HttpInfo<RedeliverView>> {
-        return this.api.redeliverEventWithHttpInfo(param.id, param.redeliverEventInputBody,  options).toPromise();
+        return this.api.redeliverEventWithHttpInfo(param.id, param.redeliverEventRequest,  options).toPromise();
     }
 
     /**
@@ -791,7 +829,7 @@ export class ObjectEventsApi {
      * @param param the request object
      */
     public redeliverEvent(param: EventsApiRedeliverEventRequest, options?: ConfigurationOptions): Promise<RedeliverView> {
-        return this.api.redeliverEvent(param.id, param.redeliverEventInputBody,  options).toPromise();
+        return this.api.redeliverEvent(param.id, param.redeliverEventRequest,  options).toPromise();
     }
 
 }
@@ -806,7 +844,7 @@ export interface MessagesApiApproveMessageRequest {
      * @type string
      * @memberof MessagesApiapproveMessage
      */
-    address: string
+    email: string
     /**
      * 
      * Defaults to: undefined
@@ -836,7 +874,7 @@ export interface MessagesApiForwardMessageRequest {
      * @type string
      * @memberof MessagesApiforwardMessage
      */
-    address: string
+    email: string
     /**
      * 
      * Defaults to: undefined
@@ -866,7 +904,7 @@ export interface MessagesApiGetMessageRequest {
      * @type string
      * @memberof MessagesApigetMessage
      */
-    address: string
+    email: string
     /**
      * The message id, e.g. msg_abc123.
      * Defaults to: undefined
@@ -883,7 +921,7 @@ export interface MessagesApiListMessagesRequest {
      * @type string
      * @memberof MessagesApilistMessages
      */
-    address: string
+    email: string
     /**
      * Defaults to inbound.
      * Defaults to: undefined
@@ -892,12 +930,12 @@ export interface MessagesApiListMessagesRequest {
      */
     direction?: 'inbound' | 'outbound' | 'all'
     /**
-     * Inbound only. Defaults to unread for inbound, all otherwise.
+     * Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.
      * Defaults to: undefined
      * @type &#39;unread&#39; | &#39;read&#39; | &#39;all&#39;
      * @memberof MessagesApilistMessages
      */
-    status?: 'unread' | 'read' | 'all'
+    readStatus?: 'unread' | 'read' | 'all'
     /**
      * Defaults to desc (newest first).
      * Defaults to: undefined
@@ -972,7 +1010,7 @@ export interface MessagesApiRejectMessageRequest {
      * @type string
      * @memberof MessagesApirejectMessage
      */
-    address: string
+    email: string
     /**
      * 
      * Defaults to: undefined
@@ -982,10 +1020,10 @@ export interface MessagesApiRejectMessageRequest {
     id: string
     /**
      * 
-     * @type RejectInputBody
+     * @type RejectRequest
      * @memberof MessagesApirejectMessage
      */
-    rejectInputBody: RejectInputBody
+    rejectRequest: RejectRequest
 }
 
 export interface MessagesApiReplyToMessageRequest {
@@ -995,7 +1033,7 @@ export interface MessagesApiReplyToMessageRequest {
      * @type string
      * @memberof MessagesApireplyToMessage
      */
-    address: string
+    email: string
     /**
      * 
      * Defaults to: undefined
@@ -1025,7 +1063,7 @@ export interface MessagesApiSendMessageRequest {
      * @type string
      * @memberof MessagesApisendMessage
      */
-    address: string
+    email: string
     /**
      * 
      * @type SendEmailRequest
@@ -1048,7 +1086,7 @@ export interface MessagesApiUpdateMessageRequest {
      * @type string
      * @memberof MessagesApiupdateMessage
      */
-    address: string
+    email: string
     /**
      * 
      * Defaults to: undefined
@@ -1076,8 +1114,8 @@ export class ObjectMessagesApi {
      * Approve a held message
      * @param param the request object
      */
-    public approveMessageWithHttpInfo(param: MessagesApiApproveMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<ApproveResultView>> {
-        return this.api.approveMessageWithHttpInfo(param.address, param.id, param.approveRequest, param.idempotencyKey,  options).toPromise();
+    public approveMessageWithHttpInfo(param: MessagesApiApproveMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<SendResultView>> {
+        return this.api.approveMessageWithHttpInfo(param.email, param.id, param.approveRequest, param.idempotencyKey,  options).toPromise();
     }
 
     /**
@@ -1085,8 +1123,8 @@ export class ObjectMessagesApi {
      * Approve a held message
      * @param param the request object
      */
-    public approveMessage(param: MessagesApiApproveMessageRequest, options?: ConfigurationOptions): Promise<ApproveResultView> {
-        return this.api.approveMessage(param.address, param.id, param.approveRequest, param.idempotencyKey,  options).toPromise();
+    public approveMessage(param: MessagesApiApproveMessageRequest, options?: ConfigurationOptions): Promise<SendResultView> {
+        return this.api.approveMessage(param.email, param.id, param.approveRequest, param.idempotencyKey,  options).toPromise();
     }
 
     /**
@@ -1095,7 +1133,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public forwardMessageWithHttpInfo(param: MessagesApiForwardMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<SendResultView>> {
-        return this.api.forwardMessageWithHttpInfo(param.address, param.id, param.forwardRequest, param.idempotencyKey,  options).toPromise();
+        return this.api.forwardMessageWithHttpInfo(param.email, param.id, param.forwardRequest, param.idempotencyKey,  options).toPromise();
     }
 
     /**
@@ -1104,7 +1142,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public forwardMessage(param: MessagesApiForwardMessageRequest, options?: ConfigurationOptions): Promise<SendResultView> {
-        return this.api.forwardMessage(param.address, param.id, param.forwardRequest, param.idempotencyKey,  options).toPromise();
+        return this.api.forwardMessage(param.email, param.id, param.forwardRequest, param.idempotencyKey,  options).toPromise();
     }
 
     /**
@@ -1113,7 +1151,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public getMessageWithHttpInfo(param: MessagesApiGetMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<MessageView>> {
-        return this.api.getMessageWithHttpInfo(param.address, param.id,  options).toPromise();
+        return this.api.getMessageWithHttpInfo(param.email, param.id,  options).toPromise();
     }
 
     /**
@@ -1122,7 +1160,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public getMessage(param: MessagesApiGetMessageRequest, options?: ConfigurationOptions): Promise<MessageView> {
-        return this.api.getMessage(param.address, param.id,  options).toPromise();
+        return this.api.getMessage(param.email, param.id,  options).toPromise();
     }
 
     /**
@@ -1131,7 +1169,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public listMessagesWithHttpInfo(param: MessagesApiListMessagesRequest, options?: ConfigurationOptions): Promise<HttpInfo<PageMessageSummaryView>> {
-        return this.api.listMessagesWithHttpInfo(param.address, param.direction, param.status, param.sort, param._from, param.subjectContains, param.conversationId, param.labels, param.since, param.until, param.cursor, param.limit,  options).toPromise();
+        return this.api.listMessagesWithHttpInfo(param.email, param.direction, param.readStatus, param.sort, param._from, param.subjectContains, param.conversationId, param.labels, param.since, param.until, param.cursor, param.limit,  options).toPromise();
     }
 
     /**
@@ -1140,7 +1178,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public listMessages(param: MessagesApiListMessagesRequest, options?: ConfigurationOptions): Promise<PageMessageSummaryView> {
-        return this.api.listMessages(param.address, param.direction, param.status, param.sort, param._from, param.subjectContains, param.conversationId, param.labels, param.since, param.until, param.cursor, param.limit,  options).toPromise();
+        return this.api.listMessages(param.email, param.direction, param.readStatus, param.sort, param._from, param.subjectContains, param.conversationId, param.labels, param.since, param.until, param.cursor, param.limit,  options).toPromise();
     }
 
     /**
@@ -1149,7 +1187,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public rejectMessageWithHttpInfo(param: MessagesApiRejectMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<RejectResultView>> {
-        return this.api.rejectMessageWithHttpInfo(param.address, param.id, param.rejectInputBody,  options).toPromise();
+        return this.api.rejectMessageWithHttpInfo(param.email, param.id, param.rejectRequest,  options).toPromise();
     }
 
     /**
@@ -1158,7 +1196,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public rejectMessage(param: MessagesApiRejectMessageRequest, options?: ConfigurationOptions): Promise<RejectResultView> {
-        return this.api.rejectMessage(param.address, param.id, param.rejectInputBody,  options).toPromise();
+        return this.api.rejectMessage(param.email, param.id, param.rejectRequest,  options).toPromise();
     }
 
     /**
@@ -1167,7 +1205,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public replyToMessageWithHttpInfo(param: MessagesApiReplyToMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<SendResultView>> {
-        return this.api.replyToMessageWithHttpInfo(param.address, param.id, param.replyRequest, param.idempotencyKey,  options).toPromise();
+        return this.api.replyToMessageWithHttpInfo(param.email, param.id, param.replyRequest, param.idempotencyKey,  options).toPromise();
     }
 
     /**
@@ -1176,7 +1214,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public replyToMessage(param: MessagesApiReplyToMessageRequest, options?: ConfigurationOptions): Promise<SendResultView> {
-        return this.api.replyToMessage(param.address, param.id, param.replyRequest, param.idempotencyKey,  options).toPromise();
+        return this.api.replyToMessage(param.email, param.id, param.replyRequest, param.idempotencyKey,  options).toPromise();
     }
 
     /**
@@ -1185,7 +1223,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public sendMessageWithHttpInfo(param: MessagesApiSendMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<SendResultView>> {
-        return this.api.sendMessageWithHttpInfo(param.address, param.sendEmailRequest, param.idempotencyKey,  options).toPromise();
+        return this.api.sendMessageWithHttpInfo(param.email, param.sendEmailRequest, param.idempotencyKey,  options).toPromise();
     }
 
     /**
@@ -1194,7 +1232,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public sendMessage(param: MessagesApiSendMessageRequest, options?: ConfigurationOptions): Promise<SendResultView> {
-        return this.api.sendMessage(param.address, param.sendEmailRequest, param.idempotencyKey,  options).toPromise();
+        return this.api.sendMessage(param.email, param.sendEmailRequest, param.idempotencyKey,  options).toPromise();
     }
 
     /**
@@ -1203,7 +1241,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public updateMessageWithHttpInfo(param: MessagesApiUpdateMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<UpdateMessageResultView>> {
-        return this.api.updateMessageWithHttpInfo(param.address, param.id, param.updateMessageRequest,  options).toPromise();
+        return this.api.updateMessageWithHttpInfo(param.email, param.id, param.updateMessageRequest,  options).toPromise();
     }
 
     /**
@@ -1212,7 +1250,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public updateMessage(param: MessagesApiUpdateMessageRequest, options?: ConfigurationOptions): Promise<UpdateMessageResultView> {
-        return this.api.updateMessage(param.address, param.id, param.updateMessageRequest,  options).toPromise();
+        return this.api.updateMessage(param.email, param.id, param.updateMessageRequest,  options).toPromise();
     }
 
 }
@@ -1300,8 +1338,8 @@ export interface WebhooksApiListWebhookDeliveriesRequest {
     /**
      * 
      * Minimum: 1
-     * Maximum: 100
-     * Defaults to: 50
+     * Maximum: 500
+     * Defaults to: 100
      * @type number
      * @memberof WebhooksApilistWebhookDeliveries
      */
@@ -1371,7 +1409,7 @@ export class ObjectWebhooksApi {
      * Create a webhook
      * @param param the request object
      */
-    public createWebhookWithHttpInfo(param: WebhooksApiCreateWebhookRequest, options?: ConfigurationOptions): Promise<HttpInfo<WebhookView>> {
+    public createWebhookWithHttpInfo(param: WebhooksApiCreateWebhookRequest, options?: ConfigurationOptions): Promise<HttpInfo<CreateWebhookResponse>> {
         return this.api.createWebhookWithHttpInfo(param.createWebhookRequest,  options).toPromise();
     }
 
@@ -1379,7 +1417,7 @@ export class ObjectWebhooksApi {
      * Create a webhook
      * @param param the request object
      */
-    public createWebhook(param: WebhooksApiCreateWebhookRequest, options?: ConfigurationOptions): Promise<WebhookView> {
+    public createWebhook(param: WebhooksApiCreateWebhookRequest, options?: ConfigurationOptions): Promise<CreateWebhookResponse> {
         return this.api.createWebhook(param.createWebhookRequest,  options).toPromise();
     }
 
@@ -1454,7 +1492,7 @@ export class ObjectWebhooksApi {
      * Rotate a webhook signing secret
      * @param param the request object
      */
-    public rotateWebhookSecretWithHttpInfo(param: WebhooksApiRotateWebhookSecretRequest, options?: ConfigurationOptions): Promise<HttpInfo<RotateSecretBody>> {
+    public rotateWebhookSecretWithHttpInfo(param: WebhooksApiRotateWebhookSecretRequest, options?: ConfigurationOptions): Promise<HttpInfo<RotateSecretResponse>> {
         return this.api.rotateWebhookSecretWithHttpInfo(param.id, param.idempotencyKey,  options).toPromise();
     }
 
@@ -1463,7 +1501,7 @@ export class ObjectWebhooksApi {
      * Rotate a webhook signing secret
      * @param param the request object
      */
-    public rotateWebhookSecret(param: WebhooksApiRotateWebhookSecretRequest, options?: ConfigurationOptions): Promise<RotateSecretBody> {
+    public rotateWebhookSecret(param: WebhooksApiRotateWebhookSecretRequest, options?: ConfigurationOptions): Promise<RotateSecretResponse> {
         return this.api.rotateWebhookSecret(param.id, param.idempotencyKey,  options).toPromise();
     }
 
@@ -1472,7 +1510,7 @@ export class ObjectWebhooksApi {
      * Fire a synthetic event
      * @param param the request object
      */
-    public testWebhookWithHttpInfo(param: WebhooksApiTestWebhookRequest, options?: ConfigurationOptions): Promise<HttpInfo<TestWebhookOutputBody>> {
+    public testWebhookWithHttpInfo(param: WebhooksApiTestWebhookRequest, options?: ConfigurationOptions): Promise<HttpInfo<TestWebhookResponse>> {
         return this.api.testWebhookWithHttpInfo(param.id, param.testWebhookRequest,  options).toPromise();
     }
 
@@ -1481,7 +1519,7 @@ export class ObjectWebhooksApi {
      * Fire a synthetic event
      * @param param the request object
      */
-    public testWebhook(param: WebhooksApiTestWebhookRequest, options?: ConfigurationOptions): Promise<TestWebhookOutputBody> {
+    public testWebhook(param: WebhooksApiTestWebhookRequest, options?: ConfigurationOptions): Promise<TestWebhookResponse> {
         return this.api.testWebhook(param.id, param.testWebhookRequest,  options).toPromise();
     }
 

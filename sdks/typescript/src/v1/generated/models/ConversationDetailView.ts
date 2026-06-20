@@ -15,17 +15,17 @@ import { HttpFile } from '../http/http.js';
 
 export class ConversationDetailView {
     'conversationId': string;
-    'firstMessageAt': string;
+    'firstMessageAt': Date;
     'hasUnread': boolean;
     'inboundCount': number;
-    'labels': Array<string> | null;
-    'lastMessageAt': string;
+    'labels': Array<string>;
+    'lastMessageAt': Date;
     'latestSender': string;
     'latestSubject': string;
     'messageCount': number;
-    'messages': Array<MessageSummaryView> | null;
+    'messages': Array<MessageSummaryView>;
     'outboundCount': number;
-    'participants': Array<string> | null;
+    'participants': Array<string>;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -41,8 +41,8 @@ export class ConversationDetailView {
         {
             "name": "firstMessageAt",
             "baseName": "first_message_at",
-            "type": "string",
-            "format": ""
+            "type": "Date",
+            "format": "date-time"
         },
         {
             "name": "hasUnread",
@@ -65,8 +65,8 @@ export class ConversationDetailView {
         {
             "name": "lastMessageAt",
             "baseName": "last_message_at",
-            "type": "string",
-            "format": ""
+            "type": "Date",
+            "format": "date-time"
         },
         {
             "name": "latestSender",

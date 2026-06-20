@@ -3,17 +3,19 @@ import { Configuration, PromiseConfigurationOptions, wrapOptions } from '../conf
 import { PromiseMiddleware, Middleware, PromiseMiddlewareWrapper } from '../middleware.js';
 
 import { APIKeyExportEntry } from '../models/APIKeyExportEntry.js';
+import { AccountUserView } from '../models/AccountUserView.js';
+import { AccountView } from '../models/AccountView.js';
 import { AgentIdentity } from '../models/AgentIdentity.js';
 import { AgentView } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
-import { ApproveResultView } from '../models/ApproveResultView.js';
 import { Attachment } from '../models/Attachment.js';
+import { AuthVerdict } from '../models/AuthVerdict.js';
 import { CheckResult } from '../models/CheckResult.js';
 import { ConversationDetailView } from '../models/ConversationDetailView.js';
 import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
-import { CreateAgentResponse } from '../models/CreateAgentResponse.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
+import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
 import { DNSRecordView } from '../models/DNSRecordView.js';
 import { DNSRecordsView } from '../models/DNSRecordsView.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
@@ -27,7 +29,6 @@ import { EventJSON } from '../models/EventJSON.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
 import { LimitsCapsView } from '../models/LimitsCapsView.js';
 import { LimitsUsageView } from '../models/LimitsUsageView.js';
-import { LimitsView } from '../models/LimitsView.js';
 import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
@@ -43,20 +44,20 @@ import { PageSuppression } from '../models/PageSuppression.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
 import { RedeliverDelivery } from '../models/RedeliverDelivery.js';
-import { RedeliverEventInputBody } from '../models/RedeliverEventInputBody.js';
+import { RedeliverEventRequest } from '../models/RedeliverEventRequest.js';
 import { RedeliverView } from '../models/RedeliverView.js';
 import { RegisterDomainRequest } from '../models/RegisterDomainRequest.js';
-import { RejectInputBody } from '../models/RejectInputBody.js';
+import { RejectRequest } from '../models/RejectRequest.js';
 import { RejectResultView } from '../models/RejectResultView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
-import { RotateSecretBody } from '../models/RotateSecretBody.js';
+import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
 import { SendingDNSRecordView } from '../models/SendingDNSRecordView.js';
 import { Suppression } from '../models/Suppression.js';
-import { TestWebhookOutputBody } from '../models/TestWebhookOutputBody.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
+import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 import { UpdateDomainRequest } from '../models/UpdateDomainRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
@@ -148,20 +149,20 @@ export class PromiseAccountApi {
     }
 
     /**
-     * The authenticated account\'s plan caps and current usage. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
-     * Get account: plan limits + usage
+     * The authenticated principal\'s identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+     * Get account: identity + plan limits + usage (whoami)
      */
-    public getAccountWithHttpInfo(_options?: PromiseConfigurationOptions): Promise<HttpInfo<LimitsView>> {
+    public getAccountWithHttpInfo(_options?: PromiseConfigurationOptions): Promise<HttpInfo<AccountView>> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.getAccountWithHttpInfo(observableOptions);
         return result.toPromise();
     }
 
     /**
-     * The authenticated account\'s plan caps and current usage. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
-     * Get account: plan limits + usage
+     * The authenticated principal\'s identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+     * Get account: identity + plan limits + usage (whoami)
      */
-    public getAccount(_options?: PromiseConfigurationOptions): Promise<LimitsView> {
+    public getAccount(_options?: PromiseConfigurationOptions): Promise<AccountView> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.getAccount(observableOptions);
         return result.toPromise();
@@ -170,20 +171,24 @@ export class PromiseAccountApi {
     /**
      * Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.
      * List suppressed recipient addresses
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listSuppressionsWithHttpInfo(_options?: PromiseConfigurationOptions): Promise<HttpInfo<PageSuppression>> {
+    public listSuppressionsWithHttpInfo(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageSuppression>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listSuppressionsWithHttpInfo(observableOptions);
+        const result = this.api.listSuppressionsWithHttpInfo(cursor, limit, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.
      * List suppressed recipient addresses
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listSuppressions(_options?: PromiseConfigurationOptions): Promise<PageSuppression> {
+    public listSuppressions(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageSuppression> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listSuppressions(observableOptions);
+        const result = this.api.listSuppressions(cursor, limit, observableOptions);
         return result.toPromise();
     }
 
@@ -207,22 +212,22 @@ export class PromiseAgentsApi {
     }
 
     /**
-     * Register an agent on a verified domain the caller owns (or, when slug registration is enabled, on the shared domain).
+     * Register an agent by full email. A custom-domain agent\'s domain must be a verified domain the caller owns; an email on the deployment\'s shared domain (e.g. xyz@agents.e2a.dev) is registered as a shared-domain agent. Returns the full agent.
      * Create an agent
      * @param createAgentRequest
      */
-    public createAgentWithHttpInfo(createAgentRequest: CreateAgentRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<CreateAgentResponse>> {
+    public createAgentWithHttpInfo(createAgentRequest: CreateAgentRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<AgentView>> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.createAgentWithHttpInfo(createAgentRequest, observableOptions);
         return result.toPromise();
     }
 
     /**
-     * Register an agent on a verified domain the caller owns (or, when slug registration is enabled, on the shared domain).
+     * Register an agent by full email. A custom-domain agent\'s domain must be a verified domain the caller owns; an email on the deployment\'s shared domain (e.g. xyz@agents.e2a.dev) is registered as a shared-domain agent. Returns the full agent.
      * Create an agent
      * @param createAgentRequest
      */
-    public createAgent(createAgentRequest: CreateAgentRequest, _options?: PromiseConfigurationOptions): Promise<CreateAgentResponse> {
+    public createAgent(createAgentRequest: CreateAgentRequest, _options?: PromiseConfigurationOptions): Promise<AgentView> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.createAgent(createAgentRequest, observableOptions);
         return result.toPromise();
@@ -231,44 +236,46 @@ export class PromiseAgentsApi {
     /**
      * Delete an agent the caller owns.
      * Delete an agent
-     * @param address The agent\&#39;s full email address, e.g. support@acme.com.
+     * @param email
+     * @param [confirm] Must be DELETE — this is irreversible.
      */
-    public deleteAgentWithHttpInfo(address: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteAgentWithHttpInfo(email: string, confirm?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteAgentWithHttpInfo(address, observableOptions);
+        const result = this.api.deleteAgentWithHttpInfo(email, confirm, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Delete an agent the caller owns.
      * Delete an agent
-     * @param address The agent\&#39;s full email address, e.g. support@acme.com.
+     * @param email
+     * @param [confirm] Must be DELETE — this is irreversible.
      */
-    public deleteAgent(address: string, _options?: PromiseConfigurationOptions): Promise<void> {
+    public deleteAgent(email: string, confirm?: string, _options?: PromiseConfigurationOptions): Promise<void> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteAgent(address, observableOptions);
+        const result = this.api.deleteAgent(email, confirm, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Fetch a single agent the authenticated account owns, by full email address.
      * Get an agent
-     * @param address The agent\&#39;s full email address, e.g. support@acme.com.
+     * @param email The agent\&#39;s full email address, e.g. support@acme.com.
      */
-    public getAgentWithHttpInfo(address: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<AgentView>> {
+    public getAgentWithHttpInfo(email: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<AgentView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getAgentWithHttpInfo(address, observableOptions);
+        const result = this.api.getAgentWithHttpInfo(email, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Fetch a single agent the authenticated account owns, by full email address.
      * Get an agent
-     * @param address The agent\&#39;s full email address, e.g. support@acme.com.
+     * @param email The agent\&#39;s full email address, e.g. support@acme.com.
      */
-    public getAgent(address: string, _options?: PromiseConfigurationOptions): Promise<AgentView> {
+    public getAgent(email: string, _options?: PromiseConfigurationOptions): Promise<AgentView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getAgent(address, observableOptions);
+        const result = this.api.getAgent(email, observableOptions);
         return result.toPromise();
     }
 
@@ -295,46 +302,46 @@ export class PromiseAgentsApi {
     /**
      * Send a platform test email to the agent\'s own address to confirm inbound delivery. 202 when held for HITL.
      * Send a test email to the agent\'s own address
-     * @param address The agent\&#39;s full email address, e.g. support@acme.com.
+     * @param email The agent\&#39;s full email address, e.g. support@acme.com.
      */
-    public testAgentWithHttpInfo(address: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendResultView>> {
+    public testAgentWithHttpInfo(email: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendResultView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.testAgentWithHttpInfo(address, observableOptions);
+        const result = this.api.testAgentWithHttpInfo(email, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Send a platform test email to the agent\'s own address to confirm inbound delivery. 202 when held for HITL.
      * Send a test email to the agent\'s own address
-     * @param address The agent\&#39;s full email address, e.g. support@acme.com.
+     * @param email The agent\&#39;s full email address, e.g. support@acme.com.
      */
-    public testAgent(address: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
+    public testAgent(email: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.testAgent(address, observableOptions);
+        const result = this.api.testAgent(email, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Patch an agent\'s HITL settings. Returns the post-update agent.
      * Update an agent
-     * @param address
+     * @param email
      * @param updateAgentRequest
      */
-    public updateAgentWithHttpInfo(address: string, updateAgentRequest: UpdateAgentRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<AgentView>> {
+    public updateAgentWithHttpInfo(email: string, updateAgentRequest: UpdateAgentRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<AgentView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.updateAgentWithHttpInfo(address, updateAgentRequest, observableOptions);
+        const result = this.api.updateAgentWithHttpInfo(email, updateAgentRequest, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Patch an agent\'s HITL settings. Returns the post-update agent.
      * Update an agent
-     * @param address
+     * @param email
      * @param updateAgentRequest
      */
-    public updateAgent(address: string, updateAgentRequest: UpdateAgentRequest, _options?: PromiseConfigurationOptions): Promise<AgentView> {
+    public updateAgent(email: string, updateAgentRequest: UpdateAgentRequest, _options?: PromiseConfigurationOptions): Promise<AgentView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.updateAgent(address, updateAgentRequest, observableOptions);
+        const result = this.api.updateAgent(email, updateAgentRequest, observableOptions);
         return result.toPromise();
     }
 
@@ -360,52 +367,54 @@ export class PromiseConversationsApi {
     /**
      * Fetch a single conversation thread with its participants, labels, and member messages.
      * Get a conversation
-     * @param address
+     * @param email
      * @param id
      */
-    public getConversationWithHttpInfo(address: string, id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<ConversationDetailView>> {
+    public getConversationWithHttpInfo(email: string, id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<ConversationDetailView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getConversationWithHttpInfo(address, id, observableOptions);
+        const result = this.api.getConversationWithHttpInfo(email, id, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Fetch a single conversation thread with its participants, labels, and member messages.
      * Get a conversation
-     * @param address
+     * @param email
      * @param id
      */
-    public getConversation(address: string, id: string, _options?: PromiseConfigurationOptions): Promise<ConversationDetailView> {
+    public getConversation(email: string, id: string, _options?: PromiseConfigurationOptions): Promise<ConversationDetailView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getConversation(address, id, observableOptions);
+        const result = this.api.getConversation(email, id, observableOptions);
         return result.toPromise();
     }
 
     /**
      * List an agent\'s conversation threads (derived from messages.conversation_id).
      * List conversations
-     * @param address
+     * @param email
      * @param [since] RFC3339.
      * @param [until] RFC3339.
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change since/until.
      * @param [limit]
      */
-    public listConversationsWithHttpInfo(address: string, since?: string, until?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageConversationSummaryView>> {
+    public listConversationsWithHttpInfo(email: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageConversationSummaryView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listConversationsWithHttpInfo(address, since, until, limit, observableOptions);
+        const result = this.api.listConversationsWithHttpInfo(email, since, until, cursor, limit, observableOptions);
         return result.toPromise();
     }
 
     /**
      * List an agent\'s conversation threads (derived from messages.conversation_id).
      * List conversations
-     * @param address
+     * @param email
      * @param [since] RFC3339.
      * @param [until] RFC3339.
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change since/until.
      * @param [limit]
      */
-    public listConversations(address: string, since?: string, until?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageConversationSummaryView> {
+    public listConversations(email: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageConversationSummaryView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listConversations(address, since, until, limit, observableOptions);
+        const result = this.api.listConversations(email, since, until, cursor, limit, observableOptions);
         return result.toPromise();
     }
 
@@ -431,20 +440,22 @@ export class PromiseDomainsApi {
     /**
      * Delete a domain
      * @param domain
+     * @param [confirm] Must be DELETE — this is irreversible (deprovisions the domain\&#39;s sending identity).
      */
-    public deleteDomainWithHttpInfo(domain: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteDomainWithHttpInfo(domain: string, confirm?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteDomainWithHttpInfo(domain, observableOptions);
+        const result = this.api.deleteDomainWithHttpInfo(domain, confirm, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Delete a domain
      * @param domain
+     * @param [confirm] Must be DELETE — this is irreversible (deprovisions the domain\&#39;s sending identity).
      */
-    public deleteDomain(domain: string, _options?: PromiseConfigurationOptions): Promise<void> {
+    public deleteDomain(domain: string, confirm?: string, _options?: PromiseConfigurationOptions): Promise<void> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteDomain(domain, observableOptions);
+        const result = this.api.deleteDomain(domain, confirm, observableOptions);
         return result.toPromise();
     }
 
@@ -629,11 +640,11 @@ export class PromiseEventsApi {
      * Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
      * Redeliver an event
      * @param id
-     * @param redeliverEventInputBody
+     * @param redeliverEventRequest
      */
-    public redeliverEventWithHttpInfo(id: string, redeliverEventInputBody: RedeliverEventInputBody, _options?: PromiseConfigurationOptions): Promise<HttpInfo<RedeliverView>> {
+    public redeliverEventWithHttpInfo(id: string, redeliverEventRequest: RedeliverEventRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<RedeliverView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.redeliverEventWithHttpInfo(id, redeliverEventInputBody, observableOptions);
+        const result = this.api.redeliverEventWithHttpInfo(id, redeliverEventRequest, observableOptions);
         return result.toPromise();
     }
 
@@ -641,11 +652,11 @@ export class PromiseEventsApi {
      * Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
      * Redeliver an event
      * @param id
-     * @param redeliverEventInputBody
+     * @param redeliverEventRequest
      */
-    public redeliverEvent(id: string, redeliverEventInputBody: RedeliverEventInputBody, _options?: PromiseConfigurationOptions): Promise<RedeliverView> {
+    public redeliverEvent(id: string, redeliverEventRequest: RedeliverEventRequest, _options?: PromiseConfigurationOptions): Promise<RedeliverView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.redeliverEvent(id, redeliverEventInputBody, observableOptions);
+        const result = this.api.redeliverEvent(id, redeliverEventRequest, observableOptions);
         return result.toPromise();
     }
 
@@ -671,89 +682,89 @@ export class PromiseMessagesApi {
     /**
      * Approve a pending_approval draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
      * Approve a held message
-     * @param address
+     * @param email
      * @param id
      * @param approveRequest
      * @param [idempotencyKey]
      */
-    public approveMessageWithHttpInfo(address: string, id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<ApproveResultView>> {
+    public approveMessageWithHttpInfo(email: string, id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendResultView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.approveMessageWithHttpInfo(address, id, approveRequest, idempotencyKey, observableOptions);
+        const result = this.api.approveMessageWithHttpInfo(email, id, approveRequest, idempotencyKey, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Approve a pending_approval draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
      * Approve a held message
-     * @param address
+     * @param email
      * @param id
      * @param approveRequest
      * @param [idempotencyKey]
      */
-    public approveMessage(address: string, id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<ApproveResultView> {
+    public approveMessage(email: string, id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.approveMessage(address, id, approveRequest, idempotencyKey, observableOptions);
+        const result = this.api.approveMessage(email, id, approveRequest, idempotencyKey, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.
      * Forward a message
-     * @param address
+     * @param email
      * @param id
      * @param forwardRequest
      * @param [idempotencyKey]
      */
-    public forwardMessageWithHttpInfo(address: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendResultView>> {
+    public forwardMessageWithHttpInfo(email: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendResultView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.forwardMessageWithHttpInfo(address, id, forwardRequest, idempotencyKey, observableOptions);
+        const result = this.api.forwardMessageWithHttpInfo(email, id, forwardRequest, idempotencyKey, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.
      * Forward a message
-     * @param address
+     * @param email
      * @param id
      * @param forwardRequest
      * @param [idempotencyKey]
      */
-    public forwardMessage(address: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
+    public forwardMessage(email: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.forwardMessage(address, id, forwardRequest, idempotencyKey, observableOptions);
+        const result = this.api.forwardMessage(email, id, forwardRequest, idempotencyKey, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.
      * Get a message
-     * @param address The agent\&#39;s full email address.
+     * @param email The agent\&#39;s full email address.
      * @param id The message id, e.g. msg_abc123.
      */
-    public getMessageWithHttpInfo(address: string, id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<MessageView>> {
+    public getMessageWithHttpInfo(email: string, id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<MessageView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getMessageWithHttpInfo(address, id, observableOptions);
+        const result = this.api.getMessageWithHttpInfo(email, id, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.
      * Get a message
-     * @param address The agent\&#39;s full email address.
+     * @param email The agent\&#39;s full email address.
      * @param id The message id, e.g. msg_abc123.
      */
-    public getMessage(address: string, id: string, _options?: PromiseConfigurationOptions): Promise<MessageView> {
+    public getMessage(email: string, id: string, _options?: PromiseConfigurationOptions): Promise<MessageView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getMessage(address, id, observableOptions);
+        const result = this.api.getMessage(email, id, observableOptions);
         return result.toPromise();
     }
 
     /**
      * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.
      * List messages
-     * @param address
+     * @param email
      * @param [direction] Defaults to inbound.
-     * @param [status] Inbound only. Defaults to unread for inbound, all otherwise.
+     * @param [readStatus] Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.
      * @param [sort] Defaults to desc (newest first).
      * @param [_from] Case-insensitive substring match on sender.
      * @param [subjectContains] Case-insensitive substring match on subject.
@@ -764,18 +775,18 @@ export class PromiseMessagesApi {
      * @param [cursor]
      * @param [limit]
      */
-    public listMessagesWithHttpInfo(address: string, direction?: 'inbound' | 'outbound' | 'all', status?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', _from?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageMessageSummaryView>> {
+    public listMessagesWithHttpInfo(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', _from?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageMessageSummaryView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listMessagesWithHttpInfo(address, direction, status, sort, _from, subjectContains, conversationId, labels, since, until, cursor, limit, observableOptions);
+        const result = this.api.listMessagesWithHttpInfo(email, direction, readStatus, sort, _from, subjectContains, conversationId, labels, since, until, cursor, limit, observableOptions);
         return result.toPromise();
     }
 
     /**
      * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.
      * List messages
-     * @param address
+     * @param email
      * @param [direction] Defaults to inbound.
-     * @param [status] Inbound only. Defaults to unread for inbound, all otherwise.
+     * @param [readStatus] Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.
      * @param [sort] Defaults to desc (newest first).
      * @param [_from] Case-insensitive substring match on sender.
      * @param [subjectContains] Case-insensitive substring match on subject.
@@ -786,115 +797,115 @@ export class PromiseMessagesApi {
      * @param [cursor]
      * @param [limit]
      */
-    public listMessages(address: string, direction?: 'inbound' | 'outbound' | 'all', status?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', _from?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageMessageSummaryView> {
+    public listMessages(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', _from?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageMessageSummaryView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listMessages(address, direction, status, sort, _from, subjectContains, conversationId, labels, since, until, cursor, limit, observableOptions);
+        const result = this.api.listMessages(email, direction, readStatus, sort, _from, subjectContains, conversationId, labels, since, until, cursor, limit, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Reject a pending_approval draft so it is never sent.
      * Reject a held message
-     * @param address
+     * @param email
      * @param id
-     * @param rejectInputBody
+     * @param rejectRequest
      */
-    public rejectMessageWithHttpInfo(address: string, id: string, rejectInputBody: RejectInputBody, _options?: PromiseConfigurationOptions): Promise<HttpInfo<RejectResultView>> {
+    public rejectMessageWithHttpInfo(email: string, id: string, rejectRequest: RejectRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<RejectResultView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.rejectMessageWithHttpInfo(address, id, rejectInputBody, observableOptions);
+        const result = this.api.rejectMessageWithHttpInfo(email, id, rejectRequest, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Reject a pending_approval draft so it is never sent.
      * Reject a held message
-     * @param address
+     * @param email
      * @param id
-     * @param rejectInputBody
+     * @param rejectRequest
      */
-    public rejectMessage(address: string, id: string, rejectInputBody: RejectInputBody, _options?: PromiseConfigurationOptions): Promise<RejectResultView> {
+    public rejectMessage(email: string, id: string, rejectRequest: RejectRequest, _options?: PromiseConfigurationOptions): Promise<RejectResultView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.rejectMessage(address, id, rejectInputBody, observableOptions);
+        const result = this.api.rejectMessage(email, id, rejectRequest, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.
      * Reply to a message
-     * @param address
+     * @param email
      * @param id
      * @param replyRequest
      * @param [idempotencyKey]
      */
-    public replyToMessageWithHttpInfo(address: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendResultView>> {
+    public replyToMessageWithHttpInfo(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendResultView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.replyToMessageWithHttpInfo(address, id, replyRequest, idempotencyKey, observableOptions);
+        const result = this.api.replyToMessageWithHttpInfo(email, id, replyRequest, idempotencyKey, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.
      * Reply to a message
-     * @param address
+     * @param email
      * @param id
      * @param replyRequest
      * @param [idempotencyKey]
      */
-    public replyToMessage(address: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
+    public replyToMessage(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.replyToMessage(address, id, replyRequest, idempotencyKey, observableOptions);
+        const result = this.api.replyToMessage(email, id, replyRequest, idempotencyKey, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.
      * Send a new email
-     * @param address
+     * @param email
      * @param sendEmailRequest
      * @param [idempotencyKey]
      */
-    public sendMessageWithHttpInfo(address: string, sendEmailRequest: SendEmailRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendResultView>> {
+    public sendMessageWithHttpInfo(email: string, sendEmailRequest: SendEmailRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendResultView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.sendMessageWithHttpInfo(address, sendEmailRequest, idempotencyKey, observableOptions);
+        const result = this.api.sendMessageWithHttpInfo(email, sendEmailRequest, idempotencyKey, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.
      * Send a new email
-     * @param address
+     * @param email
      * @param sendEmailRequest
      * @param [idempotencyKey]
      */
-    public sendMessage(address: string, sendEmailRequest: SendEmailRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
+    public sendMessage(email: string, sendEmailRequest: SendEmailRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.sendMessage(address, sendEmailRequest, idempotencyKey, observableOptions);
+        const result = this.api.sendMessage(email, sendEmailRequest, idempotencyKey, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.
      * Update a message (labels)
-     * @param address
+     * @param email
      * @param id
      * @param updateMessageRequest
      */
-    public updateMessageWithHttpInfo(address: string, id: string, updateMessageRequest: UpdateMessageRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<UpdateMessageResultView>> {
+    public updateMessageWithHttpInfo(email: string, id: string, updateMessageRequest: UpdateMessageRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<UpdateMessageResultView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.updateMessageWithHttpInfo(address, id, updateMessageRequest, observableOptions);
+        const result = this.api.updateMessageWithHttpInfo(email, id, updateMessageRequest, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.
      * Update a message (labels)
-     * @param address
+     * @param email
      * @param id
      * @param updateMessageRequest
      */
-    public updateMessage(address: string, id: string, updateMessageRequest: UpdateMessageRequest, _options?: PromiseConfigurationOptions): Promise<UpdateMessageResultView> {
+    public updateMessage(email: string, id: string, updateMessageRequest: UpdateMessageRequest, _options?: PromiseConfigurationOptions): Promise<UpdateMessageResultView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.updateMessage(address, id, updateMessageRequest, observableOptions);
+        const result = this.api.updateMessage(email, id, updateMessageRequest, observableOptions);
         return result.toPromise();
     }
 
@@ -960,7 +971,7 @@ export class PromiseWebhooksApi {
      * Create a webhook
      * @param createWebhookRequest
      */
-    public createWebhookWithHttpInfo(createWebhookRequest: CreateWebhookRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<WebhookView>> {
+    public createWebhookWithHttpInfo(createWebhookRequest: CreateWebhookRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<CreateWebhookResponse>> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.createWebhookWithHttpInfo(createWebhookRequest, observableOptions);
         return result.toPromise();
@@ -970,7 +981,7 @@ export class PromiseWebhooksApi {
      * Create a webhook
      * @param createWebhookRequest
      */
-    public createWebhook(createWebhookRequest: CreateWebhookRequest, _options?: PromiseConfigurationOptions): Promise<WebhookView> {
+    public createWebhook(createWebhookRequest: CreateWebhookRequest, _options?: PromiseConfigurationOptions): Promise<CreateWebhookResponse> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.createWebhook(createWebhookRequest, observableOptions);
         return result.toPromise();
@@ -1066,7 +1077,7 @@ export class PromiseWebhooksApi {
      * @param id
      * @param [idempotencyKey]
      */
-    public rotateWebhookSecretWithHttpInfo(id: string, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<RotateSecretBody>> {
+    public rotateWebhookSecretWithHttpInfo(id: string, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<RotateSecretResponse>> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.rotateWebhookSecretWithHttpInfo(id, idempotencyKey, observableOptions);
         return result.toPromise();
@@ -1078,7 +1089,7 @@ export class PromiseWebhooksApi {
      * @param id
      * @param [idempotencyKey]
      */
-    public rotateWebhookSecret(id: string, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<RotateSecretBody> {
+    public rotateWebhookSecret(id: string, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<RotateSecretResponse> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.rotateWebhookSecret(id, idempotencyKey, observableOptions);
         return result.toPromise();
@@ -1090,7 +1101,7 @@ export class PromiseWebhooksApi {
      * @param id
      * @param testWebhookRequest
      */
-    public testWebhookWithHttpInfo(id: string, testWebhookRequest: TestWebhookRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<TestWebhookOutputBody>> {
+    public testWebhookWithHttpInfo(id: string, testWebhookRequest: TestWebhookRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<TestWebhookResponse>> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.testWebhookWithHttpInfo(id, testWebhookRequest, observableOptions);
         return result.toPromise();
@@ -1102,7 +1113,7 @@ export class PromiseWebhooksApi {
      * @param id
      * @param testWebhookRequest
      */
-    public testWebhook(id: string, testWebhookRequest: TestWebhookRequest, _options?: PromiseConfigurationOptions): Promise<TestWebhookOutputBody> {
+    public testWebhook(id: string, testWebhookRequest: TestWebhookRequest, _options?: PromiseConfigurationOptions): Promise<TestWebhookResponse> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.testWebhook(id, testWebhookRequest, observableOptions);
         return result.toPromise();

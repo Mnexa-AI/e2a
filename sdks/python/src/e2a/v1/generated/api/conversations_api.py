@@ -43,7 +43,7 @@ class ConversationsApi:
     @validate_call
     async def get_conversation(
         self,
-        address: StrictStr,
+        email: StrictStr,
         id: StrictStr,
         _request_timeout: Union[
             None,
@@ -62,8 +62,8 @@ class ConversationsApi:
 
         Fetch a single conversation thread with its participants, labels, and member messages.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param id: (required)
         :type id: str
         :param _request_timeout: timeout setting for this request. If one
@@ -89,7 +89,7 @@ class ConversationsApi:
         """ # noqa: E501
 
         _param = self._get_conversation_serialize(
-            address=address,
+            email=email,
             id=id,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -114,7 +114,7 @@ class ConversationsApi:
     @validate_call
     async def get_conversation_with_http_info(
         self,
-        address: StrictStr,
+        email: StrictStr,
         id: StrictStr,
         _request_timeout: Union[
             None,
@@ -133,8 +133,8 @@ class ConversationsApi:
 
         Fetch a single conversation thread with its participants, labels, and member messages.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param id: (required)
         :type id: str
         :param _request_timeout: timeout setting for this request. If one
@@ -160,7 +160,7 @@ class ConversationsApi:
         """ # noqa: E501
 
         _param = self._get_conversation_serialize(
-            address=address,
+            email=email,
             id=id,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -185,7 +185,7 @@ class ConversationsApi:
     @validate_call
     async def get_conversation_without_preload_content(
         self,
-        address: StrictStr,
+        email: StrictStr,
         id: StrictStr,
         _request_timeout: Union[
             None,
@@ -204,8 +204,8 @@ class ConversationsApi:
 
         Fetch a single conversation thread with its participants, labels, and member messages.
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param id: (required)
         :type id: str
         :param _request_timeout: timeout setting for this request. If one
@@ -231,7 +231,7 @@ class ConversationsApi:
         """ # noqa: E501
 
         _param = self._get_conversation_serialize(
-            address=address,
+            email=email,
             id=id,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -251,7 +251,7 @@ class ConversationsApi:
 
     def _get_conversation_serialize(
         self,
-        address,
+        email,
         id,
         _request_auth,
         _content_type,
@@ -274,8 +274,8 @@ class ConversationsApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if address is not None:
-            _path_params['address'] = address
+        if email is not None:
+            _path_params['email'] = email
         if id is not None:
             _path_params['id'] = id
         # process the query parameters
@@ -300,7 +300,7 @@ class ConversationsApi:
 
         return self.api_client.param_serialize(
             method='GET',
-            resource_path='/v1/agents/{address}/conversations/{id}',
+            resource_path='/v1/agents/{email}/conversations/{id}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -319,10 +319,11 @@ class ConversationsApi:
     @validate_call
     async def list_conversations(
         self,
-        address: StrictStr,
+        email: StrictStr,
         since: Annotated[Optional[StrictStr], Field(description="RFC3339.")] = None,
         until: Annotated[Optional[StrictStr], Field(description="RFC3339.")] = None,
-        limit: Optional[Annotated[int, Field(le=200, strict=True, ge=1)]] = None,
+        cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change since/until.")] = None,
+        limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -340,12 +341,14 @@ class ConversationsApi:
 
         List an agent's conversation threads (derived from messages.conversation_id).
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param since: RFC3339.
         :type since: str
         :param until: RFC3339.
         :type until: str
+        :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change since/until.
+        :type cursor: str
         :param limit:
         :type limit: int
         :param _request_timeout: timeout setting for this request. If one
@@ -371,9 +374,10 @@ class ConversationsApi:
         """ # noqa: E501
 
         _param = self._list_conversations_serialize(
-            address=address,
+            email=email,
             since=since,
             until=until,
+            cursor=cursor,
             limit=limit,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -398,10 +402,11 @@ class ConversationsApi:
     @validate_call
     async def list_conversations_with_http_info(
         self,
-        address: StrictStr,
+        email: StrictStr,
         since: Annotated[Optional[StrictStr], Field(description="RFC3339.")] = None,
         until: Annotated[Optional[StrictStr], Field(description="RFC3339.")] = None,
-        limit: Optional[Annotated[int, Field(le=200, strict=True, ge=1)]] = None,
+        cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change since/until.")] = None,
+        limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -419,12 +424,14 @@ class ConversationsApi:
 
         List an agent's conversation threads (derived from messages.conversation_id).
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param since: RFC3339.
         :type since: str
         :param until: RFC3339.
         :type until: str
+        :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change since/until.
+        :type cursor: str
         :param limit:
         :type limit: int
         :param _request_timeout: timeout setting for this request. If one
@@ -450,9 +457,10 @@ class ConversationsApi:
         """ # noqa: E501
 
         _param = self._list_conversations_serialize(
-            address=address,
+            email=email,
             since=since,
             until=until,
+            cursor=cursor,
             limit=limit,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -477,10 +485,11 @@ class ConversationsApi:
     @validate_call
     async def list_conversations_without_preload_content(
         self,
-        address: StrictStr,
+        email: StrictStr,
         since: Annotated[Optional[StrictStr], Field(description="RFC3339.")] = None,
         until: Annotated[Optional[StrictStr], Field(description="RFC3339.")] = None,
-        limit: Optional[Annotated[int, Field(le=200, strict=True, ge=1)]] = None,
+        cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change since/until.")] = None,
+        limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -498,12 +507,14 @@ class ConversationsApi:
 
         List an agent's conversation threads (derived from messages.conversation_id).
 
-        :param address: (required)
-        :type address: str
+        :param email: (required)
+        :type email: str
         :param since: RFC3339.
         :type since: str
         :param until: RFC3339.
         :type until: str
+        :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change since/until.
+        :type cursor: str
         :param limit:
         :type limit: int
         :param _request_timeout: timeout setting for this request. If one
@@ -529,9 +540,10 @@ class ConversationsApi:
         """ # noqa: E501
 
         _param = self._list_conversations_serialize(
-            address=address,
+            email=email,
             since=since,
             until=until,
+            cursor=cursor,
             limit=limit,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -551,9 +563,10 @@ class ConversationsApi:
 
     def _list_conversations_serialize(
         self,
-        address,
+        email,
         since,
         until,
+        cursor,
         limit,
         _request_auth,
         _content_type,
@@ -576,8 +589,8 @@ class ConversationsApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if address is not None:
-            _path_params['address'] = address
+        if email is not None:
+            _path_params['email'] = email
         # process the query parameters
         if since is not None:
             
@@ -586,6 +599,10 @@ class ConversationsApi:
         if until is not None:
             
             _query_params.append(('until', until))
+            
+        if cursor is not None:
+            
+            _query_params.append(('cursor', cursor))
             
         if limit is not None:
             
@@ -612,7 +629,7 @@ class ConversationsApi:
 
         return self.api_client.param_serialize(
             method='GET',
-            resource_path='/v1/agents/{address}/conversations',
+            resource_path='/v1/agents/{email}/conversations',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,

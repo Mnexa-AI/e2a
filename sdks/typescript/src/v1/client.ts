@@ -23,7 +23,6 @@ import {
 import type {
   AgentView,
   CreateAgentRequest,
-  CreateAgentResponse,
   UpdateAgentRequest,
   MessageView,
   MessageSummaryView,
@@ -31,11 +30,10 @@ import type {
   ReplyRequest,
   ForwardRequest,
   ApproveRequest,
-  RejectInputBody,
+  RejectRequest,
   UpdateMessageRequest,
   UpdateMessageResultView,
   SendResultView,
-  ApproveResultView,
   RejectResultView,
   ConversationSummaryView,
   ConversationDetailView,
@@ -44,16 +42,17 @@ import type {
   UpdateDomainRequest,
   VerifyDomainView,
   EventJSON,
-  RedeliverEventInputBody,
+  RedeliverEventRequest,
   RedeliverView,
   WebhookView,
+  CreateWebhookResponse,
   CreateWebhookRequest,
   UpdateWebhookRequest,
-  RotateSecretBody,
+  RotateSecretResponse,
   TestWebhookRequest,
-  TestWebhookOutputBody,
+  TestWebhookResponse,
   WebhookDeliveryView,
-  LimitsView,
+  AccountView,
   UserExport,
   DeleteUserDataResult,
   Suppression,
@@ -181,14 +180,16 @@ class AgentsResource {
   get(address: string): Promise<AgentView> {
     return call(() => this.api.getAgent(address));
   }
-  create(body: CreateAgentRequest): Promise<CreateAgentResponse> {
+  create(body: CreateAgentRequest): Promise<AgentView> {
     return call(() => this.api.createAgent(body));
   }
   update(address: string, patch: UpdateAgentRequest): Promise<AgentView> {
     return call(() => this.api.updateAgent(address, patch));
   }
   async delete(address: string): Promise<void> {
-    await call(() => this.api.deleteAgent(address));
+    // The typed .delete() call is itself the confirmation; the ?confirm=DELETE
+    // guard exists to protect raw/curl callers (AG-6).
+    await call(() => this.api.deleteAgent(address, "DELETE"));
   }
   test(address: string): Promise<SendResultView> {
     return call(() => this.api.testAgent(address));
@@ -197,7 +198,7 @@ class AgentsResource {
 
 export interface ListMessagesParams {
   direction?: "inbound" | "outbound" | "all";
-  status?: "unread" | "read" | "all";
+  read_status?: "unread" | "read" | "all";
   sort?: "asc" | "desc";
   from?: string;
   subjectContains?: string;
@@ -214,7 +215,7 @@ class MessagesResource {
   list(address: string, params: ListMessagesParams = {}): AutoPager<MessageSummaryView> {
     return new AutoPager(async (cursor) => {
       const page = await call(() =>
-        this.api.listMessages(address, params.direction, params.status, params.sort, params.from,
+        this.api.listMessages(address, params.direction, params.read_status, params.sort, params.from,
           params.subjectContains, params.conversationId, params.labels, params.since, params.until,
           cursor, params.limit),
       );
@@ -233,10 +234,10 @@ class MessagesResource {
   forward(address: string, id: string, body: ForwardRequest, opts: RequestOptions = {}): Promise<SendResultView> {
     return call(() => this.api.forwardMessage(address, id, body, opts.idempotencyKey));
   }
-  approve(address: string, id: string, body: ApproveRequest = {}, opts: RequestOptions = {}): Promise<ApproveResultView> {
+  approve(address: string, id: string, body: ApproveRequest = {}, opts: RequestOptions = {}): Promise<SendResultView> {
     return call(() => this.api.approveMessage(address, id, body, opts.idempotencyKey));
   }
-  reject(address: string, id: string, body: RejectInputBody = {}): Promise<RejectResultView> {
+  reject(address: string, id: string, body: RejectRequest = {}): Promise<RejectResultView> {
     return call(() => this.api.rejectMessage(address, id, body));
   }
   updateLabels(address: string, id: string, body: UpdateMessageRequest): Promise<UpdateMessageResultView> {
@@ -247,12 +248,12 @@ class MessagesResource {
 class ConversationsResource {
   constructor(private readonly api: PromiseConversationsApi) {}
   // Returns an AutoPager for ergonomic consistency with every other `.list()`.
-  // The conversations endpoint has no cursor param (single page by contract),
-  // so the pager yields one page and terminates — same shape as agents/domains.
+  // Cursor-paginated (CV-3): the AutoPager walks next_cursor to completion.
   list(address: string, params: { since?: string; until?: string; limit?: number } = {}): AutoPager<ConversationSummaryView> {
-    return new AutoPager(async () => ({
-      items: (await call(() => this.api.listConversations(address, params.since, params.until, params.limit))).items ?? [],
-    }));
+    return new AutoPager(async (cursor) => {
+      const page = await call(() => this.api.listConversations(address, params.since, params.until, cursor, params.limit));
+      return { items: page.items ?? [], next_cursor: page.nextCursor };
+    });
   }
   get(address: string, id: string): Promise<ConversationDetailView> {
     return call(() => this.api.getConversation(address, id));
@@ -274,7 +275,7 @@ class DomainsResource {
     return call(() => this.api.updateDomain(domain, patch));
   }
   async delete(domain: string): Promise<void> {
-    await call(() => this.api.deleteDomain(domain));
+    await call(() => this.api.deleteDomain(domain, "DELETE"));
   }
   verify(domain: string): Promise<VerifyDomainView> {
     return call(() => this.api.verifyDomain(domain));
@@ -305,7 +306,7 @@ class EventsResource {
   get(id: string): Promise<EventJSON> {
     return call(() => this.api.getEvent(id));
   }
-  redeliver(id: string, body: RedeliverEventInputBody = {}): Promise<RedeliverView> {
+  redeliver(id: string, body: RedeliverEventRequest = {}): Promise<RedeliverView> {
     return call(() => this.api.redeliverEvent(id, body));
   }
 }
@@ -318,7 +319,7 @@ class WebhooksResource {
   get(id: string): Promise<WebhookView> {
     return call(() => this.api.getWebhook(id));
   }
-  create(body: CreateWebhookRequest): Promise<WebhookView> {
+  create(body: CreateWebhookRequest): Promise<CreateWebhookResponse> {
     return call(() => this.api.createWebhook(body));
   }
   update(id: string, patch: UpdateWebhookRequest): Promise<WebhookView> {
@@ -327,10 +328,10 @@ class WebhooksResource {
   async delete(id: string): Promise<void> {
     await call(() => this.api.deleteWebhook(id));
   }
-  rotateSecret(id: string): Promise<RotateSecretBody> {
+  rotateSecret(id: string): Promise<RotateSecretResponse> {
     return call(() => this.api.rotateWebhookSecret(id));
   }
-  test(id: string, body: TestWebhookRequest = {}): Promise<TestWebhookOutputBody> {
+  test(id: string, body: TestWebhookRequest = {}): Promise<TestWebhookResponse> {
     return call(() => this.api.testWebhook(id, body));
   }
   deliveries(id: string, params: { status?: "pending" | "delivered" | "failed"; limit?: number } = {}): AutoPager<WebhookDeliveryView> {
@@ -347,7 +348,10 @@ class WebhooksResource {
 class SuppressionsResource {
   constructor(private readonly api: PromiseAccountApi) {}
   list(): AutoPager<Suppression> {
-    return new AutoPager(async () => ({ items: (await call(() => this.api.listSuppressions())).items ?? [] }));
+    return new AutoPager(async (cursor) => {
+      const page = await call(() => this.api.listSuppressions(cursor));
+      return { items: page.items ?? [], next_cursor: page.nextCursor };
+    });
   }
   async delete(address: string): Promise<void> {
     await call(() => this.api.deleteSuppression(address));
@@ -359,13 +363,15 @@ class AccountResource {
   constructor(private readonly api: PromiseAccountApi) {
     this.suppressions = new SuppressionsResource(api);
   }
-  get(): Promise<LimitsView> {
+  get(): Promise<AccountView> {
     return call(() => this.api.getAccount());
   }
   export(): Promise<UserExport> {
     return call(() => this.api.exportAccount());
   }
-  delete(confirm?: string): Promise<DeleteUserDataResult> {
-    return call(() => this.api.deleteAccount(confirm));
+  delete(): Promise<DeleteUserDataResult> {
+    // Irreversible. The typed .delete() call is the confirmation; the SDK
+    // supplies the ?confirm=DELETE guard the raw API requires.
+    return call(() => this.api.deleteAccount("DELETE"));
   }
 }

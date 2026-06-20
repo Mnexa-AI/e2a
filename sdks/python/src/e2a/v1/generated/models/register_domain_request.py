@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from pydantic import BaseModel, ConfigDict, StrictStr
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -26,7 +26,7 @@ class RegisterDomainRequest(BaseModel):
     """
     RegisterDomainRequest
     """ # noqa: E501
-    domain: Optional[StrictStr] = None
+    domain: StrictStr
     __properties: ClassVar[List[str]] = ["domain"]
 
     model_config = ConfigDict(

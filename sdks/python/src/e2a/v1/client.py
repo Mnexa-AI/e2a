@@ -29,30 +29,29 @@ from .generated.configuration import Configuration
 from .generated.models import (
     AgentView,
     ApproveRequest,
-    ApproveResultView,
     ConversationDetailView,
     ConversationSummaryView,
     CreateAgentRequest,
-    CreateAgentResponse,
     CreateWebhookRequest,
+    CreateWebhookResponse,
     DeleteUserDataResult,
     DeploymentInfoView,
     DomainView,
     EventJSON,
     ForwardRequest,
-    LimitsView,
+    AccountView,
     MessageSummaryView,
     MessageView,
-    RedeliverEventInputBody,
+    RedeliverEventRequest,
     RedeliverView,
     RegisterDomainRequest,
-    RejectInputBody,
+    RejectRequest,
     ReplyRequest,
-    RotateSecretBody,
+    RotateSecretResponse,
     SendEmailRequest,
     SendResultView,
     Suppression,
-    TestWebhookOutputBody,
+    TestWebhookResponse,
     TestWebhookRequest,
     UpdateAgentRequest,
     UpdateDomainRequest,
@@ -215,7 +214,7 @@ class AgentsResource:
     async def get(self, address: str) -> AgentView:
         return await self._c._read(lambda h: self._api.get_agent(address, _headers=h))
 
-    async def create(self, body: Body) -> CreateAgentResponse:
+    async def create(self, body: Body) -> AgentView:
         req = _coerce(CreateAgentRequest, body)
         return await self._c._write_unsafe(lambda h: self._api.create_agent(req, _headers=h))
 
@@ -226,7 +225,9 @@ class AgentsResource:
         )
 
     async def delete(self, address: str) -> None:
-        await self._c._write_idempotent(lambda h: self._api.delete_agent(address, _headers=h))
+        # The typed .delete() call is the confirmation; the SDK supplies the
+        # ?confirm=DELETE guard the raw API requires (AG-6).
+        await self._c._write_idempotent(lambda h: self._api.delete_agent(address, confirm="DELETE", _headers=h))
 
     async def test(self, address: str) -> SendResultView:
         return await self._c._write_unsafe(lambda h: self._api.test_agent(address, _headers=h))
@@ -242,7 +243,7 @@ class MessagesResource:
         address: str,
         *,
         direction: Optional[str] = None,
-        status: Optional[str] = None,
+        read_status: Optional[str] = None,
         sort: Optional[str] = None,
         var_from: Optional[str] = None,
         subject_contains: Optional[str] = None,
@@ -257,7 +258,7 @@ class MessagesResource:
                 lambda h: self._api.list_messages(
                     address,
                     direction=direction,
-                    status=status,
+                    read_status=read_status,
                     sort=sort,
                     var_from=var_from,
                     subject_contains=subject_contains,
@@ -310,7 +311,7 @@ class MessagesResource:
         body: Optional[Body] = None,
         *,
         idempotency_key: Optional[str] = None,
-    ) -> ApproveResultView:
+    ) -> SendResultView:
         req = _coerce(ApproveRequest, body)
         return await self._c._write_keyed(
             lambda h: self._api.approve_message(address, message_id, req, _headers=h),
@@ -318,7 +319,7 @@ class MessagesResource:
         )
 
     async def reject(self, address: str, message_id: str, body: Optional[Body] = None) -> Any:
-        req = _coerce(RejectInputBody, body)
+        req = _coerce(RejectRequest, body)
         return await self._c._write_unsafe(
             lambda h: self._api.reject_message(address, message_id, req, _headers=h)
         )
@@ -345,15 +346,14 @@ class ConversationsResource:
         until: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> AutoPager[ConversationSummaryView]:
-        # No cursor param — single page by contract; AutoPager for ergonomic
-        # consistency with every other .list() (yields one page, terminates).
-        async def fetch(_cursor: Optional[str]) -> Page:
+        # Cursor-paginated (CV-3): the AutoPager walks next_cursor to completion.
+        async def fetch(cursor: Optional[str]) -> Page:
             resp = await self._c._read(
                 lambda h: self._api.list_conversations(
-                    address, since=since, until=until, limit=limit, _headers=h
+                    address, since=since, until=until, cursor=cursor, limit=limit, _headers=h
                 )
             )
-            return _page(resp.items)
+            return _page(resp.items, resp.next_cursor)
 
         return AutoPager(fetch)
 
@@ -389,7 +389,7 @@ class DomainsResource:
         )
 
     async def delete(self, domain: str) -> None:
-        await self._c._write_idempotent(lambda h: self._api.delete_domain(domain, _headers=h))
+        await self._c._write_idempotent(lambda h: self._api.delete_domain(domain, confirm="DELETE", _headers=h))
 
     async def verify(self, domain: str) -> VerifyDomainView:
         return await self._c._write_unsafe(lambda h: self._api.verify_domain(domain, _headers=h))
@@ -433,7 +433,7 @@ class EventsResource:
         return await self._c._read(lambda h: self._api.get_event(event_id, _headers=h))
 
     async def redeliver(self, event_id: str, body: Optional[Body] = None) -> RedeliverView:
-        req = _coerce(RedeliverEventInputBody, body)
+        req = _coerce(RedeliverEventRequest, body)
         return await self._c._write_unsafe(
             lambda h: self._api.redeliver_event(event_id, req, _headers=h)
         )
@@ -454,7 +454,7 @@ class WebhooksResource:
     async def get(self, webhook_id: str) -> WebhookView:
         return await self._c._read(lambda h: self._api.get_webhook(webhook_id, _headers=h))
 
-    async def create(self, body: Body) -> WebhookView:
+    async def create(self, body: Body) -> CreateWebhookResponse:
         req = _coerce(CreateWebhookRequest, body)
         return await self._c._write_unsafe(lambda h: self._api.create_webhook(req, _headers=h))
 
@@ -467,7 +467,7 @@ class WebhooksResource:
     async def delete(self, webhook_id: str) -> None:
         await self._c._write_idempotent(lambda h: self._api.delete_webhook(webhook_id, _headers=h))
 
-    async def rotate_secret(self, webhook_id: str) -> RotateSecretBody:
+    async def rotate_secret(self, webhook_id: str) -> RotateSecretResponse:
         # Server-deduped via Idempotency-Key: a retried rotate replays the first
         # secret instead of minting a second. Mint a key + retry (parity with the
         # TS SDK, which retries rotate for the same reason).
@@ -475,7 +475,7 @@ class WebhooksResource:
             lambda h: self._api.rotate_webhook_secret(webhook_id, _headers=h)
         )
 
-    async def test(self, webhook_id: str, body: Optional[Body] = None) -> TestWebhookOutputBody:
+    async def test(self, webhook_id: str, body: Optional[Body] = None) -> TestWebhookResponse:
         req = _coerce(TestWebhookRequest, body)
         return await self._c._write_unsafe(
             lambda h: self._api.test_webhook(webhook_id, req, _headers=h)
@@ -502,9 +502,10 @@ class SuppressionsResource:
         self._c = client
 
     def list(self) -> AutoPager[Suppression]:
-        async def fetch(_cursor: Optional[str]) -> Page:
-            resp = await self._c._read(lambda h: self._api.list_suppressions(_headers=h))
-            return _page(resp.items)
+        # Cursor-paginated (A-5): walks next_cursor to completion.
+        async def fetch(cursor: Optional[str]) -> Page:
+            resp = await self._c._read(lambda h: self._api.list_suppressions(cursor=cursor, _headers=h))
+            return _page(resp.items, resp.next_cursor)
 
         return AutoPager(fetch)
 
@@ -518,16 +519,17 @@ class AccountResource:
         self._c = client
         self.suppressions = SuppressionsResource(api, client)
 
-    async def get(self) -> LimitsView:
+    async def get(self) -> AccountView:
         return await self._c._read(lambda h: self._api.get_account(_headers=h))
 
     async def export(self) -> UserExport:
         return await self._c._read(lambda h: self._api.export_account(_headers=h))
 
-    async def delete(self, confirm: Optional[str] = None) -> DeleteUserDataResult:
+    async def delete(self) -> DeleteUserDataResult:
         # Deliberately NOT retried (unlike the other DELETEs): account deletion is
         # irreversible, so a transient failure should surface loudly to the caller
-        # rather than silently re-firing.
+        # rather than silently re-firing. The typed .delete() call is the
+        # confirmation; the SDK supplies the ?confirm=DELETE guard.
         return await self._c._write_unsafe(
-            lambda h: self._api.delete_account(confirm=confirm, _headers=h)
+            lambda h: self._api.delete_account(confirm="DELETE", _headers=h)
         )

@@ -80,11 +80,6 @@ class RedeliverView(BaseModel):
                 if _item_deliveries:
                     _items.append(_item_deliveries.to_dict())
             _dict['deliveries'] = _items
-        # set to None if deliveries (nullable) is None
-        # and model_fields_set contains the field
-        if self.deliveries is None and "deliveries" in self.model_fields_set:
-            _dict['deliveries'] = None
-
         return _dict
 
     @classmethod

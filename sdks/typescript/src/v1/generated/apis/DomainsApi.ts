@@ -23,14 +23,16 @@ export class DomainsApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * Delete a domain
      * @param domain 
+     * @param confirm Must be DELETE — this is irreversible (deprovisions the domain\&#39;s sending identity).
      */
-    public async deleteDomain(domain: string, _options?: Configuration): Promise<RequestContext> {
+    public async deleteDomain(domain: string, confirm?: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'domain' is not null or undefined
         if (domain === null || domain === undefined) {
             throw new RequiredError("DomainsApi", "deleteDomain", "domain");
         }
+
 
 
         // Path Params
@@ -40,6 +42,11 @@ export class DomainsApiRequestFactory extends BaseAPIRequestFactory {
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.DELETE);
         requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+        // Query Params
+        if (confirm !== undefined) {
+            requestContext.setQueryParam("confirm", ObjectSerializer.serialize(confirm, "string", ""));
+        }
 
 
         let authMethod: SecurityAuthentication | undefined;

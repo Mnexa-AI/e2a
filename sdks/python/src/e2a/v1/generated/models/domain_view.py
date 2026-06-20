@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt, StrictStr
+from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.dns_records_view import DNSRecordsView
 from e2a.v1.generated.models.sending_dns_record_view import SendingDNSRecordView
@@ -93,11 +93,6 @@ class DomainView(BaseModel):
                 if _item_sending_dns_records:
                     _items.append(_item_sending_dns_records.to_dict())
             _dict['sending_dns_records'] = _items
-        # set to None if sending_dns_records (nullable) is None
-        # and model_fields_set contains the field
-        if self.sending_dns_records is None and "sending_dns_records" in self.model_fields_set:
-            _dict['sending_dns_records'] = None
-
         return _dict
 
     @classmethod

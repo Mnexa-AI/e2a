@@ -13,7 +13,7 @@
 import { HttpFile } from '../http/http.js';
 
 export class UpdateMessageResultView {
-    'labels': Array<string> | null;
+    'labels': Array<string>;
     'messageId': string;
 
     static readonly discriminator: string | undefined = undefined;

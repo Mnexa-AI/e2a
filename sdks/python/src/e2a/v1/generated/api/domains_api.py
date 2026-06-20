@@ -16,7 +16,9 @@ from pydantic import validate_call, Field, StrictFloat, StrictStr, StrictInt
 from typing import Any, Dict, List, Optional, Tuple, Union
 from typing_extensions import Annotated
 
-from pydantic import StrictStr
+from pydantic import Field, StrictStr
+from typing import Optional
+from typing_extensions import Annotated
 from e2a.v1.generated.models.domain_view import DomainView
 from e2a.v1.generated.models.page_domain_view import PageDomainView
 from e2a.v1.generated.models.register_domain_request import RegisterDomainRequest
@@ -45,6 +47,7 @@ class DomainsApi:
     async def delete_domain(
         self,
         domain: StrictStr,
+        confirm: Annotated[Optional[StrictStr], Field(description="Must be DELETE — this is irreversible (deprovisions the domain's sending identity).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -63,6 +66,8 @@ class DomainsApi:
 
         :param domain: (required)
         :type domain: str
+        :param confirm: Must be DELETE — this is irreversible (deprovisions the domain's sending identity).
+        :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -87,6 +92,7 @@ class DomainsApi:
 
         _param = self._delete_domain_serialize(
             domain=domain,
+            confirm=confirm,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -111,6 +117,7 @@ class DomainsApi:
     async def delete_domain_with_http_info(
         self,
         domain: StrictStr,
+        confirm: Annotated[Optional[StrictStr], Field(description="Must be DELETE — this is irreversible (deprovisions the domain's sending identity).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -129,6 +136,8 @@ class DomainsApi:
 
         :param domain: (required)
         :type domain: str
+        :param confirm: Must be DELETE — this is irreversible (deprovisions the domain's sending identity).
+        :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -153,6 +162,7 @@ class DomainsApi:
 
         _param = self._delete_domain_serialize(
             domain=domain,
+            confirm=confirm,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -177,6 +187,7 @@ class DomainsApi:
     async def delete_domain_without_preload_content(
         self,
         domain: StrictStr,
+        confirm: Annotated[Optional[StrictStr], Field(description="Must be DELETE — this is irreversible (deprovisions the domain's sending identity).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -195,6 +206,8 @@ class DomainsApi:
 
         :param domain: (required)
         :type domain: str
+        :param confirm: Must be DELETE — this is irreversible (deprovisions the domain's sending identity).
+        :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -219,6 +232,7 @@ class DomainsApi:
 
         _param = self._delete_domain_serialize(
             domain=domain,
+            confirm=confirm,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -238,6 +252,7 @@ class DomainsApi:
     def _delete_domain_serialize(
         self,
         domain,
+        confirm,
         _request_auth,
         _content_type,
         _headers,
@@ -262,6 +277,10 @@ class DomainsApi:
         if domain is not None:
             _path_params['domain'] = domain
         # process the query parameters
+        if confirm is not None:
+            
+            _query_params.append(('confirm', confirm))
+            
         # process the header parameters
         # process the form parameters
         # process the body parameter

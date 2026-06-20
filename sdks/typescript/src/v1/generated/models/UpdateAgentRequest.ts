@@ -14,11 +14,11 @@ import { HttpFile } from '../http/http.js';
 
 export class UpdateAgentRequest {
     'hitlEnabled'?: boolean;
-    'hitlExpirationAction'?: string;
-    'hitlMode'?: string;
+    'hitlExpirationAction'?: UpdateAgentRequestHitlExpirationActionEnum;
+    'hitlMode'?: UpdateAgentRequestHitlModeEnum;
     'hitlTtlSeconds'?: number;
     'inboundAllowlist'?: Array<string>;
-    'inboundPolicy'?: string;
+    'inboundPolicy'?: UpdateAgentRequestInboundPolicyEnum;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -34,13 +34,13 @@ export class UpdateAgentRequest {
         {
             "name": "hitlExpirationAction",
             "baseName": "hitl_expiration_action",
-            "type": "string",
+            "type": "UpdateAgentRequestHitlExpirationActionEnum",
             "format": ""
         },
         {
             "name": "hitlMode",
             "baseName": "hitl_mode",
-            "type": "string",
+            "type": "UpdateAgentRequestHitlModeEnum",
             "format": ""
         },
         {
@@ -58,7 +58,7 @@ export class UpdateAgentRequest {
         {
             "name": "inboundPolicy",
             "baseName": "inbound_policy",
-            "type": "string",
+            "type": "UpdateAgentRequestInboundPolicyEnum",
             "format": ""
         }    ];
 
@@ -69,3 +69,19 @@ export class UpdateAgentRequest {
     public constructor() {
     }
 }
+
+export enum UpdateAgentRequestHitlExpirationActionEnum {
+    Approve = 'approve',
+    Reject = 'reject'
+}
+export enum UpdateAgentRequestHitlModeEnum {
+    All = 'all',
+    HighImpact = 'high_impact'
+}
+export enum UpdateAgentRequestInboundPolicyEnum {
+    Open = 'open',
+    Allowlist = 'allowlist',
+    Domain = 'domain',
+    VerifiedOnly = 'verified_only'
+}
+

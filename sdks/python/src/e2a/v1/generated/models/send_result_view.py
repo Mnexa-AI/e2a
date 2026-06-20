@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
@@ -28,10 +28,13 @@ class SendResultView(BaseModel):
     SendResultView
     """ # noqa: E501
     approval_expires_at: Optional[datetime] = None
+    edited: Optional[StrictBool] = None
     message_id: StrictStr
     method: Optional[StrictStr] = None
+    provider_message_id: Optional[StrictStr] = None
+    sent_as: Optional[StrictStr] = None
     status: StrictStr
-    __properties: ClassVar[List[str]] = ["approval_expires_at", "message_id", "method", "status"]
+    __properties: ClassVar[List[str]] = ["approval_expires_at", "edited", "message_id", "method", "provider_message_id", "sent_as", "status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -85,8 +88,11 @@ class SendResultView(BaseModel):
 
         _obj = cls.model_validate({
             "approval_expires_at": obj.get("approval_expires_at"),
+            "edited": obj.get("edited"),
             "message_id": obj.get("message_id"),
             "method": obj.get("method"),
+            "provider_message_id": obj.get("provider_message_id"),
+            "sent_as": obj.get("sent_as"),
             "status": obj.get("status")
         })
         return _obj

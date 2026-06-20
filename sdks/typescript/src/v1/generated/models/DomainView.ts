@@ -21,10 +21,10 @@ export class DomainView {
     'domain': string;
     'isPrimary': boolean;
     'lastCheckedAt'?: Date;
-    'sendingDnsRecords'?: Array<SendingDNSRecordView> | null;
+    'sendingDnsRecords'?: Array<SendingDNSRecordView>;
     'sendingError'?: string;
     'sendingLastCheckedAt'?: Date;
-    'sendingStatus': string;
+    'sendingStatus': DomainViewSendingStatusEnum;
     'verificationToken': string;
     'verified': boolean;
     'verifiedAt'?: Date;
@@ -91,7 +91,7 @@ export class DomainView {
         {
             "name": "sendingStatus",
             "baseName": "sending_status",
-            "type": "string",
+            "type": "DomainViewSendingStatusEnum",
             "format": ""
         },
         {
@@ -120,3 +120,11 @@ export class DomainView {
     public constructor() {
     }
 }
+
+export enum DomainViewSendingStatusEnum {
+    None = 'none',
+    Pending = 'pending',
+    Verified = 'verified',
+    Failed = 'failed'
+}
+

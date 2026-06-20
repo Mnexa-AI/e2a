@@ -14,8 +14,11 @@ import { HttpFile } from '../http/http.js';
 
 export class SendResultView {
     'approvalExpiresAt'?: Date;
+    'edited'?: boolean;
     'messageId': string;
-    'method'?: string;
+    'method'?: SendResultViewMethodEnum;
+    'providerMessageId'?: string;
+    'sentAs'?: SendResultViewSentAsEnum;
     'status': SendResultViewStatusEnum;
 
     static readonly discriminator: string | undefined = undefined;
@@ -30,6 +33,12 @@ export class SendResultView {
             "format": "date-time"
         },
         {
+            "name": "edited",
+            "baseName": "edited",
+            "type": "boolean",
+            "format": ""
+        },
+        {
             "name": "messageId",
             "baseName": "message_id",
             "type": "string",
@@ -38,7 +47,19 @@ export class SendResultView {
         {
             "name": "method",
             "baseName": "method",
+            "type": "SendResultViewMethodEnum",
+            "format": ""
+        },
+        {
+            "name": "providerMessageId",
+            "baseName": "provider_message_id",
             "type": "string",
+            "format": ""
+        },
+        {
+            "name": "sentAs",
+            "baseName": "sent_as",
+            "type": "SendResultViewSentAsEnum",
             "format": ""
         },
         {
@@ -56,6 +77,14 @@ export class SendResultView {
     }
 }
 
+export enum SendResultViewMethodEnum {
+    Smtp = 'smtp',
+    Loopback = 'loopback'
+}
+export enum SendResultViewSentAsEnum {
+    OwnAddress = 'own_address',
+    Relay = 'relay'
+}
 export enum SendResultViewStatusEnum {
     Sent = 'sent',
     PendingApproval = 'pending_approval'

@@ -1,15 +1,17 @@
 export * from '../models/APIKeyExportEntry.js';
+export * from '../models/AccountUserView.js';
+export * from '../models/AccountView.js';
 export * from '../models/AgentIdentity.js';
 export * from '../models/AgentView.js';
 export * from '../models/ApproveRequest.js';
-export * from '../models/ApproveResultView.js';
 export * from '../models/Attachment.js';
+export * from '../models/AuthVerdict.js';
 export * from '../models/CheckResult.js';
 export * from '../models/ConversationDetailView.js';
 export * from '../models/ConversationSummaryView.js';
 export * from '../models/CreateAgentRequest.js';
-export * from '../models/CreateAgentResponse.js';
 export * from '../models/CreateWebhookRequest.js';
+export * from '../models/CreateWebhookResponse.js';
 export * from '../models/DNSRecordView.js';
 export * from '../models/DNSRecordsView.js';
 export * from '../models/DeleteUserDataResult.js';
@@ -23,7 +25,6 @@ export * from '../models/EventJSON.js';
 export * from '../models/ForwardRequest.js';
 export * from '../models/LimitsCapsView.js';
 export * from '../models/LimitsUsageView.js';
-export * from '../models/LimitsView.js';
 export * from '../models/Message.js';
 export * from '../models/MessageBodyView.js';
 export * from '../models/MessageParsedView.js';
@@ -39,20 +40,20 @@ export * from '../models/PageSuppression.js';
 export * from '../models/PageWebhookDeliveryView.js';
 export * from '../models/PageWebhookView.js';
 export * from '../models/RedeliverDelivery.js';
-export * from '../models/RedeliverEventInputBody.js';
+export * from '../models/RedeliverEventRequest.js';
 export * from '../models/RedeliverView.js';
 export * from '../models/RegisterDomainRequest.js';
-export * from '../models/RejectInputBody.js';
+export * from '../models/RejectRequest.js';
 export * from '../models/RejectResultView.js';
 export * from '../models/ReplyRequest.js';
 export * from '../models/Result.js';
-export * from '../models/RotateSecretBody.js';
+export * from '../models/RotateSecretResponse.js';
 export * from '../models/SendEmailRequest.js';
 export * from '../models/SendResultView.js';
 export * from '../models/SendingDNSRecordView.js';
 export * from '../models/Suppression.js';
-export * from '../models/TestWebhookOutputBody.js';
 export * from '../models/TestWebhookRequest.js';
+export * from '../models/TestWebhookResponse.js';
 export * from '../models/UpdateAgentRequest.js';
 export * from '../models/UpdateDomainRequest.js';
 export * from '../models/UpdateMessageRequest.js';
@@ -67,36 +68,37 @@ export * from '../models/WebhookFiltersView.js';
 export * from '../models/WebhookView.js';
 
 import { APIKeyExportEntry } from '../models/APIKeyExportEntry.js';
+import { AccountUserView } from '../models/AccountUserView.js';
+import { AccountView   , AccountViewScopeEnum      } from '../models/AccountView.js';
 import { AgentIdentity } from '../models/AgentIdentity.js';
 import { AgentView     , AgentViewHitlExpirationActionEnum  , AgentViewHitlModeEnum     , AgentViewInboundPolicyEnum    } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
-import { ApproveResultView } from '../models/ApproveResultView.js';
 import { Attachment } from '../models/Attachment.js';
+import { AuthVerdict } from '../models/AuthVerdict.js';
 import { CheckResult } from '../models/CheckResult.js';
 import { ConversationDetailView } from '../models/ConversationDetailView.js';
 import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
-import { CreateAgentResponse } from '../models/CreateAgentResponse.js';
-import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
+import { CreateWebhookRequest , CreateWebhookRequestEventsEnum     } from '../models/CreateWebhookRequest.js';
+import { CreateWebhookResponse    , CreateWebhookResponseEventsEnum        } from '../models/CreateWebhookResponse.js';
 import { DNSRecordView } from '../models/DNSRecordView.js';
 import { DNSRecordsView } from '../models/DNSRecordsView.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
 import { DeliveryStatusJSON } from '../models/DeliveryStatusJSON.js';
 import { DeploymentInfoView } from '../models/DeploymentInfoView.js';
 import { Domain } from '../models/Domain.js';
-import { DomainView } from '../models/DomainView.js';
+import { DomainView         , DomainViewSendingStatusEnum      } from '../models/DomainView.js';
 import { ErrorBody } from '../models/ErrorBody.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { EventJSON        , EventJSONStatusEnum  , EventJSONTypeEnum   } from '../models/EventJSON.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
 import { LimitsCapsView } from '../models/LimitsCapsView.js';
 import { LimitsUsageView } from '../models/LimitsUsageView.js';
-import { LimitsView } from '../models/LimitsView.js';
 import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
-import { MessageSummaryView     , MessageSummaryViewDeliveryStatusEnum  , MessageSummaryViewDirectionEnum     , MessageSummaryViewHitlStatusEnum      , MessageSummaryViewSentAsEnum         } from '../models/MessageSummaryView.js';
-import { MessageView       , MessageViewDeliveryStatusEnum  , MessageViewDirectionEnum     , MessageViewHitlStatusEnum        , MessageViewSentAsEnum         } from '../models/MessageView.js';
+import { MessageSummaryView     , MessageSummaryViewDeliveryStatusEnum  , MessageSummaryViewDirectionEnum     , MessageSummaryViewHitlStatusEnum       , MessageSummaryViewSentAsEnum        } from '../models/MessageSummaryView.js';
+import { MessageView       , MessageViewDeliveryStatusEnum  , MessageViewDirectionEnum     , MessageViewHitlStatusEnum         , MessageViewSentAsEnum        } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
 import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
@@ -107,32 +109,32 @@ import { PageSuppression } from '../models/PageSuppression.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
 import { RedeliverDelivery  , RedeliverDeliveryStatusEnum    } from '../models/RedeliverDelivery.js';
-import { RedeliverEventInputBody } from '../models/RedeliverEventInputBody.js';
+import { RedeliverEventRequest } from '../models/RedeliverEventRequest.js';
 import { RedeliverView   , RedeliverViewStatusEnum    } from '../models/RedeliverView.js';
 import { RegisterDomainRequest } from '../models/RegisterDomainRequest.js';
-import { RejectInputBody } from '../models/RejectInputBody.js';
+import { RejectRequest } from '../models/RejectRequest.js';
 import { RejectResultView } from '../models/RejectResultView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
-import { RotateSecretBody } from '../models/RotateSecretBody.js';
+import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
-import { SendResultView   , SendResultViewStatusEnum   } from '../models/SendResultView.js';
+import { SendResultView   , SendResultViewMethodEnum   , SendResultViewSentAsEnum  , SendResultViewStatusEnum   } from '../models/SendResultView.js';
 import { SendingDNSRecordView } from '../models/SendingDNSRecordView.js';
 import { Suppression } from '../models/Suppression.js';
-import { TestWebhookOutputBody } from '../models/TestWebhookOutputBody.js';
-import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
-import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
+import { TestWebhookRequest , TestWebhookRequestEventEnum   } from '../models/TestWebhookRequest.js';
+import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
+import { UpdateAgentRequest , UpdateAgentRequestHitlExpirationActionEnum  , UpdateAgentRequestHitlModeEnum    , UpdateAgentRequestInboundPolicyEnum   } from '../models/UpdateAgentRequest.js';
 import { UpdateDomainRequest } from '../models/UpdateDomainRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
 import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
-import { UpdateWebhookRequest } from '../models/UpdateWebhookRequest.js';
+import { UpdateWebhookRequest  , UpdateWebhookRequestEventsEnum     } from '../models/UpdateWebhookRequest.js';
 import { UsageEventEntry } from '../models/UsageEventEntry.js';
 import { UserExport } from '../models/UserExport.js';
 import { UserExportUser } from '../models/UserExportUser.js';
 import { VerifyDomainView } from '../models/VerifyDomainView.js';
 import { WebhookDeliveryView  , WebhookDeliveryViewEventTypeEnum       , WebhookDeliveryViewStatusEnum   } from '../models/WebhookDeliveryView.js';
 import { WebhookFiltersView } from '../models/WebhookFiltersView.js';
-import { WebhookView } from '../models/WebhookView.js';
+import { WebhookView    , WebhookViewEventsEnum       } from '../models/WebhookView.js';
 
 /* tslint:disable:no-unused-variable */
 let primitives = [
@@ -147,9 +149,13 @@ let primitives = [
                  ];
 
 let enumsMap: Set<string> = new Set<string>([
+    "AccountViewScopeEnum",
     "AgentViewHitlExpirationActionEnum",
     "AgentViewHitlModeEnum",
     "AgentViewInboundPolicyEnum",
+    "CreateWebhookRequestEventsEnum",
+    "CreateWebhookResponseEventsEnum",
+    "DomainViewSendingStatusEnum",
     "EventJSONStatusEnum",
     "EventJSONTypeEnum",
     "MessageSummaryViewDeliveryStatusEnum",
@@ -162,24 +168,34 @@ let enumsMap: Set<string> = new Set<string>([
     "MessageViewSentAsEnum",
     "RedeliverDeliveryStatusEnum",
     "RedeliverViewStatusEnum",
+    "SendResultViewMethodEnum",
+    "SendResultViewSentAsEnum",
     "SendResultViewStatusEnum",
+    "TestWebhookRequestEventEnum",
+    "UpdateAgentRequestHitlExpirationActionEnum",
+    "UpdateAgentRequestHitlModeEnum",
+    "UpdateAgentRequestInboundPolicyEnum",
+    "UpdateWebhookRequestEventsEnum",
     "WebhookDeliveryViewEventTypeEnum",
     "WebhookDeliveryViewStatusEnum",
+    "WebhookViewEventsEnum",
 ]);
 
 let typeMap: {[index: string]: any} = {
     "APIKeyExportEntry": APIKeyExportEntry,
+    "AccountUserView": AccountUserView,
+    "AccountView": AccountView,
     "AgentIdentity": AgentIdentity,
     "AgentView": AgentView,
     "ApproveRequest": ApproveRequest,
-    "ApproveResultView": ApproveResultView,
     "Attachment": Attachment,
+    "AuthVerdict": AuthVerdict,
     "CheckResult": CheckResult,
     "ConversationDetailView": ConversationDetailView,
     "ConversationSummaryView": ConversationSummaryView,
     "CreateAgentRequest": CreateAgentRequest,
-    "CreateAgentResponse": CreateAgentResponse,
     "CreateWebhookRequest": CreateWebhookRequest,
+    "CreateWebhookResponse": CreateWebhookResponse,
     "DNSRecordView": DNSRecordView,
     "DNSRecordsView": DNSRecordsView,
     "DeleteUserDataResult": DeleteUserDataResult,
@@ -193,7 +209,6 @@ let typeMap: {[index: string]: any} = {
     "ForwardRequest": ForwardRequest,
     "LimitsCapsView": LimitsCapsView,
     "LimitsUsageView": LimitsUsageView,
-    "LimitsView": LimitsView,
     "Message": Message,
     "MessageBodyView": MessageBodyView,
     "MessageParsedView": MessageParsedView,
@@ -209,20 +224,20 @@ let typeMap: {[index: string]: any} = {
     "PageWebhookDeliveryView": PageWebhookDeliveryView,
     "PageWebhookView": PageWebhookView,
     "RedeliverDelivery": RedeliverDelivery,
-    "RedeliverEventInputBody": RedeliverEventInputBody,
+    "RedeliverEventRequest": RedeliverEventRequest,
     "RedeliverView": RedeliverView,
     "RegisterDomainRequest": RegisterDomainRequest,
-    "RejectInputBody": RejectInputBody,
+    "RejectRequest": RejectRequest,
     "RejectResultView": RejectResultView,
     "ReplyRequest": ReplyRequest,
     "Result": Result,
-    "RotateSecretBody": RotateSecretBody,
+    "RotateSecretResponse": RotateSecretResponse,
     "SendEmailRequest": SendEmailRequest,
     "SendResultView": SendResultView,
     "SendingDNSRecordView": SendingDNSRecordView,
     "Suppression": Suppression,
-    "TestWebhookOutputBody": TestWebhookOutputBody,
     "TestWebhookRequest": TestWebhookRequest,
+    "TestWebhookResponse": TestWebhookResponse,
     "UpdateAgentRequest": UpdateAgentRequest,
     "UpdateDomainRequest": UpdateDomainRequest,
     "UpdateMessageRequest": UpdateMessageRequest,

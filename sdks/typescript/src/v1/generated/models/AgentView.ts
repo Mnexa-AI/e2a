@@ -22,7 +22,7 @@ export class AgentView {
     'hitlMode': AgentViewHitlModeEnum;
     'hitlTtlSeconds': number;
     'id': string;
-    'inboundAllowlist'?: Array<string> | null;
+    'inboundAllowlist'?: Array<string>;
     'inboundPolicy': AgentViewInboundPolicyEnum;
     'name': string;
 

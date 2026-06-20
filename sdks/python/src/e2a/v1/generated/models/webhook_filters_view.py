@@ -70,21 +70,6 @@ class WebhookFiltersView(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # set to None if agent_ids (nullable) is None
-        # and model_fields_set contains the field
-        if self.agent_ids is None and "agent_ids" in self.model_fields_set:
-            _dict['agent_ids'] = None
-
-        # set to None if conversation_ids (nullable) is None
-        # and model_fields_set contains the field
-        if self.conversation_ids is None and "conversation_ids" in self.model_fields_set:
-            _dict['conversation_ids'] = None
-
-        # set to None if labels (nullable) is None
-        # and model_fields_set contains the field
-        if self.labels is None and "labels" in self.model_fields_set:
-            _dict['labels'] = None
-
         return _dict
 
     @classmethod

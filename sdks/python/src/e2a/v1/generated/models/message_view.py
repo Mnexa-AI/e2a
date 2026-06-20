@@ -20,9 +20,9 @@ import json
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
+from e2a.v1.generated.models.auth_verdict import AuthVerdict
 from e2a.v1.generated.models.message_body_view import MessageBodyView
 from e2a.v1.generated.models.message_parsed_view import MessageParsedView
-from e2a.v1.generated.models.result import Result
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -30,10 +30,10 @@ class MessageView(BaseModel):
     """
     MessageView
     """ # noqa: E501
-    auth: Optional[Result] = None
-    auth_headers: Dict[str, StrictStr]
+    auth: Optional[AuthVerdict] = None
+    auth_headers: Optional[Dict[str, StrictStr]] = None
     body: Optional[MessageBodyView] = None
-    cc: Optional[List[StrictStr]]
+    cc: List[StrictStr]
     conversation_id: StrictStr
     created_at: datetime
     delivery_detail: Optional[StrictStr] = None
@@ -43,20 +43,20 @@ class MessageView(BaseModel):
     flagged: Optional[StrictBool] = None
     var_from: StrictStr = Field(alias="from")
     hitl_status: Optional[StrictStr] = None
-    labels: Optional[List[StrictStr]]
+    labels: List[StrictStr]
     message_id: StrictStr
     parsed: Optional[MessageParsedView] = None
     raw_message: StrictStr
+    read_status: StrictStr
     recipient: StrictStr
-    reply_to: Optional[List[StrictStr]]
+    reply_to: List[StrictStr]
     sent_as: Optional[StrictStr] = None
     size_bytes: Optional[StrictInt] = None
-    status: StrictStr
     subject: StrictStr
-    to: Optional[List[StrictStr]]
+    to: List[StrictStr]
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
-    __properties: ClassVar[List[str]] = ["auth", "auth_headers", "body", "cc", "conversation_id", "created_at", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "hitl_status", "labels", "message_id", "parsed", "raw_message", "recipient", "reply_to", "sent_as", "size_bytes", "status", "subject", "to", "webhook_error", "webhook_status"]
+    __properties: ClassVar[List[str]] = ["auth", "auth_headers", "body", "cc", "conversation_id", "created_at", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "hitl_status", "labels", "message_id", "parsed", "raw_message", "read_status", "recipient", "reply_to", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -106,26 +106,6 @@ class MessageView(BaseModel):
         # override the default output from pydantic by calling `to_dict()` of parsed
         if self.parsed:
             _dict['parsed'] = self.parsed.to_dict()
-        # set to None if cc (nullable) is None
-        # and model_fields_set contains the field
-        if self.cc is None and "cc" in self.model_fields_set:
-            _dict['cc'] = None
-
-        # set to None if labels (nullable) is None
-        # and model_fields_set contains the field
-        if self.labels is None and "labels" in self.model_fields_set:
-            _dict['labels'] = None
-
-        # set to None if reply_to (nullable) is None
-        # and model_fields_set contains the field
-        if self.reply_to is None and "reply_to" in self.model_fields_set:
-            _dict['reply_to'] = None
-
-        # set to None if to (nullable) is None
-        # and model_fields_set contains the field
-        if self.to is None and "to" in self.model_fields_set:
-            _dict['to'] = None
-
         return _dict
 
     @classmethod
@@ -138,7 +118,7 @@ class MessageView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "auth": Result.from_dict(obj["auth"]) if obj.get("auth") is not None else None,
+            "auth": AuthVerdict.from_dict(obj["auth"]) if obj.get("auth") is not None else None,
             "auth_headers": obj.get("auth_headers"),
             "body": MessageBodyView.from_dict(obj["body"]) if obj.get("body") is not None else None,
             "cc": obj.get("cc"),
@@ -155,11 +135,11 @@ class MessageView(BaseModel):
             "message_id": obj.get("message_id"),
             "parsed": MessageParsedView.from_dict(obj["parsed"]) if obj.get("parsed") is not None else None,
             "raw_message": obj.get("raw_message"),
+            "read_status": obj.get("read_status"),
             "recipient": obj.get("recipient"),
             "reply_to": obj.get("reply_to"),
             "sent_as": obj.get("sent_as"),
             "size_bytes": obj.get("size_bytes"),
-            "status": obj.get("status"),
             "subject": obj.get("subject"),
             "to": obj.get("to"),
             "webhook_error": obj.get("webhook_error"),

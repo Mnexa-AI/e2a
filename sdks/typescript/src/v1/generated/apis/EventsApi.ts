@@ -11,7 +11,7 @@ import {SecurityAuthentication} from '../auth/auth.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { EventJSON } from '../models/EventJSON.js';
 import { PageEventJSON } from '../models/PageEventJSON.js';
-import { RedeliverEventInputBody } from '../models/RedeliverEventInputBody.js';
+import { RedeliverEventRequest } from '../models/RedeliverEventRequest.js';
 import { RedeliverView } from '../models/RedeliverView.js';
 
 /**
@@ -146,9 +146,9 @@ export class EventsApiRequestFactory extends BaseAPIRequestFactory {
      * Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
      * Redeliver an event
      * @param id 
-     * @param redeliverEventInputBody 
+     * @param redeliverEventRequest 
      */
-    public async redeliverEvent(id: string, redeliverEventInputBody: RedeliverEventInputBody, _options?: Configuration): Promise<RequestContext> {
+    public async redeliverEvent(id: string, redeliverEventRequest: RedeliverEventRequest, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'id' is not null or undefined
@@ -157,9 +157,9 @@ export class EventsApiRequestFactory extends BaseAPIRequestFactory {
         }
 
 
-        // verify required parameter 'redeliverEventInputBody' is not null or undefined
-        if (redeliverEventInputBody === null || redeliverEventInputBody === undefined) {
-            throw new RequiredError("EventsApi", "redeliverEvent", "redeliverEventInputBody");
+        // verify required parameter 'redeliverEventRequest' is not null or undefined
+        if (redeliverEventRequest === null || redeliverEventRequest === undefined) {
+            throw new RequiredError("EventsApi", "redeliverEvent", "redeliverEventRequest");
         }
 
 
@@ -178,7 +178,7 @@ export class EventsApiRequestFactory extends BaseAPIRequestFactory {
         ]);
         requestContext.setHeaderParam("Content-Type", contentType);
         const serializedBody = ObjectSerializer.stringify(
-            ObjectSerializer.serialize(redeliverEventInputBody, "RedeliverEventInputBody", ""),
+            ObjectSerializer.serialize(redeliverEventRequest, "RedeliverEventRequest", ""),
             contentType
         );
         requestContext.setBody(serializedBody);

@@ -10,12 +10,13 @@
  * Do not edit the class manually.
  */
 
+import { CheckResult } from '../models/CheckResult.js';
 import { HttpFile } from '../http/http.js';
 
-export class CreateAgentResponse {
-    'domain': string;
-    'email': string;
-    'id': string;
+export class AuthVerdict {
+    'dkim': CheckResult;
+    'dmarc': CheckResult;
+    'spf': CheckResult;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -23,26 +24,26 @@ export class CreateAgentResponse {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "domain",
-            "baseName": "domain",
-            "type": "string",
+            "name": "dkim",
+            "baseName": "dkim",
+            "type": "CheckResult",
             "format": ""
         },
         {
-            "name": "email",
-            "baseName": "email",
-            "type": "string",
+            "name": "dmarc",
+            "baseName": "dmarc",
+            "type": "CheckResult",
             "format": ""
         },
         {
-            "name": "id",
-            "baseName": "id",
-            "type": "string",
+            "name": "spf",
+            "baseName": "spf",
+            "type": "CheckResult",
             "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return CreateAgentResponse.attributeTypeMap;
+        return AuthVerdict.attributeTypeMap;
     }
 
     public constructor() {

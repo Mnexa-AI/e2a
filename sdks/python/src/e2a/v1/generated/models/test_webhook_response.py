@@ -18,16 +18,16 @@ import re  # noqa: F401
 import json
 
 from pydantic import BaseModel, ConfigDict, StrictStr
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List
 from typing import Optional, Set
 from typing_extensions import Self
 
-class RejectInputBody(BaseModel):
+class TestWebhookResponse(BaseModel):
     """
-    RejectInputBody
+    TestWebhookResponse
     """ # noqa: E501
-    reason: Optional[StrictStr] = None
-    __properties: ClassVar[List[str]] = ["reason"]
+    delivery_id: StrictStr
+    __properties: ClassVar[List[str]] = ["delivery_id"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -47,7 +47,7 @@ class RejectInputBody(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of RejectInputBody from a JSON string"""
+        """Create an instance of TestWebhookResponse from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -72,7 +72,7 @@ class RejectInputBody(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of RejectInputBody from a dict"""
+        """Create an instance of TestWebhookResponse from a dict"""
         if obj is None:
             return None
 
@@ -80,7 +80,7 @@ class RejectInputBody(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "reason": obj.get("reason")
+            "delivery_id": obj.get("delivery_id")
         })
         return _obj
 

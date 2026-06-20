@@ -13,18 +13,35 @@
 import { WebhookFiltersView } from '../models/WebhookFiltersView.js';
 import { HttpFile } from '../http/http.js';
 
-export class UpdateWebhookRequest {
-    'description'?: string;
-    'enabled'?: boolean;
-    'events'?: Array<UpdateWebhookRequestEventsEnum>;
-    'filters'?: WebhookFiltersView;
-    'url'?: string;
+export class CreateWebhookResponse {
+    'autoDisabledAt'?: Date;
+    'createdAt': Date;
+    'description': string;
+    'enabled': boolean;
+    'events': Array<CreateWebhookResponseEventsEnum>;
+    'filters': WebhookFiltersView;
+    'id': string;
+    'lastDeliveredAt'?: Date;
+    'signingSecret': string;
+    'url': string;
 
     static readonly discriminator: string | undefined = undefined;
 
     static readonly mapping: {[index: string]: string} | undefined = undefined;
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
+        {
+            "name": "autoDisabledAt",
+            "baseName": "auto_disabled_at",
+            "type": "Date",
+            "format": "date-time"
+        },
+        {
+            "name": "createdAt",
+            "baseName": "created_at",
+            "type": "Date",
+            "format": "date-time"
+        },
         {
             "name": "description",
             "baseName": "description",
@@ -40,13 +57,31 @@ export class UpdateWebhookRequest {
         {
             "name": "events",
             "baseName": "events",
-            "type": "Array<UpdateWebhookRequestEventsEnum>",
+            "type": "Array<CreateWebhookResponseEventsEnum>",
             "format": ""
         },
         {
             "name": "filters",
             "baseName": "filters",
             "type": "WebhookFiltersView",
+            "format": ""
+        },
+        {
+            "name": "id",
+            "baseName": "id",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "lastDeliveredAt",
+            "baseName": "last_delivered_at",
+            "type": "Date",
+            "format": "date-time"
+        },
+        {
+            "name": "signingSecret",
+            "baseName": "signing_secret",
+            "type": "string",
             "format": ""
         },
         {
@@ -57,14 +92,14 @@ export class UpdateWebhookRequest {
         }    ];
 
     static getAttributeTypeMap() {
-        return UpdateWebhookRequest.attributeTypeMap;
+        return CreateWebhookResponse.attributeTypeMap;
     }
 
     public constructor() {
     }
 }
 
-export enum UpdateWebhookRequestEventsEnum {
+export enum CreateWebhookResponseEventsEnum {
     EmailReceived = 'email.received',
     EmailSent = 'email.sent',
     EmailPendingApproval = 'email.pending_approval',

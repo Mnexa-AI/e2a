@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
+from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.webhook_filters_view import WebhookFiltersView
 from typing import Optional, Set
@@ -32,13 +32,12 @@ class WebhookView(BaseModel):
     created_at: datetime
     description: StrictStr
     enabled: StrictBool
-    events: Optional[List[StrictStr]]
+    events: List[StrictStr]
     filters: WebhookFiltersView
     id: StrictStr
     last_delivered_at: Optional[datetime] = None
-    signing_secret: Optional[StrictStr] = None
     url: StrictStr
-    __properties: ClassVar[List[str]] = ["auto_disabled_at", "created_at", "description", "enabled", "events", "filters", "id", "last_delivered_at", "signing_secret", "url"]
+    __properties: ClassVar[List[str]] = ["auto_disabled_at", "created_at", "description", "enabled", "events", "filters", "id", "last_delivered_at", "url"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -82,11 +81,6 @@ class WebhookView(BaseModel):
         # override the default output from pydantic by calling `to_dict()` of filters
         if self.filters:
             _dict['filters'] = self.filters.to_dict()
-        # set to None if events (nullable) is None
-        # and model_fields_set contains the field
-        if self.events is None and "events" in self.model_fields_set:
-            _dict['events'] = None
-
         return _dict
 
     @classmethod
@@ -107,7 +101,6 @@ class WebhookView(BaseModel):
             "filters": WebhookFiltersView.from_dict(obj["filters"]) if obj.get("filters") is not None else None,
             "id": obj.get("id"),
             "last_delivered_at": obj.get("last_delivered_at"),
-            "signing_secret": obj.get("signing_secret"),
             "url": obj.get("url")
         })
         return _obj

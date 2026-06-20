@@ -29,11 +29,11 @@ class ForwardRequest(BaseModel):
     """ # noqa: E501
     attachments: Optional[List[Attachment]] = None
     bcc: Optional[List[StrictStr]] = None
-    body: Optional[StrictStr] = None
+    body: StrictStr
     cc: Optional[List[StrictStr]] = None
     conversation_id: Optional[StrictStr] = None
     html_body: Optional[StrictStr] = None
-    to: Optional[List[StrictStr]] = None
+    to: List[StrictStr]
     __properties: ClassVar[List[str]] = ["attachments", "bcc", "body", "cc", "conversation_id", "html_body", "to"]
 
     model_config = ConfigDict(
@@ -82,11 +82,6 @@ class ForwardRequest(BaseModel):
                 if _item_attachments:
                     _items.append(_item_attachments.to_dict())
             _dict['attachments'] = _items
-        # set to None if attachments (nullable) is None
-        # and model_fields_set contains the field
-        if self.attachments is None and "attachments" in self.model_fields_set:
-            _dict['attachments'] = None
-
         return _dict
 
     @classmethod

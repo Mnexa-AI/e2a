@@ -17,22 +17,26 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictStr
-from typing import Any, ClassVar, Dict, List
+from pydantic import BaseModel, ConfigDict, StrictStr, field_validator
+from typing import Any, ClassVar, Dict, List, Optional
+from e2a.v1.generated.models.account_user_view import AccountUserView
 from e2a.v1.generated.models.limits_caps_view import LimitsCapsView
 from e2a.v1.generated.models.limits_usage_view import LimitsUsageView
 from typing import Optional, Set
 from typing_extensions import Self
 
-class LimitsView(BaseModel):
+class AccountView(BaseModel):
     """
-    LimitsView
+    AccountView
     """ # noqa: E501
+    agent_address: Optional[StrictStr] = None
     limits: LimitsCapsView
     plan_code: StrictStr
+    scope: StrictStr
     upgrade_url: StrictStr
     usage: LimitsUsageView
-    __properties: ClassVar[List[str]] = ["limits", "plan_code", "upgrade_url", "usage"]
+    user: AccountUserView
+    __properties: ClassVar[List[str]] = ["agent_address", "limits", "plan_code", "scope", "upgrade_url", "usage", "user"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -52,7 +56,7 @@ class LimitsView(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of LimitsView from a JSON string"""
+        """Create an instance of AccountView from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -79,11 +83,14 @@ class LimitsView(BaseModel):
         # override the default output from pydantic by calling `to_dict()` of usage
         if self.usage:
             _dict['usage'] = self.usage.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of user
+        if self.user:
+            _dict['user'] = self.user.to_dict()
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of LimitsView from a dict"""
+        """Create an instance of AccountView from a dict"""
         if obj is None:
             return None
 
@@ -91,10 +98,13 @@ class LimitsView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
+            "agent_address": obj.get("agent_address"),
             "limits": LimitsCapsView.from_dict(obj["limits"]) if obj.get("limits") is not None else None,
             "plan_code": obj.get("plan_code"),
+            "scope": obj.get("scope"),
             "upgrade_url": obj.get("upgrade_url"),
-            "usage": LimitsUsageView.from_dict(obj["usage"]) if obj.get("usage") is not None else None
+            "usage": LimitsUsageView.from_dict(obj["usage"]) if obj.get("usage") is not None else None,
+            "user": AccountUserView.from_dict(obj["user"]) if obj.get("user") is not None else None
         })
         return _obj
 

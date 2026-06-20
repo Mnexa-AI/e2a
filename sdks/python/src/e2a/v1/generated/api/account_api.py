@@ -19,8 +19,8 @@ from typing_extensions import Annotated
 from pydantic import Field, StrictStr
 from typing import Optional
 from typing_extensions import Annotated
+from e2a.v1.generated.models.account_view import AccountView
 from e2a.v1.generated.models.delete_user_data_result import DeleteUserDataResult
-from e2a.v1.generated.models.limits_view import LimitsView
 from e2a.v1.generated.models.page_suppression import PageSuppression
 from e2a.v1.generated.models.user_export import UserExport
 
@@ -827,10 +827,10 @@ class AccountApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> LimitsView:
-        """Get account: plan limits + usage
+    ) -> AccountView:
+        """Get account: identity + plan limits + usage (whoami)
 
-        The authenticated account's plan caps and current usage. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+        The authenticated principal's identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
 
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -862,7 +862,7 @@ class AccountApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "LimitsView",
+            '200': "AccountView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -890,10 +890,10 @@ class AccountApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[LimitsView]:
-        """Get account: plan limits + usage
+    ) -> ApiResponse[AccountView]:
+        """Get account: identity + plan limits + usage (whoami)
 
-        The authenticated account's plan caps and current usage. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+        The authenticated principal's identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
 
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -925,7 +925,7 @@ class AccountApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "LimitsView",
+            '200': "AccountView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -954,9 +954,9 @@ class AccountApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> RESTResponseType:
-        """Get account: plan limits + usage
+        """Get account: identity + plan limits + usage (whoami)
 
-        The authenticated account's plan caps and current usage. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+        The authenticated principal's identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
 
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -988,7 +988,7 @@ class AccountApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "LimitsView",
+            '200': "AccountView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1061,6 +1061,8 @@ class AccountApi:
     @validate_call
     async def list_suppressions(
         self,
+        cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1078,6 +1080,10 @@ class AccountApi:
 
         Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.
 
+        :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+        :type cursor: str
+        :param limit: Maximum number of items to return (1-100).
+        :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1101,6 +1107,8 @@ class AccountApi:
         """ # noqa: E501
 
         _param = self._list_suppressions_serialize(
+            cursor=cursor,
+            limit=limit,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1124,6 +1132,8 @@ class AccountApi:
     @validate_call
     async def list_suppressions_with_http_info(
         self,
+        cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1141,6 +1151,10 @@ class AccountApi:
 
         Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.
 
+        :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+        :type cursor: str
+        :param limit: Maximum number of items to return (1-100).
+        :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1164,6 +1178,8 @@ class AccountApi:
         """ # noqa: E501
 
         _param = self._list_suppressions_serialize(
+            cursor=cursor,
+            limit=limit,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1187,6 +1203,8 @@ class AccountApi:
     @validate_call
     async def list_suppressions_without_preload_content(
         self,
+        cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1204,6 +1222,10 @@ class AccountApi:
 
         Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.
 
+        :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+        :type cursor: str
+        :param limit: Maximum number of items to return (1-100).
+        :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1227,6 +1249,8 @@ class AccountApi:
         """ # noqa: E501
 
         _param = self._list_suppressions_serialize(
+            cursor=cursor,
+            limit=limit,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1245,6 +1269,8 @@ class AccountApi:
 
     def _list_suppressions_serialize(
         self,
+        cursor,
+        limit,
         _request_auth,
         _content_type,
         _headers,
@@ -1267,6 +1293,14 @@ class AccountApi:
 
         # process the path parameters
         # process the query parameters
+        if cursor is not None:
+            
+            _query_params.append(('cursor', cursor))
+            
+        if limit is not None:
+            
+            _query_params.append(('limit', limit))
+            
         # process the header parameters
         # process the form parameters
         # process the body parameter

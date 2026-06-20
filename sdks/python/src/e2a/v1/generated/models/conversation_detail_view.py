@@ -17,8 +17,9 @@ import pprint
 import re  # noqa: F401
 import json
 
+from datetime import datetime
 from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt, StrictStr
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List
 from e2a.v1.generated.models.message_summary_view import MessageSummaryView
 from typing import Optional, Set
 from typing_extensions import Self
@@ -28,17 +29,17 @@ class ConversationDetailView(BaseModel):
     ConversationDetailView
     """ # noqa: E501
     conversation_id: StrictStr
-    first_message_at: StrictStr
+    first_message_at: datetime
     has_unread: StrictBool
     inbound_count: StrictInt
-    labels: Optional[List[StrictStr]]
-    last_message_at: StrictStr
+    labels: List[StrictStr]
+    last_message_at: datetime
     latest_sender: StrictStr
     latest_subject: StrictStr
     message_count: StrictInt
-    messages: Optional[List[MessageSummaryView]]
+    messages: List[MessageSummaryView]
     outbound_count: StrictInt
-    participants: Optional[List[StrictStr]]
+    participants: List[StrictStr]
     __properties: ClassVar[List[str]] = ["conversation_id", "first_message_at", "has_unread", "inbound_count", "labels", "last_message_at", "latest_sender", "latest_subject", "message_count", "messages", "outbound_count", "participants"]
 
     model_config = ConfigDict(
@@ -87,21 +88,6 @@ class ConversationDetailView(BaseModel):
                 if _item_messages:
                     _items.append(_item_messages.to_dict())
             _dict['messages'] = _items
-        # set to None if labels (nullable) is None
-        # and model_fields_set contains the field
-        if self.labels is None and "labels" in self.model_fields_set:
-            _dict['labels'] = None
-
-        # set to None if messages (nullable) is None
-        # and model_fields_set contains the field
-        if self.messages is None and "messages" in self.model_fields_set:
-            _dict['messages'] = None
-
-        # set to None if participants (nullable) is None
-        # and model_fields_set contains the field
-        if self.participants is None and "participants" in self.model_fields_set:
-            _dict['participants'] = None
-
         return _dict
 
     @classmethod

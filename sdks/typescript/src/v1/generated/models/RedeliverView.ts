@@ -14,7 +14,7 @@ import { RedeliverDelivery } from '../models/RedeliverDelivery.js';
 import { HttpFile } from '../http/http.js';
 
 export class RedeliverView {
-    'deliveries'?: Array<RedeliverDelivery> | null;
+    'deliveries'?: Array<RedeliverDelivery>;
     'deliveryId'?: string;
     'eventId': string;
     'status': RedeliverViewStatusEnum;

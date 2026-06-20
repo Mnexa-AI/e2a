@@ -10,16 +10,16 @@
  * Do not edit the class manually.
  */
 
+import { AuthVerdict } from '../models/AuthVerdict.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
-import { Result } from '../models/Result.js';
 import { HttpFile } from '../http/http.js';
 
 export class MessageView {
-    'auth'?: Result;
-    'authHeaders': { [key: string]: string; };
+    'auth'?: AuthVerdict;
+    'authHeaders'?: { [key: string]: string; };
     'body'?: MessageBodyView;
-    'cc': Array<string> | null;
+    'cc': Array<string>;
     'conversationId': string;
     'createdAt': Date;
     'deliveryDetail'?: string;
@@ -29,17 +29,17 @@ export class MessageView {
     'flagged'?: boolean;
     '_from': string;
     'hitlStatus'?: MessageViewHitlStatusEnum;
-    'labels': Array<string> | null;
+    'labels': Array<string>;
     'messageId': string;
     'parsed'?: MessageParsedView;
     'rawMessage': string;
+    'readStatus': string;
     'recipient': string;
-    'replyTo': Array<string> | null;
+    'replyTo': Array<string>;
     'sentAs'?: MessageViewSentAsEnum;
     'sizeBytes'?: number;
-    'status': string;
     'subject': string;
-    'to': Array<string> | null;
+    'to': Array<string>;
     'webhookError'?: string;
     'webhookStatus'?: string;
 
@@ -51,7 +51,7 @@ export class MessageView {
         {
             "name": "auth",
             "baseName": "auth",
-            "type": "Result",
+            "type": "AuthVerdict",
             "format": ""
         },
         {
@@ -151,6 +151,12 @@ export class MessageView {
             "format": ""
         },
         {
+            "name": "readStatus",
+            "baseName": "read_status",
+            "type": "string",
+            "format": ""
+        },
+        {
             "name": "recipient",
             "baseName": "recipient",
             "type": "string",
@@ -173,12 +179,6 @@ export class MessageView {
             "baseName": "size_bytes",
             "type": "number",
             "format": "int64"
-        },
-        {
-            "name": "status",
-            "baseName": "status",
-            "type": "string",
-            "format": ""
         },
         {
             "name": "subject",

@@ -20,14 +20,14 @@ import { UserExportUser } from '../models/UserExportUser.js';
 import { HttpFile } from '../http/http.js';
 
 export class UserExport {
-    'agents': Array<AgentIdentity> | null;
-    'apiKeys': Array<APIKeyExportEntry> | null;
-    'domains': Array<Domain> | null;
+    'agents': Array<AgentIdentity>;
+    'apiKeys': Array<APIKeyExportEntry>;
+    'domains': Array<Domain>;
     'generatedAt': Date;
-    'messages': Array<Message> | null;
-    'oauthConnections'?: Array<OAuthConnectionEntry> | null;
+    'messages': Array<Message>;
+    'oauthConnections'?: Array<OAuthConnectionEntry>;
     'schemaVersion': string;
-    'usageEvents'?: Array<UsageEventEntry> | null;
+    'usageEvents'?: Array<UsageEventEntry>;
     'user': UserExportUser;
 
     static readonly discriminator: string | undefined = undefined;

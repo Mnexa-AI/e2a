@@ -13,7 +13,7 @@
 import { HttpFile } from '../http/http.js';
 
 export class RegisterDomainRequest {
-    'domain'?: string;
+    'domain': string;
 
     static readonly discriminator: string | undefined = undefined;
 
