@@ -157,6 +157,22 @@ required) and deeper tool-surface decisions (MCP/CLI still send `slug`/
 `agent_mode` on create; `send_email`/`approve_pending_message` tool names; etc.).
 This is the round the design (§13) already tracks as pending.
 
+### CLI decision — slimmed (not a GA CRUD surface)
+
+Decided: the CLI is **not** a core surface for an agent-first email gateway —
+agents use MCP, programmatic callers use the SDK, operators use the dashboard.
+The ~12 CRUD/messaging commands (`agents`/`domains`/`webhooks`/`events`/`inbox`/
+`read`/`reply`/`send`/`forward`/`labels`/`pending`/`conversations`) duplicated
+those surfaces and broke on every contract change. Confirmed via code: the
+WebSocket is **`noMcp`** (MCP agents poll `list_messages` or use webhooks; the
+real-time WS path for local agents is the SDK's `client.listen()`), so the CLI's
+one non-duplicative capability is the **local dev forward-proxy**.
+
+**Slimmed the CLI to `login` + `listen` (with `--forward`) + `config`** — dropped
+the 12 duplicate commands + their tests, rewrote the dispatcher + README.
+~4,316 → ~1,804 LOC; **builds clean, 54 tests pass.** (A breaking CLI change →
+warrants a major version bump at publish time.)
+
 ### Phase-2 SDK walkthrough (done)
 
 **Generated layers — reviewed, strong, no changes:**
