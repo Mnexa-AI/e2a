@@ -89,6 +89,25 @@ func (s *Store) IncrementUsageSummary(ctx context.Context, userID, bucketDate, d
 	return err
 }
 
+// GetAccountClass returns the account class for a user. A missing user (no row)
+// resolves to ClassStandard so the metering gate fails toward metering — a
+// real customer must never be silently exempted from billing because of a
+// transient lookup miss. The PK lookup on users is cheap; account class is read
+// once per metered message.
+func (s *Store) GetAccountClass(ctx context.Context, userID string) (AccountClass, error) {
+	var class string
+	err := s.pool.QueryRow(ctx,
+		`SELECT account_class FROM users WHERE id = $1`, userID,
+	).Scan(&class)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ClassStandard, nil
+		}
+		return ClassStandard, err
+	}
+	return AccountClass(class), nil
+}
+
 func (s *Store) CountAgentsByUser(ctx context.Context, userID string) (int, error) {
 	var count int
 	err := s.pool.QueryRow(ctx,

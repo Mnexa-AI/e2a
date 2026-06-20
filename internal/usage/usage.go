@@ -21,6 +21,20 @@ func NewUsageTracker(store *Store) *LiveUsageTracker {
 }
 
 func (t *LiveUsageTracker) RecordAndCheck(ctx context.Context, userID, agentID, domain, direction string) (bool, error) {
+	// Metering gate: resolve the account class once and short-circuit
+	// non-standard accounts (internal/system/demo) BEFORE any write, so probe
+	// and internal traffic never lands in usage_events/usage_summaries and thus
+	// never counts against quota. On a lookup error we fail toward metering
+	// (GetAccountClass returns ClassStandard) — a real customer is never
+	// silently exempted from billing.
+	class, err := t.store.GetAccountClass(ctx, userID)
+	if err != nil {
+		log.Printf("[billing] account class lookup failed for user %s, metering as standard: %v", userID, err)
+	}
+	if !PolicyFor(class).Meter {
+		return true, nil
+	}
+
 	// Record the event
 	event := &UsageEvent{
 		UserID:    userID,
