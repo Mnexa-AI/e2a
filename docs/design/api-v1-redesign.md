@@ -917,15 +917,53 @@ review diligence — a #206-style omission can't merge.
 
 ## 6a. MCP tool surface & API correspondence
 
+> **AS-BUILT RECONCILIATION (2026-06-20 GA, PR #247).** This section was written
+> as a *target*; the GA build ratified several deviations from it. Where the prose
+> below still describes the original target, the as-built reality is:
+>
+> - **Per-agent arg is `email`, not `address`** (decision AG-3 — "an agent *is* an
+>   email"); every path param is `{email}`. Read every `address`/`{address}` below
+>   as `email`/`{email}`.
+> - **No default-agent env.** `E2A_AGENT_EMAIL` (and the proposed `E2A_AGENT_ADDRESS`)
+>   were **removed entirely** — an `agent`-scoped credential resolves its agent
+>   server-side; account-scoped callers pass `email` per tool.
+> - **Hosted-only transport.** The **stdio** transport was **removed**; the single
+>   surface is the hosted Streamable-HTTP server at `https://api.e2a.dev/mcp`
+>   (OAuth-first; a Bearer API key is also accepted for programmatic/self-host use).
+>   Ignore "stdio with `E2A_API_KEY`" mentions below.
+> - **Tool count is 35, not 31.** Ratified keeps/adds vs. the target:
+>   `list_pending_messages` + `get_pending_message` **kept** (there is no
+>   `pending_approval` value in the `read_status {unread,read,all}` filter, so the
+>   client-side `hitl_status` scan is the only way to view the approval queue);
+>   `list_webhook_deliveries` **kept** (the events log is the *event* stream, not the
+>   per-webhook *delivery* ledger — recommended update #6 below is therefore
+>   **rejected**, not done); **`get_agent` added** (`GET /agents/{email}` — fetch one
+>   agent's config without listing all). `get_domain` added as planned.
+> - **`approve`/`reject` are two routes** (`…/messages/{id}/approve` + `…/reject`),
+>   not one `approval {decision}` sub-resource (gap table §8 ratifies this — it also
+>   keeps the operation explicit per decision 3).
+> - **`get_attachment` re-fetches the full message** and extracts the attachment;
+>   the dedicated `…/attachments/{index}` endpoint + signed-URL idea (update #5) was
+>   **not** built.
+> - **Recommended design updates status:** #8 (vocabulary) ✅ done; #6 (fold
+>   deliveries) ✅ rejected (see above); **#1 scope/tier-gating, #2 tool annotations,
+>   #4 structured error `code`, #5 attachment download-URL, #7 idempotency-key on
+>   create tools — all PENDING** (not in GA). #3 (one pagination shape) is partial:
+>   the SDK AutoPager normalizes cursors, but MCP tool schemas still expose
+>   `token`/`page_size`.
+>
+> The drift-gate mapping (tool → `operationId`) is authoritative for the live
+> surface; the tables below are kept for design rationale.
+
 The MCP server is the **primary** way an agent (and its operator) drives e2a —
 the SDK and raw REST exist for back-end/programmatic use, but the everyday
 "stand up and run a support agent" journey is MCP. Two principles govern it:
 
-* **Hosted MCP (OAuth) is first-class, and the tool surface is
-  transport-independent.** The *same* tools are exposed whether the server runs
-  over **stdio with an `E2A_API_KEY`** (self-host / local) or as the **hosted
+* **Hosted MCP (OAuth) is the surface.** As built (GA), the **hosted
   Streamable-HTTP server authenticated by OAuth 2.1** (`https://api.e2a.dev/mcp`;
-  PKCE + refresh, per-agent scope — §5). Auth is a transport/connection concern,
+  PKCE + refresh, per-agent scope — §5) is the *only* transport — the stdio variant
+  was removed. A Bearer **API key** is also accepted on the same endpoint for
+  programmatic / self-host use. Auth is a transport/connection concern,
   **never a tool argument**: no tool takes a key, and identity is resolved from
   the bearer/OAuth token. A user connecting from Claude/ChatGPT pastes nothing.
 * **Curated for ergonomics, contract-locked to the spec.** Tools stay
@@ -943,9 +981,10 @@ the REST API, and the OAuth authorization server **same-origin** — so
 `/.well-known/oauth-protected-resource` discovery and the resource↔AS
 relationship need no cross-origin hop. The MCP server stays a separate process;
 the ingress path-routes `/mcp` to it, so that deployment detail never leaks into
-the public URL. **Config change:** the current `MCP_ALLOWED_HOSTS` /
-`MCP_PUBLIC_URL` defaults point at `mcp.e2a.dev` — retarget them to
-`api.e2a.dev` (DNS-rebinding allow-host) and `https://api.e2a.dev/mcp`.
+the public URL. **Config change (done, PR #247):** the `MCP_ALLOWED_HOSTS` /
+`MCP_PUBLIC_URL` defaults now point at `api.e2a.dev` /
+`https://api.e2a.dev/mcp` (were `mcp.e2a.dev`). _Deploy dependency: the
+`api.e2a.dev` ingress must path-route `/mcp` to the MCP process._
 
 ### The canonical journey — standing up `support@acme.com`
 
