@@ -39,9 +39,14 @@ const pdfBytes = Buffer.from("%PDF-1.4 fake pdf bytes");
 // Minimal stub of McpClient — only the methods our tools call. The
 // wrapper concentrates SDK calls and address resolution, so tests stub
 // it directly rather than the namespaced SDK underneath.
-function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): McpClient {
+function makeStubClient(
+  overrides: Partial<{ agentEmail: string; scope: "account" | "agent" }> = {},
+): McpClient {
   const stub = {
     agentEmail: overrides.agentEmail ?? "bot@example.com",
+    // scope drives §6a tier-gating in buildServer. Default to account (full
+    // surface) so behavior tests see every tool; gating tests pass "agent".
+    scope: overrides.scope ?? "account",
     send: vi.fn(async () => ({ messageId: "msg_sent", status: "sent" })),
     reply: vi.fn(async () => ({ messageId: "msg_reply", status: "sent" })),
     forward: vi.fn(async () => ({ messageId: "msg_fwd", status: "sent" })),
@@ -195,6 +200,57 @@ describe("e2a MCP server", () => {
         "redeliver_event",
       ].sort(),
     );
+  });
+
+  // ── §6a scope/tier gating ──────────────────────────────────────────
+  // account scope sees the full surface; agent scope sees only the runtime tier.
+
+  it("account scope exposes all 35 tools (runtime + admin)", async () => {
+    const acct = await connect(makeStubClient({ scope: "account" }));
+    const { tools } = await acct.listTools();
+    expect(tools).toHaveLength(35);
+  });
+
+  it("agent scope exposes only the 16 runtime tools — admin tools hidden", async () => {
+    const ag = await connect(makeStubClient({ scope: "agent" }));
+    const names = new Set((await ag.listTools()).tools.map((t) => t.name));
+    expect(names.size).toBe(16);
+    // Runtime tools present:
+    for (const n of [
+      "whoami", "list_agents", "get_agent", "list_messages", "get_message",
+      "get_attachment", "update_message_labels", "list_conversations",
+      "get_conversation", "send_message", "reply_to_message", "forward_message",
+      "approve_message", "reject_message", "list_pending_messages", "get_pending_message",
+    ]) {
+      expect(names.has(n), `runtime tool ${n} should be visible to agent scope`).toBe(true);
+    }
+    // Admin tools hidden:
+    for (const n of [
+      "create_agent", "update_agent", "delete_agent",
+      "list_domains", "get_domain", "register_domain", "verify_domain", "delete_domain",
+      "list_webhooks", "get_webhook", "create_webhook", "update_webhook",
+      "delete_webhook", "rotate_webhook_secret", "test_webhook", "list_webhook_deliveries",
+      "list_events", "get_event", "redeliver_event",
+    ]) {
+      expect(names.has(n), `admin tool ${n} must be hidden from agent scope`).toBe(false);
+    }
+  });
+
+  it("agent scope cannot call a hidden admin tool (errors + handler never runs)", async () => {
+    const agentStub = makeStubClient({ scope: "agent" });
+    const ag = await connect(agentStub);
+    let errored = false;
+    try {
+      const r = await ag.callTool({ name: "create_agent", arguments: { email: "x@y.dev" } });
+      errored = (r as { isError?: boolean })?.isError === true;
+    } catch {
+      errored = true; // unknown-tool protocol error
+    }
+    expect(errored, "calling a hidden admin tool must error").toBe(true);
+    // The wrapper method must never have been reached — hidden means uncallable,
+    // not merely unlisted.
+    expect((agentStub.createAgent as unknown as { mock: { calls: unknown[] } }).mock.calls)
+      .toHaveLength(0);
   });
 
   it("send_message forwards args to client.send", async () => {

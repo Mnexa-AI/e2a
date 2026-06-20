@@ -6,6 +6,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { E2AClient } from "@e2a/sdk/v1";
 import { buildServer } from "./server.js";
 import { McpClient } from "./client.js";
+import type { Scope } from "./tools/tiers.js";
 import { Sessions, fingerprintBearer } from "./session.js";
 
 export interface HttpServerOptions {
@@ -48,7 +49,7 @@ export interface HttpServerOptions {
    * want to exercise the prefetch path can pass it through to their
    * stub; tests that only care about the bearer can ignore it.
    */
-  clientFactory?: (bearer: string, opts?: { agentEmail?: string }) => McpClient;
+  clientFactory?: (bearer: string, opts?: { agentEmail?: string; scope?: Scope }) => McpClient;
 }
 
 interface BuiltApp {
@@ -348,39 +349,47 @@ export async function buildSessionClient(
   opts: HttpServerOptions,
   bearer: string,
 ): Promise<McpClient> {
-  const make = (agentEmail?: string): McpClient => {
+  const make = (agentEmail?: string, scope?: Scope): McpClient => {
     if (opts.clientFactory) {
       // Preserve the no-arg-factory shape for callers (and tests) that
-      // don't care about the resolved email. Pass the email through
-      // only when we actually have one.
-      return agentEmail
-        ? opts.clientFactory(bearer, { agentEmail })
+      // don't care about the resolved email/scope. Pass them through only
+      // when we actually have them.
+      return agentEmail || scope
+        ? opts.clientFactory(bearer, { ...(agentEmail ? { agentEmail } : {}), ...(scope ? { scope } : {}) })
         : opts.clientFactory(bearer);
     }
     return new McpClient(
       new E2AClient({ apiKey: bearer, baseUrl: opts.baseUrl }),
       agentEmail ?? "",
+      scope ?? "account",
     );
   };
 
-  const client = make();
-  let resolved: string | undefined;
+  // Resolve scope + the credential-bound agent from whoami (GET /account),
+  // which the backend scope-filters per credential (§6a). This drives both
+  // tool-tier gating (server.ts) and the per-agent default:
+  //   - agent scope   → pin the bound agent (whoami.agentAddress); the
+  //     credential IS that agent. Surface = runtime tier.
+  //   - account scope → no default agent (per §6a, explicit `email` required —
+  //     the old single-agent auto-resolve is dropped). Surface = full.
+  const probe = make();
+  let scope: Scope = "agent"; // fail-closed default (least privilege) if whoami can't be read
+  let agentEmail: string | undefined;
   try {
-    const agents = await client.listAgents();
-    // Env-var path already populated agentEmail — operator opted in
-    // explicitly, don't second-guess it with auto-resolution.
-    if (!client.agentEmail && Array.isArray(agents) && agents.length === 1) {
-      resolved = agents[0]?.email;
+    const me = await probe.whoami();
+    scope = me.scope === "account" ? "account" : "agent";
+    if (scope === "agent" && me.agentAddress) {
+      agentEmail = me.agentAddress;
     }
   } catch (err) {
     if (isUnauthorizedError(err)) {
       throw new InvalidBearerError();
     }
-    // Non-auth failures remain best-effort. A transient backend hiccup
-    // shouldn't break MCP initialize; worst case, the user sees the
-    // same "agentEmail is required" error they'd see today.
+    // Non-auth failure (transient backend hiccup): don't break MCP initialize.
+    // Fall back to the least-privilege runtime tier with no default agent — the
+    // backend still enforces scope, and the session self-corrects on reconnect.
   }
-  return resolved ? make(resolved) : client;
+  return make(agentEmail, scope);
 }
 
 function isUnauthorizedError(err: unknown): boolean {

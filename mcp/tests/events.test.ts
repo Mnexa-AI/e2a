@@ -13,6 +13,7 @@ import { buildServer } from "../src/server.js";
 function makeStubClient(): McpClient {
   const stub = {
     agentEmail: "bot@example.com",
+    scope: "account" as const,
     // Events methods on the wrapper.
     listEvents: vi.fn(async (_params?: Record<string, unknown>) => [
       {

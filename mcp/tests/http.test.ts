@@ -11,6 +11,8 @@ import { Sessions } from "../src/session.js";
 function makeStubClient(): McpClient {
   const stub = {
     agentEmail: "bot@example.com",
+    scope: "account" as const,
+    whoami: vi.fn(async () => ({ user: "owner@example.com", scope: "account", agentAddress: undefined })),
     getMessage: vi.fn(async (id: string) => ({ messageId: id })),
     getAgent: vi.fn(async (e: string) => ({ id: e, email: e })),
     send: vi.fn(async () => ({ messageId: "msg_sent", status: "sent" })),
@@ -92,9 +94,9 @@ describe("HTTP MCP server", () => {
     await close();
     const sessions = new Sessions({ idleTimeoutMs: 60_000, maxSessions: 10 });
     const invalidStub = makeStubClient();
-    invalidStub.listAgents = vi.fn(async () => {
+    invalidStub.whoami = vi.fn(async () => {
       throw makeHttpError(401);
-    }) as McpClient["listAgents"];
+    }) as McpClient["whoami"];
     const { close: c, port } = await startHttpServer(0, {
       baseUrl: "http://e2a.local",
       allowedHosts: ["127.0.0.1", "localhost"],
@@ -129,7 +131,7 @@ describe("HTTP MCP server", () => {
     );
     expect(res.headers.get("mcp-session-id")).toBeNull();
     expect(sessions.size()).toBe(0);
-    expect(invalidStub.listAgents).toHaveBeenCalledOnce();
+    expect(invalidStub.whoami).toHaveBeenCalledOnce();
     const body = await res.json();
     expect(body.error.message).toMatch(/invalid bearer/);
   });
@@ -287,135 +289,113 @@ describe("HTTP MCP server", () => {
     await transport.close();
   });
 
-  describe("session-init agent prefetch", () => {
-    // The prefetch resolves a default agent_email at session-init when
-    // (a) E2A_AGENT_EMAIL is unset on the constructed client, and
-    // (b) listAgents() yields exactly one agent.
-    // We drive it via clientFactory so we can stub listAgents and
-    // observe whether the resolved email gets passed back through.
+  describe("session-init scope + agent resolution", () => {
+    // buildSessionClient resolves the credential's scope and bound agent from
+    // whoami (GET /account): agent scope pins the bound agent (whoami
+    // agent_address) and exposes the runtime tier; account scope has no default
+    // agent and exposes the full surface. We drive it via clientFactory to
+    // observe what the final client is constructed with. The factory is called
+    // twice: the whoami probe (bearer only), then the final client
+    // (bearer + resolved {agentEmail?, scope}).
 
     function makeProbeClient(opts: {
-      initialEmail?: string;
-      agents: Array<{ email: string }>;
-      listAgentsThrows?: boolean;
+      scope?: "account" | "agent";
+      agentAddress?: string;
+      whoamiThrows?: boolean | "unauthorized";
     }): McpClient {
       return {
-        agentEmail: opts.initialEmail ?? "",
-        send: vi.fn(),
-        reply: vi.fn(),
-        listMessages: vi.fn(async () => []),
-        listAgents: vi.fn(async () => {
-          if (opts.listAgentsThrows) throw new Error("upstream 500");
-          return opts.agents;
+        agentEmail: "",
+        scope: opts.scope ?? "account",
+        whoami: vi.fn(async () => {
+          if (opts.whoamiThrows === "unauthorized") throw makeHttpError(401);
+          if (opts.whoamiThrows) throw new Error("upstream 500");
+          return {
+            user: "owner@example.com",
+            scope: opts.scope ?? "account",
+            agentAddress: opts.agentAddress,
+          };
         }),
-        createAgent: vi.fn(),
-        listPendingMessages: vi.fn(async () => []),
-        getPendingMessage: vi.fn(),
-        approveMessage: vi.fn(),
-        rejectMessage: vi.fn(),
+        listMessages: vi.fn(async () => []),
+        listAgents: vi.fn(async () => []),
       } as unknown as McpClient;
     }
 
-    it("resolves agent_email when listAgents returns exactly one agent", async () => {
-      const probe = makeProbeClient({ agents: [{ email: "solo@bot.example.com" }] });
-      const final = makeProbeClient({
-        initialEmail: "solo@bot.example.com",
-        agents: [{ email: "solo@bot.example.com" }],
-      });
-      const factory = vi.fn((_bearer: string, factoryOpts?: { agentEmail?: string }) =>
-        factoryOpts?.agentEmail ? final : probe,
-      );
-
+    async function startWithFactory(
+      factory: (bearer: string, o?: { agentEmail?: string; scope?: string }) => McpClient,
+    ) {
       await close();
       const { close: c, port } = await startHttpServer(0, {
         baseUrl: "http://e2a.local",
         allowedHosts: ["127.0.0.1", "localhost"],
-        clientFactory: factory,
+        clientFactory: factory as never,
       });
       close = c;
       url = `http://127.0.0.1:${port}/mcp`;
+    }
+
+    it("agent scope pins the credential-bound agent from whoami", async () => {
+      const probe = makeProbeClient({ scope: "agent", agentAddress: "solo@bot.example.com" });
+      const factory = vi.fn(() => probe);
+      await startWithFactory(factory);
 
       const { transport } = await connect();
-      // Factory called twice: probe construction (no agentEmail), then
-      // final construction with the resolved email.
+      expect(probe.whoami).toHaveBeenCalledOnce();
+      // Probe (bearer only), then final with the resolved agent + scope.
       expect(factory).toHaveBeenCalledTimes(2);
       expect(factory.mock.calls[0]).toEqual(["e2a_test"]);
       expect(factory.mock.calls[1]).toEqual([
         "e2a_test",
-        { agentEmail: "solo@bot.example.com" },
+        { agentEmail: "solo@bot.example.com", scope: "agent" },
       ]);
-      expect(probe.listAgents).toHaveBeenCalledOnce();
       await transport.close();
     });
 
-    it("validates the bearer but skips reconstruction when agentEmail is already set", async () => {
-      // Stub from beforeEach already has agentEmail "bot@example.com".
-      const factory = vi.fn(() => stub);
-      await close();
-      const { close: c, port } = await startHttpServer(0, {
-        baseUrl: "http://e2a.local",
-        allowedHosts: ["127.0.0.1", "localhost"],
-        clientFactory: factory,
-      });
-      close = c;
-      url = `http://127.0.0.1:${port}/mcp`;
+    it("account scope resolves to the full surface with no default agent", async () => {
+      const probe = makeProbeClient({ scope: "account" });
+      const factory = vi.fn(() => probe);
+      await startWithFactory(factory);
 
       const { transport } = await connect();
-      // Factory called once with just the bearer — no resolved email
-      // since the env-var path (constructor) already populated it.
-      expect(factory).toHaveBeenCalledTimes(1);
-      expect(factory.mock.calls[0]).toEqual(["e2a_test"]);
-      // listAgents still validates the bearer once at session init,
-      // but does not trigger a second construction for auto-resolution.
-      expect(stub.listAgents).toHaveBeenCalledOnce();
+      expect(factory).toHaveBeenCalledTimes(2);
+      // No agentEmail for account scope — explicit email required per §6a.
+      expect(factory.mock.calls[1]).toEqual(["e2a_test", { scope: "account" }]);
       await transport.close();
     });
 
-    it("leaves agentEmail empty when the account has multiple agents", async () => {
-      const probe = makeProbeClient({
-        agents: [
-          { email: "a@bot.example.com" },
-          { email: "b@bot.example.com" },
-        ],
-      });
+    it("whoami non-auth failure falls back to least-privilege agent scope (session still inits)", async () => {
+      const probe = makeProbeClient({ whoamiThrows: true });
       const factory = vi.fn(() => probe);
-      await close();
-      const { close: c, port } = await startHttpServer(0, {
-        baseUrl: "http://e2a.local",
-        allowedHosts: ["127.0.0.1", "localhost"],
-        clientFactory: factory,
-      });
-      close = c;
-      url = `http://127.0.0.1:${port}/mcp`;
+      await startWithFactory(factory);
 
-      const { transport } = await connect();
-      // Factory called exactly once — probe ran, but no resolution
-      // (>1 agent), so the second construction was skipped.
-      expect(factory).toHaveBeenCalledTimes(1);
-      expect(probe.listAgents).toHaveBeenCalledOnce();
-      await transport.close();
-    });
-
-    it("does not block session init when listAgents throws", async () => {
-      const probe = makeProbeClient({ agents: [], listAgentsThrows: true });
-      const factory = vi.fn(() => probe);
-      await close();
-      const { close: c, port } = await startHttpServer(0, {
-        baseUrl: "http://e2a.local",
-        allowedHosts: ["127.0.0.1", "localhost"],
-        clientFactory: factory,
-      });
-      close = c;
-      url = `http://127.0.0.1:${port}/mcp`;
-
-      // Initialize should succeed even though the prefetch errored.
       const { client, transport } = await connect();
       const { tools } = await client.listTools();
-      expect(tools.length).toBeGreaterThan(0);
-      expect(probe.listAgents).toHaveBeenCalledOnce();
-      // No re-construction since resolution failed.
-      expect(factory).toHaveBeenCalledTimes(1);
+      expect(tools.length).toBeGreaterThan(0); // initialize not blocked
+      // Fail-closed: runtime/agent scope, no default agent.
+      expect(factory.mock.calls[1]).toEqual(["e2a_test", { scope: "agent" }]);
       await transport.close();
+    });
+
+    it("whoami 401 rejects session init as invalid bearer", async () => {
+      const probe = makeProbeClient({ whoamiThrows: "unauthorized" });
+      const factory = vi.fn(() => probe);
+      await startWithFactory(factory);
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Authorization: "Bearer bogus_token",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "x", version: "0" } },
+        }),
+      });
+      expect(res.status).toBe(401);
+      expect(probe.whoami).toHaveBeenCalledOnce();
     });
   });
 

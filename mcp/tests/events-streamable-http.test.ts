@@ -13,6 +13,7 @@ import { startHttpServer } from "../src/http-server.js";
 function makeStubClient(): McpClient {
   const stub = {
     agentEmail: "bot@example.com",
+    scope: "account" as const,
     getMessage: vi.fn(async () => ({ messageId: "m" })),
     getAgent: vi.fn(async () => ({ id: "x@y", email: "x@y" })),
     listAgents: vi.fn(async () => [{ email: "bot@example.com" }]),

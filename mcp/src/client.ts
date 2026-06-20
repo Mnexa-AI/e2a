@@ -25,6 +25,7 @@ import type {
   TestWebhookRequest,
 } from "@e2a/sdk/v1";
 import type { McpConfig } from "./config.js";
+import type { Scope } from "./tools/tiers.js";
 
 // Outbound drafts held for human approval surface in the message list
 // with this status (see api/openapi.yaml listMessages: "Held outbound
@@ -59,10 +60,18 @@ export class McpClient {
   readonly sdk: E2AClient;
   /** Default per-agent address; mirrors the old flat `agentEmail`. */
   readonly agentEmail: string;
+  /**
+   * The connecting credential's scope (§6a tier-gating signal). Resolved at
+   * session init from whoami (GET /account). Defaults to "account" (full
+   * surface) so direct constructions / tests are unchanged; buildSessionClient
+   * sets the real value per credential.
+   */
+  readonly scope: Scope;
 
-  constructor(sdk: E2AClient, agentEmail = "") {
+  constructor(sdk: E2AClient, agentEmail = "", scope: Scope = "account") {
     this.sdk = sdk;
     this.agentEmail = agentEmail;
+    this.scope = scope;
   }
 
   // resolveAddress picks the explicit per-call address, falling back to
