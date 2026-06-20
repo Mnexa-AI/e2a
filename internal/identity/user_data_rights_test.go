@@ -49,7 +49,7 @@ func seedUserData(t *testing.T, store *identity.Store, ctx context.Context, labe
 		nil,
 		false, "",
 		nil, nil, []string{"real-alice@example.com"},
-	); err != nil {
+		identity.InboundScreening{}); err != nil {
 		t.Fatalf("seed: CreateInboundMessage: %v", err)
 	}
 

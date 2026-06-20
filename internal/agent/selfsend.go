@@ -98,6 +98,7 @@ func (a *API) performSelfSend(
 		[]string{email},
 		nil,
 		nil,
+		identity.InboundScreening{}, // self-send: not externally screened
 	); err != nil {
 		return "", fmt.Errorf("self-send inbound row: %w", err)
 	}

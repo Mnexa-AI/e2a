@@ -23,7 +23,7 @@ func TestGetMessageWithContentCarriesWebhookStatusAndSize(t *testing.T) {
 		ctx, "msg_detail_wh", agentID, "alice@gmail.com", "bot@acme.com",
 		"<detail-wh@x>", "Hi", "conv-detail-wh", "unread", raw,
 		map[string]string{}, nil, false, "", []string{"bot@acme.com"}, nil, nil,
-	)
+		identity.InboundScreening{})
 	if err != nil {
 		t.Fatalf("CreateInboundMessage: %v", err)
 	}

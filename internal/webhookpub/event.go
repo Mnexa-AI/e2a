@@ -52,6 +52,10 @@ const (
 	// match the agent's ingestion policy (allowlist/domain/verified_only). It is
 	// delivered but flagged — operators get a signal, nothing is dropped.
 	EventEmailFlagged = "email.flagged"
+	// EventEmailInjectionDetected (Slice 4) fires when the content scan flags an
+	// inbound message (prompt-injection / obfuscation signals over the agent's
+	// inbound_scan thresholds). Carries the score, categories, and applied action.
+	EventEmailInjectionDetected = "email.injection_detected"
 )
 
 // AllEventTypes is the canonical allowlist of event names. Used by
@@ -70,6 +74,7 @@ var AllEventTypes = []string{
 	EventEmailComplained,
 	EventDomainSuppressionAdded,
 	EventEmailFlagged,
+	EventEmailInjectionDetected,
 }
 
 // IsValidEventType reports whether name is one of the catalog

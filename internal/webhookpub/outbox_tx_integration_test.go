@@ -81,6 +81,7 @@ func TestOutbox_Integration_RelayTxShape(t *testing.T) {
 				nil,
 				false, "",
 				[]string{agentEmail}, nil, nil,
+				identity.InboundScreening{},
 			)
 			if err != nil {
 				return err
@@ -150,7 +151,7 @@ func TestOutbox_Integration_RelayTxShape(t *testing.T) {
 				retryMessageID, agentEmail, "sender@example.com", agentEmail,
 				"<retry-1@sender.example>", "Retry", "", "unread",
 				[]byte("hello"), nil, nil, false, "", []string{agentEmail}, nil, nil,
-			)
+				identity.InboundScreening{})
 			if err != nil {
 				return err
 			}
@@ -177,7 +178,7 @@ func TestOutbox_Integration_RelayTxShape(t *testing.T) {
 				retryMessageID, agentEmail, "sender@example.com", agentEmail,
 				"<retry-2@sender.example>", "Retry 2", "", "unread",
 				[]byte("hello again"), nil, nil, false, "", []string{agentEmail}, nil, nil,
-			)
+				identity.InboundScreening{})
 			if err != nil {
 				return err
 			}
@@ -209,7 +210,7 @@ func TestOutbox_Integration_RelayTxShape(t *testing.T) {
 				failMsgID, agentEmail, "sender@example.com", agentEmail,
 				"<fail@sender.example>", "Will Fail", "", "unread",
 				[]byte("hello"), nil, nil, false, "", []string{agentEmail}, nil, nil,
-			); err != nil {
+				identity.InboundScreening{}); err != nil {
 				return err
 			}
 			// Manually trigger a constraint violation by writing a

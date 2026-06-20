@@ -120,9 +120,9 @@ func TestHandleAgentActivity_WithMessages(t *testing.T) {
 	agent, _ := store.CreateAgent(ctx, "agent@active.example.com", "active.example.com", "", "https://example.com/webhook", "", user.ID)
 
 	// Create some activity ("" id lets the store generate one).
-	store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", "bot@active.example.com", "", "Hello", "", "", nil, nil, nil, false, "", nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", "bot@active.example.com", "", "Hello", "", "", nil, nil, nil, false, "", nil, nil, nil, identity.InboundScreening{})
 	store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "", "", nil)
-	store.CreateInboundMessage(ctx, "", agent.ID, "bob@gmail.com", "bot@active.example.com", "", "Hi", "", "", nil, nil, nil, false, "", nil, nil, nil)
+	store.CreateInboundMessage(ctx, "", agent.ID, "bob@gmail.com", "bot@active.example.com", "", "Hi", "", "", nil, nil, nil, false, "", nil, nil, nil, identity.InboundScreening{})
 
 	req := authedRequest("GET", "/api/dashboard/agents/agent%40active.example.com/activity", token)
 	w := httptest.NewRecorder()
