@@ -952,9 +952,10 @@ review diligence — a #206-style omission can't merge.
 >   the tier map is `mcp/src/tools/tiers.ts`). **Correction to the runtime-tier
 >   list in the prose below:** `approve_message`/`reject_message` are **admin
 >   (account-scope), not runtime** — letting the gated agent approve its own held
->   outbound is self-approval and defeats HITL. Backend account-scope enforcement
->   on the approve/reject handlers is tracked in the HITL + message-screening
->   workstream. **#2 tool annotations ✅ done**
+>   outbound is self-approval and defeats HITL. Enforced end-to-end: the backend
+>   approve/reject handlers (`internal/httpapi/hitl.go`) require account scope
+>   (403 for agent-scoped); the human magic-link flow is a separate token-gated
+>   handler and is unaffected. **#2 tool annotations ✅ done**
 >   (`readOnlyHint`/`destructiveHint`/`idempotentHint` on every tool); **#4
 >   structured error `code`, #5 attachment download-URL, #7 idempotency-key on
 >   create tools — still PENDING** (not in GA). #3 (one pagination shape) is

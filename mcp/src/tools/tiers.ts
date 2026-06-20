@@ -50,8 +50,8 @@ export const ADMIN_TOOLS: ReadonlySet<string> = new Set([
   "delete_agent",
   // HITL approval is an account-owner / human review action — NOT something the
   // gated agent may do to its own held outbound (that would be self-approval,
-  // defeating HITL). Backend enforcement of account-scope on the approve/reject
-  // handlers is tracked in the HITL + message-screening workstream.
+  // defeating HITL). The backend enforces this too: the approve/reject handlers
+  // (internal/httpapi/hitl.go) require account scope (403 for agent-scoped).
   "approve_message",
   "reject_message",
   "list_domains",
