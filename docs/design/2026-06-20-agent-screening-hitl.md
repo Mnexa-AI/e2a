@@ -334,10 +334,26 @@ the gate already blocks. (If a future external scan is expensive, add a
 
   | | approve | reject |
   |---|---|---|
-  | inbound  | deliver to agent (enqueue the withheld `email.received` now) | drop (terminal, content scrubbed per retention) |
+  | inbound  | release to agent (status `review_approved` → inbox-visible; push re-delivery of `email.received` is a follow-up) | drop (terminal `review_rejected`) |
   | outbound | send (existing path) | discard draft (existing path) |
 
   Inbound does **not** use the outbound-only "edit before approve" path.
+
+  **Reconciliation (as-built):** the inbound reject path does **not** scrub
+  `raw_message` (unlike the outbound draft, which is the *user's* content). An
+  inbound held payload is an *attacker's* message; it is **retained (hidden) until
+  the 30-day message TTL for security forensics**, not scrubbed. This is safe
+  because of the read-boundary invariant below.
+
+  **Read-boundary invariant (load-bearing — adversarial-review finding):** a held
+  inbound message (`pending_review`, `review_rejected`, `review_expired_rejected`)
+  must be unreachable by the agent via **every** read path, not just the inbox list.
+  The held-status exclusion is centralized (`identity.heldInboundStatuses`) and
+  applied to `GetMessagesByAgent`, `GetMessageWithContent`, `GetInboundMessage`,
+  `GetConversationByID`, `ListActivityByAgent`, and `ListConversationsByAgent`.
+  The release transitions (`ApproveInboundReview`/`RejectInboundReview`) are
+  **agent-scoped** for tenant isolation; the worker (TTL) transitions are
+  system-scoped.
 - **TTL + expiry**: `hitl_ttl_seconds` / `hitl_expiration_action` govern *any* held
   item. The existing HITL expiry worker generalizes to also process
   `pending_review` rows, applying the direction-correct release on expiry.

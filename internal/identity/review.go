@@ -9,6 +9,13 @@ import (
 // message that is not (or is no longer) in pending_review.
 var ErrNotPendingReview = fmt.Errorf("message is not pending review")
 
+// heldInboundStatuses is the SQL value-list of inbound review-hold statuses whose
+// messages are NOT agent-visible. EVERY agent-facing read path MUST exclude these —
+// a held message must be unreachable by the agent (push AND every poll/read path)
+// until released. The human review queue (future endpoint) uses dedicated queries
+// that intentionally include them. See docs/design/2026-06-20-agent-screening-hitl.md §4.4.
+const heldInboundStatuses = `'pending_review', 'review_rejected', 'review_expired_rejected'`
+
 // ListExpiredReviews returns inbound pending_review messages whose
 // approval_expires_at has passed, joined with their agent's hitl_expiration_action
 // — the inbound analogue of ListExpiredPending. The expiry worker uses these to
@@ -44,16 +51,26 @@ func (s *Store) ListExpiredReviews(ctx context.Context, limit int) ([]Expiration
 // transitionReview flips a pending_review inbound message to a terminal review
 // status. The status guard makes it compare-and-set: the first writer wins, a
 // concurrent/duplicate transition sees RowsAffected=0 → ErrNotPendingReview.
-// reviewerID is nil for worker-driven (TTL) transitions.
-func (s *Store) transitionReview(ctx context.Context, messageID, newStatus string, reviewerID *string, rejectionReason string) error {
+//
+// agentID, when non-empty, scopes the update to that agent — the tenant-isolation
+// guard for human-driven transitions (a reviewer may only release a message
+// belonging to an agent they own; the handler resolves the owned agent first).
+// Worker-driven (TTL) transitions pass "" (system-scoped) and a nil reviewerID.
+func (s *Store) transitionReview(ctx context.Context, messageID, agentID, newStatus string, reviewerID *string, rejectionReason string) error {
+	args := []any{messageID, newStatus, reviewerID, rejectionReason}
+	where := `id = $1 AND direction = 'inbound' AND status = 'pending_review'`
+	if agentID != "" {
+		args = append(args, agentID)
+		where += ` AND agent_id = $5`
+	}
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE messages
 		    SET status = $2,
 		        reviewed_at = now(),
 		        reviewed_by_user_id = $3,
 		        rejection_reason = NULLIF($4, '')
-		  WHERE id = $1 AND direction = 'inbound' AND status = 'pending_review'`,
-		messageID, newStatus, reviewerID, rejectionReason,
+		  WHERE `+where,
+		args...,
 	)
 	if err != nil {
 		return err
@@ -65,25 +82,29 @@ func (s *Store) transitionReview(ctx context.Context, messageID, newStatus strin
 }
 
 // ApproveInboundReview releases a held inbound message to the agent (status
-// review_approved → visible in the inbox). reviewerID identifies the human.
-func (s *Store) ApproveInboundReview(ctx context.Context, messageID, reviewerID string) error {
-	return s.transitionReview(ctx, messageID, MessageStatusReviewApproved, &reviewerID, "")
+// review_approved → visible in the inbox). Scoped to agentID for tenant isolation;
+// reviewerID identifies the human. Held content is retained (the message is now
+// delivered).
+func (s *Store) ApproveInboundReview(ctx context.Context, messageID, agentID, reviewerID string) error {
+	return s.transitionReview(ctx, messageID, agentID, MessageStatusReviewApproved, &reviewerID, "")
 }
 
 // RejectInboundReview drops a held inbound message (status review_rejected → stays
-// hidden from the agent). reviewerID identifies the human; reason is operator-facing.
-func (s *Store) RejectInboundReview(ctx context.Context, messageID, reviewerID, reason string) error {
-	return s.transitionReview(ctx, messageID, MessageStatusReviewRejected, &reviewerID, reason)
+// hidden from the agent). Scoped to agentID for tenant isolation; reviewerID
+// identifies the human; reason is operator-facing. The raw payload is retained
+// (hidden) until the message TTL for security forensics — see design §4.4.
+func (s *Store) RejectInboundReview(ctx context.Context, messageID, agentID, reviewerID, reason string) error {
+	return s.transitionReview(ctx, messageID, agentID, MessageStatusReviewRejected, &reviewerID, reason)
 }
 
 // ExpireApproveReview is the worker-side TTL auto-approve: releases the message
-// (status review_expired_approved) with no human reviewer.
+// (status review_expired_approved) with no human reviewer. System-scoped.
 func (s *Store) ExpireApproveReview(ctx context.Context, messageID string) error {
-	return s.transitionReview(ctx, messageID, MessageStatusReviewExpiredApproved, nil, "")
+	return s.transitionReview(ctx, messageID, "", MessageStatusReviewExpiredApproved, nil, "")
 }
 
 // ExpireRejectReview is the worker-side TTL auto-reject: drops the message
-// (status review_expired_rejected) with no human reviewer.
+// (status review_expired_rejected) with no human reviewer. System-scoped.
 func (s *Store) ExpireRejectReview(ctx context.Context, messageID, reason string) error {
-	return s.transitionReview(ctx, messageID, MessageStatusReviewExpiredRejected, nil, reason)
+	return s.transitionReview(ctx, messageID, "", MessageStatusReviewExpiredRejected, nil, reason)
 }

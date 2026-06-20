@@ -78,12 +78,60 @@ func TestInboundReview_HeldExcludedFromInbox(t *testing.T) {
 		t.Errorf("blocked (review_rejected) message must be excluded from the inbox")
 	}
 
-	// Approve the held message → it becomes visible.
-	if err := store.ApproveInboundReview(ctx, heldID, userID); err != nil {
+	// A reviewer from a DIFFERENT tenant cannot release this agent's held message
+	// (C2 tenant isolation — scoped by agent_id).
+	if err := store.ApproveInboundReview(ctx, heldID, "bot@someone-else.example.com", userID); err != identity.ErrNotPendingReview {
+		t.Errorf("cross-tenant approve = %v, want ErrNotPendingReview", err)
+	}
+
+	// Approve the held message (owning agent) → it becomes visible.
+	if err := store.ApproveInboundReview(ctx, heldID, agentID, userID); err != nil {
 		t.Fatalf("ApproveInboundReview: %v", err)
 	}
 	if !inboxIDs(t, store, ctx, agentID)[heldID] {
 		t.Errorf("approved message should now appear in the inbox")
+	}
+}
+
+// TestInboundReview_HeldUnreachableByAllReadPaths is the C1 regression: a held
+// message must be invisible to the agent via EVERY read path, not just the inbox
+// list (it leaked via get-by-id / reply / conversation / activity before the fix).
+func TestInboundReview_HeldUnreachableByAllReadPaths(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	_, agentID := seedReviewAgent(t, store, ctx, "readpath.example.com")
+
+	exp := time.Now().Add(time.Hour)
+	heldID := createInbound(t, store, ctx, agentID, "evil@x.com", "held", identity.InboundScreening{
+		Status: identity.MessageStatusPendingReview, ScanAction: "review",
+		ReviewReason: identity.ReviewReasonInboundScan, ApprovalExpiresAt: &exp,
+	})
+	if _, err := pool.Exec(ctx, `UPDATE messages SET conversation_id='conv_held' WHERE id=$1`, heldID); err != nil {
+		t.Fatalf("set conversation_id: %v", err)
+	}
+
+	if _, err := store.GetMessageWithContent(ctx, heldID, agentID); err == nil {
+		t.Errorf("GetMessageWithContent returned a held message (fail-open)")
+	}
+	if _, err := store.GetInboundMessage(ctx, heldID); err == nil {
+		t.Errorf("GetInboundMessage returned a held message (fail-open)")
+	}
+	if conv, err := store.GetConversationByID(ctx, agentID, "conv_held"); err == nil && conv != nil {
+		for _, m := range conv.Messages {
+			if m.ID == heldID {
+				t.Errorf("GetConversationByID leaked a held message")
+			}
+		}
+	}
+	acts, err := store.ListActivityByAgent(ctx, agentID, 50)
+	if err != nil {
+		t.Fatalf("ListActivityByAgent: %v", err)
+	}
+	for _, m := range acts {
+		if m.ID == heldID {
+			t.Errorf("ListActivityByAgent leaked a held message")
+		}
 	}
 }
 
@@ -99,17 +147,17 @@ func TestInboundReview_TransitionsCompareAndSet(t *testing.T) {
 	id := createInbound(t, store, ctx, agentID, "e@x.com", "a", identity.InboundScreening{
 		Status: identity.MessageStatusPendingReview, ApprovalExpiresAt: &exp,
 	})
-	if err := store.ApproveInboundReview(ctx, id, userID); err != nil {
+	if err := store.ApproveInboundReview(ctx, id, agentID, userID); err != nil {
 		t.Fatalf("first approve: %v", err)
 	}
-	if err := store.ApproveInboundReview(ctx, id, userID); err != identity.ErrNotPendingReview {
+	if err := store.ApproveInboundReview(ctx, id, agentID, userID); err != identity.ErrNotPendingReview {
 		t.Errorf("second approve = %v, want ErrNotPendingReview", err)
 	}
 
 	id2 := createInbound(t, store, ctx, agentID, "e2@x.com", "b", identity.InboundScreening{
 		Status: identity.MessageStatusPendingReview, ApprovalExpiresAt: &exp,
 	})
-	if err := store.RejectInboundReview(ctx, id2, userID, "looks malicious"); err != nil {
+	if err := store.RejectInboundReview(ctx, id2, agentID, userID, "looks malicious"); err != nil {
 		t.Fatalf("reject: %v", err)
 	}
 	var st, reason string

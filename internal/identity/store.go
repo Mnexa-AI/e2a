@@ -1186,7 +1186,8 @@ func (s *Store) GetInboundMessage(ctx context.Context, id string) (*Message, err
 	var authVerdict []byte
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, auth_verdict, COALESCE(flagged, false), COALESCE(flag_reason, ''), created_at, expires_at
-		 FROM messages WHERE id = $1 AND direction = 'inbound' AND expires_at > now()`, id,
+		 FROM messages WHERE id = $1 AND direction = 'inbound' AND expires_at > now()
+		   AND status NOT IN (`+heldInboundStatuses+`)`, id,
 	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.RawMessage, &authVerdict, &m.Flagged, &m.FlagReason, &m.CreatedAt, &m.ExpiresAt)
 	if err != nil {
 		return nil, err
@@ -2222,6 +2223,7 @@ func (s *Store) ListActivityByAgent(ctx context.Context, agentID string, limit i
 		 FROM messages m
 		 LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
 		 WHERE m.agent_id = $1 AND m.expires_at > now()
+		   AND NOT (m.direction = 'inbound' AND m.status IN (`+heldInboundStatuses+`))
 		 ORDER BY m.created_at DESC
 		 LIMIT $2`, agentID, limit,
 	)
@@ -2339,14 +2341,13 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]
 	// hidden; review_approved / review_expired_approved (and plain 'sent') are
 	// delivered and shown. The clause is direction-aware so outbound rows
 	// (pending_approval etc.) are unaffected.
-	const heldInbound = `'pending_review', 'review_rejected', 'review_expired_rejected'`
 	switch f.Direction {
 	case "outbound":
 		// no inbound rows in the result set
 	case "all":
-		query += ` AND (m.direction = 'outbound' OR m.status NOT IN (` + heldInbound + `))`
+		query += ` AND (m.direction = 'outbound' OR m.status NOT IN (` + heldInboundStatuses + `))`
 	default: // inbound
-		query += ` AND m.status NOT IN (` + heldInbound + `)`
+		query += ` AND m.status NOT IN (` + heldInboundStatuses + `)`
 	}
 
 	// Inbox status filter only applies when inbound rows are in the
@@ -2478,6 +2479,7 @@ func (s *Store) GetMessageWithContent(ctx context.Context, messageID, agentID st
 		`WITH upd AS (
 		   UPDATE messages SET inbox_status = CASE WHEN inbox_status = 'unread' THEN 'read' ELSE inbox_status END
 		   WHERE id = $1 AND agent_id = $2 AND expires_at > now()
+		     AND NOT (direction = 'inbound' AND status IN (`+heldInboundStatuses+`))
 		   RETURNING id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, conversation_id, COALESCE(inbox_status, '') AS inbox_status, raw_message, auth_headers, auth_verdict, COALESCE(flagged, false) AS flagged, COALESCE(flag_reason, '') AS flag_reason, created_at, expires_at, labels, COALESCE(delivery_status, '') AS delivery_status, COALESCE(delivery_detail, '') AS delivery_detail, COALESCE(sent_as, '') AS sent_as, COALESCE(body_text, '') AS body_text, COALESCE(body_html, '') AS body_html, COALESCE(status, '') AS status
 		 )
 		 SELECT upd.id, upd.agent_id, upd.direction, upd.sender, upd.recipient, upd.to_recipients, upd.cc, upd.reply_to, upd.subject, upd.email_message_id, upd.conversation_id, upd.inbox_status, upd.raw_message, upd.auth_headers, upd.auth_verdict, upd.flagged, upd.flag_reason, upd.created_at, upd.expires_at, upd.labels, upd.delivery_status, upd.delivery_detail, upd.sent_as, upd.body_text, upd.body_html, upd.status, COALESCE(wd.status, ''), COALESCE(wd.last_error, '')
@@ -2750,6 +2752,7 @@ func (s *Store) ListConversationsByAgent(ctx context.Context, f ConversationList
 		WHERE agent_id = $1
 		  AND conversation_id <> ''
 		  AND expires_at > now()
+		  AND NOT (direction = 'inbound' AND status IN (` + heldInboundStatuses + `))
 		GROUP BY conversation_id`
 
 	args := []interface{}{f.AgentID}
@@ -2827,6 +2830,7 @@ func (s *Store) GetConversationByID(ctx context.Context, agentID, conversationID
 		 WHERE m.agent_id = $1
 		   AND m.conversation_id = $2
 		   AND m.expires_at > now()
+		   AND NOT (m.direction = 'inbound' AND m.status IN (`+heldInboundStatuses+`))
 		 ORDER BY m.created_at ASC, m.id ASC`,
 		agentID, conversationID,
 	)
