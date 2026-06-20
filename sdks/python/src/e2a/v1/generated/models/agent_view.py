@@ -18,8 +18,8 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt, StrictStr, field_validator
-from typing import Any, ClassVar, Dict, List, Optional
+from pydantic import BaseModel, ConfigDict, StrictBool, StrictFloat, StrictInt, StrictStr, field_validator
+from typing import Any, ClassVar, Dict, List, Optional, Union
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -38,8 +38,18 @@ class AgentView(BaseModel):
     id: StrictStr
     inbound_allowlist: Optional[List[StrictStr]] = None
     inbound_policy: StrictStr
+    inbound_policy_action: StrictStr
+    inbound_scan: StrictStr
+    inbound_scan_block_threshold: Union[StrictFloat, StrictInt]
+    inbound_scan_review_threshold: Union[StrictFloat, StrictInt]
     name: StrictStr
-    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "hitl_enabled", "hitl_expiration_action", "hitl_mode", "hitl_ttl_seconds", "id", "inbound_allowlist", "inbound_policy", "name"]
+    outbound_allowlist: Optional[List[StrictStr]] = None
+    outbound_policy: StrictStr
+    outbound_policy_action: StrictStr
+    outbound_scan: StrictStr
+    outbound_scan_block_threshold: Union[StrictFloat, StrictInt]
+    outbound_scan_review_threshold: Union[StrictFloat, StrictInt]
+    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "hitl_enabled", "hitl_expiration_action", "hitl_mode", "hitl_ttl_seconds", "id", "inbound_allowlist", "inbound_policy", "inbound_policy_action", "inbound_scan", "inbound_scan_block_threshold", "inbound_scan_review_threshold", "name", "outbound_allowlist", "outbound_policy", "outbound_policy_action", "outbound_scan", "outbound_scan_block_threshold", "outbound_scan_review_threshold"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -103,7 +113,17 @@ class AgentView(BaseModel):
             "id": obj.get("id"),
             "inbound_allowlist": obj.get("inbound_allowlist"),
             "inbound_policy": obj.get("inbound_policy"),
-            "name": obj.get("name")
+            "inbound_policy_action": obj.get("inbound_policy_action"),
+            "inbound_scan": obj.get("inbound_scan"),
+            "inbound_scan_block_threshold": obj.get("inbound_scan_block_threshold"),
+            "inbound_scan_review_threshold": obj.get("inbound_scan_review_threshold"),
+            "name": obj.get("name"),
+            "outbound_allowlist": obj.get("outbound_allowlist"),
+            "outbound_policy": obj.get("outbound_policy"),
+            "outbound_policy_action": obj.get("outbound_policy_action"),
+            "outbound_scan": obj.get("outbound_scan"),
+            "outbound_scan_block_threshold": obj.get("outbound_scan_block_threshold"),
+            "outbound_scan_review_threshold": obj.get("outbound_scan_review_threshold")
         })
         return _obj
 

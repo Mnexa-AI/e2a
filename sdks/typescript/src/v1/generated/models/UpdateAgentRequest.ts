@@ -19,6 +19,16 @@ export class UpdateAgentRequest {
     'hitlTtlSeconds'?: number;
     'inboundAllowlist'?: Array<string>;
     'inboundPolicy'?: UpdateAgentRequestInboundPolicyEnum;
+    'inboundPolicyAction'?: UpdateAgentRequestInboundPolicyActionEnum;
+    'inboundScan'?: UpdateAgentRequestInboundScanEnum;
+    'inboundScanBlockThreshold'?: number;
+    'inboundScanReviewThreshold'?: number;
+    'outboundAllowlist'?: Array<string>;
+    'outboundPolicy'?: UpdateAgentRequestOutboundPolicyEnum;
+    'outboundPolicyAction'?: UpdateAgentRequestOutboundPolicyActionEnum;
+    'outboundScan'?: UpdateAgentRequestOutboundScanEnum;
+    'outboundScanBlockThreshold'?: number;
+    'outboundScanReviewThreshold'?: number;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -60,6 +70,66 @@ export class UpdateAgentRequest {
             "baseName": "inbound_policy",
             "type": "UpdateAgentRequestInboundPolicyEnum",
             "format": ""
+        },
+        {
+            "name": "inboundPolicyAction",
+            "baseName": "inbound_policy_action",
+            "type": "UpdateAgentRequestInboundPolicyActionEnum",
+            "format": ""
+        },
+        {
+            "name": "inboundScan",
+            "baseName": "inbound_scan",
+            "type": "UpdateAgentRequestInboundScanEnum",
+            "format": ""
+        },
+        {
+            "name": "inboundScanBlockThreshold",
+            "baseName": "inbound_scan_block_threshold",
+            "type": "number",
+            "format": "double"
+        },
+        {
+            "name": "inboundScanReviewThreshold",
+            "baseName": "inbound_scan_review_threshold",
+            "type": "number",
+            "format": "double"
+        },
+        {
+            "name": "outboundAllowlist",
+            "baseName": "outbound_allowlist",
+            "type": "Array<string>",
+            "format": ""
+        },
+        {
+            "name": "outboundPolicy",
+            "baseName": "outbound_policy",
+            "type": "UpdateAgentRequestOutboundPolicyEnum",
+            "format": ""
+        },
+        {
+            "name": "outboundPolicyAction",
+            "baseName": "outbound_policy_action",
+            "type": "UpdateAgentRequestOutboundPolicyActionEnum",
+            "format": ""
+        },
+        {
+            "name": "outboundScan",
+            "baseName": "outbound_scan",
+            "type": "UpdateAgentRequestOutboundScanEnum",
+            "format": ""
+        },
+        {
+            "name": "outboundScanBlockThreshold",
+            "baseName": "outbound_scan_block_threshold",
+            "type": "number",
+            "format": "double"
+        },
+        {
+            "name": "outboundScanReviewThreshold",
+            "baseName": "outbound_scan_review_threshold",
+            "type": "number",
+            "format": "double"
         }    ];
 
     static getAttributeTypeMap() {
@@ -83,5 +153,28 @@ export enum UpdateAgentRequestInboundPolicyEnum {
     Allowlist = 'allowlist',
     Domain = 'domain',
     VerifiedOnly = 'verified_only'
+}
+export enum UpdateAgentRequestInboundPolicyActionEnum {
+    Flag = 'flag',
+    Review = 'review',
+    Block = 'block'
+}
+export enum UpdateAgentRequestInboundScanEnum {
+    Off = 'off',
+    On = 'on'
+}
+export enum UpdateAgentRequestOutboundPolicyEnum {
+    Open = 'open',
+    Allowlist = 'allowlist',
+    Domain = 'domain'
+}
+export enum UpdateAgentRequestOutboundPolicyActionEnum {
+    Flag = 'flag',
+    Review = 'review',
+    Block = 'block'
+}
+export enum UpdateAgentRequestOutboundScanEnum {
+    Off = 'off',
+    On = 'on'
 }
 

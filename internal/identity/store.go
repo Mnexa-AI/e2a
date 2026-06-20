@@ -111,6 +111,21 @@ type AgentIdentity struct {
 	// trusts; empty for open/verified_only.
 	InboundPolicy    string   `json:"inbound_policy"`
 	InboundAllowlist []string `json:"inbound_allowlist,omitempty"`
+	// Screening config (migration 038 / Slice 3). The producer-policy actions
+	// decide what a gate/scan violation does (flag|review|block); outbound_policy +
+	// outbound_allowlist are the egress recipient gate (open|allowlist|domain);
+	// inbound_scan/outbound_scan toggle the content scan with a review/block
+	// threshold ladder. See docs/design/2026-06-20-agent-screening-hitl.md §4.1.
+	InboundPolicyAction         string   `json:"inbound_policy_action"`
+	OutboundPolicy              string   `json:"outbound_policy"`
+	OutboundAllowlist           []string `json:"outbound_allowlist,omitempty"`
+	OutboundPolicyAction        string   `json:"outbound_policy_action"`
+	InboundScan                 string   `json:"inbound_scan"`
+	InboundScanReviewThreshold  float64  `json:"inbound_scan_review_threshold"`
+	InboundScanBlockThreshold   float64  `json:"inbound_scan_block_threshold"`
+	OutboundScan                string   `json:"outbound_scan"`
+	OutboundScanReviewThreshold float64  `json:"outbound_scan_review_threshold"`
+	OutboundScanBlockThreshold  float64  `json:"outbound_scan_block_threshold"`
 	// AssertionVersion is the auth.md kill-switch counter (migration 035 /
 	// Slice 5b-2): stamped into minted identity_assertion/access_token JWTs and
 	// re-checked at the token endpoint; a bump invalidates prior tokens.
@@ -765,6 +780,10 @@ func (s *Store) GetAgentByID(ctx context.Context, id string) (*AgentIdentity, er
 		        a.hitl_enabled, a.hitl_ttl_seconds, a.hitl_expiration_action,
 		        COALESCE(a.hitl_mode, 'all'),
 		        COALESCE(a.inbound_policy, 'open'), a.inbound_allowlist,
+		        a.inbound_policy_action,
+		        a.outbound_policy, a.outbound_allowlist, a.outbound_policy_action,
+		        a.inbound_scan, a.inbound_scan_review_threshold, a.inbound_scan_block_threshold,
+		        a.outbound_scan, a.outbound_scan_review_threshold, a.outbound_scan_block_threshold,
 		        COALESCE(a.assertion_version, 1),
 		        d.verified as domain_verified
 		 FROM agent_identities a
@@ -774,6 +793,10 @@ func (s *Store) GetAgentByID(ctx context.Context, id string) (*AgentIdentity, er
 		&a.HITLEnabled, &a.HITLTTLSeconds, &a.HITLExpirationAction,
 		&a.HITLMode,
 		&a.InboundPolicy, &a.InboundAllowlist,
+		&a.InboundPolicyAction,
+		&a.OutboundPolicy, &a.OutboundAllowlist, &a.OutboundPolicyAction,
+		&a.InboundScan, &a.InboundScanReviewThreshold, &a.InboundScanBlockThreshold,
+		&a.OutboundScan, &a.OutboundScanReviewThreshold, &a.OutboundScanBlockThreshold,
 		&a.AssertionVersion,
 		&a.DomainVerified)
 	if err != nil {
@@ -934,6 +957,10 @@ func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIde
 		        a.hitl_enabled, a.hitl_ttl_seconds, a.hitl_expiration_action,
 		        COALESCE(a.hitl_mode, 'all'),
 		        COALESCE(a.inbound_policy, 'open'), a.inbound_allowlist,
+		        a.inbound_policy_action,
+		        a.outbound_policy, a.outbound_allowlist, a.outbound_policy_action,
+		        a.inbound_scan, a.inbound_scan_review_threshold, a.inbound_scan_block_threshold,
+		        a.outbound_scan, a.outbound_scan_review_threshold, a.outbound_scan_block_threshold,
 		        d.verified as domain_verified,
 		        (SELECT count(*) FROM messages m
 		           WHERE m.agent_id = a.id AND m.direction = 'inbound'
@@ -971,6 +998,10 @@ func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIde
 			&a.HITLEnabled, &a.HITLTTLSeconds, &a.HITLExpirationAction,
 			&a.HITLMode,
 			&a.InboundPolicy, &a.InboundAllowlist,
+			&a.InboundPolicyAction,
+			&a.OutboundPolicy, &a.OutboundAllowlist, &a.OutboundPolicyAction,
+			&a.InboundScan, &a.InboundScanReviewThreshold, &a.InboundScanBlockThreshold,
+			&a.OutboundScan, &a.OutboundScanReviewThreshold, &a.OutboundScanBlockThreshold,
 			&a.DomainVerified,
 			&a.Inbound7d, &a.Outbound7d, &a.PendingCount,
 			&lastDeliveryAt, &a.WebhookHealthy); err != nil {

@@ -24,7 +24,17 @@ export class AgentView {
     'id': string;
     'inboundAllowlist'?: Array<string>;
     'inboundPolicy': AgentViewInboundPolicyEnum;
+    'inboundPolicyAction': AgentViewInboundPolicyActionEnum;
+    'inboundScan': AgentViewInboundScanEnum;
+    'inboundScanBlockThreshold': number;
+    'inboundScanReviewThreshold': number;
     'name': string;
+    'outboundAllowlist'?: Array<string>;
+    'outboundPolicy': AgentViewOutboundPolicyEnum;
+    'outboundPolicyAction': AgentViewOutboundPolicyActionEnum;
+    'outboundScan': AgentViewOutboundScanEnum;
+    'outboundScanBlockThreshold': number;
+    'outboundScanReviewThreshold': number;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -98,10 +108,70 @@ export class AgentView {
             "format": ""
         },
         {
+            "name": "inboundPolicyAction",
+            "baseName": "inbound_policy_action",
+            "type": "AgentViewInboundPolicyActionEnum",
+            "format": ""
+        },
+        {
+            "name": "inboundScan",
+            "baseName": "inbound_scan",
+            "type": "AgentViewInboundScanEnum",
+            "format": ""
+        },
+        {
+            "name": "inboundScanBlockThreshold",
+            "baseName": "inbound_scan_block_threshold",
+            "type": "number",
+            "format": "double"
+        },
+        {
+            "name": "inboundScanReviewThreshold",
+            "baseName": "inbound_scan_review_threshold",
+            "type": "number",
+            "format": "double"
+        },
+        {
             "name": "name",
             "baseName": "name",
             "type": "string",
             "format": ""
+        },
+        {
+            "name": "outboundAllowlist",
+            "baseName": "outbound_allowlist",
+            "type": "Array<string>",
+            "format": ""
+        },
+        {
+            "name": "outboundPolicy",
+            "baseName": "outbound_policy",
+            "type": "AgentViewOutboundPolicyEnum",
+            "format": ""
+        },
+        {
+            "name": "outboundPolicyAction",
+            "baseName": "outbound_policy_action",
+            "type": "AgentViewOutboundPolicyActionEnum",
+            "format": ""
+        },
+        {
+            "name": "outboundScan",
+            "baseName": "outbound_scan",
+            "type": "AgentViewOutboundScanEnum",
+            "format": ""
+        },
+        {
+            "name": "outboundScanBlockThreshold",
+            "baseName": "outbound_scan_block_threshold",
+            "type": "number",
+            "format": "double"
+        },
+        {
+            "name": "outboundScanReviewThreshold",
+            "baseName": "outbound_scan_review_threshold",
+            "type": "number",
+            "format": "double"
         }    ];
 
     static getAttributeTypeMap() {
@@ -125,5 +195,28 @@ export enum AgentViewInboundPolicyEnum {
     Allowlist = 'allowlist',
     Domain = 'domain',
     VerifiedOnly = 'verified_only'
+}
+export enum AgentViewInboundPolicyActionEnum {
+    Flag = 'flag',
+    Review = 'review',
+    Block = 'block'
+}
+export enum AgentViewInboundScanEnum {
+    Off = 'off',
+    On = 'on'
+}
+export enum AgentViewOutboundPolicyEnum {
+    Open = 'open',
+    Allowlist = 'allowlist',
+    Domain = 'domain'
+}
+export enum AgentViewOutboundPolicyActionEnum {
+    Flag = 'flag',
+    Review = 'review',
+    Block = 'block'
+}
+export enum AgentViewOutboundScanEnum {
+    Off = 'off',
+    On = 'on'
 }
 

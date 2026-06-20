@@ -18,8 +18,8 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt, StrictStr
-from typing import Any, ClassVar, Dict, List, Optional
+from pydantic import BaseModel, ConfigDict, StrictBool, StrictFloat, StrictInt, StrictStr
+from typing import Any, ClassVar, Dict, List, Optional, Union
 from e2a.v1.generated.models.result import Result
 from typing import Optional, Set
 from typing_extensions import Self
@@ -56,9 +56,12 @@ class Message(BaseModel):
     recipient: StrictStr
     rejection_reason: Optional[StrictStr] = None
     reply_to: Optional[List[StrictStr]] = None
+    review_reason: Optional[StrictStr] = None
     reviewed_at: Optional[datetime] = None
     reviewed_by_name: Optional[StrictStr] = None
     reviewed_by_user_id: Optional[StrictStr] = None
+    scan_action: Optional[StrictStr] = None
+    scan_score: Optional[Union[StrictFloat, StrictInt]] = None
     sender: StrictStr
     sent_as: Optional[StrictStr] = None
     size_bytes: Optional[StrictInt] = None
@@ -69,7 +72,7 @@ class Message(BaseModel):
     webhook_attempts: Optional[StrictInt] = None
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
-    __properties: ClassVar[List[str]] = ["agent_id", "approval_expires_at", "attachments", "auth", "auth_headers", "bcc", "body_html", "body_text", "cc", "conversation_id", "created_at", "delivery_detail", "delivery_status", "direction", "edited", "email_message_id", "expires_at", "flag_reason", "flagged", "id", "inbox_status", "labels", "method", "provider_message_id", "raw_message", "recipient", "rejection_reason", "reply_to", "reviewed_at", "reviewed_by_name", "reviewed_by_user_id", "sender", "sent_as", "size_bytes", "status", "subject", "to_recipients", "type", "webhook_attempts", "webhook_error", "webhook_status"]
+    __properties: ClassVar[List[str]] = ["agent_id", "approval_expires_at", "attachments", "auth", "auth_headers", "bcc", "body_html", "body_text", "cc", "conversation_id", "created_at", "delivery_detail", "delivery_status", "direction", "edited", "email_message_id", "expires_at", "flag_reason", "flagged", "id", "inbox_status", "labels", "method", "provider_message_id", "raw_message", "recipient", "rejection_reason", "reply_to", "review_reason", "reviewed_at", "reviewed_by_name", "reviewed_by_user_id", "scan_action", "scan_score", "sender", "sent_as", "size_bytes", "status", "subject", "to_recipients", "type", "webhook_attempts", "webhook_error", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -183,9 +186,12 @@ class Message(BaseModel):
             "recipient": obj.get("recipient"),
             "rejection_reason": obj.get("rejection_reason"),
             "reply_to": obj.get("reply_to"),
+            "review_reason": obj.get("review_reason"),
             "reviewed_at": obj.get("reviewed_at"),
             "reviewed_by_name": obj.get("reviewed_by_name"),
             "reviewed_by_user_id": obj.get("reviewed_by_user_id"),
+            "scan_action": obj.get("scan_action"),
+            "scan_score": obj.get("scan_score"),
             "sender": obj.get("sender"),
             "sent_as": obj.get("sent_as"),
             "size_bytes": obj.get("size_bytes"),

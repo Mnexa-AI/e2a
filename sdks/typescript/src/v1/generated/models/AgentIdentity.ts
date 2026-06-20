@@ -25,9 +25,19 @@ export class AgentIdentity {
     'inbound7d': number;
     'inboundAllowlist'?: Array<string> | null;
     'inboundPolicy': string;
+    'inboundPolicyAction': string;
+    'inboundScan': string;
+    'inboundScanBlockThreshold': number;
+    'inboundScanReviewThreshold': number;
     'lastDeliveryAt'?: Date;
     'name': string;
     'outbound7d': number;
+    'outboundAllowlist'?: Array<string> | null;
+    'outboundPolicy': string;
+    'outboundPolicyAction': string;
+    'outboundScan': string;
+    'outboundScanBlockThreshold': number;
+    'outboundScanReviewThreshold': number;
     'pendingCount': number;
     '_public': boolean;
     'userId': string;
@@ -111,6 +121,30 @@ export class AgentIdentity {
             "format": ""
         },
         {
+            "name": "inboundPolicyAction",
+            "baseName": "inbound_policy_action",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "inboundScan",
+            "baseName": "inbound_scan",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "inboundScanBlockThreshold",
+            "baseName": "inbound_scan_block_threshold",
+            "type": "number",
+            "format": "double"
+        },
+        {
+            "name": "inboundScanReviewThreshold",
+            "baseName": "inbound_scan_review_threshold",
+            "type": "number",
+            "format": "double"
+        },
+        {
             "name": "lastDeliveryAt",
             "baseName": "last_delivery_at",
             "type": "Date",
@@ -127,6 +161,42 @@ export class AgentIdentity {
             "baseName": "outbound_7d",
             "type": "number",
             "format": "int64"
+        },
+        {
+            "name": "outboundAllowlist",
+            "baseName": "outbound_allowlist",
+            "type": "Array<string>",
+            "format": ""
+        },
+        {
+            "name": "outboundPolicy",
+            "baseName": "outbound_policy",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "outboundPolicyAction",
+            "baseName": "outbound_policy_action",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "outboundScan",
+            "baseName": "outbound_scan",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "outboundScanBlockThreshold",
+            "baseName": "outbound_scan_block_threshold",
+            "type": "number",
+            "format": "double"
+        },
+        {
+            "name": "outboundScanReviewThreshold",
+            "baseName": "outbound_scan_review_threshold",
+            "type": "number",
+            "format": "double"
         },
         {
             "name": "pendingCount",

@@ -42,9 +42,12 @@ export class Message {
     'recipient': string;
     'rejectionReason'?: string;
     'replyTo'?: Array<string> | null;
+    'reviewReason'?: string;
     'reviewedAt'?: Date;
     'reviewedByName'?: string;
     'reviewedByUserId'?: string;
+    'scanAction'?: string;
+    'scanScore'?: number;
     'sender': string;
     'sentAs'?: string;
     'sizeBytes'?: number;
@@ -230,6 +233,12 @@ export class Message {
             "format": ""
         },
         {
+            "name": "reviewReason",
+            "baseName": "review_reason",
+            "type": "string",
+            "format": ""
+        },
+        {
             "name": "reviewedAt",
             "baseName": "reviewed_at",
             "type": "Date",
@@ -246,6 +255,18 @@ export class Message {
             "baseName": "reviewed_by_user_id",
             "type": "string",
             "format": ""
+        },
+        {
+            "name": "scanAction",
+            "baseName": "scan_action",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "scanScore",
+            "baseName": "scan_score",
+            "type": "number",
+            "format": "double"
         },
         {
             "name": "sender",
