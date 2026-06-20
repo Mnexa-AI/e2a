@@ -16,6 +16,22 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
   );
 
   server.registerTool(
+    "get_agent",
+    {
+      title: "Get one agent's configuration",
+      description:
+        "Fetch a single agent by its email address — full config: name, HITL settings (hitl_enabled/hitl_mode/hitl_ttl_seconds/hitl_expiration_action), inbound policy (inbound_policy/inbound_allowlist), and sending status. Use to inspect or confirm one agent's settings without listing every agent. Read-only.",
+      inputSchema: strictInputSchema({
+        email: z
+          .string()
+          .email()
+          .describe("Agent to fetch (full email, e.g. support@acme.com)."),
+      }),
+    },
+    async (args) => runTool(() => client.getAgent(args.email)),
+  );
+
+  server.registerTool(
     "whoami",
     {
       title: "Get the authenticated account's identity",

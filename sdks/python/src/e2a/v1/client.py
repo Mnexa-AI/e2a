@@ -244,7 +244,7 @@ class MessagesResource:
         direction: Optional[str] = None,
         read_status: Optional[str] = None,
         sort: Optional[str] = None,
-        var_from: Optional[str] = None,
+        from_: Optional[str] = None,
         subject_contains: Optional[str] = None,
         conversation_id: Optional[str] = None,
         labels: Optional[List[str]] = None,
@@ -252,6 +252,9 @@ class MessagesResource:
         until: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> AutoPager[MessageSummaryView]:
+        # `from` is a Python keyword; expose the idiomatic `from_` (PEP 8 trailing
+        # underscore) and translate to the generated base's `var_from` here so the
+        # generator's mangled name never leaks into the public SDK surface.
         async def fetch(cursor: Optional[str]) -> Page:
             resp = await self._c._read(
                 lambda h: self._api.list_messages(
@@ -259,7 +262,7 @@ class MessagesResource:
                     direction=direction,
                     read_status=read_status,
                     sort=sort,
-                    var_from=var_from,
+                    var_from=from_,
                     subject_contains=subject_contains,
                     conversation_id=conversation_id,
                     labels=labels,

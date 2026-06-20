@@ -100,6 +100,11 @@ function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): McpCli
       sendingStatus: "verified",
     })),
     deleteDomain: vi.fn(async () => undefined),
+    listWebhookDeliveries: vi.fn(
+      async (id: string, _params: { status?: string; limit?: number }) => [
+        { id: "whd_1", webhookId: id, status: "delivered", attempts: 1 },
+      ],
+    ),
     // Stand-in for McpClient.getMessage() which returns a v1
     // MessageView. Attachments are decoded by the tool from
     // `rawMessage`; the default raw carries one small PDF.
@@ -163,6 +168,7 @@ describe("e2a MCP server", () => {
         "get_message",
         "get_attachment",
         "list_agents",
+        "get_agent",
         "whoami",
         "create_agent",
         "update_agent",
@@ -183,6 +189,7 @@ describe("e2a MCP server", () => {
         "delete_webhook",
         "rotate_webhook_secret",
         "test_webhook",
+        "list_webhook_deliveries",
         "list_events",
         "get_event",
         "redeliver_event",
@@ -408,6 +415,29 @@ describe("e2a MCP server", () => {
       email: "cloud-bot@agents.example.com",
       name: "Cloud Bot",
     });
+  });
+
+  it("get_agent forwards email to client.getAgent and surfaces the AgentView", async () => {
+    const res = await client.callTool({
+      name: "get_agent",
+      arguments: { email: "bot@example.com" },
+    });
+    expect(stub.getAgent).toHaveBeenCalledWith("bot@example.com");
+    const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
+    expect(payload.email).toBe("bot@example.com");
+  });
+
+  it("list_webhook_deliveries forwards id + filters to client.listWebhookDeliveries", async () => {
+    const res = await client.callTool({
+      name: "list_webhook_deliveries",
+      arguments: { id: "wh_abc", status: "failed", limit: 10 },
+    });
+    expect(stub.listWebhookDeliveries).toHaveBeenCalledWith("wh_abc", {
+      status: "failed",
+      limit: 10,
+    });
+    const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
+    expect(payload.deliveries[0].webhookId).toBe("wh_abc");
   });
 
   it("update_agent maps HITL fields to camelCase and uses bound agent by default", async () => {

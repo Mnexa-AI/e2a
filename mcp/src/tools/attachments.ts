@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 /**
- * Shared attachment schema for outbound mail tools (send_email,
- * reply_to_message, approve_pending_message).
+ * Shared attachment schema for outbound mail tools (send_message,
+ * reply_to_message, approve_message).
  *
  * Wire shape matches what every other layer (HTTP API, TS + Python
  * SDKs, CLI) already speaks: { filename, content_type, data:base64 }.
@@ -89,8 +89,8 @@ export const attachmentInputSchema = z
     "One file attachment. Provide filename + MIME content_type + base64-encoded data.",
   );
 
-// Attachments-array schema — reused by send_email, reply_to_message,
-// approve_pending_message. Optional in all three: the absence of any
+// Attachments-array schema — reused by send_message, reply_to_message,
+// approve_message. Optional in all three: the absence of any
 // attachments means a plain message (current behavior preserved).
 export const attachmentsArraySchema = z
   .array(attachmentInputSchema)

@@ -14,6 +14,7 @@ import type {
   EventJSON,
   RedeliverView,
   WebhookView,
+  WebhookDeliveryView,
   CreateWebhookResponse,
   RotateSecretResponse,
   TestWebhookResponse,
@@ -379,8 +380,16 @@ export class McpClient {
     return this.sdk.webhooks.test(id, body as TestWebhookRequest);
   }
 
-  // list_webhook_deliveries is dropped (§6a): webhook-delivery debugging folds
-  // into the events log — use list_events {webhook_id, status} + get_event.
+  // Per-delivery debugging (status/attempts/last_error/last_status_code) for one
+  // webhook. Single page by contract (no cursor); GET /v1/webhooks/{id}/deliveries.
+  listWebhookDeliveries(
+    id: string,
+    params: { status?: "pending" | "delivered" | "failed"; limit?: number },
+  ): Promise<WebhookDeliveryView[]> {
+    return this.sdk.webhooks
+      .deliveries(id, params)
+      .toArray({ limit: params.limit ?? DEFAULT_LIST_LIMIT });
+  }
 
   // ── Events ──────────────────────────────────────────────────────
 

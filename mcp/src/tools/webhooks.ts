@@ -72,14 +72,14 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
     {
       title: "Create a webhook subscriber (returns plaintext signing_secret ONCE)",
       description:
-        "Subscribe an HTTPS URL to one or more events (email.received, email.sent, email.pending_approval, email.approval_accepted, email.approval_rejected). URL must be HTTPS and must resolve to a public IP (SSRF guard). The response includes a plaintext signing_secret which the caller MUST persist immediately — every subsequent list/get scrubs it. Per-user cap is 50 webhooks; rotate_webhook_secret rotates the secret in place with a 24h dual-sign grace window.",
+        "Subscribe an HTTPS URL to one or more events. URL must be HTTPS and must resolve to a public IP (SSRF guard). The response includes a plaintext signing_secret which the caller MUST persist immediately — every subsequent list/get scrubs it. Per-user cap is 50 webhooks; rotate_webhook_secret rotates the secret in place with a 24h dual-sign grace window.",
       inputSchema: strictInputSchema({
         url: z.string().min(1).describe("HTTPS webhook URL. Public domain only — IPs are rejected."),
         events: z
           .array(z.string().min(1))
           .min(1)
           .describe(
-            "Event types to subscribe to. Valid: email.received, email.sent, email.pending_approval, email.approval_accepted, email.approval_rejected.",
+            "Event types to subscribe to. Valid values: email.received, email.sent, email.pending_approval, email.approval_accepted, email.approval_rejected, email.delivered, email.bounced, email.complained, email.flagged, domain.sending_verified, domain.sending_failed, domain.suppression_added.",
           ),
         description: z.string().optional().describe("Optional free-form label (max 200 chars)."),
         filters: filtersSchema.optional(),
@@ -162,7 +162,7 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
     {
       title: "Fire a synthetic event to a webhook for debugging",
       description:
-        "Schedules a one-off delivery to the webhook with a synthetic envelope, bypassing filter matching. Returns the delivery_id which can be looked up via list_events {webhook_id}. Returns an error if the webhook is disabled. Cheap and safe — the synthetic event does not touch real inbound or HITL state.",
+        "Schedules a one-off delivery to the webhook with a synthetic envelope, bypassing filter matching. Returns the delivery_id; inspect the outcome (status/attempts/last_error) via `list_webhook_deliveries`. Returns an error if the webhook is disabled. Cheap and safe — the synthetic event does not touch real inbound or HITL state.",
       inputSchema: strictInputSchema({
         id: z.string().min(1).describe("Webhook id (wh_…)."),
         event: z
@@ -177,6 +177,33 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
       runTool(() => client.testWebhook(args.id, { event: args.event })),
   );
 
-  // list_webhook_deliveries was dropped (§6a): webhook-delivery debugging folds
-  // into the events log — use list_events {webhook_id, status} + get_event.
+  server.registerTool(
+    "list_webhook_deliveries",
+    {
+      title: "List recent delivery attempts for a webhook",
+      description:
+        "Returns the most recent delivery rows for one webhook. Each row includes status (pending|delivered|failed), attempts, last_error, last_status_code, and timestamps. The way to debug why a subscriber is missing events, or to check the outcome of a `test_webhook` call. Read-only. Distinct from `list_events` (the account-wide event log); this is the per-webhook delivery ledger.",
+      inputSchema: strictInputSchema({
+        id: z.string().min(1).describe("Webhook id (wh_…)."),
+        status: z
+          .enum(["pending", "delivered", "failed"])
+          .optional()
+          .describe("Optionally restrict to one delivery status."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe("Max rows to return."),
+      }),
+    },
+    async (args) =>
+      runTool(async () => ({
+        deliveries: await client.listWebhookDeliveries(args.id, {
+          ...(args.status !== undefined ? { status: args.status } : {}),
+          ...(args.limit !== undefined ? { limit: args.limit } : {}),
+        }),
+      })),
+  );
 }
