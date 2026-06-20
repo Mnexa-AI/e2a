@@ -272,6 +272,19 @@ combines into one `Result`:
   engine returns a sentinel `EngineDegraded` verdict → caller maps to **review**
   (fail-to-review). It never silent-allows and never auto-blocks on degradation.
 
+**As-built hardening (Slice 1, post-adversarial-review).** The implemented `Engine`
+exposes `Aggregate.Action(reviewTh, blockTh)`; the wiring layer should call this
+rather than `ActionForScore(agg.Score, …)` directly, because it folds in the
+fail-safe defaults an open-coded call site would miss: a **degraded** aggregate →
+review; **truncated/oversize** content → review (via the `MinAction` force-floor,
+alongside Unicode-tags → flag); and a **NaN/Inf/negative** detector score is excluded
+as `StatusError` (not averaged in — a hostile/buggy adapter must not poison the
+aggregate toward allow). The heuristics detector confusable-folds content before the
+injection lexicon (one-char homoglyph swaps don't evade), and the extractor routes
+HTML comments / `<script>`/`<style>` bodies / unterminated-tag tails into the hidden
+segment (content a human never sees but an LLM might). ReDoS, MIME-DoS, and data
+races were probed and refuted.
+
 ### 4.3 Action evaluation (gate + scan → action)
 
 A small evaluator (in `piguard` or a sibling `screening` package) maps agent config +
