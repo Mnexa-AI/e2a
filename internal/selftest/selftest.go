@@ -52,13 +52,14 @@ type Scenario struct {
 // is transport-only config plus collaborators; it holds no test scaffolding so
 // both the shipped prober and the in-process tests construct it directly.
 type Probe struct {
-	HTTPBaseURL   string       // e.g. http://e2a:8080 — API + /api/health
-	APIKey        string       // probe agent's API key (Bearer)
-	AgentEmail    string       // the synthetic probe agent address
-	SMTPAddr      string       // host:port of the inbound SMTP listener
-	WebhookSecret string       // signing secret of the probe webhook (HMAC verify)
-	Sink          *HTTPSink    // receives the webhook callback for the round-trip
-	HTTP          *http.Client // nil → defaultHTTPClient
+	HTTPBaseURL   string        // e.g. http://e2a:8080 — API + /api/health
+	APIKey        string        // probe agent's API key (Bearer)
+	AgentEmail    string        // the synthetic probe agent address
+	SMTPAddr      string        // host:port of the inbound SMTP listener
+	WebhookSecret string        // signing secret of the probe webhook (HMAC verify)
+	Sink          *HTTPSink     // receives the webhook callback for the round-trip
+	HTTP          *http.Client  // nil → defaultHTTPClient
+	Timeout       time.Duration // round-trip await timeout; 0 → defaultRoundTripTimeout
 }
 
 func (p *Probe) httpClient() *http.Client {
@@ -66,6 +67,16 @@ func (p *Probe) httpClient() *http.Client {
 		return p.HTTP
 	}
 	return defaultHTTPClient
+}
+
+// roundTripTimeout is the await bound for the inbound round-trip. It must exceed
+// the SubscriberRetryWorker poll interval in production; the prober sets it from
+// E2A_PROBE_TIMEOUT.
+func (p *Probe) roundTripTimeout() time.Duration {
+	if p.Timeout > 0 {
+		return p.Timeout
+	}
+	return defaultRoundTripTimeout
 }
 
 var defaultHTTPClient = &http.Client{Timeout: 10 * time.Second}

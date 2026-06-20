@@ -54,6 +54,9 @@ func TestSeedProbe_ProvisionsSystemAccountIdempotently(t *testing.T) {
 	if res2.WebhookSecret != "" {
 		t.Error("re-seed should reuse the existing webhook (empty secret)")
 	}
+	if res2.APIKey != "" {
+		t.Error("re-seed should not mint a new API key when one exists (empty key)")
+	}
 	whs, err := store.ListWebhooksByUser(ctx, agent.UserID)
 	if err != nil {
 		t.Fatalf("ListWebhooksByUser: %v", err)

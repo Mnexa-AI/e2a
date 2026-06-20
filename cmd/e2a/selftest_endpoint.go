@@ -19,12 +19,21 @@ import (
 // needs probe credentials and an internal sink); keeping the round-trip out of
 // the server avoids embedding credentials and weakening the webhook deliverer's
 // HTTPS requirement. Auth-gated by the internal API secret when one is
-// configured (the output reveals topology); open in dev when unset.
-func selftestHandler(pool *pgxpool.Pool, smtpAddr, internalSecret string) http.HandlerFunc {
+// configured (the output reveals topology). Fail-closed like /api/internal/*:
+// when no secret is configured, the endpoint is open only in development and
+// returns 503 in production (never serve diagnostics unauthenticated in prod).
+func selftestHandler(pool *pgxpool.Pool, smtpAddr, internalSecret string, devMode bool) http.HandlerFunc {
 	latest := latestMigration()
 	return func(w http.ResponseWriter, r *http.Request) {
-		if internalSecret != "" && !bearerEquals(r, internalSecret) {
-			w.WriteHeader(http.StatusUnauthorized)
+		switch {
+		case internalSecret != "":
+			if !bearerEquals(r, internalSecret) {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+		case !devMode:
+			// No secret configured in production → fail closed.
+			writeNotReady(w, "selftest requires E2A_INTERNAL_API_SECRET")
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
@@ -75,6 +84,7 @@ func dialOK(addr string) bool {
 	if strings.HasPrefix(addr, ":") {
 		addr = "127.0.0.1" + addr
 	}
+	addr = strings.Replace(addr, "0.0.0.0:", "127.0.0.1:", 1)
 	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 	if err != nil {
 		return false

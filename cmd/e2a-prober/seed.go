@@ -65,11 +65,20 @@ func seedProbe(ctx context.Context, store *identity.Store, agentEmail, sinkURL s
 
 	res := &seedResult{AgentEmail: agentEmail}
 
-	key, err := store.CreateAPIKey(ctx, user.ID, "e2a-prober", nil)
+	// Create an API key only if the probe user has none — re-seeding otherwise
+	// accumulates orphan keys (the plaintext is unrecoverable, so an existing
+	// key can't be re-displayed; the operator reuses the one captured first).
+	keys, err := store.ListAPIKeys(ctx, user.ID)
 	if err != nil {
-		return nil, fmt.Errorf("create api key: %w", err)
+		return nil, fmt.Errorf("list api keys: %w", err)
 	}
-	res.APIKey = key.PlaintextKey
+	if len(keys) == 0 {
+		key, err := store.CreateAPIKey(ctx, user.ID, "e2a-prober", nil)
+		if err != nil {
+			return nil, fmt.Errorf("create api key: %w", err)
+		}
+		res.APIKey = key.PlaintextKey
+	}
 
 	existing, err := store.ListWebhooksByUser(ctx, user.ID)
 	if err != nil {
@@ -113,7 +122,11 @@ func cmdSeed(ctx context.Context, cfg config) error {
 		return err
 	}
 	fmt.Printf("probe agent:    %s\n", res.AgentEmail)
-	fmt.Printf("E2A_PROBE_API_KEY=%s\n", res.APIKey)
+	if res.APIKey != "" {
+		fmt.Printf("E2A_PROBE_API_KEY=%s\n", res.APIKey)
+	} else {
+		fmt.Printf("# probe user already has an API key; reuse the one captured at first seed\n")
+	}
 	if res.WebhookSecret != "" {
 		fmt.Printf("E2A_PROBE_WEBHOOK_SECRET=%s\n", res.WebhookSecret)
 	} else {

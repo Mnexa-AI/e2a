@@ -18,10 +18,11 @@ import (
 	"time"
 )
 
-// roundTripTimeout bounds how long the inbound round-trip waits for the webhook
-// callback. It must exceed the SubscriberRetryWorker poll interval in
-// production; the prober makes it configurable (see cmd/e2a-prober).
-const roundTripTimeout = 30 * time.Second
+// defaultRoundTripTimeout bounds how long the inbound round-trip waits for the
+// webhook callback when Probe.Timeout is unset. It must exceed the
+// SubscriberRetryWorker poll interval in production; the prober overrides it via
+// E2A_PROBE_TIMEOUT (Probe.Timeout).
+const defaultRoundTripTimeout = 30 * time.Second
 
 // All is the critical-path battery. Every scenario here is SmokeSafe: read-only,
 // a loopback (no egress), or the inbound round-trip (synthetic mail to the probe
@@ -102,7 +103,7 @@ func scenarioInboundRoundTrip(ctx context.Context, p *Probe) Result {
 
 	d, err := p.Sink.Await(ctx, func(d Delivery) bool {
 		return bytes.Contains(d.Body, []byte(nonce))
-	}, roundTripTimeout)
+	}, p.roundTripTimeout())
 	if err != nil {
 		return fail("await webhook for nonce %s: %v", nonce, err)
 	}

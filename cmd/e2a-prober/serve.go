@@ -44,6 +44,7 @@ func (p *prober) probe() *selftest.Probe {
 		SMTPAddr:      p.cfg.SMTPAddr,
 		WebhookSecret: p.cfg.WebhookSecret,
 		Sink:          p.sink,
+		Timeout:       p.cfg.Timeout,
 	}
 }
 

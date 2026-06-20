@@ -390,7 +390,7 @@ func main() {
 	// /selftest — deep dependency diagnostics (health+json), auth-gated by the
 	// internal API secret. Operational, not part of the /v1 contract. The full
 	// SMTP→webhook round-trip lives in the external e2a-prober, not here.
-	router.HandleFunc("/selftest", selftestHandler(pool, cfg.SMTP.ListenAddr, cfg.Limits.InternalAPISecret)).Methods(http.MethodGet)
+	router.HandleFunc("/selftest", selftestHandler(pool, cfg.SMTP.ListenAddr, cfg.Limits.InternalAPISecret, !cfg.IsProduction())).Methods(http.MethodGet)
 
 	// Public SES-over-SNS delivery notifications endpoint (decision 9 / Slice
 	// 4b). Fail-closed: the SNS signature is verified and the TopicArn must be

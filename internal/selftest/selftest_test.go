@@ -2,6 +2,10 @@ package selftest_test
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -124,5 +128,37 @@ func TestVerifyHMAC_unit(t *testing.T) {
 		if selftest.VerifyHMACForTest(c.header, body, c.secret) {
 			t.Errorf("%s: verifyHMAC returned true, want false", c.name)
 		}
+	}
+}
+
+// TestVerifyHMAC_positive covers the happy path and the rotation-grace branch
+// (two v1= clauses, only the second matching) without needing a DB — the
+// deliverer emits two signatures during the 24h secret-rotation window.
+func TestVerifyHMAC_positive(t *testing.T) {
+	const secret = "whsec_realone"
+	body := []byte(`{"type":"email.received","subject":"e2a-selftest abc"}`)
+	ts := int64(1_700_000_123)
+	sign := func(sec string) string {
+		mac := hmac.New(sha256.New, []byte(sec))
+		fmt.Fprintf(mac, "%d.", ts)
+		mac.Write(body)
+		return hex.EncodeToString(mac.Sum(nil))
+	}
+
+	// Single valid signature.
+	hdr := fmt.Sprintf("t=%d,v1=%s", ts, sign(secret))
+	if !selftest.VerifyHMACForTest(hdr, body, secret) {
+		t.Error("valid single signature should verify")
+	}
+
+	// Rotation grace: old (non-matching) + new (matching) — must accept.
+	hdr2 := fmt.Sprintf("t=%d,v1=%s,v1=%s", ts, sign("whsec_oldsecret"), sign(secret))
+	if !selftest.VerifyHMACForTest(hdr2, body, secret) {
+		t.Error("rotation-grace second signature should verify")
+	}
+
+	// A tampered body must NOT verify against the original signature.
+	if selftest.VerifyHMACForTest(hdr, []byte("tampered"), secret) {
+		t.Error("tampered body must not verify")
 	}
 }

@@ -36,7 +36,7 @@ func decodeSelftest(t *testing.T, body []byte) (string, map[string]any) {
 
 func TestSelftestHandler_AllPass(t *testing.T) {
 	pool := testutil.TestDB(t)
-	h := selftestHandler(pool, listeningAddr(t), "" /* no auth */)
+	h := selftestHandler(pool, listeningAddr(t), "" /* no auth */, true /* dev */)
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/selftest", nil))
 
@@ -60,7 +60,7 @@ func TestSelftestHandler_AllPass(t *testing.T) {
 func TestSelftestHandler_SMTPDown(t *testing.T) {
 	pool := testutil.TestDB(t)
 	// 127.0.0.1:1 — nothing listening → dial fails.
-	h := selftestHandler(pool, "127.0.0.1:1", "")
+	h := selftestHandler(pool, "127.0.0.1:1", "", true /* dev */)
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/selftest", nil))
 
@@ -76,7 +76,7 @@ func TestSelftestHandler_SMTPDown(t *testing.T) {
 func TestSelftestHandler_AuthGate(t *testing.T) {
 	pool := testutil.TestDB(t)
 	const secret = "topsecret"
-	h := selftestHandler(pool, listeningAddr(t), secret)
+	h := selftestHandler(pool, listeningAddr(t), secret, false /* prod */)
 
 	// No bearer → 401.
 	rec := httptest.NewRecorder()
@@ -92,5 +92,28 @@ func TestSelftestHandler_AuthGate(t *testing.T) {
 	h(rec2, req)
 	if rec2.Code != http.StatusOK {
 		t.Fatalf("authed status = %d, want 200; body=%s", rec2.Code, rec2.Body.String())
+	}
+}
+
+// TestSelftestHandler_ProdNoSecretFailsClosed guards the adversarial-review
+// finding: with no internal secret configured, /selftest must NOT serve
+// diagnostics unauthenticated in production — it fails closed (503), matching
+// the /api/internal/* convention. In development the same config stays open.
+func TestSelftestHandler_ProdNoSecretFailsClosed(t *testing.T) {
+	pool := testutil.TestDB(t)
+	addr := listeningAddr(t)
+
+	prod := selftestHandler(pool, addr, "" /* no secret */, false /* prod */)
+	rec := httptest.NewRecorder()
+	prod(rec, httptest.NewRequest(http.MethodGet, "/selftest", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("prod + no secret: status = %d, want 503 (fail closed)", rec.Code)
+	}
+
+	dev := selftestHandler(pool, addr, "" /* no secret */, true /* dev */)
+	rec2 := httptest.NewRecorder()
+	dev(rec2, httptest.NewRequest(http.MethodGet, "/selftest", nil))
+	if rec2.Code != http.StatusOK {
+		t.Errorf("dev + no secret: status = %d, want 200 (open in dev)", rec2.Code)
 	}
 }
