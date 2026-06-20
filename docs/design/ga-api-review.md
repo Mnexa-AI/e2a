@@ -195,9 +195,61 @@ Both SDKs green: TS 84 tests, Python 131 tests.
 - **webhook-signature** — 🟡 **WH-SIG-1 (fixed both):** a missing/non-string `X-E2A-Signature` header threw a raw `TypeError`/`AttributeError` instead of returning `false`; guarded. Crypto otherwise sound (`${t}.${body}` HMAC-SHA256, constant-time compare, multi-`v1=` rotation, replay window).
 - **ws** — 🟠 **WS-1 + WS-2 (fixed TS; Python already had both):** TS injected the raw API key into `?token=` (now `encodeURIComponent`) and **reconnected forever on a fatal 4xx handshake**; TS now detects the 4xx via `unexpected-response`, surfaces a typed `E2AAuthError`/`E2APermissionError`, and stops (F6 parity with Python's `_fatal_error_for_status`). 🟢 WS-3 (noted, LOW): WSStream buffer is unbounded (slow-consumer edge). 🟢 F6 URL-token auth remains a documented known limitation (planned header/ticket server change).
 
-## Phase 3 — MCP
+## Phase 3 — MCP (done)
 
-_(pending — tool by tool; note §6a re-curation gap; carry the `email` naming decision AG-3)_
+Re-curated `mcp/src/` to the reshaped `/v1` (§6a). MCP build clean; 114 tests green.
+
+**Tool surface (33 tools).**
+- Renames to match the resource/op names: `send_email`→`send_message`,
+  `get_attachment_data`→`get_attachment`, `approve_pending_message`→`approve_message`,
+  `reject_pending_message`→`reject_message`.
+- Added `get_domain` (the `sending_status` poll target).
+- Removed `list_webhook_deliveries` — webhook-delivery debugging folds into the
+  events log (`list_events {webhook_id}` + `get_event`).
+- `create_agent`: dropped `slug`/`agent_mode`/`webhook_url` → `{ email, name? }`,
+  returns the full `AgentView`.
+- `update_agent`: dropped `agent_mode`/`webhook_url`; added `hitl_mode`,
+  `inbound_policy`, `inbound_allowlist`.
+- `whoami`: now returns the account identity (`AccountView`: user/scope/
+  agent_address/plan/limits) via `GET /account` — no more default-agent
+  auto-resolution.
+- Every per-agent tool arg `agent_email`→`email` (AG-3); `list_messages`
+  `status`→`read_status`; `get_message` response `status`→`read_status`; webhook
+  event names → `email.approval_accepted` / `email.approval_rejected` (EV-1).
+
+**Deviation from §6a (ratified):** kept `list_pending_messages` +
+`get_pending_message`. §6a wanted them dropped ("a held draft is just a message →
+`list_messages{status:pending_approval}`"), but MSG-1 made the read-state filter
+`read_status {unread,read,all}` — there is **no** `pending_approval` filter value,
+and held drafts have `read_status=""`. So these client-side `hitl_status` scans are
+the only way to view the approval queue. (Alternative — a server-side pending
+filter — deferred as a bigger API change.)
+
+**Enum friction (TS-1) surfaced:** the MCP wrapper carries plain strings from JSON
+tool args but the generated request types are enum-typed; bridged with a cast to
+the generated `*Request` type at the 4 call sites (update_agent, create/update/test
+webhook). Also corrected SDK `ListMessagesParams.read_status`→`readStatus`
+(camelCase; Python stays `read_status`).
+
+### Transport — hosted-only (stdio removed)
+
+Most users connect via the hosted MCP, so the **stdio transport was removed**
+entirely; the hosted Streamable-HTTP server is the single surface.
+- Deleted `mcp/src/index.ts`, `events-stdio.test.ts`, `publish-mcp.yml` (stdio
+  npm publish). Hosted runs via Docker (`publish-mcp-http.yml` → `dist/bin/http.js`).
+- `package.json`: dropped the `e2a-mcp` bin; `main`→`./dist/bin/http.js`.
+- `server.json`: dropped the npm/stdio `packages` block; kept the
+  `streamable-http` `remotes` entry (OAuth-first; Bearer API key also accepted).
+- Examples: removed every stdio variant — one hosted `agent.py` per framework;
+  codex config keeps only the hosted block. Full doc sweep (no npx/stdio left).
+
+**Hosted endpoint:** `https://api.e2a.dev/mcp` (§6a `api.<host>/mcp`, path-routed).
+Migrated `mcp.e2a.dev`→`api.e2a.dev` across src (allowedHosts default),
+`server.json`, `plugin.json`, tests, examples. _Deploy note: the `api.e2a.dev`
+ingress must path-route `/mcp` to the MCP process._
+
+**E2A_AGENT_EMAIL removed** everywhere (MCP config + wrapper + tool docs + server.json):
+an agent-scoped credential resolves its agent server-side; account callers pass `email`.
 
 ---
 
