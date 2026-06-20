@@ -16,6 +16,7 @@ package piguard
 
 import (
 	"context"
+	"math"
 
 	"github.com/Mnexa-AI/e2a/internal/emailauth"
 )
@@ -192,6 +193,11 @@ type Detector interface {
 	// Inspect screens req and returns a normalized verdict. A returned error and a
 	// non-OK Result.Status both signal "no usable verdict"; the Engine treats them
 	// identically (excluded from the aggregate).
+	//
+	// Implementations MUST return promptly when ctx is cancelled or times out. The
+	// Engine bounds each call with a timeout, but Go cannot force-cancel a goroutine:
+	// a detector that ignores ctx and blocks leaks one goroutine per call. Network
+	// backends must pass ctx into their request.
 	Inspect(ctx context.Context, req Request) (*Result, error)
 	// Name is the stable adapter id, e.g. "heuristics", "lakera".
 	Name() string
@@ -210,14 +216,18 @@ const (
 
 func (a Action) severity() int {
 	switch a {
+	case ActionAllow:
+		return 0
 	case ActionFlag:
 		return 1
 	case ActionReview:
 		return 2
 	case ActionBlock:
 		return 3
-	default: // ActionAllow and unknown
-		return 0
+	default:
+		// Unknown/invalid action → fail closed at review-level, so a malformed or
+		// future action value is never silently downgraded to allow.
+		return 2
 	}
 }
 
@@ -236,6 +246,10 @@ func MoreSevere(a, b Action) Action {
 // that upstream (ValidateScanConfig). This is the scan equivalent of SpamAssassin's
 // score bands.
 func ActionForScore(score, reviewThreshold, blockThreshold float64) Action {
+	if math.IsNaN(score) {
+		// An unusable score must never read as allow (every `NaN >= x` is false).
+		return ActionReview
+	}
 	switch {
 	case score >= blockThreshold:
 		return ActionBlock

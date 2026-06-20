@@ -84,7 +84,11 @@ func (e *extractor) add(t SegmentType, content, ref string) {
 // walk descends one MIME node. For multipart it recurses into each part; for leaf
 // text parts it decodes the transfer encoding and routes to the right segment type.
 func (e *extractor) walk(contentType, encoding string, body io.Reader, ref string, depth int) {
-	if e.full || depth > 20 {
+	if e.full {
+		return
+	}
+	if depth > 20 {
+		e.full = true // bailed on depth → report Truncated so the caller fails-to-review
 		return
 	}
 	mediaType, params, err := mime.ParseMediaType(contentType)
@@ -141,7 +145,11 @@ func (e *extractor) walkPart(contentType, encoding, disposition string, body io.
 }
 
 func (e *extractor) walkMultipart(boundary string, body io.Reader, ref string, depth int) {
-	if boundary == "" || depth > 20 {
+	if e.full || boundary == "" {
+		return
+	}
+	if depth > 20 {
+		e.full = true // bailed on depth → report Truncated so the caller fails-to-review
 		return
 	}
 	mr := multipart.NewReader(body, boundary)
@@ -267,50 +275,75 @@ var hiddenStyleMarkers = []string{
 
 // splitHTML returns (visibleText, hiddenText). It uses a small tag-aware scanner
 // (not a full HTML parser — dependency-free by design) that tracks hidden-styled
-// element depth and skips <script>/<style> content. Robust enough for the documented
-// hidden-text attack vectors; a full parser is a possible future upgrade.
+// element depth. Crucially, content a human never sees but an LLM may still ingest —
+// HTML comments, <script>/<style> bodies, and text behind a malformed/unterminated
+// tag — is routed into the HIDDEN bucket (not discarded), since that is exactly where
+// indirect-injection payloads hide. A full HTML parser is a possible future upgrade.
 func splitHTML(html string) (visible, hidden string) {
 	var vis, hid strings.Builder
 	hiddenDepth := 0
-	i := 0
-	n := len(html)
+	emit := func(text string) {
+		text = decodeEntities(text)
+		if hiddenDepth > 0 {
+			hid.WriteString(text)
+			hid.WriteByte(' ')
+		} else {
+			vis.WriteString(text)
+			vis.WriteByte(' ')
+		}
+	}
+	emitHidden := func(text string) {
+		text = decodeEntities(text)
+		hid.WriteString(text)
+		hid.WriteByte(' ')
+	}
+
+	i, n := 0, len(html)
 	for i < n {
-		c := html[i]
-		if c != '<' {
-			// Text node.
+		if html[i] != '<' {
 			j := strings.IndexByte(html[i:], '<')
-			var text string
 			if j < 0 {
-				text = html[i:]
-				i = n
-			} else {
-				text = html[i : i+j]
-				i += j
+				emit(html[i:])
+				break
 			}
-			text = decodeEntities(text)
-			if hiddenDepth > 0 {
-				hid.WriteString(text)
-				hid.WriteByte(' ')
+			emit(html[i : i+j])
+			i += j
+			continue
+		}
+		// HTML comment: body is invisible to humans → screen it as hidden.
+		if strings.HasPrefix(html[i:], "<!--") {
+			rest := html[i+4:]
+			if k := strings.Index(rest, "-->"); k >= 0 {
+				emitHidden(rest[:k])
+				i += 4 + k + 3
 			} else {
-				vis.WriteString(text)
-				vis.WriteByte(' ')
+				emitHidden(rest) // unterminated comment: the rest is the body
+				break
 			}
 			continue
 		}
-		// Tag.
 		end := strings.IndexByte(html[i:], '>')
 		if end < 0 {
-			break // malformed trailing '<'
+			// Unterminated tag: don't drop the tail — a payload can hide behind a
+			// broken tag. Treat the remaining text as hidden content.
+			emitHidden(html[i+1:])
+			break
 		}
 		tag := html[i+1 : i+end]
 		i += end + 1
 		tagLower := strings.ToLower(strings.TrimSpace(tag))
+		name := tagName(tagLower)
 
-		// Skip <script>/<style> bodies entirely.
-		if name := tagName(tagLower); name == "script" || name == "style" {
-			if !strings.HasSuffix(tagLower, "/") { // not self-closed
-				if close := findClose(html[i:], name); close >= 0 {
-					i += close
+		// <script>/<style> bodies are not rendered to the human → capture as hidden
+		// and screen them rather than discarding.
+		if name == "script" || name == "style" {
+			if !strings.HasSuffix(tagLower, "/") {
+				if body, past, ok := sliceClose(html[i:], name); ok {
+					emitHidden(body)
+					i += past
+				} else {
+					emitHidden(html[i:]) // no close tag — rest is the body
+					i = n
 				}
 			}
 			continue
@@ -321,14 +354,13 @@ func splitHTML(html string) (visible, hidden string) {
 			if hiddenDepth > 0 {
 				hiddenDepth--
 			}
-		case strings.HasSuffix(tagLower, "/"):
-			// self-closing — no depth change
+		case strings.HasSuffix(tagLower, "/"), isVoidElement(name):
+			// self-closing or void element (<br>, <img>, …): no content, no close,
+			// so it must not change hidden depth (else following text mis-buckets).
 		default:
-			if tagIsHidden(tag) {
-				hiddenDepth++
-			} else if hiddenDepth > 0 {
-				// Already inside hidden subtree: stay hidden (track nesting so the
-				// matching close pops correctly).
+			// Open a hidden subtree if the tag is hidden-styled, or keep tracking
+			// nesting depth while already inside one so the matching close pops it.
+			if tagIsHidden(tag) || hiddenDepth > 0 {
 				hiddenDepth++
 			}
 		}
@@ -346,19 +378,29 @@ func tagName(tagLower string) string {
 	return t
 }
 
-// findClose returns the index just past the matching </name> in s, or -1.
-func findClose(s, name string) int {
+// sliceClose returns the body before the matching </name> and the index just past
+// it. ok is false when no closing tag is found.
+func sliceClose(s, name string) (body string, past int, ok bool) {
 	needle := "</" + name
 	idx := strings.Index(strings.ToLower(s), needle)
 	if idx < 0 {
-		return -1
+		return "", 0, false
 	}
 	gt := strings.IndexByte(s[idx:], '>')
 	if gt < 0 {
-		return -1
+		return "", 0, false
 	}
-	return idx + gt + 1
+	return s[:idx], idx + gt + 1, true
 }
+
+// voidElements are HTML elements that never have a closing tag.
+var voidElements = map[string]bool{
+	"area": true, "base": true, "br": true, "col": true, "embed": true,
+	"hr": true, "img": true, "input": true, "link": true, "meta": true,
+	"param": true, "source": true, "track": true, "wbr": true,
+}
+
+func isVoidElement(name string) bool { return voidElements[name] }
 
 var styleAttrRe = regexp.MustCompile(`(?is)style\s*=\s*["']([^"']*)["']`)
 

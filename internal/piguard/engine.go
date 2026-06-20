@@ -2,6 +2,7 @@ package piguard
 
 import (
 	"context"
+	"math"
 	"sync"
 	"time"
 )
@@ -50,13 +51,30 @@ type Aggregate struct {
 	// must map a degraded aggregate to review — NOT allow, NOT block.
 	Degraded bool
 	// MinAction is a deterministic force-override floor: when a high-confidence
-	// deterministic marker is present (e.g. Unicode Tags-block smuggling), the
-	// applied action is at least this severe regardless of score. ActionAllow when
-	// no override fires.
+	// deterministic marker is present (e.g. Unicode Tags-block smuggling, or
+	// truncated/unscannable content), the applied action is at least this severe
+	// regardless of score. ActionAllow when no override fires.
 	MinAction Action
+	// Truncated mirrors DecodedSignals.Truncated: the content exceeded the scan cap
+	// and was only partially inspected. Folded into MinAction (→ review) but exposed
+	// for audit/metrics.
+	Truncated bool
 	// PerDetector retains every detector's raw Result (including timeouts/errors)
 	// for audit and for writing screening_events rows.
 	PerDetector []Result
+}
+
+// Action folds the aggregate into a single applied action using the per-agent
+// threshold ladder, guaranteeing the fail-safe defaults so call sites can't
+// accidentally silent-allow: a degraded aggregate (too few usable verdicts) routes
+// to review; the deterministic force-override floor (MinAction — truncated→review,
+// Unicode-tags→flag) always applies; and a NaN score can never read as allow.
+// Prefer this over calling ActionForScore(agg.Score, …) directly.
+func (a Aggregate) Action(reviewThreshold, blockThreshold float64) Action {
+	if a.Degraded {
+		return MoreSevere(ActionReview, a.MinAction)
+	}
+	return MoreSevere(ActionForScore(a.Score, reviewThreshold, blockThreshold), a.MinAction)
 }
 
 // Evaluate fans out to all detectors with a per-detector timeout, then aggregates.
@@ -108,6 +126,16 @@ func (e *Engine) runOne(ctx context.Context, d Detector, req Request) (res Resul
 		}
 		o.r.Provider.Name = name // ensure attribution even if a detector forgot
 		o.r.Provider.LatencyMS = latency
+		// Sanitize the score. A NaN/Inf/negative score is an unusable verdict: a
+		// buggy or hostile adapter (or a deserialized NaN/Inf from a network
+		// provider) must not be able to poison the weighted aggregate into allow or
+		// erase a co-detector's score. Exclude it like a timeout; clamp >1 to 1.
+		if math.IsNaN(o.r.Score) || math.IsInf(o.r.Score, 0) || o.r.Score < 0 {
+			return Result{Status: StatusError, Provider: ProviderMeta{Name: name, LatencyMS: latency}}
+		}
+		if o.r.Score > 1 {
+			o.r.Score = 1
+		}
 		return *o.r
 	}
 }
@@ -144,7 +172,7 @@ func (e *Engine) aggregate(req Request, results []Result) Aggregate {
 		spans = append(spans, r.Spans...)
 	}
 
-	agg := Aggregate{PerDetector: results, MinAction: ActionAllow}
+	agg := Aggregate{PerDetector: results, MinAction: ActionAllow, Truncated: req.Signals.Truncated}
 	if okCount < e.cfg.MinOK {
 		// Fail-to-review: too few usable verdicts to trust. Mark the aggregate as not
 		// OK so callers cannot read it as a benign allow.
@@ -173,10 +201,16 @@ func (e *Engine) aggregate(req Request, results []Result) Aggregate {
 // forceFloor returns the deterministic minimum action implied by high-confidence
 // signals, independent of the (possibly low) aggregate score.
 func (e *Engine) forceFloor(req Request) Action {
+	floor := ActionAllow
 	if req.Signals.UnicodeTags {
-		return ActionFlag
+		floor = MoreSevere(floor, ActionFlag)
 	}
-	return ActionAllow
+	if req.Signals.Truncated {
+		// Unscannable content (scan cap hit) is not a safety guarantee — design §5
+		// routes it to review rather than treating "no finding" as benign.
+		floor = MoreSevere(floor, ActionReview)
+	}
+	return floor
 }
 
 func (e *Engine) weight(name string) float64 {

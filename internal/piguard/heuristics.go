@@ -2,6 +2,7 @@ package piguard
 
 import (
 	"context"
+	"math"
 	"regexp"
 	"strings"
 )
@@ -73,11 +74,14 @@ func (h *HeuristicsDetector) Inspect(_ context.Context, req Request) (*Result, e
 		combined.WriteByte('\n')
 	}
 	body := combined.String()
+	// Run the injection lexicon over a confusable-folded copy so a single homoglyph
+	// (e.g. Cyrillic 'і' in "іgnore") can't slip the phrase past an ASCII-only regex.
+	folded := foldConfusables(body)
 
-	if injectionPhraseRe.MatchString(body) {
+	if injectionPhraseRe.MatchString(folded) {
 		add(0.7, CategoryInjectionDirect)
 	}
-	if systemPromptRe.MatchString(body) {
+	if systemPromptRe.MatchString(folded) {
 		add(0.6, CategoryInjectionDirect)
 	}
 
@@ -111,10 +115,14 @@ func (h *HeuristicsDetector) Inspect(_ context.Context, req Request) (*Result, e
 }
 
 // noisyOR combines independent probabilities: 1 - Π(1 - pᵢ). Order-independent and
-// bounded in [0,1); two 0.7 signals → 0.91, not 1.4.
+// bounded in [0,1); two 0.7 signals → 0.91, not 1.4. NaN contributions are skipped
+// so a stray NaN can never poison the result into NaN.
 func noisyOR(ps []float64) float64 {
 	prod := 1.0
 	for _, p := range ps {
+		if math.IsNaN(p) {
+			continue
+		}
 		if p < 0 {
 			p = 0
 		}
@@ -124,6 +132,35 @@ func noisyOR(ps []float64) float64 {
 		prod *= (1 - p)
 	}
 	return 1 - prod
+}
+
+// confusableFold maps the common Latin-lookalike homoglyphs (Cyrillic, Greek) to
+// their ASCII counterparts. Used to normalize content before running the ASCII
+// injection lexicon so a one-character homoglyph swap doesn't defeat detection.
+var confusableFold = map[rune]rune{
+	// Cyrillic lowercase
+	'а': 'a', 'е': 'e', 'о': 'o', 'р': 'p', 'с': 'c', 'у': 'y', 'х': 'x',
+	'і': 'i', 'ѕ': 's', 'ј': 'j', 'һ': 'h', 'ԁ': 'd', 'ո': 'n', 'м': 'm',
+	'т': 't', 'в': 'b', 'к': 'k', 'г': 'r', 'п': 'n',
+	// Cyrillic uppercase
+	'А': 'A', 'В': 'B', 'Е': 'E', 'К': 'K', 'М': 'M', 'Н': 'H', 'О': 'O',
+	'Р': 'P', 'С': 'C', 'Т': 'T', 'Х': 'X', 'І': 'I',
+	// Greek
+	'ο': 'o', 'α': 'a', 'ε': 'e', 'ρ': 'p', 'ι': 'i', 'ν': 'v', 'τ': 't',
+	'υ': 'u', 'Ο': 'O', 'Α': 'A', 'Ε': 'E', 'Ρ': 'P', 'Τ': 'T', 'Χ': 'X',
+}
+
+func foldConfusables(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if f, ok := confusableFold[r]; ok {
+			b.WriteRune(f)
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // sortCategories orders by descending score then name, so output is deterministic.
