@@ -47,11 +47,11 @@ async function parseAttachments(email: MessageView): Promise<ParsedAttachment[]>
 
 export function registerMessageTools(server: McpServer, client: McpClient): void {
   server.registerTool(
-    "send_email",
+    "send_message",
     {
       title: "Send email",
       description:
-        "Use when starting a NEW email thread to a fresh recipient. To respond to a message you can see in `list_messages`, use `reply_to_message` instead — it preserves the In-Reply-To / References headers so the reply lands in the same thread, which this tool deliberately does not do. Attach files via `attachments`; pass base64 strings produced by other tools (e.g. `get_attachment_data`) verbatim — don't hand-encode raw text. **`pending_approval` is not failure.** If the agent has HITL enabled, the response is `{ status: \"pending_approval\", message_id: ... }`; the message is held for human review — do not retry. Check on it with `list_pending_messages` / `get_pending_message`.",
+        "Use when starting a NEW email thread to a fresh recipient. To respond to a message you can see in `list_messages`, use `reply_to_message` instead — it preserves the In-Reply-To / References headers so the reply lands in the same thread, which this tool deliberately does not do. Attach files via `attachments`; pass base64 strings produced by other tools (e.g. `get_attachment`) verbatim — don't hand-encode raw text. **`pending_approval` is not failure.** If the agent has HITL enabled, the response is `{ status: \"pending_approval\", message_id: ... }`; the message is held for human review — do not retry. Check on it with `list_messages` (held drafts show hitl_status=pending_approval) / `get_message`.",
       inputSchema: strictInputSchema({
         to: z.array(z.string()).describe("Recipient email addresses (one or more)."),
         subject: z.string(),
@@ -70,11 +70,11 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           .describe(
             "Stable key for retry-safe sends. Set to deduplicate when the caller has its own retry loop (e.g. a stable triggering event id). When omitted the SDK mints a fresh UUIDv4 per call — protects against network-layer retries only, not user-driven retries.",
           ),
-        agent_email: z
+        email: z
           .string()
           .optional()
           .describe(
-            "Sending agent's inbox. Omit when E2A_AGENT_EMAIL is set in the server environment.",
+            "Sending agent's inbox. Omit to use the credential's bound agent (agent-scoped credentials).",
           ),
       }),
     },
@@ -100,7 +100,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
               : {}),
           },
           opts,
-          args.agent_email,
+          args.email,
         );
       }),
   );
@@ -110,7 +110,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
     {
       title: "Reply to a received message",
       description:
-        "Use whenever you're responding to a message you can see in the inbox — preserves the In-Reply-To and References headers so the reply joins the original email thread instead of starting a new one. Prefer this over `send_email` for any response to an inbound; thread fragmentation (broken conversation view in the recipient's mail client) is the most visible symptom of using `send_email` by mistake. Pass `reply_all: true` to copy the original Cc list; subject is auto-derived as `Re: …` by the server. Same HITL caveat as `send_email`: a `pending_approval` status is success, not failure.",
+        "Use whenever you're responding to a message you can see in the inbox — preserves the In-Reply-To and References headers so the reply joins the original email thread instead of starting a new one. Prefer this over `send_message` for any response to an inbound; thread fragmentation (broken conversation view in the recipient's mail client) is the most visible symptom of using `send_message` by mistake. Pass `reply_all: true` to copy the original Cc list; subject is auto-derived as `Re: …` by the server. Same HITL caveat as `send_message`: a `pending_approval` status is success, not failure.",
       inputSchema: strictInputSchema({
         message_id: z.string().describe("ID of the inbound message to reply to (e.g. msg_…)."),
         body: z.string().describe("Plain-text reply body."),
@@ -129,7 +129,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           .describe(
             "Stable key for retry-safe replies. A natural choice is the inbound `message_id` you're replying to — the same triggering event yields the same key, so a retry replays the original response instead of double-sending. Omit to let the SDK mint a fresh UUIDv4 per call.",
           ),
-        agent_email: z.string().optional(),
+        email: z.string().optional(),
       }),
     },
     async (args) =>
@@ -154,7 +154,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
               : {}),
           },
           opts,
-          args.agent_email,
+          args.email,
         );
       }),
   );
@@ -190,7 +190,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           .describe(
             "Stable key for retry-safe forwards. The inbound `message_id` plus target list is a natural choice.",
           ),
-        agent_email: z.string().optional(),
+        email: z.string().optional(),
       }),
     },
     async (args) =>
@@ -203,7 +203,9 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           args.message_id,
           args.to,
           {
-            ...(args.body !== undefined ? { body: args.body } : {}),
+            // body is required on the wire (MSG-3); the original is auto-quoted,
+            // so an empty comment is fine — default to "".
+            body: args.body ?? "",
             ...(args.html_body !== undefined ? { htmlBody: args.html_body } : {}),
             ...(args.cc !== undefined ? { cc: args.cc } : {}),
             ...(args.bcc !== undefined ? { bcc: args.bcc } : {}),
@@ -215,7 +217,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
               : {}),
           },
           opts,
-          args.agent_email,
+          args.email,
         );
       }),
   );
@@ -236,7 +238,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           .array(z.string())
           .optional()
           .describe("Labels to remove. Entries not on the message are no-ops."),
-        agent_email: z.string().optional(),
+        email: z.string().optional(),
       }),
     },
     async (args) =>
@@ -247,7 +249,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
             ...(args.add_labels !== undefined ? { addLabels: args.add_labels } : {}),
             ...(args.remove_labels !== undefined ? { removeLabels: args.remove_labels } : {}),
           },
-          args.agent_email,
+          args.email,
         ),
       ),
   );
@@ -272,7 +274,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           .describe(
             "RFC3339 timestamp. Only conversations whose latest message is < until.",
           ),
-        agent_email: z.string().optional(),
+        email: z.string().optional(),
       }),
     },
     async (args) =>
@@ -283,7 +285,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
             ...(args.since !== undefined ? { since: args.since } : {}),
             ...(args.until !== undefined ? { until: args.until } : {}),
           },
-          args.agent_email,
+          args.email,
         ),
       })),
   );
@@ -296,11 +298,11 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
         "Returns the full thread — aggregate counts, the participants union (sender + recipient + to + cc + bcc across members), the labels union, and every member message in chronological order (oldest first). Returns a not-found error when no non-expired messages exist for `(agent, conversation_id)`. Use this after `list_conversations` (or whenever you have a `conversation_id` from an inbound/outbound payload) to read the full thread.",
       inputSchema: strictInputSchema({
         conversation_id: z.string(),
-        agent_email: z.string().optional(),
+        email: z.string().optional(),
       }),
     },
     async (args) =>
-      runTool(() => client.getConversation(args.conversation_id, args.agent_email)),
+      runTool(() => client.getConversation(args.conversation_id, args.email)),
   );
 
   server.registerTool(
@@ -308,9 +310,9 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
     {
       title: "List inbound messages",
       description:
-        "List messages the agent has received, newest first by default. Filter by `status` (unread/read/all; default unread) and paginate with `page_size` + `token`. Pass `sort: \"asc\"` for FIFO order (oldest unread first) when the caller wants to drain the inbox in arrival order. **Search filters** (`from`, `subject_contains`, `conversation_id`, `since`, `until`) narrow the result set server-side — use them instead of paginating the full inbox client-side. Returns summaries only — use `get_message` for the full body.",
+        "List messages the agent has received, newest first by default. Filter by `read_status` (unread/read/all; default unread) and cap results with `page_size`. Pass `sort: \"asc\"` for FIFO order (oldest unread first) when the caller wants to drain the inbox in arrival order. **Search filters** (`from`, `subject_contains`, `conversation_id`, `since`, `until`) narrow the result set server-side — use them instead of paginating the full inbox client-side. Returns summaries only — use `get_message` for the full body.",
       inputSchema: strictInputSchema({
-        status: z.enum(["unread", "read", "all"]).optional(),
+        read_status: z.enum(["unread", "read", "all"]).optional(),
         page_size: z.number().int().positive().max(100).optional(),
         sort: z
           .enum(["asc", "desc"])
@@ -356,7 +358,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
             "AND-match filter on labels. A row is returned only if ALL given labels are present. Use lowercase strings matching `[a-z0-9:_-]+`; `e2a:*` system labels can be filtered even though setting them is server-only.",
           ),
         token: z.string().optional().describe("Pagination token from a previous response."),
-        agent_email: z.string().optional(),
+        email: z.string().optional(),
       }),
     },
     async (args) =>
@@ -365,7 +367,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       // internally up to `page_size` rows.
       runTool(async () => ({
         messages: await client.listMessages({
-          ...(args.status !== undefined ? { status: args.status } : {}),
+          ...(args.read_status !== undefined ? { readStatus: args.read_status } : {}),
           ...(args.page_size !== undefined ? { limit: args.page_size } : {}),
           ...(args.sort !== undefined ? { sort: args.sort } : {}),
           ...(args.from !== undefined ? { from: args.from } : {}),
@@ -378,7 +380,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           ...(args.since !== undefined ? { since: args.since } : {}),
           ...(args.until !== undefined ? { until: args.until } : {}),
           ...(args.labels !== undefined ? { labels: args.labels } : {}),
-          ...(args.agent_email !== undefined ? { explicitAddress: args.agent_email } : {}),
+          ...(args.email !== undefined ? { explicitAddress: args.email } : {}),
         }),
       })),
   );
@@ -388,10 +390,10 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
     {
       title: "Get a message",
       description:
-        "Use after `list_messages` to read one inbound message in full — body (text + html), headers, conversation id, and attachment metadata. Pass the `message_id` from the list response. Attachment bytes are NOT included (would blow context for any non-trivial PDF); the response lists each attachment's filename, content_type, and 0-based `index` plus size_bytes. To get the actual bytes of one attachment (inspect, forward, hand off), call `get_attachment_data` with that index. The raw MIME blob is also omitted for the same reason.",
+        "Use after `list_messages` to read one inbound message in full — body (text + html), headers, conversation id, and attachment metadata. Pass the `message_id` from the list response. Attachment bytes are NOT included (would blow context for any non-trivial PDF); the response lists each attachment's filename, content_type, and 0-based `index` plus size_bytes. To get the actual bytes of one attachment (inspect, forward, hand off), call `get_attachment` with that index. The raw MIME blob is also omitted for the same reason.",
       inputSchema: strictInputSchema({
         message_id: z.string(),
-        agent_email: z.string().optional(),
+        email: z.string().optional(),
       }),
     },
     async (args) =>
@@ -399,10 +401,10 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
         // McpClient.getMessage resolves the address (explicit arg →
         // pinned default) and throws a directive error when neither is
         // available, so we don't pre-check here.
-        const email = await client.getMessage(args.message_id, args.agent_email);
+        const email = await client.getMessage(args.message_id, args.email);
         // Attachment metadata is decoded from the raw MIME (the v1
         // MessageView no longer exposes attachments inline). Bytes are
-        // NOT returned here — call get_attachment_data for one. Omit
+        // NOT returned here — call get_attachment for one. Omit
         // `raw_message` entirely so the LLM never sees the full MIME
         // blob unless it explicitly fetches an attachment.
         const attachments = await parseAttachments(email);
@@ -415,7 +417,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           cc: email.cc,
           reply_to: email.replyTo,
           subject: email.subject,
-          status: email.status,
+          read_status: email.readStatus,
           // Inbound messages carry the decoded text in `parsed`; only outbound
           // held drafts populate `body` (mirror the CLI's read fallback).
           body_text: email.parsed?.text ?? email.body?.text,
@@ -440,11 +442,11 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
   const MAX_INLINE_BYTES = 2 * 1024 * 1024;
 
   server.registerTool(
-    "get_attachment_data",
+    "get_attachment",
     {
       title: "Fetch one attachment's bytes from an inbound message",
       description:
-        "Returns the base64-encoded content of one attachment from an inbound message. Use this when you want to inspect, forward, or hand off an attachment surfaced by `get_message`. Indexes are 0-based and stable within a message (see `attachments[].index` from get_message). To forward to another recipient, pass the returned `{filename, content_type, data}` verbatim as an entry in `send_email`'s or `reply_to_message`'s `attachments[]` array. Refuses attachments larger than 2 MB after decoding — these are too big for inline retrieval and the LLM context cost would be prohibitive.",
+        "Returns the base64-encoded content of one attachment from an inbound message. Use this when you want to inspect, forward, or hand off an attachment surfaced by `get_message`. Indexes are 0-based and stable within a message (see `attachments[].index` from get_message). To forward to another recipient, pass the returned `{filename, content_type, data}` verbatim as an entry in `send_message`'s or `reply_to_message`'s `attachments[]` array. Refuses attachments larger than 2 MB after decoding — these are too big for inline retrieval and the LLM context cost would be prohibitive.",
       inputSchema: strictInputSchema({
         message_id: z.string(),
         attachment_index: z
@@ -454,18 +456,18 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           .describe(
             "0-based index into the `attachments[]` returned by get_message. The index reflects the order attachments appear in the MIME message and is stable for a given message_id.",
           ),
-        agent_email: z
+        email: z
           .string()
           .optional()
           .describe(
-            "Agent inbox holding the message. Omit when E2A_AGENT_EMAIL is set in the server environment.",
+            "Agent inbox holding the message. Omit to use the credential's bound agent (agent-scoped credentials).",
           ),
       }),
     },
     async (args) =>
       runTool(async () => {
         // McpClient.getMessage resolves + validates the address.
-        const email = await client.getMessage(args.message_id, args.agent_email);
+        const email = await client.getMessage(args.message_id, args.email);
         const list = await parseAttachments(email);
         if (args.attachment_index < 0 || args.attachment_index >= list.length) {
           throw new Error(
@@ -483,7 +485,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           content_type: a.contentType,
           size_bytes: a.size,
           // Buffer → standard-alphabet base64. This matches the wire
-          // shape send_email/reply_to_message expect on the way back
+          // shape send_message/reply_to_message expect on the way back
           // out, so a forward-attachment workflow is a verbatim copy.
           data: a.content.toString("base64"),
         };

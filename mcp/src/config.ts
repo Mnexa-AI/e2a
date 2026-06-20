@@ -44,6 +44,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpConfig {
   return {
     apiKey,
     baseUrl: resolveBaseUrl(env),
-    agentEmail: env.E2A_AGENT_EMAIL || undefined,
+    // No default-agent env: an agent-scoped credential IS its agent (resolved
+    // server-side / by the session prefetch), and account-scoped callers pass
+    // `email` per tool. The legacy E2A_AGENT_EMAIL default was removed (§9a).
   };
 }

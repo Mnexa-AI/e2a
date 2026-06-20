@@ -12,10 +12,10 @@ import { resolve as pathResolve } from "node:path";
 // against the in-tree code.
 //
 // Runs against the local e2a backend at http://localhost:8080 with
-// a fake API key. The MCP server validates the bearer at session
-// init by calling listAgents — for these tests we don't reach the
-// backend, instead we set E2A_AGENT_EMAIL to short-circuit the
-// validation and exercise the tool catalog only.
+// a fake API key. The stdio transport bypasses the HTTP server's
+// per-session bearer validation (E2A_API_KEY is set), so the backend
+// is never reached — this test exercises the tool catalog only.
+// (E2A_AGENT_EMAIL was removed from config; no default-agent env var.)
 //
 // Skips when the dist/index.js isn't built, so this file is safe to
 // commit even on a fresh clone.
@@ -34,7 +34,6 @@ describe("MCP events tools over stdio", () => {
         env: {
           ...process.env,
           E2A_API_KEY: "e2a_test_unused", // bypasses HTTP server's bearer check at session level
-          E2A_AGENT_EMAIL: "bot@example.com",
           E2A_URL: "http://localhost:8080", // never actually called in this test
         },
       });

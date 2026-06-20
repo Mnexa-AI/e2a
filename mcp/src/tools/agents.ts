@@ -18,82 +18,37 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
   server.registerTool(
     "whoami",
     {
-      title: "Get the default agent's identity",
+      title: "Get the authenticated account's identity",
       description:
-        "Use first when starting work on e2a to learn which agent you're acting AS — remember an agent IS an email address, and other tools default to this one. Resolution order: (1) `E2A_AGENT_EMAIL` from the server env when set, (2) the sole agent on the account when there's exactly one. Errors only when neither path resolves — typically because the account owns multiple agents. In that case the error inlines the available emails so you can pass one as `agent_email` to other tools (or have the user pin a default via `E2A_AGENT_EMAIL`); no follow-up `list_agents` call needed. If the error says zero agents, run `create_agent` first.",
+        "Use first when starting work on e2a to learn WHO you are: the authenticated user (email), the credential's scope (`account` or `agent`), and your plan + usage limits. For an agent-scoped credential it also returns `agent_address` — the single agent that credential IS. Account-scoped credentials own many agents; discover them with `list_agents`. This is identity, not an agent — it never guesses a 'default' agent.",
       inputSchema: strictInputSchema({}),
     },
-    async () =>
-      runTool(async () => {
-        // Preferred: env-pinned default. Cheap, no roundtrip.
-        if (client.agentEmail) {
-          return client.getAgent(client.agentEmail);
-        }
-        // Fallback: list the account's agents. If there's exactly one
-        // we can unambiguously surface it — mirrors send_email's
-        // "from field required only when user has multiple agents"
-        // behavior on the backend. For 0 or 2+ agents the LLM needs
-        // explicit input, so we error with a directive next-step.
-        const agents = await client.listAgents();
-        if (!agents || agents.length === 0) {
-          throw new Error(
-            "no agents on this account. Use `create_agent` to register one before sending mail.",
-          );
-        }
-        if (agents.length === 1) {
-          return client.getAgent(agents[0].email);
-        }
-        // Inline the agent emails in the error so the LLM can act
-        // on this without a follow-up list_agents call. The list is
-        // already in hand here — surfacing it costs nothing and
-        // turns a two-tool-call recovery into a one-tool-call one.
-        const emails = agents.map((a) => a.email).join(", ");
-        throw new Error(
-          `account owns ${agents.length} agents (${emails}); whoami can't auto-resolve. Pass one as \`agent_email\` to other tools, or set E2A_AGENT_EMAIL in the server environment to pin a default.`,
-        );
-      }),
+    async () => runTool(() => client.whoami()),
   );
 
   server.registerTool(
     "create_agent",
     {
-      title: "Create a new agent inbox on the shared domain",
+      title: "Create a new agent inbox",
       description:
-        "Register a new agent using a slug on the deployment's shared domain (e.g. slug 'support-bot' → support-bot@<shared-domain>). Defaults to `local` mode so the agent receives mail via `list_messages` polling — no webhook server required. Pass `agent_mode: 'cloud'` and `webhook_url` for push delivery; in that case the webhook handler MUST HMAC-verify every delivery against the account's webhook signing secret (`E2A_WEBHOOK_SECRET`, shown in the dashboard) — the e2a SDK exposes `parseWebhook(body, secret)` for this. For a custom (non-shared) domain, use `register_domain` to start the verification flow. Slug must be lowercase letters, numbers, and hyphens.",
+        "Register a new agent by its full email address. For a custom domain, the domain must be one you've registered and verified (`register_domain` → `verify_domain` → poll `get_domain` for sending). For the deployment's shared domain, just use an email on it (e.g. support-bot@<shared-domain>). Inbound is always available via `list_messages` (poll) or a `create_webhook` subscription — there is no delivery 'mode' to choose. Returns the full agent.",
       inputSchema: strictInputSchema({
-        slug: z
+        email: z
           .string()
-          .regex(/^[a-z0-9][a-z0-9-]*$/)
+          .email()
           .describe(
-            "Local part of the new email address. Lowercase letters, numbers, and hyphens; must start with a letter or number.",
+            "Full email address of the new agent, e.g. support@acme.com. The domain must be a verified domain you own, or the deployment's shared domain.",
           ),
         name: z
           .string()
           .optional()
-          .describe("Display name for the agent. Defaults to the slug."),
-        agent_mode: z
-          .enum(["local", "cloud"])
-          .optional()
-          .describe(
-            "`local` (default) for poll-based delivery via this MCP server. `cloud` requires `webhook_url` and pushes inbound mail to that URL.",
-          ),
-        webhook_url: z
-          .string()
-          .url()
-          .optional()
-          .describe("Required when `agent_mode` is `cloud`. Ignored in local mode."),
+          .describe("Display name for the agent."),
       }),
     },
     async (args) =>
       runTool(() =>
-        // v1 agent-create takes slug + name only. Per-agent delivery
-        // mode and webhook binding were removed from the agent shape in
-        // the v1 redesign — push delivery is now a top-level webhooks
-        // resource (create_webhook). agent_mode / webhook_url are still
-        // accepted in the input schema for contract stability but no
-        // longer forwarded; use create_webhook for push subscriptions.
         client.createAgent({
-          slug: args.slug,
+          email: args.email,
           ...(args.name !== undefined ? { name: args.name } : {}),
         }),
       ),
@@ -104,70 +59,71 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
     {
       title: "Update an agent's configuration",
       description:
-        "Mutate a subset of an agent's settings. **This is the path to enable HITL approval gates** on an existing agent (HITL is NOT in the create_agent flow): set `hitl_enabled: true`, optionally with `hitl_ttl_seconds` and `hitl_expiration_action`. Same path to disable HITL, change the approval window, switch between local and cloud delivery, or rebind the webhook URL when an agent's downstream service moves. Omitted fields keep their current value server-side; an explicitly-passed zero is honored (e.g. `hitl_ttl_seconds: 0` sets the window to immediate, not a no-op).",
+        "Mutate an agent's HITL and inbound-policy settings. **The path to enable HITL approval gates** (HITL is NOT in create_agent): set `hitl_enabled: true`, optionally with `hitl_ttl_seconds`, `hitl_expiration_action`, and `hitl_mode` (`all` holds every outbound; `high_impact` holds only high-impact actions). Also sets the inbound trust gate: `inbound_policy` (`open`/`allowlist`/`domain`/`verified_only`) + `inbound_allowlist`. Omitted fields keep their current value; an explicit zero is honored (e.g. `hitl_ttl_seconds: 0`).",
       inputSchema: strictInputSchema({
-        agent_email: z
+        email: z
           .string()
           .email()
           .optional()
           .describe(
-            "Agent to update. Defaults to E2A_AGENT_EMAIL when set; required otherwise.",
-          ),
-        agent_mode: z
-          .enum(["local", "cloud"])
-          .optional()
-          .describe(
-            "`local` → poll-based delivery (via `list_messages`). `cloud` → push delivery; requires `webhook_url` to be set (now or already on the agent).",
-          ),
-        webhook_url: z
-          .string()
-          .url()
-          .optional()
-          .describe(
-            "URL the cloud-mode delivery will POST to. The handler MUST HMAC-verify each delivery against the account's webhook signing secret.",
+            "Agent to update (full email). Defaults to the credential's bound agent (agent-scoped credentials); required otherwise.",
           ),
         hitl_enabled: z
           .boolean()
           .optional()
           .describe(
-            "Hold outbound mail for human approval before it ships. When true, `send_email`/`reply_to_message` return a pending message id rather than a sent receipt; reviewers approve via the dashboard or the magic link.",
+            "Hold outbound mail for human approval before it ships. When true, send/reply/forward return a pending message id rather than a sent receipt; reviewers approve via the dashboard or the magic link.",
           ),
         hitl_ttl_seconds: z
           .number()
           .int()
           .min(0)
           .optional()
-          .describe(
-            "How long a pending outbound stays in the approval queue before it expires.",
-          ),
+          .describe("How long a pending outbound stays in the approval queue before it expires."),
         hitl_expiration_action: z
           .enum(["approve", "reject"])
           .optional()
+          .describe("At TTL expiry: `approve` ships the pending message; `reject` drops it."),
+        hitl_mode: z
+          .enum(["all", "high_impact"])
+          .optional()
           .describe(
-            "What happens to a pending message at TTL expiry: `approve` ships it; `reject` drops it.",
+            "What HITL holds: `all` (every outbound) or `high_impact` (only high-impact actions on weakly-authenticated inbound). Meaningful only when hitl_enabled.",
           ),
+        inbound_policy: z
+          .enum(["open", "allowlist", "domain", "verified_only"])
+          .optional()
+          .describe(
+            "Inbound ingestion gate: `open` (accept all), `allowlist`/`domain` (accept only listed senders/domains), `verified_only` (require SPF+DKIM+DMARC alignment). Non-matches are flagged, not dropped.",
+          ),
+        inbound_allowlist: z
+          .array(z.string())
+          .optional()
+          .describe("Trusted sender addresses (for `allowlist`) or domains (for `domain`)."),
       }),
     },
     async (args) =>
       runTool(() => {
-        // v1 update takes camelCase HITL fields. agent_mode / webhook_url
-        // are accepted in the schema for contract stability but no longer
-        // part of the agent shape (push delivery is a top-level webhooks
-        // resource now); they are not forwarded.
         const patch: {
           hitlEnabled?: boolean;
           hitlTtlSeconds?: number;
           hitlExpirationAction?: string;
+          hitlMode?: string;
+          inboundPolicy?: string;
+          inboundAllowlist?: Array<string>;
         } = {
           ...(args.hitl_enabled !== undefined ? { hitlEnabled: args.hitl_enabled } : {}),
-          ...(args.hitl_ttl_seconds !== undefined
-            ? { hitlTtlSeconds: args.hitl_ttl_seconds }
-            : {}),
+          ...(args.hitl_ttl_seconds !== undefined ? { hitlTtlSeconds: args.hitl_ttl_seconds } : {}),
           ...(args.hitl_expiration_action !== undefined
             ? { hitlExpirationAction: args.hitl_expiration_action }
             : {}),
+          ...(args.hitl_mode !== undefined ? { hitlMode: args.hitl_mode } : {}),
+          ...(args.inbound_policy !== undefined ? { inboundPolicy: args.inbound_policy } : {}),
+          ...(args.inbound_allowlist !== undefined
+            ? { inboundAllowlist: args.inbound_allowlist }
+            : {}),
         };
-        return client.updateAgent(patch, args.agent_email);
+        return client.updateAgent(patch, args.email);
       }),
   );
 
@@ -178,12 +134,12 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
       description:
         "Permanently delete the agent identity and CASCADE-remove every message, pending outbound, and webhook-delivery record bound to it. Irreversible. Existing OAuth tokens bound to this agent are revoked automatically. Requires `confirm: true` — set it explicitly to acknowledge the destructive action.",
       inputSchema: strictInputSchema({
-        agent_email: z
+        email: z
           .string()
           .email()
           .optional()
           .describe(
-            "Agent to delete. Defaults to E2A_AGENT_EMAIL when set; required otherwise.",
+            "Agent to delete (full email). Defaults to the credential's bound agent (agent-scoped credentials); required otherwise.",
           ),
         confirm: z
           .literal(true)
@@ -199,7 +155,7 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
             "delete_agent requires confirm:true — refusing to proceed without explicit confirmation.",
           );
         }
-        const deleted = await client.deleteAgent(args.agent_email);
+        const deleted = await client.deleteAgent(args.email);
         return { deleted };
       }),
   );

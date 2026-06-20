@@ -1,11 +1,10 @@
 import { E2AClient } from "@e2a/sdk/v1";
 import type {
+  AccountView,
   AgentView,
-  CreateAgentResponse,
   MessageView,
   MessageSummaryView,
   SendResultView,
-  ApproveResultView,
   RejectResultView,
   UpdateMessageResultView,
   ConversationSummaryView,
@@ -15,10 +14,14 @@ import type {
   EventJSON,
   RedeliverView,
   WebhookView,
-  RotateSecretBody,
-  TestWebhookOutputBody,
-  WebhookDeliveryView,
+  CreateWebhookResponse,
+  RotateSecretResponse,
+  TestWebhookResponse,
   Attachment,
+  UpdateAgentRequest,
+  CreateWebhookRequest,
+  UpdateWebhookRequest,
+  TestWebhookRequest,
 } from "@e2a/sdk/v1";
 import type { McpConfig } from "./config.js";
 
@@ -45,7 +48,7 @@ export interface SendOpts {
  * every per-agent method takes an explicit address as its first arg.
  *
  * This wrapper concentrates the address-resolution policy (a single
- * default agent email pinned at session init / via E2A_AGENT_EMAIL) and
+ * default agent email pinned at session init from the credential) and
  * the small amount of shape-mapping the tools need, so each tool stays a
  * thin pass-through and the tool contracts (names, schemas) are
  * unchanged. The session prefetch in http-server.ts still constructs one
@@ -67,10 +70,19 @@ export class McpClient {
     const addr = explicit || this.agentEmail;
     if (!addr) {
       throw new Error(
-        "agent_email is required (no E2A_AGENT_EMAIL in environment).",
+        "email is required — pass it explicitly, or connect with an agent-scoped credential (which resolves the agent for you). Run list_agents to see your agents.",
       );
     }
     return addr;
+  }
+
+  // ── Account / identity ──────────────────────────────────────────
+
+  // whoami → GET /account (§6a): the authenticated principal (user + scope;
+  // agent_address only for agent-scoped credentials) + plan/limits. NOT an
+  // agent — discover agents via list_agents.
+  whoami(): Promise<AccountView> {
+    return this.sdk.account.get();
   }
 
   // ── Agents ──────────────────────────────────────────────────────
@@ -83,7 +95,10 @@ export class McpClient {
     return this.sdk.agents.get(address);
   }
 
-  createAgent(body: { slug: string; name?: string }): Promise<CreateAgentResponse> {
+  // create_agent takes a full email (§6a / AG-1/2): a custom-domain agent on a
+  // verified owned domain, or an email on the shared domain. slug/agent_mode/
+  // webhook_url are gone. Returns the full AgentView.
+  createAgent(body: { email: string; name?: string }): Promise<AgentView> {
     return this.sdk.agents.create(body);
   }
 
@@ -92,10 +107,13 @@ export class McpClient {
       hitlEnabled?: boolean;
       hitlTtlSeconds?: number;
       hitlExpirationAction?: string;
+      hitlMode?: string;
+      inboundPolicy?: string;
+      inboundAllowlist?: Array<string>;
     },
     explicitAddress?: string,
   ): Promise<AgentView> {
-    return this.sdk.agents.update(this.resolveAddress(explicitAddress), patch);
+    return this.sdk.agents.update(this.resolveAddress(explicitAddress), patch as UpdateAgentRequest);
   }
 
   async deleteAgent(explicitAddress?: string): Promise<string> {
@@ -149,7 +167,7 @@ export class McpClient {
     messageId: string,
     to: Array<string>,
     body: {
-      body?: string;
+      body: string; // required (MSG-3): forward must carry a note; subject is derived
       htmlBody?: string;
       cc?: Array<string>;
       bcc?: Array<string>;
@@ -184,7 +202,7 @@ export class McpClient {
   }
 
   async listMessages(params: {
-    status?: "unread" | "read" | "all";
+    readStatus?: "unread" | "read" | "all";
     sort?: "asc" | "desc";
     from?: string;
     subjectContains?: string;
@@ -233,10 +251,12 @@ export class McpClient {
     const out: MessageSummaryView[] = [];
     for (const address of addresses) {
       const rows = await this.sdk.messages
-        .list(address, { direction: "outbound", status: "all" })
+        .list(address, { direction: "outbound" })
         .toArray({ limit: DEFAULT_LIST_LIMIT });
       for (const r of rows) {
-        if (r.status === PENDING_APPROVAL_STATUS) out.push(r);
+        // Held drafts carry the HITL lifecycle in hitl_status (read_status is
+        // the inbox read-state, "" for outbound). MSG-1.
+        if (r.hitlStatus === PENDING_APPROVAL_STATUS) out.push(r);
       }
     }
     return out;
@@ -251,7 +271,7 @@ export class McpClient {
       : (await this.listAgents()).map((a) => a.email);
     for (const address of addresses) {
       const rows = await this.sdk.messages
-        .list(address, { direction: "outbound", status: "all" })
+        .list(address, { direction: "outbound" })
         .toArray({ limit: DEFAULT_LIST_LIMIT });
       if (rows.some((r) => r.messageId === messageId)) return address;
     }
@@ -277,7 +297,7 @@ export class McpClient {
       attachments?: Array<Attachment>;
     },
     opts?: SendOpts,
-  ): Promise<ApproveResultView> {
+  ): Promise<SendResultView> {
     const address = await this.ownerOfPending(messageId);
     return opts
       ? this.sdk.messages.approve(address, messageId, overrides, opts)
@@ -297,6 +317,10 @@ export class McpClient {
 
   listDomains(): Promise<DomainView[]> {
     return this.sdk.domains.list().toArray({ limit: DEFAULT_LIST_LIMIT });
+  }
+
+  getDomain(domain: string): Promise<DomainView> {
+    return this.sdk.domains.get(domain);
   }
 
   registerDomain(domain: string): Promise<DomainView> {
@@ -326,8 +350,8 @@ export class McpClient {
     events: Array<string>;
     description?: string;
     filters?: { agentIds?: Array<string>; conversationIds?: Array<string>; labels?: Array<string> };
-  }): Promise<WebhookView> {
-    return this.sdk.webhooks.create(body);
+  }): Promise<CreateWebhookResponse> {
+    return this.sdk.webhooks.create(body as CreateWebhookRequest);
   }
 
   updateWebhook(
@@ -340,29 +364,23 @@ export class McpClient {
       filters?: { agentIds?: Array<string>; conversationIds?: Array<string>; labels?: Array<string> };
     },
   ): Promise<WebhookView> {
-    return this.sdk.webhooks.update(id, patch);
+    return this.sdk.webhooks.update(id, patch as UpdateWebhookRequest);
   }
 
   async deleteWebhook(id: string): Promise<void> {
     await this.sdk.webhooks.delete(id);
   }
 
-  rotateWebhookSecret(id: string): Promise<RotateSecretBody> {
+  rotateWebhookSecret(id: string): Promise<RotateSecretResponse> {
     return this.sdk.webhooks.rotateSecret(id);
   }
 
-  testWebhook(id: string, body: { event?: string }): Promise<TestWebhookOutputBody> {
-    return this.sdk.webhooks.test(id, body);
+  testWebhook(id: string, body: { event?: string }): Promise<TestWebhookResponse> {
+    return this.sdk.webhooks.test(id, body as TestWebhookRequest);
   }
 
-  listWebhookDeliveries(
-    id: string,
-    params: { status?: "pending" | "delivered" | "failed"; limit?: number },
-  ): Promise<WebhookDeliveryView[]> {
-    return this.sdk.webhooks
-      .deliveries(id, params)
-      .toArray({ limit: params.limit ?? DEFAULT_LIST_LIMIT });
-  }
+  // list_webhook_deliveries is dropped (§6a): webhook-delivery debugging folds
+  // into the events log — use list_events {webhook_id, status} + get_event.
 
   // ── Events ──────────────────────────────────────────────────────
 

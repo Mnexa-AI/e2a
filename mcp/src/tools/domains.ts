@@ -46,6 +46,19 @@ export function registerDomainTools(server: McpServer, client: McpClient): void 
   );
 
   server.registerTool(
+    "get_domain",
+    {
+      title: "Get one domain (poll sending status)",
+      description:
+        "Fetch a single domain by name. This is the poll target after `verify_domain`: it surfaces both `verified` (inbound ownership) and `sending_status` (none/pending/verified/failed — the async SES sending identity that lets agents on this domain send as their own address), plus `sending_error` and the `dns_records`/`sending_dns_records` to publish. Poll until `sending_status` is `verified` before expecting own-domain From on outbound; don't poll in a tight loop.",
+      inputSchema: strictInputSchema({
+        domain: z.string().min(1).describe("Domain to fetch (must be registered)."),
+      }),
+    },
+    async (args) => runTool(() => client.getDomain(args.domain)),
+  );
+
+  server.registerTool(
     "verify_domain",
     {
       title: "Verify a custom mail domain's DNS records",

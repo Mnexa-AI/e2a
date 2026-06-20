@@ -10,7 +10,7 @@ export function registerHitlTools(server: McpServer, client: McpClient): void {
     {
       title: "List outbound messages awaiting approval",
       description:
-        "Use when the user asks what's awaiting approval, or after a `send_email`/`reply_to_message` returned `pending_approval` and they want to see the queue. Lists held outbound messages from HITL-enabled agents sorted by soonest-expiring first. Body content is summary-only — call `get_pending_message` for the full draft of one. Read-only; cheap, but don't poll it on a loop.",
+        "Use when the user asks what's awaiting approval, or after a `send_message`/`reply_to_message` returned `pending_approval` and they want to see the queue. Lists held outbound messages from HITL-enabled agents sorted by soonest-expiring first. Body content is summary-only — call `get_pending_message` for the full draft of one. Read-only; cheap, but don't poll it on a loop.",
       inputSchema: strictInputSchema({}),
     },
     async () => runTool(async () => ({ messages: await client.listPendingMessages() })),
@@ -59,7 +59,7 @@ export function registerHitlTools(server: McpServer, client: McpClient): void {
   });
 
   server.registerTool(
-    "approve_pending_message",
+    "approve_message",
     {
       title: "Approve a pending outbound message",
       description:
@@ -96,7 +96,7 @@ export function registerHitlTools(server: McpServer, client: McpClient): void {
   );
 
   server.registerTool(
-    "reject_pending_message",
+    "reject_message",
     {
       title: "Reject a pending outbound message",
       description:

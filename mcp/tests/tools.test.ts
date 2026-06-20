@@ -50,10 +50,21 @@ function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): McpCli
     getConversation: vi.fn(async () => ({ conversationId: "conv_1", messages: [] })),
     listMessages: vi.fn(async () => []),
     listAgents: vi.fn(async () => [{ email: "bot@example.com" }]),
-    createAgent: vi.fn(async (body: { slug: string }) => ({
-      email: `${body.slug}@agents.example.com`,
-      domain: "agents.example.com",
-      id: `${body.slug}@agents.example.com`,
+    // whoami → client.whoami() returns an AccountView (the authenticated
+    // account identity), NOT an agent record. No default-agent resolution.
+    whoami: vi.fn(async () => ({
+      user: "owner@example.com",
+      scope: "account",
+      agentAddress: undefined,
+      plan: "pro",
+      limits: { messagesPerDay: 1000 },
+    })),
+    // create_agent now takes { email, name? } and returns the full AgentView.
+    createAgent: vi.fn(async (body: { email: string; name?: string }) => ({
+      id: body.email,
+      email: body.email,
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      domain: body.email.split("@")[1],
     })),
     getAgent: vi.fn(async (email: string) => ({
       id: email,
@@ -83,6 +94,11 @@ function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): McpCli
       verified: true,
       verificationToken: "tok_new",
     })),
+    getDomain: vi.fn(async (domain: string) => ({
+      domain,
+      verified: true,
+      sendingStatus: "verified",
+    })),
     deleteDomain: vi.fn(async () => undefined),
     // Stand-in for McpClient.getMessage() which returns a v1
     // MessageView. Attachments are decoded by the tool from
@@ -96,7 +112,7 @@ function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): McpCli
       cc: [],
       replyTo: [],
       subject: "hi",
-      status: "read",
+      readStatus: "read",
       // Inbound messages carry decoded text in `parsed`, NOT `body` (the server
       // only sets `body` for outbound held drafts). Match the real wire shape.
       parsed: { text: "hello world" },
@@ -107,7 +123,7 @@ function makeStubClient(overrides: Partial<{ agentEmail: string }> = {}): McpCli
     listPendingMessages: vi.fn(async () => []),
     getPendingMessage: vi.fn(async (id: string) => ({
       messageId: id,
-      status: "pending_approval",
+      hitlStatus: "pending_approval",
     })),
     approveMessage: vi.fn(async () => ({ messageId: "msg_x", status: "sent" })),
     rejectMessage: vi.fn(async () => ({ messageId: "msg_x", status: "rejected" })),
@@ -137,7 +153,7 @@ describe("e2a MCP server", () => {
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual(
       [
-        "send_email",
+        "send_message",
         "reply_to_message",
         "forward_message",
         "update_message_labels",
@@ -145,7 +161,7 @@ describe("e2a MCP server", () => {
         "get_conversation",
         "list_messages",
         "get_message",
-        "get_attachment_data",
+        "get_attachment",
         "list_agents",
         "whoami",
         "create_agent",
@@ -154,11 +170,12 @@ describe("e2a MCP server", () => {
         "list_domains",
         "register_domain",
         "verify_domain",
+        "get_domain",
         "delete_domain",
         "list_pending_messages",
         "get_pending_message",
-        "approve_pending_message",
-        "reject_pending_message",
+        "approve_message",
+        "reject_message",
         "list_webhooks",
         "get_webhook",
         "create_webhook",
@@ -166,7 +183,6 @@ describe("e2a MCP server", () => {
         "delete_webhook",
         "rotate_webhook_secret",
         "test_webhook",
-        "list_webhook_deliveries",
         "list_events",
         "get_event",
         "redeliver_event",
@@ -174,9 +190,9 @@ describe("e2a MCP server", () => {
     );
   });
 
-  it("send_email forwards args to client.send", async () => {
+  it("send_message forwards args to client.send", async () => {
     await client.callTool({
-      name: "send_email",
+      name: "send_message",
       arguments: {
         to: ["alice@example.com"],
         subject: "hi",
@@ -264,10 +280,10 @@ describe("e2a MCP server", () => {
   it("list_messages forwards filters", async () => {
     await client.callTool({
       name: "list_messages",
-      arguments: { status: "unread", page_size: 10 },
+      arguments: { read_status: "unread", page_size: 10 },
     });
     expect(stub.listMessages).toHaveBeenCalledWith({
-      status: "unread",
+      readStatus: "unread",
       limit: 10,
     });
   });
@@ -302,9 +318,9 @@ describe("e2a MCP server", () => {
     expect((parsed.attachments as Array<{ data?: unknown }>)[0]!.data).toBeUndefined();
   });
 
-  it("get_attachment_data returns one attachment with base64 data", async () => {
+  it("get_attachment returns one attachment with base64 data", async () => {
     const res = await client.callTool({
-      name: "get_attachment_data",
+      name: "get_attachment",
       arguments: { message_id: "msg_abc", attachment_index: 0 },
     });
     expect(stub.getMessage).toHaveBeenCalledWith("msg_abc", undefined);
@@ -319,9 +335,9 @@ describe("e2a MCP server", () => {
     );
   });
 
-  it("get_attachment_data rejects out-of-range index with a clear error", async () => {
+  it("get_attachment rejects out-of-range index with a clear error", async () => {
     const res = await client.callTool({
-      name: "get_attachment_data",
+      name: "get_attachment",
       arguments: { message_id: "msg_abc", attachment_index: 5 },
     });
     expect(res.isError).toBe(true);
@@ -329,7 +345,7 @@ describe("e2a MCP server", () => {
     expect(content[0]!.text).toMatch(/out of range/);
   });
 
-  it("get_attachment_data refuses attachments above the 2 MB inline cap", async () => {
+  it("get_attachment refuses attachments above the 2 MB inline cap", async () => {
     // One-shot override: a message whose raw MIME carries a 3 MB
     // attachment (decoded), above the 2 MB inline cap.
     const big = Buffer.alloc(3 * 1024 * 1024, 0x41);
@@ -348,7 +364,7 @@ describe("e2a MCP server", () => {
       rawMessage: rawWith("", "big.zip", "application/zip", big),
     });
     const res = await client.callTool({
-      name: "get_attachment_data",
+      name: "get_attachment",
       arguments: { message_id: "msg_big", attachment_index: 0 },
     });
     expect(res.isError).toBe(true);
@@ -356,110 +372,85 @@ describe("e2a MCP server", () => {
     expect(content[0]!.text).toMatch(/too large for inline retrieval/);
   });
 
-  it("whoami returns the env-scoped agent record", async () => {
+  it("whoami calls client.whoami and returns the AccountView", async () => {
+    // whoami no longer auto-resolves a 'default' agent. It returns the
+    // authenticated account identity (user/scope/agent_address/plan/limits)
+    // straight from client.whoami() — NOT an agent record.
     const res = await client.callTool({ name: "whoami", arguments: {} });
-    // High-level client.getAgent — used to be client.api.getAgent before
-    // we tidied the leftover raw-API call. Both paths hit the same row.
-    expect(stub.getAgent).toHaveBeenCalledWith("bot@example.com");
+    expect(stub.whoami).toHaveBeenCalledOnce();
     const content = res.content as Array<{ type: string; text: string }>;
-    expect(content[0]?.text).toContain("bot@example.com");
+    const parsed = JSON.parse(content[0]!.text) as Record<string, unknown>;
+    expect(parsed.user).toBe("owner@example.com");
+    expect(parsed.scope).toBe("account");
+    expect(parsed.plan).toBe("pro");
   });
 
-  it("whoami auto-falls-back to the sole agent when env is unset and account owns exactly one", async () => {
-    // Single-agent account, no env pin → should auto-resolve to the
-    // one agent rather than error. Mirrors send_email's "from
-    // required only when multiple agents" auto-from behavior.
-    const bareStub = makeStubClient({ agentEmail: "" });
-    (bareStub.listAgents as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      { id: "solo@example.com", email: "solo@example.com" },
-    ]);
-    const bareClient = await connect(bareStub);
-    const res = await bareClient.callTool({ name: "whoami", arguments: {} });
-    expect(res.isError).toBeFalsy();
-    expect(bareStub.getAgent).toHaveBeenCalledWith("solo@example.com");
-  });
-
-  it("whoami errors with the inline agent list when account owns multiple agents", async () => {
-    // Multi-agent + no env pin → refuse to guess, but include the
-    // available agent emails in the error so the LLM can act
-    // without a follow-up list_agents call.
-    const bareStub = makeStubClient({ agentEmail: "" });
-    (bareStub.listAgents as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      { id: "support@x.com", email: "support@x.com" },
-      { id: "sales@x.com", email: "sales@x.com" },
-    ]);
-    const bareClient = await connect(bareStub);
-    const res = await bareClient.callTool({ name: "whoami", arguments: {} });
-    expect(res.isError).toBe(true);
-    const content = res.content as Array<{ type: string; text: string }>;
-    // Error should name BOTH agents so the LLM doesn't need a
-    // follow-up list_agents call to pick.
-    expect(content[0]?.text).toContain("support@x.com");
-    expect(content[0]?.text).toContain("sales@x.com");
-  });
-
-  it("whoami errors when the account has zero agents and prompts to create one", async () => {
-    const bareStub = makeStubClient({ agentEmail: "" });
-    (bareStub.listAgents as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
-    const bareClient = await connect(bareStub);
-    const res = await bareClient.callTool({ name: "whoami", arguments: {} });
-    expect(res.isError).toBe(true);
-    const content = res.content as Array<{ type: string; text: string }>;
-    expect(content[0]?.text).toMatch(/create_agent/);
-  });
-
-  it("create_agent forwards the slug only when name omitted", async () => {
+  it("create_agent forwards email only when name omitted", async () => {
     await client.callTool({
       name: "create_agent",
-      arguments: { slug: "new-bot" },
+      arguments: { email: "new-bot@agents.example.com" },
     });
-    // v1 agent-create takes slug + name only. agent_mode / webhook_url
-    // are accepted in the schema for contract stability but no longer
-    // part of the agent shape (push delivery is a top-level webhooks
-    // resource), so they are not forwarded.
-    expect(stub.createAgent).toHaveBeenCalledWith({ slug: "new-bot" });
+    // v1 agent-create takes email + optional name. slug / agent_mode /
+    // webhook_url were dropped — only email reaches the SDK here.
+    expect(stub.createAgent).toHaveBeenCalledWith({ email: "new-bot@agents.example.com" });
   });
 
-  it("create_agent forwards name and ignores retired cloud-mode fields", async () => {
+  it("create_agent forwards email and name", async () => {
     await client.callTool({
       name: "create_agent",
       arguments: {
-        slug: "cloud-bot",
-        agent_mode: "cloud",
-        webhook_url: "https://example.com/hook",
+        email: "cloud-bot@agents.example.com",
         name: "Cloud Bot",
       },
     });
-    // agent_mode / webhook_url dropped — only slug + name reach the SDK.
+    // Both email + name reach the SDK; the returned AgentView is surfaced.
     expect(stub.createAgent).toHaveBeenCalledWith({
-      slug: "cloud-bot",
+      email: "cloud-bot@agents.example.com",
       name: "Cloud Bot",
     });
   });
 
-  it("update_agent maps HITL fields to camelCase and uses env email by default", async () => {
+  it("update_agent maps HITL fields to camelCase and uses bound agent by default", async () => {
     await client.callTool({
       name: "update_agent",
       arguments: { hitl_enabled: true, hitl_ttl_seconds: 3600 },
     });
     expect(stub.updateAgent).toHaveBeenCalledWith(
       { hitlEnabled: true, hitlTtlSeconds: 3600 },
-      undefined, // no explicit agent_email → wrapper resolves the pinned default
+      undefined, // no explicit email → wrapper resolves the bound agent
     );
   });
 
-  it("update_agent threads explicit agent_email and drops retired fields", async () => {
+  it("update_agent maps the new HITL/inbound-policy fields to camelCase", async () => {
+    // hitl_mode + inbound_policy + inbound_allowlist were added; verify
+    // the snake→camel mapping of each new field.
     await client.callTool({
       name: "update_agent",
       arguments: {
-        agent_email: "other@example.com",
-        agent_mode: "cloud",
-        webhook_url: "https://example.com/hook",
+        hitl_mode: "high_impact",
+        inbound_policy: "allowlist",
+        inbound_allowlist: ["trusted@example.com"],
+      },
+    });
+    expect(stub.updateAgent).toHaveBeenCalledWith(
+      {
+        hitlMode: "high_impact",
+        inboundPolicy: "allowlist",
+        inboundAllowlist: ["trusted@example.com"],
+      },
+      undefined,
+    );
+  });
+
+  it("update_agent threads explicit email", async () => {
+    await client.callTool({
+      name: "update_agent",
+      arguments: {
+        email: "other@example.com",
         hitl_expiration_action: "reject",
       },
     });
-    // agent_mode / webhook_url no longer part of the agent shape — only
-    // the mapped HITL fields reach the SDK; the address is passed through.
+    // Only the mapped HITL fields reach the SDK; the address is passed through.
     expect(stub.updateAgent).toHaveBeenCalledWith(
       { hitlExpirationAction: "reject" },
       "other@example.com",
@@ -472,7 +463,7 @@ describe("e2a MCP server", () => {
     // runTool body runs, so deleteAgent must NOT have been called.
     const res = await client.callTool({
       name: "delete_agent",
-      arguments: { agent_email: "bot@example.com" },
+      arguments: { email: "bot@example.com" },
     });
     expect(res.isError).toBe(true);
     expect(stub.deleteAgent).not.toHaveBeenCalled();
@@ -481,14 +472,14 @@ describe("e2a MCP server", () => {
   it("delete_agent forwards on explicit confirm:true", async () => {
     const res = await client.callTool({
       name: "delete_agent",
-      arguments: { agent_email: "bot@example.com", confirm: true },
+      arguments: { email: "bot@example.com", confirm: true },
     });
     expect(stub.deleteAgent).toHaveBeenCalledWith("bot@example.com");
     const content = res.content as Array<{ type: string; text: string }>;
     expect(content[0]?.text).toMatch(/bot@example\.com/);
   });
 
-  it("delete_agent uses env-scoped email when agent_email omitted", async () => {
+  it("delete_agent passes undefined when email omitted (wrapper resolves bound agent)", async () => {
     await client.callTool({
       name: "delete_agent",
       arguments: { confirm: true },
@@ -530,6 +521,18 @@ describe("e2a MCP server", () => {
     expect(content[0]?.text).toContain('"verified": true');
   });
 
+  it("get_domain forwards the domain and surfaces sending_status (poll target)", async () => {
+    const res = await client.callTool({
+      name: "get_domain",
+      arguments: { domain: "mail.acme.com" },
+    });
+    expect(stub.getDomain).toHaveBeenCalledWith("mail.acme.com");
+    const content = res.content as Array<{ type: string; text: string }>;
+    // get_domain is the sending_status poll target after verify_domain.
+    expect(content[0]?.text).toContain("mail.acme.com");
+    expect(content[0]?.text).toContain("sendingStatus");
+  });
+
   it("delete_domain requires confirm:true — schema validator catches the omission", async () => {
     const res = await client.callTool({
       name: "delete_domain",
@@ -562,9 +565,9 @@ describe("e2a MCP server", () => {
     expect(stub.getPendingMessage).toHaveBeenCalledWith("msg_p");
   });
 
-  it("approve_pending_message strips message_id and maps overrides to camelCase", async () => {
+  it("approve_message strips message_id and maps overrides to camelCase", async () => {
     await client.callTool({
-      name: "approve_pending_message",
+      name: "approve_message",
       arguments: {
         message_id: "msg_p",
         subject: "edited subject",
@@ -580,9 +583,9 @@ describe("e2a MCP server", () => {
     });
   });
 
-  it("approve_pending_message approve-as-is sends empty overrides", async () => {
+  it("approve_message approve-as-is sends empty overrides", async () => {
     await client.callTool({
-      name: "approve_pending_message",
+      name: "approve_message",
       arguments: { message_id: "msg_p" },
     });
     expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", {});
@@ -599,9 +602,9 @@ describe("e2a MCP server", () => {
   // on args and is strict on argument count, so this test fails if a
   // 4th arg leaks in. Mirrors the same guard on send / reply tests
   // above (lines 145 / 163).
-  it("approve_pending_message omits 3rd-arg opts when idempotency_key is unset", async () => {
+  it("approve_message omits 3rd-arg opts when idempotency_key is unset", async () => {
     await client.callTool({
-      name: "approve_pending_message",
+      name: "approve_message",
       arguments: { message_id: "msg_p", subject: "edited" },
     });
     expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", { subject: "edited" });
@@ -615,9 +618,9 @@ describe("e2a MCP server", () => {
   // SDK or retries can double-send. Strip the key out of overrides
   // (the API doesn't take it in the JSON body) and forward it as the
   // third-arg options object.
-  it("approve_pending_message forwards idempotency_key to the SDK", async () => {
+  it("approve_message forwards idempotency_key to the SDK", async () => {
     await client.callTool({
-      name: "approve_pending_message",
+      name: "approve_message",
       arguments: {
         message_id: "msg_p",
         subject: "edited",
@@ -631,11 +634,11 @@ describe("e2a MCP server", () => {
     );
   });
 
-  // send_email and reply_to_message also expose idempotency_key. Verify
+  // send_message and reply_to_message also expose idempotency_key. Verify
   // the MCP tool plumbs it through as `idempotencyKey` in SDK opts.
-  it("send_email forwards idempotency_key to the SDK", async () => {
+  it("send_message forwards idempotency_key to the SDK", async () => {
     await client.callTool({
-      name: "send_email",
+      name: "send_message",
       arguments: {
         to: ["alice@example.com"],
         subject: "x",
@@ -688,9 +691,9 @@ describe("e2a MCP server", () => {
     data: helloBase64,
   };
 
-  it("send_email maps attachments to the SDK shape on client.send", async () => {
+  it("send_message maps attachments to the SDK shape on client.send", async () => {
     await client.callTool({
-      name: "send_email",
+      name: "send_message",
       arguments: {
         to: ["alice@example.com"],
         subject: "with file",
@@ -722,9 +725,9 @@ describe("e2a MCP server", () => {
     );
   });
 
-  it("approve_pending_message accepts an attachments override (HITL reviewer adds a file)", async () => {
+  it("approve_message accepts an attachments override (HITL reviewer adds a file)", async () => {
     await client.callTool({
-      name: "approve_pending_message",
+      name: "approve_message",
       arguments: {
         message_id: "msg_p",
         attachments: [sampleAttachment],
@@ -735,21 +738,21 @@ describe("e2a MCP server", () => {
     });
   });
 
-  it("approve_pending_message empty attachments:[] is forwarded as a strip override", async () => {
+  it("approve_message empty attachments:[] is forwarded as a strip override", async () => {
     // Reviewer wants to remove all attachments the agent proposed.
     // Empty array must reach the SDK; if we accidentally filtered it
     // out, the backend would treat the override as absent (keep
     // existing attachments) — wrong behavior.
     await client.callTool({
-      name: "approve_pending_message",
+      name: "approve_message",
       arguments: { message_id: "msg_p", attachments: [] },
     });
     expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", { attachments: [] });
   });
 
-  it("send_email rejects base64 with whitespace (URL-safe or LLM-truncated patterns)", async () => {
+  it("send_message rejects base64 with whitespace (URL-safe or LLM-truncated patterns)", async () => {
     const res = await client.callTool({
-      name: "send_email",
+      name: "send_message",
       arguments: {
         to: ["alice@example.com"],
         subject: "bad",
@@ -768,9 +771,9 @@ describe("e2a MCP server", () => {
     expect(stub.send).not.toHaveBeenCalled();
   });
 
-  it("send_email rejects base64 with length not divisible by 4 (truncation signal)", async () => {
+  it("send_message rejects base64 with length not divisible by 4 (truncation signal)", async () => {
     const res = await client.callTool({
-      name: "send_email",
+      name: "send_message",
       arguments: {
         to: ["alice@example.com"],
         subject: "bad",
@@ -788,9 +791,9 @@ describe("e2a MCP server", () => {
     expect(stub.send).not.toHaveBeenCalled();
   });
 
-  it("send_email rejects malformed content_type", async () => {
+  it("send_message rejects malformed content_type", async () => {
     const res = await client.callTool({
-      name: "send_email",
+      name: "send_message",
       arguments: {
         to: ["alice@example.com"],
         subject: "bad",
@@ -808,9 +811,9 @@ describe("e2a MCP server", () => {
     expect(stub.send).not.toHaveBeenCalled();
   });
 
-  it("reject_pending_message forwards the reason", async () => {
+  it("reject_message forwards the reason", async () => {
     await client.callTool({
-      name: "reject_pending_message",
+      name: "reject_message",
       arguments: { message_id: "msg_p", reason: "wrong recipient" },
     });
     expect(stub.rejectMessage).toHaveBeenCalledWith("msg_p", "wrong recipient");
@@ -821,7 +824,7 @@ describe("e2a MCP server", () => {
       new Error("HTTP 403: domain not verified"),
     );
     const res = await client.callTool({
-      name: "send_email",
+      name: "send_message",
       arguments: { to: ["x@example.com"], subject: "s", body: "b" },
     });
     expect(res.isError).toBe(true);

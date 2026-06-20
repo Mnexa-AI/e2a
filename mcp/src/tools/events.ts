@@ -24,7 +24,7 @@ export function registerEventTools(server: McpServer, client: McpClient): void {
           .string()
           .optional()
           .describe(
-            "Exact event type filter. Today: `email.received`, `email.sent`, `email.pending_approval`, `email.approved`, `email.rejected`.",
+            "Exact event type filter. Today: `email.received`, `email.sent`, `email.pending_approval`, `email.approval_accepted`, `email.approval_rejected`.",
           ),
         agent_id: z.string().optional(),
         conversation_id: z.string().optional(),

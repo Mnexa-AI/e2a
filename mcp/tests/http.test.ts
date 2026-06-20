@@ -187,7 +187,7 @@ describe("HTTP MCP server", () => {
         jsonrpc: "2.0",
         id: 2,
         method: "tools/call",
-        params: { name: "send_email", arguments: { to: ["x@example.com"], subject: "hi", body: "y" } },
+        params: { name: "send_message", arguments: { to: ["x@example.com"], subject: "hi", body: "y" } },
       }),
     });
     expect(attackRes.status).toBe(401);
@@ -247,7 +247,7 @@ describe("HTTP MCP server", () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(
       [
-        "send_email",
+        "send_message",
         "reply_to_message",
         "forward_message",
         "update_message_labels",
@@ -255,7 +255,7 @@ describe("HTTP MCP server", () => {
         "get_conversation",
         "list_messages",
         "get_message",
-        "get_attachment_data",
+        "get_attachment",
         "list_agents",
         "whoami",
         "create_agent",
@@ -264,11 +264,12 @@ describe("HTTP MCP server", () => {
         "list_domains",
         "register_domain",
         "verify_domain",
+        "get_domain",
         "delete_domain",
         "list_pending_messages",
         "get_pending_message",
-        "approve_pending_message",
-        "reject_pending_message",
+        "approve_message",
+        "reject_message",
         "list_webhooks",
         "get_webhook",
         "create_webhook",
@@ -276,7 +277,6 @@ describe("HTTP MCP server", () => {
         "delete_webhook",
         "rotate_webhook_secret",
         "test_webhook",
-        "list_webhook_deliveries",
         "list_events",
         "get_event",
         "redeliver_event",

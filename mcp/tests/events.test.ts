@@ -179,15 +179,18 @@ describe("MCP events tools", () => {
   });
 
   describe("tool catalog", () => {
-    it("includes the 3 new events tools alongside existing 18 — total 21", async () => {
+    it("includes the 3 events tools in the full re-curated tool set — total 33", async () => {
       const client = await buildClient(stub);
       const { tools } = await client.listTools();
       const names = new Set(tools.map((t) => t.name));
+      // The events tools add list_events/get_event/redeliver_event; the
+      // full registered set after the tool re-curation is 33 tools.
+      expect(tools).toHaveLength(33);
       expect(names.has("list_events")).toBe(true);
       expect(names.has("get_event")).toBe(true);
       expect(names.has("redeliver_event")).toBe(true);
-      // Existing tools should still be registered.
-      expect(names.has("send_email")).toBe(true);
+      // Existing tools should still be registered (re-curated names).
+      expect(names.has("send_message")).toBe(true);
       expect(names.has("list_messages")).toBe(true);
       expect(names.has("whoami")).toBe(true);
     });

@@ -8,11 +8,11 @@ import { runTool, strictInputSchema } from "./util.js";
  *
  * A webhook subscriber is owned by a user, not by an agent. One user
  * can configure many webhooks, each scoped by event-type and optional
- * filters (agent_ids, conversation_ids, labels). Distinct from the
- * legacy `agent_identities.webhook_url` field — that single-URL path
- * still works for cloud-mode agents; this resource is the upgrade path
- * for fan-out, filtered subscriptions, signing-secret rotation, and
- * delivery history.
+ * filters (agent_ids, conversation_ids, labels). This is the sole push
+ * mechanism — the legacy per-agent `webhook_url` / `agent_mode` was
+ * removed (migration 029); inbound is poll (list_messages) / WebSocket /
+ * these subscriptions. Supports fan-out, filtered subscriptions,
+ * signing-secret rotation, and delivery history (via the events log).
  *
  * The plaintext signing_secret is returned ONCE on create + on
  * rotate-secret. Other reads scrub it.
@@ -72,14 +72,14 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
     {
       title: "Create a webhook subscriber (returns plaintext signing_secret ONCE)",
       description:
-        "Subscribe an HTTPS URL to one or more events (email.received, email.sent, email.pending_approval, email.approved, email.rejected). URL must be HTTPS and must resolve to a public IP (SSRF guard). The response includes a plaintext signing_secret which the caller MUST persist immediately — every subsequent list/get scrubs it. Per-user cap is 50 webhooks; rotate_webhook_secret rotates the secret in place with a 24h dual-sign grace window.",
+        "Subscribe an HTTPS URL to one or more events (email.received, email.sent, email.pending_approval, email.approval_accepted, email.approval_rejected). URL must be HTTPS and must resolve to a public IP (SSRF guard). The response includes a plaintext signing_secret which the caller MUST persist immediately — every subsequent list/get scrubs it. Per-user cap is 50 webhooks; rotate_webhook_secret rotates the secret in place with a 24h dual-sign grace window.",
       inputSchema: strictInputSchema({
         url: z.string().min(1).describe("HTTPS webhook URL. Public domain only — IPs are rejected."),
         events: z
           .array(z.string().min(1))
           .min(1)
           .describe(
-            "Event types to subscribe to. Valid: email.received, email.sent, email.pending_approval, email.approved, email.rejected.",
+            "Event types to subscribe to. Valid: email.received, email.sent, email.pending_approval, email.approval_accepted, email.approval_rejected.",
           ),
         description: z.string().optional().describe("Optional free-form label (max 200 chars)."),
         filters: filtersSchema.optional(),
@@ -162,7 +162,7 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
     {
       title: "Fire a synthetic event to a webhook for debugging",
       description:
-        "Schedules a one-off delivery to the webhook with a synthetic envelope, bypassing filter matching. Returns the delivery_id which can be looked up via list_webhook_deliveries. Returns an error if the webhook is disabled. Cheap and safe — the synthetic event does not touch real inbound or HITL state.",
+        "Schedules a one-off delivery to the webhook with a synthetic envelope, bypassing filter matching. Returns the delivery_id which can be looked up via list_events {webhook_id}. Returns an error if the webhook is disabled. Cheap and safe — the synthetic event does not touch real inbound or HITL state.",
       inputSchema: strictInputSchema({
         id: z.string().min(1).describe("Webhook id (wh_…)."),
         event: z
@@ -177,33 +177,6 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
       runTool(() => client.testWebhook(args.id, { event: args.event })),
   );
 
-  server.registerTool(
-    "list_webhook_deliveries",
-    {
-      title: "List recent delivery attempts for a webhook",
-      description:
-        "Returns the most recent delivery rows for the webhook (capped at 100). Each row includes status (pending|delivered|failed), attempts, last_error, last_status_code, and timestamps. Useful for debugging why a subscriber is missing events.",
-      inputSchema: strictInputSchema({
-        id: z.string().min(1).describe("Webhook id (wh_…)."),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(100)
-          .optional()
-          .describe("Page size. Defaults to 20."),
-        status: z
-          .enum(["pending", "delivered", "failed"])
-          .optional()
-          .describe("Optionally restrict to one status."),
-      }),
-    },
-    async (args) =>
-      runTool(() =>
-        client.listWebhookDeliveries(args.id, {
-          limit: args.limit,
-          status: args.status,
-        }),
-      ),
-  );
+  // list_webhook_deliveries was dropped (§6a): webhook-delivery debugging folds
+  // into the events log — use list_events {webhook_id, status} + get_event.
 }

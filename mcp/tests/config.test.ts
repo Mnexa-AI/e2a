@@ -6,12 +6,15 @@ describe("loadConfig", () => {
     const cfg = loadConfig({
       E2A_API_KEY: "key_123",
       E2A_URL: "https://api.example.com",
-      E2A_AGENT_EMAIL: "bot@example.com",
     });
+    // E2A_AGENT_EMAIL was removed (§9a): an agent-scoped credential IS its
+    // agent (resolved server-side / by the session prefetch), and
+    // account-scoped callers pass `email` per tool. loadConfig no longer
+    // reads any default-agent env var, so agentEmail is always undefined.
     expect(cfg).toEqual({
       apiKey: "key_123",
       baseUrl: "https://api.example.com",
-      agentEmail: "bot@example.com",
+      agentEmail: undefined,
     });
   });
 
@@ -20,9 +23,9 @@ describe("loadConfig", () => {
       E2A_API_KEY: "key_123",
       E2A_URL: "",
       E2A_BASE_URL: "",
-      E2A_AGENT_EMAIL: "",
     });
     expect(cfg.baseUrl).toBeUndefined();
+    // No default-agent env is read anymore — agentEmail is never populated.
     expect(cfg.agentEmail).toBeUndefined();
   });
 

@@ -82,7 +82,7 @@ export const attachmentInputSchema = z
         },
       )
       .describe(
-        "Base64-encoded file content (RFC 4648 §4, standard alphabet, padded). Pass values returned verbatim by other tools (file readers, doc generators, get_attachment_data); do not attempt to encode raw text yourself. Max 5 MB per attachment after decoding.",
+        "Base64-encoded file content (RFC 4648 §4, standard alphabet, padded). Pass values returned verbatim by other tools (file readers, doc generators, get_attachment); do not attempt to encode raw text yourself. Max 5 MB per attachment after decoding.",
       ),
   })
   .describe(
@@ -97,7 +97,7 @@ export const attachmentsArraySchema = z
   .max(20, "too many attachments (max 20 per message)")
   .optional()
   .describe(
-    "Optional list of file attachments. Each entry is base64-encoded; the MCP server forwards them verbatim to the e2a backend, which handles MIME composition. To forward an attachment received on an inbound message, fetch its base64 via `get_attachment_data` and pass the same shape here.",
+    "Optional list of file attachments. Each entry is base64-encoded; the MCP server forwards them verbatim to the e2a backend, which handles MIME composition. To forward an attachment received on an inbound message, fetch its base64 via `get_attachment` and pass the same shape here.",
   );
 
 export type AttachmentInput = z.infer<typeof attachmentInputSchema>;
