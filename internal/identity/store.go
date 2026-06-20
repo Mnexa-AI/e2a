@@ -272,6 +272,16 @@ type Message struct {
 	// human-readable reason. Inbound-relevant; outbound rows read false/''.
 	Flagged    bool   `json:"flagged,omitempty"`
 	FlagReason string `json:"flag_reason,omitempty"`
+
+	// ReviewReason / ScanScore / ScanAction carry the applied screening verdict
+	// (migration 037 / Slice 2), denormalized onto the row for fast review-queue
+	// rendering. ReviewReason is one of sender_gate|recipient_gate|inbound_scan|
+	// outbound_scan|outbound_send; ScanAction is the applied action
+	// (flag|review|block); ScanScore is the aggregate 0..1 score (nil for gate-only
+	// holds). The full per-detector breakdown lives in screening_events.
+	ReviewReason string   `json:"review_reason,omitempty"`
+	ScanScore    *float64 `json:"scan_score,omitempty"`
+	ScanAction   string   `json:"scan_action,omitempty"`
 }
 
 // Message status values mirror the CHECK constraint in migration 003_hitl.sql.
@@ -281,6 +291,16 @@ const (
 	MessageStatusRejected        = "rejected"
 	MessageStatusExpiredApproved = "expired_approved"
 	MessageStatusExpiredRejected = "expired_rejected"
+
+	// Inbound/screening review-hold statuses (migration 037 / Slice 2): the
+	// direction-aware analogue of the outbound pending_approval lifecycle. On
+	// release, approve = deliver to the agent, reject = drop. pending_approval stays
+	// reserved for the explicit user-send-approval (edit-then-approve) flow.
+	MessageStatusPendingReview         = "pending_review"
+	MessageStatusReviewApproved        = "review_approved"
+	MessageStatusReviewRejected        = "review_rejected"
+	MessageStatusReviewExpiredApproved = "review_expired_approved"
+	MessageStatusReviewExpiredRejected = "review_expired_rejected"
 )
 
 type Store struct {
