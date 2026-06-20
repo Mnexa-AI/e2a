@@ -23,7 +23,7 @@
   "mcpServers": {
     "e2a": {
       "type": "http",
-      "url": "https://mcp.e2a.dev/mcp"
+      "url": "https://api.e2a.dev/mcp"
     }
   }
 }

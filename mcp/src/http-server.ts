@@ -85,7 +85,7 @@ export function buildApp(opts: HttpServerOptions): BuiltApp {
   // in favor of external middleware; we enforce it here. 421 Misdirected
   // Request is the spec-recommended status for "this server is not what
   // you asked for." Strip port before comparing so the same allowlist
-  // entry works both for prod (`mcp.e2a.dev`) and tests on random ports
+  // entry works both for prod (`api.e2a.dev`) and tests on random ports
   // (`127.0.0.1:54321`).
   const allowedHosts = new Set(opts.allowedHosts.map((h) => h.toLowerCase()));
   app.use("/mcp", (req, res, next) => {

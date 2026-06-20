@@ -1,13 +1,11 @@
-"""End-to-end demo: Google ADK agent driving @e2a/mcp-server over stdio.
+"""End-to-end demo: Google ADK agent against the hosted e2a MCP server.
 
-Wires the e2a MCP server into an ADK `Agent` so the LLM can send,
-read, and reply to email through natural-language prompts.
+Connects to the hosted MCP endpoint (https://api.e2a.dev/mcp) over
+Streamable HTTP with your API key in the Authorization header. Works
+locally and for ADK agents deployed to Cloud Run.
 
 Requires:
   E2A_API_KEY      e2a API key (https://e2a.dev)
-  E2A_AGENT_EMAIL  (optional) default agent inbox
-  E2A_URL          (optional) self-hosted e2a base URL
-                   (E2A_BASE_URL is the legacy name; still accepted)
   GOOGLE_API_KEY   Google AI Studio key
 
 Run interactively (recommended — opens ADK Web UI):
@@ -22,19 +20,7 @@ import os
 
 from google.adk.agents import Agent
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
-from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
-from mcp import StdioServerParameters
-
-
-def _e2a_env() -> dict[str, str]:
-    env = {"E2A_API_KEY": os.environ["E2A_API_KEY"]}
-    # E2A_URL is canonical; E2A_BASE_URL is the legacy name and still
-    # honored by @e2a/mcp-server. Forward both so users on either
-    # convention work without edits to this file.
-    for k in ("E2A_AGENT_EMAIL", "E2A_URL", "E2A_BASE_URL"):
-        if k in os.environ:
-            env[k] = os.environ[k]
-    return env
+from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
 
 
 root_agent = Agent(
@@ -49,12 +35,11 @@ root_agent = Agent(
     ),
     tools=[
         McpToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command="npx",
-                    args=["-y", "@e2a/mcp-server"],
-                    env=_e2a_env(),
-                ),
+            connection_params=StreamableHTTPConnectionParams(
+                url="https://api.e2a.dev/mcp",
+                headers={
+                    "Authorization": f"Bearer {os.environ['E2A_API_KEY']}",
+                },
                 timeout=30,
             ),
         ),

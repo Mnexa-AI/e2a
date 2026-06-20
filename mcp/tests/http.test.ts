@@ -638,7 +638,7 @@ describe("HTTP MCP server", () => {
     await close();
     const { close: c, port } = await startHttpServer(0, {
       baseUrl: "http://e2a.local",
-      allowedHosts: ["mcp.e2a.dev"],
+      allowedHosts: ["api.e2a.dev"],
       clientFactory: () => stub,
     });
     close = c;
@@ -654,7 +654,7 @@ describe("HTTP MCP server", () => {
     await close();
     const { close: c, port } = await startHttpServer(0, {
       baseUrl: "http://e2a.local",
-      allowedHosts: ["mcp.e2a.dev"], // 127.0.0.1 not allowed
+      allowedHosts: ["api.e2a.dev"], // 127.0.0.1 not allowed
       clientFactory: () => stub,
     });
     close = c;

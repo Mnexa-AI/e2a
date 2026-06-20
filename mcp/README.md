@@ -4,35 +4,31 @@
 
 Works with Google ADK, LangChain, OpenAI Agents SDK, Claude Desktop, Cursor, Cline, and any other MCP host.
 
-## Install
+## Connect
 
-No install — invoke directly with `npx`:
+e2a's MCP server is hosted. Point your MCP host at the Streamable HTTP endpoint:
 
-```bash
-npx -y @e2a/mcp-server
+```
+https://api.e2a.dev/mcp
 ```
 
-Requires Node 18+. The server speaks MCP over stdio.
+Two ways to authenticate:
 
-## Configuration
+- **OAuth 2.1 (recommended for interactive hosts)** — add e2a as a connector and authorize in the browser. No key is pasted into config.
+- **Bearer API key (programmatic / self-host)** — send your [e2a dashboard](https://e2a.dev) API key in the `Authorization: Bearer <e2a API key>` header.
 
-Set these in the MCP host's environment block.
-
-| Variable | Required | Default | Description |
-| --- | --- | --- | --- |
-| `E2A_API_KEY` | yes | — | API key from the [e2a dashboard](https://e2a.dev) |
-| `E2A_AGENT_EMAIL` | no | — | Default agent inbox. Scopes the tools so the LLM doesn't have to repeat the address. |
-| `E2A_URL` | no | `https://e2a.dev` | Self-hosted deployment URL. (`E2A_BASE_URL` is the legacy name; still accepted.) |
+An agent-scoped credential resolves its agent server-side. Account-scoped callers pass the agent `email` per tool call.
 
 ## Quick start
 
 ### Google ADK (Python)
 
 ```python
+import os
+
 from google.adk.agents import Agent
 from google.adk.tools.mcp_tool import McpToolset
-from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
-from mcp import StdioServerParameters
+from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
 
 root_agent = Agent(
     model="gemini-flash-latest",
@@ -40,15 +36,11 @@ root_agent = Agent(
     instruction="Help the user manage their email. Reply to threads with `reply_to_message` to preserve threading headers.",
     tools=[
         McpToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command="npx",
-                    args=["-y", "@e2a/mcp-server"],
-                    env={
-                        "E2A_API_KEY": "YOUR_E2A_API_KEY",
-                        "E2A_AGENT_EMAIL": "your-bot@your-domain.com",
-                    },
-                ),
+            connection_params=StreamableHTTPConnectionParams(
+                url="https://api.e2a.dev/mcp",
+                headers={
+                    "Authorization": f"Bearer {os.environ['E2A_API_KEY']}",
+                },
                 timeout=30,
             ),
         ),
@@ -61,17 +53,17 @@ root_agent = Agent(
 Using [`langchain-mcp-adapters`](https://github.com/langchain-ai/langchain-mcp-adapters):
 
 ```python
+import os
+
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 
 client = MultiServerMCPClient({
     "e2a": {
-        "command": "npx",
-        "args": ["-y", "@e2a/mcp-server"],
-        "transport": "stdio",
-        "env": {
-            "E2A_API_KEY": "YOUR_E2A_API_KEY",
-            "E2A_AGENT_EMAIL": "your-bot@your-domain.com",
+        "transport": "streamable_http",
+        "url": "https://api.e2a.dev/mcp",
+        "headers": {
+            "Authorization": f"Bearer {os.environ['E2A_API_KEY']}",
         },
     },
 })
@@ -83,16 +75,17 @@ agent = create_react_agent("anthropic:claude-sonnet-4-6", tools)
 ### OpenAI Agents SDK (Python)
 
 ```python
-from agents import Agent, Runner
-from agents.mcp import MCPServerStdio
+import os
 
-async with MCPServerStdio(
+from agents import Agent, Runner
+from agents.mcp import MCPServerStreamableHttp
+
+async with MCPServerStreamableHttp(
+    name="e2a",
     params={
-        "command": "npx",
-        "args": ["-y", "@e2a/mcp-server"],
-        "env": {
-            "E2A_API_KEY": "YOUR_E2A_API_KEY",
-            "E2A_AGENT_EMAIL": "your-bot@your-domain.com",
+        "url": "https://api.e2a.dev/mcp",
+        "headers": {
+            "Authorization": f"Bearer {os.environ['E2A_API_KEY']}",
         },
     },
 ) as e2a:
@@ -102,22 +95,22 @@ async with MCPServerStdio(
 
 ### Claude Desktop / Cline / Cursor
 
-Add to the MCP config (`claude_desktop_config.json`, `cline_mcp_settings.json`, etc.):
+Add e2a as a remote MCP server in the host's config (`claude_desktop_config.json`, `cline_mcp_settings.json`, etc.):
 
 ```json
 {
   "mcpServers": {
     "e2a": {
-      "command": "npx",
-      "args": ["-y", "@e2a/mcp-server"],
-      "env": {
-        "E2A_API_KEY": "YOUR_E2A_API_KEY",
-        "E2A_AGENT_EMAIL": "your-bot@your-domain.com"
+      "url": "https://api.e2a.dev/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_E2A_API_KEY"
       }
     }
   }
 }
 ```
+
+Hosts that support OAuth connectors can instead add `https://api.e2a.dev/mcp` as a connector and authorize in the browser — no key pasted.
 
 ## Tools
 
@@ -130,7 +123,7 @@ per-tool descriptions.
 
 | Tool | Description |
 | --- | --- |
-| `whoami` | Get the default agent's full record (requires `E2A_AGENT_EMAIL`). |
+| `whoami` | Get the calling agent's full record (resolved from an agent-scoped credential). |
 | `list_agents` | List every agent inbox owned by the authenticated user. |
 | `create_agent` | Register a new inbox using a slug on the shared domain. Defaults to `local` mode — no webhook required. See note below for cloud mode. |
 

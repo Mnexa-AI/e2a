@@ -1,13 +1,10 @@
 {
   "name": "@e2a/mcp-server",
   "version": "0.4.0",
-  "description": "MCP server for e2a — email for AI agents",
+  "description": "MCP server for e2a \u2014 email for AI agents",
   "mcpName": "io.github.Mnexa-AI/mcp-server",
-  "bin": {
-    "e2a-mcp": "dist/index.js"
-  },
   "type": "module",
-  "main": "./dist/index.js",
+  "main": "./dist/bin/http.js",
   "files": [
     "dist"
   ],

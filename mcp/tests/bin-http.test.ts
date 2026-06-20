@@ -7,7 +7,7 @@ describe("bin/http loadConfig", () => {
     expect(cfg).toEqual({
       port: 3000,
       baseUrl: "https://e2a.dev",
-      allowedHosts: ["mcp.e2a.dev"],
+      allowedHosts: ["api.e2a.dev"],
       sessionIdleMs: 5 * 60_000,
       maxSessions: 500,
     });
@@ -17,14 +17,14 @@ describe("bin/http loadConfig", () => {
     const cfg = loadConfig({
       PORT: "8080",
       E2A_URL: "https://staging.e2a.dev",
-      MCP_ALLOWED_HOSTS: "mcp.e2a.dev,mcp-staging.e2a.dev",
+      MCP_ALLOWED_HOSTS: "api.e2a.dev,mcp-staging.e2a.dev",
       MCP_SESSION_IDLE_MS: "60000",
       MCP_MAX_SESSIONS: "100",
     });
     expect(cfg).toEqual({
       port: 8080,
       baseUrl: "https://staging.e2a.dev",
-      allowedHosts: ["mcp.e2a.dev", "mcp-staging.e2a.dev"],
+      allowedHosts: ["api.e2a.dev", "mcp-staging.e2a.dev"],
       sessionIdleMs: 60_000,
       maxSessions: 100,
     });
@@ -84,8 +84,8 @@ describe("bin/http loadConfig", () => {
   });
 
   it("accepts a single allowed host with whitespace padding", () => {
-    const cfg = loadConfig({ MCP_ALLOWED_HOSTS: "  mcp.e2a.dev  " });
-    expect(cfg.allowedHosts).toEqual(["mcp.e2a.dev"]);
+    const cfg = loadConfig({ MCP_ALLOWED_HOSTS: "  api.e2a.dev  " });
+    expect(cfg.allowedHosts).toEqual(["api.e2a.dev"]);
   });
 
   it("allows port 0 (OS-assigned)", () => {
@@ -103,7 +103,7 @@ describe("logJson", () => {
     });
     logJson("INFO", "listening", "e2a-mcp-http listening on :3000", {
       port: 3000,
-      allowedHosts: ["mcp.e2a.dev"],
+      allowedHosts: ["api.e2a.dev"],
     });
     spy.mockRestore();
 
@@ -117,7 +117,7 @@ describe("logJson", () => {
       event: "listening",
       message: "e2a-mcp-http listening on :3000",
       port: 3000,
-      allowedHosts: ["mcp.e2a.dev"],
+      allowedHosts: ["api.e2a.dev"],
     });
   });
 });

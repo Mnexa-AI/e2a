@@ -89,7 +89,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BinConfig {
   return {
     port: parsePort("PORT", env.PORT ?? "", 3000),
     baseUrl: resolveBaseUrl(env),
-    allowedHosts: parseHostList(env.MCP_ALLOWED_HOSTS ?? "", "mcp.e2a.dev"),
+    allowedHosts: parseHostList(env.MCP_ALLOWED_HOSTS ?? "", "api.e2a.dev"),
     sessionIdleMs: parsePositiveInt("MCP_SESSION_IDLE_MS", env.MCP_SESSION_IDLE_MS ?? "", 5 * 60_000),
     maxSessions: parsePositiveInt("MCP_MAX_SESSIONS", env.MCP_MAX_SESSIONS ?? "", 500),
     publicUrl: env.MCP_PUBLIC_URL || undefined,

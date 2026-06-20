@@ -10,48 +10,20 @@
     "subfolder": "mcp"
   },
   "version": "0.4.0",
-  "packages": [
-    {
-      "registryType": "npm",
-      "registryBaseUrl": "https://registry.npmjs.org",
-      "identifier": "@e2a/mcp-server",
-      "version": "0.4.0",
-      "transport": {
-        "type": "stdio"
-      },
-      "environmentVariables": [
-        {
-          "name": "E2A_API_KEY",
-          "description": "e2a API key from https://e2a.dev",
-          "isRequired": true,
-          "isSecret": true
-        },
-        {
-          "name": "E2A_AGENT_EMAIL",
-          "description": "Default agent inbox (e.g. bot@your-domain.com). Optional — single-agent accounts auto-resolve."
-        },
-        {
-          "name": "E2A_URL",
-          "description": "Self-hosted e2a backend URL. Defaults to https://e2a.dev. (Legacy: E2A_BASE_URL is still accepted.)",
-          "default": "https://e2a.dev"
-        }
-      ]
-    }
-  ],
   "remotes": [
     {
       "type": "streamable-http",
-      "url": "https://mcp.e2a.dev/mcp",
+      "url": "https://api.e2a.dev/mcp",
       "headers": [
         {
           "name": "Authorization",
-          "description": "Bearer token: accepts an e2a API key (e2a_…) or OAuth 2.1 access token (ate2a_…)",
+          "description": "OAuth 2.1 is the recommended connection (add the connector and authorize — no key to paste; auto-discovered via /.well-known/oauth-protected-resource). For programmatic / self-host use, a Bearer e2a API key (e2a_acct_… or e2a_agt_…) is also accepted.",
           "value": "Bearer {e2a_api_key}",
-          "isRequired": true,
+          "isRequired": false,
           "variables": {
             "e2a_api_key": {
-              "description": "Your e2a API key from https://e2a.dev",
-              "isRequired": true,
+              "description": "Your e2a API key from https://e2a.dev (optional — OAuth needs no pasted key).",
+              "isRequired": false,
               "isSecret": true
             }
           }

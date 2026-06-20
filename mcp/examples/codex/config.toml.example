@@ -1,5 +1,5 @@
-# Paste either block into ~/.codex/config.toml (user) or .codex/config.toml
-# (project override). You only need one of the two.
+# Paste this block into ~/.codex/config.toml (user) or .codex/config.toml
+# (project override).
 #
 # Codex config schema reference:
 #   https://developers.openai.com/codex/config-reference
@@ -7,24 +7,8 @@
 #   https://github.com/openai/codex/blob/main/codex-rs/config/src/mcp_types.rs
 
 
-# ── Local stdio variant ──────────────────────────────────────────────────────
-# Codex launches @e2a/mcp-server as a child process and talks to it over stdio.
-# Best for laptop dev. Needs Node 18+ on PATH for `npx`.
-[mcp_servers.e2a]
-command = "npx"
-args    = ["-y", "@e2a/mcp-server"]
-
-[mcp_servers.e2a.env]
-E2A_API_KEY = "e2a_..."
-# Optional default inbox if your account has more than one agent:
-# E2A_AGENT_EMAIL = "your-bot@your-domain.com"
-
-# Equivalent one-liner (Codex will write the same TOML for you):
-#   codex mcp add e2a --env E2A_API_KEY=e2a_... -- npx -y @e2a/mcp-server
-
-
 # ── Hosted Streamable HTTP variant ───────────────────────────────────────────
-# Codex opens a Streamable HTTP session to https://mcp.e2a.dev/mcp and reads
+# Codex opens a Streamable HTTP session to https://api.e2a.dev/mcp and reads
 # the bearer token from the named env var at request time. Best when you don't
 # want a Node toolchain on the host (CI runners, dev containers, etc.).
 #
@@ -32,9 +16,9 @@ E2A_API_KEY = "e2a_..."
 # Codex deliberately rejects an inline `bearer_token = "..."` field so secrets
 # stay out of config.toml.
 [mcp_servers.e2a-hosted]
-url                   = "https://mcp.e2a.dev/mcp"
+url                   = "https://api.e2a.dev/mcp"
 bearer_token_env_var  = "E2A_API_KEY"
 
 # Equivalent one-liner:
-#   codex mcp add e2a-hosted --url https://mcp.e2a.dev/mcp \
+#   codex mcp add e2a-hosted --url https://api.e2a.dev/mcp \
 #     --bearer-token-env-var E2A_API_KEY

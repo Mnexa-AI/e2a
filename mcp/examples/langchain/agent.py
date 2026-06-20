@@ -1,13 +1,11 @@
-"""End-to-end demo: LangChain agent driving @e2a/mcp-server over stdio.
+"""End-to-end demo: LangChain agent against the hosted e2a MCP server (https://api.e2a.dev/mcp) over Streamable HTTP.
 
-Wires the e2a MCP server into a LangGraph ReAct agent so the LLM can
-send, read, and reply to email through natural-language prompts.
+Connects to the hosted MCP endpoint (https://api.e2a.dev/mcp) over
+Streamable HTTP with your API key in the Authorization header. Works
+locally and on serverless runtimes (Cloud Run, Lambda, etc.).
 
 Requires:
   E2A_API_KEY        e2a API key (https://e2a.dev)
-  E2A_AGENT_EMAIL    (optional) default agent inbox
-  E2A_URL            (optional) self-hosted e2a base URL
-                     (E2A_BASE_URL is the legacy name; still accepted)
   ANTHROPIC_API_KEY  Anthropic API key
 
 Run:
@@ -18,6 +16,7 @@ Run:
 import asyncio
 import os
 import sys
+from datetime import timedelta
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
@@ -30,25 +29,16 @@ SYSTEM_PROMPT = (
 )
 
 
-def _e2a_env() -> dict[str, str]:
-    env = {"E2A_API_KEY": os.environ["E2A_API_KEY"]}
-    # E2A_URL is canonical; E2A_BASE_URL is the legacy name and still
-    # honored by @e2a/mcp-server. Forward both so users on either
-    # convention work without edits to this file.
-    for k in ("E2A_AGENT_EMAIL", "E2A_URL", "E2A_BASE_URL"):
-        if k in os.environ:
-            env[k] = os.environ[k]
-    return env
-
-
 async def main(prompt: str) -> None:
     client = MultiServerMCPClient(
         {
             "e2a": {
-                "command": "npx",
-                "args": ["-y", "@e2a/mcp-server"],
-                "transport": "stdio",
-                "env": _e2a_env(),
+                "transport": "streamable_http",
+                "url": "https://api.e2a.dev/mcp",
+                "headers": {
+                    "Authorization": f"Bearer {os.environ['E2A_API_KEY']}",
+                },
+                "timeout": timedelta(seconds=30),
             },
         }
     )

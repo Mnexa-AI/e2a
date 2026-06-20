@@ -5,7 +5,7 @@ import type { McpClient } from "../src/client.js";
 import { startHttpServer } from "../src/http-server.js";
 
 // Events tools exercised through the streamable-http MCP transport
-// (the production-shipped transport for `mcp.e2a.dev/mcp`). Mirrors
+// (the production-shipped transport for `api.e2a.dev/mcp`). Mirrors
 // the InMemoryTransport tests in events.test.ts but goes through the
 // real HTTP layer — catches auth header parsing, JSON-RPC framing,
 // and session lifecycle bugs that InMemoryTransport masks.
