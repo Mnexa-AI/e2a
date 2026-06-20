@@ -29,14 +29,26 @@ func (s *Server) jsonResponse(bodyType reflect.Type, schemaName, description str
 	}
 }
 
-// SendResultView is the unified outbound response: {status, message_id,
-// method} for an immediate send/loopback, or {status:"pending_approval",
-// message_id, approval_expires_at} (202) when held for HITL approval.
+// SendResultView is the single outbound result for send/reply/forward/approve/
+// test (MSG-9). Per scenario:
+//   - sent:  status="sent" + message_id (the e2a msg_ id) + provider_message_id
+//     (SES id) + sent_as + method.
+//   - held:  status="pending_approval" + message_id + approval_expires_at.
+//   - approved+sent: the "sent" set + edited (reviewer edited the draft).
+//
+// message_id is always the e2a message id (GET-able), never the provider id —
+// the SES id is provider_message_id. `reject` keeps its own RejectResultView
+// (it is not a send).
 type SendResultView struct {
 	Status            string     `json:"status" enum:"sent,pending_approval"`
 	MessageID         string     `json:"message_id"`
-	Method            string     `json:"method,omitempty"`
+	ProviderMessageID string     `json:"provider_message_id,omitempty"`
+	SentAs            string     `json:"sent_as,omitempty" enum:"own_address,relay"`
+	Method            string     `json:"method,omitempty" enum:"smtp,loopback"`
 	ApprovalExpiresAt *time.Time `json:"approval_expires_at,omitempty"`
+	// Edited is set only by approve (true/false = did the reviewer edit the
+	// draft before sending); omitted on the plain send path.
+	Edited *bool `json:"edited,omitempty"`
 }
 
 // maxOutboundBytes caps the outbound request body (send/reply/forward). It
@@ -65,16 +77,18 @@ func recipientCountError(groups ...[]string) *ErrorEnvelope {
 	return nil
 }
 
-// SendEmailRequest mirrors the legacy /send body.
+// SendEmailRequest is the new-thread send body. to/subject/body are required
+// (MSG-3): RFC 5321 requires ≥1 recipient (From/Date are server-set), and a
+// usable new email needs a subject + body. html_body is an optional addition.
 type SendEmailRequest struct {
-	To             []string              `json:"to,omitempty" nullable:"false"`
+	To             []string              `json:"to" nullable:"false"`
 	CC             []string              `json:"cc,omitempty" nullable:"false"`
 	BCC            []string              `json:"bcc,omitempty" nullable:"false"`
-	Subject        string                `json:"subject,omitempty"`
-	Body           string                `json:"body,omitempty"`
+	Subject        string                `json:"subject"`
+	Body           string                `json:"body"`
 	HTMLBody       string                `json:"html_body,omitempty"`
 	ConversationID string                `json:"conversation_id,omitempty"`
-	Attachments    []outbound.Attachment `json:"attachments,omitempty"`
+	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false"`
 }
 
 type createMessageInput struct {
@@ -167,18 +181,18 @@ func (s *Server) handleTestSend(ctx context.Context, in *AddressParam) (*sendOut
 	if res.Held {
 		return &sendOutput{Status: http.StatusAccepted, Body: SendResultView{Status: "pending_approval", MessageID: res.PendingMessageID, ApprovalExpiresAt: res.ApprovalExpiresAt}}, nil
 	}
-	return &sendOutput{Status: http.StatusOK, Body: SendResultView{Status: "sent", MessageID: res.MessageID, Method: res.Method}}, nil
+	return &sendOutput{Status: http.StatusOK, Body: SendResultView{Status: "sent", MessageID: res.MessageID, ProviderMessageID: res.ProviderMessageID, SentAs: res.SentAs, Method: res.Method}}, nil
 }
 
 // ReplyRequest mirrors the legacy reply body.
 type ReplyRequest struct {
-	Body           string                `json:"body,omitempty"`
+	Body           string                `json:"body"` // required (MSG-3); to/subject derived from the original
 	HTMLBody       string                `json:"html_body,omitempty"`
 	ReplyAll       bool                  `json:"reply_all,omitempty"`
 	CC             []string              `json:"cc,omitempty" nullable:"false"`
 	BCC            []string              `json:"bcc,omitempty" nullable:"false"`
 	ConversationID string                `json:"conversation_id,omitempty"`
-	Attachments    []outbound.Attachment `json:"attachments,omitempty"`
+	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false"`
 }
 
 type replyInput struct {
@@ -259,13 +273,13 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 
 // ForwardRequest mirrors the legacy forward body.
 type ForwardRequest struct {
-	To             []string              `json:"to,omitempty" nullable:"false"`
+	To             []string              `json:"to" nullable:"false"`  // required (MSG-3)
 	CC             []string              `json:"cc,omitempty" nullable:"false"`
 	BCC            []string              `json:"bcc,omitempty" nullable:"false"`
-	Body           string                `json:"body,omitempty"`
+	Body           string                `json:"body"` // required (MSG-3); subject derived as "Fwd:"
 	HTMLBody       string                `json:"html_body,omitempty"`
 	ConversationID string                `json:"conversation_id,omitempty"`
-	Attachments    []outbound.Attachment `json:"attachments,omitempty"`
+	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false"`
 }
 
 type forwardInput struct {
@@ -361,7 +375,7 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 		if res.Held {
 			return http.StatusAccepted, SendResultView{Status: "pending_approval", MessageID: res.PendingMessageID, ApprovalExpiresAt: res.ApprovalExpiresAt}, nil
 		}
-		return http.StatusOK, SendResultView{Status: "sent", MessageID: res.MessageID, Method: res.Method}, nil
+		return http.StatusOK, SendResultView{Status: "sent", MessageID: res.MessageID, ProviderMessageID: res.ProviderMessageID, SentAs: res.SentAs, Method: res.Method}, nil
 	})
 	if err != nil {
 		return nil, err

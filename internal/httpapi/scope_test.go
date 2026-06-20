@@ -71,7 +71,7 @@ func TestScope_AccountOnlyRoutesRejectAgentKeys(t *testing.T) {
 		{"list/account-ok", "GET", "/v1/agents", "acct", 200},
 		{"list/agent-403", "GET", "/v1/agents", "agtSupport", 403},
 		// Delete agent is admin even on the bound agent.
-		{"delete/account-ok", "DELETE", "/v1/agents/support%40acme.com", "acct", 204},
+		{"delete/account-ok", "DELETE", "/v1/agents/support%40acme.com?confirm=DELETE", "acct", 204},
 		{"delete/agent-bound-403", "DELETE", "/v1/agents/support%40acme.com", "agtSupport", 403},
 	}
 	for _, c := range cases {

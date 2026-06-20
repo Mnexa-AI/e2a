@@ -23,12 +23,12 @@ type UserExport struct {
 	GeneratedAt      time.Time              `json:"generated_at"`
 	SchemaVersion    string                 `json:"schema_version"`
 	User             UserExportUser         `json:"user"`
-	Domains          []Domain               `json:"domains"`
-	Agents           []AgentIdentity        `json:"agents"`
-	APIKeys          []APIKeyExportEntry    `json:"api_keys"`
-	Messages         []Message              `json:"messages"`
-	UsageEvents      []UsageEventEntry      `json:"usage_events,omitempty"`
-	OAuthConnections []OAuthConnectionEntry `json:"oauth_connections,omitempty"`
+	Domains          []Domain               `json:"domains" nullable:"false"`
+	Agents           []AgentIdentity        `json:"agents" nullable:"false"`
+	APIKeys          []APIKeyExportEntry    `json:"api_keys" nullable:"false"`
+	Messages         []Message              `json:"messages" nullable:"false"`
+	UsageEvents      []UsageEventEntry      `json:"usage_events,omitempty" nullable:"false"`
+	OAuthConnections []OAuthConnectionEntry `json:"oauth_connections,omitempty" nullable:"false"`
 } // @name UserExport
 
 // OAuthConnectionEntry is one OAuth/MCP client connection. The

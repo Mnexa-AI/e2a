@@ -24,6 +24,45 @@ components:
         - key_prefix
         - created_at
       type: object
+    AccountUserView:
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+        id:
+          type: string
+      required:
+        - id
+        - email
+      type: object
+    AccountView:
+      additionalProperties: false
+      properties:
+        agent_address:
+          type: string
+        limits:
+          $ref: "#/components/schemas/LimitsCapsView"
+        plan_code:
+          type: string
+        scope:
+          enum:
+            - account
+            - agent
+          type: string
+        upgrade_url:
+          type: string
+        usage:
+          $ref: "#/components/schemas/LimitsUsageView"
+        user:
+          $ref: "#/components/schemas/AccountUserView"
+      required:
+        - user
+        - scope
+        - plan_code
+        - limits
+        - usage
+        - upgrade_url
+      type: object
     AgentIdentity:
       additionalProperties: false
       properties:
@@ -126,9 +165,7 @@ components:
         inbound_allowlist:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         inbound_policy:
           enum:
             - open
@@ -177,24 +214,6 @@ components:
             type: string
           type: array
       type: object
-    ApproveResultView:
-      additionalProperties: false
-      properties:
-        edited:
-          type: boolean
-        message_id:
-          type: string
-        method:
-          type: string
-        provider_message_id:
-          type: string
-        status:
-          type: string
-      required:
-        - status
-        - message_id
-        - edited
-      type: object
     Attachment:
       additionalProperties: false
       properties:
@@ -214,6 +233,20 @@ components:
         - filename
         - content_type
         - data
+      type: object
+    AuthVerdict:
+      additionalProperties: false
+      properties:
+        dkim:
+          $ref: "#/components/schemas/CheckResult"
+        dmarc:
+          $ref: "#/components/schemas/CheckResult"
+        spf:
+          $ref: "#/components/schemas/CheckResult"
+      required:
+        - spf
+        - dkim
+        - dmarc
       type: object
     CheckResult:
       additionalProperties: false
@@ -240,9 +273,7 @@ components:
         labels:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         last_message_at:
           type: string
         latest_sender:
@@ -255,18 +286,14 @@ components:
         messages:
           items:
             $ref: "#/components/schemas/MessageSummaryView"
-          type:
-            - array
-            - "null"
+          type: array
         outbound_count:
           format: int64
           type: integer
         participants:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
       required:
         - participants
         - labels
@@ -323,21 +350,7 @@ components:
           type: string
         name:
           type: string
-        slug:
-          type: string
-      type: object
-    CreateAgentResponse:
-      additionalProperties: false
-      properties:
-        domain:
-          type: string
-        email:
-          type: string
-        id:
-          type: string
       required:
-        - id
-        - domain
         - email
       type: object
     CreateWebhookRequest:
@@ -347,12 +360,79 @@ components:
           type: string
         events:
           items:
+            enum:
+              - email.received
+              - email.sent
+              - email.pending_approval
+              - email.approval_accepted
+              - email.approval_rejected
+              - domain.sending_verified
+              - domain.sending_failed
+              - email.delivered
+              - email.bounced
+              - email.complained
+              - domain.suppression_added
+              - email.flagged
             type: string
           type: array
         filters:
           $ref: "#/components/schemas/WebhookFiltersView"
         url:
           type: string
+      required:
+        - url
+        - events
+      type: object
+    CreateWebhookResponse:
+      additionalProperties: false
+      properties:
+        auto_disabled_at:
+          format: date-time
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        events:
+          items:
+            enum:
+              - email.received
+              - email.sent
+              - email.pending_approval
+              - email.approval_accepted
+              - email.approval_rejected
+              - domain.sending_verified
+              - domain.sending_failed
+              - email.delivered
+              - email.bounced
+              - email.complained
+              - domain.suppression_added
+              - email.flagged
+            type: string
+          type: array
+        filters:
+          $ref: "#/components/schemas/WebhookFiltersView"
+        id:
+          type: string
+        last_delivered_at:
+          format: date-time
+          type: string
+        signing_secret:
+          type: string
+        url:
+          type: string
+      required:
+        - signing_secret
+        - id
+        - url
+        - description
+        - events
+        - filters
+        - enabled
+        - created_at
       type: object
     DNSRecordView:
       additionalProperties: false
@@ -456,7 +536,10 @@ components:
           type: string
         slug_registration_enabled:
           type: boolean
+        version:
+          type: string
       required:
+        - version
         - shared_domain
         - slug_registration_enabled
       type: object
@@ -526,15 +609,18 @@ components:
         sending_dns_records:
           items:
             $ref: "#/components/schemas/SendingDNSRecordView"
-          type:
-            - array
-            - "null"
+          type: array
         sending_error:
           type: string
         sending_last_checked_at:
           format: date-time
           type: string
         sending_status:
+          enum:
+            - none
+            - pending
+            - verified
+            - failed
           type: string
         verification_token:
           type: string
@@ -608,8 +694,8 @@ components:
             - email.received
             - email.sent
             - email.pending_approval
-            - email.approved
-            - email.rejected
+            - email.approval_accepted
+            - email.approval_rejected
             - domain.sending_verified
             - domain.sending_failed
             - email.delivered
@@ -632,9 +718,7 @@ components:
         attachments:
           items:
             $ref: "#/components/schemas/Attachment"
-          type:
-            - array
-            - "null"
+          type: array
         bcc:
           items:
             type: string
@@ -653,6 +737,9 @@ components:
           items:
             type: string
           type: array
+      required:
+        - to
+        - body
       type: object
     LimitsCapsView:
       additionalProperties: false
@@ -695,23 +782,6 @@ components:
         - domains
         - messages_month
         - storage_bytes
-      type: object
-    LimitsView:
-      additionalProperties: false
-      properties:
-        limits:
-          $ref: "#/components/schemas/LimitsCapsView"
-        plan_code:
-          type: string
-        upgrade_url:
-          type: string
-        usage:
-          $ref: "#/components/schemas/LimitsUsageView"
-      required:
-        - plan_code
-        - limits
-        - usage
-        - upgrade_url
       type: object
     Message:
       additionalProperties: false
@@ -859,13 +929,11 @@ components:
       additionalProperties: false
       properties:
         auth:
-          $ref: "#/components/schemas/Result"
+          $ref: "#/components/schemas/AuthVerdict"
         cc:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         conversation_id:
           type: string
         created_at:
@@ -905,19 +973,17 @@ components:
         labels:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         message_id:
+          type: string
+        read_status:
           type: string
         recipient:
           type: string
         reply_to:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         sent_as:
           enum:
             - own_address
@@ -926,16 +992,12 @@ components:
         size_bytes:
           format: int64
           type: integer
-        status:
-          type: string
         subject:
           type: string
         to:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         webhook_error:
           type: string
         webhook_status:
@@ -947,7 +1009,7 @@ components:
         - to
         - recipient
         - subject
-        - status
+        - read_status
         - labels
         - created_at
       type: object
@@ -955,7 +1017,7 @@ components:
       additionalProperties: false
       properties:
         auth:
-          $ref: "#/components/schemas/Result"
+          $ref: "#/components/schemas/AuthVerdict"
         auth_headers:
           additionalProperties:
             type: string
@@ -965,9 +1027,7 @@ components:
         cc:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         conversation_id:
           type: string
         created_at:
@@ -1007,9 +1067,7 @@ components:
         labels:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         message_id:
           type: string
         parsed:
@@ -1017,14 +1075,14 @@ components:
         raw_message:
           contentEncoding: base64
           type: string
+        read_status:
+          type: string
         recipient:
           type: string
         reply_to:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         sent_as:
           enum:
             - own_address
@@ -1033,16 +1091,12 @@ components:
         size_bytes:
           format: int64
           type: integer
-        status:
-          type: string
         subject:
           type: string
         to:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         webhook_error:
           type: string
         webhook_status:
@@ -1057,10 +1111,9 @@ components:
         - subject
         - conversation_id
         - direction
-        - status
+        - read_status
         - labels
         - created_at
-        - auth_headers
         - raw_message
       type: object
     OAuthConnectionEntry:
@@ -1228,7 +1281,7 @@ components:
         - webhook_id
         - status
       type: object
-    RedeliverEventInputBody:
+    RedeliverEventRequest:
       additionalProperties: false
       properties:
         webhook_id:
@@ -1240,9 +1293,7 @@ components:
         deliveries:
           items:
             $ref: "#/components/schemas/RedeliverDelivery"
-          type:
-            - array
-            - "null"
+          type: array
         delivery_id:
           type: string
         event_id:
@@ -1263,8 +1314,10 @@ components:
       properties:
         domain:
           type: string
+      required:
+        - domain
       type: object
-    RejectInputBody:
+    RejectRequest:
       additionalProperties: false
       properties:
         reason:
@@ -1289,9 +1342,7 @@ components:
         attachments:
           items:
             $ref: "#/components/schemas/Attachment"
-          type:
-            - array
-            - "null"
+          type: array
         bcc:
           items:
             type: string
@@ -1308,6 +1359,8 @@ components:
           type: string
         reply_all:
           type: boolean
+      required:
+        - body
       type: object
     Result:
       additionalProperties: false
@@ -1323,7 +1376,7 @@ components:
         - dkim
         - dmarc
       type: object
-    RotateSecretBody:
+    RotateSecretResponse:
       additionalProperties: false
       properties:
         previous_secret_expires_at:
@@ -1341,9 +1394,7 @@ components:
         attachments:
           items:
             $ref: "#/components/schemas/Attachment"
-          type:
-            - array
-            - "null"
+          type: array
         bcc:
           items:
             type: string
@@ -1364,6 +1415,10 @@ components:
           items:
             type: string
           type: array
+      required:
+        - to
+        - subject
+        - body
       type: object
     SendResultView:
       additionalProperties: false
@@ -1371,9 +1426,21 @@ components:
         approval_expires_at:
           format: date-time
           type: string
+        edited:
+          type: boolean
         message_id:
           type: string
         method:
+          enum:
+            - smtp
+            - loopback
+          type: string
+        provider_message_id:
+          type: string
+        sent_as:
+          enum:
+            - own_address
+            - relay
           type: string
         status:
           enum:
@@ -1417,14 +1484,6 @@ components:
         - source
         - created_at
       type: object
-    TestWebhookOutputBody:
-      additionalProperties: false
-      properties:
-        delivery_id:
-          type: string
-      required:
-        - delivery_id
-      type: object
     TestWebhookRequest:
       additionalProperties: false
       properties:
@@ -1432,7 +1491,28 @@ components:
           additionalProperties: {}
           type: object
         event:
+          enum:
+            - email.received
+            - email.sent
+            - email.pending_approval
+            - email.approval_accepted
+            - email.approval_rejected
+            - domain.sending_verified
+            - domain.sending_failed
+            - email.delivered
+            - email.bounced
+            - email.complained
+            - domain.suppression_added
+            - email.flagged
           type: string
+      type: object
+    TestWebhookResponse:
+      additionalProperties: false
+      properties:
+        delivery_id:
+          type: string
+      required:
+        - delivery_id
       type: object
     UpdateAgentRequest:
       additionalProperties: false
@@ -1440,8 +1520,14 @@ components:
         hitl_enabled:
           type: boolean
         hitl_expiration_action:
+          enum:
+            - approve
+            - reject
           type: string
         hitl_mode:
+          enum:
+            - all
+            - high_impact
           type: string
         hitl_ttl_seconds:
           format: int64
@@ -1451,6 +1537,11 @@ components:
             type: string
           type: array
         inbound_policy:
+          enum:
+            - open
+            - allowlist
+            - domain
+            - verified_only
           type: string
       type: object
     UpdateDomainRequest:
@@ -1477,9 +1568,7 @@ components:
         labels:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         message_id:
           type: string
       required:
@@ -1495,6 +1584,19 @@ components:
           type: boolean
         events:
           items:
+            enum:
+              - email.received
+              - email.sent
+              - email.pending_approval
+              - email.approval_accepted
+              - email.approval_rejected
+              - domain.sending_verified
+              - domain.sending_failed
+              - email.delivered
+              - email.bounced
+              - email.complained
+              - domain.suppression_added
+              - email.flagged
             type: string
           type: array
         filters:
@@ -1532,44 +1634,32 @@ components:
         agents:
           items:
             $ref: "#/components/schemas/AgentIdentity"
-          type:
-            - array
-            - "null"
+          type: array
         api_keys:
           items:
             $ref: "#/components/schemas/APIKeyExportEntry"
-          type:
-            - array
-            - "null"
+          type: array
         domains:
           items:
             $ref: "#/components/schemas/Domain"
-          type:
-            - array
-            - "null"
+          type: array
         generated_at:
           format: date-time
           type: string
         messages:
           items:
             $ref: "#/components/schemas/Message"
-          type:
-            - array
-            - "null"
+          type: array
         oauth_connections:
           items:
             $ref: "#/components/schemas/OAuthConnectionEntry"
-          type:
-            - array
-            - "null"
+          type: array
         schema_version:
           type: string
         usage_events:
           items:
             $ref: "#/components/schemas/UsageEventEntry"
-          type:
-            - array
-            - "null"
+          type: array
         user:
           $ref: "#/components/schemas/UserExportUser"
       required:
@@ -1633,8 +1723,8 @@ components:
             - email.received
             - email.sent
             - email.pending_approval
-            - email.approved
-            - email.rejected
+            - email.approval_accepted
+            - email.approval_rejected
             - domain.sending_verified
             - domain.sending_failed
             - email.delivered
@@ -1676,21 +1766,15 @@ components:
         agent_ids:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         conversation_ids:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         labels:
           items:
             type: string
-          type:
-            - array
-            - "null"
+          type: array
       type: object
     WebhookView:
       additionalProperties: false
@@ -1707,18 +1791,27 @@ components:
           type: boolean
         events:
           items:
+            enum:
+              - email.received
+              - email.sent
+              - email.pending_approval
+              - email.approval_accepted
+              - email.approval_rejected
+              - domain.sending_verified
+              - domain.sending_failed
+              - email.delivered
+              - email.bounced
+              - email.complained
+              - domain.suppression_added
+              - email.flagged
             type: string
-          type:
-            - array
-            - "null"
+          type: array
         filters:
           $ref: "#/components/schemas/WebhookFiltersView"
         id:
           type: string
         last_delivered_at:
           format: date-time
-          type: string
-        signing_secret:
           type: string
         url:
           type: string
@@ -1773,14 +1866,14 @@ paths:
       tags:
         - account
     get:
-      description: The authenticated account's plan caps and current usage. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+      description: The authenticated principal's identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
       operationId: getAccount
       responses:
         "200":
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/LimitsView"
+                $ref: "#/components/schemas/AccountView"
           description: OK
         default:
           content:
@@ -1790,7 +1883,7 @@ paths:
           description: Error
       security:
         - bearer: []
-      summary: "Get account: plan limits + usage"
+      summary: "Get account: identity + plan limits + usage (whoami)"
       tags:
         - account
   /v1/account/export:
@@ -1888,7 +1981,7 @@ paths:
       tags:
         - agents
     post:
-      description: Register an agent on a verified domain the caller owns (or, when slug registration is enabled, on the shared domain).
+      description: Register an agent by full email. A custom-domain agent's domain must be a verified domain the caller owns; an email on the deployment's shared domain (e.g. xyz@agents.e2a.dev) is registered as a shared-domain agent. Returns the full agent.
       operationId: createAgent
       requestBody:
         content:
@@ -1901,7 +1994,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CreateAgentResponse"
+                $ref: "#/components/schemas/AgentView"
           description: Created
         default:
           content:
@@ -1919,12 +2012,17 @@ paths:
       description: Delete an agent the caller owns.
       operationId: deleteAgent
       parameters:
-        - description: The agent's full email address, e.g. support@acme.com.
-          in: path
+        - in: path
           name: address
           required: true
           schema:
-            description: The agent's full email address, e.g. support@acme.com.
+            type: string
+        - description: Must be DELETE — this is irreversible.
+          explode: false
+          in: query
+          name: confirm
+          schema:
+            description: Must be DELETE — this is irreversible.
             type: string
       responses:
         "204":
@@ -2107,12 +2205,12 @@ paths:
               - outbound
               - all
             type: string
-        - description: Inbound only. Defaults to unread for inbound, all otherwise.
+        - description: Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.
           explode: false
           in: query
-          name: status
+          name: read_status
           schema:
-            description: Inbound only. Defaults to unread for inbound, all otherwise.
+            description: Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.
             enum:
               - unread
               - read
@@ -2356,7 +2454,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApproveResultView"
+                $ref: "#/components/schemas/SendResultView"
           description: OK
         default:
           content:
@@ -2436,7 +2534,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RejectInputBody"
+              $ref: "#/components/schemas/RejectRequest"
         required: true
       responses:
         "200":
@@ -2589,6 +2687,13 @@ paths:
           name: domain
           required: true
           schema:
+            type: string
+        - description: Must be DELETE — this is irreversible (deprovisions the domain's sending identity).
+          explode: false
+          in: query
+          name: confirm
+          schema:
+            description: Must be DELETE — this is irreversible (deprovisions the domain's sending identity).
             type: string
       responses:
         "204":
@@ -2802,7 +2907,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RedeliverEventInputBody"
+              $ref: "#/components/schemas/RedeliverEventRequest"
         required: true
       responses:
         "200":
@@ -2876,7 +2981,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WebhookView"
+                $ref: "#/components/schemas/CreateWebhookResponse"
           description: Created
         default:
           content:
@@ -3036,7 +3141,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/RotateSecretBody"
+                $ref: "#/components/schemas/RotateSecretResponse"
           description: OK
         default:
           content:
@@ -3070,7 +3175,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TestWebhookOutputBody"
+                $ref: "#/components/schemas/TestWebhookResponse"
           description: OK
         default:
           content:

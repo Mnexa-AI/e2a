@@ -310,7 +310,7 @@ func TestPollMode_E2E(t *testing.T) {
 			From           string   `json:"from"`
 			To             []string `json:"to"`
 			Subject        string   `json:"subject"`
-			Status         string   `json:"status"`
+			Status         string   `json:"read_status"`
 			ConversationID string   `json:"conversation_id"`
 		} `json:"items"`
 		NextCursor *string `json:"next_cursor"`
@@ -346,7 +346,7 @@ func TestPollMode_E2E(t *testing.T) {
 		AuthHeaders    map[string]string `json:"auth_headers"`
 		RawMessage     string            `json:"raw_message"`
 		ConversationID string            `json:"conversation_id"`
-		Status         string            `json:"status"`
+		Status         string            `json:"read_status"`
 	}
 	json.NewDecoder(resp2.Body).Decode(&msgResp)
 
@@ -361,7 +361,7 @@ func TestPollMode_E2E(t *testing.T) {
 	}
 
 	// Subsequent GET should show no unread messages
-	req3, _ := http.NewRequest("GET", ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape("agent@poll.example.com")+"/messages?status=unread", nil)
+	req3, _ := http.NewRequest("GET", ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape("agent@poll.example.com")+"/messages?read_status=unread", nil)
 	req3.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
 	resp3, _ := http.DefaultClient.Do(req3)
 	defer resp3.Body.Close()

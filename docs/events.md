@@ -1,6 +1,6 @@
 # Events API & reconciliation
 
-e2a maintains a durable log of every event it emits to webhook subscribers — `email.received`, `email.sent`, `email.pending_approval`, `email.approved`, `email.rejected`. The log is queryable via `/v1/events` for 30 days and is the source of truth for replay.
+e2a maintains a durable log of every event it emits to webhook subscribers — `email.received`, `email.sent`, `email.pending_approval`, `email.approval_accepted`, `email.approval_rejected`. The log is queryable via `/v1/events` for 30 days and is the source of truth for replay.
 
 This guide is for customers who:
 
@@ -59,8 +59,8 @@ for e in client.events.list(type="email.received", limit=20):
 | `email.flagged` | Inbound message accepted but did not match the agent's `inbound_policy` (delivered + flagged, never dropped) | **At-least-once** end-to-end |
 | `email.sent` | Outbound `/send` accepted by SES | Best-effort |
 | `email.pending_approval` | HITL-gated message held for human review | **At-least-once** |
-| `email.approved` | Reviewer approved + SES accepted | Best-effort |
-| `email.rejected` | Reviewer rejected (no SES involvement) | **At-least-once** |
+| `email.approval_accepted` | Reviewer approved + SES accepted | Best-effort |
+| `email.approval_rejected` | Reviewer rejected (no SES involvement) | **At-least-once** |
 
 "At-least-once" means the event is written to the durable outbox in the same database transaction as the business state, so a process crash between the trigger and webhook fan-out cannot drop the event. "Best-effort" means the outbox write is attempted but a failure logs and continues — used for post-side-effect triggers where the underlying action (SES delivery) has already happened and rolling back would orphan it. See the [design doc](design/2026-06-01-stripe-tier-webhooks.md) §4.2 for the full taxonomy.
 

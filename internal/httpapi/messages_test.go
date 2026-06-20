@@ -58,7 +58,7 @@ func TestListMessagesPageEnvelopeAndCursor(t *testing.T) {
 
 func TestListMessagesOutboundStatusConflict(t *testing.T) {
 	srv := testServer(t)
-	code, body := getJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages?direction=outbound&status=unread", "good")
+	code, body := getJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages?direction=outbound&read_status=unread", "good")
 	if code != 400 {
 		t.Fatalf("want 400, got %d", code)
 	}

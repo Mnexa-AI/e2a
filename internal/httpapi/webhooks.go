@@ -26,33 +26,40 @@ const (
 
 // WebhookFiltersView mirrors identity.WebhookFilters.
 type WebhookFiltersView struct {
-	AgentIDs        []string `json:"agent_ids,omitempty"`
-	ConversationIDs []string `json:"conversation_ids,omitempty"`
-	Labels          []string `json:"labels,omitempty"`
+	AgentIDs        []string `json:"agent_ids,omitempty" nullable:"false"`
+	ConversationIDs []string `json:"conversation_ids,omitempty" nullable:"false"`
+	Labels          []string `json:"labels,omitempty" nullable:"false"`
 }
 
-// WebhookView mirrors the legacy webhookResponseFromIdentity shape.
-// SigningSecret is populated ONLY on create + rotate; every other path
-// omits it so a stolen API key can't exfiltrate secrets via list/get.
+// WebhookView is the webhook resource as returned by get/list/update. It
+// carries NO signing secret (WH-3): the secret is shown once, only in the
+// create response (CreateWebhookResponse) and on rotate (rotateSecretResponse).
 type WebhookView struct {
-	ID                      string             `json:"id"`
-	URL                     string             `json:"url"`
-	Description             string             `json:"description"`
-	Events                  []string           `json:"events"`
-	Filters                 WebhookFiltersView `json:"filters"`
-	SigningSecret           string             `json:"signing_secret,omitempty"`
-	Enabled                 bool               `json:"enabled"`
-	AutoDisabledAt          string             `json:"auto_disabled_at,omitempty" format:"date-time"`
-	CreatedAt               string             `json:"created_at" format:"date-time"`
-	LastDeliveredAt         string             `json:"last_delivered_at,omitempty" format:"date-time"`
+	ID              string             `json:"id"`
+	URL             string             `json:"url"`
+	Description     string             `json:"description"`
+	Events          []string           `json:"events" nullable:"false" enum:"email.received,email.sent,email.pending_approval,email.approval_accepted,email.approval_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged"`
+	Filters         WebhookFiltersView `json:"filters"`
+	Enabled         bool               `json:"enabled"`
+	AutoDisabledAt  string             `json:"auto_disabled_at,omitempty" format:"date-time"`
+	CreatedAt       string             `json:"created_at" format:"date-time"`
+	LastDeliveredAt string             `json:"last_delivered_at,omitempty" format:"date-time"`
 }
 
-func webhookView(wh *identity.Webhook, includeSecret bool) WebhookView {
+// CreateWebhookResponse is WebhookView plus the one-time signing secret (WH-3),
+// returned only by createWebhook. Persist the secret on receipt — it is never
+// shown again (use rotate-secret to mint a new one).
+type CreateWebhookResponse struct {
+	WebhookView
+	SigningSecret string `json:"signing_secret"`
+}
+
+func webhookView(wh *identity.Webhook) WebhookView {
 	v := WebhookView{
 		ID:          wh.ID,
 		URL:         wh.URL,
 		Description: wh.Description,
-		Events:      wh.Events,
+		Events:      orEmptyStrings(wh.Events),
 		Filters: WebhookFiltersView{
 			AgentIDs:        wh.Filters.AgentIDs,
 			ConversationIDs: wh.Filters.ConversationIDs,
@@ -60,9 +67,6 @@ func webhookView(wh *identity.Webhook, includeSecret bool) WebhookView {
 		},
 		Enabled:   wh.Enabled,
 		CreatedAt: wh.CreatedAt.UTC().Format(time.RFC3339),
-	}
-	if includeSecret {
-		v.SigningSecret = wh.SigningSecret
 	}
 	if wh.AutoDisabledAt != nil {
 		v.AutoDisabledAt = wh.AutoDisabledAt.UTC().Format(time.RFC3339)
@@ -166,17 +170,19 @@ func (s *Server) assertAgentsOwned(ctx context.Context, userID string, agentIDs 
 }
 
 type webhookOutput struct{ Body WebhookView }
-type webhookCreateOutput struct{ Body WebhookView }
+type webhookCreateOutput struct{ Body CreateWebhookResponse }
 // listWebhooksOutput uses the shared Page[T] envelope (items + next_cursor);
 // next_cursor is null at launch. See listAgentsOutput. (GA blocker #3.)
 type listWebhooksOutput struct {
 	Body Page[WebhookView]
 }
 
-// CreateWebhookRequest mirrors the legacy body.
+// CreateWebhookRequest — url + events are required (WH-1). events items are
+// constrained to the canonical vocabulary (WH-2; keep in sync with
+// webhookpub.AllEventTypes).
 type CreateWebhookRequest struct {
-	URL         string              `json:"url,omitempty"`
-	Events      []string            `json:"events,omitempty" nullable:"false"`
+	URL         string              `json:"url"`
+	Events      []string            `json:"events" nullable:"false" enum:"email.received,email.sent,email.pending_approval,email.approval_accepted,email.approval_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged"`
 	Filters     *WebhookFiltersView `json:"filters,omitempty"`
 	Description string              `json:"description,omitempty"`
 }
@@ -243,17 +249,19 @@ func (s *Server) registerWebhooks() {
 
 // TestWebhookRequest mirrors the legacy body.
 type TestWebhookRequest struct {
-	Event string         `json:"event,omitempty"`
+	Event string         `json:"event,omitempty" enum:"email.received,email.sent,email.pending_approval,email.approval_accepted,email.approval_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged"`
 	Data  map[string]any `json:"data,omitempty"`
 }
 type testWebhookInput struct {
 	ID   string `path:"id"`
 	Body TestWebhookRequest
 }
+// TestWebhookResponse is the test-delivery result (WH-6 naming).
+type TestWebhookResponse struct {
+	DeliveryID string `json:"delivery_id"`
+}
 type testWebhookOutput struct {
-	Body struct {
-		DeliveryID string `json:"delivery_id"`
-	}
+	Body TestWebhookResponse
 }
 
 func (s *Server) handleTestWebhook(ctx context.Context, in *testWebhookInput) (*testWebhookOutput, error) {
@@ -298,7 +306,7 @@ func (s *Server) handleTestWebhook(ctx context.Context, in *testWebhookInput) (*
 // WebhookDeliveryView mirrors the legacy per-delivery wire shape.
 type WebhookDeliveryView struct {
 	ID             string `json:"id"`
-	EventType      string `json:"event_type" enum:"email.received,email.sent,email.pending_approval,email.approved,email.rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged"`
+	EventType      string `json:"event_type" enum:"email.received,email.sent,email.pending_approval,email.approval_accepted,email.approval_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged"`
 	Status         string `json:"status" enum:"pending,delivered,failed"`
 	Attempts       int    `json:"attempts"`
 	LastError      string `json:"last_error,omitempty"`
@@ -358,7 +366,7 @@ func (s *Server) handleListWebhookDeliveries(ctx context.Context, in *ListDelive
 // absent != zero; url/events/filters are full-replace when present.
 type UpdateWebhookRequest struct {
 	URL         *string             `json:"url,omitempty"`
-	Events      *[]string           `json:"events,omitempty"`
+	Events      *[]string           `json:"events,omitempty" enum:"email.received,email.sent,email.pending_approval,email.approval_accepted,email.approval_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged"`
 	Filters     *WebhookFiltersView `json:"filters,omitempty"`
 	Description *string             `json:"description,omitempty"`
 	Enabled     *bool               `json:"enabled,omitempty"`
@@ -423,16 +431,16 @@ func (s *Server) handleUpdateWebhook(ctx context.Context, in *updateWebhookInput
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to update webhook")
 		}
 	}
-	return &webhookOutput{Body: webhookView(wh, false)}, nil
+	return &webhookOutput{Body: webhookView(wh)}, nil
 }
 
-type rotateSecretBody struct {
+type rotateSecretResponse struct {
 	SigningSecret           string `json:"signing_secret"`
 	PreviousSecretExpiresAt string `json:"previous_secret_expires_at" format:"date-time"`
 }
 
 type rotateSecretOutput struct {
-	Body rotateSecretBody
+	Body rotateSecretResponse
 }
 
 // rotateSecretInput carries an optional Idempotency-Key so a retried rotate
@@ -452,15 +460,15 @@ func (s *Server) handleRotateWebhookSecret(ctx context.Context, in *rotateSecret
 	}
 	_, body, err := runIdempotent(s, ctx, user.ID, in.IdempotencyKey,
 		"/v1/webhooks/"+in.ID+"/rotate-secret", nil,
-		func() (int, rotateSecretBody, error) {
+		func() (int, rotateSecretResponse, error) {
 			secret, prevExpires, rerr := s.deps.RotateSecret(ctx, in.ID, user.ID)
 			if rerr != nil {
 				if errors.Is(rerr, identity.ErrWebhookNotFound) {
-					return 0, rotateSecretBody{}, NewError(http.StatusNotFound, "not_found", "webhook not found")
+					return 0, rotateSecretResponse{}, NewError(http.StatusNotFound, "not_found", "webhook not found")
 				}
-				return 0, rotateSecretBody{}, NewError(http.StatusInternalServerError, "internal_error", "failed to rotate webhook secret")
+				return 0, rotateSecretResponse{}, NewError(http.StatusInternalServerError, "internal_error", "failed to rotate webhook secret")
 			}
-			return http.StatusOK, rotateSecretBody{
+			return http.StatusOK, rotateSecretResponse{
 				SigningSecret:           secret,
 				PreviousSecretExpiresAt: prevExpires.UTC().Format(time.RFC3339),
 			}, nil
@@ -494,7 +502,10 @@ func (s *Server) handleCreateWebhook(ctx context.Context, in *createWebhookInput
 		}
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to create webhook")
 	}
-	return &webhookCreateOutput{Body: webhookView(wh, true)}, nil
+	return &webhookCreateOutput{Body: CreateWebhookResponse{
+		WebhookView:   webhookView(wh),
+		SigningSecret: wh.SigningSecret,
+	}}, nil
 }
 
 func (s *Server) handleListWebhooks(ctx context.Context, _ *struct{}) (*listWebhooksOutput, error) {
@@ -508,7 +519,7 @@ func (s *Server) handleListWebhooks(ctx context.Context, _ *struct{}) (*listWebh
 	}
 	items := make([]WebhookView, 0, len(hooks))
 	for i := range hooks {
-		items = append(items, webhookView(&hooks[i], false))
+		items = append(items, webhookView(&hooks[i]))
 	}
 	return &listWebhooksOutput{Body: NewPage(items, "")}, nil
 }
@@ -522,7 +533,7 @@ func (s *Server) handleGetWebhook(ctx context.Context, in *WebhookIDParam) (*web
 	if err != nil || wh == nil {
 		return nil, NewError(http.StatusNotFound, "not_found", "webhook not found")
 	}
-	return &webhookOutput{Body: webhookView(wh, false)}, nil
+	return &webhookOutput{Body: webhookView(wh)}, nil
 }
 
 type deleteWebhookOutput struct{}

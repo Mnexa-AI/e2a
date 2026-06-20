@@ -106,7 +106,7 @@ func TestUpdateDomainNotFound(t *testing.T) {
 
 func TestDeleteDomain(t *testing.T) {
 	srv := testServer(t)
-	req, _ := http.NewRequest("DELETE", srv.URL+"/v1/domains/acme.com", nil)
+	req, _ := http.NewRequest("DELETE", srv.URL+"/v1/domains/acme.com?confirm=DELETE", nil)
 	req.Header.Set("Authorization", "Bearer good")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -118,9 +118,17 @@ func TestDeleteDomain(t *testing.T) {
 	}
 }
 
+func TestDeleteDomainRequiresConfirm(t *testing.T) {
+	srv := testServer(t)
+	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/domains/acme.com", "good", nil)
+	if code != 400 || errCode(body) != "confirmation_required" {
+		t.Fatalf("want 400 confirmation_required, got %d %v", code, body)
+	}
+}
+
 func TestDeleteDomainWithAgents(t *testing.T) {
 	srv := testServer(t)
-	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/domains/busy.com", "good", nil)
+	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/domains/busy.com?confirm=DELETE", "good", nil)
 	if code != 400 || errCode(body) != "domain_has_agents" {
 		t.Fatalf("want 400 domain_has_agents, got %d %v", code, body)
 	}
@@ -128,7 +136,7 @@ func TestDeleteDomainWithAgents(t *testing.T) {
 
 func TestDeleteDomainNotFound(t *testing.T) {
 	srv := testServer(t)
-	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/domains/unknown.com", "good", nil)
+	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/domains/unknown.com?confirm=DELETE", "good", nil)
 	if code != 404 {
 		t.Fatalf("want 404, got %d", code)
 	}

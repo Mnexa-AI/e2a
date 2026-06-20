@@ -31,8 +31,11 @@ const (
 	EventEmailReceived        = "email.received"
 	EventEmailSent            = "email.sent"
 	EventEmailPendingApproval = "email.pending_approval"
-	EventEmailApproved        = "email.approved"
-	EventEmailRejected        = "email.rejected"
+	// HITL decision events (EV-1): symmetric, unambiguous names so neither is
+	// confused with delivery/recipient rejection (email.bounced) or inbound
+	// policy flagging (email.flagged).
+	EventEmailApproved = "email.approval_accepted"
+	EventEmailRejected = "email.approval_rejected"
 	// Sender identity (decision 4 / Slice 4): the async SES sending identity
 	// for a domain reached a terminal state. Lets agents skip polling
 	// GET /domains/{domain} for sending_status.

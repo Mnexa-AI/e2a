@@ -226,7 +226,7 @@ func TestWebhooksE2E_HITL_PendingApproved(t *testing.T) {
 	pendingHook := registerWebhook(t, ts, agent.UserID, receiver.Server.URL+"/pending",
 		[]string{"email.pending_approval"}, identity.WebhookFilters{})
 	approvedHook := registerWebhook(t, ts, agent.UserID, receiver.Server.URL+"/approved",
-		[]string{"email.approved"}, identity.WebhookFilters{})
+		[]string{"email.approval_accepted"}, identity.WebhookFilters{})
 
 	// send → held for approval, returns 202 + message_id.
 	body := `{"to":["alice@example.com"],"subject":"draft","body":"please review"}`
@@ -272,7 +272,7 @@ func TestWebhooksE2E_HITL_PendingApproved(t *testing.T) {
 		t.Fatalf("after approve: got %d captures, want 2", len(got))
 	}
 	approved := got[1]
-	if approved.URL != "/approved" || approved.Envelope["type"] != "email.approved" {
+	if approved.URL != "/approved" || approved.Envelope["type"] != "email.approval_accepted" {
 		t.Errorf("second capture path=%q event=%v", approved.URL, approved.Envelope["type"])
 	}
 	if !verifyHMACv1(t, approved.Headers, approved.RawBody, approvedHook.SigningSecret) {
@@ -294,7 +294,7 @@ func TestWebhooksE2E_HITL_Rejected(t *testing.T) {
 
 	_, key, agent := setupSubscriberOwner(t, ts, "wh-reject", true)
 	rejectedHook := registerWebhook(t, ts, agent.UserID, receiver.Server.URL+"/rejected",
-		[]string{"email.rejected"}, identity.WebhookFilters{})
+		[]string{"email.approval_rejected"}, identity.WebhookFilters{})
 
 	body := `{"to":["alice@example.com"],"subject":"nope","body":"please reject"}`
 	status, respBytes := authedJSON(t, "POST", sendURL(ts.HTTPServer.URL, agent.EmailAddress()), key.PlaintextKey, body)
@@ -324,7 +324,7 @@ func TestWebhooksE2E_HITL_Rejected(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("after reject: got %d captures, want 1", len(got))
 	}
-	if got[0].URL != "/rejected" || got[0].Envelope["type"] != "email.rejected" {
+	if got[0].URL != "/rejected" || got[0].Envelope["type"] != "email.approval_rejected" {
 		t.Errorf("path=%q event=%v", got[0].URL, got[0].Envelope["type"])
 	}
 	if !verifyHMACv1(t, got[0].Headers, got[0].RawBody, rejectedHook.SigningSecret) {

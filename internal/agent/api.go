@@ -977,7 +977,9 @@ type OutboundResult struct {
 	Held              bool
 	PendingMessageID  string
 	ApprovalExpiresAt *time.Time
-	MessageID         string // provider/loopback id when sent
+	MessageID         string // the e2a msg_ id when sent (GET-able); loopback id for self-send
+	ProviderMessageID string // provider/SES id when sent via smtp
+	SentAs            string // "own_address" | "relay" (decision 4)
 	Method            string // "smtp" | "loopback"
 }
 
@@ -1131,7 +1133,18 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		log.Printf("[mail:%s] dir=outbound type=%s from=%s to=%v slug=%s conv_id=%s subject=%q", outMsg.ID, msgType, agent.EmailAddress(), result.To, slug, req.ConversationID, req.Subject)
 	}
 	a.publishSent(ctx, a.buildSentEvent(agent, outMsg, result, req, msgType), outMsg)
-	return &OutboundResult{MessageID: result.MessageID, Method: result.Method}, nil
+	// message_id is the e2a msg_ id (GET-able); the SES id is provider_message_id
+	// (MSG-9). Fall back to the provider id only if the row write failed.
+	e2aID := result.MessageID
+	if outMsg != nil {
+		e2aID = outMsg.ID
+	}
+	return &OutboundResult{
+		MessageID:         e2aID,
+		ProviderMessageID: result.MessageID,
+		SentAs:            result.SentAs,
+		Method:            result.Method,
+	}, nil
 }
 
 // SendTestCore composes and sends (or HITL-holds) a platform test email to

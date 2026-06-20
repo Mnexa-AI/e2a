@@ -43,9 +43,9 @@ type DomainView struct {
 	// (inbound ownership): the async SES sending identity that lets agents
 	// on this domain send as their own address. Poll GET /domains/{domain}
 	// to watch SendingStatus go pending → verified|failed.
-	SendingStatus        string                 `json:"sending_status"`
+	SendingStatus        string                 `json:"sending_status" enum:"none,pending,verified,failed"`
 	SendingError         string                 `json:"sending_error,omitempty"`
-	SendingDNSRecords    []SendingDNSRecordView `json:"sending_dns_records,omitempty"`
+	SendingDNSRecords    []SendingDNSRecordView `json:"sending_dns_records,omitempty" nullable:"false"`
 	SendingLastCheckedAt *time.Time             `json:"sending_last_checked_at,omitempty"`
 }
 
@@ -272,9 +272,11 @@ func (s *Server) handleGetDomain(ctx context.Context, in *DomainParam) (*domainO
 	return &domainOutput{Body: s.domainView(d)}, nil
 }
 
-// RegisterDomainRequest mirrors the legacy body.
+// RegisterDomainRequest is the create-domain body. `domain` is required (D-4):
+// it is the only field, so leaving it optional generated an SDK signature that
+// compiled with no domain and failed at runtime.
 type RegisterDomainRequest struct {
-	Domain string `json:"domain,omitempty"`
+	Domain string `json:"domain"`
 }
 type registerDomainInput struct {
 	Body RegisterDomainRequest
@@ -349,13 +351,25 @@ func (s *Server) handleUpdateDomain(ctx context.Context, in *updateDomainInput) 
 
 type deleteDomainOutput struct{}
 
-func (s *Server) handleDeleteDomain(ctx context.Context, in *DomainParam) (*deleteDomainOutput, error) {
+// deleteDomainInput adds the confirmation guard (D-5). Deleting a domain
+// deprovisions its SES sending identity and breaks sending for every agent on
+// it, so it requires ?confirm=DELETE — uniform with deleteAccount/deleteAgent.
+type deleteDomainInput struct {
+	Domain  string `path:"domain"`
+	Confirm string `query:"confirm" doc:"Must be DELETE — this is irreversible (deprovisions the domain's sending identity)."`
+}
+
+func (s *Server) handleDeleteDomain(ctx context.Context, in *deleteDomainInput) (*deleteDomainOutput, error) {
 	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := s.deps.LookupDomain(ctx, in.Domain, user.ID); err != nil {
 		return nil, NewError(http.StatusNotFound, "not_found", "domain not found")
+	}
+	// Confirm after ownership: a not-owned/missing domain is 404 first.
+	if in.Confirm != "DELETE" {
+		return nil, NewError(http.StatusBadRequest, "confirmation_required", "add ?confirm=DELETE to the request to proceed — this is irreversible")
 	}
 	hasAgents, err := s.deps.HasAgentsOnDomain(ctx, in.Domain, user.ID)
 	if err != nil {

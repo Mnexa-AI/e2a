@@ -18,25 +18,24 @@ import (
 // Fields are schema-optional (omitempty) so validation is handler-owned and
 // uniform — the legacy 400 business-rule messages, not Huma's 422 (email
 // itself can't be schema-required since the slug path derives it).
+// CreateAgentRequest is the create-agent body (AG-1/AG-2). `email` is required
+// and is the single create path: a custom-domain agent uses an email on a
+// verified domain the caller owns; a shared-domain agent is just an email on
+// the deployment's shared domain (e.g. xyz@agents.e2a.dev) — detected by the
+// domain, not a separate `slug` field. The legacy `slug` field is dropped.
 type CreateAgentRequest struct {
-	Email string `json:"email,omitempty"`
-	Slug  string `json:"slug,omitempty"`
+	Email string `json:"email"`
 	Name  string `json:"name,omitempty"`
-}
-
-// CreateAgentResponse mirrors the legacy RegisterAgentResponse.
-type CreateAgentResponse struct {
-	ID     string `json:"id"`
-	Domain string `json:"domain"`
-	Email  string `json:"email"`
 }
 
 type createAgentInput struct {
 	Body CreateAgentRequest
 }
 
+// createAgentOutput returns the full AgentView (AG-5) — one agent shape across
+// create/get/update/list, so a caller never needs a follow-up GET.
 type createAgentOutput struct {
-	Body CreateAgentResponse
+	Body AgentView
 }
 
 // slugPattern / reservedSlugs replicate the legacy validateSlug rule (slug
@@ -76,7 +75,7 @@ func (s *Server) registerAgentWrites() {
 		Method:        http.MethodPost,
 		Path:          "/v1/agents",
 		Summary:       "Create an agent",
-		Description:   "Register an agent on a verified domain the caller owns (or, when slug registration is enabled, on the shared domain).",
+		Description:   "Register an agent by full email. A custom-domain agent's domain must be a verified domain the caller owns; an email on the deployment's shared domain (e.g. xyz@agents.e2a.dev) is registered as a shared-domain agent. Returns the full agent.",
 		Tags:          []string{"agents"},
 		Security:      []map[string][]string{{"bearer": {}}},
 		DefaultStatus: http.StatusCreated,
@@ -110,13 +109,13 @@ func (s *Server) registerAgentWrites() {
 type UpdateAgentRequest struct {
 	HITLEnabled          *bool   `json:"hitl_enabled,omitempty"`
 	HITLTTLSeconds       *int    `json:"hitl_ttl_seconds,omitempty"`
-	HITLExpirationAction *string `json:"hitl_expiration_action,omitempty"`
+	HITLExpirationAction *string `json:"hitl_expiration_action,omitempty" enum:"approve,reject"`
 	// HITLMode is the action-gate sub-mode (Slice 7b): "all" | "high_impact".
 	// Settable independently of the other HITL fields.
-	HITLMode *string `json:"hitl_mode,omitempty"`
+	HITLMode *string `json:"hitl_mode,omitempty" enum:"all,high_impact"`
 	// InboundPolicy / InboundAllowlist set the per-agent inbound ingestion gate
 	// (migration 033 / Slice 7). Pointers so absent != zero.
-	InboundPolicy    *string   `json:"inbound_policy,omitempty"`
+	InboundPolicy    *string   `json:"inbound_policy,omitempty" enum:"open,allowlist,domain,verified_only"`
 	InboundAllowlist *[]string `json:"inbound_allowlist,omitempty"`
 }
 
@@ -203,7 +202,15 @@ func (s *Server) handleUpdateAgent(ctx context.Context, in *updateAgentInput) (*
 
 type deleteAgentOutput struct{}
 
-func (s *Server) handleDeleteAgent(ctx context.Context, in *AddressParam) (*deleteAgentOutput, error) {
+// deleteAgentInput adds the confirmation guard (AG-6). Deleting an agent
+// discards held drafts and revokes its credentials, so it requires
+// ?confirm=DELETE — uniform with deleteAccount/deleteDomain.
+type deleteAgentInput struct {
+	Address string `path:"address"`
+	Confirm string `query:"confirm" doc:"Must be DELETE — this is irreversible."`
+}
+
+func (s *Server) handleDeleteAgent(ctx context.Context, in *deleteAgentInput) (*deleteAgentOutput, error) {
 	// Deleting an agent is account administration — barred for agent-scoped
 	// credentials even on their own bound agent (Slice 5a hard ceiling).
 	if _, err := s.requireAccountScope(ctx); err != nil {
@@ -212,6 +219,11 @@ func (s *Server) handleDeleteAgent(ctx context.Context, in *AddressParam) (*dele
 	ag, err := s.resolveOwnedAgent(ctx, in.Address)
 	if err != nil {
 		return nil, err
+	}
+	// Confirm after ownership: don't prompt to confirm deleting an agent the
+	// caller can't even touch (a not-owned agent is 403/404 first).
+	if in.Confirm != "DELETE" {
+		return nil, NewError(http.StatusBadRequest, "confirmation_required", "add ?confirm=DELETE to the request to proceed — this is irreversible")
 	}
 	if s.deps.DeleteAgent == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "delete unavailable")
@@ -230,33 +242,25 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 	req := in.Body
 	email := identity.NormalizeEmail(req.Email)
 
-	// Shared-domain registration via slug.
-	isShared := false
-	if req.Slug != "" {
-		if s.deps.SharedDomain == "" {
-			return nil, NewError(http.StatusBadRequest, "slug_registration_disabled", "shared-domain registration is not configured")
-		}
-		if err := validateSlug(req.Slug); err != nil {
-			return nil, NewError(http.StatusBadRequest, "invalid_slug", err.Error())
-		}
-		email = req.Slug + "@" + s.deps.SharedDomain
-		isShared = true
-	}
-
 	if email == "" {
 		return nil, NewError(http.StatusBadRequest, "invalid_request", "email is required")
 	}
 
-	// Resolve the DNS domain.
-	var domain string
+	// Resolve the DNS domain from the email itself (AG-1/AG-2): there is one
+	// create path. An email on the deployment's shared domain is a shared-domain
+	// registration (its local-part is validated as a slug, no ownership check);
+	// any other domain is a custom-domain agent gated by ownership below.
+	parts := strings.SplitN(email, "@", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return nil, NewError(http.StatusBadRequest, "invalid_request", "invalid email address")
+	}
+	domain := parts[1]
+	isShared := s.deps.SharedDomain != "" && strings.EqualFold(domain, s.deps.SharedDomain)
 	if isShared {
-		domain = s.deps.SharedDomain
-	} else {
-		parts := strings.SplitN(email, "@", 2)
-		if len(parts) != 2 || parts[1] == "" {
-			return nil, NewError(http.StatusBadRequest, "invalid_request", "invalid email address")
+		domain = s.deps.SharedDomain // normalize to the configured casing
+		if err := validateSlug(parts[0]); err != nil {
+			return nil, NewError(http.StatusBadRequest, "invalid_slug", err.Error())
 		}
-		domain = parts[1]
 	}
 
 	// Custom-domain ownership guard (decision 1): the domain must be
@@ -299,7 +303,7 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 		}
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to register agent")
 	}
-	return &createAgentOutput{Body: CreateAgentResponse{ID: ag.ID, Domain: ag.Domain, Email: ag.Email}}, nil
+	return &createAgentOutput{Body: agentViewFromIdentity(ag)}, nil
 }
 
 // limitEnvelope translates a limits.LimitExceededError into a 402 envelope

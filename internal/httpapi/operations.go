@@ -11,10 +11,16 @@ import (
 
 // --- GET /v1/info -----------------------------------------------------------
 
-// DeploymentInfoView mirrors the legacy /api/v1/info body verbatim. Slice 1
-// is consistency + path move only — no shape change (shape cleanup is a
-// later slice), so the field set and json tags match the current contract.
+// APIVersion is the public /v1 contract version. Single source for both the
+// OpenAPI document version (huma.DefaultConfig) and the GET /v1/info `version`
+// field; tracks the repo-root VERSION file.
+const APIVersion = "1.0.0"
+
+// DeploymentInfoView is the public, unauthenticated deployment-discovery body.
+// `version` (I-1) lets clients detect the API contract version pre-auth — the
+// cheapest forward-compatibility lever.
 type DeploymentInfoView struct {
+	Version                 string `json:"version"`
 	SharedDomain            string `json:"shared_domain"`
 	SlugRegistrationEnabled bool   `json:"slug_registration_enabled"`
 	PublicURL               string `json:"public_url,omitempty"`
@@ -34,6 +40,7 @@ func (s *Server) registerInfo() {
 		Tags:        []string{"meta"},
 	}, func(ctx context.Context, _ *struct{}) (*infoOutput, error) {
 		return &infoOutput{Body: DeploymentInfoView{
+			Version:                 APIVersion,
 			SharedDomain:            s.deps.SharedDomain,
 			SlugRegistrationEnabled: s.deps.SharedDomain != "",
 			PublicURL:               s.deps.PublicURL,
@@ -65,7 +72,7 @@ type AgentView struct {
 	// holds the trusted addresses (allowlist) or domains (domain); omitted when
 	// empty.
 	InboundPolicy    string   `json:"inbound_policy" enum:"open,allowlist,domain,verified_only"`
-	InboundAllowlist []string `json:"inbound_allowlist,omitempty"`
+	InboundAllowlist []string `json:"inbound_allowlist,omitempty" nullable:"false"`
 }
 
 // agentViewFromIdentity maps the storage record to the public view.

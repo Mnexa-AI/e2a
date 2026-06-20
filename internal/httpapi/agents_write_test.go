@@ -121,10 +121,10 @@ func TestUpdateAgentHITLMode(t *testing.T) {
 	if code != 200 || body["hitl_mode"] != "high_impact" {
 		t.Fatalf("expected 200 + hitl_mode=high_impact, got %d %v", code, body)
 	}
-	// Invalid mode → 400 invalid_request.
+	// Invalid mode → 422 from the schema enum (AG-7); rejected before the handler.
 	code, body = sendJSON(t, "PATCH", srv.URL+"/v1/agents/support%40acme.com", "good", map[string]any{"hitl_mode": "bogus"})
-	if code != 400 || errCode(body) != "invalid_request" {
-		t.Fatalf("expected 400 invalid_request for bogus mode, got %d %v", code, body)
+	if code != 422 || errCode(body) != "unprocessable_entity" {
+		t.Fatalf("expected 422 unprocessable_entity for bogus mode, got %d %v", code, body)
 	}
 }
 
@@ -148,7 +148,7 @@ func TestUpdateAgentNotOwned(t *testing.T) {
 
 func TestDeleteAgent(t *testing.T) {
 	srv := testServer(t)
-	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com", "good", nil)
+	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com?confirm=DELETE", "good", nil)
 	if code != 204 || len(body) != 0 {
 		t.Fatalf("want 204 no body, got %d %v", code, body)
 	}

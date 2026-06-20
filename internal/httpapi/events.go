@@ -79,7 +79,7 @@ type RedeliverView struct {
 	// Status is "pending" for a single-webhook replay (one scheduled delivery)
 	// or "scheduled" for a bulk fan-out (see Deliveries for per-subscriber state).
 	Status     string              `json:"status" enum:"pending,scheduled"`
-	Deliveries []RedeliverDelivery `json:"deliveries,omitempty"`
+	Deliveries []RedeliverDelivery `json:"deliveries,omitempty" nullable:"false"`
 }
 
 type RedeliverDelivery struct {
@@ -91,11 +91,14 @@ type RedeliverDelivery struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// RedeliverEventRequest is the redeliver body (WH-6 naming).
+type RedeliverEventRequest struct {
+	WebhookID string `json:"webhook_id,omitempty"`
+}
+
 type RedeliverEventInput struct {
 	ID   string `path:"id"`
-	Body struct {
-		WebhookID string `json:"webhook_id,omitempty"`
-	}
+	Body RedeliverEventRequest
 }
 
 type redeliverOutput struct {

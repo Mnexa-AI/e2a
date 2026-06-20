@@ -15,29 +15,31 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 )
 
-// MessageView is the full single-message representation. It mirrors the
-// legacy GET /api/v1/agents/{email}/messages/{id} body field-for-field
-// (Slice 1 is path move + conventions only — no shape change). All keys are
-// emitted unconditionally to match the legacy map, including JSON null for
-// absent cc/reply_to/auth_headers/raw_message. `status` carries the legacy
-// delivery_status alias verbatim (the read_status rename is a later slice).
+// MessageView is the full single-message representation: a strict superset of
+// MessageSummaryView plus body/parsed/raw_message/auth_headers. The inbox
+// read-state is exposed as `read_status` (MSG-1); the four status axes are
+// read_status / hitl_status / delivery_status / webhook_status.
 type MessageView struct {
 	MessageID      string   `json:"message_id"`
 	From           string   `json:"from"`
-	To             []string `json:"to"`
-	CC             []string `json:"cc"`
-	ReplyTo        []string `json:"reply_to"`
+	To             []string `json:"to" nullable:"false"`
+	CC             []string `json:"cc" nullable:"false"`
+	ReplyTo        []string `json:"reply_to" nullable:"false"`
 	Recipient      string   `json:"recipient"`
 	Subject        string   `json:"subject"`
 	ConversationID string   `json:"conversation_id"`
 	// Direction (inbound|outbound) — mirrors MessageSummaryView so a client
 	// fetching a single message keeps the full trust-axis context (review F1).
 	Direction string `json:"direction" enum:"inbound,outbound"`
-	Status    string `json:"status"`
+	// Status is the inbox read-state (unread|read; "" for outbound). Exposed as
+	// `read_status` (MSG-1) to disambiguate from hitl_status/delivery_status/
+	// webhook_status — the conflation that caused bug B2. Left open (not an enum)
+	// because outbound rows carry "".
+	Status string `json:"read_status"`
 	// HITLStatus is the human-in-the-loop lifecycle (e.g. pending_approval) —
-	// outbound only, mirroring MessageSummaryView. Distinct from `status`
-	// (the delivery rollup) so a held draft is identifiable on the detail view
-	// without re-deriving it (review F1). Closed set = migration 003 CHECK.
+	// outbound only, mirroring MessageSummaryView. Distinct from read_status,
+	// delivery_status, and webhook_status (each a separate axis). Closed set =
+	// migration 003 CHECK.
 	HITLStatus string `json:"hitl_status,omitempty" enum:"pending_approval,sent,rejected,expired_approved,expired_rejected"`
 	// WebhookStatus / WebhookError mirror MessageSummaryView so the detail view
 	// is a strict superset of the list item (a client fetching one message keeps
@@ -62,14 +64,17 @@ type MessageView struct {
 	// on arrival (still delivered). Inbound-relevant; omitted on unflagged rows.
 	Flagged     bool              `json:"flagged,omitempty"`
 	FlagReason  string            `json:"flag_reason,omitempty"`
-	Labels      []string          `json:"labels"`
+	Labels      []string          `json:"labels" nullable:"false"`
 	CreatedAt   string            `json:"created_at" format:"date-time"`
-	AuthHeaders map[string]string `json:"auth_headers"`
+	// AuthHeaders is the raw X-E2A-Auth-* blob — a convenience copy, optional
+	// (MSG-12): omitted on outbound, where there is no inbound verdict. `auth`
+	// (AuthVerdict) is the primary, structured verdict.
+	AuthHeaders map[string]string `json:"auth_headers,omitempty"`
 	// Auth is the structured inbound authentication verdict (SPF/DKIM/DMARC,
 	// each with status + detail) from migration 032. Inbound-only; omitted on
 	// outbound messages, which carry no verdict.
-	Auth       *emailauth.Result `json:"auth,omitempty"`
-	RawMessage []byte            `json:"raw_message"`
+	Auth       *AuthVerdict `json:"auth,omitempty"`
+	RawMessage []byte       `json:"raw_message"`
 	// Parsed is the injection-reduced view (decision 9 / Slice 4b-3): the raw
 	// message rendered to text with quoted reply/forward chains stripped and a
 	// length cap, for the agent to feed a model by default. Inbound-only; a
@@ -101,8 +106,8 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		MessageID:      m.ID,
 		From:           m.Sender,
 		To:             orEmptyStrings(m.ToRecipients),
-		CC:             m.CC,
-		ReplyTo:        m.ReplyTo,
+		CC:             orEmptyStrings(m.CC),
+		ReplyTo:        orEmptyStrings(m.ReplyTo),
 		Recipient:      m.Recipient,
 		Subject:        m.Subject,
 		ConversationID: m.ConversationID,
@@ -116,7 +121,7 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		Labels:      orEmptyStrings(m.Labels),
 		CreatedAt:   m.CreatedAt.UTC().Format(time.RFC3339),
 		AuthHeaders: m.AuthHeaders,
-		Auth:        m.Auth,
+		Auth:        authVerdict(m.Auth),
 		RawMessage:  m.RawMessage,
 		Flagged:     m.Flagged,
 		FlagReason:  m.FlagReason,
@@ -173,13 +178,14 @@ type MessageSummaryView struct {
 	ID             string   `json:"message_id"`
 	Direction      string   `json:"direction" enum:"inbound,outbound"`
 	From           string   `json:"from"`
-	To             []string `json:"to"`
-	CC             []string `json:"cc,omitempty"`
-	ReplyTo        []string `json:"reply_to,omitempty"`
+	To             []string `json:"to" nullable:"false"`
+	CC             []string `json:"cc,omitempty" nullable:"false"`
+	ReplyTo        []string `json:"reply_to,omitempty" nullable:"false"`
 	Recipient      string   `json:"recipient"`
 	Subject        string   `json:"subject"`
 	ConversationID string   `json:"conversation_id,omitempty"`
-	Status         string   `json:"status"`
+	// Status is the inbox read-state, exposed as `read_status` (MSG-1).
+	Status string `json:"read_status"`
 	HITLStatus     string   `json:"hitl_status,omitempty" enum:"pending_approval,sent,rejected,expired_approved,expired_rejected"`
 	WebhookStatus  string   `json:"webhook_status,omitempty"`
 	WebhookError   string   `json:"webhook_error,omitempty"`
@@ -194,11 +200,25 @@ type MessageSummaryView struct {
 	Flagged    bool     `json:"flagged,omitempty"`
 	FlagReason string   `json:"flag_reason,omitempty"`
 	SizeBytes  int      `json:"size_bytes,omitempty"`
-	Labels     []string `json:"labels"`
+	Labels     []string `json:"labels" nullable:"false"`
 	CreatedAt  string   `json:"created_at" format:"date-time"`
 	// Auth is the structured inbound authentication verdict (migration 032).
 	// Inbound-only; omitted on outbound rows.
-	Auth *emailauth.Result `json:"auth,omitempty"`
+	Auth *AuthVerdict `json:"auth,omitempty"`
+}
+
+// AuthVerdict is the wire schema for the structured inbound auth verdict
+// (MSG-11) — a clean public name for emailauth.Result (the trust primitive the
+// inbound policy enforces on). Identical shape; converted via authVerdict().
+type AuthVerdict emailauth.Result
+
+// authVerdict converts the domain verdict to its wire view (nil-safe).
+func authVerdict(r *emailauth.Result) *AuthVerdict {
+	if r == nil {
+		return nil
+	}
+	v := AuthVerdict(*r)
+	return &v
 }
 
 func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
@@ -207,8 +227,8 @@ func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
 		Direction:      m.Direction,
 		From:           m.Sender,
 		To:             orEmptyStrings(m.ToRecipients),
-		CC:             m.CC,
-		ReplyTo:        m.ReplyTo,
+		CC:             orEmptyStrings(m.CC),
+		ReplyTo:        orEmptyStrings(m.ReplyTo),
 		Recipient:      m.Recipient,
 		Subject:        m.Subject,
 		ConversationID: m.ConversationID,
@@ -216,7 +236,7 @@ func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
 		SizeBytes:      m.SizeBytes,
 		Labels:         orEmptyStrings(m.Labels),
 		CreatedAt:      m.CreatedAt.UTC().Format(time.RFC3339),
-		Auth:           m.Auth,
+		Auth:           authVerdict(m.Auth),
 		Flagged:        m.Flagged,
 		FlagReason:     m.FlagReason,
 	}
@@ -240,7 +260,7 @@ func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
 type ListMessagesInput struct {
 	Address         string   `path:"address"`
 	Direction       string   `query:"direction" enum:"inbound,outbound,all" doc:"Defaults to inbound."`
-	Status          string   `query:"status" enum:"unread,read,all" doc:"Inbound only. Defaults to unread for inbound, all otherwise."`
+	Status          string   `query:"read_status" enum:"unread,read,all" doc:"Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise."`
 	Sort            string   `query:"sort" enum:"asc,desc" doc:"Defaults to desc (newest first)."`
 	From            string   `query:"from" doc:"Case-insensitive substring match on sender."`
 	SubjectContains string   `query:"subject_contains" doc:"Case-insensitive substring match on subject."`
@@ -336,7 +356,7 @@ type updateMessageInput struct {
 // reflect state without a follow-up fetch.
 type UpdateMessageResultView struct {
 	MessageID string   `json:"message_id"`
-	Labels    []string `json:"labels"`
+	Labels    []string `json:"labels" nullable:"false"`
 }
 
 type updateMessageOutput struct {
@@ -637,6 +657,16 @@ func stringSlicesEqual(a, b []string) bool {
 func orEmptyStrings(s []string) []string {
 	if s == nil {
 		return []string{}
+	}
+	return s
+}
+
+// orEmpty coalesces a nil slice of any element type to an empty slice so the
+// JSON renders as [] rather than null (A-3). Pair with `nullable:"false"` on
+// the field so the spec and the runtime agree.
+func orEmpty[T any](s []T) []T {
+	if s == nil {
+		return []T{}
 	}
 	return s
 }

@@ -44,9 +44,9 @@ func conversationSummaryView(c identity.ConversationSummary) ConversationSummary
 // plus participants, labels, and the member message summaries.
 type ConversationDetailView struct {
 	ConversationSummaryView
-	Participants []string             `json:"participants"`
-	Labels       []string             `json:"labels"`
-	Messages     []MessageSummaryView `json:"messages"`
+	Participants []string             `json:"participants" nullable:"false"`
+	Labels       []string             `json:"labels" nullable:"false"`
+	Messages     []MessageSummaryView `json:"messages" nullable:"false"`
 }
 
 // ListConversationsInput — since/until + cursor/limit. Conversation cursor

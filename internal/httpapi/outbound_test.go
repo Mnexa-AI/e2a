@@ -60,8 +60,9 @@ func TestSendNoRecipients(t *testing.T) {
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
 		"subject": "Hi", "body": "hello",
 	})
-	if code != 400 {
-		t.Fatalf("want 400 no recipients, got %d %v", code, body)
+	// `to` is now schema-required (MSG-3) → rejected at validation (422).
+	if code != 422 {
+		t.Fatalf("want 422 missing to, got %d %v", code, body)
 	}
 }
 
@@ -184,8 +185,9 @@ func TestForwardSent(t *testing.T) {
 func TestForwardNoRecipients(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/forward", "good", map[string]any{"body": "fyi"})
-	if code != 400 {
-		t.Fatalf("want 400 no recipients, got %d %v", code, body)
+	// `to` is now schema-required (MSG-3) → rejected at validation (422).
+	if code != 422 {
+		t.Fatalf("want 422 missing to, got %d %v", code, body)
 	}
 }
 
