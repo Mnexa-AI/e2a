@@ -675,13 +675,7 @@ func (a *API) authenticatePrincipal(r *http.Request) (*identity.Principal, error
 			return p, nil
 		}
 		if strings.HasPrefix(bearer, oauth.AccessTokenPrefix) {
-			u, err := a.lookupUserByOAuthToken(r, bearer)
-			if err != nil {
-				return nil, err
-			}
-			// OAuth (fosite) access tokens are account-scoped until they carry
-			// scope claims. Until then they behave as today.
-			return &identity.Principal{User: u, Scope: identity.ScopeAccount}, nil
+			return a.principalFromOAuthToken(r, bearer)
 		}
 		return a.store.GetPrincipalByAPIKey(r.Context(), bearer)
 	}
@@ -694,14 +688,26 @@ func (a *API) authenticatePrincipal(r *http.Request) (*identity.Principal, error
 	return nil, fmt.Errorf("authorization required")
 }
 
-// lookupUserByOAuthToken validates an ate2a_-prefixed bearer via
-// fosite's IntrospectToken (which derives the signature using the
-// same strategy that issued the token, looks up the row via our
-// Storage, and checks revoked/expired). On success we read the
-// e2a-specific user_id from the session and resolve to the user
-// record. Every failure mode wraps errOAuthBearerInvalid so the
-// response layer reliably classifies these as OAuth-bearer rejections.
-func (a *API) lookupUserByOAuthToken(r *http.Request, bearer string) (*identity.User, error) {
+// principalFromOAuthToken validates an ate2a_-prefixed bearer via fosite's
+// IntrospectToken (which derives the signature using the same strategy that
+// issued the token, looks up the row via our Storage, and checks
+// revoked/expired) and resolves it to a SCOPED principal.
+//
+// The granted OAuth scope is authoritative — it is read, never assumed.
+// (CRITICAL-1 fix: this path previously hardcoded every OAuth token to
+// ScopeAccount, which defeated the public-DCR `scope=agent` cap
+// (oauth_handlers.go) and silently handed agent-tier MCP tokens full
+// account-wide admin.) Resolution:
+//   - granted `account` → account-wide admin. Only reachable via a
+//     console-issued / confidential client; public DCR can never obtain it.
+//   - granted `agent`   → confined to the consent-bound agent
+//     (session.AgentEmail), with ownership re-checked, mirroring the REST
+//     resolveOwnedAgent pin and the JWT resolveAgentAccessToken path.
+//   - neither           → fail closed (reject), never a silent elevation.
+//
+// Every failure wraps errOAuthBearerInvalid so the response layer reliably
+// classifies these as OAuth-bearer rejections and emits the OAuth challenge.
+func (a *API) principalFromOAuthToken(r *http.Request, bearer string) (*identity.Principal, error) {
 	if a.oauthProvider == nil {
 		// OAuth not enabled on this deployment. Fail closed rather
 		// than fall through to the API-key path (which would compare
@@ -738,7 +744,33 @@ func (a *API) lookupUserByOAuthToken(r *http.Request, bearer string) (*identity.
 		// row vanished out from under it).
 		return nil, fmt.Errorf("%w: user lookup: %v", errOAuthBearerInvalid, err)
 	}
-	return u, nil
+
+	granted := ar.GetGrantedScopes()
+	switch {
+	case granted.Has(identity.ScopeAccount):
+		return &identity.Principal{User: u, Scope: identity.ScopeAccount}, nil
+	case granted.Has(identity.ScopeAgent):
+		// Confine to the consent-bound agent. An agent-scoped token with no
+		// bound agent is malformed — reject rather than fall back to anything
+		// broader.
+		if sess.AgentEmail == "" {
+			return nil, fmt.Errorf("%w: agent-scoped token has no bound agent", errOAuthBearerInvalid)
+		}
+		ag, err := a.store.GetAgentByEmail(r.Context(), identity.NormalizeEmail(sess.AgentEmail))
+		if err != nil || ag == nil {
+			return nil, fmt.Errorf("%w: bound agent not found", errOAuthBearerInvalid)
+		}
+		// Ownership re-check: the bound agent must still belong to the token's
+		// user (defends against an agent reassigned/deleted-and-recreated under
+		// a different owner after consent).
+		if ag.UserID != u.ID {
+			return nil, fmt.Errorf("%w: bound agent not owned by token user", errOAuthBearerInvalid)
+		}
+		return &identity.Principal{User: u, Scope: identity.ScopeAgent, AgentID: ag.ID}, nil
+	default:
+		// Fail closed: a token that carries no recognized scope gets no access.
+		return nil, fmt.Errorf("%w: token carries no recognized scope (%v)", errOAuthBearerInvalid, []string(granted))
+	}
 }
 
 // writeAuthError writes a 401 response with an RFC 6750 §3

@@ -130,7 +130,7 @@ func newConsentFixture(t *testing.T) *consentFixture {
 		        ARRAY['http://localhost:8765/callback'],
 		        ARRAY['authorization_code','refresh_token'],
 		        ARRAY['code'],
-		        ARRAY['mcp'],
+		        ARRAY['agent'],
 		        ARRAY[]::TEXT[],
 		        'none', TRUE, 'dcr')
 		ON CONFLICT (client_id) DO NOTHING
@@ -200,7 +200,7 @@ func authorizeParams(challenge, clientID, state string) url.Values {
 	q.Set("response_type", "code")
 	q.Set("client_id", clientID)
 	q.Set("redirect_uri", "http://localhost:8765/callback")
-	q.Set("scope", "mcp")
+	q.Set("scope", "agent")
 	q.Set("state", state)
 	q.Set("code_challenge", challenge)
 	q.Set("code_challenge_method", "S256")

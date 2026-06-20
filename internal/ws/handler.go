@@ -14,7 +14,10 @@ import (
 
 // HandlerStore is the subset of identity.Store that the WS handler needs.
 type HandlerStore interface {
-	GetUserByAPIKey(ctx context.Context, apiKey string) (*identity.User, error)
+	// GetPrincipalByAPIKey returns the scoped principal (User + Scope + AgentID)
+	// so the WS transport can enforce the SAME agent-scope confinement the REST
+	// API does (HIGH-1): an agent-scoped key must not open another agent's stream.
+	GetPrincipalByAPIKey(ctx context.Context, apiKey string) (*identity.Principal, error)
 	GetAgentByEmail(ctx context.Context, email string) (*identity.AgentIdentity, error)
 	GetMessagesByAgent(ctx context.Context, f identity.MessageListFilter) ([]identity.Message, error)
 }
@@ -53,8 +56,8 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string)
 		return
 	}
 
-	user, err := h.store.GetUserByAPIKey(r.Context(), token)
-	if err != nil || user == nil {
+	principal, err := h.store.GetPrincipalByAPIKey(r.Context(), token)
+	if err != nil || principal == nil || principal.User == nil {
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return
 	}
@@ -68,7 +71,15 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string)
 		http.Error(w, "agent not found", http.StatusNotFound)
 		return
 	}
-	if agent.UserID != user.ID {
+	// Tenant ownership: the agent must belong to the credential's user.
+	if agent.UserID != principal.User.ID {
+		http.Error(w, "not authorized for this agent", http.StatusForbidden)
+		return
+	}
+	// Agent-scope confinement (HIGH-1): an agent-scoped credential is pinned to
+	// its one bound agent — it may not open a different agent's stream even
+	// within the same account. Mirrors the REST resolveOwnedAgent pin.
+	if principal.Scope == identity.ScopeAgent && principal.AgentID != agent.ID {
 		http.Error(w, "not authorized for this agent", http.StatusForbidden)
 		return
 	}
@@ -91,7 +102,7 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string)
 		return
 	}
 
-	log.Printf("[ws] connected: %s (user=%s)", email, user.ID)
+	log.Printf("[ws] connected: %s (user=%s)", email, principal.User.ID)
 
 	// Register connection; close old one if exists
 	if old := h.hub.Register(agent.ID, conn); old != nil {
