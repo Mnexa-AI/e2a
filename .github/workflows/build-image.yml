@@ -55,7 +55,7 @@ jobs:
             context: web
             dockerfile: web/Dockerfile
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # QEMU registers binfmt_misc handlers so this amd64 runner can
       # cross-build arm64 layers under emulation. Without this step the
