@@ -160,13 +160,18 @@ so the existing janitor reaps them.
 
 ### `cmd/e2a-prober` (main repo)
 
-One binary, two modes (mirrors `cmd/e2a-contract-server`):
+One binary, several modes (mirrors `cmd/e2a-contract-server`):
 - **`serve`** — loop every `PROBE_INTERVAL` (start 30s); hosts `/sink` (webhook
   callback), `/healthz` (prober liveness), `/metrics` (Prometheus), and
   `/status?since=<ts>` (recent results + rolling success rate) for the gate.
 - **`run-once`** — single battery run, exit 0/non-0 (local/CI). The gate does **not**
   use this; it queries the always-on `serve` instance so probe logic lives once.
 - **`seed`** — idempotent provisioning above.
+- **`validate`** — *pre-flight*, no round-trip: parse config, check DB reachability
+  and **migrations-applied**, and confirm the probe identity/webhook exist. This is
+  the install-time validator self-hosters run *before* a full start (the
+  `vault operator diagnose` / `consul validate` split between install-time validation
+  and runtime health). Distinct from `run-once`, which exercises the live loop.
 
 **Battery v1** (`internal/selftest.All`, ~6): liveness; auth+read
 (`GET /v1/agents/probe@agents.e2a.dev`); **inbound round-trip** (`smtp.SendMail`
@@ -189,6 +194,11 @@ scrapes it for the gate's 5xx signal — catches regressions on *real* traffic.
   is live. `E2A_PROBE_API_KEY` added to `/opt/e2a/.env`.
 - **Continuous monitor**: UptimeRobot / GCP Cloud Monitoring scrape
   `127.0.0.1:8090/metrics`; alert on probe failure/latency; prober-down pages.
+  **Alert discipline** (distinct from the gate's N-consecutive-green): page only
+  after **M consecutive failed probes** (start M=2) with a per-probe `PROBE_TIMEOUT`,
+  so a single transient blip doesn't wake on-call ("the internet is flaky — retry
+  before alerting"). The gate gates on *green-after-deploy*; the monitor pages on
+  *sustained-red*.
 - **Deploy bake-gate** — extend `deploy.yml` *after* the existing `/api/health` pass:
   1. record `deploy_ts`;
   2. for ≤ `BAKE_SECONDS` (start 300) poll `http://localhost:8090/status?since=<deploy_ts>`,
@@ -196,6 +206,23 @@ scrapes it for the gate's 5xx signal — catches regressions on *real* traffic.
   3. on breach → reuse the existing `:rollback` re-tag + `up -d --pull never` + re-poll path;
   4. **fail-safe**: if the prober is unreachable/inconclusive, fall back to today's
      liveness-only behavior and log loudly.
+
+### API surface impact
+
+**No changes to the public `/v1` contract or the SDKs.** The prober is only a
+*client* of existing endpoints (`GET /v1/agents/{email}`, `GET .../messages`, the
+`POST` send) — no `/v1` request/response shapes change, so `api/openapi.yaml` stays
+byte-identical and `TestSpecGoldenNoDrift` / `make spec-check` stay green with no
+SDK regen.
+
+Two rules keep that true:
+- **New endpoints (`/readyz`, `/selftest`) are operational, not `/v1`.** Register
+  them on the **non-Huma mux** (the gorilla/mux fallback where `/api/health` already
+  lives, `cmd/e2a/main.go:556`), **not** the Huma `/v1` router — so they never enter
+  `api/openapi.yaml` or the SDK pipeline. (`/metrics`, the fast-follow, likewise.)
+- **`account_class` stays server-side only.** It must not appear in any `/v1`
+  agent/account response body; it is read by the metering gate alone. Surfacing it
+  would be a (technically additive) contract change touching the spec + SDKs — avoid.
 
 ## Edge cases and failure handling
 
