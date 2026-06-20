@@ -47,7 +47,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cors": "^2.8.5",
     "express": "^5.0.0",
-    "mailparser": "^3.9.8",
+    "mailparser": "^3.9.11",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -58,6 +58,6 @@
     "supertest": "^7.0.0",
     "@types/supertest": "^7.2.0",
     "typescript": "^5.4",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.9"
   }
 }
