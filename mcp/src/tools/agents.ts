@@ -8,6 +8,7 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
     "list_agents",
     {
       title: "List agents",
+      annotations: { readOnlyHint: true },
       description:
         "List every agent inbox owned by the authenticated user. Useful for orientation — which inbox to send `from` or query messages against. Read-only.",
       inputSchema: strictInputSchema({}),
@@ -19,6 +20,7 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
     "get_agent",
     {
       title: "Get one agent's configuration",
+      annotations: { readOnlyHint: true },
       description:
         "Fetch a single agent by its email address — full config: name, HITL settings (hitl_enabled/hitl_mode/hitl_ttl_seconds/hitl_expiration_action), inbound policy (inbound_policy/inbound_allowlist), and sending status. Use to inspect or confirm one agent's settings without listing every agent. Read-only.",
       inputSchema: strictInputSchema({
@@ -35,6 +37,7 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
     "whoami",
     {
       title: "Get the authenticated account's identity",
+      annotations: { readOnlyHint: true },
       description:
         "Use first when starting work on e2a to learn WHO you are: the authenticated user (email), the credential's scope (`account` or `agent`), and your plan + usage limits. For an agent-scoped credential it also returns `agent_address` — the single agent that credential IS. Account-scoped credentials own many agents; discover them with `list_agents`. This is identity, not an agent — it never guesses a 'default' agent.",
       inputSchema: strictInputSchema({}),
@@ -46,6 +49,7 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
     "create_agent",
     {
       title: "Create a new agent inbox",
+      annotations: { destructiveHint: false },
       description:
         "Register a new agent by its full email address. For a custom domain, the domain must be one you've registered and verified (`register_domain` → `verify_domain` → poll `get_domain` for sending). For the deployment's shared domain, just use an email on it (e.g. support-bot@<shared-domain>). Inbound is always available via `list_messages` (poll) or a `create_webhook` subscription — there is no delivery 'mode' to choose. Returns the full agent.",
       inputSchema: strictInputSchema({
@@ -74,6 +78,7 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
     "update_agent",
     {
       title: "Update an agent's configuration",
+      annotations: { idempotentHint: true, destructiveHint: false },
       description:
         "Mutate an agent's HITL and inbound-policy settings. **The path to enable HITL approval gates** (HITL is NOT in create_agent): set `hitl_enabled: true`, optionally with `hitl_ttl_seconds`, `hitl_expiration_action`, and `hitl_mode` (`all` holds every outbound; `high_impact` holds only high-impact actions). Also sets the inbound trust gate: `inbound_policy` (`open`/`allowlist`/`domain`/`verified_only`) + `inbound_allowlist`. Omitted fields keep their current value; an explicit zero is honored (e.g. `hitl_ttl_seconds: 0`).",
       inputSchema: strictInputSchema({
@@ -147,6 +152,7 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
     "delete_agent",
     {
       title: "Delete an agent inbox (DESTRUCTIVE)",
+      annotations: { destructiveHint: true, idempotentHint: true },
       description:
         "Permanently delete the agent identity and CASCADE-remove every message, pending outbound, and webhook-delivery record bound to it. Irreversible. Existing OAuth tokens bound to this agent are revoked automatically. Requires `confirm: true` — set it explicitly to acknowledge the destructive action.",
       inputSchema: strictInputSchema({

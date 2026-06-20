@@ -50,6 +50,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
     "send_message",
     {
       title: "Send email",
+      annotations: { destructiveHint: false },
       description:
         "Use when starting a NEW email thread to a fresh recipient. To respond to a message you can see in `list_messages`, use `reply_to_message` instead — it preserves the In-Reply-To / References headers so the reply lands in the same thread, which this tool deliberately does not do. Attach files via `attachments`; pass base64 strings produced by other tools (e.g. `get_attachment`) verbatim — don't hand-encode raw text. **`pending_approval` is not failure.** If the agent has HITL enabled, the response is `{ status: \"pending_approval\", message_id: ... }`; the message is held for human review — do not retry. Check on it with `list_messages` (held drafts show hitl_status=pending_approval) / `get_message`.",
       inputSchema: strictInputSchema({
@@ -109,6 +110,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
     "reply_to_message",
     {
       title: "Reply to a received message",
+      annotations: { destructiveHint: false },
       description:
         "Use whenever you're responding to a message you can see in the inbox — preserves the In-Reply-To and References headers so the reply joins the original email thread instead of starting a new one. Prefer this over `send_message` for any response to an inbound; thread fragmentation (broken conversation view in the recipient's mail client) is the most visible symptom of using `send_message` by mistake. Pass `reply_all: true` to copy the original Cc list; subject is auto-derived as `Re: …` by the server. Same HITL caveat as `send_message`: a `pending_approval` status is success, not failure.",
       inputSchema: strictInputSchema({
@@ -163,6 +165,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
     "forward_message",
     {
       title: "Forward an inbound message",
+      annotations: { destructiveHint: false },
       description:
         "Forward a message the agent has received to one or more new recipients. The server auto-prepends a Gmail-style header block (From/Date/Subject/To/Cc) and the original body to whatever optional comment you pass in `body`/`html_body`. **Unlike `reply_to_message`, a forward is a NEW thread** — no In-Reply-To / References headers are emitted, so the recipient sees a fresh conversation. Use this when the user asks to share a received email with someone else; use `reply_to_message` when continuing the existing conversation. Same HITL behavior as send/reply: `pending_approval` is success, not failure.",
       inputSchema: strictInputSchema({
@@ -226,6 +229,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
     "update_message_labels",
     {
       title: "Add or remove labels on an inbound message",
+      annotations: { idempotentHint: true, destructiveHint: false },
       description:
         "Apply a labels delta — `add_labels` and/or `remove_labels`. Labels are lowercase strings drawn from `[a-z0-9:_-]+`, capped at 64 chars each; the `e2a:` prefix is reserved for server-applied system labels and rejected on writes. A label appearing in both lists is removed (remove wins). Per-request cap is 50 entries per list; per-message cap is 100 total labels. The response includes the post-update label set so you can echo back to the user without a follow-up read. Use this when the user wants to categorize a message (e.g. `add: urgent`) or clear a tag (`remove: follow-up`).",
       inputSchema: strictInputSchema({
@@ -258,6 +262,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
     "list_conversations",
     {
       title: "List conversations for the agent",
+      annotations: { readOnlyHint: true },
       description:
         "Lists the agent's conversations — groups of messages sharing a `conversation_id` — one row per conversation, sorted by most recent activity. Each row carries `message_count`, `inbound_count`, `outbound_count`, `has_unread`, and the latest message's subject + sender so you can render an inbox without drilling into each thread. The server caps the response at 100. Use this when the user wants to see threads rather than individual messages — e.g. \"what conversations are unread?\" or \"show recent threads with Alice\". To read a single conversation's messages, call `get_conversation`.",
       inputSchema: strictInputSchema({
@@ -294,6 +299,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
     "get_conversation",
     {
       title: "Get a single conversation with all member messages",
+      annotations: { readOnlyHint: true },
       description:
         "Returns the full thread — aggregate counts, the participants union (sender + recipient + to + cc + bcc across members), the labels union, and every member message in chronological order (oldest first). Returns a not-found error when no non-expired messages exist for `(agent, conversation_id)`. Use this after `list_conversations` (or whenever you have a `conversation_id` from an inbound/outbound payload) to read the full thread.",
       inputSchema: strictInputSchema({
@@ -309,6 +315,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
     "list_messages",
     {
       title: "List inbound messages",
+      annotations: { readOnlyHint: true },
       description:
         "List messages the agent has received, newest first by default. Filter by `read_status` (unread/read/all; default unread) and cap results with `page_size`. Pass `sort: \"asc\"` for FIFO order (oldest unread first) when the caller wants to drain the inbox in arrival order. **Search filters** (`from`, `subject_contains`, `conversation_id`, `since`, `until`) narrow the result set server-side — use them instead of paginating the full inbox client-side. Returns summaries only — use `get_message` for the full body.",
       inputSchema: strictInputSchema({
@@ -389,6 +396,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
     "get_message",
     {
       title: "Get a message",
+      annotations: { readOnlyHint: true },
       description:
         "Use after `list_messages` to read one inbound message in full — body (text + html), headers, conversation id, and attachment metadata. Pass the `message_id` from the list response. Attachment bytes are NOT included (would blow context for any non-trivial PDF); the response lists each attachment's filename, content_type, and 0-based `index` plus size_bytes. To get the actual bytes of one attachment (inspect, forward, hand off), call `get_attachment` with that index. The raw MIME blob is also omitted for the same reason.",
       inputSchema: strictInputSchema({
@@ -445,6 +453,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
     "get_attachment",
     {
       title: "Fetch one attachment's bytes from an inbound message",
+      annotations: { readOnlyHint: true },
       description:
         "Returns the base64-encoded content of one attachment from an inbound message. Use this when you want to inspect, forward, or hand off an attachment surfaced by `get_message`. Indexes are 0-based and stable within a message (see `attachments[].index` from get_message). To forward to another recipient, pass the returned `{filename, content_type, data}` verbatim as an entry in `send_message`'s or `reply_to_message`'s `attachments[]` array. Refuses attachments larger than 2 MB after decoding — these are too big for inline retrieval and the LLM context cost would be prohibitive.",
       inputSchema: strictInputSchema({

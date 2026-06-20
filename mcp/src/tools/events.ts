@@ -17,6 +17,7 @@ export function registerEventTools(server: McpServer, client: McpClient): void {
     "list_events",
     {
       title: "List webhook events",
+      annotations: { readOnlyHint: true },
       description:
         "List the durable webhook event log in reverse-chronological order. Useful for reconciliation (\"did our webhook receiver see this event?\") and for debugging delivery state. Events past the 30-day retention boundary are not returned. Cursor-paginated via `token` / `next_token` — pass the previous response's `next_token` to walk further back. Returns each event's `data` payload plus a `delivery_status` summary of how many subscribers have received it.",
       inputSchema: strictInputSchema({
@@ -62,6 +63,7 @@ export function registerEventTools(server: McpServer, client: McpClient): void {
     "get_event",
     {
       title: "Get one webhook event",
+      annotations: { readOnlyHint: true },
       description:
         "Fetch a single event by id. The response includes the full envelope payload AND a `delivery_status` block showing how many of the matched webhooks have delivered/pending/failed. Use this to triage \"did this specific event reach my receiver?\" Returns an error with status 410 if the event has passed the 30-day retention boundary (replay is no longer possible).",
       inputSchema: strictInputSchema({
@@ -75,6 +77,7 @@ export function registerEventTools(server: McpServer, client: McpClient): void {
     "redeliver_event",
     {
       title: "Replay a webhook event",
+      annotations: { destructiveHint: false },
       description:
         "Re-fire a previously-emitted event to a webhook. Pass `webhook_id` to target one subscriber. Omit `webhook_id` to fan out to every webhook that originally matched the event (per the snapshot at fan-out time; does NOT re-evaluate against the current subscriber set, by design). **Important:** the replay uses the SAME envelope id as the original delivery. Customer-side receivers that dedupe on event id will discard the replay as already-processed — replay is recovery, not re-delivery. Use this for outage recovery, not for \"send this event twice on purpose.\"",
       inputSchema: strictInputSchema({

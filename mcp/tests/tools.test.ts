@@ -253,6 +253,39 @@ describe("e2a MCP server", () => {
       .toHaveLength(0);
   });
 
+  // ── §6a tool annotations (#2) ───────────────────────────────────────
+
+  it("every tool carries MCP annotations with the correct hints", async () => {
+    const { tools } = await client.listTools(); // account scope → all 35
+    const byName = new Map(tools.map((t) => [t.name, t.annotations ?? {}]));
+
+    // Every tool has an annotations object.
+    for (const t of tools) {
+      expect(t.annotations, `${t.name} should carry annotations`).toBeDefined();
+    }
+
+    // Reads → readOnlyHint.
+    for (const n of ["list_messages", "get_message", "whoami", "list_domains", "get_event", "list_webhook_deliveries"]) {
+      expect(byName.get(n)?.readOnlyHint, `${n} readOnlyHint`).toBe(true);
+    }
+    // Deletes → destructive + idempotent.
+    for (const n of ["delete_agent", "delete_domain", "delete_webhook"]) {
+      expect(byName.get(n)?.destructiveHint, `${n} destructiveHint`).toBe(true);
+      expect(byName.get(n)?.idempotentHint, `${n} idempotentHint`).toBe(true);
+    }
+    // Idempotent non-destructive updates.
+    for (const n of ["update_agent", "update_webhook", "update_message_labels", "verify_domain", "register_domain"]) {
+      expect(byName.get(n)?.idempotentHint, `${n} idempotentHint`).toBe(true);
+      expect(byName.get(n)?.destructiveHint, `${n} destructiveHint`).toBe(false);
+    }
+    // Non-destructive writes (create/send) are explicitly non-destructive,
+    // and NOT read-only.
+    for (const n of ["create_agent", "send_message", "approve_message", "create_webhook"]) {
+      expect(byName.get(n)?.destructiveHint, `${n} destructiveHint`).toBe(false);
+      expect(byName.get(n)?.readOnlyHint ?? false, `${n} not read-only`).toBe(false);
+    }
+  });
+
   it("send_message forwards args to client.send", async () => {
     await client.callTool({
       name: "send_message",

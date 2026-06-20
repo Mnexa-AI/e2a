@@ -20,6 +20,7 @@ export function registerDomainTools(server: McpServer, client: McpClient): void 
     "list_domains",
     {
       title: "List domains",
+      annotations: { readOnlyHint: true },
       description:
         "List every custom mail domain registered under the authenticated user, with verification status (verified / pending DNS / failed) and the verification token for each. Useful to discover which domains can already send/receive mail and which still need DNS records to be added. Read-only; cheap to call.",
       inputSchema: strictInputSchema({}),
@@ -31,6 +32,7 @@ export function registerDomainTools(server: McpServer, client: McpClient): void 
     "register_domain",
     {
       title: "Register a custom mail domain (returns DNS records to publish)",
+      annotations: { idempotentHint: true, destructiveHint: false },
       description:
         "Use to start the custom-domain flow. **This is step 1 of an asynchronous two-step process**: this tool returns the MX + TXT records the user must publish on their DNS provider; it does NOT make the domain live. Step 2 is `verify_domain` — but only AFTER the records are published AND DNS propagation has completed (typically minutes, occasionally hours). Do not call `verify_domain` immediately, and do not promise the user the domain works yet. **Composition tip**: if a DNS-provider MCP (Cloudflare, Route 53, NS1, …) is loaded in the same host, hand the returned records to its `create_dns_record`-style tool, then surface the wait expectation to the user. If no DNS MCP is available, show the records verbatim and ask the user to add them manually. The domain is created in an unverified state — `delete_domain` is the reverse op. Idempotent against an existing-but-unverified row.",
       inputSchema: strictInputSchema({
@@ -49,6 +51,7 @@ export function registerDomainTools(server: McpServer, client: McpClient): void 
     "get_domain",
     {
       title: "Get one domain (poll sending status)",
+      annotations: { readOnlyHint: true },
       description:
         "Fetch a single domain by name. This is the poll target after `verify_domain`: it surfaces both `verified` (inbound ownership) and `sending_status` (none/pending/verified/failed — the async SES sending identity that lets agents on this domain send as their own address), plus `sending_error` and the `dns_records`/`sending_dns_records` to publish. Poll until `sending_status` is `verified` before expecting own-domain From on outbound; don't poll in a tight loop.",
       inputSchema: strictInputSchema({
@@ -62,6 +65,7 @@ export function registerDomainTools(server: McpServer, client: McpClient): void 
     "verify_domain",
     {
       title: "Verify a custom mail domain's DNS records",
+      annotations: { idempotentHint: true, destructiveHint: false },
       description:
         "Use as step 2 of the custom-domain flow, AFTER `register_domain` returned records AND the user (or a DNS MCP) published them AND DNS has had time to propagate (minutes to hours). Probes DNS for the issued MX + TXT records and flips the domain's `verified` bit on success. Idempotent — safe to retry as propagation completes. If `verified: false` comes back, the response includes the resolved-record state for diagnostics; surface that to the user rather than retrying in a tight loop. Don't poll; let the user drive the recheck.",
       inputSchema: strictInputSchema({
@@ -78,6 +82,7 @@ export function registerDomainTools(server: McpServer, client: McpClient): void 
     "delete_domain",
     {
       title: "Delete a custom mail domain (DESTRUCTIVE)",
+      annotations: { destructiveHint: true, idempotentHint: true },
       description:
         "Permanently remove a domain registration. CASCADES to every agent on that domain and every message/pending-outbound/webhook-delivery bound to those agents. Irreversible. Existing OAuth tokens bound to those agents are revoked. Requires `confirm: true` — set it explicitly to acknowledge the destructive scope.",
       inputSchema: strictInputSchema({
