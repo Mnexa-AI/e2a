@@ -3129,9 +3129,9 @@ paths:
           in: query
           name: limit
           schema:
-            default: 50
+            default: 100
             format: int64
-            maximum: 100
+            maximum: 500
             minimum: 1
             type: integer
       responses:

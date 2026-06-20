@@ -316,10 +316,13 @@ type WebhookDeliveryView struct {
 	CreatedAt      string `json:"created_at" format:"date-time"`
 }
 
+// ListDeliveriesInput — this debug log is intentionally single-page (no cursor,
+// WH-7); the limit is generous (default 100, up to 500) so a recent-deliveries
+// view isn't truncated on a busy webhook.
 type ListDeliveriesInput struct {
 	ID     string `path:"id"`
 	Status string `query:"status" enum:"pending,delivered,failed"`
-	Limit  int    `query:"limit" minimum:"1" maximum:"100" default:"50"`
+	Limit  int    `query:"limit" minimum:"1" maximum:"500" default:"100"`
 }
 type listDeliveriesOutput struct {
 	Body Page[WebhookDeliveryView]
