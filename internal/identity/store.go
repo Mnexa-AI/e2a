@@ -2596,6 +2596,11 @@ type ConversationListFilter struct {
 	// Zero values disable each bound.
 	Since time.Time
 	Until time.Time
+	// After* is the keyset cursor position (CV-3): the previous page's last
+	// row's (last_message_at, conversation_id). Zero AfterLastMessageAt = first
+	// page. Pass Limit+1 to detect a further page.
+	AfterLastMessageAt time.Time
+	AfterConversationID string
 }
 
 // ConversationListHardCap is the maximum number of conversations a
@@ -2611,8 +2616,12 @@ const ConversationListHardCap = 100
 // via GetMessagesByAgent.
 func (s *Store) ListConversationsByAgent(ctx context.Context, f ConversationListFilter) ([]ConversationSummary, error) {
 	limit := f.Limit
-	if limit <= 0 || limit > ConversationListHardCap {
+	// Honor the caller's limit (the handler passes page-size+1 to detect a
+	// further page); cap one above the hard cap so limit+1 at the cap still works.
+	if limit <= 0 {
 		limit = ConversationListHardCap
+	} else if limit > ConversationListHardCap+1 {
+		limit = ConversationListHardCap + 1
 	}
 
 	query := `
@@ -2637,16 +2646,25 @@ func (s *Store) ListConversationsByAgent(ctx context.Context, f ConversationList
 		GROUP BY conversation_id`
 
 	args := []interface{}{f.AgentID}
+	var having []string
 	if !f.Since.IsZero() {
-		query += fmt.Sprintf(` HAVING MAX(created_at) >= $%d`, len(args)+1)
+		having = append(having, fmt.Sprintf(`MAX(created_at) >= $%d`, len(args)+1))
 		args = append(args, f.Since)
-		if !f.Until.IsZero() {
-			query += fmt.Sprintf(` AND MAX(created_at) < $%d`, len(args)+1)
-			args = append(args, f.Until)
-		}
-	} else if !f.Until.IsZero() {
-		query += fmt.Sprintf(` HAVING MAX(created_at) < $%d`, len(args)+1)
+	}
+	if !f.Until.IsZero() {
+		having = append(having, fmt.Sprintf(`MAX(created_at) < $%d`, len(args)+1))
 		args = append(args, f.Until)
+	}
+	// Keyset cursor (CV-3): rows strictly after the cursor in (last_message_at,
+	// conversation_id) DESC order. Applied in HAVING since last_message_at is an
+	// aggregate.
+	if !f.AfterLastMessageAt.IsZero() {
+		i := len(args) + 1
+		having = append(having, fmt.Sprintf(`(MAX(created_at) < $%d OR (MAX(created_at) = $%d AND conversation_id < $%d))`, i, i, i+1))
+		args = append(args, f.AfterLastMessageAt, f.AfterConversationID)
+	}
+	if len(having) > 0 {
+		query += ` HAVING ` + strings.Join(having, " AND ")
 	}
 	query += fmt.Sprintf(` ORDER BY MAX(created_at) DESC, conversation_id DESC LIMIT $%d`, len(args)+1)
 	args = append(args, limit)

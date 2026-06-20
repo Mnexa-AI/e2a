@@ -105,7 +105,7 @@ type listAgentsOutput struct {
 // address is the agent's full email and the resource identifier
 // (api-v1-redesign decision 1); Huma URL-decodes it from the path.
 type AddressParam struct {
-	Address string `path:"address" doc:"The agent's full email address, e.g. support@acme.com."`
+	Address string `path:"email" doc:"The agent's full email address, e.g. support@acme.com."`
 }
 
 type agentOutput struct {
@@ -140,7 +140,7 @@ func (s *Server) registerAgents() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "getAgent",
 		Method:      http.MethodGet,
-		Path:        "/v1/agents/{address}",
+		Path:        "/v1/agents/{email}",
 		Summary:     "Get an agent",
 		Description: "Fetch a single agent the authenticated account owns, by full email address.",
 		Tags:        []string{"agents"},

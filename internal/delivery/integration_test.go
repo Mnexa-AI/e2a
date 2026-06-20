@@ -5,6 +5,7 @@ package delivery_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/delivery"
 	"github.com/Mnexa-AI/e2a/internal/identity"
@@ -138,7 +139,7 @@ func TestSuppressionCRUD(t *testing.T) {
 	if added2 {
 		t.Fatal("re-adding the same (normalized) address should return added=false")
 	}
-	list, _ := store.ListSuppressions(ctx, user.ID)
+	list, _ := store.ListSuppressions(ctx, user.ID, 50, time.Time{}, "")
 	if len(list) != 1 || list[0].Address != "x@x.com" {
 		t.Fatalf("list=%v", list)
 	}

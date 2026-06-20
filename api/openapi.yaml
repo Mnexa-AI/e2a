@@ -264,6 +264,7 @@ components:
         conversation_id:
           type: string
         first_message_at:
+          format: date-time
           type: string
         has_unread:
           type: boolean
@@ -275,6 +276,7 @@ components:
             type: string
           type: array
         last_message_at:
+          format: date-time
           type: string
         latest_sender:
           type: string
@@ -314,6 +316,7 @@ components:
         conversation_id:
           type: string
         first_message_at:
+          format: date-time
           type: string
         has_unread:
           type: boolean
@@ -321,6 +324,7 @@ components:
           format: int64
           type: integer
         last_message_at:
+          format: date-time
           type: string
         latest_sender:
           type: string
@@ -1916,6 +1920,25 @@ paths:
     get:
       description: Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.
       operationId: listSuppressions
+      parameters:
+        - description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+          explode: false
+          in: query
+          name: cursor
+          schema:
+            description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+            type: string
+        - description: Maximum number of items to return (1-100).
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            description: Maximum number of items to return (1-100).
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
       responses:
         "200":
           content:
@@ -2007,13 +2030,13 @@ paths:
       summary: Create an agent
       tags:
         - agents
-  /v1/agents/{address}:
+  /v1/agents/{email}:
     delete:
       description: Delete an agent the caller owns.
       operationId: deleteAgent
       parameters:
         - in: path
-          name: address
+          name: email
           required: true
           schema:
             type: string
@@ -2044,7 +2067,7 @@ paths:
       parameters:
         - description: The agent's full email address, e.g. support@acme.com.
           in: path
-          name: address
+          name: email
           required: true
           schema:
             description: The agent's full email address, e.g. support@acme.com.
@@ -2072,7 +2095,7 @@ paths:
       operationId: updateAgent
       parameters:
         - in: path
-          name: address
+          name: email
           required: true
           schema:
             type: string
@@ -2100,13 +2123,13 @@ paths:
       summary: Update an agent
       tags:
         - agents
-  /v1/agents/{address}/conversations:
+  /v1/agents/{email}/conversations:
     get:
       description: List an agent's conversation threads (derived from messages.conversation_id).
       operationId: listConversations
       parameters:
         - in: path
-          name: address
+          name: email
           required: true
           schema:
             type: string
@@ -2124,13 +2147,20 @@ paths:
           schema:
             description: RFC3339.
             type: string
+        - description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change since/until.
+          explode: false
+          in: query
+          name: cursor
+          schema:
+            description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change since/until.
+            type: string
         - explode: false
           in: query
           name: limit
           schema:
             default: 100
             format: int64
-            maximum: 200
+            maximum: 100
             minimum: 1
             type: integer
       responses:
@@ -2151,13 +2181,13 @@ paths:
       summary: List conversations
       tags:
         - conversations
-  /v1/agents/{address}/conversations/{id}:
+  /v1/agents/{email}/conversations/{id}:
     get:
       description: Fetch a single conversation thread with its participants, labels, and member messages.
       operationId: getConversation
       parameters:
         - in: path
-          name: address
+          name: email
           required: true
           schema:
             type: string
@@ -2184,13 +2214,13 @@ paths:
       summary: Get a conversation
       tags:
         - conversations
-  /v1/agents/{address}/messages:
+  /v1/agents/{email}/messages:
     get:
       description: List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.
       operationId: listMessages
       parameters:
         - in: path
-          name: address
+          name: email
           required: true
           schema:
             type: string
@@ -2307,7 +2337,7 @@ paths:
       operationId: sendMessage
       parameters:
         - in: path
-          name: address
+          name: email
           required: true
           schema:
             type: string
@@ -2344,14 +2374,14 @@ paths:
       summary: Send a new email
       tags:
         - messages
-  /v1/agents/{address}/messages/{id}:
+  /v1/agents/{email}/messages/{id}:
     get:
       description: Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.
       operationId: getMessage
       parameters:
         - description: The agent's full email address.
           in: path
-          name: address
+          name: email
           required: true
           schema:
             description: The agent's full email address.
@@ -2386,7 +2416,7 @@ paths:
       operationId: updateMessage
       parameters:
         - in: path
-          name: address
+          name: email
           required: true
           schema:
             type: string
@@ -2419,13 +2449,13 @@ paths:
       summary: Update a message (labels)
       tags:
         - messages
-  /v1/agents/{address}/messages/{id}/approve:
+  /v1/agents/{email}/messages/{id}/approve:
     post:
       description: Approve a pending_approval draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
       operationId: approveMessage
       parameters:
         - in: path
-          name: address
+          name: email
           required: true
           schema:
             type: string
@@ -2467,13 +2497,13 @@ paths:
       summary: Approve a held message
       tags:
         - messages
-  /v1/agents/{address}/messages/{id}/forward:
+  /v1/agents/{email}/messages/{id}/forward:
     post:
       description: Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.
       operationId: forwardMessage
       parameters:
         - in: path
-          name: address
+          name: email
           required: true
           schema:
             type: string
@@ -2515,13 +2545,13 @@ paths:
       summary: Forward a message
       tags:
         - messages
-  /v1/agents/{address}/messages/{id}/reject:
+  /v1/agents/{email}/messages/{id}/reject:
     post:
       description: Reject a pending_approval draft so it is never sent.
       operationId: rejectMessage
       parameters:
         - in: path
-          name: address
+          name: email
           required: true
           schema:
             type: string
@@ -2554,13 +2584,13 @@ paths:
       summary: Reject a held message
       tags:
         - messages
-  /v1/agents/{address}/messages/{id}/reply:
+  /v1/agents/{email}/messages/{id}/reply:
     post:
       description: Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.
       operationId: replyToMessage
       parameters:
         - in: path
-          name: address
+          name: email
           required: true
           schema:
             type: string
@@ -2602,14 +2632,14 @@ paths:
       summary: Reply to a message
       tags:
         - messages
-  /v1/agents/{address}/test:
+  /v1/agents/{email}/test:
     post:
       description: Send a platform test email to the agent's own address to confirm inbound delivery. 202 when held for HITL.
       operationId: testAgent
       parameters:
         - description: The agent's full email address, e.g. support@acme.com.
           in: path
-          name: address
+          name: email
           required: true
           schema:
             description: The agent's full email address, e.g. support@acme.com.

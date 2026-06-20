@@ -9,27 +9,27 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 )
 
-// ConversationSummaryView mirrors the legacy conversationSummaryToWire shape
-// (timestamps rendered as RFC3339 strings). Replicated here for the same
-// reason as MessageSummaryView — no backwards dependency on the legacy
-// package.
+// ConversationSummaryView is one conversation in the list. Timestamps are
+// typed time.Time with format date-time (C-1) — consistent with every other
+// timestamp in the surface (was previously plain strings, which generated an
+// untyped `string` in the SDKs and risked a .getTime()/parse crash).
 type ConversationSummaryView struct {
-	ID             string `json:"conversation_id"`
-	LastMessageAt  string `json:"last_message_at"`
-	FirstMessageAt string `json:"first_message_at"`
-	MessageCount   int    `json:"message_count"`
-	InboundCount   int    `json:"inbound_count"`
-	OutboundCount  int    `json:"outbound_count"`
-	HasUnread      bool   `json:"has_unread"`
-	LatestSubject  string `json:"latest_subject"`
-	LatestSender   string `json:"latest_sender"`
+	ID             string    `json:"conversation_id"`
+	LastMessageAt  time.Time `json:"last_message_at" format:"date-time"`
+	FirstMessageAt time.Time `json:"first_message_at" format:"date-time"`
+	MessageCount   int       `json:"message_count"`
+	InboundCount   int       `json:"inbound_count"`
+	OutboundCount  int       `json:"outbound_count"`
+	HasUnread      bool      `json:"has_unread"`
+	LatestSubject  string    `json:"latest_subject"`
+	LatestSender   string    `json:"latest_sender"`
 }
 
 func conversationSummaryView(c identity.ConversationSummary) ConversationSummaryView {
 	return ConversationSummaryView{
 		ID:             c.ID,
-		LastMessageAt:  c.LastMessageAt.UTC().Format(time.RFC3339),
-		FirstMessageAt: c.FirstMessageAt.UTC().Format(time.RFC3339),
+		LastMessageAt:  c.LastMessageAt.UTC(),
+		FirstMessageAt: c.FirstMessageAt.UTC(),
 		MessageCount:   c.MessageCount,
 		InboundCount:   c.InboundCount,
 		OutboundCount:  c.OutboundCount,
@@ -55,10 +55,21 @@ type ConversationDetailView struct {
 // single-page behavior. True cursoring is a tracked follow-up needing a
 // store change.
 type ListConversationsInput struct {
-	Address string `path:"address"`
+	Address string `path:"email"`
 	Since   string `query:"since" doc:"RFC3339."`
 	Until   string `query:"until" doc:"RFC3339."`
-	Limit   int    `query:"limit" minimum:"1" maximum:"200" default:"100"`
+	Cursor  string `query:"cursor" doc:"Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change since/until."`
+	Limit   int    `query:"limit" minimum:"1" maximum:"100" default:"100"`
+}
+
+// conversationsCursor is the opaque keyset position + the filter identity so a
+// continuation can't silently change the window under the cursor.
+type conversationsCursor struct {
+	LastMessageAt  time.Time `json:"l"`
+	ConversationID string    `json:"i"`
+	AgentID        string    `json:"a"`
+	Since          string    `json:"s,omitempty"`
+	Until          string    `json:"u,omitempty"`
 }
 
 type listConversationsOutput struct {
@@ -67,7 +78,7 @@ type listConversationsOutput struct {
 
 // ConversationIDParam is the path input for the single-conversation read.
 type ConversationIDParam struct {
-	Address        string `path:"address"`
+	Address        string `path:"email"`
 	ConversationID string `path:"id"`
 }
 
@@ -79,7 +90,7 @@ func (s *Server) registerConversations() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "listConversations",
 		Method:      http.MethodGet,
-		Path:        "/v1/agents/{address}/conversations",
+		Path:        "/v1/agents/{email}/conversations",
 		Summary:     "List conversations",
 		Description: "List an agent's conversation threads (derived from messages.conversation_id).",
 		Tags:        []string{"conversations"},
@@ -89,7 +100,7 @@ func (s *Server) registerConversations() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "getConversation",
 		Method:      http.MethodGet,
-		Path:        "/v1/agents/{address}/conversations/{id}",
+		Path:        "/v1/agents/{email}/conversations/{id}",
 		Summary:     "Get a conversation",
 		Description: "Fetch a single conversation thread with its participants, labels, and member messages.",
 		Tags:        []string{"conversations"},
@@ -116,25 +127,60 @@ func (s *Server) handleListConversations(ctx context.Context, in *ListConversati
 	if !since.IsZero() && !until.IsZero() && !since.Before(until) {
 		return nil, NewError(http.StatusBadRequest, "invalid_filter", "since must be earlier than until")
 	}
+	// Decode + validate the cursor against the current filter identity (CV-3).
+	var afterTime time.Time
+	var afterID string
+	if in.Cursor != "" {
+		var cur conversationsCursor
+		if err := DecodeCursor(in.Cursor, &cur); err != nil {
+			return nil, NewError(http.StatusBadRequest, "invalid_cursor", "invalid pagination cursor")
+		}
+		if cur.AgentID != ag.ID || cur.Since != rfc3339OrEmpty(since) || cur.Until != rfc3339OrEmpty(until) {
+			return nil, NewError(http.StatusBadRequest, "invalid_cursor",
+				"cursor was created with different filters — start a new query without a cursor")
+		}
+		afterTime = cur.LastMessageAt
+		afterID = cur.ConversationID
+	}
 	limit := in.Limit
 	if limit <= 0 {
 		limit = 100
 	}
+	// Fetch limit+1 to detect a further page.
 	convos, err := s.deps.ListConversations(ctx, identity.ConversationListFilter{
-		AgentID: ag.ID,
-		Limit:   limit,
-		Since:   since,
-		Until:   until,
+		AgentID:             ag.ID,
+		Limit:               limit + 1,
+		Since:               since,
+		Until:               until,
+		AfterLastMessageAt:  afterTime,
+		AfterConversationID: afterID,
 	})
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to fetch conversations")
+	}
+	hasMore := len(convos) > limit
+	if hasMore {
+		convos = convos[:limit]
 	}
 	items := make([]ConversationSummaryView, len(convos))
 	for i, c := range convos {
 		items[i] = conversationSummaryView(c)
 	}
-	// next_cursor always null — see ListConversationsInput doc.
-	return &listConversationsOutput{Body: NewPage(items, "")}, nil
+	var nextCursor string
+	if hasMore {
+		last := convos[len(convos)-1]
+		nextCursor, err = EncodeCursor(conversationsCursor{
+			LastMessageAt:  last.LastMessageAt,
+			ConversationID: last.ID,
+			AgentID:        ag.ID,
+			Since:          rfc3339OrEmpty(since),
+			Until:          rfc3339OrEmpty(until),
+		})
+		if err != nil {
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to build pagination cursor")
+		}
+	}
+	return &listConversationsOutput{Body: NewPage(items, nextCursor)}, nil
 }
 
 func (s *Server) handleGetConversation(ctx context.Context, in *ConversationIDParam) (*conversationOutput, error) {

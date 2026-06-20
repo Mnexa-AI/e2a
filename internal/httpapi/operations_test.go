@@ -97,6 +97,29 @@ func testServer(t *testing.T) *httptest.Server {
 				LastMessageAt: time.Unix(1700000200, 0).UTC(), FirstMessageAt: time.Unix(1700000100, 0).UTC(),
 			}}, nil
 		},
+		ListSuppressions: func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterAddress string) ([]identity.Suppression, error) {
+			// Three suppressions, newest-first; honor limit + after-key so the
+			// cursor round-trip is exercised end to end (A-5).
+			all := []identity.Suppression{
+				{Address: "c@x.com", Source: "bounce", CreatedAt: time.Unix(1700000300, 0).UTC()},
+				{Address: "b@x.com", Source: "complaint", CreatedAt: time.Unix(1700000200, 0).UTC()},
+				{Address: "a@x.com", Source: "manual", CreatedAt: time.Unix(1700000100, 0).UTC()},
+			}
+			start := 0
+			if !afterCreatedAt.IsZero() {
+				for i, sp := range all {
+					if sp.CreatedAt.Equal(afterCreatedAt) && sp.Address == afterAddress {
+						start = i + 1
+						break
+					}
+				}
+			}
+			rest := all[start:]
+			if limit > 0 && len(rest) > limit {
+				rest = rest[:limit]
+			}
+			return rest, nil
+		},
 		GetConversation: func(ctx context.Context, agentID, convoID string) (*identity.ConversationDetail, error) {
 			if agentID == "support@acme.com" && convoID == "conv_1" {
 				return &identity.ConversationDetail{

@@ -84,7 +84,7 @@ func (s *Server) registerAgentWrites() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "updateAgent",
 		Method:      http.MethodPatch,
-		Path:        "/v1/agents/{address}",
+		Path:        "/v1/agents/{email}",
 		Summary:     "Update an agent",
 		Description: "Patch an agent's HITL settings. Returns the post-update agent.",
 		Tags:        []string{"agents"},
@@ -94,7 +94,7 @@ func (s *Server) registerAgentWrites() {
 	huma.Register(s.API, huma.Operation{
 		OperationID:   "deleteAgent",
 		Method:        http.MethodDelete,
-		Path:          "/v1/agents/{address}",
+		Path:          "/v1/agents/{email}",
 		Summary:       "Delete an agent",
 		Description:   "Delete an agent the caller owns.",
 		Tags:          []string{"agents"},
@@ -120,7 +120,7 @@ type UpdateAgentRequest struct {
 }
 
 type updateAgentInput struct {
-	Address string `path:"address"`
+	Address string `path:"email"`
 	Body    UpdateAgentRequest
 }
 
@@ -206,7 +206,7 @@ type deleteAgentOutput struct{}
 // discards held drafts and revokes its credentials, so it requires
 // ?confirm=DELETE — uniform with deleteAccount/deleteDomain.
 type deleteAgentInput struct {
-	Address string `path:"address"`
+	Address string `path:"email"`
 	Confirm string `query:"confirm" doc:"Must be DELETE — this is irreversible."`
 }
 

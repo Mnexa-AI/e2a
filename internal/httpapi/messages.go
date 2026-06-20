@@ -159,7 +159,7 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 
 // MessageIDParam is the path input for single-message operations.
 type MessageIDParam struct {
-	Address   string `path:"address" doc:"The agent's full email address."`
+	Address   string `path:"email" doc:"The agent's full email address."`
 	MessageID string `path:"id" doc:"The message id, e.g. msg_abc123."`
 }
 
@@ -258,7 +258,7 @@ func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
 // pagination (cursor/limit) replaces the legacy page_size/token (§4
 // decision 7); the filters preserve legacy semantics.
 type ListMessagesInput struct {
-	Address         string   `path:"address"`
+	Address         string   `path:"email"`
 	Direction       string   `query:"direction" enum:"inbound,outbound,all" doc:"Defaults to inbound."`
 	Status          string   `query:"read_status" enum:"unread,read,all" doc:"Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise."`
 	Sort            string   `query:"sort" enum:"asc,desc" doc:"Defaults to desc (newest first)."`
@@ -298,7 +298,7 @@ func (s *Server) registerMessages() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "listMessages",
 		Method:      http.MethodGet,
-		Path:        "/v1/agents/{address}/messages",
+		Path:        "/v1/agents/{email}/messages",
 		Summary:     "List messages",
 		Description: "List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.",
 		Tags:        []string{"messages"},
@@ -308,7 +308,7 @@ func (s *Server) registerMessages() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "getMessage",
 		Method:      http.MethodGet,
-		Path:        "/v1/agents/{address}/messages/{id}",
+		Path:        "/v1/agents/{email}/messages/{id}",
 		Summary:     "Get a message",
 		Description: "Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.",
 		Tags:        []string{"messages"},
@@ -331,7 +331,7 @@ func (s *Server) registerMessages() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "updateMessage",
 		Method:      http.MethodPatch,
-		Path:        "/v1/agents/{address}/messages/{id}",
+		Path:        "/v1/agents/{email}/messages/{id}",
 		Summary:     "Update a message (labels)",
 		Description: "Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.",
 		Tags:        []string{"messages"},
@@ -347,7 +347,7 @@ type UpdateMessageRequest struct {
 }
 
 type updateMessageInput struct {
-	Address string `path:"address"`
+	Address string `path:"email"`
 	ID      string `path:"id"`
 	Body    UpdateMessageRequest
 }
@@ -364,7 +364,7 @@ type updateMessageOutput struct {
 }
 
 // handleUpdateMessage applies a labels delta (PATCH
-// /v1/agents/{address}/messages/{id}; replaced the now-removed legacy
+// /v1/agents/{email}/messages/{id}; replaced the now-removed legacy
 // /api/v1 PATCH). This is a per-agent operation,
 // so an agent-scoped credential may label its own messages — it goes through
 // resolveOwnedAgent (which pins an agent-scoped credential to its bound agent),

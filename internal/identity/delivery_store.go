@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/delivery"
@@ -243,12 +244,27 @@ func (s *Store) SuppressedAddresses(ctx context.Context, userID string, addrs []
 }
 
 // ListSuppressions returns the user's suppression list, newest first.
-func (s *Store) ListSuppressions(ctx context.Context, userID string) ([]Suppression, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT address, reason, source, COALESCE(source_message_id, ''), created_at
-		   FROM suppressions WHERE user_id = $1 ORDER BY created_at DESC`,
-		userID,
-	)
+// ListSuppressions returns one page of the user's suppressed addresses,
+// newest first, keyset-paginated on (created_at, address). The caller passes
+// limit (fetch limit+1 to detect a further page) and the after-key from the
+// previous page's last row (zero afterCreatedAt = first page). (A-5: the
+// suppression list auto-grows on every bounce/complaint, so it needs real
+// pagination, not a single page.)
+func (s *Store) ListSuppressions(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterAddress string) ([]Suppression, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	q := `SELECT address, reason, source, COALESCE(source_message_id, ''), created_at
+	        FROM suppressions WHERE user_id = $1`
+	args := []interface{}{userID}
+	if !afterCreatedAt.IsZero() {
+		i := len(args) + 1
+		q += fmt.Sprintf(` AND (created_at < $%d OR (created_at = $%d AND address < $%d))`, i, i, i+1)
+		args = append(args, afterCreatedAt, afterAddress)
+	}
+	q += fmt.Sprintf(` ORDER BY created_at DESC, address DESC LIMIT $%d`, len(args)+1)
+	args = append(args, limit)
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -92,7 +92,7 @@ type SendEmailRequest struct {
 }
 
 type createMessageInput struct {
-	Address        string `path:"address"`
+	Address        string `path:"email"`
 	RawBody        []byte
 	IdempotencyKey string `header:"Idempotency-Key"`
 	Body           SendEmailRequest
@@ -113,7 +113,7 @@ func (s *Server) registerOutbound() {
 	}
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "sendMessage", Method: http.MethodPost, Path: "/v1/agents/{address}/messages",
+		OperationID: "sendMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages",
 		Summary: "Send a new email", Tags: []string{"messages"},
 		Description:  "Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.",
 		Security:     []map[string][]string{{"bearer": {}}},
@@ -122,7 +122,7 @@ func (s *Server) registerOutbound() {
 	}, s.handleCreateMessage)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "replyToMessage", Method: http.MethodPost, Path: "/v1/agents/{address}/messages/{id}/reply",
+		OperationID: "replyToMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/reply",
 		Summary: "Reply to a message", Tags: []string{"messages"},
 		Description:  "Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.",
 		Security:     []map[string][]string{{"bearer": {}}},
@@ -131,7 +131,7 @@ func (s *Server) registerOutbound() {
 	}, s.handleReply)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "forwardMessage", Method: http.MethodPost, Path: "/v1/agents/{address}/messages/{id}/forward",
+		OperationID: "forwardMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/forward",
 		Summary: "Forward a message", Tags: []string{"messages"},
 		Description:  "Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.",
 		Security:     []map[string][]string{{"bearer": {}}},
@@ -140,7 +140,7 @@ func (s *Server) registerOutbound() {
 	}, s.handleForward)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "testAgent", Method: http.MethodPost, Path: "/v1/agents/{address}/test",
+		OperationID: "testAgent", Method: http.MethodPost, Path: "/v1/agents/{email}/test",
 		Summary: "Send a test email to the agent's own address", Tags: []string{"agents"},
 		Description: "Send a platform test email to the agent's own address to confirm inbound delivery. 202 when held for HITL.",
 		Security:    []map[string][]string{{"bearer": {}}},
@@ -196,7 +196,7 @@ type ReplyRequest struct {
 }
 
 type replyInput struct {
-	Address        string `path:"address"`
+	Address        string `path:"email"`
 	ID             string `path:"id"`
 	RawBody        []byte
 	IdempotencyKey string `header:"Idempotency-Key"`
@@ -283,7 +283,7 @@ type ForwardRequest struct {
 }
 
 type forwardInput struct {
-	Address        string `path:"address"`
+	Address        string `path:"email"`
 	ID             string `path:"id"`
 	RawBody        []byte
 	IdempotencyKey string `header:"Idempotency-Key"`

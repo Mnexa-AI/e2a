@@ -11,7 +11,7 @@ import (
 // approve returns the unified SendResultView (MSG-9) — approve is a send, so it
 // shares send/reply/forward's result shape (with edited set).
 type approveInput struct {
-	Address        string `path:"address"`
+	Address        string `path:"email"`
 	ID             string `path:"id"`
 	RawBody        []byte
 	IdempotencyKey string `header:"Idempotency-Key"`
@@ -36,7 +36,7 @@ type RejectRequest struct {
 }
 
 type rejectInput struct {
-	Address string `path:"address"`
+	Address string `path:"email"`
 	ID      string `path:"id"`
 	Body    RejectRequest
 }
@@ -47,14 +47,14 @@ type rejectOutput struct {
 
 func (s *Server) registerHITL() {
 	huma.Register(s.API, huma.Operation{
-		OperationID: "approveMessage", Method: http.MethodPost, Path: "/v1/agents/{address}/messages/{id}/approve",
+		OperationID: "approveMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/approve",
 		Summary: "Approve a held message", Tags: []string{"messages"},
 		Description: "Approve a pending_approval draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleApprove)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "rejectMessage", Method: http.MethodPost, Path: "/v1/agents/{address}/messages/{id}/reject",
+		OperationID: "rejectMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/reject",
 		Summary: "Reject a held message", Tags: []string{"messages"},
 		Description: "Reject a pending_approval draft so it is never sent.",
 		Security:    []map[string][]string{{"bearer": {}}},

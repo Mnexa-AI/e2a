@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/danielgtaylor/huma/v2"
@@ -93,7 +94,18 @@ type suppressionsOutput struct {
 	Body Page[identity.Suppression]
 }
 
-func (s *Server) handleListSuppressions(ctx context.Context, _ *struct{}) (*suppressionsOutput, error) {
+// suppressionsCursor is the opaque keyset position: the last row's
+// (created_at, address). Compact keys keep the cursor short.
+type suppressionsCursor struct {
+	CreatedAt time.Time `json:"c"`
+	Address   string    `json:"a"`
+}
+
+type listSuppressionsInput struct {
+	PageParams
+}
+
+func (s *Server) handleListSuppressions(ctx context.Context, in *listSuppressionsInput) (*suppressionsOutput, error) {
 	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
@@ -101,11 +113,38 @@ func (s *Server) handleListSuppressions(ctx context.Context, _ *struct{}) (*supp
 	if s.deps.ListSuppressions == nil {
 		return nil, NewError(http.StatusNotImplemented, "not_implemented", "suppressions are not available on this deployment")
 	}
-	list, err := s.deps.ListSuppressions(ctx, user.ID)
+	var afterCreatedAt time.Time
+	var afterAddress string
+	if in.Cursor != "" {
+		var cur suppressionsCursor
+		if err := DecodeCursor(in.Cursor, &cur); err != nil {
+			return nil, NewError(http.StatusBadRequest, "invalid_cursor", "invalid pagination cursor")
+		}
+		afterCreatedAt = cur.CreatedAt
+		afterAddress = cur.Address
+	}
+	limit := in.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	// Fetch limit+1 to detect a further page.
+	list, err := s.deps.ListSuppressions(ctx, user.ID, limit+1, afterCreatedAt, afterAddress)
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list suppressions")
 	}
-	return &suppressionsOutput{Body: NewPage(list, "")}, nil
+	hasMore := len(list) > limit
+	if hasMore {
+		list = list[:limit]
+	}
+	var nextCursor string
+	if hasMore {
+		last := list[len(list)-1]
+		nextCursor, err = EncodeCursor(suppressionsCursor{CreatedAt: last.CreatedAt, Address: last.Address})
+		if err != nil {
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to build pagination cursor")
+		}
+	}
+	return &suppressionsOutput{Body: NewPage(list, nextCursor)}, nil
 }
 
 type deleteSuppressionInput struct {
