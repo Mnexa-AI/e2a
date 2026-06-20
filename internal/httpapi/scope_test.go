@@ -103,6 +103,24 @@ func TestScope_UpdateAgentIsAccountOnly(t *testing.T) {
 	}
 }
 
+// TestScope_ApproveRejectIsAccountOnly: HITL approve/reject is barred for an
+// agent-scoped credential EVEN ON ITS OWN BOUND AGENT — self-approval would
+// defeat the human-in-the-loop gate. (The human magic-link flow is a separate,
+// token-gated handler and is unaffected.) requireAccountScope runs first, so the
+// 403 fires before any approve/reject dependency is consulted.
+func TestScope_ApproveRejectIsAccountOnly(t *testing.T) {
+	srv := scopeTestServer(t)
+	for _, path := range []string{
+		"/v1/agents/support%40acme.com/messages/msg_1/approve",
+		"/v1/agents/support%40acme.com/messages/msg_1/reject",
+	} {
+		code, body := sendJSON(t, "POST", srv.URL+path, "agtSupport", map[string]any{})
+		if code != 403 || errCode(body) != "forbidden" {
+			t.Errorf("agent key POST %s (own bound agent): status %d body %v, want 403 forbidden", path, code, body)
+		}
+	}
+}
+
 // TestScope_AgentKeyPinnedToBoundAgent: a per-agent runtime route lets an
 // agent-scoped credential act as its bound agent but 403s on any other agent;
 // an account-scoped credential reaches both.

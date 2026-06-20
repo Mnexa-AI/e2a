@@ -62,13 +62,19 @@ func (s *Server) registerHITL() {
 }
 
 func (s *Server) handleApprove(ctx context.Context, in *approveInput) (*approveOutput, error) {
-	ag, err := s.resolveOwnedAgent(ctx, in.Address)
+	// HITL approval is an account-owner action. An agent-scoped credential
+	// approving its OWN held outbound is self-approval, which defeats the
+	// human-in-the-loop gate — so require account scope (403 for agent-scoped).
+	// The human magic-link flow is a separate, token-gated handler and is
+	// unaffected.
+	p, err := s.requireAccountScope(ctx)
 	if err != nil {
 		return nil, err
 	}
-	user, uerr := s.requireUser(ctx)
-	if uerr != nil {
-		return nil, uerr
+	user := p.User
+	ag, err := s.resolveOwnedAgent(ctx, in.Address)
+	if err != nil {
+		return nil, err
 	}
 	if env := s.checkSendLimit(ag.ID); env != nil {
 		return nil, env
@@ -94,13 +100,16 @@ func (s *Server) handleApprove(ctx context.Context, in *approveInput) (*approveO
 }
 
 func (s *Server) handleReject(ctx context.Context, in *rejectInput) (*rejectOutput, error) {
-	ag, err := s.resolveOwnedAgent(ctx, in.Address)
+	// Account-owner action — see handleApprove. Rejecting (discarding) a held
+	// draft is part of the HITL decision, so it is also account-scope only.
+	p, err := s.requireAccountScope(ctx)
 	if err != nil {
 		return nil, err
 	}
-	user, uerr := s.requireUser(ctx)
-	if uerr != nil {
-		return nil, uerr
+	user := p.User
+	ag, err := s.resolveOwnedAgent(ctx, in.Address)
+	if err != nil {
+		return nil, err
 	}
 	if s.deps.RejectPending == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "reject unavailable")
