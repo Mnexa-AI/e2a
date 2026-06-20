@@ -1120,28 +1120,37 @@ func createInboundMessage(ctx context.Context, exec messageExecutor, id, agentID
 		}
 	}
 
+	// Held messages (review/block) carry a review-queue status; everything else is
+	// 'sent' (the inbound default — delivered).
+	status := MessageStatusSent
+	if screening.Status != "" {
+		status = screening.Status
+	}
+
 	m := &Message{
-		ID:             id,
-		AgentID:        agentID,
-		Direction:      "inbound",
-		Sender:         senderEmail,
-		Recipient:      recipient,
-		ToRecipients:   toRecipients,
-		CC:             cc,
-		ReplyTo:        replyTo,
-		Subject:        subject,
-		EmailMessageID: emailMessageID,
-		RawMessage:     rawMessage,
-		AuthHeaders:    authHeaders,
-		ConversationID: conversationID,
-		DeliveryStatus: deliveryStatus,
-		Flagged:        flagged,
-		FlagReason:     flagReason,
-		ReviewReason:   screening.ReviewReason,
-		ScanScore:      screening.ScanScore,
-		ScanAction:     screening.ScanAction,
-		CreatedAt:      now,
-		ExpiresAt:      now.Add(MessageTTL),
+		ID:                id,
+		AgentID:           agentID,
+		Direction:         "inbound",
+		Sender:            senderEmail,
+		Recipient:         recipient,
+		ToRecipients:      toRecipients,
+		CC:                cc,
+		ReplyTo:           replyTo,
+		Subject:           subject,
+		EmailMessageID:    emailMessageID,
+		RawMessage:        rawMessage,
+		AuthHeaders:       authHeaders,
+		ConversationID:    conversationID,
+		DeliveryStatus:    deliveryStatus,
+		Flagged:           flagged,
+		FlagReason:        flagReason,
+		ReviewReason:      screening.ReviewReason,
+		ScanScore:         screening.ScanScore,
+		ScanAction:        screening.ScanAction,
+		Status:            status,
+		ApprovalExpiresAt: screening.ApprovalExpiresAt,
+		CreatedAt:         now,
+		ExpiresAt:         now.Add(MessageTTL),
 	}
 	// inbox_status column has CHECK constraint: must be 'unread', 'read', or NULL
 	var inboxStatus *string
@@ -1149,9 +1158,9 @@ func createInboundMessage(ctx context.Context, exec messageExecutor, id, agentID
 		inboxStatus = &m.DeliveryStatus
 	}
 	_, err := exec.Exec(ctx,
-		`INSERT INTO messages (id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, auth_headers, auth_verdict, flagged, flag_reason, conversation_id, inbox_status, created_at, expires_at, review_reason, scan_score, scan_action)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
-		m.ID, m.AgentID, m.Direction, m.Sender, m.Recipient, m.ToRecipients, m.CC, m.ReplyTo, m.Subject, m.EmailMessageID, m.RawMessage, authHeadersJSON, nullIfEmptyBytes(authVerdict), m.Flagged, nullIfEmptyString(m.FlagReason), m.ConversationID, inboxStatus, m.CreatedAt, m.ExpiresAt, nullIfEmptyString(m.ReviewReason), m.ScanScore, nullIfEmptyString(m.ScanAction),
+		`INSERT INTO messages (id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, auth_headers, auth_verdict, flagged, flag_reason, conversation_id, inbox_status, created_at, expires_at, review_reason, scan_score, scan_action, status, approval_expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
+		m.ID, m.AgentID, m.Direction, m.Sender, m.Recipient, m.ToRecipients, m.CC, m.ReplyTo, m.Subject, m.EmailMessageID, m.RawMessage, authHeadersJSON, nullIfEmptyBytes(authVerdict), m.Flagged, nullIfEmptyString(m.FlagReason), m.ConversationID, inboxStatus, m.CreatedAt, m.ExpiresAt, nullIfEmptyString(m.ReviewReason), m.ScanScore, nullIfEmptyString(m.ScanAction), m.Status, m.ApprovalExpiresAt,
 	)
 	if err != nil {
 		return nil, err
@@ -1160,11 +1169,16 @@ func createInboundMessage(ctx context.Context, exec messageExecutor, id, agentID
 }
 
 // InboundScreening carries the applied screening verdict denormalized onto the
-// inbound message row (migration 037). Zero value = no screening recorded.
+// inbound message row (migration 037). Zero value = no screening (delivered
+// normally as status 'sent'). When Status is set to a review-hold status
+// (pending_review / review_rejected) the message is persisted but NOT delivered;
+// ApprovalExpiresAt sets the review TTL deadline for the expiry worker.
 type InboundScreening struct {
-	ReviewReason string
-	ScanScore    *float64
-	ScanAction   string
+	ReviewReason      string
+	ScanScore         *float64
+	ScanAction        string
+	Status            string
+	ApprovalExpiresAt *time.Time
 }
 
 func (s *Store) GetInboundMessage(ctx context.Context, id string) (*Message, error) {
@@ -2317,6 +2331,22 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]
 		query = baseSelect
 	default: // "inbound" — default keeps SDK polling contract
 		query = baseSelect + ` AND m.direction = 'inbound'`
+	}
+
+	// Inbound review holds are NOT delivered — exclude them from the agent inbox
+	// until approved (Slice 4b). pending_review (awaiting a human), review_rejected
+	// (blocked / human-rejected), and review_expired_rejected (TTL-dropped) stay
+	// hidden; review_approved / review_expired_approved (and plain 'sent') are
+	// delivered and shown. The clause is direction-aware so outbound rows
+	// (pending_approval etc.) are unaffected.
+	const heldInbound = `'pending_review', 'review_rejected', 'review_expired_rejected'`
+	switch f.Direction {
+	case "outbound":
+		// no inbound rows in the result set
+	case "all":
+		query += ` AND (m.direction = 'outbound' OR m.status NOT IN (` + heldInbound + `))`
+	default: // inbound
+		query += ` AND m.status NOT IN (` + heldInbound + `)`
 	}
 
 	// Inbox status filter only applies when inbound rows are in the

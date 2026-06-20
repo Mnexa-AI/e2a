@@ -62,6 +62,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	// One immediate sweep so a process restart doesn't leave a full
 	// interval's worth of already-expired rows sitting.
 	w.sweep(ctx)
+	w.sweepReviews(ctx)
 
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
@@ -71,14 +72,40 @@ func (w *Worker) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-ticker.C:
 			w.sweep(ctx)
+			w.sweepReviews(ctx)
 		}
 	}
 }
 
-// RunOnce performs a single sweep. Exposed for tests that want
+// RunOnce performs a single sweep of both queues. Exposed for tests that want
 // deterministic behavior without setting up a ticker.
 func (w *Worker) RunOnce(ctx context.Context) {
 	w.sweep(ctx)
+	w.sweepReviews(ctx)
+}
+
+// sweepReviews auto-resolves expired inbound review holds (Slice 4b). Unlike the
+// outbound pending_approval path, there is no send to perform: approve = release
+// the held message to the agent's inbox (it becomes visible), reject = drop it.
+// The compare-and-set status guard in the store methods makes concurrent/duplicate
+// sweeps safe.
+func (w *Worker) sweepReviews(ctx context.Context) {
+	candidates, err := w.store.ListExpiredReviews(ctx, w.batchSize)
+	if err != nil {
+		log.Printf("[hitl-worker] list expired reviews: %v", err)
+		return
+	}
+	for _, c := range candidates {
+		if c.ExpirationAction == identity.HITLExpirationApprove {
+			if err := w.store.ExpireApproveReview(ctx, c.MessageID); err != nil && err != identity.ErrNotPendingReview {
+				log.Printf("[hitl-worker] expire-approve review %s: %v", c.MessageID, err)
+			}
+		} else {
+			if err := w.store.ExpireRejectReview(ctx, c.MessageID, "ttl_expired"); err != nil && err != identity.ErrNotPendingReview {
+				log.Printf("[hitl-worker] expire-reject review %s: %v", c.MessageID, err)
+			}
+		}
+	}
 }
 
 func (w *Worker) sweep(ctx context.Context) {

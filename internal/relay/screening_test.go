@@ -112,3 +112,85 @@ func TestScreenInbound_GateViolationAudited(t *testing.T) {
 		t.Errorf("gate event subject_addr = %q", ev.SubjectAddr)
 	}
 }
+
+// --- 4b: hold (review/block) ---
+
+func TestScreenInbound_ReviewHolds(t *testing.T) {
+	srv := testScreenServer()
+	agent := scanOnAgent()
+	agent.InboundScanReviewThreshold = 0.5
+	agent.InboundScanBlockThreshold = 0.95 // hidden-injection ~0.925 → review band
+	agent.HITLTTLSeconds = 3600
+	res := srv.screenInbound(context.Background(), agent, "msg_h1", "alice@evil.com",
+		[]byte(hiddenInjection), nil, inboundpolicy.Decision{})
+
+	if !res.Hold || res.AppliedAction != piguard.ActionReview {
+		t.Fatalf("expected review hold, got hold=%v action=%v", res.Hold, res.AppliedAction)
+	}
+	if res.Denorm.Status != identity.MessageStatusPendingReview {
+		t.Errorf("status = %q, want pending_review", res.Denorm.Status)
+	}
+	if res.Denorm.ApprovalExpiresAt == nil {
+		t.Errorf("review hold must set approval_expires_at (TTL)")
+	}
+	if !res.Emit() {
+		t.Errorf("held message must emit the injection event")
+	}
+}
+
+func TestScreenInbound_BlockQuarantines(t *testing.T) {
+	srv := testScreenServer()
+	agent := scanOnAgent()
+	agent.InboundScanReviewThreshold = 0.5
+	agent.InboundScanBlockThreshold = 0.9 // hidden-injection ~0.925 → block band
+	res := srv.screenInbound(context.Background(), agent, "msg_h2", "alice@evil.com",
+		[]byte(hiddenInjection), nil, inboundpolicy.Decision{})
+
+	if !res.Hold || res.AppliedAction != piguard.ActionBlock {
+		t.Fatalf("expected block, got hold=%v action=%v", res.Hold, res.AppliedAction)
+	}
+	if res.Denorm.Status != identity.MessageStatusReviewRejected {
+		t.Errorf("status = %q, want review_rejected", res.Denorm.Status)
+	}
+	if res.Denorm.ApprovalExpiresAt != nil {
+		t.Errorf("block is terminal — must not set approval_expires_at")
+	}
+}
+
+func TestScreenInbound_GateReviewHolds(t *testing.T) {
+	srv := testScreenServer()
+	agent := scanOnAgent()
+	agent.InboundScan = identity.ScanOff // isolate the gate
+	agent.InboundPolicyAction = "review"
+	agent.HITLTTLSeconds = 3600
+	res := srv.screenInbound(context.Background(), agent, "msg_h3", "stranger@x.com",
+		[]byte("Subject: hi\r\n\r\nhi"), nil,
+		inboundpolicy.Decision{Flagged: true, Reason: "sender not on allowlist"})
+
+	if !res.Hold || res.AppliedAction != piguard.ActionReview {
+		t.Fatalf("gate review must hold, got hold=%v action=%v", res.Hold, res.AppliedAction)
+	}
+	if res.Denorm.Status != identity.MessageStatusPendingReview {
+		t.Errorf("status = %q, want pending_review", res.Denorm.Status)
+	}
+	if res.Denorm.ReviewReason != identity.ReviewReasonSenderGate {
+		t.Errorf("review_reason = %q, want sender_gate", res.Denorm.ReviewReason)
+	}
+}
+
+func TestScreenInbound_GateFlagDelivers(t *testing.T) {
+	srv := testScreenServer()
+	agent := scanOnAgent()
+	agent.InboundScan = identity.ScanOff
+	agent.InboundPolicyAction = "flag" // default → deliver, never hold
+	res := srv.screenInbound(context.Background(), agent, "msg_h4", "stranger@x.com",
+		[]byte("Subject: hi\r\n\r\nhi"), nil,
+		inboundpolicy.Decision{Flagged: true, Reason: "sender not on allowlist"})
+
+	if res.Hold {
+		t.Errorf("gate flag must not hold")
+	}
+	if res.Denorm.Status != "" {
+		t.Errorf("delivered message must have empty review status, got %q", res.Denorm.Status)
+	}
+}

@@ -379,8 +379,11 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// email.flagged (decision 10): fired in addition to email.received when the
 	// ingestion policy didn't match, so operators get a signal that this message
 	// is untrusted. Deterministic id keeps MTA retries idempotent.
+	// email.flagged fires for a delivered gate-flag. When the message is HELD
+	// (review/block), delivery is suppressed and email.injection_detected carries
+	// the signal instead, so don't also fire email.flagged.
 	var flaggedEvent *webhookpub.Event
-	if policyDecision.Flagged {
+	if policyDecision.Flagged && !screenRes.Hold {
 		fe := webhookpub.NewEvent(webhookpub.EventEmailFlagged, agent.UserID, map[string]interface{}{
 			"message_id":      messageID,
 			"conversation_id": conversationID,
@@ -409,7 +412,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// message. Carries the score, applied action, and categories. Deterministic id
 	// keeps MTA retries idempotent, mirroring email.flagged.
 	var injectionEvent *webhookpub.Event
-	if screenRes.Detected {
+	if screenRes.Emit() {
 		ie := webhookpub.NewEvent(webhookpub.EventEmailInjectionDetected, agent.UserID, map[string]interface{}{
 			"message_id":      messageID,
 			"conversation_id": conversationID,
@@ -469,8 +472,12 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 			if txErr != nil {
 				return txErr
 			}
-			if txErr = s.relay.outbox.PublishTx(ctx, tx, event); txErr != nil {
-				return txErr
+			// Held messages (review/block) are persisted but NOT delivered — suppress
+			// the email.received push (the agent only ever sees released messages).
+			if !screenRes.Hold {
+				if txErr = s.relay.outbox.PublishTx(ctx, tx, event); txErr != nil {
+					return txErr
+				}
 			}
 			if flaggedEvent != nil {
 				if txErr = s.relay.outbox.PublishTx(ctx, tx, *flaggedEvent); txErr != nil {
@@ -534,7 +541,10 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// MTA sees 4xx — out of scope for the C3 dedup fix; tracked
 	// separately.
 	if s.relay.publisher != nil && (s.relay.outbox == nil || !s.relay.outbox.Enabled()) {
-		go s.relay.publisher.Publish(context.Background(), event)
+		// Held messages are not delivered — suppress the email.received push.
+		if !screenRes.Hold {
+			go s.relay.publisher.Publish(context.Background(), event)
+		}
 		if flaggedEvent != nil {
 			go s.relay.publisher.Publish(context.Background(), *flaggedEvent)
 		}
@@ -547,7 +557,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// /v1/webhooks subscriber resource (driven by the publisher above)
 	// is the durable push path; WS is an opportunistic live-tail on top
 	// of it, available to every agent regardless of how it's configured.
-	if s.relay.hub != nil && s.relay.hub.IsConnected(agent.ID) {
+	if s.relay.hub != nil && !screenRes.Hold && s.relay.hub.IsConnected(agent.ID) {
 		notification := buildWSNotification(inboundMsg)
 		if s.relay.hub.Send(agent.ID, notification) {
 			log.Printf("[mail:%s] ws_notify=sent slug=%s", messageID, slug)
