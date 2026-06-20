@@ -30,15 +30,9 @@ func readyzHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			writeNotReady(w, "database unreachable")
 			return
 		}
-		if latest != "" {
-			var applied bool
-			err := pool.QueryRow(ctx,
-				`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE filename = $1)`, latest,
-			).Scan(&applied)
-			if err != nil || !applied {
-				writeNotReady(w, "migrations not applied")
-				return
-			}
+		if applied, err := latestMigrationApplied(ctx, pool, latest); err != nil || !applied {
+			writeNotReady(w, "migrations not applied")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -50,6 +44,20 @@ func writeNotReady(w http.ResponseWriter, reason string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusServiceUnavailable)
 	fmt.Fprintf(w, `{"status":"not_ready","reason":%q}`, reason)
+}
+
+// latestMigrationApplied reports whether the given migration filename is
+// recorded in schema_migrations. An empty filename (no embedded migrations)
+// trivially counts as applied.
+func latestMigrationApplied(ctx context.Context, pool *pgxpool.Pool, latest string) (bool, error) {
+	if latest == "" {
+		return true, nil
+	}
+	var applied bool
+	err := pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE filename = $1)`, latest,
+	).Scan(&applied)
+	return applied, err
 }
 
 // latestMigration returns the highest-sorted embedded migration filename (e.g.
