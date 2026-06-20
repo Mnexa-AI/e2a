@@ -13,6 +13,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/selftest"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
+	"github.com/Mnexa-AI/e2a/migrations"
 )
 
 func TestSeedProbe_ProvisionsSystemAccountIdempotently(t *testing.T) {
@@ -166,4 +167,86 @@ func TestHandleMetrics_NoRuns(t *testing.T) {
 
 func itoa(n int64) string {
 	return strconv.FormatInt(n, 10)
+}
+
+func TestRequireRunConfig(t *testing.T) {
+	if err := requireRunConfig(config{}); err == nil {
+		t.Error("empty config should be rejected")
+	}
+	full := config{BaseURL: "http://x", SMTPAddr: "x:25", AgentEmail: "a@x", APIKey: "k", WebhookSecret: "s"}
+	if err := requireRunConfig(full); err != nil {
+		t.Errorf("complete config rejected: %v", err)
+	}
+	// Missing one field is still rejected and names it.
+	missing := full
+	missing.APIKey = ""
+	if err := requireRunConfig(missing); err == nil || !strings.Contains(err.Error(), "E2A_PROBE_API_KEY") {
+		t.Errorf("missing API key: err = %v, want it named", err)
+	}
+}
+
+// TestRunOnce_RecordsFailure drives a real runOnce against a server that fails
+// every request and confirms the failure flows through to the ring, /status
+// (healthy=false), and /metrics (success 0) — the signals the deploy bake-gate
+// and monitor consume.
+func TestRunOnce_RecordsFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	p := newProber(config{
+		BaseURL: srv.URL, SMTPAddr: "127.0.0.1:1", AgentEmail: "agent@probe.test",
+		APIKey: "k", WebhookSecret: "s", Timeout: 200 * time.Millisecond,
+	})
+	r := p.runOnce(context.Background())
+	if r.OK {
+		t.Fatal("runOnce against a 500 server should not be OK")
+	}
+	if len(p.ring) != 1 {
+		t.Fatalf("ring has %d runs, want 1", len(p.ring))
+	}
+
+	// /status reflects unhealthy, zero consecutive green.
+	rec := httptest.NewRecorder()
+	p.handleStatus(rec, httptest.NewRequest(http.MethodGet, "/status?since=0", nil))
+	var st struct {
+		ConsecutiveGreen int  `json:"consecutive_green"`
+		Healthy          bool `json:"healthy"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &st)
+	if st.Healthy || st.ConsecutiveGreen != 0 {
+		t.Errorf("status: healthy=%v consecutive_green=%d, want false/0", st.Healthy, st.ConsecutiveGreen)
+	}
+
+	// /metrics reports the failed run.
+	rec2 := httptest.NewRecorder()
+	p.handleMetrics(rec2, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if !strings.Contains(rec2.Body.String(), "e2a_selftest_success 0") {
+		t.Errorf("metrics missing success 0:\n%s", rec2.Body.String())
+	}
+}
+
+func TestCmdValidate_Failures(t *testing.T) {
+	ctx := context.Background()
+
+	// Missing agent email → rejected before any DB work.
+	if err := cmdValidate(ctx, config{}); err == nil {
+		t.Error("validate without agent email should fail")
+	}
+
+	// DB reachable + migrations recorded, but the probe identity is absent.
+	// RunMigrations populates schema_migrations (testutil applies DDL only) so
+	// cmdValidate's migrations-applied check passes and reaches the identity check.
+	pool := testutil.TestDB(t)
+	if err := identity.RunMigrations(ctx, pool, migrations.FS, identity.ModeAuto); err != nil {
+		t.Fatalf("record migrations: %v", err)
+	}
+	err := cmdValidate(ctx, config{
+		DatabaseURL: testutil.TestDBURL(),
+		AgentEmail:  "missing@nowhere.test",
+	})
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Errorf("validate with missing identity: err = %v, want a not-found error", err)
+	}
 }

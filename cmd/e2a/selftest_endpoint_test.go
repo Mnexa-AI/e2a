@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/Mnexa-AI/e2a/internal/testutil"
 )
 
 // listeningAddr returns a TCP address with a socket in the listen state (closed
@@ -35,7 +33,7 @@ func decodeSelftest(t *testing.T, body []byte) (string, map[string]any) {
 }
 
 func TestSelftestHandler_AllPass(t *testing.T) {
-	pool := testutil.TestDB(t)
+	pool := migratedTestDB(t)
 	h := selftestHandler(pool, listeningAddr(t), "" /* no auth */, true /* dev */)
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/selftest", nil))
@@ -58,7 +56,7 @@ func TestSelftestHandler_AllPass(t *testing.T) {
 }
 
 func TestSelftestHandler_SMTPDown(t *testing.T) {
-	pool := testutil.TestDB(t)
+	pool := migratedTestDB(t)
 	// 127.0.0.1:1 — nothing listening → dial fails.
 	h := selftestHandler(pool, "127.0.0.1:1", "", true /* dev */)
 	rec := httptest.NewRecorder()
@@ -74,7 +72,7 @@ func TestSelftestHandler_SMTPDown(t *testing.T) {
 }
 
 func TestSelftestHandler_AuthGate(t *testing.T) {
-	pool := testutil.TestDB(t)
+	pool := migratedTestDB(t)
 	const secret = "topsecret"
 	h := selftestHandler(pool, listeningAddr(t), secret, false /* prod */)
 
@@ -100,7 +98,7 @@ func TestSelftestHandler_AuthGate(t *testing.T) {
 // diagnostics unauthenticated in production — it fails closed (503), matching
 // the /api/internal/* convention. In development the same config stays open.
 func TestSelftestHandler_ProdNoSecretFailsClosed(t *testing.T) {
-	pool := testutil.TestDB(t)
+	pool := migratedTestDB(t)
 	addr := listeningAddr(t)
 
 	prod := selftestHandler(pool, addr, "" /* no secret */, false /* prod */)
