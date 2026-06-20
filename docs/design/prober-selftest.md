@@ -2,10 +2,26 @@
 
 | | |
 |---|---|
-| **Status** | Proposed (2026-06-20) |
+| **Status** | Partially implemented (2026-06-20) — main-repo slices landed; ops slices + deferrals below |
 | **Spans** | `e2a` (Go backend) + `e2a-ops` (deploy/infra) |
 | **Risk** | MEDIUM — touches metering/billing gate, outbound send wiring, and the prod deploy gate; must not pollute usage/analytics, send real mail, or email agent owners |
-| **GA scope** | account-class gate + `Sender` interface + `scenarios`/`selftest` package + `cmd/e2a-prober` + fail-safe bake-gate. The `e2a` `/metrics` 5xx signal is a fast-follow. |
+| **GA scope** | account-class gate + `scenarios`/`selftest` package + `cmd/e2a-prober` + `/readyz` + `/selftest` + fail-safe bake-gate. The `e2a` `/metrics` 5xx signal is a fast-follow. |
+
+## Implementation status (as built)
+
+Landed on `design/prober-selftest` (main repo), each slice committed + verified:
+
+- **Slice 1 — account-class metering gate.** `migrations/037_account_class.sql` (`users.account_class`), `usage.PolicyFor` + gate in `RecordAndCheck`. Verified: zero `usage_events` for a `system` account, in-process and over the wire.
+- **Slice 3a — `internal/selftest`.** The `[]Scenario` battery (liveness, auth read, inbound SMTP→webhook + HMAC, self-send loopback) + `HTTPSink`. Verified against a real in-process server.
+- **Slice 3b — `cmd/e2a-prober`.** `seed`/`validate`/`run-once`/`serve` (+ `/sink` `/healthz` `/metrics` `/status`). Verified over the wire against the real `e2a` binary.
+- **Slice 3c — `/readyz`** (DB + migrations-applied) and **`/selftest`** (dependency diagnostics, health+json, auth-gated) on the non-Huma mux.
+
+**Deviations from the original plan (decided during implementation):**
+- **`Sender` interface (D2) deferred.** It rewrites the live SES send path and is not required by the prober (inbound uses the real listener; outbound uses loopback). Tracked as an optional, separately-reviewed follow-up.
+- **In-server `/selftest` is dependency-diagnostics, not the full round-trip.** Implementation revealed the full in-server round-trip would require injecting probe credentials into the server's env (unrecoverable from the DB) and an HTTPS exemption in the webhook deliverer for the internal sink. The full round-trip already lives in the external `e2a-prober` (verified), so `/selftest` does deep dependency checks instead. See §D3.
+- **Ops slices 4 & 5 (compose service, `deploy.yml` bake-gate) not yet landed** — config-only, not deploy-verifiable in this environment.
+
+**Known follow-up (prod wiring):** the webhook subscriber deliverer requires HTTPS in production, but the prober's internal sink is plain HTTP — the ops wiring needs a deliverer exemption (or TLS) for the internal sink before the round-trip works against prod.
 
 ## Problem
 
