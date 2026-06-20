@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { simpleParser } from "mailparser";
+import { E2AError } from "@e2a/sdk/v1";
 import type { McpClient } from "../src/client.js";
 import { buildServer } from "../src/server.js";
 import { assertToolTiersComplete, toolNamesForScope, RUNTIME_TOOLS } from "../src/tools/tiers.js";
@@ -990,5 +991,51 @@ describe("e2a MCP server", () => {
     expect(res.isError).toBe(true);
     const content = res.content as Array<{ type: string; text: string }>;
     expect(content[0]?.text).toMatch(/domain not verified/);
+  });
+
+  // §6a #4 — surface the API envelope's machine-branchable `code`.
+  it("surfaces the structured error code from an E2AError", async () => {
+    (stub.send as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new E2AError({
+        code: "domain_not_verified",
+        message: "the sending domain is not verified",
+        status: 403,
+        retryable: false,
+      }),
+    );
+    const res = await client.callTool({
+      name: "send_message",
+      arguments: { to: ["x@example.com"], subject: "s", body: "b" },
+    });
+    expect(res.isError).toBe(true);
+    const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
+    expect(text).toContain("[domain_not_verified]"); // branchable code
+    expect(text).toContain("the sending domain is not verified");
+    expect(text).not.toContain("(retryable)"); // non-retryable
+  });
+
+  it("flags retryable E2AErrors so the agent knows a retry can help", async () => {
+    (stub.send as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new E2AError({ code: "rate_limited", message: "slow down", status: 429, retryable: true }),
+    );
+    const res = await client.callTool({
+      name: "send_message",
+      arguments: { to: ["x@example.com"], subject: "s", body: "b" },
+    });
+    const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
+    expect(text).toContain("[rate_limited]");
+    expect(text).toContain("(retryable)");
+  });
+
+  it("non-E2AError (wrapper) errors stay prose with no bogus code bracket", async () => {
+    // e.g. the wrapper's "email is required" — a plain Error, not from the API.
+    (stub.send as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("email is required"));
+    const res = await client.callTool({
+      name: "send_message",
+      arguments: { to: ["x@example.com"], subject: "s", body: "b" },
+    });
+    const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
+    expect(text).toBe("e2a error: email is required");
+    expect(text).not.toMatch(/\[.*\]/); // no fabricated code bracket
   });
 });

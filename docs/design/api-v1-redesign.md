@@ -957,10 +957,13 @@ review diligence — a #206-style omission can't merge.
 >   (403 for agent-scoped); the human magic-link flow is a separate token-gated
 >   handler and is unaffected. **#2 tool annotations ✅ done**
 >   (`readOnlyHint`/`destructiveHint`/`idempotentHint` on every tool); **#4
->   structured error `code`, #5 attachment download-URL, #7 idempotency-key on
->   create tools — still PENDING** (not in GA). #3 (one pagination shape) is
->   partial: the SDK AutoPager normalizes cursors, but MCP tool schemas still
->   expose `token`/`page_size`.
+>   structured error `code` ✅ done** (`runTool` surfaces the API envelope's
+>   machine code in the tool error text — `e2a error [domain_not_verified]: …`,
+>   with a `(retryable)` hint — so agents branch on a code, not prose; wrapper
+>   errors with no code stay plain); **#5 attachment download-URL, #7
+>   idempotency-key on create tools — still PENDING** (not in GA). #3 (one
+>   pagination shape) is partial: the SDK AutoPager normalizes cursors, but MCP
+>   tool schemas still expose `token`/`page_size`.
 >
 >   Scope-gating note: gating is a decision-space/UX optimization, not the
 >   security boundary — the backend enforces scope per-handler (the OAuth/WS
