@@ -1237,6 +1237,7 @@ func (s *Store) GetInboundByEmailMessageID(ctx context.Context, agentID, emailMe
 		   AND direction = 'inbound'
 		   AND email_message_id = $2
 		   AND expires_at > now()
+		   AND status NOT IN (`+heldInboundStatuses+`)
 		 ORDER BY created_at DESC LIMIT 1`,
 		agentID, emailMessageID,
 	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.RawMessage, &authHeaders, &m.CreatedAt, &m.ExpiresAt)

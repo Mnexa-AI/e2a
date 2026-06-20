@@ -107,8 +107,8 @@ func TestInboundReview_HeldUnreachableByAllReadPaths(t *testing.T) {
 		Status: identity.MessageStatusPendingReview, ScanAction: "review",
 		ReviewReason: identity.ReviewReasonInboundScan, ApprovalExpiresAt: &exp,
 	})
-	if _, err := pool.Exec(ctx, `UPDATE messages SET conversation_id='conv_held' WHERE id=$1`, heldID); err != nil {
-		t.Fatalf("set conversation_id: %v", err)
+	if _, err := pool.Exec(ctx, `UPDATE messages SET conversation_id='conv_held', email_message_id='<held@evil.test>' WHERE id=$1`, heldID); err != nil {
+		t.Fatalf("set conversation_id/email_message_id: %v", err)
 	}
 
 	if _, err := store.GetMessageWithContent(ctx, heldID, agentID); err == nil {
@@ -116,6 +116,11 @@ func TestInboundReview_HeldUnreachableByAllReadPaths(t *testing.T) {
 	}
 	if _, err := store.GetInboundMessage(ctx, heldID); err == nil {
 		t.Errorf("GetInboundMessage returned a held message (fail-open)")
+	}
+	// The reply-by-RFC-Message-ID path (agent reply with ReplyToMessageID) must
+	// also refuse a held message.
+	if _, err := store.GetInboundByEmailMessageID(ctx, agentID, "<held@evil.test>"); err == nil {
+		t.Errorf("GetInboundByEmailMessageID returned a held message (fail-open)")
 	}
 	if conv, err := store.GetConversationByID(ctx, agentID, "conv_held"); err == nil && conv != nil {
 		for _, m := range conv.Messages {
