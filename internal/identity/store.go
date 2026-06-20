@@ -2852,6 +2852,16 @@ func (s *Store) CreateOrGetUser(ctx context.Context, email, name, googleSub stri
 	return u, nil
 }
 
+// SetAccountClass sets a user's account_class (standard|internal|system|demo).
+// Used by the prober's seed to mark the synthetic probe account as system so its
+// traffic is never metered (see usage.PolicyFor). The CHECK constraint in
+// migration 037 rejects any other value.
+func (s *Store) SetAccountClass(ctx context.Context, userID, class string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE users SET account_class = $2 WHERE id = $1`, userID, class)
+	return err
+}
+
 // BootstrapUser finds a user by email, or creates one with a synthetic
 // google_subject if none exists. Used by the -bootstrap-email CLI flag
 // for self-host first-run, where there's no Google OAuth flow yet.
