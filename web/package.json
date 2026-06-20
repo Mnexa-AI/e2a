@@ -14,7 +14,7 @@
     "test": "jest"
   },
   "dependencies": {
-    "next": "^16.2.7",
+    "next": "^16.2.9",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "swr": "^2.4.1"
@@ -22,7 +22,7 @@
   "devDependencies": {
     "@mdx-js/loader": "^3.1.1",
     "@mdx-js/react": "^3.1.1",
-    "@next/mdx": "^16.2.7",
+    "@next/mdx": "^16.2.9",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -33,7 +33,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.7",
+    "eslint-config-next": "16.2.9",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
     "tailwindcss": "^4",
