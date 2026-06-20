@@ -383,6 +383,15 @@ func main() {
 
 	api.RegisterRoutes(router)
 
+	// /readyz — instance-local readiness (DB reachable + migrations applied).
+	// Distinct from /api/health (shallow liveness); operational, not part of the
+	// /v1 contract, so it lives on this mux and never enters api/openapi.yaml.
+	router.HandleFunc("/readyz", readyzHandler(pool)).Methods(http.MethodGet)
+	// /selftest — deep dependency diagnostics (health+json), auth-gated by the
+	// internal API secret. Operational, not part of the /v1 contract. The full
+	// SMTP→webhook round-trip lives in the external e2a-prober, not here.
+	router.HandleFunc("/selftest", selftestHandler(pool, cfg.SMTP.ListenAddr, cfg.Limits.InternalAPISecret, !cfg.IsProduction())).Methods(http.MethodGet)
+
 	// Public SES-over-SNS delivery notifications endpoint (decision 9 / Slice
 	// 4b). Fail-closed: the SNS signature is verified and the TopicArn must be
 	// in the configured allow-list (empty allow-list → every message is
