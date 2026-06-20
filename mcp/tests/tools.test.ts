@@ -250,22 +250,24 @@ describe("e2a MCP server", () => {
     expect(tools).toHaveLength(35);
   });
 
-  it("agent scope exposes only the 16 runtime tools — admin tools hidden", async () => {
+  it("agent scope exposes only the 14 runtime tools — admin tools hidden", async () => {
     const ag = await connect(makeStubClient({ scope: "agent" }));
     const names = new Set((await ag.listTools()).tools.map((t) => t.name));
-    expect(names.size).toBe(16);
-    // Runtime tools present:
+    expect(names.size).toBe(14);
+    // Runtime tools present (an agent can send + read its own pending queue,
+    // but NOT approve/reject — that's an account-owner action, see below):
     for (const n of [
       "whoami", "list_agents", "get_agent", "list_messages", "get_message",
       "get_attachment", "update_message_labels", "list_conversations",
       "get_conversation", "send_message", "reply_to_message", "forward_message",
-      "approve_message", "reject_message", "list_pending_messages", "get_pending_message",
+      "list_pending_messages", "get_pending_message",
     ]) {
       expect(names.has(n), `runtime tool ${n} should be visible to agent scope`).toBe(true);
     }
-    // Admin tools hidden:
+    // Admin tools hidden — incl. approve/reject: self-approval would defeat HITL.
     for (const n of [
       "create_agent", "update_agent", "delete_agent",
+      "approve_message", "reject_message",
       "list_domains", "get_domain", "register_domain", "verify_domain", "delete_domain",
       "list_webhooks", "get_webhook", "create_webhook", "update_webhook",
       "delete_webhook", "rotate_webhook_secret", "test_webhook", "list_webhook_deliveries",

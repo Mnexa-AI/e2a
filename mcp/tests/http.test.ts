@@ -312,11 +312,14 @@ describe("HTTP MCP server", () => {
 
     const { client, transport } = await connect();
     const names = new Set((await client.listTools()).tools.map((t) => t.name));
-    expect(names.size).toBe(16);
+    expect(names.size).toBe(14);
     expect(names.has("send_message")).toBe(true); // runtime present
     expect(names.has("create_agent")).toBe(false); // admin hidden
     expect(names.has("delete_domain")).toBe(false);
     expect(names.has("list_webhooks")).toBe(false);
+    // approve/reject are account-scope (self-approval would defeat HITL).
+    expect(names.has("approve_message")).toBe(false);
+    expect(names.has("reject_message")).toBe(false);
     await transport.close();
   });
 

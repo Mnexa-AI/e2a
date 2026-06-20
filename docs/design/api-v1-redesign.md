@@ -947,9 +947,14 @@ review diligence — a #206-style omission can't merge.
 >   **not** built.
 > - **Recommended design updates status:** #8 (vocabulary) ✅ done; #6 (fold
 >   deliveries) ✅ rejected (see above); **#1 scope/tier-gating ✅ done** (agent
->   scope → 16 runtime tools, account → all 35; gated at one seam in
+>   scope → 14 runtime tools, account → all 35; gated at one seam in
 >   `server.ts` off the credential scope resolved by `whoami` at session init —
->   the tier map is `mcp/src/tools/tiers.ts`); **#2 tool annotations ✅ done**
+>   the tier map is `mcp/src/tools/tiers.ts`). **Correction to the runtime-tier
+>   list in the prose below:** `approve_message`/`reject_message` are **admin
+>   (account-scope), not runtime** — letting the gated agent approve its own held
+>   outbound is self-approval and defeats HITL. Backend account-scope enforcement
+>   on the approve/reject handlers is tracked in the HITL + message-screening
+>   workstream. **#2 tool annotations ✅ done**
 >   (`readOnlyHint`/`destructiveHint`/`idempotentHint` on every tool); **#4
 >   structured error `code`, #5 attachment download-URL, #7 idempotency-key on
 >   create tools — still PENDING** (not in GA). #3 (one pagination shape) is
