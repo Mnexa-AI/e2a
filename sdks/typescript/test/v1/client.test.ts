@@ -248,7 +248,7 @@ describe("E2AClient", () => {
 
   // ── listen() ────────────────────────────────────────────────────
 
-  it("listen() requires an address (arg or E2A_AGENT_EMAIL)", () => {
-    expect(() => client.listen()).toThrow(/agentEmail is required/);
+  it("listen() requires an email", () => {
+    expect(() => client.listen("")).toThrow(/email is required/);
   });
 });

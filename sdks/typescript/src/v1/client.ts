@@ -153,22 +153,21 @@ export class E2AClient {
 
   /**
    * Open a notification stream for an agent's inbox. Yields lightweight
-   * {@link WSNotification}s; fetch the body with `client.messages.get(address, id)`
-   * when you need it. `address` falls back to `E2A_AGENT_EMAIL`.
+   * {@link WSNotification}s; fetch the body with `client.messages.get(email, id)`
+   * when you need it.
    *
    *     for await (const n of client.listen("bot@acme.dev")) { ... }
    */
-  listen(address?: string): WSStream {
-    const target = address ?? envVar("E2A_AGENT_EMAIL");
-    if (!target) {
+  listen(email: string): WSStream {
+    if (!email) {
       throw new E2AError({
-        code: "missing_address",
-        message: "agentEmail is required — pass client.listen(address) or set E2A_AGENT_EMAIL",
+        code: "missing_email",
+        message: "email is required — pass client.listen(email)",
         status: 0,
         retryable: false,
       });
     }
-    return new WSStream({ apiKey: this.apiKey, agentEmail: target, baseUrl: this.baseUrl });
+    return new WSStream({ apiKey: this.apiKey, agentEmail: email, baseUrl: this.baseUrl });
   }
 }
 
@@ -177,22 +176,22 @@ class AgentsResource {
   list(): AutoPager<AgentView> {
     return new AutoPager(async () => ({ items: (await call(() => this.api.listAgents())).items ?? [] }));
   }
-  get(address: string): Promise<AgentView> {
-    return call(() => this.api.getAgent(address));
+  get(email: string): Promise<AgentView> {
+    return call(() => this.api.getAgent(email));
   }
   create(body: CreateAgentRequest): Promise<AgentView> {
     return call(() => this.api.createAgent(body));
   }
-  update(address: string, patch: UpdateAgentRequest): Promise<AgentView> {
-    return call(() => this.api.updateAgent(address, patch));
+  update(email: string, patch: UpdateAgentRequest): Promise<AgentView> {
+    return call(() => this.api.updateAgent(email, patch));
   }
-  async delete(address: string): Promise<void> {
+  async delete(email: string): Promise<void> {
     // The typed .delete() call is itself the confirmation; the ?confirm=DELETE
     // guard exists to protect raw/curl callers (AG-6).
-    await call(() => this.api.deleteAgent(address, "DELETE"));
+    await call(() => this.api.deleteAgent(email, "DELETE"));
   }
-  test(address: string): Promise<SendResultView> {
-    return call(() => this.api.testAgent(address));
+  test(email: string): Promise<SendResultView> {
+    return call(() => this.api.testAgent(email));
   }
 }
 
@@ -212,36 +211,36 @@ export interface ListMessagesParams {
 class MessagesResource {
   constructor(private readonly api: PromiseMessagesApi) {}
 
-  list(address: string, params: ListMessagesParams = {}): AutoPager<MessageSummaryView> {
+  list(email: string, params: ListMessagesParams = {}): AutoPager<MessageSummaryView> {
     return new AutoPager(async (cursor) => {
       const page = await call(() =>
-        this.api.listMessages(address, params.direction, params.read_status, params.sort, params.from,
+        this.api.listMessages(email, params.direction, params.read_status, params.sort, params.from,
           params.subjectContains, params.conversationId, params.labels, params.since, params.until,
           cursor, params.limit),
       );
       return { items: page.items ?? [], next_cursor: page.nextCursor };
     });
   }
-  get(address: string, id: string): Promise<MessageView> {
-    return call(() => this.api.getMessage(address, id));
+  get(email: string, id: string): Promise<MessageView> {
+    return call(() => this.api.getMessage(email, id));
   }
-  send(address: string, body: SendEmailRequest, opts: RequestOptions = {}): Promise<SendResultView> {
-    return call(() => this.api.sendMessage(address, body, opts.idempotencyKey));
+  send(email: string, body: SendEmailRequest, opts: RequestOptions = {}): Promise<SendResultView> {
+    return call(() => this.api.sendMessage(email, body, opts.idempotencyKey));
   }
-  reply(address: string, id: string, body: ReplyRequest, opts: RequestOptions = {}): Promise<SendResultView> {
-    return call(() => this.api.replyToMessage(address, id, body, opts.idempotencyKey));
+  reply(email: string, id: string, body: ReplyRequest, opts: RequestOptions = {}): Promise<SendResultView> {
+    return call(() => this.api.replyToMessage(email, id, body, opts.idempotencyKey));
   }
-  forward(address: string, id: string, body: ForwardRequest, opts: RequestOptions = {}): Promise<SendResultView> {
-    return call(() => this.api.forwardMessage(address, id, body, opts.idempotencyKey));
+  forward(email: string, id: string, body: ForwardRequest, opts: RequestOptions = {}): Promise<SendResultView> {
+    return call(() => this.api.forwardMessage(email, id, body, opts.idempotencyKey));
   }
-  approve(address: string, id: string, body: ApproveRequest = {}, opts: RequestOptions = {}): Promise<SendResultView> {
-    return call(() => this.api.approveMessage(address, id, body, opts.idempotencyKey));
+  approve(email: string, id: string, body: ApproveRequest = {}, opts: RequestOptions = {}): Promise<SendResultView> {
+    return call(() => this.api.approveMessage(email, id, body, opts.idempotencyKey));
   }
-  reject(address: string, id: string, body: RejectRequest = {}): Promise<RejectResultView> {
-    return call(() => this.api.rejectMessage(address, id, body));
+  reject(email: string, id: string, body: RejectRequest = {}): Promise<RejectResultView> {
+    return call(() => this.api.rejectMessage(email, id, body));
   }
-  updateLabels(address: string, id: string, body: UpdateMessageRequest): Promise<UpdateMessageResultView> {
-    return call(() => this.api.updateMessage(address, id, body));
+  updateLabels(email: string, id: string, body: UpdateMessageRequest): Promise<UpdateMessageResultView> {
+    return call(() => this.api.updateMessage(email, id, body));
   }
 }
 
@@ -249,14 +248,14 @@ class ConversationsResource {
   constructor(private readonly api: PromiseConversationsApi) {}
   // Returns an AutoPager for ergonomic consistency with every other `.list()`.
   // Cursor-paginated (CV-3): the AutoPager walks next_cursor to completion.
-  list(address: string, params: { since?: string; until?: string; limit?: number } = {}): AutoPager<ConversationSummaryView> {
+  list(email: string, params: { since?: string; until?: string; limit?: number } = {}): AutoPager<ConversationSummaryView> {
     return new AutoPager(async (cursor) => {
-      const page = await call(() => this.api.listConversations(address, params.since, params.until, cursor, params.limit));
+      const page = await call(() => this.api.listConversations(email, params.since, params.until, cursor, params.limit));
       return { items: page.items ?? [], next_cursor: page.nextCursor };
     });
   }
-  get(address: string, id: string): Promise<ConversationDetailView> {
-    return call(() => this.api.getConversation(address, id));
+  get(email: string, id: string): Promise<ConversationDetailView> {
+    return call(() => this.api.getConversation(email, id));
   }
 }
 
@@ -353,8 +352,8 @@ class SuppressionsResource {
       return { items: page.items ?? [], next_cursor: page.nextCursor };
     });
   }
-  async delete(address: string): Promise<void> {
-    await call(() => this.api.deleteSuppression(address));
+  async delete(email: string): Promise<void> {
+    await call(() => this.api.deleteSuppression(email));
   }
 }
 

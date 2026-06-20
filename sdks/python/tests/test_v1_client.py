@@ -227,10 +227,10 @@ async def test_retries_500_then_succeeds(httpx_mock):
 
 # ── listen() ────────────────────────────────────────────────────────
 
-def test_listen_requires_address():
+def test_listen_requires_email():
     c = _client()
-    with pytest.raises(E2AError, match="address is required"):
-        c.listen()
+    with pytest.raises(E2AError, match="email is required"):
+        c.listen("")
 
 
 @pytest.mark.anyio

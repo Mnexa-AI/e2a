@@ -157,8 +157,20 @@ required) and deeper tool-surface decisions (MCP/CLI still send `slug`/
 `agent_mode` on create; `send_email`/`approve_pending_message` tool names; etc.).
 This is the round the design (§13) already tracks as pending.
 
-_(Phase-2 SDK walkthrough — the interface review against the frozen spec —
-resumes next.)_
+### Phase-2 SDK walkthrough (done)
+
+**Generated layers — reviewed, strong, no changes:**
+- TS: camelCase, `Date` for `date-time`, typed `ApiException<ErrorEnvelope>` (`error.code`/`requestId` typed), all reshaped models present (`SendResultView`, `AuthVerdict`, `CreateWebhookResponse`; `ApproveResultView` gone).
+- Python: snake_case, `from`→`var_from` alias round-trips, `datetime` for date-time, enum fields are plain `StrictStr` post-strip (forward-compat-tolerant + ergonomic).
+
+**Decisions:**
+- **HL-1 ✅** rename hand-layer agent param `address`→`email` (both SDKs) — every email-address param is now `email`. *(Note: BSD `sed` ignores `\b`; used `perl`.)*
+- **HL-2 ✅** drop the `E2A_AGENT_EMAIL` `listen()` env fallback — `listen(email)` now requires an explicit email (matches §9a: the credential resolves the agent; no default-agent env). Tests updated.
+- **HL-3 — accepted:** Python stays **async-only** for GA (a sync client is a possible post-GA add).
+- **TS-1 — accepted + documented:** keep generated TS string `enum`s (not unions). Forward-compat is safe — `ObjectSerializer` returns unknown enum values verbatim (no throw). The only nuance is comparing a returned enum field to a raw string literal needs the enum member; agent-facing *input* params already use friendly unions. A union-generation transform was judged not worth the pipeline fragility for GA.
+- **F5 — deferred (roadmap, S2):** inbound `.parse()`/`.reply()` helper + typed `WebhookEvent.data` payloads. `constructEvent` + HMAC verify already ship.
+
+Both SDKs green: TS 84 tests, Python 131 tests.
 
 ## Phase 3 — MCP
 

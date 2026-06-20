@@ -61,15 +61,9 @@ describe("WSListener exponential backoff", () => {
 });
 
 describe("E2AClient.listen()", () => {
-  it("requires agentEmail at point of use", async () => {
-    const prev = process.env.E2A_AGENT_EMAIL;
-    delete process.env.E2A_AGENT_EMAIL;
-    try {
-      const { E2AClient } = await import("../../src/v1/client.js");
-      const c = new E2AClient({ apiKey: "k" });
-      expect(() => c.listen()).toThrow(/agentEmail is required/);
-    } finally {
-      if (prev !== undefined) process.env.E2A_AGENT_EMAIL = prev;
-    }
+  it("requires an email at point of use", async () => {
+    const { E2AClient } = await import("../../src/v1/client.js");
+    const c = new E2AClient({ apiKey: "k" });
+    expect(() => c.listen("")).toThrow(/email is required/);
   });
 });
