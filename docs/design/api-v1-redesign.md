@@ -946,11 +946,19 @@ review diligence — a #206-style omission can't merge.
 >   the dedicated `…/attachments/{index}` endpoint + signed-URL idea (update #5) was
 >   **not** built.
 > - **Recommended design updates status:** #8 (vocabulary) ✅ done; #6 (fold
->   deliveries) ✅ rejected (see above); **#1 scope/tier-gating, #2 tool annotations,
->   #4 structured error `code`, #5 attachment download-URL, #7 idempotency-key on
->   create tools — all PENDING** (not in GA). #3 (one pagination shape) is partial:
->   the SDK AutoPager normalizes cursors, but MCP tool schemas still expose
->   `token`/`page_size`.
+>   deliveries) ✅ rejected (see above); **#1 scope/tier-gating ✅ done** (agent
+>   scope → 16 runtime tools, account → all 35; gated at one seam in
+>   `server.ts` off the credential scope resolved by `whoami` at session init —
+>   the tier map is `mcp/src/tools/tiers.ts`); **#2 tool annotations ✅ done**
+>   (`readOnlyHint`/`destructiveHint`/`idempotentHint` on every tool); **#4
+>   structured error `code`, #5 attachment download-URL, #7 idempotency-key on
+>   create tools — still PENDING** (not in GA). #3 (one pagination shape) is
+>   partial: the SDK AutoPager normalizes cursors, but MCP tool schemas still
+>   expose `token`/`page_size`.
+>
+>   Scope-gating note: gating is a decision-space/UX optimization, not the
+>   security boundary — the backend enforces scope per-handler (the OAuth/WS
+>   scope fix, PR #251), so a mis-listed tool is never load-bearing.
 >
 > The drift-gate mapping (tool → `operationId`) is authoritative for the live
 > surface; the tables below are kept for design rationale.

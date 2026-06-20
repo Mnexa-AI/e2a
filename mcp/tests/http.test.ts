@@ -289,6 +289,37 @@ describe("HTTP MCP server", () => {
     await transport.close();
   });
 
+  it("over the wire, an agent-scoped session lists only the runtime tier", async () => {
+    // End-to-end scope-gating across the real Streamable-HTTP transport: a
+    // session whose whoami reports agent scope sees the 16 runtime tools and
+    // none of the admin tools — proven over JSON-RPC, not just in-process.
+    await close();
+    const agentStub = makeStubClient();
+    (agentStub as { scope: string }).scope = "agent";
+    agentStub.whoami = vi.fn(async () => ({
+      user: "owner@example.com",
+      scope: "agent",
+      agentAddress: "bot@example.com",
+    })) as McpClient["whoami"];
+    const { close: c, port } = await startHttpServer(0, {
+      baseUrl: "http://e2a.local",
+      allowedHosts: ["127.0.0.1", "localhost"],
+      // Factory returns the agent-scoped stub for both probe and final make().
+      clientFactory: () => agentStub,
+    });
+    close = c;
+    url = `http://127.0.0.1:${port}/mcp`;
+
+    const { client, transport } = await connect();
+    const names = new Set((await client.listTools()).tools.map((t) => t.name));
+    expect(names.size).toBe(16);
+    expect(names.has("send_message")).toBe(true); // runtime present
+    expect(names.has("create_agent")).toBe(false); // admin hidden
+    expect(names.has("delete_domain")).toBe(false);
+    expect(names.has("list_webhooks")).toBe(false);
+    await transport.close();
+  });
+
   describe("session-init scope + agent resolution", () => {
     // buildSessionClient resolves the credential's scope and bound agent from
     // whoami (GET /account): agent scope pins the bound agent (whoami

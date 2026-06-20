@@ -114,16 +114,21 @@ Hosts that support OAuth connectors can instead add `https://api.e2a.dev/mcp` as
 
 ## Tools
 
-The server registers **33** tools spanning agents, messages, human-in-the-loop
-approval, attachments, domains, events, and webhooks. The tables below highlight
-the most commonly used ones — your MCP host's tool list shows the full set with
-per-tool descriptions.
+The server exposes up to **35** tools spanning agents, messages, human-in-the-loop
+approval, attachments, domains, events, and webhooks. **The visible set depends on
+your credential's scope (§6a):** an **agent**-scoped credential sees the ~16
+runtime/inbox tools (read, send, reply, approve); an **account**-scoped credential
+also sees the admin/setup tools (agent/domain/webhook/event management) — all 35.
+Every tool carries MCP annotations (`readOnlyHint`/`destructiveHint`/
+`idempotentHint`) so hosts can auto-approve reads and flag destructive actions.
+The tables below highlight the most commonly used ones — your MCP host's tool list
+shows the set your scope allows, with per-tool descriptions.
 
 ### Identity
 
 | Tool | Description |
 | --- | --- |
-| `whoami` | Get the calling agent's full record (resolved from an agent-scoped credential). |
+| `whoami` | Get the authenticated account's identity — user, scope, plan/limits; for an agent-scoped credential, also the bound agent address. |
 | `list_agents` | List every agent inbox owned by the authenticated user. |
 | `create_agent` | Register a new inbox using a slug on the shared domain. Defaults to `local` mode — no webhook required. See note below for cloud mode. |
 
