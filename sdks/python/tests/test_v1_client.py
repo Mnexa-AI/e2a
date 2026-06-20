@@ -17,7 +17,13 @@ from e2a.v1.errors import (
 )
 from e2a.v1.generated.models import (
     AgentView,
+    ConversationSummaryView,
+    DomainView,
+    EventJSON,
     MessageSummaryView,
+    Suppression,
+    WebhookDeliveryView,
+    WebhookView,
 )
 
 BASE = "http://test.local"
@@ -30,6 +36,9 @@ _DT = datetime(2026, 6, 18, tzinfo=timezone.utc)
 # a real, deserializable server object rather than a stub.
 _REQUIRED_DEFAULTS = {
     "created_at": _DT,
+    "first_message_at": _DT,
+    "last_message_at": _DT,
+    "next_retry_at": _DT,
     "domain": "test.dev",
     "domain_verified": True,
     "email": "x@test.dev",
@@ -61,18 +70,27 @@ def _dummy(ann):
         return 0.0
     if "List" in s or "list" in s:
         return []
+    if "Dict" in s or "dict" in s or "Mapping" in s:
+        return {}
     return ""
 
 
 def _valid(model_cls, **overrides):
     """Construct a REAL model (valid by construction) and dump it to wire JSON —
-    the Go server always returns full objects, so fixtures should too."""
+    the Go server always returns full objects, so fixtures should too. Recurses
+    into nested model fields (e.g. DomainView.dns_records) so deep views work."""
+    from pydantic import BaseModel as _BaseModel
+
     kwargs = {}
     for name, field in model_cls.model_fields.items():
         if name in overrides:
             kwargs[name] = overrides[name]
         elif field.is_required():
-            kwargs[name] = _REQUIRED_DEFAULTS.get(name, _dummy(field.annotation))
+            ann = field.annotation
+            if isinstance(ann, type) and issubclass(ann, _BaseModel):
+                kwargs[name] = _valid(ann)
+            else:
+                kwargs[name] = _REQUIRED_DEFAULTS.get(name, _dummy(field.annotation))
     inst = model_cls(**kwargs)
     return inst.model_dump(by_alias=True, mode="json")
 
@@ -178,6 +196,91 @@ async def test_messages_list_threads_cursor(httpx_mock):
     reqs = httpx_mock.get_requests()
     assert len(reqs) == 2
     assert "cursor=cur_2" in str(reqs[1].url)
+
+
+# ── pagination: cursor-walking endpoints ────────────────────────────
+# messages/conversations/events/suppressions take a `cursor` query param; the
+# AutoPager must replay next_cursor until the server returns null, threading the
+# cursor on each follow-up request. (messages is covered above.)
+
+
+@pytest.mark.anyio
+async def test_conversations_list_threads_cursor(httpx_mock):
+    httpx_mock.add_response(
+        json={"items": [_valid(ConversationSummaryView, conversation_id="conv_1")], "next_cursor": "cur_2"}
+    )
+    httpx_mock.add_response(
+        json={"items": [_valid(ConversationSummaryView, conversation_id="conv_2")], "next_cursor": None}
+    )
+    async with _client() as c:
+        items = await c.conversations.list("bot@test.dev").to_list(limit=50)
+    assert [cv.conversation_id for cv in items] == ["conv_1", "conv_2"]
+    reqs = httpx_mock.get_requests()
+    assert len(reqs) == 2
+    assert "cursor=cur_2" in str(reqs[1].url)
+
+
+@pytest.mark.anyio
+async def test_events_list_threads_cursor(httpx_mock):
+    httpx_mock.add_response(json={"items": [_valid(EventJSON, id="evt_1")], "next_cursor": "cur_2"})
+    httpx_mock.add_response(json={"items": [_valid(EventJSON, id="evt_2")], "next_cursor": None})
+    async with _client() as c:
+        items = await c.events.list().to_list(limit=50)
+    assert [e.id for e in items] == ["evt_1", "evt_2"]
+    reqs = httpx_mock.get_requests()
+    assert len(reqs) == 2
+    assert "cursor=cur_2" in str(reqs[1].url)
+
+
+@pytest.mark.anyio
+async def test_suppressions_list_threads_cursor(httpx_mock):
+    httpx_mock.add_response(json={"items": [_valid(Suppression, address="a@x.com")], "next_cursor": "cur_2"})
+    httpx_mock.add_response(json={"items": [_valid(Suppression, address="b@x.com")], "next_cursor": None})
+    async with _client() as c:
+        items = await c.account.suppressions.list().to_list(limit=50)
+    assert [s.address for s in items] == ["a@x.com", "b@x.com"]
+    reqs = httpx_mock.get_requests()
+    assert len(reqs) == 2
+    assert "cursor=cur_2" in str(reqs[1].url)
+
+
+# ── pagination: cursorless (single-page) endpoints ──────────────────
+# agents/domains/webhooks/deliveries have NO cursor query param. Even if the
+# server hands back a non-null next_cursor, the pager must stop after exactly one
+# page: it can't forward a cursor, and following it would re-fetch page 1 and
+# trip the AutoPager cycle guard. This locks the intentional cursor-drop so a
+# future "fix" that surfaces next_cursor (without a cursor param) is caught.
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "fixture, lister",
+    [
+        (
+            {"items": [_valid(AgentView, id="ag_1", email="bot@test.dev")], "next_cursor": "IGNORE_ME"},
+            lambda c: c.agents.list(),
+        ),
+        (
+            {"items": [_valid(DomainView, domain="test.dev")], "next_cursor": "IGNORE_ME"},
+            lambda c: c.domains.list(),
+        ),
+        (
+            {"items": [_valid(WebhookView, id="wh_1")], "next_cursor": "IGNORE_ME"},
+            lambda c: c.webhooks.list(),
+        ),
+        (
+            {"items": [_valid(WebhookDeliveryView, id="del_1")], "next_cursor": "IGNORE_ME"},
+            lambda c: c.webhooks.deliveries("wh_1"),
+        ),
+    ],
+    ids=["agents", "domains", "webhooks", "deliveries"],
+)
+async def test_cursorless_lists_stop_after_one_page(httpx_mock, fixture, lister):
+    httpx_mock.add_response(json=fixture)
+    async with _client() as c:
+        items = await lister(c).to_list(limit=100)
+    assert len(items) == 1
+    assert len(httpx_mock.get_requests()) == 1
 
 
 # ── error mapping ───────────────────────────────────────────────────

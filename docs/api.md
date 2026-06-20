@@ -19,7 +19,7 @@ For the machine-readable spec, see [`api/openapi.yaml`](../api/openapi.yaml).
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/agents` | Register an agent. Body `{email \| slug, name?}` — use `email` for a custom domain (must be verified) or `slug` for a shared-domain registration (only when the deployment has `shared_domain` configured) |
+| `POST` | `/agents` | Register an agent. Body `{email, name?}`. The `email` must be on a domain you've verified, or on the deployment's configured `shared_domain` (see `/v1/info` → `slug_registration_enabled`). |
 | `GET` | `/agents` | List agents owned by the authenticated user |
 | `GET` | `/agents/{address}` | Get agent details |
 | `PATCH` | `/agents/{address}` | Update an agent's HITL settings |
@@ -32,7 +32,7 @@ The message surface is agent-scoped: every message endpoint hangs off `/agents/{
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/agents/{address}/messages` | List the agent's messages (inbound + outbound). Filters: `direction`, `status`, `cursor`, `limit` (max 200, default 50). Returns `{items, next_cursor}`. Held outbound drafts appear as `status=pending_approval`. |
+| `GET` | `/agents/{address}/messages` | List the agent's messages. Filters: `direction` (`inbound` default \| `outbound` \| `all`), `read_status` (inbound only — `unread`\|`read`\|`all`), `sort`, `from`, `subject_contains`, `conversation_id`, `labels`, `since`, `until`, `cursor`, `limit` (max 100, default 50). Returns `{items, next_cursor}`. Held outbound drafts appear as `status=pending_approval`. |
 | `POST` | `/agents/{address}/messages` | Send a new email from the agent (a new thread). Body `{to, subject, body, html_body?, cc?, bcc?}` — no `from`. Held with `202 Accepted` if HITL is enabled on the agent. |
 | `GET` | `/agents/{address}/messages/{id}` | Fetch a single message (inbound or outbound). Side effect: any `unread` inbound row flips to `read` on read, regardless of agent mode. |
 | `POST` | `/agents/{address}/messages/{id}/reply` | Reply to an inbound message |
@@ -65,8 +65,10 @@ These endpoints accept a signed `t` query parameter (from notification emails) i
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET`/`POST` | `/approve?t=…` | Approve a pending message via signed token |
-| `GET`/`POST` | `/reject?t=…` | Reject a pending message via signed token |
+| `GET`/`POST` | `/v1/approve?t=…` | Approve a pending message via signed token |
+| `GET`/`POST` | `/v1/reject?t=…` | Reject a pending message via signed token |
+
+These moved under the `/v1` prefix in the cutover (previously root-level `/approve`·`/reject`); the paths are shown in full here because they are the literal links embedded in notification emails.
 
 ## Real-time delivery
 

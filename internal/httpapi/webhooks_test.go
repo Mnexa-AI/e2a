@@ -94,6 +94,11 @@ func TestListWebhooksHidesSecret(t *testing.T) {
 	if _, present := hooks[0].(map[string]any)["signing_secret"]; present {
 		t.Fatal("list must NOT expose signing_secret")
 	}
+	// Single-page at GA (no server-side cursoring yet): Page envelope present,
+	// next_cursor always null. Locks the contract — see TestListDomains.
+	if body["next_cursor"] != nil {
+		t.Fatalf("expected null next_cursor on single page, got %v", body["next_cursor"])
+	}
 }
 
 func TestGetWebhookHidesSecret(t *testing.T) {

@@ -174,6 +174,9 @@ export class E2AClient {
 class AgentsResource {
   constructor(private readonly api: PromiseAgentsApi) {}
   list(): AutoPager<AgentView> {
+    // No cursor param: omit next_cursor so the pager stops after one page — it
+    // can't forward a cursor, and surfacing one would re-fetch page 1 and trip
+    // the cycle guard. Single-page at GA; see webhooks.deliveries.
     return new AutoPager(async () => ({ items: (await call(() => this.api.listAgents())).items ?? [] }));
   }
   get(email: string): Promise<AgentView> {
@@ -262,6 +265,7 @@ class ConversationsResource {
 class DomainsResource {
   constructor(private readonly api: PromiseDomainsApi) {}
   list(): AutoPager<DomainView> {
+    // No cursor param: single-page at GA — see AgentsResource.list / deliveries.
     return new AutoPager(async () => ({ items: (await call(() => this.api.listDomains())).items ?? [] }));
   }
   get(domain: string): Promise<DomainView> {
@@ -313,6 +317,7 @@ class EventsResource {
 class WebhooksResource {
   constructor(private readonly api: PromiseWebhooksApi) {}
   list(): AutoPager<WebhookView> {
+    // No cursor param: single-page at GA — see AgentsResource.list / deliveries.
     return new AutoPager(async () => ({ items: (await call(() => this.api.listWebhooks())).items ?? [] }));
   }
   get(id: string): Promise<WebhookView> {
