@@ -246,7 +246,11 @@ scenarios:
         action: request
         method: POST
         path: /v1/agents
-        body: {}
+        # Body is schema-valid so the request reaches the auth check (the
+        # handler authenticates via requirePrincipal); this isolates the
+        # auth dimension rather than tripping body validation (422) first.
+        body:
+          email: auth-probe@example.com
         expect:
           status: 401
           body_match:
@@ -265,7 +269,10 @@ scenarios:
         action: request
         method: POST
         path: /v1/agents/bot@example.com/messages
-        body: {}
+        body:
+          to: ["someone@example.com"]
+          subject: probe
+          body: probe
         expect:
           status: 401
           body_match:
@@ -288,7 +295,8 @@ scenarios:
         action: request
         method: POST
         path: /v1/agents
-        body: {}
+        body:
+          email: auth-probe@example.com
         expect:
           status: 401
           body_match:
@@ -307,7 +315,10 @@ scenarios:
         action: request
         method: POST
         path: /v1/agents/bot@example.com/messages
-        body: {}
+        body:
+          to: ["someone@example.com"]
+          subject: probe
+          body: probe
         expect:
           status: 401
           body_match:
