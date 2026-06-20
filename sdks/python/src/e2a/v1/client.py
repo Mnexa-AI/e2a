@@ -46,6 +46,7 @@ from .generated.models import (
     RedeliverView,
     RegisterDomainRequest,
     RejectRequest,
+    RejectResultView,
     ReplyRequest,
     RotateSecretResponse,
     SendEmailRequest,
@@ -206,6 +207,8 @@ class AgentsResource:
     def list(self) -> AutoPager[AgentView]:
         async def fetch(_cursor: Optional[str]) -> Page:
             resp = await self._c._read(lambda h: self._api.list_agents(_headers=h))
+            # No cursor param: drop next_cursor so the pager stops after one page.
+            # (Single-page at GA — see webhooks.deliveries.)
             return _page(resp.items)
 
         return AutoPager(fetch)
@@ -320,7 +323,9 @@ class MessagesResource:
             idempotency_key,
         )
 
-    async def reject(self, email: str, message_id: str, body: Optional[Body] = None) -> Any:
+    async def reject(
+        self, email: str, message_id: str, body: Optional[Body] = None
+    ) -> RejectResultView:
         req = _coerce(RejectRequest, body)
         return await self._c._write_unsafe(
             lambda h: self._api.reject_message(email, message_id, req, _headers=h)
@@ -373,6 +378,8 @@ class DomainsResource:
     def list(self) -> AutoPager[DomainView]:
         async def fetch(_cursor: Optional[str]) -> Page:
             resp = await self._c._read(lambda h: self._api.list_domains(_headers=h))
+            # No cursor param: drop next_cursor so the pager stops after one page.
+            # (Single-page at GA — see webhooks.deliveries.)
             return _page(resp.items)
 
         return AutoPager(fetch)
@@ -449,6 +456,8 @@ class WebhooksResource:
     def list(self) -> AutoPager[WebhookView]:
         async def fetch(_cursor: Optional[str]) -> Page:
             resp = await self._c._read(lambda h: self._api.list_webhooks(_headers=h))
+            # No cursor param: drop next_cursor so the pager stops after one page.
+            # (Single-page at GA — see webhooks.deliveries.)
             return _page(resp.items)
 
         return AutoPager(fetch)

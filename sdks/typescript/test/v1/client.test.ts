@@ -34,6 +34,24 @@ function lastCall() {
   return { url, init, headers: init.headers as Record<string, string> };
 }
 
+/** A `fetch` mock that pages: looks up the response by the request's `cursor`
+ *  query param (absent → the "" key). Records the requested URLs for assertions. */
+function pagingFetch(pages: Record<string, { items: unknown[]; next_cursor: string | null }>) {
+  const calls: string[] = [];
+  const fn = vi.fn(async (url: string) => {
+    calls.push(url);
+    const cursor = new URL(url).searchParams.get("cursor") ?? "";
+    const text = JSON.stringify(pages[cursor]);
+    return {
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      text: async () => text,
+      blob: async () => new Blob([text]),
+    } as unknown as Response;
+  });
+  return { fn, calls };
+}
+
 describe("E2AClient", () => {
   const originalFetch = globalThis.fetch;
   let client: E2AClient;
@@ -159,6 +177,74 @@ describe("E2AClient", () => {
     expect(items.map((m) => m.messageId)).toEqual(["msg_1", "msg_2"]);
     expect(calls).toHaveLength(2);
     expect(calls[1]).toContain("cursor=cur_2");
+  });
+
+  // ── Pagination: cursor-walking endpoints ────────────────────────
+  // conversations/events/suppressions take a `cursor` query param; the pager
+  // must replay next_cursor until null, threading the cursor each follow-up.
+  // (messages is covered above.)
+
+  it("conversations.list threads next_cursor across pages", async () => {
+    const { fn, calls } = pagingFetch({
+      "": { items: [{ conversation_id: "conv_1" }], next_cursor: "cur_2" },
+      cur_2: { items: [{ conversation_id: "conv_2" }], next_cursor: null },
+    });
+    globalThis.fetch = fn as unknown as typeof fetch;
+    const items = await client.conversations.list("bot@test.dev").toArray({ limit: 50 });
+    expect(items.map((c) => c.conversationId)).toEqual(["conv_1", "conv_2"]);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toContain("cursor=cur_2");
+  });
+
+  it("events.list threads next_cursor across pages", async () => {
+    const { fn, calls } = pagingFetch({
+      "": { items: [{ id: "evt_1" }], next_cursor: "cur_2" },
+      cur_2: { items: [{ id: "evt_2" }], next_cursor: null },
+    });
+    globalThis.fetch = fn as unknown as typeof fetch;
+    const items = await client.events.list().toArray({ limit: 50 });
+    expect(items.map((e) => e.id)).toEqual(["evt_1", "evt_2"]);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toContain("cursor=cur_2");
+  });
+
+  it("account.suppressions.list threads next_cursor across pages", async () => {
+    const { fn, calls } = pagingFetch({
+      "": { items: [{ address: "a@x.com" }], next_cursor: "cur_2" },
+      cur_2: { items: [{ address: "b@x.com" }], next_cursor: null },
+    });
+    globalThis.fetch = fn as unknown as typeof fetch;
+    const items = await client.account.suppressions.list().toArray({ limit: 50 });
+    expect(items.map((s) => s.address)).toEqual(["a@x.com", "b@x.com"]);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toContain("cursor=cur_2");
+  });
+
+  // ── Pagination: cursorless (single-page) endpoints ──────────────
+  // agents/domains/webhooks have no cursor param. Even if the server returns a
+  // non-null next_cursor, the pager must stop after one page (it can't forward a
+  // cursor; surfacing one would loop page 1 and trip the cycle guard). This locks
+  // the intentional cursor-drop. (webhooks.deliveries is covered below.)
+
+  it.each([
+    ["agents", () => client.agents.list(), { id: "ag_1", email: "bot@test.dev" }],
+    ["domains", () => client.domains.list(), { domain: "test.dev" }],
+    ["webhooks", () => client.webhooks.list(), { id: "wh_1" }],
+  ] as const)("%s.list stops after one page even if the server returns a next_cursor", async (_name, lister, item) => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls++;
+      const text = JSON.stringify({ items: [item], next_cursor: "should_be_ignored" });
+      return {
+        status: 200,
+        headers: new Headers({ "content-type": "application/json" }),
+        text: async () => text,
+        blob: async () => new Blob([text]),
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+    const items = await lister().toArray({ limit: 100 });
+    expect(items).toHaveLength(1);
+    expect(calls).toBe(1);
   });
 
   // ── Error mapping ───────────────────────────────────────────────

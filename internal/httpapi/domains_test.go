@@ -21,6 +21,12 @@ func TestListDomains(t *testing.T) {
 	if mx["value"] != "mx.e2a.dev" {
 		t.Fatalf("unexpected MX record: %v", dns)
 	}
+	// Domains are single-page at GA (no server-side cursoring yet): the Page
+	// envelope is present but next_cursor is always null. Locks the contract so
+	// wiring real cursoring later forces an update here (and in the SDK pagers).
+	if body["next_cursor"] != nil {
+		t.Fatalf("expected null next_cursor on single page, got %v", body["next_cursor"])
+	}
 }
 
 func TestGetDomain(t *testing.T) {
