@@ -143,7 +143,22 @@ Strong: rich filters + real cursor pagination on `listEvents`; `schema_version`;
 
 ## Phase 2 — SDKs
 
-_(in progress — TS then Python)_
+✅ **Slice E (regen + re-home) done** (commit `47292aa`). Both `generated/` bases
+regenerated from the reshaped `api/openapi.yaml` (OAG v7.16.0, deterministic —
+`generate-sdk-check` clean); hand-written ergonomic layer re-homed onto the
+renamed types; conversations + suppressions `.list()` now follow `next_cursor`;
+deletes pass `?confirm=DELETE`; `status`→`read_status` filter. **TS 84 + Python
+131 tests green.**
+
+⏳ **MCP + CLI do not compile against the reshaped SDK** — the consumer-port /
+§6a MCP tool re-curation round. Errors are a mix of mechanical (renamed type
+imports, `status`→`read_status`, `.status`→`.read_status`, forward `to` now
+required) and deeper tool-surface decisions (MCP/CLI still send `slug`/
+`agent_mode` on create; `send_email`/`approve_pending_message` tool names; etc.).
+This is the round the design (§13) already tracks as pending.
+
+_(Phase-2 SDK walkthrough — the interface review against the frozen spec —
+resumes next.)_
 
 ## Phase 3 — MCP
 
