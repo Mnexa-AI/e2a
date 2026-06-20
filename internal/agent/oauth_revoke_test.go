@@ -23,16 +23,17 @@ func postRevoke(t *testing.T, serverURL string, form url.Values) *http.Response 
 // probeBearer reports whether the given bearer is still usable, plus
 // the WWW-Authenticate challenge the API advertises when it isn't.
 //
-// A single GET /v1/agents call now suffices: the v1 surface returns 200
-// for a valid bearer and 401 with the RFC 6750 §3.1 OAuth challenge for a
-// revoked/invalid one (the challenge is set by the apiserver's auth-
-// challenge middleware, the same builder the legacy mux used). A valid
-// bearer's 200 carries no WWW-Authenticate header — an empty string for a
-// still-valid token, exactly what the callers expect.
+// A single GET /v1/account call suffices: the v1 surface returns 200 for a
+// valid bearer of ANY scope (requirePrincipal) and 401 with the RFC 6750 §3.1
+// OAuth challenge for a revoked/invalid one (the challenge is set by the
+// apiserver's auth-challenge middleware). /v1/account — not the account-gated
+// /v1/agents — so a valid agent-scoped token reads as 200, isolating
+// revocation from authorization. A valid bearer's 200 carries no
+// WWW-Authenticate header, exactly what the callers expect.
 func probeBearer(t *testing.T, serverURL, bearer string) (status int, wwwAuth string) {
 	t.Helper()
 
-	req, _ := http.NewRequest("GET", serverURL+"/v1/agents", nil)
+	req, _ := http.NewRequest("GET", serverURL+"/v1/account", nil)
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}

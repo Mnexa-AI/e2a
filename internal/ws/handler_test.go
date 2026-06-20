@@ -21,14 +21,22 @@ import (
 type mockStore struct {
 	user     *identity.User
 	userErr  error
+	scope    string // "" → unscoped (legacy/account-equivalent); ScopeAgent pins to agentID
+	agentID  string // bound agent id when scope == ScopeAgent
 	agent    *identity.AgentIdentity
 	agentErr error
 	messages []identity.Message
 	msgErr   error
 }
 
-func (m *mockStore) GetUserByAPIKey(_ context.Context, apiKey string) (*identity.User, error) {
-	return m.user, m.userErr
+func (m *mockStore) GetPrincipalByAPIKey(_ context.Context, apiKey string) (*identity.Principal, error) {
+	if m.userErr != nil {
+		return nil, m.userErr
+	}
+	if m.user == nil {
+		return nil, nil
+	}
+	return &identity.Principal{User: m.user, Scope: m.scope, AgentID: m.agentID}, nil
 }
 
 func (m *mockStore) GetAgentByEmail(_ context.Context, email string) (*identity.AgentIdentity, error) {
@@ -174,6 +182,48 @@ func TestHandler_NotOwner(t *testing.T) {
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", resp.StatusCode)
 	}
+}
+
+// HIGH-1 regression: an agent-scoped credential pinned to agent A must NOT be
+// able to open agent B's stream, even when both agents share the same owner.
+func TestHandler_AgentScoped_WrongAgent_Forbidden(t *testing.T) {
+	hub := NewHub()
+	defer hub.Close()
+	store := &mockStore{
+		user:    newTestUser(),          // user_1
+		scope:   identity.ScopeAgent,    // agent-scoped credential…
+		agentID: "agent_OTHER",          // …bound to a different agent
+		agent:   newTestAgent("user_1"), // target agent (id agent_test), same owner
+	}
+	handler := NewHandler(hub, store)
+	srv := startServer(t, handler)
+
+	resp := doHTTP(t, srv, "bot@agents.e2a.dev", "agent_a_key")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("agent-scoped key for a different agent must be 403, got %d", resp.StatusCode)
+	}
+}
+
+// HIGH-1: an agent-scoped credential pinned to the SAME agent it targets connects.
+func TestHandler_AgentScoped_BoundAgent_Connects(t *testing.T) {
+	hub := NewHub()
+	defer hub.Close()
+	store := &mockStore{
+		user:    newTestUser(),
+		scope:   identity.ScopeAgent,
+		agentID: "agent_test", // matches newTestAgent's ID
+		agent:   newTestAgent("user_1"),
+	}
+	handler := NewHandler(hub, store)
+	srv := startServer(t, handler)
+
+	conn, _ := dialWS(t, srv, "bot@agents.e2a.dev", "agent_test_key")
+	if conn == nil {
+		t.Fatal("agent-scoped key for its own agent should connect")
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+	waitConnected(t, hub, "agent_test")
 }
 
 func TestHandler_SuccessfulConnect(t *testing.T) {

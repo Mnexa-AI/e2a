@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -75,14 +76,17 @@ func mintTokensForFixture(t *testing.T, f *consentFixture) (accessToken, refresh
 	return body.AccessToken, body.RefreshToken
 }
 
-// callAPIWithBearer hits /v1/agents with the given Authorization
+// callAPIWithBearer hits /v1/account with the given Authorization
 // value. Returns the status code and the WWW-Authenticate header.
-// /v1/agents is a simple authed endpoint that returns 200 (an
-// empty pending list) for any valid credential and 401 with the
-// RFC 6750 challenge for an invalid one.
+// /v1/account is the right validity probe because it authenticates with
+// requirePrincipal — i.e. it returns 200 for ANY valid credential
+// regardless of scope (account OR agent), and 401 with the RFC 6750
+// challenge for an invalid one. (It deliberately is NOT /v1/agents, which
+// is account-scope-gated and would 403 a valid agent-scoped token —
+// conflating credential validity with authorization.)
 func callAPIWithBearer(t *testing.T, serverURL, bearer string) (int, string) {
 	t.Helper()
-	req, _ := http.NewRequest("GET", serverURL+"/v1/agents", nil)
+	req, _ := http.NewRequest("GET", serverURL+"/v1/account", nil)
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
@@ -201,7 +205,10 @@ func TestBearer_OAuthToken_LowercaseBearer(t *testing.T) {
 	f := newConsentFixture(t)
 	access, _ := mintTokensForFixture(t, f)
 
-	req, _ := http.NewRequest("GET", f.server.URL+"/v1/agents", nil)
+	// /v1/account (requirePrincipal) is the validity probe — 200 for any valid
+	// scope. (Not /v1/agents, which is account-gated and would 403 this valid
+	// agent-scoped token, conflating scheme-parsing with authorization.)
+	req, _ := http.NewRequest("GET", f.server.URL+"/v1/account", nil)
 	req.Header.Set("Authorization", "bearer "+access) // lowercase scheme
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -338,5 +345,57 @@ func TestBearer_OAuthToken_ProviderNotWired(t *testing.T) {
 	}
 	if wa == "" {
 		t.Error("ate2a_ bearer without provider should still emit OAuth challenge (token looked like OAuth)")
+	}
+}
+
+// ──────────────────── OAuth scope resolution (CRITICAL-1) ────────────────────
+
+// getWithBearer GETs an arbitrary path with a bearer; returns status + body.
+func getWithBearer(t *testing.T, serverURL, path, bearer string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest("GET", serverURL+path, nil)
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
+}
+
+// TestBearer_OAuth_AgentScope_RejectedOnAccountOp is THE CRITICAL-1 regression.
+// An OAuth/MCP access token — which public DCR caps to scope=agent, and which
+// the consent fixture now grants as agent — must NOT be able to perform an
+// account-admin operation. Before the fix, every ate2a_ token was hardcoded to
+// ScopeAccount, so this returned 200 (full account admin); the granted agent
+// scope was silently elevated. Now the scope is honored and the account-only
+// GET /v1/agents (requireAccountScope) returns 403 forbidden.
+func TestBearer_OAuth_AgentScope_RejectedOnAccountOp(t *testing.T) {
+	f := newConsentFixture(t)
+	access, _ := mintTokensForFixture(t, f) // scope=agent, bound to the consent agent
+	if !strings.HasPrefix(access, oauth.AccessTokenPrefix) {
+		t.Fatalf("expected ate2a_ token, got %q", access)
+	}
+
+	status, body := getWithBearer(t, f.server.URL, "/v1/agents", access)
+	if status != http.StatusForbidden {
+		t.Fatalf("agent-scoped OAuth token must be 403 on an account-admin op (CRITICAL-1); got %d (body=%s)", status, body)
+	}
+	if !strings.Contains(body, "forbidden") {
+		t.Errorf("expected error.code=forbidden in the 403 body, got %s", body)
+	}
+}
+
+// TestBearer_OAuth_AgentScope_AllowedOnOwnTier confirms the fix CONFINES rather
+// than breaks: the same agent-scoped token authenticates on GET /v1/account
+// (requirePrincipal — valid for any scope), returning 200. The agent token
+// works for its own runtime tier; it's only barred from account administration.
+func TestBearer_OAuth_AgentScope_AllowedOnOwnTier(t *testing.T) {
+	f := newConsentFixture(t)
+	access, _ := mintTokensForFixture(t, f)
+	status, _ := callAPIWithBearer(t, f.server.URL, access) // GET /v1/account
+	if status != http.StatusOK {
+		t.Fatalf("agent-scoped OAuth token should authenticate on its own tier (/v1/account); got %d", status)
 	}
 }
