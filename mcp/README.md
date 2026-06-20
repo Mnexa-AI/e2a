@@ -130,9 +130,16 @@ shows the set your scope allows, with per-tool descriptions.
 | --- | --- |
 | `whoami` | Get the authenticated account's identity — user, scope, plan/limits; for an agent-scoped credential, also the bound agent address. |
 | `list_agents` | List every agent inbox owned by the authenticated user. |
-| `create_agent` | Register a new inbox using a slug on the shared domain. Defaults to `local` mode — no webhook required. See note below for cloud mode. |
+| `create_agent` | Register a new agent by its full email address — on a verified domain you own, or the deployment's shared domain. No delivery "mode": inbound is always available via `list_messages` (poll) or a `create_webhook` subscription. (Admin/account-scoped.) |
 
-> **Cloud-mode agents must verify webhook signatures.** When you create an agent with `agent_mode: "cloud"`, e2a HMAC-signs every webhook delivery against your account's webhook signing secret (`E2A_WEBHOOK_SECRET`, shown in the [e2a dashboard](https://e2a.dev)). Your webhook handler must verify the signature on every request — the [e2a SDK](https://www.npmjs.com/package/@e2a/sdk) exposes `constructEvent(rawBody, signatureHeader, secret)` which verifies the signature and returns a typed event in one call (throws on a bad signature). Local-mode agents (the default) avoid this entirely by polling via `list_messages`.
+> **Webhook deliveries are signed — verify them.** Push delivery is a top-level
+> resource (`create_webhook`), not a per-agent mode. e2a HMAC-signs every webhook
+> delivery against the webhook's signing secret (returned once from `create_webhook`
+> / `rotate_webhook_secret`). Your handler must verify the signature on every
+> request — the [e2a SDK](https://www.npmjs.com/package/@e2a/sdk) exposes
+> `constructEvent(rawBody, signatureHeader, secret)` which verifies and returns a
+> typed event in one call (throws on a bad signature). Or skip webhooks entirely
+> and poll via `list_messages`.
 
 ### Messages
 

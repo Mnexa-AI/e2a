@@ -13,7 +13,11 @@
 // records each tool's tier next to its operationId".
 //
 // INVARIANT: every registered tool name MUST appear in exactly one set below.
-// A new tool with no tier is a bug — `assertToolTiersComplete` (tested) guards it.
+// A new tool with no tier would be silently gated out of EVERY scope (it's not
+// in any allowed set), so it'd vanish without a dedicated failure. The exported
+// `assertToolTiersComplete` makes that loud: a test collects the actual
+// registered tool names and asserts the tier map covers them exactly (see
+// tools.test.ts "every registered tool has exactly one tier").
 
 /** Runtime/inbox tools — visible to BOTH agent- and account-scoped credentials. */
 export const RUNTIME_TOOLS: ReadonlySet<string> = new Set([
@@ -77,4 +81,24 @@ export function toolNamesForScope(scope: Scope | string): ReadonlySet<string> {
 /** True if `name` is allowed for `scope`. */
 export function toolAllowedForScope(name: string, scope: Scope | string): boolean {
   return toolNamesForScope(scope).has(name);
+}
+
+/**
+ * Drift guard: assert the tier map covers the actually-registered tools EXACTLY.
+ * Throws if any registered tool is untiered (would be silently hidden from every
+ * scope), double-tiered, or if a tier lists a name that isn't registered
+ * (phantom). Call from a test with the real registered tool names.
+ */
+export function assertToolTiersComplete(registered: Iterable<string>): void {
+  const reg = new Set(registered);
+  const untiered = [...reg].filter((n) => !RUNTIME_TOOLS.has(n) && !ADMIN_TOOLS.has(n));
+  const doubled = [...reg].filter((n) => RUNTIME_TOOLS.has(n) && ADMIN_TOOLS.has(n));
+  const phantom = [...RUNTIME_TOOLS, ...ADMIN_TOOLS].filter((n) => !reg.has(n));
+  const problems: string[] = [];
+  if (untiered.length) problems.push(`untiered (hidden from all scopes): ${untiered.join(", ")}`);
+  if (doubled.length) problems.push(`in both tiers: ${doubled.join(", ")}`);
+  if (phantom.length) problems.push(`tiered but not registered: ${phantom.join(", ")}`);
+  if (problems.length) {
+    throw new Error(`tool tier map out of sync — ${problems.join("; ")}`);
+  }
 }

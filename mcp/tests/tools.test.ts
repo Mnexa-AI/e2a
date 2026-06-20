@@ -4,6 +4,14 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { simpleParser } from "mailparser";
 import type { McpClient } from "../src/client.js";
 import { buildServer } from "../src/server.js";
+import { assertToolTiersComplete, toolNamesForScope, RUNTIME_TOOLS } from "../src/tools/tiers.js";
+import { registerMessageTools } from "../src/tools/messages.js";
+import { registerAgentTools } from "../src/tools/agents.js";
+import { registerDomainTools } from "../src/tools/domains.js";
+import { registerHitlTools } from "../src/tools/hitl.js";
+import { registerWebhookTools } from "../src/tools/webhooks.js";
+import { registerEventTools } from "../src/tools/events.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 // Build a small RFC822 blob with one attachment so the MessageView's
 // `rawMessage` decodes to a known attachment set (the v1 MessageView no
@@ -204,6 +212,37 @@ describe("e2a MCP server", () => {
 
   // ── §6a scope/tier gating ──────────────────────────────────────────
   // account scope sees the full surface; agent scope sees only the runtime tier.
+
+  it("every registered tool has exactly one tier (drift guard)", () => {
+    // Collect the TRUE registered set by running the register*Tools functions
+    // against a name-recording fake server — BEFORE gating, so an untiered tool
+    // (which the gate would otherwise silently hide) is still caught.
+    const names: string[] = [];
+    const recorder = {
+      registerTool: (name: string) => {
+        names.push(name);
+        return undefined;
+      },
+    } as unknown as McpServer;
+    const stub = makeStubClient();
+    registerMessageTools(recorder, stub);
+    registerAgentTools(recorder, stub);
+    registerDomainTools(recorder, stub);
+    registerHitlTools(recorder, stub);
+    registerWebhookTools(recorder, stub);
+    registerEventTools(recorder, stub);
+
+    expect(names).toHaveLength(35);
+    // Throws if any registered tool is untiered / double-tiered / phantom.
+    expect(() => assertToolTiersComplete(names)).not.toThrow();
+  });
+
+  it("unrecognized scope falls back to the runtime tier (least privilege)", () => {
+    expect(toolNamesForScope("bogus")).toBe(RUNTIME_TOOLS);
+    expect(toolNamesForScope("")).toBe(RUNTIME_TOOLS);
+    expect(toolNamesForScope("agent")).toBe(RUNTIME_TOOLS);
+    expect(toolNamesForScope("account").size).toBe(35);
+  });
 
   it("account scope exposes all 35 tools (runtime + admin)", async () => {
     const acct = await connect(makeStubClient({ scope: "account" }));
