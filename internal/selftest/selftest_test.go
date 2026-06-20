@@ -107,6 +107,17 @@ func TestSelftestAll_AgainstRealServer(t *testing.T) {
 	if events != 0 {
 		t.Errorf("system probe account wrote %d usage_events, want 0", events)
 	}
+
+	// agent_lifecycle must be self-cleaning: after the battery only the original
+	// probe agent remains — the ephemeral create→delete left no orphan.
+	var agents int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM agent_identities WHERE user_id = $1`, user.ID).Scan(&agents); err != nil {
+		t.Fatalf("count agents: %v", err)
+	}
+	if agents != 1 {
+		t.Errorf("probe account has %d agents after battery, want 1 (agent_lifecycle left an orphan)", agents)
+	}
 }
 
 // TestVerifyHMAC_RejectsBadSignature is a unit guard on the HMAC check used by

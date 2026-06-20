@@ -33,6 +33,12 @@ var All = []Scenario{
 	{Name: "auth_read", SmokeSafe: true, Run: scenarioAuthRead},
 	{Name: "inbound_round_trip", SmokeSafe: true, Run: scenarioInboundRoundTrip},
 	{Name: "self_send_loopback", SmokeSafe: true, Run: scenarioSelfSendLoopback},
+	// agent_lifecycle MUTATES prod (creates then deletes an ephemeral agent on
+	// the probe's verified domain) but is self-cleaning — no email, no owner
+	// notification, no metering (system-class account). SmokeSafe, but the
+	// create/delete churn is heavier than the read-only checks; an operator who
+	// wants a purely read-only prod battery can drop it.
+	{Name: "agent_lifecycle", SmokeSafe: true, Run: scenarioAgentLifecycle},
 }
 
 func pass(detail string) Result { return Result{Status: StatusPass, Detail: detail} }
@@ -144,6 +150,86 @@ func scenarioSelfSendLoopback(ctx context.Context, p *Probe) Result {
 		return fail("self-send method=%q, want loopback (no egress)", out.Method)
 	}
 	return pass("self-send loopback ok")
+}
+
+// scenarioAgentLifecycle exercises the create/get/delete agent endpoints with a
+// unique, self-cleaning ephemeral agent on the probe's verified domain. It is
+// the only mutating scenario; a deferred best-effort delete guarantees cleanup
+// even if an assertion fails partway through.
+func scenarioAgentLifecycle(ctx context.Context, p *Probe) Result {
+	at := strings.LastIndex(p.AgentEmail, "@")
+	if at < 0 {
+		return fail("probe agent email %q has no domain", p.AgentEmail)
+	}
+	domain := p.AgentEmail[at+1:]
+	nonce, err := randHex(8)
+	if err != nil {
+		return fail("nonce: %v", err)
+	}
+	email := "probe-life-" + nonce + "@" + domain
+	agentURL := p.HTTPBaseURL + "/v1/agents/" + url.PathEscape(email)
+
+	// CREATE → 201.
+	body, _ := json.Marshal(map[string]string{"email": email, "name": "e2a selftest lifecycle"})
+	st, _, err := p.do(ctx, http.MethodPost, p.HTTPBaseURL+"/v1/agents", body)
+	if err != nil {
+		return fail("create: %v", err)
+	}
+	if st != http.StatusCreated {
+		return fail("create agent: HTTP %d, want 201", st)
+	}
+	// Safety net: ensure the ephemeral agent is removed even on an early return
+	// below. Best-effort, fresh context so it runs even if ctx is done.
+	defer func() {
+		cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _, _ = p.do(cctx, http.MethodDelete, agentURL+"?confirm=DELETE", nil)
+	}()
+
+	// GET → 200.
+	if st, _, err := p.do(ctx, http.MethodGet, agentURL, nil); err != nil {
+		return fail("get created agent: %v", err)
+	} else if st != http.StatusOK {
+		return fail("get created agent: HTTP %d, want 200", st)
+	}
+
+	// DELETE (confirmed) → 204.
+	if st, _, err := p.do(ctx, http.MethodDelete, agentURL+"?confirm=DELETE", nil); err != nil {
+		return fail("delete agent: %v", err)
+	} else if st != http.StatusNoContent {
+		return fail("delete agent: HTTP %d, want 204", st)
+	}
+
+	// Confirm it's gone — a follow-up GET must not return 200.
+	if st, _, err := p.do(ctx, http.MethodGet, agentURL, nil); err != nil {
+		return fail("get after delete: %v", err)
+	} else if st == http.StatusOK {
+		return fail("agent still readable after delete (HTTP 200)")
+	}
+	return pass("agent create→get→delete ok")
+}
+
+// do issues an authenticated request and returns the status, body, and error.
+func (p *Probe) do(ctx context.Context, method, u string, body []byte) (int, []byte, error) {
+	var rdr io.Reader
+	if body != nil {
+		rdr = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, rdr)
+	if err != nil {
+		return 0, nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+p.APIKey)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := p.httpClient().Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	return resp.StatusCode, out, nil
 }
 
 // verifyHMAC checks the X-E2A-Signature header against the body using the

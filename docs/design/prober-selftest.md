@@ -189,12 +189,14 @@ One binary, several modes (mirrors `cmd/e2a-contract-server`):
   `vault operator diagnose` / `consul validate` split between install-time validation
   and runtime health). Distinct from `run-once`, which exercises the live loop.
 
-**Battery v1** (`internal/selftest.All`, ~6): liveness; auth+read
-(`GET /v1/agents/probe@agents.e2a.dev`); **inbound round-trip** (`smtp.SendMail`
-a unique nonce to `e2a:2525` → await webhook at `/sink` within `PROBE_TIMEOUT` →
-verify nonce correlation + HMAC); persistence read (message present); self-send via
-`NopSender` (outbound API + compose path, no egress); *(phase 2)* 5xx SLI from
-`e2a:/metrics`.
+**Battery v1** (`internal/selftest.All`, as built): liveness; auth+read
+(`GET /v1/agents/{probe}`); **inbound round-trip** (`smtp.SendMail` a unique nonce
+to the SMTP listener → await webhook at `/sink` within the round-trip timeout →
+verify nonce correlation + HMAC); self-send loopback (outbound API + compose path,
+method=loopback, no egress); and **agent_lifecycle** (create → get → delete an
+ephemeral agent on the probe's verified domain — the only mutating scenario,
+self-cleaning via a deferred best-effort delete, no email/owner-notify/metering).
+*(fast-follow)* 5xx SLI from `e2a:/metrics`.
 
 ### SLI exposure on `e2a` (phase 2 / fast-follow)
 
