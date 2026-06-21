@@ -23,12 +23,15 @@
 > — `conversations.list` now returns an `AutoPager` (PR #238); and Decision 3's
 > proposed `from`/`reply_to` outbound body fields did **not** land — `from` was
 > **dropped** as redundant with the route (the sender is structurally the path
-> agent; PR #238), and `reply_to` is **deferred**, not rejected. **Still
-> pending:** the MCP tool-surface re-curation to the §6a target (the SDK
-> *transport* was repointed onto `/v1`, but the tool names/args in
-> `mcp/src/tools/` remain the pre-redesign set — tracked as a separate round).
-> The event name `email.rejected` shipped as-is (decision 9's
-> `email.approval_rejected` rename did not land).
+> agent; PR #238), and `reply_to` is **deferred**, not rejected. The **MCP
+> tool-surface re-curation to the §6a target shipped** — the tool names/args in
+> `mcp/src/tools/` were reshaped onto `/v1` (`send_message`/`reply_to_message`,
+> cursor pagination, structured error `code`s, `get_attachment` download URLs;
+> the SDK *transport* was repointed in the earlier round). The rejected-decision
+> event ships as **`email.approval_rejected`** (decision 9's rename **landed** —
+> `api/openapi.yaml` + the webhook-subscription and `/v1/events` enums all use it;
+> the `email.rejected` strings left in `internal/agent/api.go` are stale code
+> comments, not the wire value, which is `webhookpub.EventEmailRejected`).
 
 ## 1. Problem statement
 
