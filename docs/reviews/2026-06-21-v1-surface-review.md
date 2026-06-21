@@ -31,7 +31,7 @@
 | 17 | SDK | TS `pagination.ts` + `retry.ts` + `errors.ts` | done | ✅ retry layer best-in-class — RESOLVES #15 (mints idem key in retry.ts; double-send withdrawn) + #12 (byte-identical retry); pager cycle guard ✅ |
 | 18 | SDK | Python `client.py` | done | ✅ strong TS parity (explicit per-op retry helpers, account-delete excluded) — cleaner than TS stub-inference; 🟡 no .parse() (both SDKs); 🔵 2 mechanisms could diverge |
 | 19 | SDK | Python `websocket.py` + `pagination.py` + `_retry.py` | done | ✅ full TS parity (mints key once → resolves #12/#18); Python MORE defensive (WS generator backpressure, pagination max_pages); 🟡 same ?token= (server-side) |
-| 20 | SDK | `webhook-signature` TS↔Python parity | pending | |
+| 20 | SDK | `webhook-signature` TS↔Python parity | done | ✅ strong security parity (HMAC + constant-time + NaN-replay-trap both handle); 🔵 `now` unit differs (ms vs s) + TS utf8 round-trips body [SDK section complete] |
 | 21 | MCP | `tools/agents.ts` | pending | |
 | 22 | MCP | `tools/messages.ts` + `attachments.ts` | pending | |
 | 23 | MCP | `tools/hitl.ts` | pending | |
@@ -44,6 +44,24 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 20. SDK — `webhook-signature` TS↔Python parity — *SDK section complete*
+
+The security-critical bits are correct and matched in both languages — including a subtle replay-bypass guard both got right. Two minor cross-language consistency nits.
+
+**🔵 The `now` override parameter has different UNITS across the SDKs.** TS `now?: () => number` defaults to `Date.now()` (**milliseconds**) and divides by 1000 internally (`webhook-signature.ts: Math.abs(nowMs/1000 - ts)`); Python `now: Optional[float]` defaults to `time.time()` (**seconds**) and compares directly (`abs(now - ts)`). The runtime defaults are each correct, but the *public test-override* is ms in TS and seconds in Python — a developer porting test fixtures between SDKs will silently break the tolerance check. *Fix:* unify the unit (both seconds is the natural choice) or document the divergence loudly.
+
+**🔵 TS HMACs over a UTF-8 round-trip of the body; Python over raw bytes.** TS does `body = rawBody.toString("utf8")` then `hmac.update(`${t}.${body}`)` (`webhook-signature.ts`), while Python signs `t.encode() + b"." + raw_body_bytes`. For valid-UTF-8 JSON (the only real case) they agree, but a body with non-UTF-8 bytes gets *lossily re-encoded* in TS → TS would reject a delivery Python (and the server, which signs the raw bytes) accept. Low impact (webhook bodies are UTF-8 JSON), but TS should `hmac.update()` the raw `Buffer` directly to be byte-exact with the server.
+
+**✅ Verified clean — strong security parity:**
+- **Scheme**: HMAC-SHA256 over `{t}.{rawBody}`, Stripe-style `t=…,v1=…[,v1=…]`; multiple `v1=` pairs accepted during the 24h rotation grace (any-match); RAW body required (re-stringified JSON won't match) — documented identically in both.
+- **Replay guard incl. the NaN trap** ✅: both reject a **non-finite** timestamp (`Number.isFinite`/`math.isfinite`) *before* the tolerance check — without it, `abs(now − NaN) > tol` is `false`, which would silently **disable** the replay guard for a crafted `t=nan` delivery. Both SDKs explicitly handle this subtle bypass (Python even comments it). Default tolerance 300s.
+- **Constant-time compare**: TS `timingSafeEqual` (length-guarded, hex→bytes), Python `hmac.compare_digest` (hex strings) — no timing oracle; an odd/invalid-hex candidate is length-rejected, not mis-decoded.
+- **Robustness**: missing/non-string header → clean `false` (never throws); `verify…` returns bool, `constructEvent`/`construct_event` verifies + parses + throws a typed `E2AWebhookSignatureError` with matching codes (`webhook_signature_invalid`/`webhook_body_invalid`); `data` is `unknown`/`Any` pending per-type schemas (same tracked follow-up as the events `data` / error `details`).
+
+---
+
+> **SDK section complete (#15–20).** Verdict: **the SDKs are in excellent shape.** The retry/idempotency/pagination/signature cores are best-in-class and consistent across TS↔Python (the scary #15 double-send was a false alarm; signature verification is correct incl. the NaN replay-trap). Action items are small and mostly polish: bound the TS WS buffer (#16; Python's generator is the reference), ship `.parse()` in both or drop the promise (#15/#18), unify the `now` unit + TS raw-byte HMAC (#20), a cross-SDK conformance test for the retried-op set (#17/#18), and the server-side WS header/ticket auth (#16/#19).
 
 ### 19. SDK — Python `_retry.py` + `websocket.py` + `pagination.py`
 
