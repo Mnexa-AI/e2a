@@ -16,7 +16,7 @@
 | 2 | API | `messages.go` — message detail/list views + raw/parsed | done | 🟡 read-side label validation duplicates write-side rule (drift); 🔵 hitl_status enum is outbound-only (no inbound review-status field); cursor binding ✅ strong |
 | 3 | API | `outbound.go` — send/reply/forward + idempotency wiring | done | 🟡 reply_all bypasses maxRecipients cap; CRLF-in-subject check skipped on reply/forward; idempotency-route pattern inconsistent |
 | 4 | API | `conversations.go` — threading/list | done | 🟡 summary aggregates (latest_subject/sender, counts, has_unread) may leak held-message metadata — verify store excludes held; cursor/timestamps ✅ |
-| 5 | API | `hitl.go` — approve/reject review queue | pending | |
+| 5 | API | `hitl.go` — approve/reject review queue | done | 🟡 no /v1 approve/reject for the INBOUND review queue (outbound-only); inbound holds are TTL-auto-resolve only; self-approval ceiling ✅ |
 | 6 | API | `events.go` — events API + screening_events surface | pending | |
 | 7 | API | `webhooks.go` — webhook config/delivery | pending | |
 | 8 | API | `domains.go` — domain verification | pending | |
@@ -44,6 +44,22 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 5. API — `hitl.go` (approve / reject review queue)
+
+The critical self-approval ceiling is correctly enforced. The headline finding is a coverage gap: this surface only handles **outbound** holds — the screening framework's **inbound** review queue has no manual-release endpoint here.
+
+**🟡 No `/v1` approve/reject for the inbound review queue.** Both handlers operate on outbound `pending_approval` drafts: `handleApprove` → `deps.ApprovePending` (`hitl.go:86`), `handleReject` → `deps.RejectPending` (`hitl.go:117`), and the descriptions say "Approve a **pending_approval** draft." But the screening work added an *inbound* review queue (`pending_review`, released via `ApproveInboundReview`/`RejectInboundReview` in `identity/review.go`). There is **no `/v1` endpoint to manually approve/reject a held inbound message** — so a quarantined inbound message can only be resolved by the `hitlworker` TTL expiry (`hitl_expiration_action`), never by a human/programmatic decision through the public API. For a feature literally named *human-in-the-loop review*, "hold then auto-decide on a timer" is a thin version. *Action:* confirm whether inbound release is intentionally dashboard-only (legacy `/api`) for v1, and if so document it; otherwise add `POST /v1/agents/{email}/messages/{id}/review:{approve,reject}` (or a `direction`-aware variant of these handlers) so the inbound queue is releasable via the same surface.
+
+**🔵 Reject has no idempotency / `Idempotency-Key`.** `handleApprove` wraps the SES send in `runIdempotent` (`hitl.go:85`) and accepts the header; `handleReject` does neither (`rejectInput`, `hitl.go:38–42`). Defensible — reject is a naturally-idempotent state discard (double-reject is a harmless no-op) — but the asymmetry is undocumented. A one-line note on the reject op ("idempotent; no key needed") would close it.
+
+**🔵 Approve idempotency route is msgID-based** (`"/v1/approve/"+in.ID`, `hitl.go:85`) — same pattern (and same latent fragility) flagged for reply/forward in #3. Safe because a held message belongs to one agent, but inconsistent with `send`'s agent-id-folded route. Folds into the #3 "unify the idempotency route" fix.
+
+**✅ Verified clean:**
+- **Self-approval ceiling** (`hitl.go:70`, `105`): both approve and reject require **account scope** — an agent-scoped credential gets 403, so an agent can't approve its own held outbound and defeat the gate. This is the load-bearing HITL security property; the comment documents it and the inbound adversarial review proved it.
+- **Expected-agent-email guard**: `ag.Email` is passed to `ApprovePending`/`RejectPending` (`hitl.go:86,117`) so the held message must belong to the path agent — ownership double-check beyond `resolveOwnedAgent`.
+- **Send-limit on approve only** (`hitl.go:79`): approve triggers a send (rate-limited); reject doesn't (correctly skipped).
+- **Unified result shape**: approve returns `SendResultView` with `edited` set (MSG-9), so approve/send/reply/forward share one response type.
 
 ### 4. API — `conversations.go` (threading list + detail)
 
