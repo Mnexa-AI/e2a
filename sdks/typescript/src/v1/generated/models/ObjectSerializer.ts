@@ -6,6 +6,7 @@ export * from '../models/AgentView.js';
 export * from '../models/ApproveRequest.js';
 export * from '../models/Attachment.js';
 export * from '../models/AttachmentMetaView.js';
+export * from '../models/AttachmentView.js';
 export * from '../models/AuthVerdict.js';
 export * from '../models/CheckResult.js';
 export * from '../models/ConversationDetailView.js';
@@ -76,6 +77,7 @@ import { AgentView    , AgentViewHitlExpirationActionEnum     , AgentViewInbound
 import { ApproveRequest } from '../models/ApproveRequest.js';
 import { Attachment } from '../models/Attachment.js';
 import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
+import { AttachmentView } from '../models/AttachmentView.js';
 import { AuthVerdict } from '../models/AuthVerdict.js';
 import { CheckResult } from '../models/CheckResult.js';
 import { ConversationDetailView } from '../models/ConversationDetailView.js';
@@ -200,6 +202,7 @@ let typeMap: {[index: string]: any} = {
     "ApproveRequest": ApproveRequest,
     "Attachment": Attachment,
     "AttachmentMetaView": AttachmentMetaView,
+    "AttachmentView": AttachmentView,
     "AuthVerdict": AuthVerdict,
     "CheckResult": CheckResult,
     "ConversationDetailView": ConversationDetailView,

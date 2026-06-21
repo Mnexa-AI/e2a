@@ -424,6 +424,7 @@ func main() {
 		SMTPDomain:      cfg.SMTP.Domain,
 		SharedDomain:    cfg.SharedDomain,
 		PublicURL:       cfg.HTTP.PublicURL,
+		SigningSecret:   cfg.Signing.HMACSecret,
 		Production:      cfg.IsProduction(),
 		Legacy:          router,
 		WSHandle:        wsHandler.ServeWithEmail,
