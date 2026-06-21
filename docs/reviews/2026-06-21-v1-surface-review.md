@@ -24,7 +24,7 @@
 | 10 | API | `scope.go` + `middleware.go` — auth/scopes | done | ✅ KEYSTONE: account-scope ceiling holds — #1/#5/#9 cross-refs resolve safe; agent creds barred from account admin + pinned to one agent; 🟡 no Cache-Control: no-store |
 | 11 | API | `pagination.go` — cursor contracts | done | 🟡 shared layer doesn't ENFORCE filter-binding (root cause of #6 drift) — add {position,filterSnapshot} helper; unsigned cursor verified safe ✅ |
 | 12 | API | `idempotency.go` — idempotency keys | done | 🟡 byte-exact body hash → non-identical retry 422s (SDK retry MUST buffer+resend → verify #17/#19); namespace separation + panic safety ✅ |
-| 13 | API | `operations.go` + `errors.go` — views + error envelopes | pending | |
+| 13 | API | `operations.go` + `errors.go` — views + error envelopes | done | 🟡 AgentView leaks scan THRESHOLDS to agent-scoped creds (injected agent can calibrate evasion); resolveOwnedAgent ✅ (#10 resolved); error envelope best-in-class ✅ |
 | 14 | API | `ratelimit.go` — rate limiting | pending | |
 | 15 | SDK | TS `client.ts` — ergonomic layer (parse/reply) | pending | |
 | 16 | SDK | TS `ws.ts` — WebSocket | pending | |
@@ -44,6 +44,22 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 13. API — `operations.go` + `errors.go` (views, `resolveOwnedAgent`, error envelope)
+
+The error envelope is a model of "spec-as-source-of-truth," and `resolveOwnedAgent` resolves the #10 companion cleanly. One subtle screening-related disclosure is worth a decision.
+
+**🟡 `AgentView` exposes the scan thresholds to agent-scoped credentials.** `getAgent` goes through `resolveOwnedAgent` (any scope, ownership+pinning) and returns the full `AgentView` including `inbound/outbound_scan_review_threshold` and `…_block_threshold` (`operations.go:106–111`). So an **agent-scoped credential — the very entity being screened, and the one a prompt injection would compromise — can read its own detection thresholds.** An injected agent can GET itself, learn `outbound_scan_block_threshold`, and calibrate exfil content to score just under it, undermining the egress firewall. The *write* path is account-only (#1), but the *read* isn't gated. *Fix:* omit the scan thresholds (and arguably the gate config) from the `AgentView` returned to agent-scoped callers — the agent doesn't need to know its own detection tuning; the operator sets it. (Account scope still sees everything.)
+
+**🔵 `details` is schema-less (`any`).** `ErrorBody.Details any` (`errors.go:49`) varies by code — a `{resource,limit,current}` map for `limit_exceeded`, an array of field errors for validation — so the OpenAPI types it as untyped and the SDKs surface it as `unknown`/`object`. Clients must know the per-code shape out-of-band. Inherent to a polymorphic field; worth a doc note mapping each error `code` to its `details` shape.
+
+**✅ #10 cross-ref RESOLVED — `resolveOwnedAgent` is the sound per-agent choke point** (`operations.go:181–202`): it enforces **ownership** (`ag.UserID != p.User.ID → 403`, the thing #10 needed) **and** agent-scope **pinning** (`p.Scope==agent && p.AgentID != ag.ID → 403`), and reports missing-vs-non-owned identically (403 "agent not found") so there's **no existence oracle**. Combined with #10, per-agent authz is fully closed: account creds can't touch un-owned agents, agent creds can't pivot to siblings.
+
+**✅ The error envelope is best-in-class:**
+- **Single shape, drift-proof**: `humaErrorConstructor` is installed as the global `huma.NewError` (`errors.go:160`), so *Huma's own* validation/content-negotiation errors render in the same `{error:{code,message,details,request_id}}` envelope — the error contract literally cannot diverge.
+- **Always-branchable code**: `defaultCodeForStatus` (`errors.go:82`) guarantees even a status-only error carries a stable `code`; field-level validation detail is preserved into `details` (`huma.ErrorDetailer`).
+- **Correlation**: `stampRequestID` copies the per-request id into the error body to match the `X-Request-Id` header.
+- **AgentView uniformity**: one shape across create/get/update/list.
 
 ### 12. API — `idempotency.go` (idempotency keys)
 
