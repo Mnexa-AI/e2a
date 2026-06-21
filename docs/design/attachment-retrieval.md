@@ -68,6 +68,12 @@ cross-agent read (403 via `resolveOwnedAgent`), token replay across messages/ind
 (403), missing/empty filename (`Content-Disposition: attachment`, CRLF-stripped),
 empty/unknown content-type (`application/octet-stream`).
 
+## Known limitation
+Attachments nested **inside** a forwarded `message/rfc822` part are not enumerated
+(the walker only recurses `multipart/*`). This is consistent across all three views
+(read metadata, metadata endpoint, download route) — so there is no index skew, just
+a coverage gap. Revisit if forwarded-email attachment extraction becomes in scope.
+
 ## Deferred (designed seams, not built)
 - **Object-storage / AgentDrive adapter** — `AttachmentStore` implementation
   returning a presigned URL. Gates on cross-product identity (shared IdP?) — out of

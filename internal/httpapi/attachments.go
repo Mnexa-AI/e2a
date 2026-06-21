@@ -72,6 +72,12 @@ func (n *nativeAttachmentStore) sign(messageID string, index int, expUnix int64)
 }
 
 func (n *nativeAttachmentStore) DownloadURL(agentEmail, messageID string, index int, ttl time.Duration) (string, time.Time, error) {
+	// Fail closed if wired with no secret — an empty HMAC key makes every token
+	// trivially forgeable. Production config already rejects empty/short secrets,
+	// but defend here too so a future miswiring can't silently open the route.
+	if len(n.secret) == 0 {
+		return "", time.Time{}, fmt.Errorf("attachment store: empty signing secret")
+	}
 	exp := time.Now().Add(ttl)
 	tok := n.sign(messageID, index, exp.Unix())
 	u := fmt.Sprintf("%s/v1/agents/%s/messages/%s/attachments/%d/download?token=%s",
@@ -85,6 +91,9 @@ func (n *nativeAttachmentStore) DownloadURL(agentEmail, messageID string, index 
 }
 
 func (n *nativeAttachmentStore) VerifyDownload(token, messageID string, index int) bool {
+	if len(n.secret) == 0 {
+		return false // never validate against an empty key (see DownloadURL)
+	}
 	dot := strings.IndexByte(token, '.')
 	if dot < 0 {
 		return false
@@ -114,8 +123,8 @@ func (n *nativeAttachmentStore) VerifyDownload(token, messageID string, index in
 		return false
 	}
 	expUnix, err := strconv.ParseInt(parts[2], 10, 64)
-	if err != nil || time.Now().After(time.Unix(expUnix, 0)) {
-		return false
+	if err != nil || !time.Now().Before(time.Unix(expUnix, 0)) {
+		return false // reject at/after the exact expiry second
 	}
 	return true
 }

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
 )
@@ -50,8 +51,15 @@ func attTestServer(t *testing.T) *httptest.Server {
 		},
 		AuthChallenge: func(r *http.Request) string { return `Bearer realm="e2a"` },
 		GetAgent: func(ctx context.Context, address string) (*identity.AgentIdentity, error) {
-			if address == "support@acme.com" {
+			switch address {
+			case "support@acme.com":
 				a := sampleAgent()
+				return &a, nil
+			case "other@acme.com":
+				// A second agent of the same owner — used to prove a download token
+				// minted for support's message can't be replayed against other's path.
+				a := sampleAgent()
+				a.ID = "other@acme.com"
 				return &a, nil
 			}
 			return nil, errors.New("not found")
@@ -198,5 +206,51 @@ func TestAttachment_DownloadRoute(t *testing.T) {
 	r3.Body.Close()
 	if r3.StatusCode != http.StatusForbidden {
 		t.Errorf("index-mismatched token want 403, got %d", r3.StatusCode)
+	}
+}
+
+// The download route's claimed defense: a token minted for support's message must
+// not stream when replayed against a path naming a DIFFERENT agent — the binding
+// rests on GetMessage being keyed by the path agent's id. (Adversarial review #1.)
+func TestAttachment_DownloadTokenCannotCrossAgents(t *testing.T) {
+	srv := attTestServer(t)
+	_, meta := getJSONAtt(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_att/attachments/0", "acct")
+	dlPath := downloadPathFromURL(t, meta["download_url"].(string))
+	// The minted URL carries the literal '@' (url.PathEscape leaves it); swap the agent.
+	crossed := strings.Replace(dlPath, "support@acme.com", "other@acme.com", 1)
+	if crossed == dlPath {
+		crossed = strings.Replace(dlPath, "support%40acme.com", "other%40acme.com", 1)
+	}
+	r, _ := http.Get(srv.URL + crossed)
+	body, _ := io.ReadAll(r.Body)
+	r.Body.Close()
+	if r.StatusCode == http.StatusOK {
+		t.Fatalf("cross-agent token replay MUST NOT stream bytes, got 200: %q", body)
+	}
+	if r.StatusCode != http.StatusNotFound {
+		t.Errorf("cross-agent replay want 404 (msg not owned by path agent), got %d", r.StatusCode)
+	}
+}
+
+func TestNativeAttachmentStore_EmptySecretFailsClosed(t *testing.T) {
+	s := NewNativeAttachmentStore("", "http://x")
+	if _, _, err := s.DownloadURL("a@b.com", "msg", 0, time.Minute); err == nil {
+		t.Error("empty-secret DownloadURL must error, not mint a forgeable URL")
+	}
+	if s.VerifyDownload("anything.anything", "msg", 0) {
+		t.Error("empty-secret VerifyDownload must be false")
+	}
+}
+
+func TestNativeAttachmentStore_ExpiryBoundary(t *testing.T) {
+	s := NewNativeAttachmentStore("secret-secret-secret-secret-secret", "http://x").(*nativeAttachmentStore)
+	past := s.sign("msg", 0, time.Now().Add(-time.Second).Unix())
+	if s.VerifyDownload(past, "msg", 0) {
+		t.Error("past-expiry token must be rejected")
+	}
+	// Exact-expiry second must reject (off-by-one fix).
+	boundary := s.sign("msg", 0, time.Now().Unix())
+	if s.VerifyDownload(boundary, "msg", 0) {
+		t.Error("token expiring this exact second must be rejected")
 	}
 }

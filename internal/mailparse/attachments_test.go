@@ -95,3 +95,28 @@ func TestAttachments_MalformedReturnsEmpty(t *testing.T) {
 		t.Errorf("malformed input should yield no attachments, got %+v", atts)
 	}
 }
+
+// Nested multipart (mixed → related): index must stay stable depth-first across
+// nesting, and a part with `Content-Disposition: attachment` but NO filename must
+// still be collected (the isAttachmentDisp branch).
+func TestAttachments_NestedMultipartAndUnnamedAttachment(t *testing.T) {
+	raw := []byte("Content-Type: multipart/mixed; boundary=OUT\r\n\r\n" +
+		"--OUT\r\nContent-Type: multipart/related; boundary=IN\r\n\r\n" +
+		"--IN\r\nContent-Type: text/html\r\n\r\n<p>hi</p>\r\n" +
+		"--IN\r\nContent-Type: image/png\r\nContent-Disposition: inline; filename=\"a.png\"\r\nContent-Transfer-Encoding: base64\r\n\r\n" + b64("PNGA") + "\r\n" +
+		"--IN--\r\n" +
+		"--OUT\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment\r\nContent-Transfer-Encoding: base64\r\n\r\n" + b64("rawbytes") + "\r\n" +
+		"--OUT--\r\n")
+	atts := Attachments(raw)
+	if len(atts) != 2 {
+		t.Fatalf("want 2 attachments across nesting (html body excluded), got %d: %+v", len(atts), atts)
+	}
+	// Depth-first: the nested a.png comes before the top-level unnamed attachment.
+	if atts[0].Filename != "a.png" || string(atts[0].Data) != "PNGA" {
+		t.Errorf("att0 (nested) wrong: %+v", atts[0])
+	}
+	// Unnamed attachment-disposition part is collected (filename empty).
+	if atts[1].Filename != "" || atts[1].ContentType != "application/octet-stream" || string(atts[1].Data) != "rawbytes" {
+		t.Errorf("att1 (unnamed attachment) wrong: %+v", atts[1])
+	}
+}
