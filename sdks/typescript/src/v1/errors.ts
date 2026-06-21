@@ -218,15 +218,33 @@ export function toE2AError(args: {
  *  classes on a non-2xx response) to a typed E2AError. */
 export function fromApiException(e: ApiException<unknown>): E2AError {
   const headers = (e.headers ?? {}) as Record<string, string>;
-  const requestId = headerGet(headers, "x-request-id");
+  let requestId = headerGet(headers, "x-request-id");
   let code = "";
   let message = e.message;
   let details: unknown;
-  const env = e.body as Partial<ErrorEnvelope> | undefined;
+
+  // `e.body` is the parsed envelope for operations that declare a `default`
+  // error response in the spec. Operations that declare ONLY success codes
+  // (e.g. sendMessage / replyToMessage / forwardMessage) hand back the RAW
+  // body STRING instead — parse it so the machine `code` and the clean
+  // envelope message survive regardless of which operations declared `default`.
+  let body: unknown = e.body;
+  if (typeof body === "string") {
+    try {
+      body = JSON.parse(body);
+    } catch {
+      // Not JSON — leave `body` as the string; we fall through to the status
+      // bucket below (no code), preserving the pre-fix behavior for that case.
+    }
+  }
+  const env = body as Partial<ErrorEnvelope> | undefined;
   if (env && env.error) {
     code = env.error.code ?? "";
     message = env.error.message ?? message;
     details = env.error.details ?? undefined;
+    // request_id lives in the envelope too; prefer the header, fall back to it.
+    const bodyReqId = (env.error as { request_id?: unknown }).request_id;
+    if (!requestId && typeof bodyReqId === "string") requestId = bodyReqId;
   }
   return toE2AError({ status: e.code, code, message, requestId, details, headers });
 }

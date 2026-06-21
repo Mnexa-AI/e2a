@@ -960,10 +960,17 @@ review diligence — a #206-style omission can't merge.
 >   structured error `code` ✅ done** (`runTool` surfaces the API envelope's
 >   machine code in the tool error text — `e2a error [domain_not_verified]: …`,
 >   with a `(retryable)` hint — so agents branch on a code, not prose; wrapper
->   errors with no code stay plain); **#5 attachment download-URL, #7
->   idempotency-key on create tools — still PENDING** (not in GA). #3 (one
->   pagination shape) is partial: the SDK AutoPager normalizes cursors, but MCP
->   tool schemas still expose `token`/`page_size`.
+>   errors with no code stay plain; the message is sanitized + length-bounded and
+>   the raw body/headers are never surfaced). Adversarial review caught that
+>   send/reply/forward return the raw body **string** (those ops declare no
+>   `default: ErrorEnvelope`), so the TS SDK `fromApiException` now parses a
+>   string body's envelope — recovering the code for every operation.
+>   **Follow-up:** the Python SDK has the same string-body gap, and the proper
+>   root cause is adding `default: ErrorEnvelope` to the send/reply/forward Huma
+>   handlers (then regen) so every generated client parses it. **#5 attachment
+>   download-URL, #7 idempotency-key on create tools — still PENDING** (not in
+>   GA). #3 (one pagination shape) is partial: the SDK AutoPager normalizes
+>   cursors, but MCP tool schemas still expose `token`/`page_size`.
 >
 >   Scope-gating note: gating is a decision-space/UX optimization, not the
 >   security boundary — the backend enforces scope per-handler (the OAuth/WS
