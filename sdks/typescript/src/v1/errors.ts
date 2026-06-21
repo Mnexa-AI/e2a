@@ -220,7 +220,12 @@ export function fromApiException(e: ApiException<unknown>): E2AError {
   const headers = (e.headers ?? {}) as Record<string, string>;
   let requestId = headerGet(headers, "x-request-id");
   let code = "";
-  let message = e.message;
+  // Do NOT seed message from e.message: the generated ApiException builds its
+  // .message as a full dump ("HTTP-Code: …\nMessage: …\nBody: <raw>\nHeaders:
+  // <all headers>"), which leaks the raw body + headers (incl. x-request-id).
+  // Leave it undefined when the envelope is missing/unparseable; toE2AError then
+  // synthesizes a clean "e2a API error (<status>)".
+  let message: string | undefined;
   let details: unknown;
 
   // `e.body` is the parsed envelope for operations that declare a `default`

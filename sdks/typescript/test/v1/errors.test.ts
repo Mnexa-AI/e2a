@@ -199,6 +199,25 @@ describe("fromApiException", () => {
     expect(err).toBeInstanceOf(E2APermissionError); // status bucket, no crash
     expect(err.code).not.toBe("domain_not_verified"); // didn't hallucinate a code
   });
+
+  // Regression: the generated ApiException.message is a full dump (raw body +
+  // all headers). fromApiException must NEVER pass that through — for a
+  // non-envelope error it synthesizes a clean message instead, so the raw body,
+  // headers, and any embedded secrets never reach a caller (or, via MCP, an
+  // agent's context).
+  it("never leaks the raw body/headers dump when the body isn't an envelope", () => {
+    const apiEx = new ApiException(
+      502,
+      "Unknown API Status Code!",
+      "upstream <html>Bad Gateway</html> req_BODY_SECRET not-json",
+      { "x-request-id": "req_HDR_SECRET", "set-cookie": "session=secret" },
+    );
+    const err = fromApiException(apiEx);
+    expect(err.message).toMatch(/e2a API error \(502\)/); // clean synthetic message
+    for (const leak of ["req_BODY_SECRET", "<html>", "Headers:", "set-cookie", "session=secret"]) {
+      expect(err.message).not.toContain(leak);
+    }
+  });
 });
 
 describe("connectionError + isRetryableStatus", () => {
