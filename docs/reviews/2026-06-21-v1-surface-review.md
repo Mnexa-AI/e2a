@@ -36,7 +36,7 @@
 | 22 | MCP | `tools/messages.ts` + `attachments.ts` | done | ✅ held-message read boundary HOLDS through MCP (get_message/labels inherit server guard); attachments multipart-bomb-safe; 🔵 stale 'HITL enabled' framing (outcome still correct) |
 | 23 | MCP | `tools/hitl.ts` | done | 🟡 outbound-only (no inbound review release — mirrors #5); 🟡 approve_message destructiveHint:false despite gating an irreversible send (LLM could self-release → collapse HITL); best-in-surface idempotency doc ✅ |
 | 24 | MCP | `tools/webhooks.ts` + `events.ts` + `domains.ts` | done | 🟡 create_webhook/list_events descriptions OMIT email.injection_detected (completes #7: undiscoverable end-to-end); secret/SSRF/rotation + domains composition ✅ |
-| 25 | MCP | `server.ts` + `session.ts` + `client.ts` — transport/auth/pagination | pending | |
+| 25 | MCP | `server.ts` + `session.ts` + `client.ts` — transport/auth/pagination | done | ✅ bearer-fingerprint session binding defeats session-hijack (excellent); scope-gating correctly layered; 🟡 client wrapper threads retired hitlEnabled/hitlMode (confirms #21 end-to-end) |
 | 26 | MCP | `tools/tiers.ts` + `util.ts` — scope gating | pending | |
 
 ---
@@ -44,6 +44,22 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 25. MCP — `server.ts` + `session.ts` + `client.ts` (transport / auth / pagination)
+
+The standout is a sophisticated, correct session-hijack defense. One carry-over (the #21 staleness runs through the client wrapper too) and one thing to confirm lives outside these files.
+
+**✅ Bearer-fingerprint session binding — a real MCP-transport attack, correctly defended.** `SessionEntry` stores `SHA-256(bearer)` and subsequent requests on a session must present the same bearer (`session.ts:9–32`). The threat is precise: an `Mcp-Session-Id` is CORS-exposed (`Access-Control-Expose-Headers`) and visible in logs/devtools/proxies, and the per-session `E2AClient` has the *original* bearer baked in and forwards it to the backend — so without this binding a **leaked session id + any non-empty bearer = full session takeover** (the backend never re-checks). Storing the *fingerprint*, not the raw bearer, also keeps a memory dump of the session map free of cleartext credentials. Excellent.
+
+**🟡 `client.ts updateAgent` threads the retired `hitlEnabled`/`hitlMode` (confirms #21 runs the whole MCP chain).** `updateAgent({ hitlEnabled?, hitlMode?, … })` casts to `UpdateAgentRequest` (`client.ts:116–127`) — so the dead fields aren't only in the tool schema (#21); the client wrapper carries them end-to-end (tool → wrapper → server-ignored no-op). The #21 fix must touch this wrapper too, and add the new screening fields here.
+
+**✅ Scope-gating is a correctly-layered UX optimization, not the security boundary.** `gateRegistration` (`server.ts:23–33`) skips tools outside the credential's scope so an agent-scoped session never *sees* account-admin tools (`create_agent`, etc.) — and the comment is explicit that "the backend still enforces scope, so a skipped tool is never the security boundary" (`server.ts:20–22`). So a gating bug is a surface-area regression, not a privilege escalation; the real ceiling is the server (#10/#13). (`toolNamesForScope` itself is reviewed in #26.)
+
+**✅ Lifecycle + ergonomics:**
+- **Sessions**: idle-GC every 60s, **LRU eviction** at `maxSessions` (a stuck container can't accumulate sessions), `Promise.allSettled` sweeps (one bad `transport.close()` doesn't abort the reap), `unref`'d timer, idempotent `shutdown`.
+- **`client.ts`**: `resolveAddress` (explicit per-call → pinned default → an *actionable* directive error: "pass it explicitly, or connect agent-scoped… run list_agents"); scope pinned once at init via `whoami`; cursor pagination returns one page + `next_cursor` (LLM controls paging) — correct.
+
+**🔵 Confirm the fingerprint *comparison* is wired.** `session.ts` stores the fingerprint and documents that `handleClientRequest` compares it before dispatch, but that comparison lives in the HTTP entrypoint (not in these three files). Since it's the load-bearing enforcement for the whole session-binding defense, it's worth a one-line confirming glance that it runs *before* dispatching to the session transport (and rejects a mismatch). Design is sound; just verify the wire.
 
 ### 24. MCP — `tools/webhooks.ts` + `events.ts` + `domains.ts`
 
