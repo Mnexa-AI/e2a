@@ -56,6 +56,24 @@ func TestMapSESStatus(t *testing.T) {
 			want: StatusFailed,
 		},
 		{
+			name: "dkim temporary_failure → pending (transient, not stranded as failed)",
+			out: &sesv2.GetEmailIdentityOutput{
+				VerifiedForSendingStatus: true,
+				DkimAttributes:           &ststypes.DkimAttributes{Status: ststypes.DkimStatusTemporaryFailure},
+				MailFromAttributes:       &ststypes.MailFromAttributes{MailFromDomainStatus: ststypes.MailFromDomainStatusSuccess},
+			},
+			want: StatusPending,
+		},
+		{
+			name: "mailfrom temporary_failure → pending (transient, not stranded)",
+			out: &sesv2.GetEmailIdentityOutput{
+				VerifiedForSendingStatus: true,
+				DkimAttributes:           &ststypes.DkimAttributes{Status: ststypes.DkimStatusSuccess},
+				MailFromAttributes:       &ststypes.MailFromAttributes{MailFromDomainStatus: ststypes.MailFromDomainStatusTemporaryFailure},
+			},
+			want: StatusPending,
+		},
+		{
 			name: "dkim failed → failed",
 			out: &sesv2.GetEmailIdentityOutput{
 				VerifiedForSendingStatus: true,
@@ -218,6 +236,36 @@ func TestSESProvider_ProvisionAlreadyExistsStillSetsMailFrom(t *testing.T) {
 	}
 	if res.Status != StatusPending || stub.mailFromInput == nil {
 		t.Fatalf("AlreadyExists must still set MAIL FROM; status=%q mailFrom=%+v", res.Status, stub.mailFromInput)
+	}
+}
+
+func TestSESProvider_ProvisionPropagatesMailFromError(t *testing.T) {
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	pkcs1 := x509.MarshalPKCS1PrivateKey(key)
+	// CreateEmailIdentity ok, but the MAIL FROM call fails (transient) → Provision
+	// must surface the error so River retries (not silently return pending).
+	stub := &stubSESAPI{putErr: errors.New("throttled")}
+	p := NewSESProvider(stub, "us-east-1")
+	if _, err := p.Provision(context.Background(), "acme.com", "sel", pkcs1); err == nil {
+		t.Fatal("expected PutEmailIdentityMailFromAttributes error to propagate")
+	}
+}
+
+func TestSESProvider_StatusReturnsMailFromRecords(t *testing.T) {
+	// Status re-emits the MAIL FROM records so the verify/failed transition
+	// preserves them (records aren't wiped when a domain goes verified).
+	p := NewSESProvider(&stubSESAPI{}, "eu-west-1")
+	res, err := p.Status(context.Background(), "acme.com")
+	if err != nil {
+		t.Fatalf("Status error: %v", err)
+	}
+	if len(res.DNSRecords) != 2 {
+		t.Fatalf("want 2 records from Status, got %d", len(res.DNSRecords))
+	}
+	for _, r := range res.DNSRecords {
+		if r.Name != "bounce.acme.com" {
+			t.Errorf("record name = %q, want bounce.acme.com", r.Name)
+		}
 	}
 }
 

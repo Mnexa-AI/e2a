@@ -113,7 +113,10 @@ func (p *SESProvider) Status(ctx context.Context, domain string) (Result, error)
 		}
 		return Result{}, err
 	}
-	return Result{Status: mapSESStatus(out)}, nil
+	// Re-emit the MAIL FROM records on every poll so the verify/failed transition
+	// preserves them (ReconcileWorker writes res.DNSRecords) — a verified domain's
+	// view keeps showing the MX/SPF the customer must KEEP published.
+	return Result{Status: mapSESStatus(out), DNSRecords: mailFromRecords(domain, p.region)}, nil
 }
 
 func (p *SESProvider) Deprovision(ctx context.Context, domain string) error {

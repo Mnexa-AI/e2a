@@ -54,8 +54,10 @@ for verified domains; (b) needed an aligned Return-Path.
   both idempotent; the `verified` skip-guard already exists).
 - No migration: no domain was `verified` before (path dormant), so redefining
   `verified` to require MAIL FROM has no existing rows to reconcile.
-- On verify, the MX/SPF records (shown while `pending`) clear (Status returns no
-  records) — they're "what to publish" guidance, not needed once live.
+- The MX/SPF records are **preserved across verify** — `Status()` re-emits them on
+  every poll, so a verified domain's view keeps showing the records the customer
+  must KEEP published (removing them later silently loses SPF alignment). (Adjusted
+  from the original "clear on verify" after review.)
 
 ## Verification
 - Unit: `mapSESStatus` across both axes; `Provision` configures MAIL FROM + emits
