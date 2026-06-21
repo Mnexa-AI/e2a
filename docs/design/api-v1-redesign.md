@@ -1531,9 +1531,10 @@ Break the current `/api/v1` surface directly and move it to
       the gate. (Reusing the participant set of a *trusted* prior thread is a
       possible future refinement.)
     * The "untrusted input" signal is a plain bool in `actiongate` — the
-      **pluggable seam** to later fold a content-level prompt-injection verdict
-      (a partner scan API, under evaluation) into the same gate without rework.
-      That integration is deferred; e2a core stays provider-agnostic.
+      **pluggable seam** to fold a content-level prompt-injection verdict into the
+      same gate without rework. **Shipped: `piguard`** is wired in as that
+      content-scan implementation (the seam is no longer just a placeholder); the
+      seam stays provider-agnostic so the scanner can be swapped.
 
     Built on the 5a hard scope ceiling (decision 10 / §5). No new contract
     surface beyond `hitl_mode`.
@@ -1800,16 +1801,17 @@ approve/reject and the WebSocket upgrade served under `/v1`.
 (AgentDrive PR #204) — deploy `/v1` before merging it.
 
 **Deferred (tracked, not in this branch):**
-1. **SDK regen** — switch TS/Python codegen to consume `api/openapi.yaml` and
-   regenerate `sdks/*/generated`; needs the external codegen toolchain. Until
-   then the published SDKs still describe the legacy shapes.
-2. **Host/config cutover** — canonical public host `api.e2a.dev/v1`; DNS +
-   deploy + SDK/CLI default base-URL bump are an ops-coordinated step.
+1. ~~**SDK regen**~~ ✅ **done** — TS/Python codegen now consumes
+   `api/openapi.yaml` (OpenAPI Generator), with `make generate-sdk` +
+   `generate-sdk-check` drift gate; the published SDK bases match the spec.
+2. ~~**Host/config cutover**~~ ✅ **done** — canonical host shipped (`api.e2a.dev`;
+   hosted MCP at `api.e2a.dev/mcp`); SDK/CLI default base-URL bumped.
 3. **Contract-drift CI gate (§6)** — the #206-class guard (SDK regen-diff, MCP
    request-validation, MCP field-coverage, tool↔`operationId` map) is **not yet
    enforced in CI**: today the `mcp` job tests tools against hand-written stubs,
-   not `api/openapi.yaml`, so a drifted MCP tool can still merge. This is the
-   single highest-value follow-up — it is the reason the redesign exists.
+   not `api/openapi.yaml`, so a drifted MCP tool can still merge. **Decision:
+   deferred until the `/v1` contract is GA-stable** (build the gate once the
+   contract is frozen, to avoid churning it). Highest-value follow-up after GA.
 4. **Per-agent send rate-limit on idempotent replays** — `checkSendLimit` runs
    *before* the idempotency handshake, so a cached replay still consumes a token
    (and the send-path 429 still omits the IETF `RateLimit-*` headers the
