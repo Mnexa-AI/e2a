@@ -20,6 +20,7 @@ import json
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
+from e2a.v1.generated.models.attachment_meta_view import AttachmentMetaView
 from e2a.v1.generated.models.auth_verdict import AuthVerdict
 from e2a.v1.generated.models.message_body_view import MessageBodyView
 from e2a.v1.generated.models.message_parsed_view import MessageParsedView
@@ -30,6 +31,7 @@ class MessageView(BaseModel):
     """
     MessageView
     """ # noqa: E501
+    attachments: List[AttachmentMetaView]
     auth: Optional[AuthVerdict] = None
     auth_headers: Optional[Dict[str, StrictStr]] = None
     body: Optional[MessageBodyView] = None
@@ -56,7 +58,7 @@ class MessageView(BaseModel):
     to: List[StrictStr]
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
-    __properties: ClassVar[List[str]] = ["auth", "auth_headers", "body", "cc", "conversation_id", "created_at", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "hitl_status", "labels", "message_id", "parsed", "raw_message", "read_status", "recipient", "reply_to", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
+    __properties: ClassVar[List[str]] = ["attachments", "auth", "auth_headers", "body", "cc", "conversation_id", "created_at", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "hitl_status", "labels", "message_id", "parsed", "raw_message", "read_status", "recipient", "reply_to", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -97,6 +99,13 @@ class MessageView(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
+        # override the default output from pydantic by calling `to_dict()` of each item in attachments (list)
+        _items = []
+        if self.attachments:
+            for _item_attachments in self.attachments:
+                if _item_attachments:
+                    _items.append(_item_attachments.to_dict())
+            _dict['attachments'] = _items
         # override the default output from pydantic by calling `to_dict()` of auth
         if self.auth:
             _dict['auth'] = self.auth.to_dict()
@@ -118,6 +127,7 @@ class MessageView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
+            "attachments": [AttachmentMetaView.from_dict(_item) for _item in obj["attachments"]] if obj.get("attachments") is not None else None,
             "auth": AuthVerdict.from_dict(obj["auth"]) if obj.get("auth") is not None else None,
             "auth_headers": obj.get("auth_headers"),
             "body": MessageBodyView.from_dict(obj["body"]) if obj.get("body") is not None else None,

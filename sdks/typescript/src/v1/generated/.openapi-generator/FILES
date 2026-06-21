@@ -21,6 +21,8 @@ models/AgentIdentity.ts
 models/AgentView.ts
 models/ApproveRequest.ts
 models/Attachment.ts
+models/AttachmentMetaView.ts
+models/AttachmentView.ts
 models/AuthVerdict.ts
 models/CheckResult.ts
 models/ConversationDetailView.ts

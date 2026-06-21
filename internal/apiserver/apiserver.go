@@ -42,6 +42,12 @@ type Params struct {
 	PublicURL    string
 	Production   bool
 
+	// SigningSecret is the deployment HMAC secret (config.Signing.HMACSecret) —
+	// used to mint/verify short-lived attachment download tokens (§6a #5), the
+	// same primitive as the HITL magic-link. When empty, attachment endpoints
+	// are left unwired.
+	SigningSecret string
+
 	// Legacy is the gorilla/mux handler the chi root falls back to for any
 	// route not on /v1. WSHandle serves the /v1 WebSocket upgrade.
 	Legacy   http.Handler
@@ -72,6 +78,7 @@ func BuildDeps(p Params) httpapi.Deps {
 		ListAgents:             p.Store.ListAgentsByUser,
 		GetAgent:               p.Store.GetAgentByEmail,
 		GetMessage:             p.Store.GetMessageWithContent,
+		AttachmentStore:        attachmentStore(p),
 		ListMessages:           p.Store.GetMessagesByAgent,
 		ModifyMessageLabels:    p.Store.ModifyMessageLabels,
 
@@ -188,6 +195,16 @@ func enqueueSenderProvisionFunc(p Params) func(ctx context.Context, domain strin
 			log.Printf("[apiserver] enqueue sender provision for %s: %v", domain, err)
 		}
 	}
+}
+
+// attachmentStore wires the default (native) attachment store when the signing
+// secret + public URL are present; returns nil otherwise (attachment endpoints
+// stay unwired, e.g. in minimal test setups) — the handlers guard on nil.
+func attachmentStore(p Params) httpapi.AttachmentStore {
+	if p.SigningSecret == "" || p.PublicURL == "" {
+		return nil
+	}
+	return httpapi.NewNativeAttachmentStore(p.SigningSecret, p.PublicURL)
 }
 
 // New builds the process HTTP handler (chi root owning /v1, legacy fallback).

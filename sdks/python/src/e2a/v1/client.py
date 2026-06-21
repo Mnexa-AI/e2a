@@ -40,6 +40,7 @@ from .generated.models import (
     EventJSON,
     ForwardRequest,
     AccountView,
+    AttachmentView,
     MessageSummaryView,
     MessageView,
     RedeliverEventRequest,
@@ -282,6 +283,15 @@ class MessagesResource:
 
     async def get(self, email: str, message_id: str) -> MessageView:
         return await self._c._read(lambda h: self._api.get_message(email, message_id, _headers=h))
+
+    async def get_attachment(
+        self, email: str, message_id: str, index: int, *, inline: bool = False
+    ) -> AttachmentView:
+        # Metadata + a short-lived download_url (+ expires_at). inline=True also
+        # returns base64 `data` for small attachments (<=256 KB; larger error).
+        return await self._c._read(
+            lambda h: self._api.get_attachment(email, message_id, index, inline=inline, _headers=h)
+        )
 
     async def send(
         self, email: str, body: Body, *, idempotency_key: Optional[str] = None

@@ -44,13 +44,11 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cors": "^2.8.5",
     "express": "^5.0.0",
-    "mailparser": "^3.9.11",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
-    "@types/mailparser": "^3.4.6",
     "@types/node": "^25.9.2",
     "supertest": "^7.0.0",
     "@types/supertest": "^7.2.0",

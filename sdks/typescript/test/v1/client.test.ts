@@ -179,6 +179,24 @@ describe("E2AClient", () => {
     expect(calls[1]).toContain("cursor=cur_2");
   });
 
+  it("messages.getAttachment hits GET …/attachments/{index} and maps the view", async () => {
+    globalThis.fetch = mockFetch(200, {
+      index: 0,
+      filename: "report.pdf",
+      content_type: "application/pdf",
+      size_bytes: 14,
+      download_url: "https://api.test/d?token=tok",
+      expires_at: "2026-06-20T10:15:00Z",
+    });
+    const att = await client.messages.getAttachment("bot@test.dev", "msg_1", 0, { inline: true });
+    const { url, init } = lastCall();
+    expect(init.method).toBe("GET");
+    expect(url).toContain("/messages/msg_1/attachments/0");
+    expect(url).toContain("inline=true");
+    expect(att.downloadUrl).toBe("https://api.test/d?token=tok");
+    expect(att.sizeBytes).toBe(14);
+  });
+
   // ── Pagination: cursor-walking endpoints ────────────────────────
   // conversations/events/suppressions take a `cursor` query param; the pager
   // must replay next_cursor until null, threading the cursor each follow-up.

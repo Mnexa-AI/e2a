@@ -9,6 +9,8 @@ import { AgentIdentity } from '../models/AgentIdentity.js';
 import { AgentView } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
 import { Attachment } from '../models/Attachment.js';
+import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
+import { AttachmentView } from '../models/AttachmentView.js';
 import { AuthVerdict } from '../models/AuthVerdict.js';
 import { CheckResult } from '../models/CheckResult.js';
 import { ConversationDetailView } from '../models/ConversationDetailView.js';
@@ -897,6 +899,38 @@ export interface MessagesApiForwardMessageRequest {
     idempotencyKey?: string
 }
 
+export interface MessagesApiGetAttachmentRequest {
+    /**
+     * 
+     * Defaults to: undefined
+     * @type string
+     * @memberof MessagesApigetAttachment
+     */
+    email: string
+    /**
+     * 
+     * Defaults to: undefined
+     * @type string
+     * @memberof MessagesApigetAttachment
+     */
+    id: string
+    /**
+     * 
+     * Minimum: 0
+     * Defaults to: undefined
+     * @type number
+     * @memberof MessagesApigetAttachment
+     */
+    index: number
+    /**
+     * When true, also include the bytes as base64 in \&#39;data\&#39; — ONLY for attachments &lt;&#x3D; 256 KB; larger inline requests are rejected (413). Default false (use download_url).
+     * Defaults to: undefined
+     * @type boolean
+     * @memberof MessagesApigetAttachment
+     */
+    inline?: boolean
+}
+
 export interface MessagesApiGetMessageRequest {
     /**
      * The agent\&#39;s full email address.
@@ -1143,6 +1177,24 @@ export class ObjectMessagesApi {
      */
     public forwardMessage(param: MessagesApiForwardMessageRequest, options?: ConfigurationOptions): Promise<SendResultView> {
         return this.api.forwardMessage(param.email, param.id, param.forwardRequest, param.idempotencyKey,  options).toPromise();
+    }
+
+    /**
+     * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected. `index` is the 0-based attachment index from the message\'s `attachments[]`.
+     * Get an attachment (metadata + short-lived download URL)
+     * @param param the request object
+     */
+    public getAttachmentWithHttpInfo(param: MessagesApiGetAttachmentRequest, options?: ConfigurationOptions): Promise<HttpInfo<AttachmentView>> {
+        return this.api.getAttachmentWithHttpInfo(param.email, param.id, param.index, param.inline,  options).toPromise();
+    }
+
+    /**
+     * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected. `index` is the 0-based attachment index from the message\'s `attachments[]`.
+     * Get an attachment (metadata + short-lived download URL)
+     * @param param the request object
+     */
+    public getAttachment(param: MessagesApiGetAttachmentRequest, options?: ConfigurationOptions): Promise<AttachmentView> {
+        return this.api.getAttachment(param.email, param.id, param.index, param.inline,  options).toPromise();
     }
 
     /**

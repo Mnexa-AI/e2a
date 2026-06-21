@@ -17,6 +17,7 @@ from e2a.v1.errors import (
 )
 from e2a.v1.generated.models import (
     AgentView,
+    AttachmentView,
     ConversationSummaryView,
     DomainView,
     EventJSON,
@@ -138,6 +139,29 @@ async def test_get_agent_sends_bearer_and_encodes_address(httpx_mock):
     assert "/v1/agents/" in str(req.url)
     assert "bot%40test.dev" in str(req.url)
     assert req.headers["authorization"] == "Bearer e2a_test"
+
+
+@pytest.mark.anyio
+async def test_get_attachment_hits_endpoint_and_maps_view(httpx_mock):
+    httpx_mock.add_response(
+        json=_valid(
+            AttachmentView,
+            index=0,
+            filename="report.pdf",
+            content_type="application/pdf",
+            size_bytes=14,
+            download_url="https://api.test/d?token=tok",
+            expires_at="2026-06-21T10:15:00Z",
+        )
+    )
+    async with _client() as c:
+        att = await c.messages.get_attachment("bot@test.dev", "msg_1", 0, inline=True)
+    assert att.download_url == "https://api.test/d?token=tok"
+    assert att.size_bytes == 14
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "GET"
+    assert "/messages/msg_1/attachments/0" in str(req.url)
+    assert "inline=true" in str(req.url)
 
 
 @pytest.mark.anyio

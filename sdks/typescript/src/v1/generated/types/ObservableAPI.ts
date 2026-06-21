@@ -10,6 +10,8 @@ import { AgentIdentity } from '../models/AgentIdentity.js';
 import { AgentView } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
 import { Attachment } from '../models/Attachment.js';
+import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
+import { AttachmentView } from '../models/AttachmentView.js';
 import { AuthVerdict } from '../models/AuthVerdict.js';
 import { CheckResult } from '../models/CheckResult.js';
 import { ConversationDetailView } from '../models/ConversationDetailView.js';
@@ -1020,6 +1022,46 @@ export class ObservableMessagesApi {
      */
     public forwardMessage(email: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
         return this.forwardMessageWithHttpInfo(email, id, forwardRequest, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
+    }
+
+    /**
+     * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected. `index` is the 0-based attachment index from the message\'s `attachments[]`.
+     * Get an attachment (metadata + short-lived download URL)
+     * @param email
+     * @param id
+     * @param index
+     * @param [inline] When true, also include the bytes as base64 in \&#39;data\&#39; — ONLY for attachments &lt;&#x3D; 256 KB; larger inline requests are rejected (413). Default false (use download_url).
+     */
+    public getAttachmentWithHttpInfo(email: string, id: string, index: number, inline?: boolean, _options?: ConfigurationOptions): Observable<HttpInfo<AttachmentView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.getAttachment(email, id, index, inline, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.getAttachmentWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected. `index` is the 0-based attachment index from the message\'s `attachments[]`.
+     * Get an attachment (metadata + short-lived download URL)
+     * @param email
+     * @param id
+     * @param index
+     * @param [inline] When true, also include the bytes as base64 in \&#39;data\&#39; — ONLY for attachments &lt;&#x3D; 256 KB; larger inline requests are rejected (413). Default false (use download_url).
+     */
+    public getAttachment(email: string, id: string, index: number, inline?: boolean, _options?: ConfigurationOptions): Observable<AttachmentView> {
+        return this.getAttachmentWithHttpInfo(email, id, index, inline, _options).pipe(map((apiResponse: HttpInfo<AttachmentView>) => apiResponse.data));
     }
 
     /**

@@ -25,6 +25,7 @@ import type {
   CreateAgentRequest,
   UpdateAgentRequest,
   MessageView,
+  AttachmentView,
   MessageSummaryView,
   SendEmailRequest,
   ReplyRequest,
@@ -226,6 +227,13 @@ class MessagesResource {
   }
   get(email: string, id: string): Promise<MessageView> {
     return call(() => this.api.getMessage(email, id));
+  }
+  // getAttachment returns one attachment's metadata + a short-lived download_url
+  // (+ expires_at). Pass { inline: true } to also receive base64 `data` for small
+  // attachments (the server caps inline; larger requests error). Fetch the bytes
+  // out of band via download_url so they never stream through an agent's context.
+  getAttachment(email: string, id: string, index: number, opts: { inline?: boolean } = {}): Promise<AttachmentView> {
+    return call(() => this.api.getAttachment(email, id, index, opts.inline));
   }
   send(email: string, body: SendEmailRequest, opts: RequestOptions = {}): Promise<SendResultView> {
     return call(() => this.api.sendMessage(email, body, opts.idempotencyKey));

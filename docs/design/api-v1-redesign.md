@@ -942,9 +942,13 @@ review diligence — a #206-style omission can't merge.
 > - **`approve`/`reject` are two routes** (`…/messages/{id}/approve` + `…/reject`),
 >   not one `approval {decision}` sub-resource (gap table §8 ratifies this — it also
 >   keeps the operation explicit per decision 3).
-> - **`get_attachment` re-fetches the full message** and extracts the attachment;
->   the dedicated `…/attachments/{index}` endpoint + signed-URL idea (update #5) was
->   **not** built.
+> - **`get_attachment` returns metadata + a short-lived signed download URL** (update
+>   #5 ✅ done): the dedicated `GET …/messages/{id}/attachments/{index}` endpoint
+>   returns `{index, filename, content_type, size_bytes, download_url, expires_at}`,
+>   `?inline=true` adds base64 `data` for ≤256 KB, and the bytes stream from a
+>   capability-token route `…/attachments/{index}/download?token=` (no bearer; token
+>   binds message+index, 15-min TTL). The 2 MB inline wall and the MCP's client-side
+>   MIME re-parse are gone. See [attachment-retrieval.md](attachment-retrieval.md).
 > - **Recommended design updates status:** #8 (vocabulary) ✅ done; #6 (fold
 >   deliveries) ✅ rejected (see above); **#1 scope/tier-gating ✅ done** (agent
 >   scope → 14 runtime tools, account → all 35; gated at one seam in
@@ -968,8 +972,10 @@ review diligence — a #206-style omission can't merge.
 >   **Follow-up:** the Python SDK has the same string-body gap, and the proper
 >   root cause is adding `default: ErrorEnvelope` to the send/reply/forward Huma
 >   handlers (then regen) so every generated client parses it. **#5 attachment
->   download-URL, #7 idempotency-key on create tools — still PENDING** (not in
->   GA). **#3 (one pagination shape) ✅ done:** the cursor-paginated list tools
+>   download-URL ✅ done** (native adapter; AgentDrive/object-storage adapter +
+>   outbound presigned-upload + large-file attach-by-reference deferred as seams —
+>   see [attachment-retrieval.md](attachment-retrieval.md)). **#7 idempotency-key
+>   on create tools — still PENDING** (not in GA). **#3 (one pagination shape) ✅ done:** the cursor-paginated list tools
 >   (`list_messages`, `list_conversations`, `list_events`) now take `cursor` +
 >   `limit` and return `{ <items>, next_cursor }` (one page; pass `next_cursor`
 >   back for the next) — the dead `token`/`page_size` are gone. Built on a new
@@ -1189,12 +1195,14 @@ worth making while we're reshaping the contract anyway, roughly in priority:
    machine-branchable `code` (e.g. `domain_not_verified`, `message_not_pending`,
    `sending_not_verified`) in tool errors so agents branch on a code, not on
    prose. Pairs with the §4 decision 6 error envelope.
-5. **Stop round-tripping attachments as base64 through the model.**
-   `get_attachment` should return metadata + a short-lived signed **download
-   URL** by default, with inline base64 only on explicit request for small
-   files — removing the silent 2 MB decode cap (a current footgun) and the token
-   cost of streaming binaries through context. (Send side keeps small inline
-   base64; a presigned **upload** URL is the symmetric future step.)
+5. **Stop round-tripping attachments as base64 through the model.** ✅ **done**
+   (native adapter). `get_attachment` returns metadata + a short-lived signed
+   **download URL** by default, with inline base64 only on `?inline=true` for
+   small files (≤256 KB) — the silent 2 MB decode cap and the binary-through-context
+   cost are gone. Built behind an `AttachmentStore` port so an object-storage
+   adapter can slot in later; send-side presigned **upload** + large-file
+   attach-by-reference are the symmetric deferred steps. See
+   [attachment-retrieval.md](attachment-retrieval.md).
 6. **Fold delivery debugging into events.** `get_event` already carries the
    per-webhook `delivery_status`; drop `list_webhook_deliveries` and let
    `list_events {webhook_id, status}` + `get_event` be the one observability

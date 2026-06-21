@@ -9,6 +9,7 @@ import {SecurityAuthentication} from '../auth/auth.js';
 
 
 import { ApproveRequest } from '../models/ApproveRequest.js';
+import { AttachmentView } from '../models/AttachmentView.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
 import { MessageView } from '../models/MessageView.js';
@@ -152,6 +153,67 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
             contentType
         );
         requestContext.setBody(serializedBody);
+
+        let authMethod: SecurityAuthentication | undefined;
+        // Apply auth methods
+        authMethod = _config.authMethods["bearer"]
+        if (authMethod?.applySecurityAuthentication) {
+            await authMethod?.applySecurityAuthentication(requestContext);
+        }
+        
+        const defaultAuth: SecurityAuthentication | undefined = _config?.authMethods?.default
+        if (defaultAuth?.applySecurityAuthentication) {
+            await defaultAuth?.applySecurityAuthentication(requestContext);
+        }
+
+        return requestContext;
+    }
+
+    /**
+     * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected. `index` is the 0-based attachment index from the message\'s `attachments[]`.
+     * Get an attachment (metadata + short-lived download URL)
+     * @param email 
+     * @param id 
+     * @param index 
+     * @param inline When true, also include the bytes as base64 in \&#39;data\&#39; — ONLY for attachments &lt;&#x3D; 256 KB; larger inline requests are rejected (413). Default false (use download_url).
+     */
+    public async getAttachment(email: string, id: string, index: number, inline?: boolean, _options?: Configuration): Promise<RequestContext> {
+        let _config = _options || this.configuration;
+
+        // verify required parameter 'email' is not null or undefined
+        if (email === null || email === undefined) {
+            throw new RequiredError("MessagesApi", "getAttachment", "email");
+        }
+
+
+        // verify required parameter 'id' is not null or undefined
+        if (id === null || id === undefined) {
+            throw new RequiredError("MessagesApi", "getAttachment", "id");
+        }
+
+
+        // verify required parameter 'index' is not null or undefined
+        if (index === null || index === undefined) {
+            throw new RequiredError("MessagesApi", "getAttachment", "index");
+        }
+
+
+
+        // Path Params
+        const localVarPath = '/v1/agents/{email}/messages/{id}/attachments/{index}'
+            .replace('{' + 'email' + '}', encodeURIComponent(String(email)))
+            .replace('{' + 'id' + '}', encodeURIComponent(String(id)))
+            .replace('{' + 'index' + '}', encodeURIComponent(String(index)));
+
+        // Make Request Context
+        const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.GET);
+        requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+        // Query Params
+        if (inline !== undefined) {
+            requestContext.setQueryParam("inline", ObjectSerializer.serialize(inline, "boolean", ""));
+        }
+
 
         let authMethod: SecurityAuthentication | undefined;
         // Apply auth methods
@@ -661,6 +723,42 @@ export class MessagesApiResponseProcessor {
                 ObjectSerializer.parse(await response.body.text(), contentType),
                 "SendResultView", ""
             ) as SendResultView;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+
+        throw new ApiException<string | Blob | undefined>(response.httpStatusCode, "Unknown API Status Code!", await response.getBodyAsAny(), response.headers);
+    }
+
+    /**
+     * Unwraps the actual response sent by the server from the response context and deserializes the response content
+     * to the expected objects
+     *
+     * @params response Response returned by the server for a request to getAttachment
+     * @throws ApiException if the response code was not in [200, 299]
+     */
+     public async getAttachmentWithHttpInfo(response: ResponseContext): Promise<HttpInfo<AttachmentView >> {
+        const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
+        if (isCodeInRange("200", response.httpStatusCode)) {
+            const body: AttachmentView = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "AttachmentView", ""
+            ) as AttachmentView;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+        if (isCodeInRange("0", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error", body, response.headers);
+        }
+
+        // Work around for missing responses in specification, e.g. for petstore.yaml
+        if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
+            const body: AttachmentView = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "AttachmentView", ""
+            ) as AttachmentView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

@@ -1,7 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { simpleParser } from "mailparser";
 import type { McpClient, SendOpts } from "../client.js";
-import type { MessageView } from "@e2a/sdk/v1";
 import { z } from "zod";
 import { runTool, strictInputSchema, paginationInput } from "./util.js";
 import { attachmentsArraySchema, type AttachmentInput } from "./attachments.js";
@@ -16,32 +14,6 @@ function mapAttachments(
     filename: a.filename,
     contentType: a.content_type,
     data: a.data,
-  }));
-}
-
-// Decoded attachment from the message's raw MIME.
-interface ParsedAttachment {
-  filename: string;
-  contentType: string;
-  size: number;
-  content: Buffer;
-}
-
-// The v1 MessageView no longer exposes decoded attachments inline (the
-// flat SDK's InboundEmail did). It carries the full MIME blob in
-// `rawMessage`, so we decode attachments on demand from that. Returns
-// [] when there is no raw MIME (e.g. a body-only summary view).
-async function parseAttachments(email: MessageView): Promise<ParsedAttachment[]> {
-  if (!email.rawMessage) return [];
-  // rawMessage is base64-encoded on the wire (contentEncoding: base64); decode
-  // to the raw RFC822 bytes before parsing — simpleParser on the base64 text
-  // finds nothing.
-  const parsed = await simpleParser(Buffer.from(email.rawMessage, "base64"));
-  return (parsed.attachments ?? []).map((a, i) => ({
-    filename: a.filename ?? `attachment-${i}`,
-    contentType: a.contentType ?? "application/octet-stream",
-    size: a.size ?? a.content.length,
-    content: a.content,
   }));
 }
 
@@ -410,12 +382,10 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
         // pinned default) and throws a directive error when neither is
         // available, so we don't pre-check here.
         const email = await client.getMessage(args.message_id, args.email);
-        // Attachment metadata is decoded from the raw MIME (the v1
-        // MessageView no longer exposes attachments inline). Bytes are
-        // NOT returned here — call get_attachment for one. Omit
-        // `raw_message` entirely so the LLM never sees the full MIME
-        // blob unless it explicitly fetches an attachment.
-        const attachments = await parseAttachments(email);
+        // Attachment metadata comes from the server (MessageView.attachments,
+        // parsed server-side) — the authoritative, stable index the download
+        // route also uses. Bytes are NOT returned here; call get_attachment for
+        // one. `raw_message` is omitted so the LLM never sees the full MIME blob.
         return {
           message_id: email.messageId,
           conversation_id: email.conversationId,
@@ -431,31 +401,23 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           body_text: email.parsed?.text ?? email.body?.text,
           body_html: email.body?.html,
           received_at: email.createdAt,
-          attachments: attachments.map((a, index) => ({
-            index,
+          attachments: (email.attachments ?? []).map((a) => ({
+            index: a.index,
             filename: a.filename,
             content_type: a.contentType,
-            size_bytes: a.size,
+            size_bytes: a.sizeBytes,
           })),
         };
       }),
   );
 
-  // 2 MB hard cap on inline attachment-fetch. Bigger than the typical
-  // PDF/image inline-share pattern this tool is designed for; small
-  // enough that a single tool result stays under most LLM context
-  // budgets even after base64 inflation. Files above this are an
-  // anti-pattern for inline retrieval — the LLM should ask the user
-  // / a host-side tool to handle them out of band.
-  const MAX_INLINE_BYTES = 2 * 1024 * 1024;
-
   server.registerTool(
     "get_attachment",
     {
-      title: "Fetch one attachment's bytes from an inbound message",
+      title: "Get one attachment (download URL; bytes by reference)",
       annotations: { readOnlyHint: true },
       description:
-        "Returns the base64-encoded content of one attachment from an inbound message. Use this when you want to inspect, forward, or hand off an attachment surfaced by `get_message`. Indexes are 0-based and stable within a message (see `attachments[].index` from get_message). To forward to another recipient, pass the returned `{filename, content_type, data}` verbatim as an entry in `send_message`'s or `reply_to_message`'s `attachments[]` array. Refuses attachments larger than 2 MB after decoding — these are too big for inline retrieval and the LLM context cost would be prohibitive.",
+        "Returns one attachment's metadata plus a short-lived `download_url` (+ `expires_at`) — fetch the bytes out of band so binary content never streams through your context (no size limit). `attachment_index` is the 0-based `attachments[].index` from `get_message`. Pass `inline: true` to ALSO get base64 `data` for small attachments (≤256 KB; larger inline requests error) — use this only when you must re-attach the bytes (e.g. forwarding a small file via `send_message`'s `attachments[]`); otherwise hand the `download_url` to whatever needs the file.",
       inputSchema: strictInputSchema({
         message_id: z.string(),
         attachment_index: z
@@ -463,7 +425,13 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           .int()
           .min(0)
           .describe(
-            "0-based index into the `attachments[]` returned by get_message. The index reflects the order attachments appear in the MIME message and is stable for a given message_id.",
+            "0-based index from `get_message`'s `attachments[].index` (stable for a given message_id).",
+          ),
+        inline: z
+          .boolean()
+          .optional()
+          .describe(
+            "When true, also include the bytes as base64 `data` — ONLY for attachments ≤256 KB (larger requests error). Default false: use `download_url`.",
           ),
         email: z
           .string()
@@ -475,28 +443,23 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
     },
     async (args) =>
       runTool(async () => {
-        // McpClient.getMessage resolves + validates the address.
-        const email = await client.getMessage(args.message_id, args.email);
-        const list = await parseAttachments(email);
-        if (args.attachment_index < 0 || args.attachment_index >= list.length) {
-          throw new Error(
-            `attachment_index ${args.attachment_index} out of range (message has ${list.length} attachment${list.length === 1 ? "" : "s"})`,
-          );
-        }
-        const a = list[args.attachment_index]!;
-        if (a.size > MAX_INLINE_BYTES) {
-          throw new Error(
-            `attachment too large for inline retrieval: ${a.size} bytes (max ${MAX_INLINE_BYTES}). Ask a host-side tool to write the raw_message MIME to disk and extract this attachment out of band.`,
-          );
-        }
+        // Server-side: mints the signed URL + (optionally) inlines small bytes;
+        // index-out-of-range (404) and inline-too-large (413) surface as the
+        // structured error code. No client-side MIME re-parse or size wall.
+        const att = await client.getAttachment(
+          args.message_id,
+          args.attachment_index,
+          args.inline ? { inline: true } : {},
+          args.email,
+        );
         return {
-          filename: a.filename,
-          content_type: a.contentType,
-          size_bytes: a.size,
-          // Buffer → standard-alphabet base64. This matches the wire
-          // shape send_message/reply_to_message expect on the way back
-          // out, so a forward-attachment workflow is a verbatim copy.
-          data: a.content.toString("base64"),
+          index: att.index,
+          filename: att.filename,
+          content_type: att.contentType,
+          size_bytes: att.sizeBytes,
+          download_url: att.downloadUrl,
+          expires_at: att.expiresAt,
+          ...(att.data ? { data: att.data } : {}),
         };
       }),
   );

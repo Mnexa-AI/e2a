@@ -5,6 +5,8 @@ export * from '../models/AgentIdentity.js';
 export * from '../models/AgentView.js';
 export * from '../models/ApproveRequest.js';
 export * from '../models/Attachment.js';
+export * from '../models/AttachmentMetaView.js';
+export * from '../models/AttachmentView.js';
 export * from '../models/AuthVerdict.js';
 export * from '../models/CheckResult.js';
 export * from '../models/ConversationDetailView.js';
@@ -74,6 +76,8 @@ import { AgentIdentity } from '../models/AgentIdentity.js';
 import { AgentView    , AgentViewHitlExpirationActionEnum     , AgentViewInboundPolicyEnum  , AgentViewInboundPolicyActionEnum  , AgentViewInboundScanEnum      , AgentViewOutboundPolicyEnum  , AgentViewOutboundPolicyActionEnum  , AgentViewOutboundScanEnum     } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
 import { Attachment } from '../models/Attachment.js';
+import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
+import { AttachmentView } from '../models/AttachmentView.js';
 import { AuthVerdict } from '../models/AuthVerdict.js';
 import { CheckResult } from '../models/CheckResult.js';
 import { ConversationDetailView } from '../models/ConversationDetailView.js';
@@ -98,7 +102,7 @@ import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
 import { MessageSummaryView     , MessageSummaryViewDeliveryStatusEnum  , MessageSummaryViewDirectionEnum     , MessageSummaryViewHitlStatusEnum       , MessageSummaryViewSentAsEnum        } from '../models/MessageSummaryView.js';
-import { MessageView       , MessageViewDeliveryStatusEnum  , MessageViewDirectionEnum     , MessageViewHitlStatusEnum         , MessageViewSentAsEnum        } from '../models/MessageView.js';
+import { MessageView        , MessageViewDeliveryStatusEnum  , MessageViewDirectionEnum     , MessageViewHitlStatusEnum         , MessageViewSentAsEnum        } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
 import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
@@ -197,6 +201,8 @@ let typeMap: {[index: string]: any} = {
     "AgentView": AgentView,
     "ApproveRequest": ApproveRequest,
     "Attachment": Attachment,
+    "AttachmentMetaView": AttachmentMetaView,
+    "AttachmentView": AttachmentView,
     "AuthVerdict": AuthVerdict,
     "CheckResult": CheckResult,
     "ConversationDetailView": ConversationDetailView,

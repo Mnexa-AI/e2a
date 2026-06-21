@@ -145,6 +145,10 @@ type Deps struct {
 	// GetInboundMessage loads an inbound message for reply/forward.
 	GetInboundMessage func(ctx context.Context, messageID string) (*identity.Message, error)
 
+	// AttachmentStore mints/verifies short-lived attachment downloads (§6a #5).
+	// Native by default; when nil, the attachment endpoints are unavailable.
+	AttachmentStore AttachmentStore
+
 	// account
 	GetLimits      func(ctx context.Context, userID string) (limits.Limits, error)
 	GetUsage       func(ctx context.Context, userID string) LimitsUsageView
@@ -277,6 +281,13 @@ func New(deps Deps) *Server {
 		})
 	}
 
+	// Attachment download — raw chi route (not Huma): a binary stream authorized
+	// by the capability token in the URL, not the bearer (§6a #5). The metadata
+	// endpoint that mints these URLs IS a Huma operation (registerAttachments).
+	if deps.AttachmentStore != nil {
+		root.Get("/v1/agents/{email}/messages/{id}/attachments/{index}/download", s.handleAttachmentDownload)
+	}
+
 	if deps.Legacy != nil {
 		root.NotFound(deps.Legacy.ServeHTTP)
 		root.MethodNotAllowed(deps.Legacy.ServeHTTP)
@@ -303,6 +314,7 @@ func (s *Server) registerOperations() {
 	s.registerInfo()
 	s.registerAgents()
 	s.registerMessages()
+	s.registerAttachments()
 	s.registerConversations()
 	s.registerAgentWrites()
 	s.registerDomains()
