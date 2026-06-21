@@ -18,7 +18,7 @@
 | 4 | API | `conversations.go` — threading/list | done | 🟡 summary aggregates (latest_subject/sender, counts, has_unread) may leak held-message metadata — verify store excludes held; cursor/timestamps ✅ |
 | 5 | API | `hitl.go` — approve/reject review queue | done | 🟡 no /v1 approve/reject for the INBOUND review queue (outbound-only); inbound holds are TTL-auto-resolve only; self-approval ceiling ✅ |
 | 6 | API | `events.go` — events API + screening_events surface | done | 🟡 events cursor doesn't bind filter identity (drift) + len==limit spurious cursor; screening_events has NO /v1 surface; redeliver idempotency ✅ |
-| 7 | API | `webhooks.go` — webhook config/delivery | pending | |
+| 7 | API | `webhooks.go` — webhook config/delivery | done | 🟡→🔴 event enum (5 hand-copies) drifted: email.injection_detected MISSING → screening alert unsubscribable (422); SSRF/ownership/secret ✅ |
 | 8 | API | `domains.go` — domain verification | pending | |
 | 9 | API | `account.go` — account/limits/usage | pending | |
 | 10 | API | `scope.go` + `middleware.go` — auth/scopes | pending | |
@@ -44,6 +44,22 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 7. API — `webhooks.go` (config / delivery / rotate / test)
+
+Strong security hygiene (SSRF, agent-ownership, once-shown secret), but the event-type enum is hand-duplicated and has **already drifted** — making the screening framework's injection alert unsubscribable. This is the most concrete defect found so far.
+
+**🟡 (effectively 🔴 for the screening feature) — `email.injection_detected` cannot be subscribed to.** The webhook event enum is hardcoded as an OpenAPI struct-tag in **5 separate places** (`webhooks.go:41,185,252,309,372`) and is **out of sync** with the canonical `webhookpub.AllEventTypes`. Verified: `email.injection_detected` is a defined, emitted event and *is* in `AllEventTypes` (`webhookpub/event.go:58,` in the slice), so runtime `IsValidEventType` accepts it — but it is **absent from every struct-tag enum** (`grep` count = 0). Huma validates the request body against the struct-tag enum, so `POST /v1/webhooks {events:["email.injection_detected"]}` is rejected with **422 before the handler runs**. Net effect: the screening engine fires injection-detection alerts that **no agent can subscribe to via the typed API**, defeating the alert's purpose. *Fix:* generate the enum from `webhookpub.AllEventTypes` (Huma supports a registry/`huma.Schema` enum from a slice) instead of 5 hand-copied tags. The comment at `webhooks.go:181–182` ("keep in sync with `webhookpub.AllEventTypes`") names exactly the drift that has now occurred.
+
+**🔵 Label charset rule duplicated a third time.** `filters.labels` validation (`webhooks.go:136–145`) inlines the `[a-z0-9:_-]` rule again — now a *third* copy (after `messages.go:normalizeLabel` and `agent.NormalizeAndValidateLabelList`). Reinforces the #2 label-drift theme; all three should call one shared validator.
+
+**🔵 `Page[T]` envelope that never paginates.** `listWebhooks` and `listWebhookDeliveries` always return `NewPage(items, "")` (`webhooks.go:365,527`) — the cursor is permanently null (documented WH-7). The shape *looks* paginated; a one-line "single-page" note on these ops avoids a client building cursor-loop logic that never advances.
+
+**✅ Verified clean:**
+- **SSRF**: `agent.ValidateWebhookURL` (`webhooks.go:86`) — the canonical check, reused not reimplemented.
+- **Filter ownership**: `assertAgentsOwned` (`webhooks.go:152`) — `filters.agent_ids` must reference agents the caller owns (can't subscribe to another tenant's agent's events).
+- **Secret hygiene**: `WebhookView` carries no secret; it's shown once on create + rotate; rotate is `runIdempotent`-wrapped so a retried rotate replays the same secret (route-hashed, no body) rather than minting+dropping a second.
+- **Merge-then-validate on PATCH** (`webhooks.go:396–419`): the effective post-patch state is validated against create-time rules; cleared events/url rejected; auto-disable cooldown → 409.
 
 ### 6. API — `events.go` (webhook delivery log + redeliver)
 
