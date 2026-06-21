@@ -17,7 +17,7 @@
 | 3 | API | `outbound.go` — send/reply/forward + idempotency wiring | done | 🟡 reply_all bypasses maxRecipients cap; CRLF-in-subject check skipped on reply/forward; idempotency-route pattern inconsistent |
 | 4 | API | `conversations.go` — threading/list | done | 🟡 summary aggregates (latest_subject/sender, counts, has_unread) may leak held-message metadata — verify store excludes held; cursor/timestamps ✅ |
 | 5 | API | `hitl.go` — approve/reject review queue | done | 🟡 no /v1 approve/reject for the INBOUND review queue (outbound-only); inbound holds are TTL-auto-resolve only; self-approval ceiling ✅ |
-| 6 | API | `events.go` — events API + screening_events surface | pending | |
+| 6 | API | `events.go` — events API + screening_events surface | done | 🟡 events cursor doesn't bind filter identity (drift) + len==limit spurious cursor; screening_events has NO /v1 surface; redeliver idempotency ✅ |
 | 7 | API | `webhooks.go` — webhook config/delivery | pending | |
 | 8 | API | `domains.go` — domain verification | pending | |
 | 9 | API | `account.go` — account/limits/usage | pending | |
@@ -44,6 +44,24 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 6. API — `events.go` (webhook delivery log + redeliver)
+
+The redeliver design is genuinely thoughtful (server-minted idempotency, matched-subscriber guard). But two cursor-contract inconsistencies break the pattern the other list endpoints set, and the *screening* audit log turns out to have no surface here at all.
+
+**🟡 Events list cursor does NOT bind the filter identity.** `eventsCursor` is just `{C, I}` — the last row's created_at + id (`events.go:26–29`) — and `handleListEvents` decodes it without checking it against the current filters (`events.go:201–211`). So a client can paginate with a cursor minted under `type=email.received`, then flip to `type=email.bounced`, and the keyset position is silently applied to the new filter → **result-set drift**. This is exactly the bug `messages.go`/`conversations.go` prevent by binding the full filter set and rejecting mismatches with `invalid_cursor`. Events is the lone list endpoint missing it. *Fix:* add the filter identity (type/agent_id/conversation_id/message_id/since/until) to `eventsCursor` and reject changed-filter continuations, mirroring #2/#4.
+
+**🟡 `hasMore` via `len(events)==limit` instead of `limit+1`.** `events.go:216` emits a `next_cursor` whenever the page is exactly full — so a query returning exactly `limit` rows hands back a cursor that fetches an **empty** next page. The other list endpoints fetch `limit+1` and only emit a cursor when a further row actually exists (no spurious empty page). Contract inconsistency + one wasted round-trip per exactly-full page. *Fix:* adopt the `limit+1` detection, or document that the events cursor may yield a final empty page.
+
+**🟡 The `screening_events` audit log has no `/v1` surface.** This file is the **webhook delivery** log (`agent.EventJSON`); the screening framework's `screening_events` table (gate/scan violations — the injection-detection audit) is **not exposed by any `/v1` endpoint**. The screening review's "feedback loop" goal (measure false-positive rate by joining `screening_events` to human dispositions) is unreachable via the API — it requires direct DB/dashboard access. *Action:* decide whether `GET /v1/screening-events` (or a filter on this endpoint) is in scope; at minimum note that the security audit log is API-invisible in v1.
+
+**🔵 Three different retention windows, undocumented together.** Events expire at **30 days** (`events.go:139,245` → 410 Gone), messages at **10 days** (TTL), and `screening_events` are kept indefinitely (no cascade). Operators reconciling these will be surprised; a one-line retention table in the docs would help.
+
+**✅ Verified clean:**
+- **Redeliver auto-idempotency** (`events.go:121–132`): a **server-minted** key `replay:event:webhook`, namespaced apart from caller `Idempotency-Key` headers so a crafted header can't 422-poison a later genuine redelivery. Well-reasoned.
+- **Matched-subscriber guard** (`events.go:144–147`): a targeted replay 409s if the webhook wasn't among the originally-matched subscribers — can't replay to an arbitrary endpoint.
+- **Account scope** on all three handlers (`requireAccountUser`) — correct, since the delivery log spans all the account's agents.
+- **Partial-failure transparency**: bulk fan-out marks each subscriber `pending`/`skipped`+reason rather than failing the whole call.
 
 ### 5. API — `hitl.go` (approve / reject review queue)
 
