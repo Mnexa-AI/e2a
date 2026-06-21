@@ -151,6 +151,7 @@ shows the set your scope allows, with per-tool descriptions.
 | `reply_to_message` | Reply to an inbound message. Preserves In-Reply-To / References for thread continuity. |
 | `list_messages` | List inbound mail. Filter by `read_status` (unread / read / all); cursor-paginated (`cursor` + `limit` in, `next_cursor` out). |
 | `get_message` | Fetch full body, headers, and attachment metadata for one message. |
+| `get_attachment` | Get one attachment's metadata + a short-lived `download_url` (fetch the bytes out of band); `inline: true` returns base64 `data` for small files (≤256 KB). |
 
 ### Human-in-the-loop approval
 
