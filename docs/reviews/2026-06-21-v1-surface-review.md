@@ -12,7 +12,7 @@
 
 | # | Area | Subcomponent | Status | Headline |
 |---|------|--------------|--------|----------|
-| 1 | API | `agents_write.go` — agent create/PATCH + config | pending | |
+| 1 | API | `agents_write.go` — agent create/PATCH + config | done | 🟡 updateAgent OpenAPI desc stale (HITL-only) vs full policy/scan PATCH; verify create's account-scope ceiling |
 | 2 | API | `messages.go` — message detail/list views + raw/parsed | pending | |
 | 3 | API | `outbound.go` — send/reply/forward + idempotency wiring | pending | |
 | 4 | API | `conversations.go` — threading/list | pending | |
@@ -44,3 +44,23 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 1. API — `agents_write.go` (agent create / PATCH / delete + config)
+
+Create/update/delete handlers + the additive-PATCH config merge. Auth model and the merge-then-validate pattern are sound; the findings are mostly contract-accuracy drift.
+
+**🟡 Stale OpenAPI description on `updateAgent`.** `agents_write.go:89` — `Description: "Patch an agent's HITL settings."` But the PATCH body now also accepts `inbound_policy`/`inbound_allowlist`, `outbound_policy`/`outbound_allowlist`, the gate actions, and the full inbound/outbound scan config (`agents_write.go:117–132`). The description is the source for the generated `/v1` spec and SDK docstrings, so every SDK consumer sees a wrong summary. *Fix:* "Patch an agent's HITL, inbound/outbound policy, and content-screening settings."
+
+**🟡 Cross-ref to check (privilege escalation surface).** `handleCreateAgent` gates on `requireAccountUser` (`agents_write.go:295`) while update/delete use `requireAccountScope` (which the comments say bars agent-scoped credentials per the "Slice 5a hard ceiling"). Need to confirm `requireAccountUser` *also* bars an agent-scoped token — otherwise an agent-scoped credential could mint **new** agents, an escalation the update/delete ceiling explicitly prevents. → verify in the `scope.go` review (#10).
+
+**🔵 Fragile duplicate detection.** `agents_write.go:358` — `if strings.Contains(err.Error(), "duplicate")` to map to 409. String-matching the store's error text; if the wording changes, a duplicate silently becomes a 500. *Fix:* a typed sentinel (`identity.ErrAgentExists`) + `errors.Is`.
+
+**🔵 Stale struct/field comments.** `agents_write.go:106–108` ("only HITL settings remain mutable") contradicts the policy/scan fields right below it. Minor doc drift; refresh alongside the description fix.
+
+**🔵 Over-built error type.** `slugError`/`errSlug` (`agents_write.go:66–70`) only carry a string message and are never type-asserted — a plain `errors.New` would do.
+
+**✅ Verified clean:**
+- **Additive-PATCH scan config** (`agents_write.go:197–245`): merges provided fields over current config, then validates the *effective* posture in the store — so a partial threshold update can't bypass the `review < block` ladder. Correct pattern.
+- **Auth ceiling**: update + delete require account scope (agent-scoped creds can't change their own security posture); delete also requires `?confirm=DELETE` after ownership resolution (no confirmation oracle for non-owned agents).
+- **Create authorization**: custom-domain agents gated on owned-AND-verified domain; shared-domain local-part validated as a slug (reserved-name blocklist). 402 limit envelope is structured and ordered after auth/domain checks.
+- **Empty PATCH** → 400 `invalid_request` (no silent no-op).
