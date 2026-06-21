@@ -26,9 +26,9 @@
 | 12 | API | `idempotency.go` — idempotency keys | done | 🟡 byte-exact body hash → non-identical retry 422s (SDK retry MUST buffer+resend → verify #17/#19); namespace separation + panic safety ✅ |
 | 13 | API | `operations.go` + `errors.go` — views + error envelopes | done | 🟡 AgentView leaks scan THRESHOLDS to agent-scoped creds (injected agent can calibrate evasion); resolveOwnedAgent ✅ (#10 resolved); error envelope best-in-class ✅ |
 | 14 | API | `ratelimit.go` — rate limiting | done | 🟡 clientIP trusts leftmost X-Forwarded-For → per-IP limiter spoofable (use trusted hop); layer separation + poll-set fidelity ✅ [API section complete] |
-| 15 | SDK | TS `client.ts` — ergonomic layer (parse/reply) | done | 🟡→🔴 auto-retried sends pass undefined idem key (docstring claims minting it doesn't) → double-send risk (verify #17); no .parse() helper; error mapping ✅ |
+| 15 | SDK | TS `client.ts` — ergonomic layer (parse/reply) | done | ~~double-send~~ WITHDRAWN (mint happens in retry.ts — see #17); surviving: 🟡 no .parse() ergonomic helper; error mapping ✅ |
 | 16 | SDK | TS `ws.ts` — WebSocket | done | 🟡 API key in ?token= query (logged) + unbounded buffer (comment promises bound code lacks → OOM); fatal-4xx stop + backoff ✅ |
-| 17 | SDK | TS `pagination.ts` + `retry.ts` + `errors.ts` | pending | |
+| 17 | SDK | TS `pagination.ts` + `retry.ts` + `errors.ts` | done | ✅ retry layer best-in-class — RESOLVES #15 (mints idem key in retry.ts; double-send withdrawn) + #12 (byte-identical retry); pager cycle guard ✅ |
 | 18 | SDK | Python `client.py` | pending | |
 | 19 | SDK | Python `websocket.py` + `pagination.py` + `_retry.py` | pending | |
 | 20 | SDK | `webhook-signature` TS↔Python parity | pending | |
@@ -44,6 +44,23 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 17. SDK — TS `retry.ts` + `pagination.ts` + `errors.ts` — *resolves #15 & #12*
+
+Best-in-class retry layer. **It corrects #15 (the "double-send" was a false alarm) and resolves #12 (byte-exact retry) — both SAFE.** This is the most reassuring SDK result.
+
+**✅ CORRECTION to #15 — the SDK *does* mint the idempotency key; the double-send risk does not exist.** I flagged #15 from `client.ts` alone, which passes `undefined` — but the minting happens one layer down. `RetryHttpLibrary.ensureIdempotencyKey` (`retry.ts:165–178`) detects the generated layer's *present-but-empty* `Idempotency-Key` stub (emitted for send/reply/forward/approve/rotate-secret) and **mints a `crypto.randomUUID()`** onto the shared `RequestContext`, so every retry reuses the same key. `client.ts`'s docstring ("the SDK mints one and reuses it across retries") is therefore **accurate** — just implemented in the transport, not the resource layer. **#15's 🟡→🔴 is withdrawn**; the only surviving #15 item is the missing `.parse()` ergonomic helper.
+
+**✅ Resolves #12 — retries are byte-identical.** `sendWithRetry` re-sends the **same `RequestContext`** (`retry.ts:64–102`), so the already-serialized body bytes + the minted key are reused verbatim across attempts — exactly what the server's raw-byte hash needs. No 422-on-retry. The module header documents this precisely.
+
+**✅ Per-method retry gating is exactly right** (`isRetrySafe`, `retry.ts:121–138`): retries GET/HEAD/OPTIONS (no side effects) and PUT/PATCH (HTTP-idempotent); DELETE **except account deletion** (irreversible, would surface a spurious 404); POST **only** when an `Idempotency-Key` is present — so the *non-keyed* POSTs (create agent/domain/webhook, reject, verify, redeliver, test) are **never retried**, preventing double-create. Mirrors the Python gating.
+
+**🔵 POST retry-safety is coupled to the generated stub.** The "is this a server-deduped POST" decision depends on the generated layer emitting the `Idempotency-Key` stub for *exactly* the right ops (`retry.ts:140–149`). If the OpenAPI ever marks a new op with the header (or drops it), retry behavior silently changes. *Fix:* a unit test that pins the retried set to exactly `{send, reply, forward, approve, rotateSecret}` and asserts the others aren't — so a generation change can't quietly alter retry semantics.
+
+**✅ Also verified clean:**
+- **Backoff** (`retry.ts:184–209`): honors `Retry-After` (seconds *or* HTTP-date) capped at `maxRetryAfterMs` (so a hostile upstream can't wedge a request for years), else exponential with **full jitter**; `maxElapsedMs` total-deadline guard; backoff sleep races the `AbortSignal` for prompt cancellation.
+- **`errors.ts`**: complete typed hierarchy (auth/permission/not-found/conflict/validation/idempotency/rate-limit/server/connection/webhook-signature) mapped from the envelope `code`, with a **status-based fallback** so a *new* server code still maps to a sane class (no drift). `isRetryableStatus` = 408/429/5xx — consistent with the retry layer.
+- **`pagination.ts`**: `AutoPager` has a **cycle guard** (`seen` set + non-advancing-cursor check → throws a clear error instead of looping, `pagination.ts:37–56`) and `toArray` requires an explicit `limit` (memory cap). Correctly handles the single-page "looks-paginated-but-isn't" endpoints.
 
 ### 16. SDK — TS `ws.ts` (WebSocket listener)
 
