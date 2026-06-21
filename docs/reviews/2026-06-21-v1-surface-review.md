@@ -35,7 +35,7 @@
 | 21 | MCP | `tools/agents.ts` | done | 🔴 update_agent exposes RETIRED hitl_enabled/hitl_mode (silent no-op server-side) + NO new screening config → screening unconfigurable via MCP; tool hygiene ✅ |
 | 22 | MCP | `tools/messages.ts` + `attachments.ts` | done | ✅ held-message read boundary HOLDS through MCP (get_message/labels inherit server guard); attachments multipart-bomb-safe; 🔵 stale 'HITL enabled' framing (outcome still correct) |
 | 23 | MCP | `tools/hitl.ts` | done | 🟡 outbound-only (no inbound review release — mirrors #5); 🟡 approve_message destructiveHint:false despite gating an irreversible send (LLM could self-release → collapse HITL); best-in-surface idempotency doc ✅ |
-| 24 | MCP | `tools/webhooks.ts` + `events.ts` + `domains.ts` | pending | |
+| 24 | MCP | `tools/webhooks.ts` + `events.ts` + `domains.ts` | done | 🟡 create_webhook/list_events descriptions OMIT email.injection_detected (completes #7: undiscoverable end-to-end); secret/SSRF/rotation + domains composition ✅ |
 | 25 | MCP | `server.ts` + `session.ts` + `client.ts` — transport/auth/pagination | pending | |
 | 26 | MCP | `tools/tiers.ts` + `util.ts` — scope gating | pending | |
 
@@ -44,6 +44,21 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 24. MCP — `tools/webhooks.ts` + `events.ts` + `domains.ts`
+
+This closes the loop on #7: the screening framework's headline alert is undiscoverable on the MCP surface too. The webhook-secret hygiene and the domains tool are excellent.
+
+**🟡 (reinforces #7 🔴) — `create_webhook` + `list_events` enumerate the events and OMIT `email.injection_detected`.** Both tool descriptions list the subscribable/filterable event types — `create_webhook` (`webhooks.ts:85`) and `list_events` (`events.ts:28`) — and **neither includes `email.injection_detected`** (the alert the screening engine emits and the held-message webhook references). So an MCP-driven agent is never *told* it can subscribe to or filter for the injection alert. Mitigating nuance: the MCP schemas are **free-form `z.array(z.string())`** (not hard `z.enum`s), so they defer validation to the server — the hard 422 block is #7's server enum, not the MCP. **But that cuts both ways**: even after #7 is fixed server-side, these two descriptions must *also* be updated, or an LLM still won't know the event exists. Net: end-to-end — `/v1` config (#7), `/v1` events filter (#6), both SDK enums, and now both MCP tools — the injection alert is **push-undiscoverable**; an agent can only find it by polling `list_events` *unfiltered*. *Fix:* add `email.injection_detected` to the server enum (#7) **and** to these two descriptions in the same change.
+
+**✅ Webhook secret / SSRF / rotation hygiene mirrors the server (#7 ✅):** `signing_secret` returned **once** on create + rotate and scrubbed on every other read (`webhooks.ts:17–18,52,64,158`); create requires **HTTPS + public-IP** (SSRF guard) and enforces the 50-webhook cap; `rotate_webhook_secret` documents the 24h dual-sign grace (two `v1=` entries) — consistent with the `webhook-signature` verifier (#20).
+
+**✅ `domains.ts` is exemplary — the best agent-native ergonomics on the surface:**
+- `delete_domain` uses a `z.literal(true)` confirm gate (`domains.ts:14–15`) mirroring `delete_agent` — schema-level hallucination guard.
+- `register_domain`'s description (`domains.ts:37`) is a model of **cross-MCP composition awareness**: "if a DNS-provider MCP (Cloudflare, Route 53, NS1…) is loaded in the same host, hand the returned records to its `create_dns_record`-style tool, then surface the wait expectation" — and explicitly warns not to call `verify_domain` immediately or promise the domain works yet.
+- `get_domain` is documented as the async poll target (`verified` + `sending_status`) with an explicit "don't poll in a tight loop."
+
+**🔵 `redeliver_event`** exists on the MCP surface (`events.ts:74–91`) and inherits the server's auto-idempotency (#6 ✅) — good that the replay path is exposed for the screening-alert polling workaround above.
 
 ### 23. MCP — `tools/hitl.ts` (review queue)
 
