@@ -34,7 +34,7 @@
 | 20 | SDK | `webhook-signature` TS↔Python parity | done | ✅ strong security parity (HMAC + constant-time + NaN-replay-trap both handle); 🔵 `now` unit differs (ms vs s) + TS utf8 round-trips body [SDK section complete] |
 | 21 | MCP | `tools/agents.ts` | done | 🔴 update_agent exposes RETIRED hitl_enabled/hitl_mode (silent no-op server-side) + NO new screening config → screening unconfigurable via MCP; tool hygiene ✅ |
 | 22 | MCP | `tools/messages.ts` + `attachments.ts` | done | ✅ held-message read boundary HOLDS through MCP (get_message/labels inherit server guard); attachments multipart-bomb-safe; 🔵 stale 'HITL enabled' framing (outcome still correct) |
-| 23 | MCP | `tools/hitl.ts` | pending | |
+| 23 | MCP | `tools/hitl.ts` | done | 🟡 outbound-only (no inbound review release — mirrors #5); 🟡 approve_message destructiveHint:false despite gating an irreversible send (LLM could self-release → collapse HITL); best-in-surface idempotency doc ✅ |
 | 24 | MCP | `tools/webhooks.ts` + `events.ts` + `domains.ts` | pending | |
 | 25 | MCP | `server.ts` + `session.ts` + `client.ts` — transport/auth/pagination | pending | |
 | 26 | MCP | `tools/tiers.ts` + `util.ts` — scope gating | pending | |
@@ -44,6 +44,23 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 23. MCP — `tools/hitl.ts` (review queue)
+
+The idempotency guidance here is the best on the whole surface. Two findings: the inbound-release gap (mirrors #5) and an annotation that's in tension with HITL integrity.
+
+**🟡 Review-queue tools are outbound-only — no inbound review release (mirrors #5 on the MCP surface).** All four tools (`list_pending_messages`/`get_pending_message`/`approve_message`/`reject_message`) operate on the **outbound** `pending_approval` queue (`hitl.ts:11,26,66,104`). There is no list/approve/reject for the **inbound** `pending_review` queue the screening framework fills (inbound_scan / inbound_policy `review`). So an inbound message held for review can only be resolved via the dashboard or TTL auto-expiry — no programmatic path exists at MCP *or* `/v1` (#5). When #5's inbound-release API lands, mirror it here.
+
+**🟡 `approve_message` is annotated `destructiveHint:false`, but it releases a human-review-gated, irreversible send.** Approving fires a real SES send of a message that was deliberately held for a human (`hitl.ts:67`). An autonomous LLM client that reads `destructiveHint:false` as "safe to call freely" could **self-release held drafts, collapsing HITL into no-review**. The real protection is the server-side self-approval ceiling (#5 ✅: an agent-scoped credential can't approve), so the exposure is specifically a deployment that drives this MCP with an **account-scoped** credential under an LLM. *Fix:* add a `confirm:true` guard (as `delete_agent` does) and/or annotate the consequence truthfully — don't signal "non-destructive" on the one action whose entire purpose is to gate an outward send.
+
+**🔵 Stale "HITL-enabled agents" framing.** `list_pending_messages` says it lists holds "from HITL-enabled agents" (`hitl.ts:14`); post-Slice-5 the holds come from `outbound_policy`/`outbound_scan` review. Doc-only (same theme as #21/#22).
+
+**✅ Best-in-surface idempotency guidance** (`hitl.ts:79–84): correctly warns that approve "fires a real SES send, so a retried call without this header could double-send," suggests the pending `message_id` as the stable key for approve-as-is, **and** explains the #12 interaction precisely — "if you change overrides between attempts, pick a fresh key per attempt: same key + different body returns 422." This is the clearest idempotency doc anywhere in the API/SDK/MCP surface.
+
+**✅ Also clean:**
+- **Override semantics**: omit-to-keep / pass-to-override, with an explicit `attachments: []` preserved as a strip via key-presence mapping (`mapOverrides`, `hitl.ts:37–61`) — the subtle "empty array means strip, absent means keep" distinction is handled correctly.
+- **Body scrub on terminal**: documented that draft content is present only while `pending_approval` and scrubbed after a terminal transition (`hitl.ts:26,107`).
+- **Minimal surface**: the client discovers the owning agent from the pending queue, so the caller passes only `message_id` (no agent address threading).
 
 ### 22. MCP — `tools/messages.ts` + `attachments.ts`
 
