@@ -181,3 +181,17 @@ func jsonOrNil(b []byte) json.RawMessage {
 	}
 	return json.RawMessage(b)
 }
+
+// SetMessageScreening denormalizes a screening verdict onto an already-created
+// message row (review_reason / scan_score / scan_action). The inbound path sets
+// these at INSERT time; the outbound path creates the row first (send or HITL
+// hold) and annotates after, so it needs this UPDATE. Agent-scoped to keep the
+// write within the owning tenant. scanScore may be nil (gate-only verdicts).
+func (s *Store) SetMessageScreening(ctx context.Context, messageID, agentID, reviewReason string, scanScore *float64, scanAction string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE messages
+		    SET review_reason = $3, scan_score = $4, scan_action = $5
+		  WHERE id = $1 AND agent_id = $2`,
+		messageID, agentID, nullIfEmptyString(reviewReason), scanScore, nullIfEmptyString(scanAction))
+	return err
+}

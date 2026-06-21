@@ -28,6 +28,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
+	"github.com/Mnexa-AI/e2a/internal/piguard"
 	"github.com/Mnexa-AI/e2a/internal/ratelimit"
 	"github.com/Mnexa-AI/e2a/internal/telemetry"
 	"github.com/Mnexa-AI/e2a/internal/usage"
@@ -155,8 +156,11 @@ func validateSlug(slug string) error {
 }
 
 type API struct {
-	store      *identity.Store
-	sender     *outbound.Sender
+	store  *identity.Store
+	sender *outbound.Sender
+	// screen runs outbound content screening (Slice 5). Stateless heuristics
+	// engine; mirrors the relay's inbound piguard engine.
+	screen     *piguard.Engine
 	smtpRelay  *outbound.SMTPRelay
 	userAuth   *auth.UserAuth
 	usage      usage.UsageTracker
@@ -504,6 +508,7 @@ func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.
 	return &API{
 		store:         store,
 		sender:        sender,
+		screen:        piguard.NewEngine(piguard.EngineConfig{}, piguard.NewHeuristicsDetector()),
 		smtpRelay:     smtpRelay,
 		userAuth:      userAuth,
 		usage:         usage,
@@ -1109,18 +1114,33 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		return nil, supErr
 	}
 
-	// Trust-gated action authorization (decision 10 / Slice 7b): when HITL is
-	// on, the sub-mode decides WHAT is held — all outbound (hitl_mode=all), or
-	// only a high-impact action taken on untrusted inbound (high_impact).
+	// Outbound screening (Slice 5): the recipient gate (outbound_policy) + content
+	// scan (outbound_scan) combine into one applied action. block ⇒ refuse;
+	// review ⇒ hold; flag ⇒ send + annotate; allow ⇒ send.
+	verdict := a.screenOutbound(ctx, agent, req)
+	if verdict.Block() {
+		// Egress block: refuse to the caller. No message row is persisted; the
+		// audit lives in screening_events keyed to a soft-ref id.
+		a.annotateBlockAudit(ctx, agent, identity.NewMessageID(), req, verdict)
+		return nil, &OutboundError{http.StatusForbidden, "blocked_by_policy", "message blocked by outbound policy"}
+	}
+
+	// Hold when EITHER outbound screening says review OR the legacy HITL gate fires.
+	// (Additive until Slice 5b retires hitl_enabled and the gate fully owns holds.)
 	// `referenced` is the inbound message this action reacts to (reply/forward);
 	// nil for a cold send.
-	if agent.HITLEnabled && actionGateHold(agent, req, referenced).Hold {
+	if verdict.Review() || (agent.HITLEnabled && actionGateHold(agent, req, referenced).Hold) {
 		msg, err := a.HoldForApprovalCore(ctx, agent, req, msgType, replyToEmailMessageID)
 		if err != nil {
 			if errors.Is(err, errHoldAttachments) {
 				return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to serialize attachments"}
 			}
 			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to hold message for approval"}
+		}
+		// Tag the held row + audit only when screening drove the hold (a pure
+		// legacy-HITL hold carries no screening verdict).
+		if verdict.Annotate() {
+			a.annotateAndAudit(ctx, agent, msg.ID, req, verdict)
 		}
 		return &OutboundResult{Held: true, PendingMessageID: msg.ID, ApprovalExpiresAt: msg.ApprovalExpiresAt}, nil
 	}
@@ -1161,6 +1181,10 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		// notifications consumer transitions as feedback arrives.
 		if err := a.store.MarkMessageSent(ctx, outMsg.ID, result.SentAs, result.To, result.CC, result.BCC); err != nil {
 			log.Printf("[api] mark sent (delivery_status): %v", err)
+		}
+		// flag verdict: delivered + annotated (denorm + screening_events + event).
+		if verdict.Annotate() {
+			a.annotateAndAudit(ctx, agent, outMsg.ID, req, verdict)
 		}
 		log.Printf("[mail:%s] dir=outbound type=%s from=%s to=%v slug=%s conv_id=%s subject=%q", outMsg.ID, msgType, agent.EmailAddress(), result.To, slug, req.ConversationID, req.Subject)
 	}
