@@ -19,7 +19,7 @@
 | 5 | API | `hitl.go` — approve/reject review queue | done | 🟡 no /v1 approve/reject for the INBOUND review queue (outbound-only); inbound holds are TTL-auto-resolve only; self-approval ceiling ✅ |
 | 6 | API | `events.go` — events API + screening_events surface | done | 🟡 events cursor doesn't bind filter identity (drift) + len==limit spurious cursor; screening_events has NO /v1 surface; redeliver idempotency ✅ |
 | 7 | API | `webhooks.go` — webhook config/delivery | done | 🟡→🔴 event enum (5 hand-copies) drifted: email.injection_detected MISSING → screening alert unsubscribable (422); SSRF/ownership/secret ✅ |
-| 8 | API | `domains.go` — domain verification | pending | |
+| 8 | API | `domains.go` — domain verification | done | 🟡 timestamp type inconsistent surface-wide (time.Time here/conversations vs string in messages/webhooks → SDK Date vs string); delete/verify guards ✅ |
 | 9 | API | `account.go` — account/limits/usage | pending | |
 | 10 | API | `scope.go` + `middleware.go` — auth/scopes | pending | |
 | 11 | API | `pagination.go` — cursor contracts | pending | |
@@ -44,6 +44,22 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 8. API — `domains.go` (registration / verify / sending identity)
+
+A clean, well-guarded resource (409 on taken, confirm+has-agents on delete, 412-with-diagnostic on verify). The one cross-cutting finding: this file exposes the timestamp inconsistency the whole surface carries.
+
+**🟡 Timestamp representation is inconsistent across the API (cross-language ergonomics).** `DomainView` serializes timestamps as typed `time.Time` (`domains.go:37–40`, `CreatedAt`/`VerifiedAt`/`LastCheckedAt`) — as does `conversations.go`. But `messages.go` (`messages.go:68`, `122`) and `webhooks.go` (`webhooks.go:45–46`, `314–316`) serialize them as **preformatted RFC3339 `string` + `format:"date-time"`**. Same wire value, but the generated SDKs type the former as a real `Date`/`datetime` and the latter as a plain `string` — so a consumer does `domain.created_at.getTime()` but `message.created_at` is a string they must parse. The `conversations.go:12–15` comment documents *this exact bug* ("plain strings generated an untyped `string` in the SDKs and risked a `.getTime()` crash") being fixed there — but the migration to `time.Time` was never applied to `messages.go`/`webhooks.go`. *Fix:* standardize on typed `time.Time` everywhere (let Huma emit `date-time`), or at minimum document the split; pick one so the SDK timestamp type is uniform.
+
+**🔵 No explicit rate limit on `POST /verify`.** Each call runs a live DNS probe (`VerifyProbe`, `domains.go:207`). Bounded to owned domains and DNS is cached, so low risk, but a hot loop issues unbounded resolver queries — worth a light per-user limit like the send path has.
+
+**🔵 `is_primary` PATCH is promotion-only.** `handleUpdateDomain` rejects `is_primary:false` with a 400 ("promote the other domain instead", `domains.go:336–338`). Documented, but unusual REST semantics — a client setting `false` gets an error rather than a no-op.
+
+**✅ Verified clean:**
+- **Claim conflict**: `ClaimDomain` → `ErrDomainTaken` → 409 `domain_taken`, declared in the operation's `Responses` (`domains.go:157–160`) so it's in the spec.
+- **Delete safety**: `?confirm=DELETE` + `HasAgentsOnDomain` guard, both **after** ownership (`domains.go:367–380`) — a not-owned domain 404s before any confirmation/agent oracle.
+- **Verify UX**: 412-with-diagnostic when the TXT isn't published (documented response, `domains.go:180–183`); already-verified re-verify is idempotent and doubles as a forced sending-identity re-check (`domains.go:212–213`).
+- **Probe scoping**: `VerifyProbe` only runs after `LookupDomain` confirms ownership, so it can't be pointed at an arbitrary DNS name.
 
 ### 7. API — `webhooks.go` (config / delivery / rotate / test)
 
