@@ -14,7 +14,7 @@
 |---|------|--------------|--------|----------|
 | 1 | API | `agents_write.go` — agent create/PATCH + config | done | 🟡 updateAgent OpenAPI desc stale (HITL-only) vs full policy/scan PATCH; verify create's account-scope ceiling |
 | 2 | API | `messages.go` — message detail/list views + raw/parsed | done | 🟡 read-side label validation duplicates write-side rule (drift); 🔵 hitl_status enum is outbound-only (no inbound review-status field); cursor binding ✅ strong |
-| 3 | API | `outbound.go` — send/reply/forward + idempotency wiring | pending | |
+| 3 | API | `outbound.go` — send/reply/forward + idempotency wiring | done | 🟡 reply_all bypasses maxRecipients cap; CRLF-in-subject check skipped on reply/forward; idempotency-route pattern inconsistent |
 | 4 | API | `conversations.go` — threading/list | pending | |
 | 5 | API | `hitl.go` — approve/reject review queue | pending | |
 | 6 | API | `events.go` — events API + screening_events surface | pending | |
@@ -44,6 +44,22 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 3. API — `outbound.go` (send / reply / forward + idempotency)
+
+Clean sender-is-the-path-agent model (no `from` spoofing) and a nicely registered 202 schema. Three real gaps, all in the reply/forward paths diverging from the hardened send path.
+
+**🟡 `reply_all` bypasses the `maxRecipients` blast cap.** `handleReply` checks `recipientCountError(b.CC, b.BCC)` — only the *user-supplied* CC/BCC (`outbound.go:238`) — then expands the actual recipients via `ParseReplyRecipients(..., b.ReplyAll, ...)` into `rr.To`/`rr.CC` (`outbound.go:255–262`), which are **never counted**. A `reply_all` to a 200-recipient thread sends to all 200, sailing past the 50-cap whose stated purpose is "keep a single send from becoming a blast" (`outbound.go:59–63`). *Fix:* run `recipientCountError(rr.To, rr.CC, b.BCC)` on the *effective* recipients after expansion, not just the user-supplied ones. (Forward is fine — its recipients are all user-supplied and counted, `outbound.go:302`.)
+
+**🟡 CRLF-in-subject check is send-only; reply/forward skip it.** `validateOutboundBody` rejects CR/LF in the subject (`outbound.go:332`), but reply/forward *derive* the subject from the stored inbound (`"Re: "+inbound.Subject`, `outbound.go:249–254`; `BuildForwardSubject`, `outbound.go:311`) without that check. If a stored inbound subject can carry CR/LF (i.e. wasn't sanitized at ingest), the derived outbound subject is a header-injection vector. *Fix:* verify the outbound composer strips CR/LF from the subject unconditionally (defense-in-depth), or apply the same check to the derived subject.
+
+**🟡 Idempotency-route pattern is inconsistent (works, but fragile).** `send` deliberately folds the agent id into the route to avoid same-user cross-agent collisions (`outbound.go:426–430`), but `reply`/`forward` use `"/v1/reply/"+id` / `"/v1/forward/"+id` (`outbound.go:271,324`) — safe only because an inbound `id` belongs to exactly one agent (`loadInbound` pins `in.AgentID == ag.ID`). And `handleTestSend` has **no** idempotency wiring or `Idempotency-Key` header at all (`outbound.go:151`). It holds today, but the differing patterns are a latent footgun. *Fix:* fold `ag.ID` into all three routes uniformly so the invariant doesn't depend on `id`-uniqueness reasoning.
+
+**✅ Verified clean:**
+- **Sender identity**: `from` is the path agent (`outbound.go:420–423`), auth-scoped — no body-level spoofing.
+- **Send/forward recipient cap + validation**: `recipientCountError` + `ValidateRecipients` + self-alias stripping (`StripAgentSelfAliases`) on CC/BCC.
+- **Pre-send gating order**: `checkSendLimit` (429 + retry-after) → `domain_verified` (403) → `EnforceMessageSend` quota (402) → deliver — consistent across `deliver` and `handleTestSend`.
+- **202 hold**: schema registered via the component registry (`jsonResponse`, `outbound.go:22`) so the OpenAPI 202 stays in lockstep with `SendResultView`. Idempotency handshake wraps the actual `DeliverOutbound` call (`outbound.go:370`).
 
 ### 2. API — `messages.go` (detail/list views, raw/parsed, labels PATCH)
 
