@@ -33,7 +33,7 @@
 | 19 | SDK | Python `websocket.py` + `pagination.py` + `_retry.py` | done | ✅ full TS parity (mints key once → resolves #12/#18); Python MORE defensive (WS generator backpressure, pagination max_pages); 🟡 same ?token= (server-side) |
 | 20 | SDK | `webhook-signature` TS↔Python parity | done | ✅ strong security parity (HMAC + constant-time + NaN-replay-trap both handle); 🔵 `now` unit differs (ms vs s) + TS utf8 round-trips body [SDK section complete] |
 | 21 | MCP | `tools/agents.ts` | done | 🔴 update_agent exposes RETIRED hitl_enabled/hitl_mode (silent no-op server-side) + NO new screening config → screening unconfigurable via MCP; tool hygiene ✅ |
-| 22 | MCP | `tools/messages.ts` + `attachments.ts` | pending | |
+| 22 | MCP | `tools/messages.ts` + `attachments.ts` | done | ✅ held-message read boundary HOLDS through MCP (get_message/labels inherit server guard); attachments multipart-bomb-safe; 🔵 stale 'HITL enabled' framing (outcome still correct) |
 | 23 | MCP | `tools/hitl.ts` | pending | |
 | 24 | MCP | `tools/webhooks.ts` + `events.ts` + `domains.ts` | pending | |
 | 25 | MCP | `server.ts` + `session.ts` + `client.ts` — transport/auth/pagination | pending | |
@@ -44,6 +44,22 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 22. MCP — `tools/messages.ts` + `attachments.ts`
+
+Much healthier than #21 — the one screening-staleness here is doc-only (the *outcome* guidance is still correct), and two important security properties are verified to hold through the MCP layer.
+
+**🔵 Send/reply/forward descriptions still explain holds as "if the agent has HITL enabled" — stale framing, but the operational guidance is correct.** `send_message` (`messages.ts:55`: "If the agent has HITL enabled, the response is `{ status: pending_approval … }` … do not retry"), and reply/forward echo it (`messages.ts:115,170`). Post-Slice-5, there is no `hitl_enabled` toggle — holds now come from `outbound_policy`/`outbound_scan` review. **Crucially, unlike #21 this isn't a functional break**: outbound review still yields `status=pending_approval`, so the "pending_approval is success, don't retry" guidance an LLM acts on is *right*; only the *cause* clause is outdated. *Fix:* reword the trigger ("if the agent's outbound policy or content scan holds it for review"). Reinforces the #7/#21 hand-written-MCP-staleness theme at the lowest severity.
+
+**✅ The held-message read boundary holds through MCP (important).** An agent learns a held message's ID from the `email.injection_detected` webhook — but `get_message` (`messages.ts:412`) and `update_message_labels` (`messages.ts:250`) both call the same `/v1` API, which enforces the `heldInboundStatuses` guard server-side. So a `pending_review` inbound message **404s** on read and **can't be mutated/oracled** via labels through the MCP — the `TestHeldMessage_MutationGuard` protection is *inherited, not bypassed*. The MCP adds no read path around it.
+
+**✅ Idempotency docs are accurate to the SDK reality (#15/#17).** `send_message`'s `idempotency_key` note (`messages.ts:72`: "When omitted the SDK mints a fresh UUIDv4 per call — protects against network-layer retries only, not user-driven retries") correctly describes the `ensureIdempotencyKey` behavior — the MCP layer documents the network-retry-only semantics honestly, and suggests the inbound `message_id` as a stable key for reply/forward.
+
+**✅ Attachment handling is excellent + multipart-bomb-safe:**
+- `get_message` **omits** attachment bytes and `raw_message` (context-budget protection), returning only `{index, filename, content_type, size_bytes}`; `get_attachment` enforces a **2 MB** inline-fetch cap with an out-of-band-handling directive; indexes are 0-based/stable; the returned `{filename, content_type, data}` is verbatim-usable in `send`/`reply` attachments (clean forward workflow); base64 is decoded *before* `simpleParser` (a real correctness trap avoided).
+- `attachments.ts` input caps are robust: **5 MB/attachment**, **20/message**, filename 1–255, and a base64 **decode + round-trip + length%4** validation that rejects context-truncated data — so the send path can't be used for a multipart bomb (backend request cap is the final backstop).
+
+**🔵 Minor:** `get_attachment` re-fetches + fully re-parses the whole MIME per call (fine for the 1–2-attachment inline-share case); reply_all/forward inherit the server-side #3 gaps (reply_all vs `maxRecipients`, CRLF-in-subject) — fix those at the API, not here.
 
 ### 21. MCP — `tools/agents.ts`
 
