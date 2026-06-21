@@ -23,7 +23,7 @@
 | 9 | API | `account.go` — account/limits/usage | done | 🟡 GDPR export omits screening_events (confirms screening-review flag); 🟡 verify requireAccountUser bars agent scope (delete/export keystone → #10) |
 | 10 | API | `scope.go` + `middleware.go` — auth/scopes | done | ✅ KEYSTONE: account-scope ceiling holds — #1/#5/#9 cross-refs resolve safe; agent creds barred from account admin + pinned to one agent; 🟡 no Cache-Control: no-store |
 | 11 | API | `pagination.go` — cursor contracts | done | 🟡 shared layer doesn't ENFORCE filter-binding (root cause of #6 drift) — add {position,filterSnapshot} helper; unsigned cursor verified safe ✅ |
-| 12 | API | `idempotency.go` — idempotency keys | pending | |
+| 12 | API | `idempotency.go` — idempotency keys | done | 🟡 byte-exact body hash → non-identical retry 422s (SDK retry MUST buffer+resend → verify #17/#19); namespace separation + panic safety ✅ |
 | 13 | API | `operations.go` + `errors.go` — views + error envelopes | pending | |
 | 14 | API | `ratelimit.go` — rate limiting | pending | |
 | 15 | SDK | TS `client.ts` — ergonomic layer (parse/reply) | pending | |
@@ -44,6 +44,20 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 12. API — `idempotency.go` (idempotency keys)
+
+Carefully built and honestly documented (the at-least-once degradation is stated, not hidden). The one finding is a cross-language ergonomic hazard that the SDK retry layers must absorb.
+
+**🟡 Byte-exact body hash → a logically-identical retry can 422 instead of replaying.** The dedup hash is over the **raw request bytes** (`route + "\n" + body`, `idempotency.go:37–40,70`), not canonicalized JSON. So a retry with the same `Idempotency-Key` must resend **byte-identical** JSON; any reserialization difference (map/object key ordering, whitespace, a re-`JSON.stringify` on retry) is treated as a key-reuse-with-different-body and returns **422 `idempotency_key_reuse`** — the opposite of what a retrying caller wants. The comment names this ("A retry must therefore resend byte-identical JSON or it 422s"). It's safe and simple, but it pushes a hard requirement onto clients: **the SDK retry path MUST buffer the original bytes and resend them verbatim, never rebuild the body.** A hand-rolled client that reconstructs the body on retry will intermittently 422 on a legitimate retry. *Action:* this is the load-bearing thing to verify in the SDK retry reviews (#17 TS `retry.ts`, #19 Python `_retry.py`) — confirm both buffer-and-resend; if either re-serializes, it's a real bug. Optionally document the byte-exact requirement on the `Idempotency-Key` header in the spec.
+
+**🔵 Marshal-failure caches `{}`.** If the success response fails to marshal (`idempotency.go:111–114`), an empty `{}` body is cached (status preserved) rather than risk a replay re-running the side effect. Correct priority (no double-send) — but a replayed request then gets `{}` instead of the real payload. Rare; acceptable.
+
+**✅ Verified clean:**
+- **Namespace separation** (`idemUserNS "u:"` vs `idemAutoNS "s:"`, `idempotency.go:24–27`): caller-supplied and server-minted keys occupy disjoint key spaces, so a crafted `Idempotency-Key: replay:evt_x:` can't 422-poison a later genuine auto-redelivery. This is the mechanism behind #6's ✅.
+- **Load-bearing body hash**: same key + different body → 422, never a silent replay of the first response — the strict, correct semantics.
+- **Crash/panic safety**: `defer recover()` releases the claim so a panic doesn't 409-lock retries; the guarantee is documented as at-least-once (a panic strictly after the committed side effect can re-run on retry) — honest, not overclaimed.
+- **Opt-in + byte-faithful replay**: no key / no store → just runs `fn`; replay unmarshals the cached bytes back into `T` and returns the original status.
 
 ### 11. API — `pagination.go` (shared cursor machinery)
 
