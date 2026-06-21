@@ -24,7 +24,7 @@ export const paginationInput = {
     .string()
     .optional()
     .describe(
-      "Pagination cursor. Pass the `next_cursor` from a previous response to fetch the next page; omit for the first page. The response includes `next_cursor` when more pages remain (absent on the last page).",
+      "Pagination cursor. Pass the `next_cursor` from a previous response to fetch the next page; omit for the first page. The response includes `next_cursor` ONLY when more pages remain — when it is absent, you have reached the last page; STOP (do not keep calling).",
     ),
   limit: z
     .number()

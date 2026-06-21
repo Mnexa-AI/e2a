@@ -67,7 +67,11 @@ export class AutoPager<T> implements AsyncIterable<T> {
    *  by the `limit` baked into the list call that produced this pager. */
   async page(cursor?: string): Promise<Page<T>> {
     const p = await this.fetchPage(cursor || undefined);
-    return { items: p.items ?? [], next_cursor: p.next_cursor ?? undefined };
+    // Normalize null/undefined/"" → undefined (= no more pages), matching the
+    // iterator's own `!next` termination and this method's docstring. A bare
+    // `?? undefined` would leak an empty-string cursor as a truthy "more pages".
+    const next = p.next_cursor;
+    return { items: p.items ?? [], next_cursor: next ? next : undefined };
   }
 
   /** Collect up to `limit` items. The limit is required — it caps memory for

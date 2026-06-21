@@ -87,6 +87,16 @@ describe("MCP events tools", () => {
       expect(stub.listEvents).toHaveBeenCalledOnce();
     });
 
+    it("surfaces next_cursor when more pages remain", async () => {
+      stub.listEvents.mockResolvedValueOnce({ items: [{ id: "evt_p1" }], next_cursor: "c_next" });
+      const client = await buildClient(stub);
+      const parsed = parseToolResult(
+        await client.callTool({ name: "list_events", arguments: {} }),
+      );
+      expect((parsed.events as Array<{ id: string }>)[0].id).toBe("evt_p1");
+      expect(parsed.next_cursor).toBe("c_next");
+    });
+
     it("forwards all filter params + cursor/limit to the wrapper", async () => {
       const client = await buildClient(stub);
       await client.callTool({

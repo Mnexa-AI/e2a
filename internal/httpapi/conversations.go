@@ -49,11 +49,11 @@ type ConversationDetailView struct {
 	Messages     []MessageSummaryView `json:"messages" nullable:"false"`
 }
 
-// ListConversationsInput — since/until + cursor/limit. Conversation cursor
-// *continuation* is not yet supported by the store (it takes only a limit,
-// no after-key), so next_cursor is always null — faithful to the legacy
-// single-page behavior. True cursoring is a tracked follow-up needing a
-// store change.
+// ListConversationsInput — since/until + cursor/limit. Cursor continuation IS
+// supported: the handler fetches limit+1, and when there are more it keyset-
+// encodes the last row's (last_message_at, conversation_id) into next_cursor
+// (see handleListConversations: hasMore → EncodeCursor(conversationsCursor{...})).
+// next_cursor is null only on the last page.
 type ListConversationsInput struct {
 	Address string `path:"email"`
 	Since   string `query:"since" doc:"RFC3339."`

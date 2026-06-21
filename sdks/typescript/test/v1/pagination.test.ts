@@ -42,6 +42,14 @@ describe("AutoPager", () => {
     expect((await pager.page("")).items).toEqual([1, 2]);
   });
 
+  it("page() normalizes an empty-string next_cursor to undefined (= last page)", async () => {
+    // A non-conforming server could return "" instead of null; page() must treat
+    // it as "no more pages" so `if (next_cursor)` / `!== undefined` both work.
+    const pager = new AutoPager<number>(async () => ({ items: [9], next_cursor: "" }));
+    const p = await pager.page();
+    expect(p.next_cursor).toBeUndefined();
+  });
+
   it("toArray requires a positive limit", async () => {
     const pager = new AutoPager(pages());
     await expect(pager.toArray({ limit: 0 })).rejects.toThrow(/positive limit/);

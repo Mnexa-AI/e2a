@@ -397,6 +397,17 @@ describe("e2a MCP server", () => {
     );
   });
 
+  it("list_conversations surfaces next_cursor when more pages remain", async () => {
+    (stub.listConversations as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      items: [{ conversationId: "conv_1" }],
+      next_cursor: "c_next",
+    });
+    const res = await client.callTool({ name: "list_conversations", arguments: {} });
+    const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
+    expect(payload.conversations).toEqual([{ conversationId: "conv_1" }]);
+    expect(payload.next_cursor).toBe("c_next");
+  });
+
   it("list_conversations forwards cursor/limit + filters to client.listConversations", async () => {
     await client.callTool({
       name: "list_conversations",
