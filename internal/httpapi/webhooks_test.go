@@ -49,6 +49,24 @@ func TestCreateWebhookInvalidEventType(t *testing.T) {
 	}
 }
 
+// TestCreateWebhookAcceptsScreeningEvents is the over-the-wire proof for GA blocker #7
+// (v1 surface review): the screening disposition + detection events MUST be
+// subscribable. Before the enum fix, email.injection_detected — and the new
+// email.held/email.blocked — 422'd at the schema enum exactly like email.invented
+// above, so the screening alert the engine emits reached no webhook subscriber. This
+// drives the full Huma stack (srv.URL), so the same enum validation that rejects an
+// unknown event must now ACCEPT these three.
+func TestCreateWebhookAcceptsScreeningEvents(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/webhooks", "good", map[string]any{
+		"url":    "https://example.com/hook",
+		"events": []string{"email.held", "email.blocked", "email.injection_detected"},
+	})
+	if code != 201 {
+		t.Fatalf("screening events must be subscribable (GA blocker #7), got %d %v", code, body)
+	}
+}
+
 func TestCreateWebhookUnownedAgentFilter(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/webhooks", "good", map[string]any{
