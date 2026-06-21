@@ -110,7 +110,9 @@ func (f *FakeProvider) Provision(ctx context.Context, domain, dkimSelector strin
 		return Result{}, f.provisionErr
 	}
 	f.identities[domain] = true
-	return Result{Status: StatusPending}, nil
+	// Mirror the SES provider: provisioning emits the custom MAIL FROM records
+	// the customer must publish (region is illustrative for tests).
+	return Result{Status: StatusPending, DNSRecords: mailFromRecords(domain, "us-east-1")}, nil
 }
 
 func (f *FakeProvider) Status(ctx context.Context, domain string) (Result, error) {

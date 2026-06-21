@@ -10,6 +10,8 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sesv2"
 	ststypes "github.com/aws/aws-sdk-go-v2/service/sesv2/types"
+
+	"github.com/Mnexa-AI/e2a/internal/mailfrom"
 )
 
 // sesAPI is the slice of the SES v2 client the provider uses. Narrowing to an
@@ -17,6 +19,7 @@ import (
 // AWS-touching calls themselves are exercised only against live SES).
 type sesAPI interface {
 	CreateEmailIdentity(ctx context.Context, in *sesv2.CreateEmailIdentityInput, optFns ...func(*sesv2.Options)) (*sesv2.CreateEmailIdentityOutput, error)
+	PutEmailIdentityMailFromAttributes(ctx context.Context, in *sesv2.PutEmailIdentityMailFromAttributesInput, optFns ...func(*sesv2.Options)) (*sesv2.PutEmailIdentityMailFromAttributesOutput, error)
 	GetEmailIdentity(ctx context.Context, in *sesv2.GetEmailIdentityInput, optFns ...func(*sesv2.Options)) (*sesv2.GetEmailIdentityOutput, error)
 	DeleteEmailIdentity(ctx context.Context, in *sesv2.DeleteEmailIdentityInput, optFns ...func(*sesv2.Options)) (*sesv2.DeleteEmailIdentityOutput, error)
 	ListEmailIdentities(ctx context.Context, in *sesv2.ListEmailIdentitiesInput, optFns ...func(*sesv2.Options)) (*sesv2.ListEmailIdentitiesOutput, error)
@@ -25,14 +28,20 @@ type sesAPI interface {
 // SESProvider is the real Provider backed by AWS SES v2. It registers
 // domain sending identities with BYODKIM, reusing e2a's per-domain DKIM key
 // so the DKIM d= aligns with the From domain (DMARC passes on DKIM
-// alignment). NOTE: only exercised against live AWS — CI/tests use
-// FakeProvider; the status-mapping helpers below are unit-tested with a stub.
+// alignment), and configures a custom MAIL FROM subdomain (bounce.<domain>) so
+// the Return-Path aligns too (SPF passes on the From org-domain → no "via e2a").
+// NOTE: only exercised against live AWS — CI/tests use FakeProvider; the
+// status-mapping helpers below are unit-tested with a stub.
 type SESProvider struct {
-	api sesAPI
+	api    sesAPI
+	region string // for the custom MAIL FROM MX target (feedback-smtp.<region>.amazonses.com)
 }
 
-// NewSESProvider wraps a pre-built SES API (or stub).
-func NewSESProvider(api sesAPI) *SESProvider { return &SESProvider{api: api} }
+// NewSESProvider wraps a pre-built SES API (or stub). region feeds the MAIL FROM
+// MX record target.
+func NewSESProvider(api sesAPI, region string) *SESProvider {
+	return &SESProvider{api: api, region: region}
+}
 
 // NewSESProviderFromConfig builds a provider from ambient AWS config
 // (env/instance role) for the given region.
@@ -41,7 +50,7 @@ func NewSESProviderFromConfig(ctx context.Context, region string) (*SESProvider,
 	if err != nil {
 		return nil, fmt.Errorf("load aws config: %w", err)
 	}
-	return &SESProvider{api: sesv2.NewFromConfig(cfg)}, nil
+	return &SESProvider{api: sesv2.NewFromConfig(cfg), region: region}, nil
 }
 
 func (p *SESProvider) Provision(ctx context.Context, domain, dkimSelector string, dkimPrivateKeyDER []byte) (Result, error) {
@@ -60,14 +69,39 @@ func (p *SESProvider) Provision(ctx context.Context, domain, dkimSelector string
 	})
 	if err != nil {
 		// AlreadyExists is success (idempotent): the identity is registered;
-		// fall through to a Status poll shape by returning pending.
+		// fall through to also (re)configure the custom MAIL FROM below.
 		var already *ststypes.AlreadyExistsException
-		if errors.As(err, &already) {
-			return Result{Status: StatusPending}, nil
+		if !errors.As(err, &already) {
+			return Result{}, err // transient/permission — retry
 		}
+	}
+
+	// Configure the custom MAIL FROM subdomain (Return-Path alignment). Idempotent.
+	// USE_DEFAULT_VALUE: if the customer's MX later breaks, SES falls back to its
+	// own MAIL FROM rather than dropping mail — deliverability-safe (the send path
+	// only uses the aligned envelope once status==verified, which requires the MX).
+	mfDomain := mailfrom.Domain(domain)
+	if _, err := p.api.PutEmailIdentityMailFromAttributes(ctx, &sesv2.PutEmailIdentityMailFromAttributesInput{
+		EmailIdentity:       &domain,
+		MailFromDomain:      &mfDomain,
+		BehaviorOnMxFailure: ststypes.BehaviorOnMxFailureUseDefaultValue,
+	}); err != nil {
 		return Result{}, err // transient/permission — retry
 	}
-	return Result{Status: StatusPending}, nil
+
+	return Result{Status: StatusPending, DNSRecords: mailFromRecords(domain, p.region)}, nil
+}
+
+// mailFromRecords are the two records the customer must publish for the custom
+// MAIL FROM subdomain: an MX to SES's regional feedback handler and an SPF TXT
+// so SPF authenticates (and aligns to) the From org-domain. Shared by the SES
+// provider and the FakeProvider so tests assert the real shape.
+func mailFromRecords(domain, region string) []DNSRecord {
+	mf := mailfrom.Domain(domain)
+	return []DNSRecord{
+		{Type: "MX", Name: mf, Value: fmt.Sprintf("10 feedback-smtp.%s.amazonses.com", region)},
+		{Type: "TXT", Name: mf, Value: "v=spf1 include:amazonses.com ~all"},
+	}
 }
 
 func (p *SESProvider) Status(ctx context.Context, domain string) (Result, error) {
@@ -114,26 +148,27 @@ func (p *SESProvider) List(ctx context.Context) ([]string, error) {
 	}
 }
 
-// mapSESStatus folds SES's two-axis verification state (sending-verified +
-// DKIM status) onto our Status. Verified requires BOTH the identity to be
-// verified for sending AND DKIM to have succeeded (so the aligned signature
-// actually works). A hard DKIM failure is terminal; anything else is pending.
+// mapSESStatus folds SES's verification axes onto our Status. Verified requires
+// ALL of: the identity verified for sending, DKIM succeeded (aligned signature),
+// AND the custom MAIL FROM succeeded (aligned Return-Path) — all-or-nothing
+// (design Q2), so reaching `verified` means there is genuinely no "via e2a". A
+// hard failure on either DKIM or MAIL FROM is terminal; anything else is pending.
 func mapSESStatus(out *sesv2.GetEmailIdentityOutput) Status {
 	dkim := ststypes.DkimStatusNotStarted
 	if out.DkimAttributes != nil {
 		dkim = out.DkimAttributes.Status
 	}
-	switch dkim {
-	case ststypes.DkimStatusSuccess:
-		if out.VerifiedForSendingStatus {
-			return StatusVerified
-		}
-		return StatusPending
-	case ststypes.DkimStatusFailed:
-		return StatusFailed
-	default: // PENDING / TEMPORARY_FAILURE / NOT_STARTED
-		return StatusPending
+	mf := ststypes.MailFromDomainStatusPending
+	if out.MailFromAttributes != nil {
+		mf = out.MailFromAttributes.MailFromDomainStatus
 	}
+	if dkim == ststypes.DkimStatusFailed || mf == ststypes.MailFromDomainStatusFailed {
+		return StatusFailed
+	}
+	if dkim == ststypes.DkimStatusSuccess && out.VerifiedForSendingStatus && mf == ststypes.MailFromDomainStatusSuccess {
+		return StatusVerified
+	}
+	return StatusPending
 }
 
 // pkcs8Base64 converts a stored PKCS#1 DER RSA private key to the single-line
