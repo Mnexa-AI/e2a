@@ -975,7 +975,16 @@ review diligence — a #206-style omission can't merge.
 >   download-URL ✅ done** (native adapter; AgentDrive/object-storage adapter +
 >   outbound presigned-upload + large-file attach-by-reference deferred as seams —
 >   see [attachment-retrieval.md](attachment-retrieval.md)). **#7 idempotency-key
->   on create tools — still PENDING** (not in GA). **#3 (one pagination shape) ✅ done:** the cursor-paginated list tools
+>   on create tools — ✅ rejected/closed:** idempotency stays scoped to the
+>   send-family (`send`/`reply`/`forward`/`approve`), which already carries it and
+>   exposes an optional `idempotency_key` tool arg so hosted-MCP callers can retry
+>   safely (the MCP hop is a network boundary the SDK auto-mint can't span). The
+>   create tools don't qualify: `create_agent` (email) and `register_domain`
+>   (domain) have natural unique keys (retry → 409, never a duplicate), and creates
+>   are not the frequent/high-harm path — the rule is *mutating + duplicate-harmful
+>   + no natural dedup*, not call frequency. (`rotate_webhook_secret`, the one
+>   rare-but-dangerous non-create, is already idempotent from the GA-blockers work.)
+>   Mature email APIs scope idempotency to sends only, confirming this. **#3 (one pagination shape) ✅ done:** the cursor-paginated list tools
 >   (`list_messages`, `list_conversations`, `list_events`) now take `cursor` +
 >   `limit` and return `{ <items>, next_cursor }` (one page; pass `next_cursor`
 >   back for the next) — the dead `token`/`page_size` are gone. Built on a new
@@ -1208,8 +1217,13 @@ worth making while we're reshaping the contract anyway, roughly in priority:
    `list_events {webhook_id, status}` + `get_event` be the one observability
    path. `redeliver_event` stays. (Net −1 tool, one mental model for "did my
    events go out.")
-7. **Idempotency-key on every creating tool**, not just send/approve — add it to
-   `create_agent`, `create_webhook`, `register_domain` for uniform retry-safety.
+7. **Idempotency-key on every creating tool — rejected.** Originally proposed
+   adding it to `create_agent`/`create_webhook`/`register_domain`; on review,
+   idempotency stays scoped to the send-family. The create tools don't meet the
+   bar (*mutating + duplicate-harmful + no natural dedup*): `create_agent` (email)
+   and `register_domain` (domain) have natural unique keys → retry is a 409, not a
+   duplicate. The send-family already carries it (and exposes the optional tool
+   arg so hosted-MCP callers retry safely). Matches how mature email APIs scope it.
 8. **Consistent vocabulary — resolved.** `send_email` mixed "email" with
    `reply_to_message`/`forward_message`. Standardize the noun on the API
    resource (`message`): **`send_email` → `send_message`**, giving
