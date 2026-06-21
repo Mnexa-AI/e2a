@@ -55,7 +55,7 @@ func TestListExpiredPending(t *testing.T) {
 	}
 
 	// Changing the agent's expiration action should propagate
-	if err := store.UpdateAgentHITL(ctx, a.ID, user.ID, true, identity.HITLDefaultTTLSeconds, identity.HITLExpirationApprove); err != nil {
+	if err := store.UpdateAgentHITL(ctx, a.ID, user.ID, identity.HITLDefaultTTLSeconds, identity.HITLExpirationApprove); err != nil {
 		t.Fatal(err)
 	}
 	got2, _ := store.ListExpiredPending(ctx, 50)

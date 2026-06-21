@@ -61,7 +61,7 @@ func setupPendingMessage(t *testing.T, store *identity.Store, slug string) (*ide
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateAgentHITL(ctx, a.ID, user.ID, true, identity.HITLDefaultTTLSeconds, identity.HITLExpirationReject); err != nil {
+	if err := store.UpdateAgentHITL(ctx, a.ID, user.ID, identity.HITLDefaultTTLSeconds, identity.HITLExpirationReject); err != nil {
 		t.Fatal(err)
 	}
 	refreshed, err := store.GetAgentByID(ctx, a.ID)

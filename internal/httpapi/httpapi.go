@@ -70,7 +70,7 @@ type AgentCreateEnforcer func(ctx context.Context, userID string) error
 
 // Agent mutation funcs mirror the like-named store methods.
 type (
-	AgentHITLUpdater func(ctx context.Context, agentID, userID string, enabled bool, ttlSeconds int, expirationAction string) error
+	AgentHITLUpdater func(ctx context.Context, agentID, userID string, ttlSeconds int, expirationAction string) error
 	AgentDeleter     func(ctx context.Context, agentID, userID string) error
 )
 

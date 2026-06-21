@@ -688,8 +688,7 @@ func (ua *UserAuth) HandleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		if req.HITLExpirationAction != nil {
 			action = *req.HITLExpirationAction
 		}
-		// hitl_enabled is deprecated (Slice 5b); preserve the stored value.
-		if err := ua.store.UpdateAgentHITL(r.Context(), agnt.ID, user.ID, agnt.HITLEnabled, ttl, action); err != nil {
+		if err := ua.store.UpdateAgentHITL(r.Context(), agnt.ID, user.ID, ttl, action); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

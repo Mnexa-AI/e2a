@@ -49,7 +49,7 @@ func scopeTestServer(t *testing.T) *httptest.Server {
 			}
 			return nil, errors.New("not found")
 		},
-		UpdateAgentHITL: func(ctx context.Context, agentID, userID string, enabled bool, ttl int, action string) error {
+		UpdateAgentHITL: func(ctx context.Context, agentID, userID string, ttl int, action string) error {
 			return nil
 		},
 		DeleteAgent: func(ctx context.Context, agentID, userID string) error { return nil },

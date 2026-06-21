@@ -52,9 +52,6 @@ func TestCreateAgentDefaultHITL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
-	if a.HITLEnabled {
-		t.Error("HITLEnabled should default to false")
-	}
 	if a.HITLTTLSeconds != identity.HITLDefaultTTLSeconds {
 		t.Errorf("HITLTTLSeconds = %d, want %d", a.HITLTTLSeconds, identity.HITLDefaultTTLSeconds)
 	}
@@ -67,7 +64,7 @@ func TestCreateAgentDefaultHITL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAgentByID: %v", err)
 	}
-	if got.HITLEnabled || got.HITLTTLSeconds != identity.HITLDefaultTTLSeconds || got.HITLExpirationAction != identity.HITLExpirationReject {
+	if got.HITLTTLSeconds != identity.HITLDefaultTTLSeconds || got.HITLExpirationAction != identity.HITLExpirationReject {
 		t.Errorf("round-trip defaults mismatch: %+v", got)
 	}
 }
@@ -83,7 +80,7 @@ func TestUpdateAgentHITL(t *testing.T) {
 	store.ClaimOrCreateDomain(ctx, "hitl-update.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "bot@hitl-update.example.com", "hitl-update.example.com", "", "https://example.com/webhook", "", user.ID)
 
-	if err := store.UpdateAgentHITL(ctx, a.ID, user.ID, true, 3600, identity.HITLExpirationApprove); err != nil {
+	if err := store.UpdateAgentHITL(ctx, a.ID, user.ID, 3600, identity.HITLExpirationApprove); err != nil {
 		t.Fatalf("UpdateAgentHITL: %v", err)
 	}
 
@@ -91,8 +88,8 @@ func TestUpdateAgentHITL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAgentByID: %v", err)
 	}
-	if !got.HITLEnabled {
-		t.Error("HITLEnabled should be true")
+	if got.HITLTTLSeconds != 3600 || got.HITLExpirationAction != identity.HITLExpirationApprove {
+		t.Errorf("HITL mechanism not updated: %+v", got)
 	}
 	if got.HITLTTLSeconds != 3600 {
 		t.Errorf("HITLTTLSeconds = %d, want 3600", got.HITLTTLSeconds)
@@ -124,7 +121,7 @@ func TestUpdateAgentHITLValidation(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := store.UpdateAgentHITL(ctx, a.ID, user.ID, true, tc.ttl, tc.action)
+			err := store.UpdateAgentHITL(ctx, a.ID, user.ID, tc.ttl, tc.action)
 			if err == nil {
 				t.Fatal("expected validation error, got nil")
 			}
@@ -141,7 +138,7 @@ func TestUpdateAgentHITLNotOwned(t *testing.T) {
 	store.ClaimOrCreateDomain(ctx, "hitl-notown.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "bot@hitl-notown.example.com", "hitl-notown.example.com", "", "https://example.com/webhook", "", user.ID)
 
-	err := store.UpdateAgentHITL(ctx, a.ID, "different-user", true, 3600, identity.HITLExpirationApprove)
+	err := store.UpdateAgentHITL(ctx, a.ID, "different-user", 3600, identity.HITLExpirationApprove)
 	if err == nil {
 		t.Error("expected error when updating agent not owned by user")
 	}
@@ -185,7 +182,7 @@ func TestListAgentsByUserIncludesHITL(t *testing.T) {
 	user, _ := store.CreateOrGetUser(ctx, "owner@example.com", "Owner", "google-hitl-list")
 	store.ClaimOrCreateDomain(ctx, "hitl-list.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "bot@hitl-list.example.com", "hitl-list.example.com", "", "https://example.com/webhook", "", user.ID)
-	if err := store.UpdateAgentHITL(ctx, a.ID, user.ID, true, 7200, identity.HITLExpirationApprove); err != nil {
+	if err := store.UpdateAgentHITL(ctx, a.ID, user.ID, 7200, identity.HITLExpirationApprove); err != nil {
 		t.Fatalf("UpdateAgentHITL: %v", err)
 	}
 
@@ -196,7 +193,7 @@ func TestListAgentsByUserIncludesHITL(t *testing.T) {
 	if len(agents) != 1 {
 		t.Fatalf("expected 1 agent, got %d", len(agents))
 	}
-	if !agents[0].HITLEnabled || agents[0].HITLTTLSeconds != 7200 || agents[0].HITLExpirationAction != identity.HITLExpirationApprove {
+	if agents[0].HITLTTLSeconds != 7200 || agents[0].HITLExpirationAction != identity.HITLExpirationApprove {
 		t.Errorf("HITL fields not populated from list: %+v", agents[0])
 	}
 }

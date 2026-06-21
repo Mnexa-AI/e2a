@@ -273,7 +273,7 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 
 // ForwardRequest mirrors the legacy forward body.
 type ForwardRequest struct {
-	To             []string              `json:"to" nullable:"false"`  // required (MSG-3)
+	To             []string              `json:"to" nullable:"false"` // required (MSG-3)
 	CC             []string              `json:"cc,omitempty" nullable:"false"`
 	BCC            []string              `json:"bcc,omitempty" nullable:"false"`
 	Body           string                `json:"body"` // required (MSG-3); subject derived as "Fwd:"
@@ -428,7 +428,6 @@ func (s *Server) handleCreateMessage(ctx context.Context, in *createMessageInput
 	// could collide on an identical key+body (the body hash alone no longer
 	// separates them).
 	route := "/v1/agents/" + ag.ID + "/messages"
-	// A cold send has no referenced inbound — passes nil, so high_impact mode
-	// never holds it (no untrusted input being acted on).
+	// A cold send has no referenced inbound (nil) — it's not a reply/forward.
 	return s.deliver(ctx, user, ag, req, "send", "", route, in.IdempotencyKey, in.RawBody, nil)
 }

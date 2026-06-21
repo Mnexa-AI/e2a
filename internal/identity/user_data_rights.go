@@ -275,7 +275,7 @@ func scanDomainsForUser(ctx context.Context, tx pgx.Tx, userID string) ([]Domain
 func scanAgentsForUser(ctx context.Context, tx pgx.Tx, userID string) ([]AgentIdentity, error) {
 	rows, err := tx.Query(ctx,
 		`SELECT id, domain, name,
-		        hitl_enabled, hitl_ttl_seconds, hitl_expiration_action,
+		        hitl_ttl_seconds, hitl_expiration_action,
 		        public, created_at, user_id
 		   FROM agent_identities WHERE user_id = $1 ORDER BY created_at`, userID)
 	if err != nil {
@@ -286,7 +286,7 @@ func scanAgentsForUser(ctx context.Context, tx pgx.Tx, userID string) ([]AgentId
 	for rows.Next() {
 		var a AgentIdentity
 		if err := rows.Scan(&a.ID, &a.Domain, &a.Name,
-			&a.HITLEnabled, &a.HITLTTLSeconds, &a.HITLExpirationAction,
+			&a.HITLTTLSeconds, &a.HITLExpirationAction,
 			&a.Public, &a.CreatedAt, &a.UserID); err != nil {
 			return nil, err
 		}

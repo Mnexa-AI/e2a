@@ -163,9 +163,7 @@ func (s *Server) handleUpdateAgent(ctx context.Context, in *updateAgentInput) (*
 		if s.deps.UpdateAgentHITL == nil {
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "update unavailable")
 		}
-		// hitl_enabled is deprecated (Slice 5b); preserve the stored value while
-		// updating the surviving review-queue mechanism fields.
-		if err := s.deps.UpdateAgentHITL(ctx, ag.ID, ag.UserID, ag.HITLEnabled, ttl, action); err != nil {
+		if err := s.deps.UpdateAgentHITL(ctx, ag.ID, ag.UserID, ttl, action); err != nil {
 			return nil, NewError(http.StatusBadRequest, "invalid_request", err.Error())
 		}
 		touched = true

@@ -27,7 +27,6 @@ func sampleAgent() identity.AgentIdentity {
 		DomainVerified:       true,
 		UserID:               "u_1",
 		CreatedAt:            time.Unix(1700000000, 0).UTC(),
-		HITLEnabled:          true,
 		HITLTTLSeconds:       604800,
 		HITLExpirationAction: "reject",
 	}
@@ -149,8 +148,8 @@ func testServer(t *testing.T) *httptest.Server {
 					// on the detail view is the inbox read-state (B2).
 					InboxStatus: "unread",
 					CreatedAt:   time.Unix(1700000000, 0).UTC(),
-					AuthHeaders:    map[string]string{"spf": "pass"},
-					RawMessage:     []byte("raw"),
+					AuthHeaders: map[string]string{"spf": "pass"},
+					RawMessage:  []byte("raw"),
 				}, nil
 			}
 			return nil, errors.New("not found")
@@ -367,7 +366,7 @@ func testServer(t *testing.T) *httptest.Server {
 			}
 			return nil
 		},
-		UpdateAgentHITL: func(ctx context.Context, agentID, userID string, enabled bool, ttl int, action string) error {
+		UpdateAgentHITL: func(ctx context.Context, agentID, userID string, ttl int, action string) error {
 			return nil
 		},
 		DeleteAgent: func(ctx context.Context, agentID, userID string) error {

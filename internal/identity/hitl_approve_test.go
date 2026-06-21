@@ -32,7 +32,7 @@ func setupPendingAgent(t *testing.T, store *identity.Store, slug string) (*ident
 	if err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
-	if err := store.UpdateAgentHITL(ctx, a.ID, user.ID, true, identity.HITLDefaultTTLSeconds, identity.HITLExpirationReject); err != nil {
+	if err := store.UpdateAgentHITL(ctx, a.ID, user.ID, identity.HITLDefaultTTLSeconds, identity.HITLExpirationReject); err != nil {
 		t.Fatalf("UpdateAgentHITL: %v", err)
 	}
 	return user, a

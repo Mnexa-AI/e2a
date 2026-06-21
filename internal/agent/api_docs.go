@@ -48,7 +48,6 @@ type AgentInfo struct {
 	AgentMode            string    `json:"agent_mode" example:"cloud" enums:"cloud,local"`
 	DomainVerified       bool      `json:"domain_verified"`
 	CreatedAt            time.Time `json:"created_at"`
-	HITLEnabled          bool      `json:"hitl_enabled"`
 	HITLTTLSeconds       int       `json:"hitl_ttl_seconds" example:"604800"`
 	HITLExpirationAction string    `json:"hitl_expiration_action" example:"reject" enums:"approve,reject"`
 } // @name Agent
@@ -463,7 +462,6 @@ type Attachment = outbound.Attachment
 type UpdateAgentRequest struct {
 	WebhookURL           *string `json:"webhook_url,omitempty"`
 	AgentMode            *string `json:"agent_mode,omitempty" enums:"cloud,local"`
-	HITLEnabled          *bool   `json:"hitl_enabled,omitempty"`
 	HITLTTLSeconds       *int    `json:"hitl_ttl_seconds,omitempty" example:"604800"`
 	HITLExpirationAction *string `json:"hitl_expiration_action,omitempty" enums:"approve,reject"`
 } // @name UpdateAgentRequest

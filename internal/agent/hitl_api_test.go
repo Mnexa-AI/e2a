@@ -13,7 +13,7 @@ func enableHITL(t *testing.T, store *identity.Store, agentID, userID string) {
 	t.Helper()
 	if err := store.UpdateAgentHITL(
 		context.Background(), agentID, userID,
-		true, identity.HITLDefaultTTLSeconds, identity.HITLExpirationReject,
+		identity.HITLDefaultTTLSeconds, identity.HITLExpirationReject,
 	); err != nil {
 		t.Fatalf("UpdateAgentHITL: %v", err)
 	}

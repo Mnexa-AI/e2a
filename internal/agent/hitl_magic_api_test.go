@@ -67,7 +67,7 @@ func prepareHITLAgent(t *testing.T, store *identity.Store, slug string) (*identi
 	if err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
-	if err := store.UpdateAgentHITL(ctx, a.ID, user.ID, true, identity.HITLDefaultTTLSeconds, identity.HITLExpirationReject); err != nil {
+	if err := store.UpdateAgentHITL(ctx, a.ID, user.ID, identity.HITLDefaultTTLSeconds, identity.HITLExpirationReject); err != nil {
 		t.Fatal(err)
 	}
 	return a, user.ID

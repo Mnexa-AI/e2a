@@ -144,7 +144,7 @@ func setupSubscriberOwner(t *testing.T, ts *testutil.E2ATestServer, prefix strin
 	}
 	if hitl {
 		// Enable HITL with a reasonable TTL.
-		if err := ts.Store.UpdateAgentHITL(ctx, agent.ID, user.ID, true, 3600, "reject"); err != nil {
+		if err := ts.Store.UpdateAgentHITL(ctx, agent.ID, user.ID, 3600, "reject"); err != nil {
 			t.Fatalf("UpdateAgentHITL: %v", err)
 		}
 		// Reload so the in-test agent struct reflects HITL flag.

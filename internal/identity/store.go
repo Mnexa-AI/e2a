@@ -75,25 +75,20 @@ type Domain struct {
 }
 
 type AgentIdentity struct {
-	ID                   string    `json:"id"`
-	Domain               string    `json:"domain"`
-	Email                string    `json:"email"`
-	Name                 string    `json:"name"`
-	DomainVerified       bool      `json:"domain_verified"`
-	Public               bool      `json:"public"`
-	CreatedAt            time.Time `json:"created_at"`
-	UserID               string    `json:"user_id"`
-	// Deprecated (Slice 5b): hitl_enabled/hitl_mode were retired as producer
-	// policy. The outbound recipient gate (outbound_policy) + content scan own
-	// holds now, and migration 042 maps the old behavior forward. Still read from
-	// the DB column (not yet dropped — two-step retirement) but no longer drive
-	// any decision and no longer exposed on the /v1 API. The HITL mechanism fields
-	// (hitl_ttl_seconds / hitl_expiration_action) survive as the review-queue knobs.
-	HITLEnabled          bool   `json:"-"`
+	ID             string    `json:"id"`
+	Domain         string    `json:"domain"`
+	Email          string    `json:"email"`
+	Name           string    `json:"name"`
+	DomainVerified bool      `json:"domain_verified"`
+	Public         bool      `json:"public"`
+	CreatedAt      time.Time `json:"created_at"`
+	UserID         string    `json:"user_id"`
+	// HITL review-queue mechanism. The producer policies hitl_enabled/hitl_mode
+	// were retired (Slice 5b/5c, columns dropped in migration 043) — outbound_policy
+	// + outbound_scan own holds now. These two knobs govern how the review queue
+	// behaves (TTL + expiry action) for both directions.
 	HITLTTLSeconds       int    `json:"hitl_ttl_seconds"`
 	HITLExpirationAction string `json:"hitl_expiration_action"`
-	// Deprecated (Slice 5b): see HITLEnabled. json:"-" keeps it off the /v1 API.
-	HITLMode string `json:"-"`
 	// Dashboard enrichment fields. Computed at read
 	// time by ListAgentsByUser via correlated subqueries — other load
 	// paths (GetAgentByID / GetAgentByEmail) leave them at zero values,
@@ -780,8 +775,7 @@ func (s *Store) GetAgentByID(ctx context.Context, id string) (*AgentIdentity, er
 	a := &AgentIdentity{}
 	err := s.pool.QueryRow(ctx,
 		`SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at,
-		        a.hitl_enabled, a.hitl_ttl_seconds, a.hitl_expiration_action,
-		        COALESCE(a.hitl_mode, 'all'),
+		        a.hitl_ttl_seconds, a.hitl_expiration_action,
 		        COALESCE(a.inbound_policy, 'open'), a.inbound_allowlist,
 		        a.inbound_policy_action,
 		        a.outbound_policy, a.outbound_allowlist, a.outbound_policy_action,
@@ -793,8 +787,7 @@ func (s *Store) GetAgentByID(ctx context.Context, id string) (*AgentIdentity, er
 		 JOIN domains d ON a.domain = d.domain
 		 WHERE a.id = $1`, id,
 	).Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt,
-		&a.HITLEnabled, &a.HITLTTLSeconds, &a.HITLExpirationAction,
-		&a.HITLMode,
+		&a.HITLTTLSeconds, &a.HITLExpirationAction,
 		&a.InboundPolicy, &a.InboundAllowlist,
 		&a.InboundPolicyAction,
 		&a.OutboundPolicy, &a.OutboundAllowlist, &a.OutboundPolicyAction,
@@ -852,7 +845,6 @@ func createAgent(ctx context.Context, exec agentExecutor, agentEmail, domain, na
 		Public:               true,
 		CreatedAt:            time.Now(),
 		UserID:               userID,
-		HITLEnabled:          false,
 		HITLTTLSeconds:       HITLDefaultTTLSeconds,
 		HITLExpirationAction: HITLDefaultExpirationAct,
 	}
@@ -871,17 +863,16 @@ func createAgent(ctx context.Context, exec agentExecutor, agentEmail, domain, na
 // UpdateAgentHITL updates all three HITL settings on an agent owned by userID.
 // The TTL and expiration action are validated against the same rules as the
 // DB CHECK constraints so callers get a clean error rather than a raw SQL error.
-func (s *Store) UpdateAgentHITL(ctx context.Context, agentID, userID string, enabled bool, ttlSeconds int, expirationAction string) error {
+func (s *Store) UpdateAgentHITL(ctx context.Context, agentID, userID string, ttlSeconds int, expirationAction string) error {
 	if err := ValidateHITLConfig(ttlSeconds, expirationAction); err != nil {
 		return err
 	}
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE agent_identities
-		    SET hitl_enabled = $1,
-		        hitl_ttl_seconds = $2,
-		        hitl_expiration_action = $3
-		  WHERE id = $4 AND user_id = $5`,
-		enabled, ttlSeconds, expirationAction, agentID, userID,
+		    SET hitl_ttl_seconds = $1,
+		        hitl_expiration_action = $2
+		  WHERE id = $3 AND user_id = $4`,
+		ttlSeconds, expirationAction, agentID, userID,
 	)
 	if err != nil {
 		return err
@@ -936,8 +927,7 @@ func (s *Store) UpdateAgentInboundPolicy(ctx context.Context, agentID, userID, p
 func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIdentity, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at,
-		        a.hitl_enabled, a.hitl_ttl_seconds, a.hitl_expiration_action,
-		        COALESCE(a.hitl_mode, 'all'),
+		        a.hitl_ttl_seconds, a.hitl_expiration_action,
 		        COALESCE(a.inbound_policy, 'open'), a.inbound_allowlist,
 		        a.inbound_policy_action,
 		        a.outbound_policy, a.outbound_allowlist, a.outbound_policy_action,
@@ -977,8 +967,7 @@ func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIde
 		var a AgentIdentity
 		var lastDeliveryAt *time.Time
 		if err := rows.Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt,
-			&a.HITLEnabled, &a.HITLTTLSeconds, &a.HITLExpirationAction,
-			&a.HITLMode,
+			&a.HITLTTLSeconds, &a.HITLExpirationAction,
 			&a.InboundPolicy, &a.InboundAllowlist,
 			&a.InboundPolicyAction,
 			&a.OutboundPolicy, &a.OutboundAllowlist, &a.OutboundPolicyAction,

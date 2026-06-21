@@ -52,7 +52,7 @@ func prepareAgent(t *testing.T, store *identity.Store, slug, expirationAction st
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateAgentHITL(ctx, a.ID, user.ID, true, identity.HITLDefaultTTLSeconds, expirationAction); err != nil {
+	if err := store.UpdateAgentHITL(ctx, a.ID, user.ID, identity.HITLDefaultTTLSeconds, expirationAction); err != nil {
 		t.Fatal(err)
 	}
 	refreshed, err := store.GetAgentByID(ctx, a.ID)
@@ -273,7 +273,7 @@ func TestWorkerAutoApproveUnverifiedAgentRejects(t *testing.T) {
 	user, _ := store.CreateOrGetUser(ctx, "owner-unv@example.com", "Owner", "google-worker-unv")
 	store.ClaimOrCreateDomain(ctx, "unv.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "bot@unv.example.com", "unv.example.com", "", "https://example.com/webhook", "", user.ID)
-	if err := store.UpdateAgentHITL(ctx, a.ID, user.ID, true, identity.HITLDefaultTTLSeconds, identity.HITLExpirationApprove); err != nil {
+	if err := store.UpdateAgentHITL(ctx, a.ID, user.ID, identity.HITLDefaultTTLSeconds, identity.HITLExpirationApprove); err != nil {
 		t.Fatal(err)
 	}
 
