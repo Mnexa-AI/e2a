@@ -3,6 +3,7 @@ import type {
   AccountView,
   AgentView,
   MessageView,
+  AttachmentView,
   MessageSummaryView,
   SendResultView,
   RejectResultView,
@@ -210,6 +211,17 @@ export class McpClient {
 
   getMessage(messageId: string, explicitAddress?: string): Promise<MessageView> {
     return this.sdk.messages.get(this.resolveAddress(explicitAddress), messageId);
+  }
+
+  // getAttachment (§6a #5): metadata + a short-lived download_url for one
+  // attachment. inline:true also returns base64 `data` for small attachments.
+  getAttachment(
+    messageId: string,
+    index: number,
+    opts: { inline?: boolean } = {},
+    explicitAddress?: string,
+  ): Promise<AttachmentView> {
+    return this.sdk.messages.getAttachment(this.resolveAddress(explicitAddress), messageId, index, opts);
   }
 
   // Cursor pagination (§6a #3): returns ONE page + next_cursor. `limit` is the

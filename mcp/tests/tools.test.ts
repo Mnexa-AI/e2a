@@ -139,6 +139,19 @@ function makeStubClient(
       body: undefined,
       createdAt: "2026-05-20T10:00:00Z",
       rawMessage: rawWith("hello world", "report.pdf", "application/pdf", pdfBytes),
+      // Server-authoritative attachment metadata (MessageView.attachments).
+      attachments: [
+        { index: 0, filename: "report.pdf", contentType: "application/pdf", sizeBytes: 23 },
+      ],
+    })),
+    getAttachment: vi.fn(async (id: string, index: number, opts?: { inline?: boolean }) => ({
+      index,
+      filename: "report.pdf",
+      contentType: "application/pdf",
+      sizeBytes: 23,
+      downloadUrl: `https://api.test/v1/agents/bot@example.com/messages/${id}/attachments/${index}/download?token=tok`,
+      expiresAt: "2026-05-20T10:15:00Z",
+      ...(opts?.inline ? { data: Buffer.from("%PDF-1.4 fake pdf bytes").toString("base64") } : {}),
     })),
     listPendingMessages: vi.fn(async () => []),
     getPendingMessage: vi.fn(async (id: string) => ({
@@ -490,58 +503,44 @@ describe("e2a MCP server", () => {
     expect((parsed.attachments as Array<{ data?: unknown }>)[0]!.data).toBeUndefined();
   });
 
-  it("get_attachment returns one attachment with base64 data", async () => {
+  it("get_attachment returns metadata + a download_url (no bytes by default)", async () => {
     const res = await client.callTool({
       name: "get_attachment",
       arguments: { message_id: "msg_abc", attachment_index: 0 },
     });
-    expect(stub.getMessage).toHaveBeenCalledWith("msg_abc", undefined);
-    const content = res.content as Array<{ type: string; text: string }>;
-    const parsed = JSON.parse(content[0]!.text) as Record<string, unknown>;
+    // Forwards (message, index, opts, email) to the wrapper.
+    expect(stub.getAttachment).toHaveBeenCalledWith("msg_abc", 0, {}, undefined);
+    const parsed = JSON.parse((res.content as Array<{ text: string }>)[0]!.text) as Record<string, unknown>;
     expect(parsed.filename).toBe("report.pdf");
     expect(parsed.content_type).toBe("application/pdf");
     expect(parsed.size_bytes).toBe(23);
-    // Round-trip-decodable base64 of the original bytes.
-    expect(Buffer.from(parsed.data as string, "base64").toString()).toBe(
-      "%PDF-1.4 fake pdf bytes",
-    );
+    expect(parsed.download_url).toContain("/attachments/0/download?token=");
+    expect(parsed.expires_at).toBeTruthy();
+    expect(parsed).not.toHaveProperty("data"); // bytes by reference, not in context
   });
 
-  it("get_attachment rejects out-of-range index with a clear error", async () => {
+  it("get_attachment inline:true returns base64 data (for small re-attach/forward)", async () => {
+    const res = await client.callTool({
+      name: "get_attachment",
+      arguments: { message_id: "msg_abc", attachment_index: 0, inline: true },
+    });
+    expect(stub.getAttachment).toHaveBeenCalledWith("msg_abc", 0, { inline: true }, undefined);
+    const parsed = JSON.parse((res.content as Array<{ text: string }>)[0]!.text) as Record<string, unknown>;
+    expect(Buffer.from(parsed.data as string, "base64").toString()).toBe("%PDF-1.4 fake pdf bytes");
+  });
+
+  it("get_attachment surfaces a server error (e.g. out-of-range/too-large) as isError", async () => {
+    // The size cap + index bounds are now SERVER concerns (413/404); the tool
+    // forwards and surfaces the structured code.
+    (stub.getAttachment as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new E2AError({ code: "attachment_not_found", message: "no attachment at that index", status: 404, retryable: false }),
+    );
     const res = await client.callTool({
       name: "get_attachment",
       arguments: { message_id: "msg_abc", attachment_index: 5 },
     });
     expect(res.isError).toBe(true);
-    const content = res.content as Array<{ type: string; text: string }>;
-    expect(content[0]!.text).toMatch(/out of range/);
-  });
-
-  it("get_attachment refuses attachments above the 2 MB inline cap", async () => {
-    // One-shot override: a message whose raw MIME carries a 3 MB
-    // attachment (decoded), above the 2 MB inline cap.
-    const big = Buffer.alloc(3 * 1024 * 1024, 0x41);
-    (stub.getMessage as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      messageId: "msg_big",
-      conversationId: null,
-      _from: "alice@example.com",
-      recipient: "bot@example.com",
-      to: ["bot@example.com"],
-      cc: [],
-      replyTo: [],
-      subject: "huge",
-      status: "read",
-      body: { text: "", html: undefined },
-      createdAt: null,
-      rawMessage: rawWith("", "big.zip", "application/zip", big),
-    });
-    const res = await client.callTool({
-      name: "get_attachment",
-      arguments: { message_id: "msg_big", attachment_index: 0 },
-    });
-    expect(res.isError).toBe(true);
-    const content = res.content as Array<{ type: string; text: string }>;
-    expect(content[0]!.text).toMatch(/too large for inline retrieval/);
+    expect((res.content as Array<{ text: string }>)[0]!.text).toContain("[attachment_not_found]");
   });
 
   it("whoami calls client.whoami and returns the AccountView", async () => {
