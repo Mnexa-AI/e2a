@@ -13,7 +13,7 @@
 | # | Area | Subcomponent | Status | Headline |
 |---|------|--------------|--------|----------|
 | 1 | API | `agents_write.go` — agent create/PATCH + config | done | 🟡 updateAgent OpenAPI desc stale (HITL-only) vs full policy/scan PATCH; verify create's account-scope ceiling |
-| 2 | API | `messages.go` — message detail/list views + raw/parsed | pending | |
+| 2 | API | `messages.go` — message detail/list views + raw/parsed | done | 🟡 read-side label validation duplicates write-side rule (drift); 🔵 hitl_status enum is outbound-only (no inbound review-status field); cursor binding ✅ strong |
 | 3 | API | `outbound.go` — send/reply/forward + idempotency wiring | pending | |
 | 4 | API | `conversations.go` — threading/list | pending | |
 | 5 | API | `hitl.go` — approve/reject review queue | pending | |
@@ -44,6 +44,24 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 2. API — `messages.go` (detail/list views, raw/parsed, labels PATCH)
+
+The four-status-axis model (`read_status`/`hitl_status`/`delivery_status`/`webhook_status`) is clean and well-documented, and the cursor handling is genuinely strong. Findings are mostly drift/consistency risks.
+
+**🟡 Label-rule duplication → drift risk.** The read-side filter validates labels with a *local* reimplementation, `normalizeLabel` (`messages.go:573`), while the write-side PATCH uses `agent.NormalizeAndValidateLabelList` (`messages.go:382`). Same charset/length/`e2a:`-prefix rule, **two separate codebases**. The comment (`messages.go:554–556`) acknowledges the intent ("can't drift") but the implementations genuinely can — a charset change on one side silently diverges read-filtering from write-validation (and the GIN-index guard). *Fix:* have `normalizeLabelFilter` call the same shared validator (with an `allowSystem` flag) instead of a parallel copy.
+
+**🔵 `hitl_status` enum models only the outbound lifecycle.** `MessageView.HITLStatus` (`messages.go:43`) enumerates `pending_approval,sent,rejected,expired_*` and is set **outbound-only** (`messages.go:137–143`). The screening work added an *inbound* review lifecycle (`pending_review`/`review_rejected`/`review_*`). While held, those rows are correctly filtered out of all reads, so they never need a field — but a **released** inbound message carries no review-status indicator anywhere in the view. Consistency gap worth a deliberate decision (add an inbound review-status field, or document that release erases the review trace from the message view).
+
+**🔵 Substring filters are sequential-scan-shaped.** `from` and `subject_contains` (`messages.go:265–266`) are case-insensitive substring matches — bounded to 200 chars (good for safety) but inherently un-indexable (`ILIKE '%x%'`). A perf/scale note, not a correctness bug; fine at current volumes, worth a trigram index if these get hot.
+
+**🔵 `raw_message` always-present-but-nullable.** `MessageView.RawMessage []byte` has no `omitempty` (`messages.go:77`), so held outbound drafts (which use `body` instead) render `"raw_message": null`. Intentional "always present" shape, but the doc comment "raw_message is always present" reads as non-null; clarify it can be null for held drafts.
+
+**✅ Verified clean:**
+- **Cursor filter-identity binding** (`messages.go:282–295`, `485–492`): the cursor captures the *full* filter set (agent, status, direction, sort, from, subject, conversation, since/until, labels) and rejects reuse under changed filters → no silent result-set drift. This is the right, thorough design.
+- **Half-open time window** (`since` inclusive, `until` exclusive; `since < until` enforced), **limit+1 has-more** detection, **outbound `status` filter rejection** (clear 400), all correct.
+- **Scope**: get/list/label-PATCH go through `resolveOwnedAgent` (per-agent, so an agent-scoped credential reads/labels *its own* mail) — correct, and distinct from the account-scope ceiling on config writes.
+- **Held-content read boundary** (cross-ref #1/inbound review): `getMessage` exposes `raw_message`/`parsed` unconditionally in the view, but relies on `deps.GetMessage` being held-status-filtered — the inbound adversarial review proved the detail path REFUTED-safe. Keep them linked: any new `GetMessage` wiring must preserve that filter.
 
 ### 1. API — `agents_write.go` (agent create / PATCH / delete + config)
 
