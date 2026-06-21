@@ -121,7 +121,7 @@ func TestHandleAgentActivity_WithMessages(t *testing.T) {
 
 	// Create some activity ("" id lets the store generate one).
 	store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", "bot@active.example.com", "", "Hello", "", "", nil, nil, nil, false, "", nil, nil, nil)
-	store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "", "")
+	store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "", "", nil)
 	store.CreateInboundMessage(ctx, "", agent.ID, "bob@gmail.com", "bot@active.example.com", "", "Hi", "", "", nil, nil, nil, false, "", nil, nil, nil)
 
 	req := authedRequest("GET", "/api/dashboard/agents/agent%40active.example.com/activity", token)

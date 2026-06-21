@@ -67,6 +67,10 @@ type SendResult struct {
 	To        []string `json:"-"`       // canonicalized To recipients
 	CC        []string `json:"-"`       // canonicalized CC recipients
 	BCC       []string `json:"-"`       // canonicalized BCC recipients
+	// Raw is the exact composed MIME placed on the wire (post-DKIM, post-SES
+	// header). Persisted as messages.raw_message so the agent gets a readable
+	// "Sent folder" — a mailbox keeps both sides of a conversation.
+	Raw []byte `json:"-"`
 }
 
 // ValidationError indicates a caller error (invalid addresses, no visible recipients).
@@ -278,6 +282,7 @@ func (s *Sender) Send(agent *identity.AgentIdentity, req SendRequest) (*SendResu
 		To:        to,
 		CC:        cc,
 		BCC:       bcc,
+		Raw:       message,
 	}, nil
 }
 

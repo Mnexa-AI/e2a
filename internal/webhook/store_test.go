@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func setupDeliveryFixture(t *testing.T) (*pgxpool.Pool, *identity.Store, *webhook.DeliveryStore, *identity.AgentIdentity, *identity.Message) {
@@ -30,7 +30,7 @@ func setupDeliveryFixture(t *testing.T) (*pgxpool.Pool, *identity.Store, *webhoo
 	if err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
-	msg, err := identityStore.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "Hello", "send", "webhook", "", "")
+	msg, err := identityStore.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "Hello", "send", "webhook", "", "", nil)
 	if err != nil {
 		t.Fatalf("CreateOutboundMessage: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestGetPendingDeliveriesLeasesClaimedRows(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		m, err := identityStore.CreateOutboundMessage(ctx, agent.ID,
 			[]string{"alice@example.com"}, nil, nil,
-			"hi", "send", "webhook", "", "")
+			"hi", "send", "webhook", "", "", nil)
 		if err != nil {
 			t.Fatalf("CreateOutboundMessage: %v", err)
 		}
@@ -127,7 +127,7 @@ func TestGetPendingDeliveriesIsSafeForConcurrentCallers(t *testing.T) {
 	for i := 0; i < n; i++ {
 		m, err := identityStore.CreateOutboundMessage(ctx, agent.ID,
 			[]string{"alice@example.com"}, nil, nil,
-			"hi", "send", "webhook", "", "")
+			"hi", "send", "webhook", "", "", nil)
 		if err != nil {
 			t.Fatalf("CreateOutboundMessage: %v", err)
 		}

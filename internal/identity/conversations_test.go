@@ -172,7 +172,7 @@ func TestListConversationsByAgent_AggregateFields(t *testing.T) {
 	// The 9th arg of CreateInboundMessage is inbox_status — pass
 	// "unread" explicitly so the has_unread aggregate is true.
 	store.CreateInboundMessage(ctx, "", agentID, "alice@gmail.com", "bot@convo-agg.example.com", "<i1@x>", "Hello", "conv-agg", "unread", nil, nil, nil, false, "", nil, nil, nil)
-	store.CreateOutboundMessage(ctx, agentID, []string{"alice@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "<out@x>", "conv-agg")
+	store.CreateOutboundMessage(ctx, agentID, []string{"alice@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "<out@x>", "conv-agg", nil)
 
 	convos, _ := store.ListConversationsByAgent(ctx, identity.ConversationListFilter{AgentID: agentID})
 	if len(convos) != 1 {

@@ -21,7 +21,7 @@ func TestConversationMessagesCarryWebhookStatus(t *testing.T) {
 
 	out, err := store.CreateOutboundMessage(
 		ctx, agentID, []string{"alice@gmail.com"}, nil, nil,
-		"Hi", "send", "smtp", "<wh-1@x>", "conv-wh",
+		"Hi", "send", "smtp", "<wh-1@x>", "conv-wh", nil,
 	)
 	if err != nil {
 		t.Fatalf("CreateOutboundMessage: %v", err)

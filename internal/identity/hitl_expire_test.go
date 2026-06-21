@@ -189,7 +189,7 @@ func TestExpireApproveAndSendSkipsAlreadyTerminal(t *testing.T) {
 
 	// A message already in 'sent' state — the expiration query should ignore it
 	sent, _ := store.CreateOutboundMessage(ctx, a.ID,
-		[]string{"x@example.com"}, nil, nil, "already", "send", "smtp", "<p>", "")
+		[]string{"x@example.com"}, nil, nil, "already", "send", "smtp", "<p>", "", nil)
 
 	_, err := store.ExpireApproveAndSend(ctx, sent.ID,
 		func(m *identity.Message) (identity.SendResult, error) {
@@ -300,4 +300,3 @@ func TestExpireRejectRaceReturnsErrNotPending(t *testing.T) {
 		t.Errorf("expected ErrNotPendingApproval when row already terminal, got %v", err)
 	}
 }
-

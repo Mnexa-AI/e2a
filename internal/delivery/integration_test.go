@@ -33,7 +33,7 @@ func seedOutbound(t *testing.T, store *identity.Store, prefix, providerID string
 	if _, err := store.CreateAgent(ctx, agentEmail, domain, "", "", "", user.ID); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
-	msg, err := store.CreateOutboundMessage(ctx, agentEmail, to, nil, nil, "Subj", "send", "smtp", providerID, "")
+	msg, err := store.CreateOutboundMessage(ctx, agentEmail, to, nil, nil, "Subj", "send", "smtp", providerID, "", nil)
 	if err != nil {
 		t.Fatalf("CreateOutboundMessage: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestConcurrentRollupMonotonic(t *testing.T) {
 
 	for i := 0; i < 25; i++ {
 		providerID := "ses-race-" + string(rune('a'+i%26)) + string(rune('a'+i/26))
-		msg, err := store.CreateOutboundMessage(ctx, agentEmail, []string{"a@x.com"}, nil, nil, "S", "send", "smtp", providerID, "")
+		msg, err := store.CreateOutboundMessage(ctx, agentEmail, []string{"a@x.com"}, nil, nil, "S", "send", "smtp", providerID, "", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
