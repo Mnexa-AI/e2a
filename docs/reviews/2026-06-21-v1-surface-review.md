@@ -15,7 +15,7 @@
 | 1 | API | `agents_write.go` — agent create/PATCH + config | done | 🟡 updateAgent OpenAPI desc stale (HITL-only) vs full policy/scan PATCH; verify create's account-scope ceiling |
 | 2 | API | `messages.go` — message detail/list views + raw/parsed | done | 🟡 read-side label validation duplicates write-side rule (drift); 🔵 hitl_status enum is outbound-only (no inbound review-status field); cursor binding ✅ strong |
 | 3 | API | `outbound.go` — send/reply/forward + idempotency wiring | done | 🟡 reply_all bypasses maxRecipients cap; CRLF-in-subject check skipped on reply/forward; idempotency-route pattern inconsistent |
-| 4 | API | `conversations.go` — threading/list | pending | |
+| 4 | API | `conversations.go` — threading/list | done | 🟡 summary aggregates (latest_subject/sender, counts, has_unread) may leak held-message metadata — verify store excludes held; cursor/timestamps ✅ |
 | 5 | API | `hitl.go` — approve/reject review queue | pending | |
 | 6 | API | `events.go` — events API + screening_events surface | pending | |
 | 7 | API | `webhooks.go` — webhook config/delivery | pending | |
@@ -44,6 +44,21 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 4. API — `conversations.go` (threading list + detail)
+
+Tight handler — typed timestamps, complete cursor binding, ownership-scoped. One real concern is a cross-surface leak risk in the *summary aggregates* that the prior inbound review may not have covered.
+
+**🟡 Conversation summary aggregates may leak held-message metadata (cross-ref to verify).** `ConversationSummaryView` carries `message_count`/`inbound_count`/`has_unread`/`latest_subject`/`latest_sender` (`conversations.go:16–26`), computed by `deps.GetConversation`/`ListConversations` in the store. The inbound review proved the *message list* (`detail.Messages`) excludes held inbound rows — but the **summary aggregates are a separate computation**. If the store counts or "latest"-picks held (`pending_review`/quarantined) inbound rows, then `latest_subject`/`latest_sender` can surface a **quarantined attacker message's subject/sender**, and the counts/`has_unread` misreport — even though the message list correctly hides it. *Fix:* confirm the store's conversation aggregation applies the same `heldInboundStatuses` exclusion to the count/latest/has_unread rollups, not just the member-message query. This is exactly the read-boundary class the screening review flagged, on a surface it didn't explicitly test.
+
+**🔵 No participant/subject filter on list.** `ListConversationsInput` (`conversations.go:57–63`) filters only by `since`/`until` — no `participant`/`subject_contains` that `messages.go` offers. Ergonomic gap, not a bug; fine for v1.
+
+**✅ Verified clean:**
+- **Cursor binding is complete** (`conversations.go:67–73`, `138–141`): the cursor captures agent + since + until, which is the *entire* filter set here, so no silent window drift (stronger position than `messages.go` only because there are fewer filters).
+- **Typed timestamps** (`time.Time` + `format:"date-time"`, `conversations.go:18–19`) — the comment documents a real prior bug (plain-string timestamps generated an untyped `string` in the SDKs); now consistent with the rest of the surface.
+- **Path validation**: `conversation_id` length + CR/LF checked (`conversations.go:191–195`); `since < until` enforced; `limit+1` has-more.
+- **Embedded summary in detail** (`conversations.go:45–50`) flattens cleanly to the documented top-level layout.
+- **Held message-list exclusion** (cross-ref inbound review): `detail.Messages` relies on `GetConversation` being held-filtered — proven REFUTED-safe for the message list.
 
 ### 3. API — `outbound.go` (send / reply / forward + idempotency)
 
