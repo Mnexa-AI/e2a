@@ -1720,7 +1720,7 @@ func (s *Store) ApproveAndSend(
 		        edited            = $10,
 		        reviewed_at       = now(),
 		        reviewed_by_user_id = $11,
-		        raw_message       = $12,
+		        raw_message       = $12::bytea,
 		        body_text         = NULL,
 		        body_html         = NULL,
 		        attachments_json  = NULL
@@ -1988,7 +1988,7 @@ func (s *Store) ExpireApproveAndSend(
 		        bcc               = $7,
 		        recipient         = $8,
 		        reviewed_at       = now(),
-		        raw_message       = $9,
+		        raw_message       = $9::bytea,
 		        body_text         = NULL,
 		        body_html         = NULL,
 		        attachments_json  = NULL

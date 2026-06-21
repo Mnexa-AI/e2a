@@ -100,3 +100,41 @@ func TestOutboundRetention_HITLApprove(t *testing.T) {
 		t.Errorf("draft body_text should be scrubbed after send, got %q", got.BodyText)
 	}
 }
+
+// TestOutboundRetention_MetersStorage is the regression guard for the storage-meter
+// gap: the HITL finalize is an UPDATE, which the account_usage trigger ignored
+// before migration 039 — so a HITL-sent body was stored off the meter. After the
+// fix, the retained raw_message must count toward storage_bytes.
+func TestOutboundRetention_MetersStorage(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userID, agentID := seedRetentionAgent(t, store, ctx, "retmeter.example.com")
+
+	storageBytes := func() int64 {
+		var n int64
+		_ = pool.QueryRow(ctx, `SELECT COALESCE(storage_bytes, 0) FROM account_usage WHERE user_id=$1`, userID).Scan(&n)
+		return n
+	}
+
+	pending, err := store.CreatePendingOutboundMessage(ctx, agentID, []string{"a@b.com"}, nil, nil,
+		"subj", "tiny", "", nil, "send", "", "", 3600)
+	if err != nil {
+		t.Fatalf("CreatePendingOutboundMessage: %v", err)
+	}
+
+	raw := make([]byte, 100_000)
+	for i := range raw {
+		raw[i] = 'x'
+	}
+	if _, err := store.ApproveAndSend(ctx, pending.ID, userID, identity.PendingApprovalEdit{},
+		func(m *identity.Message) (identity.SendResult, error) {
+			return identity.SendResult{ProviderMessageID: "<s@x>", Method: "smtp", To: m.ToRecipients, Raw: raw}, nil
+		}); err != nil {
+		t.Fatalf("ApproveAndSend: %v", err)
+	}
+
+	if got := storageBytes(); got < 100_000 {
+		t.Errorf("storage_bytes=%d, want >=100000 — the HITL-sent raw_message must be metered", got)
+	}
+}

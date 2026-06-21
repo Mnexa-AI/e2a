@@ -261,6 +261,11 @@ func (s *Sender) Send(agent *identity.AgentIdentity, req SendRequest) (*SendResu
 		}
 	}
 
+	// Snapshot the recipient-facing bytes for the retained "Sent folder" copy:
+	// DKIM-signed, but BEFORE the e2a-internal SES configuration-set header (SES
+	// strips that before delivery, so the recipient never sees it).
+	sentBody := message
+
 	// Attach the SES configuration-set header (decision 9 / Slice 4b) so SES
 	// publishes delivery/bounce/complaint events for this message. Prepended
 	// AFTER DKIM signing so it is never in the signed header set (SES strips it
@@ -282,7 +287,7 @@ func (s *Sender) Send(agent *identity.AgentIdentity, req SendRequest) (*SendResu
 		To:        to,
 		CC:        cc,
 		BCC:       bcc,
-		Raw:       message,
+		Raw:       sentBody,
 	}, nil
 }
 
