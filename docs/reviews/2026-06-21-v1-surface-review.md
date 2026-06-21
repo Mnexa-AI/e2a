@@ -21,7 +21,7 @@
 | 7 | API | `webhooks.go` — webhook config/delivery | done | 🟡→🔴 event enum (5 hand-copies) drifted: email.injection_detected MISSING → screening alert unsubscribable (422); SSRF/ownership/secret ✅ |
 | 8 | API | `domains.go` — domain verification | done | 🟡 timestamp type inconsistent surface-wide (time.Time here/conversations vs string in messages/webhooks → SDK Date vs string); delete/verify guards ✅ |
 | 9 | API | `account.go` — account/limits/usage | done | 🟡 GDPR export omits screening_events (confirms screening-review flag); 🟡 verify requireAccountUser bars agent scope (delete/export keystone → #10) |
-| 10 | API | `scope.go` + `middleware.go` — auth/scopes | pending | |
+| 10 | API | `scope.go` + `middleware.go` — auth/scopes | done | ✅ KEYSTONE: account-scope ceiling holds — #1/#5/#9 cross-refs resolve safe; agent creds barred from account admin + pinned to one agent; 🟡 no Cache-Control: no-store |
 | 11 | API | `pagination.go` — cursor contracts | pending | |
 | 12 | API | `idempotency.go` — idempotency keys | pending | |
 | 13 | API | `operations.go` + `errors.go` — views + error envelopes | pending | |
@@ -44,6 +44,23 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 10. API — `scope.go` + `middleware.go` (auth/scopes) — KEYSTONE
+
+**The account-admin scope ceiling holds — the accumulated cross-refs from #1/#5/#9 resolve to ✅.** This is the most important positive result of the review so far. The findings are minor by comparison.
+
+**✅ KEYSTONE — agent-scoped credentials are correctly barred from account administration.** `requireAccountScope` (`scope.go:26–36`) authenticates, then rejects any `p.Scope != ScopeAccount` with a 403 `forbidden`; `requireAccountUser` (`scope.go:41–47`) is a thin wrapper over it. So **every** handler that gates on `requireAccountUser`/`requireAccountScope` — agent create/delete (#1), config PATCH, approve/reject (#5), account delete + export + suppressions (#9) — structurally cannot be reached by an agent-scoped token. A leaked agent credential **cannot** delete the account, export all data, mint agents, or self-approve. The three iterations that deferred their headline security question to here are all **resolved safe**.
+
+**✅ Agent-scoped pinning.** `requireAgentAccess` (`scope.go:54–64`) pins an agent-scoped credential to its *one* bound agent (`p.AgentID != agentID → 403`) even when the same owner owns the target — so a leaked agent token can't pivot to a sibling agent. Clean 401 (no/invalid credential) vs 403 (valid-but-insufficient-scope) separation throughout.
+
+**🟡 No `Cache-Control: no-store` on authenticated responses.** `securityHeaders` (`middleware.go:142–147`) sets only `X-Content-Type-Options: nosniff`. Several responses carry secrets — `signing_secret` on webhook create/rotate, `verification_token`, and `raw_message`/auth headers on message detail — with no cache-control directive. For a Bearer API the practical risk is low (intermediaries shouldn't cache `Authorization`-bearing requests), but `Cache-Control: no-store` on authenticated responses is the defense-in-depth standard and cheap to add at this choke point. *Fix:* set `no-store` for non-public ops (leave the public `getInfo` cacheable).
+
+**🔵 `resolveOwnedAgent` lives elsewhere (companion to this file).** The per-agent ownership+pinning helper the message/outbound/conversation handlers use isn't in these two files — it's the runtime-tier analog of `requireAgentAccess` and is reviewed with `operations.go` (#13). Flagging so the pair stays linked: `requireAgentAccess` covers scope; `resolveOwnedAgent` must cover *ownership* (an account-scoped creds acting on an agent it doesn't own).
+
+**✅ Verified clean (middleware):**
+- **WWW-Authenticate on 401** (`middleware.go:73–106`): RFC 6750 challenge set from one place keyed on the 401 status (incl. OAuth `error` params so MCP clients trigger the re-flow); 2xx/public responses untouched.
+- **WS upgrade preserved**: `challengeWriter.Hijack()` passthrough (`middleware.go:119–124`) keeps the WebSocket upgrader's `http.Hijacker` assertion working — a subtle break avoided.
+- **Request id**: honors a caller `X-Request-Id` (cross-service trace) else mints a `crypto/rand` id; on every response + echoed into the error envelope.
 
 ### 9. API — `account.go` (whoami / limits / export / delete / suppressions)
 
