@@ -107,12 +107,11 @@ func (s *Server) registerAgentWrites() {
 // absent != zero. webhook_url/agent_mode were dropped (migration 029); only
 // HITL settings remain mutable.
 type UpdateAgentRequest struct {
-	HITLEnabled          *bool   `json:"hitl_enabled,omitempty"`
+	// hitl_enabled / hitl_mode were retired as producer policy in Slice 5b — use
+	// outbound_policy / outbound_scan instead. The HITL mechanism fields below
+	// survive as the review-queue knobs.
 	HITLTTLSeconds       *int    `json:"hitl_ttl_seconds,omitempty"`
 	HITLExpirationAction *string `json:"hitl_expiration_action,omitempty" enum:"approve,reject"`
-	// HITLMode is the action-gate sub-mode (Slice 7b): "all" | "high_impact".
-	// Settable independently of the other HITL fields.
-	HITLMode *string `json:"hitl_mode,omitempty" enum:"all,high_impact"`
 	// InboundPolicy / InboundAllowlist set the per-agent inbound ingestion gate
 	// (migration 033 / Slice 7). Pointers so absent != zero.
 	InboundPolicy    *string   `json:"inbound_policy,omitempty" enum:"open,allowlist,domain,verified_only"`
@@ -152,11 +151,7 @@ func (s *Server) handleUpdateAgent(ctx context.Context, in *updateAgentInput) (*
 	req := in.Body
 	touched := false
 
-	if req.HITLEnabled != nil || req.HITLTTLSeconds != nil || req.HITLExpirationAction != nil {
-		enabled := ag.HITLEnabled
-		if req.HITLEnabled != nil {
-			enabled = *req.HITLEnabled
-		}
+	if req.HITLTTLSeconds != nil || req.HITLExpirationAction != nil {
 		ttl := ag.HITLTTLSeconds
 		if req.HITLTTLSeconds != nil {
 			ttl = *req.HITLTTLSeconds
@@ -168,17 +163,9 @@ func (s *Server) handleUpdateAgent(ctx context.Context, in *updateAgentInput) (*
 		if s.deps.UpdateAgentHITL == nil {
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "update unavailable")
 		}
-		if err := s.deps.UpdateAgentHITL(ctx, ag.ID, ag.UserID, enabled, ttl, action); err != nil {
-			return nil, NewError(http.StatusBadRequest, "invalid_request", err.Error())
-		}
-		touched = true
-	}
-
-	if req.HITLMode != nil {
-		if s.deps.UpdateAgentHITLMode == nil {
-			return nil, NewError(http.StatusInternalServerError, "internal_error", "update unavailable")
-		}
-		if err := s.deps.UpdateAgentHITLMode(ctx, ag.ID, ag.UserID, *req.HITLMode); err != nil {
+		// hitl_enabled is deprecated (Slice 5b); preserve the stored value while
+		// updating the surviving review-queue mechanism fields.
+		if err := s.deps.UpdateAgentHITL(ctx, ag.ID, ag.UserID, ag.HITLEnabled, ttl, action); err != nil {
 			return nil, NewError(http.StatusBadRequest, "invalid_request", err.Error())
 		}
 		touched = true

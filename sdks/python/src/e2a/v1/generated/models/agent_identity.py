@@ -31,9 +31,7 @@ class AgentIdentity(BaseModel):
     domain: StrictStr
     domain_verified: StrictBool
     email: StrictStr
-    hitl_enabled: StrictBool
     hitl_expiration_action: StrictStr
-    hitl_mode: StrictStr
     hitl_ttl_seconds: StrictInt
     id: StrictStr
     inbound_7d: StrictInt
@@ -56,7 +54,7 @@ class AgentIdentity(BaseModel):
     public: StrictBool
     user_id: StrictStr
     webhook_healthy: StrictBool
-    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "hitl_enabled", "hitl_expiration_action", "hitl_mode", "hitl_ttl_seconds", "id", "inbound_7d", "inbound_allowlist", "inbound_policy", "inbound_policy_action", "inbound_scan", "inbound_scan_block_threshold", "inbound_scan_review_threshold", "last_delivery_at", "name", "outbound_7d", "outbound_allowlist", "outbound_policy", "outbound_policy_action", "outbound_scan", "outbound_scan_block_threshold", "outbound_scan_review_threshold", "pending_count", "public", "user_id", "webhook_healthy"]
+    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "hitl_expiration_action", "hitl_ttl_seconds", "id", "inbound_7d", "inbound_allowlist", "inbound_policy", "inbound_policy_action", "inbound_scan", "inbound_scan_block_threshold", "inbound_scan_review_threshold", "last_delivery_at", "name", "outbound_7d", "outbound_allowlist", "outbound_policy", "outbound_policy_action", "outbound_scan", "outbound_scan_block_threshold", "outbound_scan_review_threshold", "pending_count", "public", "user_id", "webhook_healthy"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -123,9 +121,7 @@ class AgentIdentity(BaseModel):
             "domain": obj.get("domain"),
             "domain_verified": obj.get("domain_verified"),
             "email": obj.get("email"),
-            "hitl_enabled": obj.get("hitl_enabled"),
             "hitl_expiration_action": obj.get("hitl_expiration_action"),
-            "hitl_mode": obj.get("hitl_mode"),
             "hitl_ttl_seconds": obj.get("hitl_ttl_seconds"),
             "id": obj.get("id"),
             "inbound_7d": obj.get("inbound_7d"),

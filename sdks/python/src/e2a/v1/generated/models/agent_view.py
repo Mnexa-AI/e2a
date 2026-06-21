@@ -31,9 +31,7 @@ class AgentView(BaseModel):
     domain: StrictStr
     domain_verified: StrictBool
     email: StrictStr
-    hitl_enabled: StrictBool
     hitl_expiration_action: StrictStr
-    hitl_mode: StrictStr
     hitl_ttl_seconds: StrictInt
     id: StrictStr
     inbound_allowlist: Optional[List[StrictStr]] = None
@@ -49,7 +47,7 @@ class AgentView(BaseModel):
     outbound_scan: StrictStr
     outbound_scan_block_threshold: Union[StrictFloat, StrictInt]
     outbound_scan_review_threshold: Union[StrictFloat, StrictInt]
-    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "hitl_enabled", "hitl_expiration_action", "hitl_mode", "hitl_ttl_seconds", "id", "inbound_allowlist", "inbound_policy", "inbound_policy_action", "inbound_scan", "inbound_scan_block_threshold", "inbound_scan_review_threshold", "name", "outbound_allowlist", "outbound_policy", "outbound_policy_action", "outbound_scan", "outbound_scan_block_threshold", "outbound_scan_review_threshold"]
+    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "hitl_expiration_action", "hitl_ttl_seconds", "id", "inbound_allowlist", "inbound_policy", "inbound_policy_action", "inbound_scan", "inbound_scan_block_threshold", "inbound_scan_review_threshold", "name", "outbound_allowlist", "outbound_policy", "outbound_policy_action", "outbound_scan", "outbound_scan_block_threshold", "outbound_scan_review_threshold"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -106,9 +104,7 @@ class AgentView(BaseModel):
             "domain": obj.get("domain"),
             "domain_verified": obj.get("domain_verified"),
             "email": obj.get("email"),
-            "hitl_enabled": obj.get("hitl_enabled"),
             "hitl_expiration_action": obj.get("hitl_expiration_action"),
-            "hitl_mode": obj.get("hitl_mode"),
             "hitl_ttl_seconds": obj.get("hitl_ttl_seconds"),
             "id": obj.get("id"),
             "inbound_allowlist": obj.get("inbound_allowlist"),

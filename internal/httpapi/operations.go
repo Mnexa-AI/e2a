@@ -60,13 +60,10 @@ type AgentView struct {
 	Name                 string    `json:"name"`
 	DomainVerified       bool      `json:"domain_verified"`
 	CreatedAt            time.Time `json:"created_at"`
-	HITLEnabled          bool      `json:"hitl_enabled"`
-	HITLTTLSeconds       int       `json:"hitl_ttl_seconds"`
-	HITLExpirationAction string    `json:"hitl_expiration_action" enum:"approve,reject"`
-	// HITLMode is the action-gate sub-mode (Slice 7b): "all" (hold every
-	// outbound when HITL is on) or "high_impact" (hold only a high-impact action
-	// on unauthenticated inbound). Meaningful only when hitl_enabled.
-	HITLMode string `json:"hitl_mode" enum:"all,high_impact"`
+	// hitl_enabled / hitl_mode were retired in Slice 5b (see outbound_policy /
+	// outbound_scan). The HITL review-queue mechanism fields survive.
+	HITLTTLSeconds       int    `json:"hitl_ttl_seconds"`
+	HITLExpirationAction string `json:"hitl_expiration_action" enum:"approve,reject"`
 	// InboundPolicy is the per-agent inbound ingestion gate (migration 033 /
 	// Slice 7): one of open, allowlist, domain, verified_only. InboundAllowlist
 	// holds the trusted addresses (allowlist) or domains (domain); omitted when
@@ -97,10 +94,8 @@ func agentViewFromIdentity(ag *identity.AgentIdentity) AgentView {
 		Name:                 ag.Name,
 		DomainVerified:       ag.DomainVerified,
 		CreatedAt:            ag.CreatedAt,
-		HITLEnabled:          ag.HITLEnabled,
 		HITLTTLSeconds:       ag.HITLTTLSeconds,
 		HITLExpirationAction: ag.HITLExpirationAction,
-		HITLMode:             ag.HITLMode,
 		InboundPolicy:        ag.InboundPolicy,
 		InboundAllowlist:     ag.InboundAllowlist,
 

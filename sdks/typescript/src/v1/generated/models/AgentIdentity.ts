@@ -17,9 +17,7 @@ export class AgentIdentity {
     'domain': string;
     'domainVerified': boolean;
     'email': string;
-    'hitlEnabled': boolean;
     'hitlExpirationAction': string;
-    'hitlMode': string;
     'hitlTtlSeconds': number;
     'id': string;
     'inbound7d': number;
@@ -73,20 +71,8 @@ export class AgentIdentity {
             "format": ""
         },
         {
-            "name": "hitlEnabled",
-            "baseName": "hitl_enabled",
-            "type": "boolean",
-            "format": ""
-        },
-        {
             "name": "hitlExpirationAction",
             "baseName": "hitl_expiration_action",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "hitlMode",
-            "baseName": "hitl_mode",
             "type": "string",
             "format": ""
         },

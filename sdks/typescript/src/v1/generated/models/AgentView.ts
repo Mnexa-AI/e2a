@@ -17,9 +17,7 @@ export class AgentView {
     'domain': string;
     'domainVerified': boolean;
     'email': string;
-    'hitlEnabled': boolean;
     'hitlExpirationAction': AgentViewHitlExpirationActionEnum;
-    'hitlMode': AgentViewHitlModeEnum;
     'hitlTtlSeconds': number;
     'id': string;
     'inboundAllowlist'?: Array<string>;
@@ -66,21 +64,9 @@ export class AgentView {
             "format": ""
         },
         {
-            "name": "hitlEnabled",
-            "baseName": "hitl_enabled",
-            "type": "boolean",
-            "format": ""
-        },
-        {
             "name": "hitlExpirationAction",
             "baseName": "hitl_expiration_action",
             "type": "AgentViewHitlExpirationActionEnum",
-            "format": ""
-        },
-        {
-            "name": "hitlMode",
-            "baseName": "hitl_mode",
-            "type": "AgentViewHitlModeEnum",
             "format": ""
         },
         {
@@ -185,10 +171,6 @@ export class AgentView {
 export enum AgentViewHitlExpirationActionEnum {
     Approve = 'approve',
     Reject = 'reject'
-}
-export enum AgentViewHitlModeEnum {
-    All = 'all',
-    HighImpact = 'high_impact'
 }
 export enum AgentViewInboundPolicyEnum {
     Open = 'open',

@@ -75,11 +75,7 @@ components:
           type: boolean
         email:
           type: string
-        hitl_enabled:
-          type: boolean
         hitl_expiration_action:
-          type: string
-        hitl_mode:
           type: string
         hitl_ttl_seconds:
           format: int64
@@ -151,10 +147,8 @@ components:
         - public
         - created_at
         - user_id
-        - hitl_enabled
         - hitl_ttl_seconds
         - hitl_expiration_action
-        - hitl_mode
         - inbound_7d
         - outbound_7d
         - pending_count
@@ -182,17 +176,10 @@ components:
           type: boolean
         email:
           type: string
-        hitl_enabled:
-          type: boolean
         hitl_expiration_action:
           enum:
             - approve
             - reject
-          type: string
-        hitl_mode:
-          enum:
-            - all
-            - high_impact
           type: string
         hitl_ttl_seconds:
           format: int64
@@ -263,10 +250,8 @@ components:
         - name
         - domain_verified
         - created_at
-        - hitl_enabled
         - hitl_ttl_seconds
         - hitl_expiration_action
-        - hitl_mode
         - inbound_policy
         - inbound_policy_action
         - outbound_policy
@@ -1618,17 +1603,10 @@ components:
     UpdateAgentRequest:
       additionalProperties: false
       properties:
-        hitl_enabled:
-          type: boolean
         hitl_expiration_action:
           enum:
             - approve
             - reject
-          type: string
-        hitl_mode:
-          enum:
-            - all
-            - high_impact
           type: string
         hitl_ttl_seconds:
           format: int64

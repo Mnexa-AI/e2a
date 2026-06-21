@@ -100,9 +100,6 @@ type Deps struct {
 	LookupDomain       DomainLookup
 	EnforceAgentCreate AgentCreateEnforcer
 	UpdateAgentHITL    AgentHITLUpdater
-	// UpdateAgentHITLMode sets the action-gate sub-mode (Slice 7b). Returns a
-	// validation error for an unknown mode (handler maps to 400).
-	UpdateAgentHITLMode func(ctx context.Context, agentID, userID, mode string) error
 	// UpdateAgentInboundPolicy sets the per-agent inbound ingestion gate
 	// (migration 033 / Slice 7). Returns a validation error for an unknown
 	// policy, which the handler maps to 400 invalid_request.

@@ -71,7 +71,7 @@ import { APIKeyExportEntry } from '../models/APIKeyExportEntry.js';
 import { AccountUserView } from '../models/AccountUserView.js';
 import { AccountView   , AccountViewScopeEnum      } from '../models/AccountView.js';
 import { AgentIdentity } from '../models/AgentIdentity.js';
-import { AgentView     , AgentViewHitlExpirationActionEnum  , AgentViewHitlModeEnum     , AgentViewInboundPolicyEnum  , AgentViewInboundPolicyActionEnum  , AgentViewInboundScanEnum      , AgentViewOutboundPolicyEnum  , AgentViewOutboundPolicyActionEnum  , AgentViewOutboundScanEnum     } from '../models/AgentView.js';
+import { AgentView    , AgentViewHitlExpirationActionEnum     , AgentViewInboundPolicyEnum  , AgentViewInboundPolicyActionEnum  , AgentViewInboundScanEnum      , AgentViewOutboundPolicyEnum  , AgentViewOutboundPolicyActionEnum  , AgentViewOutboundScanEnum     } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
 import { Attachment } from '../models/Attachment.js';
 import { AuthVerdict } from '../models/AuthVerdict.js';
@@ -123,7 +123,7 @@ import { SendingDNSRecordView } from '../models/SendingDNSRecordView.js';
 import { Suppression } from '../models/Suppression.js';
 import { TestWebhookRequest , TestWebhookRequestEventEnum   } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
-import { UpdateAgentRequest , UpdateAgentRequestHitlExpirationActionEnum  , UpdateAgentRequestHitlModeEnum    , UpdateAgentRequestInboundPolicyEnum  , UpdateAgentRequestInboundPolicyActionEnum  , UpdateAgentRequestInboundScanEnum     , UpdateAgentRequestOutboundPolicyEnum  , UpdateAgentRequestOutboundPolicyActionEnum  , UpdateAgentRequestOutboundScanEnum     } from '../models/UpdateAgentRequest.js';
+import { UpdateAgentRequest, UpdateAgentRequestHitlExpirationActionEnum    , UpdateAgentRequestInboundPolicyEnum  , UpdateAgentRequestInboundPolicyActionEnum  , UpdateAgentRequestInboundScanEnum     , UpdateAgentRequestOutboundPolicyEnum  , UpdateAgentRequestOutboundPolicyActionEnum  , UpdateAgentRequestOutboundScanEnum     } from '../models/UpdateAgentRequest.js';
 import { UpdateDomainRequest } from '../models/UpdateDomainRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
 import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
@@ -151,7 +151,6 @@ let primitives = [
 let enumsMap: Set<string> = new Set<string>([
     "AccountViewScopeEnum",
     "AgentViewHitlExpirationActionEnum",
-    "AgentViewHitlModeEnum",
     "AgentViewInboundPolicyEnum",
     "AgentViewInboundPolicyActionEnum",
     "AgentViewInboundScanEnum",
@@ -178,7 +177,6 @@ let enumsMap: Set<string> = new Set<string>([
     "SendResultViewStatusEnum",
     "TestWebhookRequestEventEnum",
     "UpdateAgentRequestHitlExpirationActionEnum",
-    "UpdateAgentRequestHitlModeEnum",
     "UpdateAgentRequestInboundPolicyEnum",
     "UpdateAgentRequestInboundPolicyActionEnum",
     "UpdateAgentRequestInboundScanEnum",

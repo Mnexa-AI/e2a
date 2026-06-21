@@ -659,7 +659,6 @@ func (ua *UserAuth) HandleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	// from "explicitly set to zero value". Clients PATCH individual
 	// HITL settings — each may appear alone or combined in a single PUT.
 	var req struct {
-		HITLEnabled          *bool   `json:"hitl_enabled"`
 		HITLTTLSeconds       *int    `json:"hitl_ttl_seconds"`
 		HITLExpirationAction *string `json:"hitl_expiration_action"`
 	}
@@ -680,11 +679,7 @@ func (ua *UserAuth) HandleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 
 	// HITL settings update. Individual fields may be present; missing
 	// fields keep their current value.
-	if req.HITLEnabled != nil || req.HITLTTLSeconds != nil || req.HITLExpirationAction != nil {
-		enabled := agnt.HITLEnabled
-		if req.HITLEnabled != nil {
-			enabled = *req.HITLEnabled
-		}
+	if req.HITLTTLSeconds != nil || req.HITLExpirationAction != nil {
 		ttl := agnt.HITLTTLSeconds
 		if req.HITLTTLSeconds != nil {
 			ttl = *req.HITLTTLSeconds
@@ -693,7 +688,8 @@ func (ua *UserAuth) HandleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		if req.HITLExpirationAction != nil {
 			action = *req.HITLExpirationAction
 		}
-		if err := ua.store.UpdateAgentHITL(r.Context(), agnt.ID, user.ID, enabled, ttl, action); err != nil {
+		// hitl_enabled is deprecated (Slice 5b); preserve the stored value.
+		if err := ua.store.UpdateAgentHITL(r.Context(), agnt.ID, user.ID, agnt.HITLEnabled, ttl, action); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Mnexa-AI/e2a/internal/actiongate"
 	"github.com/Mnexa-AI/e2a/internal/dkim"
 	"github.com/Mnexa-AI/e2a/internal/emailauth"
 	"github.com/Mnexa-AI/e2a/internal/inboundpolicy"
@@ -84,13 +83,17 @@ type AgentIdentity struct {
 	Public               bool      `json:"public"`
 	CreatedAt            time.Time `json:"created_at"`
 	UserID               string    `json:"user_id"`
-	HITLEnabled          bool      `json:"hitl_enabled"`
-	HITLTTLSeconds       int       `json:"hitl_ttl_seconds"`
-	HITLExpirationAction string    `json:"hitl_expiration_action"`
-	// HITLMode is the action-gate sub-mode (migration 036 / Slice 7b): "all"
-	// (hold every outbound when HITL is on; the default) or "high_impact" (hold
-	// only a high-impact action on untrusted inbound). Ignored when HITL is off.
-	HITLMode string `json:"hitl_mode"`
+	// Deprecated (Slice 5b): hitl_enabled/hitl_mode were retired as producer
+	// policy. The outbound recipient gate (outbound_policy) + content scan own
+	// holds now, and migration 042 maps the old behavior forward. Still read from
+	// the DB column (not yet dropped — two-step retirement) but no longer drive
+	// any decision and no longer exposed on the /v1 API. The HITL mechanism fields
+	// (hitl_ttl_seconds / hitl_expiration_action) survive as the review-queue knobs.
+	HITLEnabled          bool   `json:"-"`
+	HITLTTLSeconds       int    `json:"hitl_ttl_seconds"`
+	HITLExpirationAction string `json:"hitl_expiration_action"`
+	// Deprecated (Slice 5b): see HITLEnabled. json:"-" keeps it off the /v1 API.
+	HITLMode string `json:"-"`
 	// Dashboard enrichment fields. Computed at read
 	// time by ListAgentsByUser via correlated subqueries — other load
 	// paths (GetAgentByID / GetAgentByEmail) leave them at zero values,
@@ -879,27 +882,6 @@ func (s *Store) UpdateAgentHITL(ctx context.Context, agentID, userID string, ena
 		        hitl_expiration_action = $3
 		  WHERE id = $4 AND user_id = $5`,
 		enabled, ttlSeconds, expirationAction, agentID, userID,
-	)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("agent not found or not owned by user")
-	}
-	return nil
-}
-
-// UpdateAgentHITLMode sets the action-gate sub-mode (migration 036 / Slice 7b)
-// on an agent owned by userID. Independent of UpdateAgentHITL so a PATCH can set
-// hitl_mode without re-sending the other HITL fields (additive-PATCH model). An
-// unknown mode is rejected with a clean error rather than a raw CHECK violation.
-func (s *Store) UpdateAgentHITLMode(ctx context.Context, agentID, userID, mode string) error {
-	if !actiongate.Valid(mode) {
-		return fmt.Errorf("invalid hitl_mode %q", mode)
-	}
-	tag, err := s.pool.Exec(ctx,
-		`UPDATE agent_identities SET hitl_mode = $3 WHERE id = $1 AND user_id = $2`,
-		agentID, userID, mode,
 	)
 	if err != nil {
 		return err

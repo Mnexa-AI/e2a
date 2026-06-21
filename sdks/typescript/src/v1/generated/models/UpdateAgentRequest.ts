@@ -13,9 +13,7 @@
 import { HttpFile } from '../http/http.js';
 
 export class UpdateAgentRequest {
-    'hitlEnabled'?: boolean;
     'hitlExpirationAction'?: UpdateAgentRequestHitlExpirationActionEnum;
-    'hitlMode'?: UpdateAgentRequestHitlModeEnum;
     'hitlTtlSeconds'?: number;
     'inboundAllowlist'?: Array<string>;
     'inboundPolicy'?: UpdateAgentRequestInboundPolicyEnum;
@@ -36,21 +34,9 @@ export class UpdateAgentRequest {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "hitlEnabled",
-            "baseName": "hitl_enabled",
-            "type": "boolean",
-            "format": ""
-        },
-        {
             "name": "hitlExpirationAction",
             "baseName": "hitl_expiration_action",
             "type": "UpdateAgentRequestHitlExpirationActionEnum",
-            "format": ""
-        },
-        {
-            "name": "hitlMode",
-            "baseName": "hitl_mode",
-            "type": "UpdateAgentRequestHitlModeEnum",
             "format": ""
         },
         {
@@ -143,10 +129,6 @@ export class UpdateAgentRequest {
 export enum UpdateAgentRequestHitlExpirationActionEnum {
     Approve = 'approve',
     Reject = 'reject'
-}
-export enum UpdateAgentRequestHitlModeEnum {
-    All = 'all',
-    HighImpact = 'high_impact'
 }
 export enum UpdateAgentRequestInboundPolicyEnum {
     Open = 'open',
