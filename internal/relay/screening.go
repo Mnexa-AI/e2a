@@ -25,11 +25,8 @@ type inboundScreenResult struct {
 	Action        string
 	Categories    []string
 	Reason        string
+	Source        string // gate|scan|both — which producer drove the applied disposition (for the event)
 }
-
-// Emit reports whether the email.injection_detected event should fire: when the scan
-// flagged the message OR it was held.
-func (r inboundScreenResult) Emit() bool { return r.Detected || r.Hold }
 
 // screenInbound runs the agent's content scan (when inbound_scan='on'), combines it
 // with the ingestion-gate decision into one applied action, and decides whether the
@@ -107,6 +104,20 @@ func (s *Server) screenInbound(ctx context.Context, agent *identity.AgentIdentit
 	res.AppliedAction = applied
 	res.Action = string(applied)
 	res.Hold = applied == piguard.ActionReview || applied == piguard.ActionBlock
+
+	// Attribute the applied disposition to its driving producer(s) so the
+	// disposition event (flagged/held/blocked) carries an honest `source`. At least
+	// one always drives a non-allow action (applied == the more-severe of the two).
+	gateDrove := gate.Flagged && gateAction == applied
+	scanDrove := res.Detected && scanAction == applied
+	switch {
+	case gateDrove && scanDrove:
+		res.Source = "both"
+	case scanDrove:
+		res.Source = "scan"
+	case gateDrove:
+		res.Source = "gate"
+	}
 
 	if applied == piguard.ActionAllow {
 		return res // benign: no denorm, no hold (gate audit row may still be present)

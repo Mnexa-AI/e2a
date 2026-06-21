@@ -112,10 +112,15 @@ func TestE2E_InboundInjectionHeldOverSMTP(t *testing.T) {
 		t.Errorf("injection status = %q, want review_rejected (held)", injStatus)
 	}
 
-	// email.injection_detected fires; email.received for the injection does NOT.
-	// (The benign message's email.received is the only email.received expected.)
+	// The blocked injection fires BOTH the disposition event (email.blocked, since it
+	// scored over the block threshold) AND the additive detection event
+	// (email.injection_detected). email.received for the injection does NOT fire
+	// (delivery suppressed) — the benign message's email.received is the only one.
+	if !waitFor(func() bool { return pub.has(webhookpub.EventEmailBlocked) }) {
+		t.Errorf("expected email.blocked (disposition event) for the over-threshold injection")
+	}
 	if !waitFor(func() bool { return pub.has(webhookpub.EventEmailInjectionDetected) }) {
-		t.Errorf("expected email.injection_detected to be published")
+		t.Errorf("expected email.injection_detected (additive detection event)")
 	}
 	if !waitFor(func() bool { return pub.has(webhookpub.EventEmailReceived) }) {
 		t.Errorf("expected the benign message's email.received")

@@ -7,6 +7,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/inboundpolicy"
 	"github.com/Mnexa-AI/e2a/internal/piguard"
+	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 )
 
 func testScreenServer() *Server {
@@ -133,8 +134,11 @@ func TestScreenInbound_ReviewHolds(t *testing.T) {
 	if res.Denorm.ApprovalExpiresAt == nil {
 		t.Errorf("review hold must set approval_expires_at (TTL)")
 	}
-	if !res.Emit() {
-		t.Errorf("held message must emit the injection event")
+	if !res.Detected {
+		t.Errorf("scan-driven hold must set Detected (email.injection_detected fires)")
+	}
+	if res.Source != "scan" {
+		t.Errorf("scan-driven hold source = %q, want scan", res.Source)
 	}
 }
 
@@ -176,6 +180,14 @@ func TestScreenInbound_GateReviewHolds(t *testing.T) {
 	if res.Denorm.ReviewReason != identity.ReviewReasonSenderGate {
 		t.Errorf("review_reason = %q, want sender_gate", res.Denorm.ReviewReason)
 	}
+	// Honest naming (design §4.5): a pure sender-gate hold is NOT a scan detection,
+	// so email.injection_detected must NOT fire — only email.held.
+	if res.Detected {
+		t.Errorf("gate-only hold must not set Detected (no email.injection_detected)")
+	}
+	if res.Source != "gate" {
+		t.Errorf("gate hold source = %q, want gate", res.Source)
+	}
 }
 
 func TestScreenInbound_GateFlagDelivers(t *testing.T) {
@@ -192,5 +204,82 @@ func TestScreenInbound_GateFlagDelivers(t *testing.T) {
 	}
 	if res.Denorm.Status != "" {
 		t.Errorf("delivered message must have empty review status, got %q", res.Denorm.Status)
+	}
+	if res.AppliedAction != piguard.ActionFlag {
+		t.Errorf("applied = %v, want flag (email.flagged)", res.AppliedAction)
+	}
+	if res.Source != "gate" {
+		t.Errorf("source = %q, want gate", res.Source)
+	}
+}
+
+// TestScreenInbound_EmitMatrix pins the design §4.5 mapping: each screening outcome
+// → exactly one disposition event (flagged/held/blocked, via dispositionEventType)
+// plus the ADDITIVE email.injection_detected only on a real scan detection (Detected).
+// This is the unit-level emit matrix; TestE2E_InboundInjectionHeldOverSMTP proves the
+// events actually publish over the wire.
+func TestScreenInbound_EmitMatrix(t *testing.T) {
+	srv := testScreenServer()
+	cases := []struct {
+		name            string
+		setup           func(a *identity.AgentIdentity)
+		body            string
+		gate            inboundpolicy.Decision
+		wantDisposition string // "" = none (clean delivery)
+		wantInjection   bool
+		wantSource      string
+	}{
+		{
+			name:  "clean delivery → no disposition, no injection",
+			setup: func(a *identity.AgentIdentity) { a.InboundScan = identity.ScanOff },
+			body:  "Subject: hi\r\n\r\nhello", gate: inboundpolicy.Decision{},
+			wantDisposition: "", wantInjection: false, wantSource: "",
+		},
+		{
+			name:  "gate flag → email.flagged, no injection",
+			setup: func(a *identity.AgentIdentity) { a.InboundScan = identity.ScanOff; a.InboundPolicyAction = "flag" },
+			body:  "Subject: hi\r\n\r\nhello", gate: inboundpolicy.Decision{Flagged: true, Reason: "x"},
+			wantDisposition: webhookpub.EventEmailFlagged, wantInjection: false, wantSource: "gate",
+		},
+		{
+			name:  "gate review → email.held, no injection (honest naming)",
+			setup: func(a *identity.AgentIdentity) { a.InboundScan = identity.ScanOff; a.InboundPolicyAction = "review" },
+			body:  "Subject: hi\r\n\r\nhello", gate: inboundpolicy.Decision{Flagged: true, Reason: "x"},
+			wantDisposition: webhookpub.EventEmailHeld, wantInjection: false, wantSource: "gate",
+		},
+		{
+			name: "scan review → email.held + injection",
+			setup: func(a *identity.AgentIdentity) {
+				a.InboundScanReviewThreshold = 0.5
+				a.InboundScanBlockThreshold = 0.95
+			},
+			body: hiddenInjection, gate: inboundpolicy.Decision{},
+			wantDisposition: webhookpub.EventEmailHeld, wantInjection: true, wantSource: "scan",
+		},
+		{
+			name: "scan block → email.blocked + injection",
+			setup: func(a *identity.AgentIdentity) {
+				a.InboundScanReviewThreshold = 0.5
+				a.InboundScanBlockThreshold = 0.9
+			},
+			body: hiddenInjection, gate: inboundpolicy.Decision{},
+			wantDisposition: webhookpub.EventEmailBlocked, wantInjection: true, wantSource: "scan",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			agent := scanOnAgent()
+			tc.setup(agent)
+			res := srv.screenInbound(context.Background(), agent, "msg_m", "s@x.com", []byte(tc.body), nil, tc.gate)
+			if got := dispositionEventType(res.AppliedAction); got != tc.wantDisposition {
+				t.Errorf("disposition event = %q, want %q (applied=%v)", got, tc.wantDisposition, res.AppliedAction)
+			}
+			if res.Detected != tc.wantInjection {
+				t.Errorf("injection (Detected) = %v, want %v", res.Detected, tc.wantInjection)
+			}
+			if res.Source != tc.wantSource {
+				t.Errorf("source = %q, want %q", res.Source, tc.wantSource)
+			}
+		})
 	}
 }

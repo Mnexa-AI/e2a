@@ -377,42 +377,48 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	event.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailReceived)
 
 	// email.flagged (decision 10): fired in addition to email.received when the
-	// ingestion policy didn't match, so operators get a signal that this message
-	// is untrusted. Deterministic id keeps MTA retries idempotent.
-	// email.flagged fires for a delivered gate-flag. When the message is HELD
-	// (review/block), delivery is suppressed and email.injection_detected carries
-	// the signal instead, so don't also fire email.flagged.
-	var flaggedEvent *webhookpub.Event
-	if policyDecision.Flagged && !screenRes.Hold {
-		fe := webhookpub.NewEvent(webhookpub.EventEmailFlagged, agent.UserID, map[string]interface{}{
+	// Disposition event (design §4.5): EXACTLY ONE fires per screened message, keyed
+	// on the most-severe applied action — flag → email.flagged (delivered + annotated),
+	// review → email.held, block → email.blocked, allow → none. Each is separately
+	// subscribable so a review-queue UI (email.held) and a security dashboard
+	// (email.injection_detected, below) don't share one channel. Deterministic id
+	// (message_id|type) keeps MTA retries idempotent and stays distinct from the
+	// additive injection event's id for the same message.
+	var dispositionEvent *webhookpub.Event
+	if dispType := dispositionEventType(screenRes.AppliedAction); dispType != "" {
+		data := map[string]interface{}{
 			"message_id":      messageID,
 			"conversation_id": conversationID,
 			"agent":           map[string]interface{}{"id": agent.ID, "email": agent.EmailAddress(), "domain": agent.Domain},
-			// from is the AUTHENTICATED From identity the policy evaluated and
-			// flagged — NOT displaySender (Reply-To), which is attacker-
-			// controllable and would name a trusted-looking address on the very
-			// message the gate rejected. display_sender/reply_to carry the
-			// reply-routing addresses separately so the signal is complete.
+			// from is the AUTHENTICATED From identity the policy evaluated — NOT
+			// displaySender (Reply-To), which is attacker-controllable. display_sender/
+			// reply_to carry the reply-routing addresses separately so the signal is complete.
 			"from":           senderEmail,
 			"display_sender": displaySender,
 			"reply_to":       s.inboundThreadInfo.ReplyTo,
 			"recipient":      rcpt,
 			"subject":        s.inboundSubject,
+			"source":         screenRes.Source, // gate|scan|both — which producer drove the hold
+			"reason":         screenRes.Reason,
 			"policy":         agent.InboundPolicy,
-			"reason":         policyDecision.Reason,
-		})
-		fe.AgentID = agent.ID
-		fe.ConversationID = conversationID
-		fe.MessageID = messageID
-		fe.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailFlagged)
-		flaggedEvent = &fe
+		}
+		if screenRes.Score > 0 { // a scan contributed a score; omit for pure gate dispositions
+			data["score"] = screenRes.Score
+		}
+		de := webhookpub.NewEvent(dispType, agent.UserID, data)
+		de.AgentID = agent.ID
+		de.ConversationID = conversationID
+		de.MessageID = messageID
+		de.ID = webhookpub.DeterministicEventID(messageID, dispType)
+		dispositionEvent = &de
 	}
 
-	// email.injection_detected (Slice 4): fired when the content scan flags the
-	// message. Carries the score, applied action, and categories. Deterministic id
-	// keeps MTA retries idempotent, mirroring email.flagged.
+	// Additive DETECTION event: email.injection_detected fires ONLY on a real
+	// content-scan detection (screenRes.Detected), NOT for a pure sender-gate hold —
+	// alongside the disposition event above. Carries score/categories/action for the
+	// security signal. Distinct deterministic id (message_id|injection_detected).
 	var injectionEvent *webhookpub.Event
-	if screenRes.Emit() {
+	if screenRes.Detected {
 		ie := webhookpub.NewEvent(webhookpub.EventEmailInjectionDetected, agent.UserID, map[string]interface{}{
 			"message_id":      messageID,
 			"conversation_id": conversationID,
@@ -479,8 +485,8 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 					return txErr
 				}
 			}
-			if flaggedEvent != nil {
-				if txErr = s.relay.outbox.PublishTx(ctx, tx, *flaggedEvent); txErr != nil {
+			if dispositionEvent != nil {
+				if txErr = s.relay.outbox.PublishTx(ctx, tx, *dispositionEvent); txErr != nil {
 					return txErr
 				}
 			}
@@ -545,8 +551,8 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 		if !screenRes.Hold {
 			go s.relay.publisher.Publish(context.Background(), event)
 		}
-		if flaggedEvent != nil {
-			go s.relay.publisher.Publish(context.Background(), *flaggedEvent)
+		if dispositionEvent != nil {
+			go s.relay.publisher.Publish(context.Background(), *dispositionEvent)
 		}
 		if injectionEvent != nil {
 			go s.relay.publisher.Publish(context.Background(), *injectionEvent)
@@ -562,6 +568,22 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 		if s.relay.hub.Send(agent.ID, notification) {
 			log.Printf("[mail:%s] ws_notify=sent slug=%s", messageID, slug)
 		}
+	}
+}
+
+// dispositionEventType maps the applied screening action to its disposition event
+// type (design §4.5): flag → email.flagged, review → email.held, block → email.blocked.
+// allow → "" — a clean delivery emits only email.received, no disposition event.
+func dispositionEventType(a piguard.Action) string {
+	switch a {
+	case piguard.ActionFlag:
+		return webhookpub.EventEmailFlagged
+	case piguard.ActionReview:
+		return webhookpub.EventEmailHeld
+	case piguard.ActionBlock:
+		return webhookpub.EventEmailBlocked
+	default: // ActionAllow (or unknown) → no disposition event
+		return ""
 	}
 }
 
