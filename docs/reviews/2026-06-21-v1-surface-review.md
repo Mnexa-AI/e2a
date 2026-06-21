@@ -30,7 +30,7 @@
 | 16 | SDK | TS `ws.ts` — WebSocket | done | 🟡 API key in ?token= query (logged) + unbounded buffer (comment promises bound code lacks → OOM); fatal-4xx stop + backoff ✅ |
 | 17 | SDK | TS `pagination.ts` + `retry.ts` + `errors.ts` | done | ✅ retry layer best-in-class — RESOLVES #15 (mints idem key in retry.ts; double-send withdrawn) + #12 (byte-identical retry); pager cycle guard ✅ |
 | 18 | SDK | Python `client.py` | done | ✅ strong TS parity (explicit per-op retry helpers, account-delete excluded) — cleaner than TS stub-inference; 🟡 no .parse() (both SDKs); 🔵 2 mechanisms could diverge |
-| 19 | SDK | Python `websocket.py` + `pagination.py` + `_retry.py` | pending | |
+| 19 | SDK | Python `websocket.py` + `pagination.py` + `_retry.py` | done | ✅ full TS parity (mints key once → resolves #12/#18); Python MORE defensive (WS generator backpressure, pagination max_pages); 🟡 same ?token= (server-side) |
 | 20 | SDK | `webhook-signature` TS↔Python parity | pending | |
 | 21 | MCP | `tools/agents.ts` | pending | |
 | 22 | MCP | `tools/messages.ts` + `attachments.ts` | pending | |
@@ -44,6 +44,22 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 19. SDK — Python `_retry.py` + `websocket.py` + `pagination.py`
+
+Full TS parity, the minting cross-ref resolved, and Python is actually *more* defensive than TS in two places. One finding (the `?token=` exposure) is confirmed as a both-SDK / server-side issue.
+
+**✅ `_retry.py` resolves #12/#18 minting in Python too.** When `idempotency=True` and the caller omits a key, it mints `uuid.uuid4().hex` **once** and passes it via `_headers` on every attempt, reusing the body bytes (`_retry.py:113–115`, header doc lines 4–11) — same contract as TS `ensureIdempotencyKey`. Retry gating (`is_retryable_status` = 429/5xx/connection; non-transport httpx errors not retried) and backoff (Retry-After capped at 60s, else exp + **full jitter** `0.5+0.5·rand`) match TS.
+
+**🟡 `websocket.py`: same `?token=` credential exposure as TS (#16) — confirms it's server-side, not per-SDK.** The handshake passes auth as `?token=` (`websocket.py:111–112`, documented identically: "can land in server/proxy access logs"). Both SDKs do this because the WS endpoint *requires* it — so the fix is the planned server-side header/ticket auth (#16), and both SDKs update in lockstep when it lands. Reinforces, doesn't add.
+
+**✅ Python AVOIDS the TS unbounded-buffer bug (#16).** `websocket.py` is a pure async generator (`async for … yield`) — the consumer's iteration *is* the backpressure; there's no internal buffer to balloon. So #16's unbounded-buffer is **TS-specific** (the EventEmitter↔AsyncIterable bridge in `WSStream`), and Python is the reference for the correct shape. Strengthens the case that TS `ws.ts` should bound its buffer.
+
+**✅ `pagination.py` parity + an extra backstop.** Cycle guard (`seen` set + non-advancing-cursor → `RuntimeError`, `pagination.py:53,69–71`) matches TS, **plus** a hard `max_pages=10_000` ceiling (`pagination.py:42,57`) that TS lacks — a second safety net against a pathological cursor stream. `to_list` requires a positive `limit` (memory cap), like TS `toArray`.
+
+**🔵 `received_at` string + backoff reset.** WS `received_at` is a string (folds into #8); backoff resets to 1s on a successful message (parity with TS) — both fine.
+
+> **Net: the SDK retry/idempotency/pagination core is excellent and consistent across both languages** — the only real SDK action items are (a) bound the TS WS buffer (#16, Python shows the fix), (b) ship `.parse()` in both or drop the promise (#15/#18), (c) the server-side WS-auth move (#16/#19), and (d) a cross-SDK conformance test pinning the retried/keyed op set (#17/#18).
 
 ### 18. SDK — Python `client.py` (cross-language parity)
 
