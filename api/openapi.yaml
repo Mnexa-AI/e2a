@@ -831,6 +831,9 @@ components:
             - email.complained
             - domain.suppression_added
             - email.flagged
+            - email.held
+            - email.blocked
+            - email.injection_detected
           type: string
       required:
         - id

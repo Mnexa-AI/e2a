@@ -376,7 +376,6 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// subscribers correctly skip (H5 null/empty semantics).
 	event.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailReceived)
 
-	// email.flagged (decision 10): fired in addition to email.received when the
 	// Disposition event (design §4.5): EXACTLY ONE fires per screened message, keyed
 	// on the most-severe applied action — flag → email.flagged (delivered + annotated),
 	// review → email.held, block → email.blocked, allow → none. Each is separately
@@ -402,7 +401,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 			"reason":         screenRes.Reason,
 			"policy":         agent.InboundPolicy,
 		}
-		if screenRes.Score > 0 { // a scan contributed a score; omit for pure gate dispositions
+		if screenRes.Detected { // a scan contributed (incl. a force-floor detection scored 0); omit only for pure gate dispositions. Mirrors the injection event's unconditional score.
 			data["score"] = screenRes.Score
 		}
 		de := webhookpub.NewEvent(dispType, agent.UserID, data)
