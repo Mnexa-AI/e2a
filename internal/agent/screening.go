@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"log"
@@ -79,45 +78,65 @@ func domainOf(addr string) string {
 	return ""
 }
 
-// composeScanBody builds a parseable RFC822-ish blob (Subject header + body) for
-// piguard.Extract. Outbound content isn't composed into final MIME until the
-// sender runs, so this reconstructs enough for the heuristics to see the subject
-// and the richest body part. (Multipart text/plain-vs-html divergence detection is
-// a later refinement; v1 scans the richest single part + subject.)
+// composeScanBody reconstructs the outbound message as a REAL MIME blob for
+// piguard.Extract, so the same extractor that handles inbound (charset decode,
+// attachment scanning regardless of declared type, unscannable→review) handles the
+// egress side identically. Outbound content isn't composed into final MIME until
+// the sender runs, so we rebuild it here from the SendRequest.
 func composeScanBody(req outbound.SendRequest) []byte {
 	var b strings.Builder
 	b.WriteString("Subject: ")
-	b.WriteString(req.Subject)
+	b.WriteString(headerSafe(req.Subject))
 	b.WriteString("\r\n")
-	if req.HTMLBody != "" {
-		b.WriteString("Content-Type: text/html\r\n\r\n")
-		b.WriteString(req.HTMLBody)
-		if req.Body != "" {
-			b.WriteString("\r\n")
+
+	writeBody := func() {
+		if req.HTMLBody != "" {
+			b.WriteString("Content-Type: text/html\r\n\r\n")
+			b.WriteString(req.HTMLBody)
+			if req.Body != "" {
+				b.WriteString("\r\n")
+				b.WriteString(req.Body)
+			}
+		} else {
+			b.WriteString("Content-Type: text/plain\r\n\r\n")
 			b.WriteString(req.Body)
 		}
-	} else {
-		b.WriteString("Content-Type: text/plain\r\n\r\n")
-		b.WriteString(req.Body)
 	}
-	// Attachments are an obvious outbound-exfil channel, so feed them to the scan:
-	// the filename always, plus decoded text-ish content (capped). Non-text bodies
-	// contribute their filename only — enough for filename/extension signals.
-	const maxAttachScan = 256 * 1024
+
+	if len(req.Attachments) == 0 {
+		writeBody()
+		return []byte(b.String())
+	}
+
+	// Multipart so the attachments are real parts: Extract base64-decodes each,
+	// scans textual content (a payload mislabeled image/png, a secret in
+	// octet-stream — the declared type is attacker-controlled and not trusted), and
+	// flags genuinely binary parts unscannable → review.
+	const boundary = "e2ascanboundary"
+	b.WriteString("Content-Type: multipart/mixed; boundary=" + boundary + "\r\n\r\n")
+	b.WriteString("--" + boundary + "\r\n")
+	writeBody()
+	b.WriteString("\r\n")
 	for _, att := range req.Attachments {
-		b.WriteString("\r\n")
-		b.WriteString(att.Filename)
-		b.WriteString("\r\n")
-		if att.ContentType == "" || strings.HasPrefix(att.ContentType, "text/") {
-			if dec, err := base64.StdEncoding.DecodeString(att.Data); err == nil {
-				if len(dec) > maxAttachScan {
-					dec = dec[:maxAttachScan]
-				}
-				b.Write(dec)
-			}
+		ct := headerSafe(att.ContentType)
+		if ct == "" {
+			ct = "application/octet-stream"
 		}
+		b.WriteString("--" + boundary + "\r\n")
+		b.WriteString("Content-Type: " + ct + "\r\n")
+		b.WriteString("Content-Disposition: attachment; filename=\"" + headerSafe(att.Filename) + "\"\r\n")
+		b.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
+		b.WriteString(att.Data) // already base64; Extract decodes + caps it
+		b.WriteString("\r\n")
 	}
+	b.WriteString("--" + boundary + "--\r\n")
 	return []byte(b.String())
+}
+
+// headerSafe strips CR/LF so attacker-controlled subject/filename/content-type can't
+// inject extra headers into the reconstructed scan MIME.
+func headerSafe(s string) string {
+	return strings.NewReplacer("\r", "", "\n", "", "\"", "").Replace(s)
 }
 
 // blockAuditID derives a STABLE soft-ref message id for a blocked send. A block

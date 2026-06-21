@@ -210,6 +210,11 @@ func (e *Engine) forceFloor(req Request) Action {
 		// routes it to review rather than treating "no finding" as benign.
 		floor = MoreSevere(floor, ActionReview)
 	}
+	if req.Signals.Unscannable {
+		// A non-text part we couldn't read (binary attachment) is likewise not a
+		// safety guarantee → review.
+		floor = MoreSevere(floor, ActionReview)
+	}
 	return floor
 }
 

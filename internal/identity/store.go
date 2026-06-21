@@ -2518,7 +2518,7 @@ func (s *Store) ModifyMessageLabels(ctx context.Context, messageID, agentID stri
 
 	var current []string
 	err = tx.QueryRow(ctx,
-		`SELECT labels FROM messages WHERE id = $1 AND agent_id = $2 AND expires_at > now() FOR UPDATE`,
+		`SELECT labels FROM messages WHERE id = $1 AND agent_id = $2 AND expires_at > now() AND NOT (direction = 'inbound' AND status IN (`+heldInboundStatuses+`)) FOR UPDATE`,
 		messageID, agentID,
 	).Scan(&current)
 	if err != nil {
@@ -2552,7 +2552,7 @@ func (s *Store) ModifyMessageLabels(ctx context.Context, messageID, agentID stri
 	sort.Strings(final)
 
 	if _, err := tx.Exec(ctx,
-		`UPDATE messages SET labels = $1 WHERE id = $2 AND agent_id = $3`,
+		`UPDATE messages SET labels = $1 WHERE id = $2 AND agent_id = $3 AND NOT (direction = 'inbound' AND status IN (`+heldInboundStatuses+`))`,
 		final, messageID, agentID,
 	); err != nil {
 		return nil, err
@@ -2569,7 +2569,7 @@ func (s *Store) ModifyMessageLabels(ctx context.Context, messageID, agentID stri
 // UpdateMessageDeliveryStatus sets the inbox_status on a message.
 func (s *Store) UpdateMessageDeliveryStatus(ctx context.Context, messageID, agentID, status string) error {
 	_, err := s.pool.Exec(ctx,
-		`UPDATE messages SET inbox_status = $1 WHERE id = $2 AND agent_id = $3`,
+		`UPDATE messages SET inbox_status = $1 WHERE id = $2 AND agent_id = $3 AND NOT (direction = 'inbound' AND status IN (`+heldInboundStatuses+`))`,
 		status, messageID, agentID,
 	)
 	return err

@@ -151,12 +151,18 @@ func TestComposeScanBody_IncludesTextAttachment(t *testing.T) {
 			Data: base64.StdEncoding.EncodeToString([]byte(secret)),
 		}},
 	}
-	got := string(composeScanBody(req))
-	if !strings.Contains(got, secret) {
-		t.Errorf("composeScanBody dropped the text attachment content; got:\n%s", got)
+	// composeScanBody now emits real MIME (base64 attachment parts); Extract decodes
+	// the attachment so the scan sees its content regardless of the declared type.
+	segs, _, err := piguard.Extract(composeScanBody(req), 0)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
 	}
-	if !strings.Contains(got, "data.txt") {
-		t.Errorf("composeScanBody dropped the attachment filename")
+	var all string
+	for _, s := range segs {
+		all += s.Content + "\n"
+	}
+	if !strings.Contains(all, secret) {
+		t.Errorf("attachment content not extracted for scanning; segments:\n%s", all)
 	}
 }
 

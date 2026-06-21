@@ -81,6 +81,9 @@ type DecodedSignals struct {
 	// HomoglyphRatio is the fraction of letters that are non-ASCII confusables
 	// (Cyrillic/Greek lookalikes) — a spoofing/obfuscation signal. 0..1.
 	HomoglyphRatio float64
+	// Unscannable reports a part whose bytes could not be scanned (a genuinely
+	// binary attachment, no OCR in v1). Routed to review — no finding != benign.
+	Unscannable bool
 	// FragmentedURL reports reassembly-style obfuscation ("join 'h','ttp',…").
 	FragmentedURL bool
 	// PlainHTMLDiverge reports that the text/plain and visible text/html parts carry

@@ -80,8 +80,11 @@ func validThresholds(dir string, review, block float64) error {
 	if review < 0 || review > 1 || block < 0 || block > 1 {
 		return fmt.Errorf("%s scan thresholds must be between 0 and 1", dir)
 	}
-	if review > block {
-		return fmt.Errorf("%s_scan_review_threshold must be <= %s_scan_block_threshold", dir, dir)
+	// Strict <: equal thresholds collapse the review band so a score at the cutoff
+	// jumps straight to block — e.g. (0,0) blocks every clean message. Require a real
+	// allow < review < block ladder.
+	if review >= block {
+		return fmt.Errorf("%s_scan_review_threshold must be < %s_scan_block_threshold", dir, dir)
 	}
 	return nil
 }

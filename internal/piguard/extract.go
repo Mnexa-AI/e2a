@@ -8,8 +8,12 @@ import (
 	"mime/quotedprintable"
 	"net/mail"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
+
+	"golang.org/x/text/encoding/htmlindex"
+	"golang.org/x/text/transform"
 )
 
 // DefaultScanCapBytes bounds how much decoded text the extractor will inspect. A
@@ -46,22 +50,31 @@ func Extract(raw []byte, capBytes int) ([]Segment, DecodedSignals, error) {
 	if subj := decodeHeader(msg.Header.Get("Subject")); subj != "" {
 		acc.add(SegmentSubject, subj, "subject")
 	}
+	// Sender/recipient display names are agent-visible ("who emailed me") and a known
+	// injection carrier, so scan them too.
+	for _, h := range []string{"From", "Reply-To", "To"} {
+		if name := displayName(msg.Header.Get(h)); name != "" {
+			acc.add(SegmentSubject, name, strings.ToLower(h))
+		}
+	}
 	ct := msg.Header.Get("Content-Type")
 	acc.walk(ct, msg.Header.Get("Content-Transfer-Encoding"), msg.Body, "body", 0)
 
 	segs := acc.segments
 	sig := computeSignals(segs)
 	sig.Truncated = acc.full
+	sig.Unscannable = acc.unscannable
 	return segs, sig, nil
 }
 
 // extractor accumulates segments under a shared byte budget.
 type extractor struct {
-	segments []Segment
-	cap      int
-	used     int
-	parts    int
-	full     bool // budget exhausted; Truncated will be set
+	segments    []Segment
+	cap         int
+	used        int
+	parts       int
+	full        bool // budget exhausted; Truncated will be set
+	unscannable bool // a non-text part could not be scanned -> caller fails-to-review
 }
 
 func (e *extractor) add(t SegmentType, content, ref string) {
@@ -126,7 +139,7 @@ func (e *extractor) walk(contentType, encoding string, body io.Reader, ref strin
 	}
 
 	// Leaf node at the top level (non-multipart message).
-	e.leaf(mediaType, encoding, "", body, ref)
+	e.leaf(mediaType, encoding, params["charset"], "", body, ref)
 }
 
 // walkPart handles one multipart child: recurse if nested multipart, else treat as a
@@ -141,7 +154,38 @@ func (e *extractor) walkPart(contentType, encoding, disposition string, body io.
 		e.walkMultipart(params["boundary"], body, ref, depth)
 		return
 	}
-	e.leaf(mediaType, encoding, disposition, body, ref)
+	// Forwarded mail (message/rfc822) is the most common indirect-injection carrier —
+	// recurse into the embedded message rather than treat it as an opaque blob.
+	if mediaType == "message/rfc822" {
+		e.walkRFC822(encoding, body, ref, depth)
+		return
+	}
+	e.leaf(mediaType, encoding, params["charset"], disposition, body, ref)
+}
+
+func (e *extractor) walkRFC822(encoding string, body io.Reader, ref string, depth int) {
+	if e.full {
+		return
+	}
+	if depth > 20 {
+		e.full = true
+		return
+	}
+	remaining := e.cap - e.used
+	if remaining <= 0 {
+		e.full = true
+		return
+	}
+	raw := decodeTransfer(readCapped(body, remaining+1), encoding)
+	inner, err := mail.ReadMessage(strings.NewReader(raw))
+	if err != nil {
+		e.add(SegmentTextPlain, raw, ref+"/rfc822")
+		return
+	}
+	if subj := decodeHeader(inner.Header.Get("Subject")); subj != "" {
+		e.add(SegmentSubject, subj, ref+"/rfc822-subject")
+	}
+	e.walk(inner.Header.Get("Content-Type"), inner.Header.Get("Content-Transfer-Encoding"), inner.Body, ref+"/rfc822", depth+1)
 }
 
 func (e *extractor) walkMultipart(boundary string, body io.Reader, ref string, depth int) {
@@ -172,19 +216,14 @@ func (e *extractor) walkMultipart(boundary string, body io.Reader, ref string, d
 	}
 }
 
-// leaf decodes and routes a non-multipart part.
-func (e *extractor) leaf(mediaType, encoding, disposition string, body io.Reader, ref string) {
+// leaf decodes and routes a non-multipart part. The declared Content-Type is
+// attacker-controlled, so a part declared non-text is still inspected: its bytes
+// are scanned when they look textual, else flagged unscannable.
+func (e *extractor) leaf(mediaType, encoding, charset, disposition string, body io.Reader, ref string) {
 	if e.full {
 		return
 	}
 	isAttachment := strings.HasPrefix(strings.ToLower(strings.TrimSpace(disposition)), "attachment")
-	// Only text-like content is inspected. Binary/image attachments are not OCR'd in
-	// v1 (segment type reserved). An oversize/binary attachment contributes nothing
-	// here; the caller's oversize→review fallback covers unscannable content.
-	textLike := strings.HasPrefix(mediaType, "text/")
-	if !textLike {
-		return
-	}
 	remaining := e.cap - e.used
 	if remaining <= 0 {
 		e.full = true
@@ -195,7 +234,23 @@ func (e *extractor) leaf(mediaType, encoding, disposition string, body io.Reader
 	// don't set e.full before add() or add() drops the final (truncated) chunk.
 	raw := readCapped(body, remaining+1)
 	overflow := len(raw) > remaining
-	decoded := decodeTransfer(raw, encoding)
+	decoded := decodeCharset(decodeTransfer(raw, encoding), charset)
+
+	if !strings.HasPrefix(mediaType, "text/") {
+		// Non-text by declaration. Trust the bytes, not the label: scan textual content
+		// (a payload mislabeled image/png, a secret in octet-stream); mark genuinely
+		// binary content unscannable so the engine routes it to review (no OCR in v1,
+		// and "we couldn't read it" is not a safety guarantee).
+		if LooksTextual(decoded) {
+			e.add(SegmentAttachmentText, decoded, ref+"/attachment")
+		} else if strings.TrimSpace(decoded) != "" {
+			e.unscannable = true
+		}
+		if overflow {
+			e.full = true
+		}
+		return
+	}
 
 	switch {
 	case isAttachment:
@@ -431,8 +486,29 @@ var entityReplacer = strings.NewReplacer(
 	"&#39;", "'", "&apos;", "'", "&nbsp;", " ",
 )
 
+var numEntityRe = regexp.MustCompile(`&#(x[0-9a-fA-F]+|[0-9]+);`)
+
 func decodeEntities(s string) string {
-	return entityReplacer.Replace(s)
+	s = entityReplacer.Replace(s)
+	if !strings.Contains(s, "&#") {
+		return s
+	}
+	// Numeric/hex character references (&#105; / &#x69;) render to humans but defeat
+	// keyword matching unless decoded.
+	return numEntityRe.ReplaceAllStringFunc(s, func(m string) string {
+		digits := m[2 : len(m)-1]
+		var code int64
+		var err error
+		if digits[0] == 'x' || digits[0] == 'X' {
+			code, err = strconv.ParseInt(digits[1:], 16, 32)
+		} else {
+			code, err = strconv.ParseInt(digits, 10, 32)
+		}
+		if err != nil || code <= 0 || code > 0x10FFFF {
+			return m
+		}
+		return string(rune(code))
+	})
 }
 
 func normalizeSpace(s string) string {
@@ -544,4 +620,57 @@ func wordSet(s string) map[string]bool {
 		}
 	}
 	return set
+}
+
+// decodeCharset transcodes a part body from its declared charset to UTF-8 so the
+// regex/Unicode signals see real text. UTF-16/UTF-7 and legacy 8-bit charsets
+// otherwise defeat every \b-anchored pattern. Unknown / UTF-8 charsets pass through.
+func decodeCharset(s, charset string) string {
+	cs := strings.ToLower(strings.TrimSpace(charset))
+	if cs == "" || cs == "utf-8" || cs == "utf8" || cs == "us-ascii" || cs == "ascii" {
+		return s
+	}
+	enc, err := htmlindex.Get(cs)
+	if err != nil {
+		return s
+	}
+	out, _, err := transform.String(enc.NewDecoder(), s)
+	if err != nil || out == "" {
+		return s
+	}
+	return out
+}
+
+// LooksTextual reports whether a byte string is predominantly text (a low ratio of
+// binary control bytes). Used to decide whether a part whose declared Content-Type
+// is non-text actually carries scannable text — the declared type is attacker-
+// controlled and not trusted.
+func LooksTextual(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	ctrl := 0
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if (b < 0x20 && b != '\t' && b != '\n' && b != '\r') || b == 0x7f {
+			ctrl++
+		}
+	}
+	return float64(ctrl)/float64(len(s)) < 0.10
+}
+
+// displayName returns the human display-name portion of an address header
+// ("Alice <a@b>" -> "Alice"), RFC-2047 decoded. Empty when there is no name.
+func displayName(header string) string {
+	if header == "" {
+		return ""
+	}
+	if addr, err := mail.ParseAddress(header); err == nil {
+		return strings.TrimSpace(addr.Name)
+	}
+	h := decodeHeader(header)
+	if i := strings.IndexByte(h, '<'); i > 0 {
+		return strings.TrimSpace(h[:i])
+	}
+	return ""
 }
