@@ -27,7 +27,7 @@
 | 13 | API | `operations.go` + `errors.go` — views + error envelopes | done | 🟡 AgentView leaks scan THRESHOLDS to agent-scoped creds (injected agent can calibrate evasion); resolveOwnedAgent ✅ (#10 resolved); error envelope best-in-class ✅ |
 | 14 | API | `ratelimit.go` — rate limiting | done | 🟡 clientIP trusts leftmost X-Forwarded-For → per-IP limiter spoofable (use trusted hop); layer separation + poll-set fidelity ✅ [API section complete] |
 | 15 | SDK | TS `client.ts` — ergonomic layer (parse/reply) | done | 🟡→🔴 auto-retried sends pass undefined idem key (docstring claims minting it doesn't) → double-send risk (verify #17); no .parse() helper; error mapping ✅ |
-| 16 | SDK | TS `ws.ts` — WebSocket | pending | |
+| 16 | SDK | TS `ws.ts` — WebSocket | done | 🟡 API key in ?token= query (logged) + unbounded buffer (comment promises bound code lacks → OOM); fatal-4xx stop + backoff ✅ |
 | 17 | SDK | TS `pagination.ts` + `retry.ts` + `errors.ts` | pending | |
 | 18 | SDK | Python `client.py` | pending | |
 | 19 | SDK | Python `websocket.py` + `pagination.py` + `_retry.py` | pending | |
@@ -44,6 +44,22 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 16. SDK — TS `ws.ts` (WebSocket listener)
+
+Well-engineered reconnect/iteration logic with good Python parity. Two real 🟡s: a credential-in-URL exposure (acknowledged) and a comment-vs-code memory bug.
+
+**🟡 API key rides in the `?token=` query string → credential logging exposure.** The handshake URL embeds the key: `…/ws?token=${apiKey}` (`ws.ts:90`). The docstring is honest about it (`ws.ts:67–71`: "Query strings can leak into access logs and proxy traces… a known logged-credential limitation; moving auth to a header or short-lived ticket is planned server-side"). It's a real exposure for **long-lived** `e2a_agt_`/`e2a_acct_` keys — they land in proxy/LB/access logs verbatim. Notably the Node `ws` library *does* support handshake `headers`, so the SDK could send `Authorization: Bearer` today *if the server accepted it* — the blocker is server-side. *Action:* prioritize the planned header/connect-ticket auth; until then, consider a short-lived WS-connect token instead of the raw long-lived key, so a logged value expires quickly.
+
+**🟡 Unbounded notification buffer (comment promises a bound the code doesn't implement).** `WSStream.buffer` is documented as "Modest bound; if a consumer is far behind we'd rather log loudly than balloon memory" (`ws.ts:186–188`), but `deliver` just does `this.buffer.push(notif)` with **no cap and no log** (`ws.ts:252–258`). A consumer that stalls its `for await` (or only uses the EventEmitter without iterating) makes the buffer grow without limit — OOM on a busy inbox. *Fix:* implement the documented behavior — cap the buffer (drop-oldest or emit a typed `backpressure` error) and log loudly when exceeded.
+
+**🔵 `received_at` is a `string`.** `WSNotification.received_at` (`ws.ts:32`) is a string, consistent with the message-view string timestamps — folds into the #8 timestamp-type split (some Date, some string).
+
+**✅ Verified clean:**
+- **Fatal-handshake handling** (`ws.ts:9–14,118–149`): a 4xx handshake rejection maps to a typed `E2AAuthError`/`E2APermissionError` and **stops** (no reconnect), so bad credentials don't loop forever — F6 parity with Python. The noisy transport error alongside a fatal handshake is suppressed.
+- **Backoff**: exponential 1s→…→`maxBackoffMs` (30s) with **reset on successful open** so flapping doesn't ratchet the delay; matches Python's shape.
+- **Hybrid iteration**: `WSStream` resolves/buffers correctly and `drainWaitersWithError` makes a `for await` **throw the typed error** on a fatal disconnect rather than hang — the right ergonomics.
+- **Light protocol**: notification-only (no body); fetch via REST — keeps the socket cheap and the body behind the held-message read boundary.
 
 ### 15. SDK — TS `client.ts` (ergonomic layer)
 
