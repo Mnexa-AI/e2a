@@ -42,6 +42,7 @@ __all__ = [
     "AgentView",
     "ApproveRequest",
     "Attachment",
+    "AttachmentMetaView",
     "AuthVerdict",
     "CheckResult",
     "ConversationDetailView",
@@ -134,6 +135,7 @@ from e2a.v1.generated.models.agent_identity import AgentIdentity as AgentIdentit
 from e2a.v1.generated.models.agent_view import AgentView as AgentView
 from e2a.v1.generated.models.approve_request import ApproveRequest as ApproveRequest
 from e2a.v1.generated.models.attachment import Attachment as Attachment
+from e2a.v1.generated.models.attachment_meta_view import AttachmentMetaView as AttachmentMetaView
 from e2a.v1.generated.models.auth_verdict import AuthVerdict as AuthVerdict
 from e2a.v1.generated.models.check_result import CheckResult as CheckResult
 from e2a.v1.generated.models.conversation_detail_view import ConversationDetailView as ConversationDetailView

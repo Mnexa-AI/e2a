@@ -87,6 +87,21 @@ type MessageView struct {
 	// carry body_text/body_html, sent/inbound carry raw_message. Omitted when
 	// empty (sent/inbound rows).
 	Body *MessageBodyView `json:"body,omitempty"`
+	// Attachments is per-attachment METADATA (never bytes) parsed server-side
+	// from raw_message — the authoritative, stable attachment index (§6a #5).
+	// Fetch the bytes via GET …/messages/{id}/attachments/{index}. Always
+	// present (empty when none); held drafts (no raw_message) carry [].
+	Attachments []AttachmentMetaView `json:"attachments" nullable:"false"`
+}
+
+// AttachmentMetaView is metadata for one attachment of a message — never the
+// bytes. `index` is the stable 0-based attachment index (document order) used to
+// fetch the bytes via the attachment endpoint.
+type AttachmentMetaView struct {
+	Index       int    `json:"index"`
+	Filename    string `json:"filename,omitempty"`
+	ContentType string `json:"content_type,omitempty"`
+	SizeBytes   int    `json:"size_bytes"`
 }
 
 // MessageParsedView is the parsed-body payload (see MessageView.Parsed).
@@ -146,6 +161,20 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 	if m.Direction == "inbound" && len(m.RawMessage) > 0 {
 		text, truncated := mailparse.ParsedBody(m.RawMessage, mailparse.DefaultMaxBytes)
 		v.Parsed = &MessageParsedView{Text: text, Truncated: truncated}
+	}
+	// Attachment metadata (§6a #5): parsed from raw_message for ANY direction
+	// that has one (inbound + sent outbound). Always an array; the bytes are
+	// fetched via the attachment endpoint, never inlined here.
+	v.Attachments = []AttachmentMetaView{}
+	if len(m.RawMessage) > 0 {
+		for i, a := range mailparse.Attachments(m.RawMessage) {
+			v.Attachments = append(v.Attachments, AttachmentMetaView{
+				Index:       i,
+				Filename:    a.Filename,
+				ContentType: a.ContentType,
+				SizeBytes:   len(a.Data),
+			})
+		}
 	}
 	// Held-draft body (decision 9 unification): the second representation a
 	// pending_approval outbound message carries instead of raw_message. Gated on

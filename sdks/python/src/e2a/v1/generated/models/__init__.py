@@ -20,6 +20,7 @@ from e2a.v1.generated.models.agent_identity import AgentIdentity
 from e2a.v1.generated.models.agent_view import AgentView
 from e2a.v1.generated.models.approve_request import ApproveRequest
 from e2a.v1.generated.models.attachment import Attachment
+from e2a.v1.generated.models.attachment_meta_view import AttachmentMetaView
 from e2a.v1.generated.models.auth_verdict import AuthVerdict
 from e2a.v1.generated.models.check_result import CheckResult
 from e2a.v1.generated.models.conversation_detail_view import ConversationDetailView

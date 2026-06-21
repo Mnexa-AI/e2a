@@ -10,12 +10,14 @@
  * Do not edit the class manually.
  */
 
+import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
 import { AuthVerdict } from '../models/AuthVerdict.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
 import { HttpFile } from '../http/http.js';
 
 export class MessageView {
+    'attachments': Array<AttachmentMetaView>;
     'auth'?: AuthVerdict;
     'authHeaders'?: { [key: string]: string; };
     'body'?: MessageBodyView;
@@ -48,6 +50,12 @@ export class MessageView {
     static readonly mapping: {[index: string]: string} | undefined = undefined;
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
+        {
+            "name": "attachments",
+            "baseName": "attachments",
+            "type": "Array<AttachmentMetaView>",
+            "format": ""
+        },
         {
             "name": "auth",
             "baseName": "auth",

@@ -309,6 +309,23 @@ components:
         - content_type
         - data
       type: object
+    AttachmentMetaView:
+      additionalProperties: false
+      properties:
+        content_type:
+          type: string
+        filename:
+          type: string
+        index:
+          format: int64
+          type: integer
+        size_bytes:
+          format: int64
+          type: integer
+      required:
+        - index
+        - size_bytes
+      type: object
     AuthVerdict:
       additionalProperties: false
       properties:
@@ -1102,6 +1119,10 @@ components:
     MessageView:
       additionalProperties: false
       properties:
+        attachments:
+          items:
+            $ref: "#/components/schemas/AttachmentMetaView"
+          type: array
         auth:
           $ref: "#/components/schemas/AuthVerdict"
         auth_headers:
@@ -1201,6 +1222,7 @@ components:
         - labels
         - created_at
         - raw_message
+        - attachments
       type: object
     OAuthConnectionEntry:
       additionalProperties: false
