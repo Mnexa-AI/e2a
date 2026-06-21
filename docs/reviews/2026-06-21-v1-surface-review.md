@@ -26,7 +26,7 @@
 | 12 | API | `idempotency.go` — idempotency keys | done | 🟡 byte-exact body hash → non-identical retry 422s (SDK retry MUST buffer+resend → verify #17/#19); namespace separation + panic safety ✅ |
 | 13 | API | `operations.go` + `errors.go` — views + error envelopes | done | 🟡 AgentView leaks scan THRESHOLDS to agent-scoped creds (injected agent can calibrate evasion); resolveOwnedAgent ✅ (#10 resolved); error envelope best-in-class ✅ |
 | 14 | API | `ratelimit.go` — rate limiting | done | 🟡 clientIP trusts leftmost X-Forwarded-For → per-IP limiter spoofable (use trusted hop); layer separation + poll-set fidelity ✅ [API section complete] |
-| 15 | SDK | TS `client.ts` — ergonomic layer (parse/reply) | pending | |
+| 15 | SDK | TS `client.ts` — ergonomic layer (parse/reply) | done | 🟡→🔴 auto-retried sends pass undefined idem key (docstring claims minting it doesn't) → double-send risk (verify #17); no .parse() helper; error mapping ✅ |
 | 16 | SDK | TS `ws.ts` — WebSocket | pending | |
 | 17 | SDK | TS `pagination.ts` + `retry.ts` + `errors.ts` | pending | |
 | 18 | SDK | Python `client.py` | pending | |
@@ -44,6 +44,20 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 15. SDK — TS `client.ts` (ergonomic layer)
+
+Clean typed wrapper with good error mapping. But the idempotency story has a docstring-vs-code contradiction that, combined with the auto-retry layer, risks double-sends — the most serious SDK finding so far.
+
+**🟡 (🔴 if `retry.ts` retries POST) — auto-retried sends are NOT idempotent; the docstring claims minting the code doesn't do.** `RequestOptions.idempotencyKey` is documented as "Omit and the SDK mints one (and reuses it across retries)" (`client.ts:80–83`). But `send`/`reply`/`forward`/`approve` pass `opts.idempotencyKey` **straight through** (`client.ts:231,234,237,240`) — when the caller omits it, **`undefined`** reaches the server, so `runIdempotent` runs with no key (idempotency off). Meanwhile every client is wrapped in `RetryHttpLibrary` that retries on "429/5xx/connection" (`client.ts:72,129`). So a `send` that commits at SES but returns a 5xx (e.g. the post-send DB write fails) or whose response is lost to a connection drop gets **retried with no idempotency key → a duplicate email**. The docstring is simply false as written. *Fix:* actually mint a key when omitted (e.g. `opts.idempotencyKey ?? crypto.randomUUID()`) and thread the *same* value through retries — the docstring already describes the correct behavior; the code needs to implement it. **Confirm in #17 (`retry.ts`) whether POST is retried** — if yes, this is 🔴 (silent double-send on a transient failure, exactly what idempotency exists to prevent). Ties to #12 (the server is ready; the SDK isn't using it).
+
+**🟡 No `.parse()` ergonomic helper.** The design's agent-native value-add was `client.messages.parse()`/`.reply()` (raw MIME → clean text for feeding a model). `.reply()` exists but is just the typed API call; there is **no** `.parse()` here (`client.ts` is a thin resource wrapper). For the headline "feed the model by default" use case, the consumer is left to parse `raw_message`/`parsed` themselves. Ergonomic gap vs the stated SDK promise — confirm `parse` isn't living elsewhere; if not, it's a missing feature.
+
+**✅ Verified clean:**
+- **Typed error mapping** (`call()`, `client.ts:94–102`): `ApiException` → envelope-mapped `E2AError`, `E2AError` passes through, transport throws → `connectionError` — one typed hierarchy.
+- **Pager correctness**: `agents.list` (and other non-cursor lists) deliberately omit `next_cursor` so `AutoPager` stops after one page instead of re-fetching page 1 and tripping the cycle guard (`client.ts:176–180`) — correct handling of the "looks-paginated-but-isn't" endpoints (#7/#11).
+- **Ergonomic delete**: `.delete()` auto-sends `?confirm=DELETE` (the typed call *is* the confirmation; the guard is for raw/curl callers).
+- **Config**: `apiKey`/`baseUrl` via constructor or `E2A_API_KEY`/`E2A_BASE_URL`; missing key throws a typed `no_api_key` before any request.
 
 ### 14. API — `ratelimit.go` (rate limiting) — *API section complete*
 
