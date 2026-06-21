@@ -419,7 +419,11 @@ allowlist").
 
 ### 4.6 Migration of retired HITL fields
 
-`037_screening_config.sql` (idempotent, non-destructive):
+The agent scan-config columns ship in `041_scan_config.sql`; the review-queue
+columns + `screening_events` table ship in `040_screening.sql` (both idempotent,
+non-destructive; renumbered above main's `039` after the rebase).
+
+`041_scan_config.sql`:
 - `ADD COLUMN IF NOT EXISTS` for: `inbound_policy_action` (default `flag`),
   `outbound_policy` (default `open`), `outbound_allowlist` (TEXT[]),
   `outbound_policy_action` (default `flag`), `inbound_scan`/`outbound_scan`
