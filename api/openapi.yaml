@@ -495,6 +495,9 @@ components:
               - email.complained
               - domain.suppression_added
               - email.flagged
+              - email.held
+              - email.blocked
+              - email.injection_detected
             type: string
           type: array
         filters:
@@ -533,6 +536,9 @@ components:
               - email.complained
               - domain.suppression_added
               - email.flagged
+              - email.held
+              - email.blocked
+              - email.injection_detected
             type: string
           type: array
         filters:
@@ -1638,6 +1644,9 @@ components:
             - email.complained
             - domain.suppression_added
             - email.flagged
+            - email.held
+            - email.blocked
+            - email.injection_detected
           type: string
       type: object
     TestWebhookResponse:
@@ -1768,6 +1777,9 @@ components:
               - email.complained
               - domain.suppression_added
               - email.flagged
+              - email.held
+              - email.blocked
+              - email.injection_detected
             type: string
           type: array
         filters:
@@ -1903,6 +1915,9 @@ components:
             - email.complained
             - domain.suppression_added
             - email.flagged
+            - email.held
+            - email.blocked
+            - email.injection_detected
           type: string
         id:
           type: string
@@ -1975,6 +1990,9 @@ components:
               - email.complained
               - domain.suppression_added
               - email.flagged
+              - email.held
+              - email.blocked
+              - email.injection_detected
             type: string
           type: array
         filters:

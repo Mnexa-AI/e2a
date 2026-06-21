@@ -52,9 +52,17 @@ const (
 	// match the agent's ingestion policy (allowlist/domain/verified_only). It is
 	// delivered but flagged — operators get a signal, nothing is dropped.
 	EventEmailFlagged = "email.flagged"
-	// EventEmailInjectionDetected (Slice 4) fires when the content scan flags an
-	// inbound message (prompt-injection / obfuscation signals over the agent's
-	// inbound_scan thresholds). Carries the score, categories, and applied action.
+	// Screening disposition events (decision 2026-06-21, design §4.5): exactly one
+	// fires per screened inbound message, keyed on the most-severe of gate+scan.
+	// EventEmailFlagged (above) is the `flag` disposition (delivered + annotated);
+	// these two are the held/dropped dispositions, each separately subscribable so a
+	// review-queue UI and a security dashboard don't share one channel.
+	EventEmailHeld    = "email.held"    // action=review → pending_review (delivery suppressed)
+	EventEmailBlocked = "email.blocked" // action=block → accept-then-quarantine (delivery suppressed)
+	// EventEmailInjectionDetected is the additive *detection* event: it fires only on
+	// a real content-scan detection (carrying score/categories/action), ALONGSIDE the
+	// disposition event above — never for a pure sender-gate hold. (Pre-2026-06-21 it
+	// doubled as a catch-all hold signal; that conflation is retired.)
 	EventEmailInjectionDetected = "email.injection_detected"
 )
 
@@ -74,6 +82,8 @@ var AllEventTypes = []string{
 	EventEmailComplained,
 	EventDomainSuppressionAdded,
 	EventEmailFlagged,
+	EventEmailHeld,
+	EventEmailBlocked,
 	EventEmailInjectionDetected,
 }
 
