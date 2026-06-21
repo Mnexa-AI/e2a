@@ -32,7 +32,7 @@
 | 18 | SDK | Python `client.py` | done | ✅ strong TS parity (explicit per-op retry helpers, account-delete excluded) — cleaner than TS stub-inference; 🟡 no .parse() (both SDKs); 🔵 2 mechanisms could diverge |
 | 19 | SDK | Python `websocket.py` + `pagination.py` + `_retry.py` | done | ✅ full TS parity (mints key once → resolves #12/#18); Python MORE defensive (WS generator backpressure, pagination max_pages); 🟡 same ?token= (server-side) |
 | 20 | SDK | `webhook-signature` TS↔Python parity | done | ✅ strong security parity (HMAC + constant-time + NaN-replay-trap both handle); 🔵 `now` unit differs (ms vs s) + TS utf8 round-trips body [SDK section complete] |
-| 21 | MCP | `tools/agents.ts` | pending | |
+| 21 | MCP | `tools/agents.ts` | done | 🔴 update_agent exposes RETIRED hitl_enabled/hitl_mode (silent no-op server-side) + NO new screening config → screening unconfigurable via MCP; tool hygiene ✅ |
 | 22 | MCP | `tools/messages.ts` + `attachments.ts` | pending | |
 | 23 | MCP | `tools/hitl.ts` | pending | |
 | 24 | MCP | `tools/webhooks.ts` + `events.ts` + `domains.ts` | pending | |
@@ -44,6 +44,20 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 21. MCP — `tools/agents.ts`
+
+The tool hygiene is excellent, but the agent-config surface is **badly stale against the screening retirement** — the single most impactful finding of the review so far, and the MCP twin of the #7 webhook-enum drift.
+
+**🔴 `update_agent` exposes the RETIRED `hitl_enabled`/`hitl_mode` (now a silent no-op) and exposes NONE of the new screening config.** The tool's input schema still has `hitl_enabled` (`agents.ts:92–97`) and `hitl_mode` (`agents.ts:108–113`), the description calls itself "**The path to enable HITL approval gates** … set `hitl_enabled: true` … `hitl_mode`" (`agents.ts:82–83`), and the patch builder sets `hitlEnabled`/`hitlMode` (`agents.ts:136,141`). But Slice 5b/5c **removed those fields from the `/v1` PATCH and dropped the DB columns**. Huma ignores unknown body fields, so an MCP agent calling `update_agent({hitl_enabled: true})` gets a **success response while HITL is silently NOT enabled** — a dead control that *looks* like it worked. Worse, the tool exposes **none** of the screening config that replaced it — no `outbound_policy`/`outbound_allowlist`/`outbound_policy_action`, no `inbound_policy_action`, no `inbound_scan`/`outbound_scan` + thresholds. **Net: an MCP agent cannot configure screening at all, and the one control it *can* "set" does nothing.** Root cause (same as #7): Slice 5b/5c regenerated the *generated* surfaces (`/v1` spec, SDK bases) but the **hand-written** MCP tools weren't updated. *Fix:* replace the `hitl_enabled`/`hitl_mode` inputs with the surviving `hitl_ttl_seconds`/`hitl_expiration_action` + the new `outbound_policy`/`outbound_scan`/`inbound_*` fields; rewrite the description around the gate/scan model. (`get_agent`'s description also lists the dead `hitl_enabled/hitl_mode`, `agents.ts:25`.)
+
+**🔵 If thresholds are added, mind #13.** When wiring the new scan config into `update_agent`/`get_agent`, don't echo the scan *thresholds* back to an agent-scoped credential (the #13 disclosure) — the MCP `get_agent` is agent-reachable.
+
+**✅ Verified clean (tool hygiene is genuinely good):**
+- **Annotations**: `readOnlyHint` on list/get/whoami; `destructiveHint:true` + `idempotentHint` on delete; `destructiveHint:false` on create/update — correct MCP semantics for an LLM client.
+- **Delete safety**: `confirm: z.literal(true)` schema guard **plus** a server-side `confirm !== true` throw (`agents.ts:166–179`) — double-guarded against a hallucinated delete.
+- **Scope ergonomics**: `email` is optional and "defaults to the credential's bound agent (agent-scoped)" — matches the API's pinning; `whoami`'s description is exemplary ("identity, not an agent — never guesses a 'default' agent").
+- **`strictInputSchema`** everywhere (rejects unknown args — no silent typo'd params).
 
 ### 20. SDK — `webhook-signature` TS↔Python parity — *SDK section complete*
 
