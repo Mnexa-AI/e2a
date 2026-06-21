@@ -258,8 +258,9 @@ relative to that base):
      **Limitation — forwarding/lists:** a forwarder/mailing-list that rewrites
      headers/body breaks the DKIM signature, and since SPF is unaligned by design
      there's nothing left to align → DMARC `fail` at the final hop. v1 documents
-     this; **ARC sealing** and/or the optional custom-`MAIL FROM` subdomain (below,
-     for SPF alignment) are the mitigations, deferred. Also: the DKIM **selector
+     this; **ARC sealing** remains the mitigation for this forwarding case
+     (deferred). (The custom `MAIL FROM` subdomain for outbound SPF alignment has
+     since **shipped** — see `sender-identity-mailfrom.md`.) Also: the DKIM **selector
      rotates monthly** (`e2a{YYYYMM}`) — keep the prior selector's DNS record
      published until in-flight mail signed under it has drained (don't pull it on
      rotation day).
@@ -1337,9 +1338,11 @@ Break the current `/api/v1` surface directly and move it to
     delete makes orphans rare. (2) The real `sesv2` provider is **not e2e-tested
     against AWS** here — CI/tests use the in-memory `FakeProvider`; the BYODKIM
     key handed to SES is converted PKCS#1→PKCS#8 base64, to validate against
-    live SES before enabling `sender_identity.ses_region` in prod. (3) The
-    optional custom `MAIL FROM` subdomain (SPF alignment) and ARC sealing remain
-    deferred per decision 4.
+    live SES before enabling `sender_identity.ses_region` in prod. (3) The custom
+    `MAIL FROM` subdomain (SPF alignment / "remove via e2a") has **shipped**
+    (Track B — `internal/mailfrom` + `PutEmailIdentityMailFromAttributes`; see
+    `sender-identity-mailfrom.md`), dormant behind the same `ses_region` gate
+    pending the live-SES validation above. **ARC sealing** remains deferred.
 * **Slice 4b — Delivery feedback (decision 9).** *(Delivery-feedback core
   shipped; the rest split into follow-ups.)* `internal/delivery`: an SES-over-SNS
   consumer at `POST /api/internal/ses/notifications` (fail-closed SNS signature

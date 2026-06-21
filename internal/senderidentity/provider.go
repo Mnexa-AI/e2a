@@ -49,9 +49,9 @@ func (s Status) Valid() bool {
 
 // DNSRecord is a single record the customer must publish for the sending
 // identity. With BYODKIM the customer already published the per-domain DKIM
-// record during register/verify, so this is usually empty; it exists for a
-// future custom MAIL FROM subdomain (SPF alignment) and to surface anything
-// SES reports as still-required.
+// record during register/verify; this now carries the custom MAIL FROM
+// subdomain's MX + SPF records (Return-Path alignment — see ses.go
+// mailFromRecords) and surfaces anything SES reports as still-required.
 type DNSRecord struct {
 	Type  string `json:"type"`  // "TXT" | "CNAME" | "MX"
 	Name  string `json:"name"`  // record host
