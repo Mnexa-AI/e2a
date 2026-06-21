@@ -29,7 +29,7 @@
 | 15 | SDK | TS `client.ts` — ergonomic layer (parse/reply) | done | ~~double-send~~ WITHDRAWN (mint happens in retry.ts — see #17); surviving: 🟡 no .parse() ergonomic helper; error mapping ✅ |
 | 16 | SDK | TS `ws.ts` — WebSocket | done | 🟡 API key in ?token= query (logged) + unbounded buffer (comment promises bound code lacks → OOM); fatal-4xx stop + backoff ✅ |
 | 17 | SDK | TS `pagination.ts` + `retry.ts` + `errors.ts` | done | ✅ retry layer best-in-class — RESOLVES #15 (mints idem key in retry.ts; double-send withdrawn) + #12 (byte-identical retry); pager cycle guard ✅ |
-| 18 | SDK | Python `client.py` | pending | |
+| 18 | SDK | Python `client.py` | done | ✅ strong TS parity (explicit per-op retry helpers, account-delete excluded) — cleaner than TS stub-inference; 🟡 no .parse() (both SDKs); 🔵 2 mechanisms could diverge |
 | 19 | SDK | Python `websocket.py` + `pagination.py` + `_retry.py` | pending | |
 | 20 | SDK | `webhook-signature` TS↔Python parity | pending | |
 | 21 | MCP | `tools/agents.ts` | pending | |
@@ -44,6 +44,21 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 18. SDK — Python `client.py` (cross-language parity)
+
+Excellent parity with the TS SDK — and the per-op retry classification is *cleaner* than TS's. Two findings: a confirmed cross-SDK gap and a maintenance/divergence risk.
+
+**✅ Retry/idempotency classification matches TS exactly — via explicit, more robust helpers.** Python routes every op through one of four executors (`client.py:158–172`): `_read` (GET, retryable, no key), `_write_keyed` (send/reply/forward/approve → retryable + idempotent), `_write_idempotent` (PUT/PATCH/DELETE), `_write_unsafe` (create/reject/verify/redeliver/test → **not** retried). The op→helper mapping is identical to TS's `isRetrySafe`, **including the account-deletion exclusion** (`client.py:540`: "Deliberately NOT retried, unlike the other DELETEs… account deletion is irreversible"). Unlike TS — which *infers* POST retry-safety from the generated `Idempotency-Key` stub (the #17 🔵) — Python classifies each op **explicitly**, which is harder to get wrong.
+
+**🔵 Two SDKs classify retry-safety by two different mechanisms → divergence risk.** TS = generated-stub inference; Python = explicit per-method helper choice. A new op could be classified differently in each (e.g. someone picks `_write_unsafe` in Python while TS auto-retries it because the stub is emitted, or vice-versa). They agree *today*, but nothing enforces it. *Fix:* a shared conformance fixture (a table of `op → {retried?, keyed?}`) both SDK test suites assert against — also closes the #17 🔵.
+
+**🟡 No `.parse()` ergonomic helper here either — confirms it's a both-SDK gap.** `client.py` has no `parse` method (grep clean); like TS (#15), the agent-native "raw MIME → clean text to feed a model" helper the design promised is absent in *both* SDKs. So it's a deliberate omission or a genuine missing feature across the board, not a one-language miss — worth a product decision: ship `messages.parse()` in both, or drop the promise from the docs.
+
+**✅ Verified clean:**
+- **Typed input validation**: `_coerce` (`client.py:84–99`) runs pydantic `model_validate` and raises a typed `E2AValidationError(invalid_request_body)` rather than leaking a raw pydantic error — clean caller-error surface.
+- **Lifecycle**: async context manager (`__aenter__`/`__aexit__` → `aclose`) so connections close deterministically; `api_key`/`base_url` via arg or `E2A_API_KEY`/`E2A_BASE_URL`; missing key → typed `no_api_key`.
+- **Key minting (cross-ref #19)**: `_write_keyed` passes `idempotency=True` with an optional caller key; the actual mint-when-omitted + retry handling lives in `request_with_retry` — verified next in `_retry.py`. (TS parity: there it's `ensureIdempotencyKey`.)
 
 ### 17. SDK — TS `retry.ts` + `pagination.ts` + `errors.ts` — *resolves #15 & #12*
 
