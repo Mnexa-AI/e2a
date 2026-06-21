@@ -13,6 +13,7 @@ from e2a.v1.errors import (
     E2AConflictError,
     E2AError,
     E2ANotFoundError,
+    E2APermissionError,
     E2AValidationError,
 )
 from e2a.v1.generated.models import (
@@ -162,6 +163,22 @@ async def test_get_attachment_hits_endpoint_and_maps_view(httpx_mock):
     assert req.method == "GET"
     assert "/messages/msg_1/attachments/0" in str(req.url)
     assert "inline=true" in str(req.url)
+
+
+@pytest.mark.anyio
+async def test_send_error_surfaces_machine_code(httpx_mock):
+    # send/reply/forward now declare default: ErrorEnvelope (the custom Responses
+    # map had suppressed Huma's auto default). The SDK must surface the machine
+    # `code` for the send-family, not a generic/raw error. Guards §6a #4.
+    httpx_mock.add_response(
+        status_code=403,
+        json={"error": {"code": "sending_not_verified", "message": "domain not verified", "request_id": "req_1"}},
+    )
+    async with _client() as c:
+        with pytest.raises(E2APermissionError) as ei:
+            await c.messages.send("bot@test.dev", {"to": ["a@x.com"], "subject": "Hi", "body": "Hello"})
+    assert ei.value.code == "sending_not_verified"
+    assert ei.value.status == 403
 
 
 @pytest.mark.anyio

@@ -716,6 +716,13 @@ export class MessagesApiResponseProcessor {
             ) as SendResultView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
+        if (isCodeInRange("0", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error — the standard envelope; branch on error.code.", body, response.headers);
+        }
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
@@ -896,6 +903,13 @@ export class MessagesApiResponseProcessor {
             ) as SendResultView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
+        if (isCodeInRange("0", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error — the standard envelope; branch on error.code.", body, response.headers);
+        }
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
@@ -931,6 +945,13 @@ export class MessagesApiResponseProcessor {
                 "SendResultView", ""
             ) as SendResultView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+        if (isCodeInRange("0", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error — the standard envelope; branch on error.code.", body, response.headers);
         }
 
         // Work around for missing responses in specification, e.g. for petstore.yaml

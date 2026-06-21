@@ -969,12 +969,17 @@ review diligence — a #206-style omission can't merge.
 >   with a `(retryable)` hint — so agents branch on a code, not prose; wrapper
 >   errors with no code stay plain; the message is sanitized + length-bounded and
 >   the raw body/headers are never surfaced). Adversarial review caught that
->   send/reply/forward return the raw body **string** (those ops declare no
->   `default: ErrorEnvelope`), so the TS SDK `fromApiException` now parses a
->   string body's envelope — recovering the code for every operation.
->   **Follow-up:** the Python SDK has the same string-body gap, and the proper
->   root cause is adding `default: ErrorEnvelope` to the send/reply/forward Huma
->   handlers (then regen) so every generated client parses it. **#5 attachment
+>   send/reply/forward returned the raw body **string** (those ops declared no
+>   `default: ErrorEnvelope` — a custom `Responses` map suppresses Huma's auto
+>   default), so the TS SDK `fromApiException` parses a string body's envelope to
+>   recover the code. **Root cause now fixed:** every op with a custom `Responses`
+>   map (`sendMessage`/`replyToMessage`/`forwardMessage`/`testAgent` +
+>   `registerDomain`/`verifyDomain`) re-adds `default: ErrorEnvelope` via
+>   `s.errorEnvelopeResponse()`, so the OpenAPI contract documents the error shape
+>   and generated clients deserialize the code natively. The **Python SDK already
+>   handled this** independently — `from_api_exception`'s `_parse_envelope`
+>   `json.loads`-es a raw string body, so it surfaced the code before and after the
+>   spec fix (unit- and client-tested). **#5 attachment
 >   download-URL ✅ done** (native adapter; AgentDrive/object-storage adapter +
 >   outbound presigned-upload + large-file attach-by-reference deferred as seams —
 >   see [attachment-retrieval.md](attachment-retrieval.md)). **#7 idempotency-key

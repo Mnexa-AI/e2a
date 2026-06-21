@@ -29,6 +29,16 @@ func (s *Server) jsonResponse(bodyType reflect.Type, schemaName, description str
 	}
 }
 
+// errorEnvelopeResponse is the generic `default` error response (ErrorEnvelope).
+// Huma auto-adds it to every operation, but declaring a custom `Responses` map
+// SUPPRESSES that auto default — so any op with a custom map must re-add this, or
+// its OpenAPI contract omits the error shape and generated clients fall back to
+// raw-string error bodies (losing the machine `code`; api-v1-redesign §6a #4).
+func (s *Server) errorEnvelopeResponse() *huma.Response {
+	return s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
+		"Error — the standard envelope; branch on error.code.")
+}
+
 // SendResultView is the single outbound result for send/reply/forward/approve/
 // test (MSG-9). Per scenario:
 //   - sent:  status="sent" + message_id (the e2a msg_ id) + provider_message_id
@@ -118,7 +128,7 @@ func (s *Server) registerOutbound() {
 		Description:  "Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
-		Responses:    map[string]*huma.Response{"202": held202()},
+		Responses:    map[string]*huma.Response{"202": held202(), "default": s.errorEnvelopeResponse()},
 	}, s.handleCreateMessage)
 
 	huma.Register(s.API, huma.Operation{
@@ -127,7 +137,7 @@ func (s *Server) registerOutbound() {
 		Description:  "Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
-		Responses:    map[string]*huma.Response{"202": held202()},
+		Responses:    map[string]*huma.Response{"202": held202(), "default": s.errorEnvelopeResponse()},
 	}, s.handleReply)
 
 	huma.Register(s.API, huma.Operation{
@@ -136,7 +146,7 @@ func (s *Server) registerOutbound() {
 		Description:  "Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
-		Responses:    map[string]*huma.Response{"202": held202()},
+		Responses:    map[string]*huma.Response{"202": held202(), "default": s.errorEnvelopeResponse()},
 	}, s.handleForward)
 
 	huma.Register(s.API, huma.Operation{
@@ -144,7 +154,7 @@ func (s *Server) registerOutbound() {
 		Summary: "Send a test email to the agent's own address", Tags: []string{"agents"},
 		Description: "Send a platform test email to the agent's own address to confirm inbound delivery. 202 when held for HITL.",
 		Security:    []map[string][]string{{"bearer": {}}},
-		Responses:   map[string]*huma.Response{"202": held202()},
+		Responses:   map[string]*huma.Response{"202": held202(), "default": s.errorEnvelopeResponse()},
 	}, s.handleTestSend)
 }
 

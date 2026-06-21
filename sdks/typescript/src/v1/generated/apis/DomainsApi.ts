@@ -401,6 +401,13 @@ export class DomainsApiResponseProcessor {
             ) as ErrorEnvelope;
             throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Conflict — the domain is already claimed by another account (code domain_taken).", body, response.headers);
         }
+        if (isCodeInRange("0", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error — the standard envelope; branch on error.code.", body, response.headers);
+        }
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
@@ -472,6 +479,13 @@ export class DomainsApiResponseProcessor {
                 "VerifyDomainView", ""
             ) as VerifyDomainView;
             throw new ApiException<VerifyDomainView>(response.httpStatusCode, "Precondition Failed — the verification TXT record is not yet published.", body, response.headers);
+        }
+        if (isCodeInRange("0", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error — the standard envelope; branch on error.code.", body, response.headers);
         }
 
         // Work around for missing responses in specification, e.g. for petstore.yaml

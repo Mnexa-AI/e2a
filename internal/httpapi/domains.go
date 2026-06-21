@@ -157,6 +157,7 @@ func (s *Server) registerDomains() {
 		Responses: map[string]*huma.Response{
 			"409": s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
 				"Conflict — the domain is already claimed by another account (code domain_taken)."),
+			"default": s.errorEnvelopeResponse(),
 		},
 	}, s.handleRegisterDomain)
 
@@ -180,6 +181,7 @@ func (s *Server) registerDomains() {
 		Responses: map[string]*huma.Response{
 			"412": s.jsonResponse(reflect.TypeOf(VerifyDomainView{}), "VerifyDomainView",
 				"Precondition Failed — the verification TXT record is not yet published."),
+			"default": s.errorEnvelopeResponse(),
 		},
 	}, s.handleVerifyDomain)
 }

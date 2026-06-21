@@ -2536,6 +2536,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: Accepted — held for human approval (status=pending_approval).
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error — the standard envelope; branch on error.code.
       security:
         - bearer: []
       summary: Send a new email
@@ -2754,6 +2760,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: Accepted — held for human approval (status=pending_approval).
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error — the standard envelope; branch on error.code.
       security:
         - bearer: []
       summary: Forward a message
@@ -2841,6 +2853,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: Accepted — held for human approval (status=pending_approval).
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error — the standard envelope; branch on error.code.
       security:
         - bearer: []
       summary: Reply to a message
@@ -2871,6 +2889,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: Accepted — held for human approval (status=pending_approval).
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error — the standard envelope; branch on error.code.
       security:
         - bearer: []
       summary: Send a test email to the agent's own address
@@ -2918,6 +2942,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Conflict — the domain is already claimed by another account (code domain_taken).
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error — the standard envelope; branch on error.code.
       security:
         - bearer: []
       summary: Register a domain
@@ -3034,6 +3064,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/VerifyDomainView"
           description: Precondition Failed — the verification TXT record is not yet published.
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error — the standard envelope; branch on error.code.
       security:
         - bearer: []
       summary: Verify a domain
