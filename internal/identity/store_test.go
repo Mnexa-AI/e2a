@@ -434,7 +434,7 @@ func TestInboundMessageRoundTripsAuthVerdict(t *testing.T) {
 	}
 
 	// Outbound rows never carry a verdict — Auth must stay nil.
-	out, err := store.CreateOutboundMessage(ctx, a.ID, []string{"bob@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "<prov@authverdict.example.com>", "")
+	out, err := store.CreateOutboundMessage(ctx, a.ID, []string{"bob@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "<prov@authverdict.example.com>", "", nil)
 	if err != nil {
 		t.Fatalf("CreateOutboundMessage: %v", err)
 	}
@@ -577,7 +577,7 @@ func TestCreateOutboundMessage(t *testing.T) {
 	store.ClaimOrCreateDomain(ctx, "outbound.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@outbound.example.com", "outbound.example.com", "", "https://example.com/webhook", "", user.ID)
 
-	msg, err := store.CreateOutboundMessage(ctx, a.ID, []string{"alice@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "", "")
+	msg, err := store.CreateOutboundMessage(ctx, a.ID, []string{"alice@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "", "", nil)
 	if err != nil {
 		t.Fatalf("CreateOutboundMessage: %v", err)
 	}
@@ -608,7 +608,7 @@ func TestListActivityByAgent(t *testing.T) {
 	a, _ := store.CreateAgent(ctx, "agent@activity.example.com", "activity.example.com", "", "https://example.com/webhook", "", user.ID)
 
 	store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@activity.example.com", "", "Hello", "", "", nil, nil, nil, false, "", nil, nil, nil)
-	store.CreateOutboundMessage(ctx, a.ID, []string{"alice@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "", "")
+	store.CreateOutboundMessage(ctx, a.ID, []string{"alice@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "", "", nil)
 	store.CreateInboundMessage(ctx, "", a.ID, "bob@gmail.com", "bot@activity.example.com", "", "Hi", "", "", nil, nil, nil, false, "", nil, nil, nil)
 
 	activity, err := store.ListActivityByAgent(ctx, a.ID, 50)
@@ -740,7 +740,7 @@ func TestLookupConversationID_EmailThread(t *testing.T) {
 		[]string{"alice@gmail.com"}, nil, nil, "Re: Hello",
 		"reply", "smtp",
 		"<010f019d4b3843be-53882e6f-46de-4221-a56a-ba993e8f83e8-000000>", // bare SES ID (no @region)
-		mnexa_conv_id)
+		mnexa_conv_id, nil)
 	if err != nil {
 		t.Fatalf("CreateOutboundMessage: %v", err)
 	}
@@ -778,7 +778,7 @@ func TestLookupConversationID_ExactMatch(t *testing.T) {
 		[]string{"alice@gmail.com"}, nil, nil, "Hello",
 		"send", "smtp",
 		"<abc123@us-east-2.amazonses.com>",
-		convID)
+		convID, nil)
 	if err != nil {
 		t.Fatalf("CreateOutboundMessage: %v", err)
 	}
@@ -1418,7 +1418,7 @@ func TestGetDashboardStats_DeliverySuccess(t *testing.T) {
 	for i, status := range []string{"delivered", "delivered", "failed"} {
 		m, _ := store.CreateOutboundMessage(ctx, agent.ID,
 			[]string{"alice@example.com"}, nil, nil,
-			fmt.Sprintf("subj-%d", i), "send", "smtp", "", "")
+			fmt.Sprintf("subj-%d", i), "send", "smtp", "", "", nil)
 		_, err := pool.Exec(ctx,
 			`INSERT INTO webhook_deliveries (message_id, status, attempts, last_error, created_at)
 			 VALUES ($1, $2, 1, '', now())`,
@@ -1429,7 +1429,7 @@ func TestGetDashboardStats_DeliverySuccess(t *testing.T) {
 	}
 	// One pending — must NOT affect the ratio.
 	pendingMsg, _ := store.CreateOutboundMessage(ctx, agent.ID,
-		[]string{"alice@example.com"}, nil, nil, "pending", "send", "smtp", "", "")
+		[]string{"alice@example.com"}, nil, nil, "pending", "send", "smtp", "", "", nil)
 	pool.Exec(ctx,
 		`INSERT INTO webhook_deliveries (message_id, status, attempts, last_error, created_at)
 		 VALUES ($1, 'pending', 0, '', now())`,
@@ -1473,7 +1473,7 @@ func TestListAgentsByUser_EnrichedFields(t *testing.T) {
 	pool.Exec(ctx, `UPDATE messages SET created_at = now() - interval '14 days' WHERE id = $1`, old.ID)
 
 	for i := 0; i < 3; i++ {
-		store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "out", "send", "smtp", "", "")
+		store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "out", "send", "smtp", "", "", nil)
 	}
 	pending, _ := store.CreatePendingOutboundMessage(ctx, agent.ID,
 		[]string{"bob@example.com"}, nil, nil, "held", "body", "", nil,
@@ -1481,7 +1481,7 @@ func TestListAgentsByUser_EnrichedFields(t *testing.T) {
 	_ = pending
 
 	// One delivered webhook (healthy state)
-	m, _ := store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "delivered-msg", "send", "webhook", "", "")
+	m, _ := store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "delivered-msg", "send", "webhook", "", "", nil)
 	pool.Exec(ctx,
 		`INSERT INTO webhook_deliveries (message_id, status, attempts, last_error, created_at, last_attempt_at)
 		 VALUES ($1, 'delivered', 1, '', now(), now())`,
@@ -1529,7 +1529,7 @@ func TestListAgentsByUser_WebhookUnhealthyOnRecentFailure(t *testing.T) {
 	store.VerifyDomain(ctx, "whfail.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@whfail.example.com", "whfail.example.com", "", "https://example.com/wh", "cloud", user.ID)
 
-	m, _ := store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "failed-msg", "send", "webhook", "", "")
+	m, _ := store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "failed-msg", "send", "webhook", "", "", nil)
 	pool.Exec(ctx,
 		`INSERT INTO webhook_deliveries (message_id, status, attempts, last_error, created_at, last_attempt_at)
 		 VALUES ($1, 'failed', 3, '500 internal', now(), now() - interval '5 minutes')`,
@@ -1554,7 +1554,7 @@ func TestListAgentsByUser_OldFailureDoesNotPoisonHealth(t *testing.T) {
 	store.VerifyDomain(ctx, "wholdfail.example.com", user.ID)
 	agent, _ := store.CreateAgent(ctx, "bot@wholdfail.example.com", "wholdfail.example.com", "", "https://example.com/wh", "cloud", user.ID)
 
-	m, _ := store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "stale-fail", "send", "webhook", "", "")
+	m, _ := store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "stale-fail", "send", "webhook", "", "", nil)
 	pool.Exec(ctx,
 		`INSERT INTO webhook_deliveries (message_id, status, attempts, last_error, created_at, last_attempt_at)
 		 VALUES ($1, 'failed', 5, 'stale', now() - interval '3 days', now() - interval '3 days')`,

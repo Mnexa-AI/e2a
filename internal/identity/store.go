@@ -1173,7 +1173,7 @@ func (s *Store) GetInboundByEmailMessageID(ctx context.Context, agentID, emailMe
 // CreateOutboundMessage stores an outbound message with multi-recipient support.
 // The recipient param is kept for backward compat with the singular recipient column;
 // toRecipients, cc, and bcc are the canonical outbound-only multi-recipient fields.
-func (s *Store) CreateOutboundMessage(ctx context.Context, agentID string, toRecipients []string, cc []string, bcc []string, subject, msgType, method, providerMessageID, conversationID string) (*Message, error) {
+func (s *Store) CreateOutboundMessage(ctx context.Context, agentID string, toRecipients []string, cc []string, bcc []string, subject, msgType, method, providerMessageID, conversationID string, rawMessage []byte) (*Message, error) {
 	id := "msg_" + generateID()
 	now := time.Now()
 
@@ -1198,14 +1198,18 @@ func (s *Store) CreateOutboundMessage(ctx context.Context, agentID string, toRec
 		ToRecipients:      toRecipients,
 		CC:                cc,
 		BCC:               bcc,
+		// rawMessage is the composed MIME we actually sent — retained so the agent
+		// has a readable Sent folder (nil for self-sends, whose body lives on the
+		// inbound twin row; empty/NULL is fine).
+		RawMessage: rawMessage,
 		// The sender of an outbound message is the agent itself (agent ID == email).
 		// Persist it so the `from` wire field isn't empty for outbound (B1).
 		Sender: agentID,
 	}
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO messages (id, agent_id, direction, recipient, subject, message_type, method, provider_message_id, conversation_id, created_at, expires_at, to_recipients, cc, bcc, status, sender)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-		m.ID, m.AgentID, m.Direction, m.Recipient, m.Subject, m.Type, m.Method, m.ProviderMessageID, m.ConversationID, m.CreatedAt, m.ExpiresAt, m.ToRecipients, m.CC, m.BCC, MessageStatusSent, m.Sender,
+		`INSERT INTO messages (id, agent_id, direction, recipient, subject, message_type, method, provider_message_id, conversation_id, created_at, expires_at, to_recipients, cc, bcc, status, sender, raw_message)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+		m.ID, m.AgentID, m.Direction, m.Recipient, m.Subject, m.Type, m.Method, m.ProviderMessageID, m.ConversationID, m.CreatedAt, m.ExpiresAt, m.ToRecipients, m.CC, m.BCC, MessageStatusSent, m.Sender, nullIfEmptyBytes(m.RawMessage),
 	)
 	if err != nil {
 		return nil, err
@@ -1523,6 +1527,10 @@ type SendResult struct {
 	To                []string
 	CC                []string
 	BCC               []string
+	// Raw is the composed MIME that was sent, retained as the message's
+	// "Sent folder" copy (raw_message). Empty for loopback self-sends (the body
+	// lives on the inbound twin) and on already-sent replay.
+	Raw []byte
 }
 
 // ApproveAndSend finalizes a pending_approval message by running it through
@@ -1712,6 +1720,7 @@ func (s *Store) ApproveAndSend(
 		        edited            = $10,
 		        reviewed_at       = now(),
 		        reviewed_by_user_id = $11,
+		        raw_message       = $12::bytea,
 		        body_text         = NULL,
 		        body_html         = NULL,
 		        attachments_json  = NULL
@@ -1727,6 +1736,10 @@ func (s *Store) ApproveAndSend(
 		m.Subject,
 		editedByReviewer || m.Edited,
 		userID,
+		// Retain the sent MIME as the canonical Sent-folder copy, replacing the
+		// scrubbed draft columns. Empty on the rare already-sent replay path
+		// (send_attempts doesn't cache bytes) -> NULL, best-effort.
+		nullIfEmptyBytes(result.Raw),
 	)
 	if err != nil {
 		return nil, err
@@ -1975,6 +1988,7 @@ func (s *Store) ExpireApproveAndSend(
 		        bcc               = $7,
 		        recipient         = $8,
 		        reviewed_at       = now(),
+		        raw_message       = $9::bytea,
 		        body_text         = NULL,
 		        body_html         = NULL,
 		        attachments_json  = NULL
@@ -1987,6 +2001,7 @@ func (s *Store) ExpireApproveAndSend(
 		result.CC,
 		result.BCC,
 		firstOr(result.To, ""),
+		nullIfEmptyBytes(result.Raw),
 	)
 	if err != nil {
 		return nil, err
@@ -2599,7 +2614,7 @@ type ConversationListFilter struct {
 	// After* is the keyset cursor position (CV-3): the previous page's last
 	// row's (last_message_at, conversation_id). Zero AfterLastMessageAt = first
 	// page. Pass Limit+1 to detect a further page.
-	AfterLastMessageAt time.Time
+	AfterLastMessageAt  time.Time
 	AfterConversationID string
 }
 

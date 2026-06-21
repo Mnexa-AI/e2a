@@ -67,6 +67,10 @@ type SendResult struct {
 	To        []string `json:"-"`       // canonicalized To recipients
 	CC        []string `json:"-"`       // canonicalized CC recipients
 	BCC       []string `json:"-"`       // canonicalized BCC recipients
+	// Raw is the exact composed MIME placed on the wire (post-DKIM, post-SES
+	// header). Persisted as messages.raw_message so the agent gets a readable
+	// "Sent folder" — a mailbox keeps both sides of a conversation.
+	Raw []byte `json:"-"`
 }
 
 // ValidationError indicates a caller error (invalid addresses, no visible recipients).
@@ -257,6 +261,11 @@ func (s *Sender) Send(agent *identity.AgentIdentity, req SendRequest) (*SendResu
 		}
 	}
 
+	// Snapshot the recipient-facing bytes for the retained "Sent folder" copy:
+	// DKIM-signed, but BEFORE the e2a-internal SES configuration-set header (SES
+	// strips that before delivery, so the recipient never sees it).
+	sentBody := message
+
 	// Attach the SES configuration-set header (decision 9 / Slice 4b) so SES
 	// publishes delivery/bounce/complaint events for this message. Prepended
 	// AFTER DKIM signing so it is never in the signed header set (SES strips it
@@ -278,6 +287,7 @@ func (s *Sender) Send(agent *identity.AgentIdentity, req SendRequest) (*SendResu
 		To:        to,
 		CC:        cc,
 		BCC:       bcc,
+		Raw:       sentBody,
 	}, nil
 }
 

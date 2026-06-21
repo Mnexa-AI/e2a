@@ -56,7 +56,7 @@ func seedUserData(t *testing.T, store *identity.Store, ctx context.Context, labe
 	// Outbound message on the same agent.
 	if _, err := store.CreateOutboundMessage(ctx, customAgent.ID,
 		[]string{"alice@gmail.com"}, nil, nil,
-		"Re: Hi", "reply", "smtp", "<sent@e2a.example>", ""); err != nil {
+		"Re: Hi", "reply", "smtp", "<sent@e2a.example>", "", nil); err != nil {
 		t.Fatalf("seed: CreateOutboundMessage: %v", err)
 	}
 

@@ -250,7 +250,7 @@ func TestCreateOutboundMessageStatusSent(t *testing.T) {
 	store.ClaimOrCreateDomain(ctx, "ob-status.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "bot@ob-status.example.com", "ob-status.example.com", "", "https://example.com/webhook", "", user.ID)
 
-	msg, err := store.CreateOutboundMessage(ctx, a.ID, []string{"alice@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "", "")
+	msg, err := store.CreateOutboundMessage(ctx, a.ID, []string{"alice@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "", "", nil)
 	if err != nil {
 		t.Fatalf("CreateOutboundMessage: %v", err)
 	}
@@ -481,7 +481,7 @@ func TestMessageStatusDBCheck(t *testing.T) {
 	user, _ := store.CreateOrGetUser(ctx, "owner@example.com", "Owner", "google-status-check")
 	store.ClaimOrCreateDomain(ctx, "status-check.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "bot@status-check.example.com", "status-check.example.com", "", "https://example.com/webhook", "", user.ID)
-	msg, _ := store.CreateOutboundMessage(ctx, a.ID, []string{"alice@example.com"}, nil, nil, "x", "send", "smtp", "", "")
+	msg, _ := store.CreateOutboundMessage(ctx, a.ID, []string{"alice@example.com"}, nil, nil, "x", "send", "smtp", "", "", nil)
 
 	_, err := pool.Exec(ctx, `UPDATE messages SET status = 'bogus' WHERE id = $1`, msg.ID)
 	if err == nil {

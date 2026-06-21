@@ -10,7 +10,7 @@ import (
 
 // B1 (review correctness bug): outbound messages must carry their sender (the
 // agent's own address). The outbound INSERTs never write the `sender` column,
-// so it defaults to '' and every outbound message reports from="" — a REQUIRED
+// so it defaults to ” and every outbound message reports from="" — a REQUIRED
 // wire field returning empty. This test reads an outbound message back and
 // expects the agent address.
 func TestOutboundMessageHasSender(t *testing.T) {
@@ -22,7 +22,7 @@ func TestOutboundMessageHasSender(t *testing.T) {
 
 	out, err := store.CreateOutboundMessage(
 		ctx, agentID, []string{"alice@gmail.com"}, nil, nil,
-		"Hello", "send", "smtp", "<out-sender-1@x>", "conv-sender",
+		"Hello", "send", "smtp", "<out-sender-1@x>", "conv-sender", nil,
 	)
 	if err != nil {
 		t.Fatalf("CreateOutboundMessage: %v", err)

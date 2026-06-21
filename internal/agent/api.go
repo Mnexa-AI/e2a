@@ -1150,7 +1150,7 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		log.Printf("[api] send failed: agent=%s to=%v error=%v", agent.Domain, req.To, err)
 		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", fmt.Sprintf("send failed: %v", err)}
 	}
-	outMsg, err := a.store.CreateOutboundMessage(ctx, agent.ID, result.To, result.CC, result.BCC, req.Subject, msgType, result.Method, result.MessageID, req.ConversationID)
+	outMsg, err := a.store.CreateOutboundMessage(ctx, agent.ID, result.To, result.CC, result.BCC, req.Subject, msgType, result.Method, result.MessageID, req.ConversationID, result.Raw)
 	if err != nil {
 		log.Printf("[api] failed to record outbound message: %v", err)
 	}

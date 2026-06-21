@@ -112,6 +112,7 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 				To:                result.To,
 				CC:                result.CC,
 				BCC:               result.BCC,
+				Raw:               result.Raw,
 			}, nil
 		})
 	if err != nil {

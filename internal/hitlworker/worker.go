@@ -143,6 +143,7 @@ func (w *Worker) autoApprove(ctx context.Context, c identity.ExpirationCandidate
 				To:                result.To,
 				CC:                result.CC,
 				BCC:               result.BCC,
+				Raw:               result.Raw,
 			}, nil
 		})
 	if err != nil {

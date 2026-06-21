@@ -135,7 +135,7 @@ func TestListPendingOutboundForUser(t *testing.T) {
 
 	// A sent message on same agent should not appear in the list
 	_, err = store.CreateOutboundMessage(ctx, a.ID,
-		[]string{"sent@example.com"}, nil, nil, "Already sent", "send", "smtp", "<p1>", "")
+		[]string{"sent@example.com"}, nil, nil, "Already sent", "send", "smtp", "<p1>", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -479,7 +479,7 @@ func TestApproveAndSendNotPending(t *testing.T) {
 
 	// Already-sent message
 	sent, _ := store.CreateOutboundMessage(ctx, a.ID,
-		[]string{"alice@example.com"}, nil, nil, "Already sent", "send", "smtp", "<p>", "")
+		[]string{"alice@example.com"}, nil, nil, "Already sent", "send", "smtp", "<p>", "", nil)
 
 	_, err := store.ApproveAndSend(ctx, sent.ID, user.ID, identity.PendingApprovalEdit{},
 		func(m *identity.Message) (identity.SendResult, error) {

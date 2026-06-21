@@ -71,6 +71,7 @@ func (a *API) performSelfSend(
 		"loopback",
 		providerID,
 		req.ConversationID,
+		nil, // self-send body is retained on the inbound twin row; don't double-store
 	); err != nil {
 		return "", fmt.Errorf("self-send outbound row: %w", err)
 	}

@@ -238,6 +238,7 @@ func (a *API) magicApprove(w http.ResponseWriter, r *http.Request, messageID, us
 				To:                result.To,
 				CC:                result.CC,
 				BCC:               result.BCC,
+				Raw:               result.Raw,
 			}, nil
 		})
 	if err != nil {
