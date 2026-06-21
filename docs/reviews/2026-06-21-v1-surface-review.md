@@ -22,7 +22,7 @@
 | 8 | API | `domains.go` — domain verification | done | 🟡 timestamp type inconsistent surface-wide (time.Time here/conversations vs string in messages/webhooks → SDK Date vs string); delete/verify guards ✅ |
 | 9 | API | `account.go` — account/limits/usage | done | 🟡 GDPR export omits screening_events (confirms screening-review flag); 🟡 verify requireAccountUser bars agent scope (delete/export keystone → #10) |
 | 10 | API | `scope.go` + `middleware.go` — auth/scopes | done | ✅ KEYSTONE: account-scope ceiling holds — #1/#5/#9 cross-refs resolve safe; agent creds barred from account admin + pinned to one agent; 🟡 no Cache-Control: no-store |
-| 11 | API | `pagination.go` — cursor contracts | pending | |
+| 11 | API | `pagination.go` — cursor contracts | done | 🟡 shared layer doesn't ENFORCE filter-binding (root cause of #6 drift) — add {position,filterSnapshot} helper; unsigned cursor verified safe ✅ |
 | 12 | API | `idempotency.go` — idempotency keys | pending | |
 | 13 | API | `operations.go` + `errors.go` — views + error envelopes | pending | |
 | 14 | API | `ratelimit.go` — rate limiting | pending | |
@@ -44,6 +44,19 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 11. API — `pagination.go` (shared cursor machinery)
+
+The envelope is clean and the unsigned cursor is (correctly) *not* a security boundary. The one architectural finding is the root cause of the #6 cursor drift: the shared layer serializes but doesn't *enforce* the filter-binding invariant.
+
+**🟡 The cursor layer doesn't enforce filter-identity binding — so each resource re-implements it, and #6 forgot.** `EncodeCursor`/`DecodeCursor` (`pagination.go:52–76`) marshal/unmarshal an arbitrary payload; the "snapshot the filters + reject a changed-filter continuation" logic is hand-rolled per handler (`messages.go` binds 10 fields, `conversations.go` 3, **`events.go` zero**). Because the shared machinery makes *position-only* the path of least resistance, drift is inevitable — `events.go` is the proof. *Fix:* add a shared helper that bundles `{position, filterSnapshot}` and, on decode, compares `filterSnapshot` against the request's current filters → `ErrInvalidCursor` on mismatch. Then filter-binding is the default and a resource *can't* silently ship a position-only cursor. This single change closes the #6 class at the source.
+
+**🔵 `PageParams` isn't applied uniformly — limit bounds drift.** The comment (`pagination.go:36–38`) says `cursor`+`limit` are "declared, typed, and validated identically across the surface," but `events` (max 200), `webhook deliveries` (max 500), and `conversations` (default 100) declare their *own* `Limit` field instead of embedding `PageParams` (max 100/default 50). So the per-endpoint caps are 50/100/200/500 — not identical. Either embed `PageParams` everywhere (and parameterize the cap) or drop the "identical" claim.
+
+**✅ Verified clean — incl. the unsigned-cursor question (important):**
+- **The plain `base64(JSON)` cursor is NOT forgeable into an escalation.** It carries no load-bearing authz: `AgentID` in the cursor is re-validated against the path agent (which comes from `resolveOwnedAgent`, not the cursor), the filter snapshot is re-validated against the request, and the `(created_at, id)` position only resumes *within already-authorized data*. A tampered cursor either fails the filter-identity check or just reorders the client's own rows — no cross-tenant reach. So skipping an HMAC here is a justified choice, not a hole. (A one-line code comment stating this would pre-empt the reviewer reflex to "sign the cursor.")
+- **Uniform envelope**: `Page[T]` = `items` (always `[]`, never `null`) + `next_cursor` (`null` on last page) — one shape across every collection.
+- **Stable error**: a malformed cursor → `ErrInvalidCursor` sentinel → clean 400 `invalid_cursor`; empty cursor = start-from-beginning. `DecodeCursor` into a fixed per-resource struct bounds what an oversized cursor can do.
 
 ### 10. API — `scope.go` + `middleware.go` (auth/scopes) — KEYSTONE
 
