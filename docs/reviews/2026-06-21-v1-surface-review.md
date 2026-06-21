@@ -37,13 +37,41 @@
 | 23 | MCP | `tools/hitl.ts` | done | 🟡 outbound-only (no inbound review release — mirrors #5); 🟡 approve_message destructiveHint:false despite gating an irreversible send (LLM could self-release → collapse HITL); best-in-surface idempotency doc ✅ |
 | 24 | MCP | `tools/webhooks.ts` + `events.ts` + `domains.ts` | done | 🟡 create_webhook/list_events descriptions OMIT email.injection_detected (completes #7: undiscoverable end-to-end); secret/SSRF/rotation + domains composition ✅ |
 | 25 | MCP | `server.ts` + `session.ts` + `client.ts` — transport/auth/pagination | done | ✅ bearer-fingerprint session binding defeats session-hijack (excellent); scope-gating correctly layered; 🟡 client wrapper threads retired hitlEnabled/hitlMode (confirms #21 end-to-end) |
-| 26 | MCP | `tools/tiers.ts` + `util.ts` — scope gating | pending | |
+| 26 | MCP | `tools/tiers.ts` + `util.ts` — scope gating | done | ✅ tier map correct — RESOLVES #23 (approve/reject account-only + backend 403); assertToolTiersComplete = the drift-gate pattern #7/#21 need; util.ts clean [REVIEW COMPLETE] |
 
 ---
 
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 26. MCP — `tools/tiers.ts` + `util.ts` (scope gating) — *review complete*
+
+A strong close: the tier map is correct, it **resolves the #23 self-approval concern for the common case**, and it demonstrates the exact drift-gate pattern the rest of the surface is missing.
+
+**✅ The tier partition is correct AND closes the #23 HITL-integrity gap for agent-scoped sessions.** `approve_message`/`reject_message` are in `ADMIN_TOOLS` (account-only, `tiers.ts:55–56`), with an explicit rationale: letting an agent-scoped credential approve its own held outbound "would be self-approval and defeat the HITL gate" (`tiers.ts:36–41,51–54`), and the backend enforces the same (hitl.go requires account scope, 403 for agent). So an **agent-scoped MCP session never even sees `approve_message`** — defense-in-depth (gating + backend 403). This narrows #23's residual risk to exactly one deployment shape: an MCP driven by an *account-scoped* credential under an autonomous LLM. The `destructiveHint` concern from #23 still merits a fix, but the dangerous default (an agent self-releasing) is structurally prevented.
+
+**✅ `assertToolTiersComplete` is the drift-gate pattern the rest of the surface needs.** It test-asserts the tier map covers the registered tools **exactly** — flagging untiered (silently hidden from all scopes), double-tiered, and phantom names (`tiers.ts:102–114`). This is precisely what #7's webhook event enum (5+ hand-copies) and #21's agent-config fields **lack**: a single source of truth with a test that fails on drift. *Recommendation for the consolidated fix:* model the event-enum fix on this — one canonical event list + an `assert…Complete` drift test across the enum's copies.
+
+**🔵 `get_agent` is `RUNTIME` (agent-visible) → the #13 caution is load-bearing for the #21 fix.** The tier map confirms an agent-scoped session sees `get_agent` (`tiers.ts:28`). Today it returns the *stale* config (#21), so no thresholds leak yet — but when #21 is fixed by wiring the new screening config into `get_agent`, the #13 disclosure applies: **omit the scan thresholds for agent scope**, or an injected agent reads its own evasion targets.
+
+**✅ `util.ts` plumbing is clean:** `strictInputSchema` = `.strict()` Zod (a typo'd param is rejected, not silently dropped); `paginationInput` is the **one** `cursor`+`limit` shape across every list tool (replacing the old `token`/`page_size`/`limit` mix — the cross-surface consistency #11 wanted, achieved here) with an explicit "STOP when `next_cursor` is absent" instruction; `runTool` wraps errors into `{ isError, e2a error [code]: … }` with a retryable hint and `sanitizeMessage` (no credential/internal leak).
+
+---
+
+## Final verdict (all 26 subcomponents reviewed)
+
+**The `/v1` API, both SDKs, and the MCP surface are well-architected and close to GA-ready. The foundations are genuinely strong — the open work is a tight, coherent fix-list, not a redesign.**
+
+**What's solid (verified):** the auth/scope ceiling holds end-to-end (#10/#13 + MCP tier map #26 + bearer-fingerprint session binding #25); the error envelope is drift-proof (#13); idempotency is correct and the SDK retry/pagination/signature cores are best-in-class and consistent TS↔Python (#17/#18/#19/#20, incl. the NaN replay-trap); the held-message read boundary holds through every layer including MCP (#22); attachments are bomb-safe (#22); webhook secret/SSRF/rotation and domain ergonomics are excellent (#24).
+
+**The two GA blockers (both 🔴, same root cause — hand-maintained surfaces not updated when Slice 5 changed the contract):**
+1. **`email.injection_detected` is unsubscribable/undiscoverable on EVERY surface** (#6/#7/#24): the screening engine emits it, but the webhook event enum (5+ hand-copies) omits it (server 422s a subscribe), and both MCP descriptions omit it. The security alert the whole framework exists to raise reaches no push subscriber. *Fix:* add it to the canonical enum + all copies + 2 MCP descriptions; adopt the #26 drift-gate pattern so this can't recur.
+2. **Screening is unconfigurable via MCP** (#21, threaded through #25): `update_agent` exposes the **retired** `hitl_enabled`/`hitl_mode` (silent server-ignored no-op) and **none** of the new `outbound_policy`/`outbound_scan`/threshold fields. An MCP agent can't turn screening on, and the control it's offered does nothing. *Fix:* replace the dead fields with the new screening config (tool schema + `client.ts` wrapper), applying the #13 threshold-non-disclosure on the agent-visible `get_agent`.
+
+**The coherent 🟡 cluster (drift + screening under-exposure), all fixable pre-GA:** no inbound-review release API at `/v1` or MCP (#5/#23); `screening_events` absent from `/v1` + GDPR export (#6/#9); timestamp type split (#8); cursor filter-binding not enforced by the shared layer (#6/#11); read/write label-rule duplication (#2); `reply_all` vs `maxRecipients` + CRLF-subject on reply/forward (#3); `clientIP` XFF spoofing (#14); approve-tool `destructiveHint` (#23); WS `?token=` credential logging (#16/#19); TS WS unbounded buffer (#16); `.parse()` missing in both SDKs (#15/#18).
+
+**One process observation worth keeping:** the review was self-correcting — #15's worst-case "double-send" was proven a false alarm by #17 once the retry layer was read. The systemic risk this audit surfaced is **hand-maintained duplicates of a generated contract** (event enum, MCP tool descriptions, agent-config fields). The single highest-leverage investment is making those generated or drift-gated (the #26 `assertToolTiersComplete` pattern is the model).
 
 ### 25. MCP — `server.ts` + `session.ts` + `client.ts` (transport / auth / pagination)
 
