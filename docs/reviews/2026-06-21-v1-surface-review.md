@@ -25,7 +25,7 @@
 | 11 | API | `pagination.go` — cursor contracts | done | 🟡 shared layer doesn't ENFORCE filter-binding (root cause of #6 drift) — add {position,filterSnapshot} helper; unsigned cursor verified safe ✅ |
 | 12 | API | `idempotency.go` — idempotency keys | done | 🟡 byte-exact body hash → non-identical retry 422s (SDK retry MUST buffer+resend → verify #17/#19); namespace separation + panic safety ✅ |
 | 13 | API | `operations.go` + `errors.go` — views + error envelopes | done | 🟡 AgentView leaks scan THRESHOLDS to agent-scoped creds (injected agent can calibrate evasion); resolveOwnedAgent ✅ (#10 resolved); error envelope best-in-class ✅ |
-| 14 | API | `ratelimit.go` — rate limiting | pending | |
+| 14 | API | `ratelimit.go` — rate limiting | done | 🟡 clientIP trusts leftmost X-Forwarded-For → per-IP limiter spoofable (use trusted hop); layer separation + poll-set fidelity ✅ [API section complete] |
 | 15 | SDK | TS `client.ts` — ergonomic layer (parse/reply) | pending | |
 | 16 | SDK | TS `ws.ts` — WebSocket | pending | |
 | 17 | SDK | TS `pagination.ts` + `retry.ts` + `errors.ts` | pending | |
@@ -44,6 +44,24 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 14. API — `ratelimit.go` (rate limiting) — *API section complete*
+
+Thoughtful layering (poll vs registration vs in-handler send) with the legacy set replicated exactly. One real anti-abuse weakness in client-IP derivation.
+
+**🟡 `clientIP` trusts the client-supplied `X-Forwarded-For` (leftmost hop) → per-IP limiter is spoofable.** `clientIP` (`ratelimit.go:138–147`) takes the **first** value of `X-Forwarded-For`, which is the most attacker-controllable field in the request — if the app is ever directly reachable, or sits behind a proxy that *appends* (rather than overwrites) XFF, a caller rotates the header per request and gets a fresh rate-limit key each time, defeating the per-IP `createAgent` registration limiter. (Impact here is bounded by the authenticated per-user agent cap that also gates `createAgent`, so it's defense-in-depth on this op — but the same `clientIP` pattern keys any per-IP limiter, where it may be the *primary* control.) *Fix:* derive the client IP from a *trusted* hop — a configured trusted-proxy depth (take the Nth-from-right), or fall back to `RemoteAddr` when no trusted proxy is configured — rather than the spoofable leftmost value. At minimum, document that the edge MUST overwrite `X-Forwarded-For`.
+
+**🔵 `RateLimit-*` headers only on the middleware-enforced limits.** The poll + registration limiters set IETF `RateLimit-Limit/Remaining/Reset` (+ `Retry-After`), but the **send** limiter runs inside the outbound handlers (`checkSendLimit`) where a Huma error can't set response headers — so a send-rate 429 carries `retry_after_seconds` in the body but **no** `RateLimit-*` headers. Inconsistent 429 shape across limiters; already noted as a follow-up in #3.
+
+**✅ Verified clean:**
+- **Layer separation**: the per-agent **send** limiter is correctly enforced *in* the handler (its key is the resolved-owned agent, which needs the ownership check this middleware doesn't do) — documented (`ratelimit.go:39–45`).
+- **Poll set fidelity**: `pollLimitedOps` mirrors the legacy surface exactly (verified against `origin/main`) and deliberately excludes the events/reconciliation reads so they don't compete for the 60/min message-read budget.
+- **Auth precedence**: an unauthenticated request is passed through so the handler emits the canonical 401 rather than masking a missing credential as a rate-limit decision (`ratelimit.go:62–67`).
+- **Principal reuse**: the middleware stashes the resolved principal so the handler skips a second auth on the hot read path; the middleware error envelope is request-id-stamped to match the handler path.
+
+---
+
+> **API section complete (#1–14).** The auth/scope foundation is solid (#10/#13). The open work clusters into two themes: **(A) drift from hand-maintained duplicates** — webhook event enum (#7, *breaks injection alerts*), timestamps (#8), cursor filter-binding (#6/#11), label rules (#2/#7); and **(B) screening under-exposure** — no inbound-review release API (#5), `screening_events` absent from `/v1` + GDPR export (#6/#9), thresholds leaked to agents (#13). A consolidated summary will follow the SDK/MCP rows.
 
 ### 13. API — `operations.go` + `errors.go` (views, `resolveOwnedAgent`, error envelope)
 
