@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { McpClient } from "../client.js";
 import { z } from "zod";
-import { runTool, strictInputSchema } from "./util.js";
+import { runTool, strictInputSchema, paginationInput } from "./util.js";
 
 // Slice 8: MCP tool surfaces for the customer-facing events API.
 //   list_events       — paginated listing with filters
@@ -19,7 +19,7 @@ export function registerEventTools(server: McpServer, client: McpClient): void {
       title: "List webhook events",
       annotations: { readOnlyHint: true },
       description:
-        "List the durable webhook event log in reverse-chronological order. Useful for reconciliation (\"did our webhook receiver see this event?\") and for debugging delivery state. Events past the 30-day retention boundary are not returned. Cursor-paginated via `token` / `next_token` — pass the previous response's `next_token` to walk further back. Returns each event's `data` payload plus a `delivery_status` summary of how many subscribers have received it.",
+        "List the durable webhook event log in reverse-chronological order. Useful for reconciliation (\"did our webhook receiver see this event?\") and for debugging delivery state. Events past the 30-day retention boundary are not returned. **Cursor-paginated:** returns one page in `events` plus a `next_cursor` when more remain — pass it back as `cursor` to walk further back. Returns each event's `data` payload plus a `delivery_status` summary of how many subscribers have received it.",
       inputSchema: strictInputSchema({
         type: z
           .string()
@@ -35,17 +35,12 @@ export function registerEventTools(server: McpServer, client: McpClient): void {
           .optional()
           .describe("RFC3339 timestamp; returns events with `created_at >= since`."),
         until: z.string().optional().describe("RFC3339; returns events with `created_at < until`."),
-        page_size: z.number().int().min(1).max(100).optional(),
-        token: z.string().optional().describe("Opaque cursor from a previous response's `next_token`."),
+        ...paginationInput,
       }),
     },
     async (args) =>
-      // The v1 client auto-paginates; we collect up to `page_size` rows
-      // (the SDK walks cursors internally). `token` is accepted in the
-      // schema for contract stability but no longer needed — the pager
-      // handles cursoring transparently.
-      runTool(async () => ({
-        events: await client.listEvents({
+      runTool(async () => {
+        const page = await client.listEvents({
           ...(args.type !== undefined ? { type: args.type } : {}),
           ...(args.agent_id !== undefined ? { agentId: args.agent_id } : {}),
           ...(args.conversation_id !== undefined
@@ -54,9 +49,11 @@ export function registerEventTools(server: McpServer, client: McpClient): void {
           ...(args.message_id !== undefined ? { messageId: args.message_id } : {}),
           ...(args.since !== undefined ? { since: args.since } : {}),
           ...(args.until !== undefined ? { until: args.until } : {}),
-          ...(args.page_size !== undefined ? { limit: args.page_size } : {}),
-        }),
-      })),
+          ...(args.cursor !== undefined ? { cursor: args.cursor } : {}),
+          ...(args.limit !== undefined ? { limit: args.limit } : {}),
+        });
+        return { events: page.items, ...(page.next_cursor ? { next_cursor: page.next_cursor } : {}) };
+      }),
   );
 
   server.registerTool(

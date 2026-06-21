@@ -23,6 +23,7 @@ import type {
   CreateWebhookRequest,
   UpdateWebhookRequest,
   TestWebhookRequest,
+  Page,
 } from "@e2a/sdk/v1";
 import type { McpConfig } from "./config.js";
 import type { Scope } from "./tools/tiers.js";
@@ -211,7 +212,9 @@ export class McpClient {
     return this.sdk.messages.get(this.resolveAddress(explicitAddress), messageId);
   }
 
-  async listMessages(params: {
+  // Cursor pagination (§6a #3): returns ONE page + next_cursor. `limit` is the
+  // page size; pass a prior response's next_cursor as `cursor` for the next page.
+  listMessages(params: {
     readStatus?: "unread" | "read" | "all";
     sort?: "asc" | "desc";
     from?: string;
@@ -220,22 +223,22 @@ export class McpClient {
     since?: string;
     until?: string;
     labels?: Array<string>;
+    cursor?: string;
     limit?: number;
     explicitAddress?: string;
-  }): Promise<MessageSummaryView[]> {
-    const { explicitAddress, limit, ...rest } = params;
-    return this.sdk.messages
-      .list(this.resolveAddress(explicitAddress), rest)
-      .toArray({ limit: limit ?? DEFAULT_LIST_LIMIT });
+  }): Promise<Page<MessageSummaryView>> {
+    const { explicitAddress, cursor, ...rest } = params;
+    return this.sdk.messages.list(this.resolveAddress(explicitAddress), rest).page(cursor);
   }
 
   // ── Conversations ───────────────────────────────────────────────
 
   listConversations(
-    params: { since?: string; until?: string; limit?: number },
+    params: { since?: string; until?: string; cursor?: string; limit?: number },
     explicitAddress?: string,
-  ): Promise<ConversationSummaryView[]> {
-    return this.sdk.conversations.list(this.resolveAddress(explicitAddress), params).toArray({ limit: params.limit ?? 200 });
+  ): Promise<Page<ConversationSummaryView>> {
+    const { cursor, ...rest } = params;
+    return this.sdk.conversations.list(this.resolveAddress(explicitAddress), rest).page(cursor);
   }
 
   getConversation(
@@ -409,10 +412,11 @@ export class McpClient {
     messageId?: string;
     since?: string;
     until?: string;
+    cursor?: string;
     limit?: number;
-  }): Promise<EventJSON[]> {
-    const { limit, ...rest } = params;
-    return this.sdk.events.list(rest).toArray({ limit: limit ?? DEFAULT_LIST_LIMIT });
+  }): Promise<Page<EventJSON>> {
+    const { cursor, ...rest } = params;
+    return this.sdk.events.list(rest).page(cursor);
   }
 
   getEvent(id: string): Promise<EventJSON> {

@@ -17,16 +17,19 @@ function makeStubClient(): McpClient {
     getMessage: vi.fn(async () => ({ messageId: "m" })),
     getAgent: vi.fn(async () => ({ id: "x@y", email: "x@y" })),
     listAgents: vi.fn(async () => [{ email: "bot@example.com" }]),
-    listEvents: vi.fn(async () => [
-      {
-        id: "evt_http",
-        type: "email.received",
-        schemaVersion: 1,
-        createdAt: "2026-06-01T12:00:00Z",
-        status: "processed",
-        data: { from: "alice@example.com" },
-      },
-    ]),
+    listEvents: vi.fn(async () => ({
+      items: [
+        {
+          id: "evt_http",
+          type: "email.received",
+          schemaVersion: 1,
+          createdAt: "2026-06-01T12:00:00Z",
+          status: "processed",
+          data: { from: "alice@example.com" },
+        },
+      ],
+      next_cursor: undefined,
+    })),
     getEvent: vi.fn(async (id: string) => ({
       id,
       type: "email.received",

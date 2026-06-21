@@ -60,9 +60,10 @@ function makeStubClient(
     reply: vi.fn(async () => ({ messageId: "msg_reply", status: "sent" })),
     forward: vi.fn(async () => ({ messageId: "msg_fwd", status: "sent" })),
     updateMessageLabels: vi.fn(async () => ({ messageId: "msg_in", labels: ["urgent"] })),
-    listConversations: vi.fn(async () => [{ conversationId: "conv_1" }]),
+    // Cursor-paginated lists return a Page { items, next_cursor }.
+    listConversations: vi.fn(async () => ({ items: [{ conversationId: "conv_1" }], next_cursor: undefined })),
     getConversation: vi.fn(async () => ({ conversationId: "conv_1", messages: [] })),
-    listMessages: vi.fn(async () => []),
+    listMessages: vi.fn(async () => ({ items: [], next_cursor: undefined })),
     listAgents: vi.fn(async () => [{ email: "bot@example.com" }]),
     // whoami → client.whoami() returns an AccountView (the authenticated
     // account identity), NOT an agent record. No default-agent resolution.
@@ -396,13 +397,13 @@ describe("e2a MCP server", () => {
     );
   });
 
-  it("list_conversations forwards args to client.listConversations", async () => {
+  it("list_conversations forwards cursor/limit + filters to client.listConversations", async () => {
     await client.callTool({
       name: "list_conversations",
-      arguments: { page_size: 20, since: "2026-05-01T00:00:00Z" },
+      arguments: { limit: 20, cursor: "c_prev", since: "2026-05-01T00:00:00Z" },
     });
     expect(stub.listConversations).toHaveBeenCalledWith(
-      { limit: 20, since: "2026-05-01T00:00:00Z" },
+      { limit: 20, cursor: "c_prev", since: "2026-05-01T00:00:00Z" },
       undefined,
     );
   });
@@ -415,15 +416,37 @@ describe("e2a MCP server", () => {
     expect(stub.getConversation).toHaveBeenCalledWith("conv_1", undefined);
   });
 
-  it("list_messages forwards filters", async () => {
+  it("list_messages forwards filters + cursor/limit", async () => {
     await client.callTool({
       name: "list_messages",
-      arguments: { read_status: "unread", page_size: 10 },
+      arguments: { read_status: "unread", limit: 10, cursor: "c_prev" },
     });
     expect(stub.listMessages).toHaveBeenCalledWith({
       readStatus: "unread",
       limit: 10,
+      cursor: "c_prev",
     });
+  });
+
+  it("list_messages surfaces next_cursor when more pages remain", async () => {
+    (stub.listMessages as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      items: [{ messageId: "m1" }],
+      next_cursor: "c_next",
+    });
+    const res = await client.callTool({ name: "list_messages", arguments: {} });
+    const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
+    expect(payload.messages).toEqual([{ messageId: "m1" }]);
+    expect(payload.next_cursor).toBe("c_next");
+  });
+
+  it("list_messages omits next_cursor on the last page", async () => {
+    (stub.listMessages as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      items: [{ messageId: "m1" }],
+      next_cursor: undefined,
+    });
+    const res = await client.callTool({ name: "list_messages", arguments: {} });
+    const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
+    expect(payload).not.toHaveProperty("next_cursor");
   });
 
   it("get_message uses the env agent email when omitted and returns parsed shape", async () => {

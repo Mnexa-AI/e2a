@@ -3,7 +3,7 @@ import { simpleParser } from "mailparser";
 import type { McpClient, SendOpts } from "../client.js";
 import type { MessageView } from "@e2a/sdk/v1";
 import { z } from "zod";
-import { runTool, strictInputSchema } from "./util.js";
+import { runTool, strictInputSchema, paginationInput } from "./util.js";
 import { attachmentsArraySchema, type AttachmentInput } from "./attachments.js";
 
 // Map the snake_case attachment wire shape (filename, content_type, data)
@@ -264,9 +264,9 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       title: "List conversations for the agent",
       annotations: { readOnlyHint: true },
       description:
-        "Lists the agent's conversations — groups of messages sharing a `conversation_id` — one row per conversation, sorted by most recent activity. Each row carries `message_count`, `inbound_count`, `outbound_count`, `has_unread`, and the latest message's subject + sender so you can render an inbox without drilling into each thread. The server caps the response at 100. Use this when the user wants to see threads rather than individual messages — e.g. \"what conversations are unread?\" or \"show recent threads with Alice\". To read a single conversation's messages, call `get_conversation`.",
+        "Lists the agent's conversations — groups of messages sharing a `conversation_id` — one row per conversation, sorted by most recent activity. Each row carries `message_count`, `inbound_count`, `outbound_count`, `has_unread`, and the latest message's subject + sender so you can render an inbox without drilling into each thread. **Cursor-paginated:** returns one page in `conversations` plus a `next_cursor` when more remain — pass it back as `cursor` for the next page. To read a single conversation's messages, call `get_conversation`.",
       inputSchema: strictInputSchema({
-        page_size: z.number().int().positive().max(100).optional(),
+        ...paginationInput,
         since: z
           .string()
           .optional()
@@ -283,16 +283,18 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       }),
     },
     async (args) =>
-      runTool(async () => ({
-        conversations: await client.listConversations(
+      runTool(async () => {
+        const page = await client.listConversations(
           {
-            ...(args.page_size !== undefined ? { limit: args.page_size } : {}),
+            ...(args.cursor !== undefined ? { cursor: args.cursor } : {}),
+            ...(args.limit !== undefined ? { limit: args.limit } : {}),
             ...(args.since !== undefined ? { since: args.since } : {}),
             ...(args.until !== undefined ? { until: args.until } : {}),
           },
           args.email,
-        ),
-      })),
+        );
+        return { conversations: page.items, ...(page.next_cursor ? { next_cursor: page.next_cursor } : {}) };
+      }),
   );
 
   server.registerTool(
@@ -317,15 +319,15 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       title: "List inbound messages",
       annotations: { readOnlyHint: true },
       description:
-        "List messages the agent has received, newest first by default. Filter by `read_status` (unread/read/all; default unread) and cap results with `page_size`. Pass `sort: \"asc\"` for FIFO order (oldest unread first) when the caller wants to drain the inbox in arrival order. **Search filters** (`from`, `subject_contains`, `conversation_id`, `since`, `until`) narrow the result set server-side — use them instead of paginating the full inbox client-side. Returns summaries only — use `get_message` for the full body.",
+        "List messages the agent has received, newest first by default. Filter by `read_status` (unread/read/all; default unread). **Cursor-paginated:** returns one page in `messages` plus a `next_cursor` when more remain — pass it back as `cursor` for the next page (keep the same filters + sort). Pass `sort: \"asc\"` for FIFO order (oldest unread first) to drain the inbox in arrival order. **Search filters** (`from`, `subject_contains`, `conversation_id`, `since`, `until`) narrow server-side — use them instead of paging the whole inbox. Returns summaries only — use `get_message` for the full body.",
       inputSchema: strictInputSchema({
         read_status: z.enum(["unread", "read", "all"]).optional(),
-        page_size: z.number().int().positive().max(100).optional(),
+        ...paginationInput,
         sort: z
           .enum(["asc", "desc"])
           .optional()
           .describe(
-            "Sort order by created_at. Defaults to `desc` (newest first). Pass `asc` for FIFO polling — drain the inbox in arrival order. Switching sort mid-pagination rejects the existing token.",
+            "Sort order by created_at. Defaults to `desc` (newest first). Pass `asc` for FIFO polling — drain the inbox in arrival order. Switching sort mid-pagination rejects the existing cursor.",
           ),
         from: z
           .string()
@@ -364,18 +366,15 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           .describe(
             "AND-match filter on labels. A row is returned only if ALL given labels are present. Use lowercase strings matching `[a-z0-9:_-]+`; `e2a:*` system labels can be filtered even though setting them is server-only.",
           ),
-        token: z.string().optional().describe("Pagination token from a previous response."),
         email: z.string().optional(),
       }),
     },
     async (args) =>
-      // The v1 client auto-paginates; `token` is accepted in the schema
-      // for contract stability but unused — the pager walks cursors
-      // internally up to `page_size` rows.
-      runTool(async () => ({
-        messages: await client.listMessages({
+      runTool(async () => {
+        const page = await client.listMessages({
           ...(args.read_status !== undefined ? { readStatus: args.read_status } : {}),
-          ...(args.page_size !== undefined ? { limit: args.page_size } : {}),
+          ...(args.cursor !== undefined ? { cursor: args.cursor } : {}),
+          ...(args.limit !== undefined ? { limit: args.limit } : {}),
           ...(args.sort !== undefined ? { sort: args.sort } : {}),
           ...(args.from !== undefined ? { from: args.from } : {}),
           ...(args.subject_contains !== undefined
@@ -388,8 +387,9 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           ...(args.until !== undefined ? { until: args.until } : {}),
           ...(args.labels !== undefined ? { labels: args.labels } : {}),
           ...(args.email !== undefined ? { explicitAddress: args.email } : {}),
-        }),
-      })),
+        });
+        return { messages: page.items, ...(page.next_cursor ? { next_cursor: page.next_cursor } : {}) };
+      }),
   );
 
   server.registerTool(

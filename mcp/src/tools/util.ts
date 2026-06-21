@@ -15,6 +15,26 @@ export function strictInputSchema<S extends ZodRawShape>(shape: S) {
   return z.object(shape).strict();
 }
 
+// paginationInput is the ONE pagination shape for every cursor-paginated list
+// tool (§6a #3): `cursor` + `limit` in, and the tool returns `{ <items>,
+// next_cursor }`. Spread it into the tool's input schema. This replaces the old
+// mix of `token` / `page_size` / bare `limit`.
+export const paginationInput = {
+  cursor: z
+    .string()
+    .optional()
+    .describe(
+      "Pagination cursor. Pass the `next_cursor` from a previous response to fetch the next page; omit for the first page. The response includes `next_cursor` when more pages remain (absent on the last page).",
+    ),
+  limit: z
+    .number()
+    .int()
+    .positive()
+    .max(100)
+    .optional()
+    .describe("Max items in this page (1–100). Defaults to a server-chosen page size."),
+} as const;
+
 export async function runTool<T>(fn: () => Promise<T>): Promise<ToolResult> {
   try {
     const result = await fn();

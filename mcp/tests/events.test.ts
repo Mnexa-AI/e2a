@@ -14,17 +14,20 @@ function makeStubClient(): McpClient {
   const stub = {
     agentEmail: "bot@example.com",
     scope: "account" as const,
-    // Events methods on the wrapper.
-    listEvents: vi.fn(async (_params?: Record<string, unknown>) => [
-      {
-        id: "evt_abc",
-        type: "email.received",
-        schemaVersion: 1,
-        createdAt: "2026-06-01T12:00:00Z",
-        status: "processed",
-        data: { from: "alice@example.com" },
-      },
-    ]),
+    // Events methods on the wrapper. listEvents is cursor-paginated → Page.
+    listEvents: vi.fn(async (_params?: Record<string, unknown>) => ({
+      items: [
+        {
+          id: "evt_abc",
+          type: "email.received",
+          schemaVersion: 1,
+          createdAt: "2026-06-01T12:00:00Z",
+          status: "processed",
+          data: { from: "alice@example.com" },
+        },
+      ],
+      next_cursor: undefined,
+    })),
     getEvent: vi.fn(async (id: string) => ({
       id,
       type: "email.received",
@@ -84,7 +87,7 @@ describe("MCP events tools", () => {
       expect(stub.listEvents).toHaveBeenCalledOnce();
     });
 
-    it("forwards all filter params to the wrapper (page_size → limit)", async () => {
+    it("forwards all filter params + cursor/limit to the wrapper", async () => {
       const client = await buildClient(stub);
       await client.callTool({
         name: "list_events",
@@ -95,12 +98,10 @@ describe("MCP events tools", () => {
           message_id: "msg_z",
           since: "2026-06-01T00:00:00Z",
           until: "2026-06-02T00:00:00Z",
-          page_size: 25,
-          token: "opaque",
+          limit: 25,
+          cursor: "c_prev",
         },
       });
-      // `token` is accepted in the schema for contract stability but the
-      // auto-pager handles cursoring internally, so it is not forwarded.
       expect(stub.listEvents).toHaveBeenCalledWith({
         type: "email.received",
         agentId: "ag_x",
@@ -109,6 +110,7 @@ describe("MCP events tools", () => {
         since: "2026-06-01T00:00:00Z",
         until: "2026-06-02T00:00:00Z",
         limit: 25,
+        cursor: "c_prev",
       });
     });
   });

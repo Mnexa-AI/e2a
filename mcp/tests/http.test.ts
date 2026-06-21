@@ -17,7 +17,7 @@ function makeStubClient(): McpClient {
     getAgent: vi.fn(async (e: string) => ({ id: e, email: e })),
     send: vi.fn(async () => ({ messageId: "msg_sent", status: "sent" })),
     reply: vi.fn(async () => ({ messageId: "msg_reply", status: "sent" })),
-    listMessages: vi.fn(async () => []),
+    listMessages: vi.fn(async () => ({ items: [], next_cursor: undefined })),
     listAgents: vi.fn(async () => []),
     createAgent: vi.fn(async () => ({ email: "x@y", id: "x", domain: "y" })),
     listPendingMessages: vi.fn(async () => []),
@@ -323,6 +323,43 @@ describe("HTTP MCP server", () => {
     await transport.close();
   });
 
+  it("over the wire, list_messages paginates by cursor (§6a #3)", async () => {
+    // E2E for the cursor shape across the real Streamable-HTTP/JSON-RPC
+    // transport: page 1 returns items + next_cursor; passing that cursor back
+    // returns page 2 with no next_cursor (last page). Proves the cursor
+    // round-trips over the wire, not just in-process.
+    await close();
+    const pgStub = makeStubClient();
+    pgStub.listMessages = vi.fn(async (params: { cursor?: string }) =>
+      params?.cursor === "c2"
+        ? { items: [{ messageId: "m3" }], next_cursor: undefined }
+        : { items: [{ messageId: "m1" }, { messageId: "m2" }], next_cursor: "c2" },
+    ) as McpClient["listMessages"];
+    const { close: c, port } = await startHttpServer(0, {
+      baseUrl: "http://e2a.local",
+      allowedHosts: ["127.0.0.1", "localhost"],
+      clientFactory: () => pgStub,
+    });
+    close = c;
+    url = `http://127.0.0.1:${port}/mcp`;
+
+    const { client, transport } = await connect();
+    const page1 = JSON.parse(
+      ((await client.callTool({ name: "list_messages", arguments: { limit: 2 } }))
+        .content as Array<{ text: string }>)[0].text,
+    );
+    expect(page1.messages).toHaveLength(2);
+    expect(page1.next_cursor).toBe("c2");
+
+    const page2 = JSON.parse(
+      ((await client.callTool({ name: "list_messages", arguments: { cursor: page1.next_cursor } }))
+        .content as Array<{ text: string }>)[0].text,
+    );
+    expect(page2.messages).toEqual([{ messageId: "m3" }]);
+    expect(page2).not.toHaveProperty("next_cursor"); // last page
+    await transport.close();
+  });
+
   describe("session-init scope + agent resolution", () => {
     // buildSessionClient resolves the credential's scope and bound agent from
     // whoami (GET /account): agent scope pins the bound agent (whoami
@@ -349,7 +386,7 @@ describe("HTTP MCP server", () => {
             agentAddress: opts.agentAddress,
           };
         }),
-        listMessages: vi.fn(async () => []),
+        listMessages: vi.fn(async () => ({ items: [], next_cursor: undefined })),
         listAgents: vi.fn(async () => []),
       } as unknown as McpClient;
     }

@@ -969,8 +969,13 @@ review diligence — a #206-style omission can't merge.
 >   root cause is adding `default: ErrorEnvelope` to the send/reply/forward Huma
 >   handlers (then regen) so every generated client parses it. **#5 attachment
 >   download-URL, #7 idempotency-key on create tools — still PENDING** (not in
->   GA). #3 (one pagination shape) is partial: the SDK AutoPager normalizes
->   cursors, but MCP tool schemas still expose `token`/`page_size`.
+>   GA). **#3 (one pagination shape) ✅ done:** the cursor-paginated list tools
+>   (`list_messages`, `list_conversations`, `list_events`) now take `cursor` +
+>   `limit` and return `{ <items>, next_cursor }` (one page; pass `next_cursor`
+>   back for the next) — the dead `token`/`page_size` are gone. Built on a new
+>   `AutoPager.page(cursor?)` SDK primitive. (Small fixed lists — `list_agents`/
+>   `list_domains`/`list_webhooks` — stay non-paginated per decision 7;
+>   `list_webhook_deliveries` is single-page `limit` since the API has no cursor.)
 >
 >   Scope-gating note: gating is a decision-space/UX optimization, not the
 >   security boundary — the backend enforces scope per-handler (the OAuth/WS

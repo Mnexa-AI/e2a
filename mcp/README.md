@@ -149,7 +149,7 @@ shows the set your scope allows, with per-tool descriptions.
 | --- | --- |
 | `send_email` | Send a new email. When the agent has HITL enabled, the message is held and returns `status: pending_approval` instead of `sent`. |
 | `reply_to_message` | Reply to an inbound message. Preserves In-Reply-To / References for thread continuity. |
-| `list_messages` | List inbound mail. Filter by `status` (unread / read / all), paginate with `page_size` + `token`. |
+| `list_messages` | List inbound mail. Filter by `read_status` (unread / read / all); cursor-paginated (`cursor` + `limit` in, `next_cursor` out). |
 | `get_message` | Fetch full body, headers, and attachment metadata for one message. |
 
 ### Human-in-the-loop approval
