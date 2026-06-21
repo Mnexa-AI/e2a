@@ -2,6 +2,9 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"strings"
@@ -97,7 +100,44 @@ func composeScanBody(req outbound.SendRequest) []byte {
 		b.WriteString("Content-Type: text/plain\r\n\r\n")
 		b.WriteString(req.Body)
 	}
+	// Attachments are an obvious outbound-exfil channel, so feed them to the scan:
+	// the filename always, plus decoded text-ish content (capped). Non-text bodies
+	// contribute their filename only — enough for filename/extension signals.
+	const maxAttachScan = 256 * 1024
+	for _, att := range req.Attachments {
+		b.WriteString("\r\n")
+		b.WriteString(att.Filename)
+		b.WriteString("\r\n")
+		if att.ContentType == "" || strings.HasPrefix(att.ContentType, "text/") {
+			if dec, err := base64.StdEncoding.DecodeString(att.Data); err == nil {
+				if len(dec) > maxAttachScan {
+					dec = dec[:maxAttachScan]
+				}
+				b.Write(dec)
+			}
+		}
+	}
 	return []byte(b.String())
+}
+
+// blockAuditID derives a STABLE soft-ref message id for a blocked send. A block
+// persists no message row, so the audit/event must anchor to a deterministic id
+// (not a fresh random one) — otherwise a retried block writes duplicate
+// screening_events rows + duplicate email.injection_detected events. Keyed on the
+// request-stable inputs so retries collapse to one audit row.
+func blockAuditID(agentID string, req outbound.SendRequest) string {
+	h := sha256.New()
+	h.Write([]byte(agentID))
+	h.Write([]byte{0})
+	for _, r := range allRecipients(req) {
+		h.Write([]byte(strings.ToLower(strings.TrimSpace(r))))
+		h.Write([]byte{0})
+	}
+	h.Write([]byte(req.Subject))
+	h.Write([]byte{0})
+	h.Write([]byte(req.Body))
+	h.Write([]byte(req.HTMLBody))
+	return "msgblk_" + hex.EncodeToString(h.Sum(nil)[:12])
 }
 
 // screenOutbound runs the recipient gate + (when outbound_scan='on') the content
@@ -218,10 +258,11 @@ func (a *API) annotateAndAudit(ctx context.Context, agent *identity.AgentIdentit
 	a.emitInjectionOutbound(ctx, agent, messageID, req, v)
 }
 
-// annotateBlockAudit records a blocked (refused) send. No message row is persisted
-// in v1 — the send is refused to the caller — so this writes the audit rows
-// (soft-ref message id) and emits the event without denormalizing a row.
-func (a *API) annotateBlockAudit(ctx context.Context, agent *identity.AgentIdentity, messageID string, req outbound.SendRequest, v outboundVerdict) {
+// auditRowless writes the audit rows + emits email.injection_detected WITHOUT
+// denormalizing a message row — for outbound paths that persist no message row:
+// a blocked (refused) send, and a flagged test send. Callers pass a stable
+// soft-ref id (blockAuditID) so retries stay idempotent.
+func (a *API) auditRowless(ctx context.Context, agent *identity.AgentIdentity, messageID string, req outbound.SendRequest, v outboundVerdict) {
 	a.writeScreeningEvents(ctx, messageID, v.screeningEvents(messageID, agent))
 	a.emitInjectionOutbound(ctx, agent, messageID, req, v)
 }

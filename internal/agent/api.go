@@ -1055,7 +1055,6 @@ func (a *API) checkSuppression(ctx context.Context, userID string, req outbound.
 	return nil
 }
 
-
 // DeliverOutbound is the shared send/reply/forward delivery tail, HTTP-free:
 // HITL hold (HoldForApprovalCore), else self-send loopback, else SES send +
 // record outbound + publish sent event. The caller has already authed,
@@ -1080,8 +1079,9 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 	verdict := a.screenOutbound(ctx, agent, req)
 	if verdict.Block() {
 		// Egress block: refuse to the caller. No message row is persisted; the
-		// audit lives in screening_events keyed to a soft-ref id.
-		a.annotateBlockAudit(ctx, agent, identity.NewMessageID(), req, verdict)
+		// audit lives in screening_events keyed to a STABLE soft-ref id so a
+		// retried block doesn't write duplicate audit rows / events.
+		a.auditRowless(ctx, agent, blockAuditID(agent.ID, req), req, verdict)
 		return nil, &OutboundError{http.StatusForbidden, "blocked_by_policy", "message blocked by outbound policy"}
 	}
 
@@ -1179,7 +1179,7 @@ func (a *API) SendTestCore(ctx context.Context, agent *identity.AgentIdentity) (
 	testReq := outbound.SendRequest{To: to, Subject: subject, Body: body}
 	verdict := a.screenOutbound(ctx, agent, testReq)
 	if verdict.Block() {
-		a.annotateBlockAudit(ctx, agent, identity.NewMessageID(), testReq, verdict)
+		a.auditRowless(ctx, agent, blockAuditID(agent.ID, testReq), testReq, verdict)
 		return nil, &OutboundError{http.StatusForbidden, "blocked_by_policy", "test message blocked by outbound policy"}
 	}
 	if verdict.Review() {
@@ -1204,6 +1204,10 @@ func (a *API) SendTestCore(ctx context.Context, agent *identity.AgentIdentity) (
 		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", fmt.Sprintf("failed to send test email: %v", err)}
 	}
 	log.Printf("[api] test email sent to %s (message_id=%s)", agent.EmailAddress(), messageID)
+	// flag verdict: the test send persists no message row, so audit row-less.
+	if verdict.Annotate() {
+		a.auditRowless(ctx, agent, blockAuditID(agent.ID, testReq), testReq, verdict)
+	}
 	return &OutboundResult{MessageID: messageID, Method: "smtp"}, nil
 }
 

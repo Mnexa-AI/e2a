@@ -22,12 +22,17 @@ UPDATE agent_identities
    AND COALESCE(hitl_mode, 'all') = 'all'
    AND outbound_policy = 'open';
 
--- hitl_mode='high_impact' while enabled ⇒ approximated by enabling the outbound
--- content scan at its default thresholds (migration 041). This is an approximation
--- of the old "high-impact action on untrusted inbound" heuristic — call out in the
--- release notes.
+-- hitl_mode='high_impact' held high-impact RECIPIENTS — a reply/forward reaching a
+-- party off the agent's own domain. That is fundamentally a recipient gate, so
+-- preserve it as one: outbound_policy='domain' + review holds any off-domain
+-- recipient for a human. (A content scan alone would NOT replace it — it never
+-- inspects recipients, so a benign forward to a new third party would slip through;
+-- adversarial review confirmed that regression.) Also enable the content scan as
+-- the closest analog of the old "reacting to untrusted inbound" signal.
 UPDATE agent_identities
-   SET outbound_scan = 'on'
+   SET outbound_policy        = 'domain',
+       outbound_policy_action = 'review',
+       outbound_scan          = 'on'
  WHERE hitl_enabled = true
    AND hitl_mode = 'high_impact'
-   AND outbound_scan = 'off';
+   AND outbound_policy = 'open';
