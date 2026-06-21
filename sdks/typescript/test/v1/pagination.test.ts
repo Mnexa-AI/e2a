@@ -24,6 +24,24 @@ describe("AutoPager", () => {
     expect(await pager.toArray({ limit: 3 })).toEqual([1, 2, 3]);
   });
 
+  it("page() fetches ONE page and surfaces next_cursor for caller-driven paging", async () => {
+    const pager = new AutoPager(pages());
+    const p1 = await pager.page(); // first page (no cursor)
+    expect(p1.items).toEqual([1, 2]);
+    expect(p1.next_cursor).toBe("c2");
+    const p2 = await pager.page(p1.next_cursor!); // follow the cursor
+    expect(p2.items).toEqual([3, 4]);
+    expect(p2.next_cursor).toBe("c3");
+    const p3 = await pager.page(p2.next_cursor!);
+    expect(p3.items).toEqual([5]);
+    expect(p3.next_cursor).toBeUndefined(); // null → normalized to undefined = last page
+  });
+
+  it("page() treats an empty-string cursor as the first page", async () => {
+    const pager = new AutoPager(pages());
+    expect((await pager.page("")).items).toEqual([1, 2]);
+  });
+
   it("toArray requires a positive limit", async () => {
     const pager = new AutoPager(pages());
     await expect(pager.toArray({ limit: 0 })).rejects.toThrow(/positive limit/);

@@ -58,6 +58,18 @@ export class AutoPager<T> implements AsyncIterable<T> {
     }
   }
 
+  /** Fetch a SINGLE page for caller-driven pagination: pass the previous
+   *  page's `next_cursor` (omit for the first page) and get back `{ items,
+   *  next_cursor }`. A null/undefined/empty `next_cursor` in the result means
+   *  there are no more pages. This is the primitive behind the cursor+limit
+   *  shape the MCP tools expose (§6a #3) and is available to SDK users who want
+   *  manual paging instead of `for await` / `toArray`. The page size is governed
+   *  by the `limit` baked into the list call that produced this pager. */
+  async page(cursor?: string): Promise<Page<T>> {
+    const p = await this.fetchPage(cursor || undefined);
+    return { items: p.items ?? [], next_cursor: p.next_cursor ?? undefined };
+  }
+
   /** Collect up to `limit` items. The limit is required — it caps memory for
    *  an inbox that could page indefinitely. */
   async toArray(opts: { limit: number }): Promise<T[]> {
