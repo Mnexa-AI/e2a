@@ -82,7 +82,7 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
           .array(z.string().min(1))
           .min(1)
           .describe(
-            "Event types to subscribe to. Valid values: email.received, email.sent, email.pending_approval, email.approval_accepted, email.approval_rejected, email.delivered, email.bounced, email.complained, email.flagged, domain.sending_verified, domain.sending_failed, domain.suppression_added.",
+            "Event types to subscribe to. Valid values: email.received, email.sent, email.pending_approval, email.approval_accepted, email.approval_rejected, email.delivered, email.bounced, email.complained, email.flagged, email.held, email.blocked, email.injection_detected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Inbound screening fires one disposition event per message — email.flagged (delivered + annotated), email.held (held for human review), or email.blocked (refused) — plus email.injection_detected additively when the content scan detects a prompt-injection.",
           ),
         description: z.string().optional().describe("Optional free-form label (max 200 chars)."),
         filters: filtersSchema.optional(),
