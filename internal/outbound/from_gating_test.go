@@ -22,6 +22,19 @@ func verifiedAgent() *identity.AgentIdentity {
 	return &identity.AgentIdentity{ID: "bot@acme.com", Domain: "acme.com", DomainVerified: true}
 }
 
+// TestEnvelopeSender is the "remove via e2a" invariant: a verified domain's
+// Return-Path is the aligned custom MAIL FROM (bounces@bounce.<domain>) so SPF
+// aligns and no "via e2a" shows; every non-verified path stays on the e2a relay
+// envelope (fail-closed), which is what keeps the "via" rewrite for those.
+func TestEnvelopeSender(t *testing.T) {
+	if got := envelopeSender(true, "acme.com", "send.e2a.dev"); got != "bounces@bounce.acme.com" {
+		t.Errorf("verified envelope = %q, want bounces@bounce.acme.com", got)
+	}
+	if got := envelopeSender(false, "acme.com", "send.e2a.dev"); got != "agent@send.e2a.dev" {
+		t.Errorf("unverified envelope = %q, want agent@send.e2a.dev (relay, fail-closed)", got)
+	}
+}
+
 // TestUseOwnAddressFrom_FailClosed is the decision-4 invariant: the own-address
 // From is used ONLY when the lookup is wired AND reports "verified" for a
 // verified custom domain. Every other path falls back to the relay From.

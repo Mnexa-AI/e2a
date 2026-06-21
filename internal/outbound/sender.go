@@ -10,6 +10,7 @@ import (
 
 	"github.com/Mnexa-AI/e2a/internal/dkim"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/mailfrom"
 )
 
 // DKIMKeyLookup returns the DKIM selector and PKCS#1 DER private key
@@ -142,6 +143,17 @@ func (s *Sender) useOwnAddressFrom(agent *identity.AgentIdentity) bool {
 	return status == "verified"
 }
 
+// envelopeSender returns the SMTP MAIL FROM (Return-Path) for an outbound
+// message: the aligned custom MAIL FROM (bounces@bounce.<domain>) when the
+// domain is sending-verified, else the e2a-owned relay address (fail-closed).
+// Pure (no store hit) so it's unit-testable; `own` is resolved once by Send.
+func envelopeSender(own bool, agentDomain, fromDomain string) string {
+	if own {
+		return mailfrom.EnvelopeSender(agentDomain)
+	}
+	return fmt.Sprintf("agent@%s", fromDomain)
+}
+
 func NewSender(smtpRelay *SMTPRelay, fromDomain string) *Sender {
 	return &Sender{
 		smtpRelay:  smtpRelay,
@@ -215,17 +227,22 @@ func (s *Sender) Send(agent *identity.AgentIdentity, req SendRequest) (*SendResu
 	if displayName == "" {
 		displayName = agent.EmailAddress()
 	}
-	// Envelope MAIL FROM stays an e2a-owned relay address regardless of the
-	// header From: it is the Return-Path, so e2a captures bounces/complaints
-	// and SPF passes for the relay (decision 4). DMARC still passes via the
-	// DKIM signature, which is aligned to the agent's custom domain below.
-	envelopeFrom := fmt.Sprintf("agent@%s", s.fromDomain)
-	// Header From: the agent's OWN address once the domain is sending-verified
-	// (DKIM-aligned → DMARC passes, replies reach the agent directly); else
-	// the relay "… via e2a" rewrite (fail-closed default).
+	// Resolve the sending-verified gate once (it hits the sending_status store),
+	// then derive both the header From and the envelope Return-Path from it.
+	own := s.useOwnAddressFrom(agent)
+	// Envelope MAIL FROM (Return-Path): the aligned custom MAIL FROM
+	// (bounce.<domain>) for a verified domain — SPF authenticates the From
+	// org-domain → no Gmail "via e2a" — else the e2a-owned relay address
+	// (fail-closed: SPF passes for the relay, e2a captures bounces). Verified now
+	// requires the custom MAIL FROM to be live, so the subdomain's MX exists and
+	// bounces still reach SES's feedback handler.
+	envelopeFrom := envelopeSender(own, agent.Domain, s.fromDomain)
+	// Header From: the agent's OWN address once sending-verified (DKIM-aligned →
+	// DMARC passes, replies reach the agent directly); else the "… via e2a"
+	// rewrite (fail-closed default).
 	var headerFrom string
 	sentAs := "relay"
-	if s.useOwnAddressFrom(agent) {
+	if own {
 		headerFrom = fmt.Sprintf("%q <%s>", displayName, agent.EmailAddress())
 		sentAs = "own_address"
 	} else {
