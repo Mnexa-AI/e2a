@@ -20,7 +20,7 @@
 | 6 | API | `events.go` — events API + screening_events surface | done | 🟡 events cursor doesn't bind filter identity (drift) + len==limit spurious cursor; screening_events has NO /v1 surface; redeliver idempotency ✅ |
 | 7 | API | `webhooks.go` — webhook config/delivery | done | 🟡→🔴 event enum (5 hand-copies) drifted: email.injection_detected MISSING → screening alert unsubscribable (422); SSRF/ownership/secret ✅ |
 | 8 | API | `domains.go` — domain verification | done | 🟡 timestamp type inconsistent surface-wide (time.Time here/conversations vs string in messages/webhooks → SDK Date vs string); delete/verify guards ✅ |
-| 9 | API | `account.go` — account/limits/usage | pending | |
+| 9 | API | `account.go` — account/limits/usage | done | 🟡 GDPR export omits screening_events (confirms screening-review flag); 🟡 verify requireAccountUser bars agent scope (delete/export keystone → #10) |
 | 10 | API | `scope.go` + `middleware.go` — auth/scopes | pending | |
 | 11 | API | `pagination.go` — cursor contracts | pending | |
 | 12 | API | `idempotency.go` — idempotency keys | pending | |
@@ -44,6 +44,23 @@
 ## Findings
 
 <!-- Each iteration appends a "### N. <area> — <subcomponent>" section here. -->
+
+### 9. API — `account.go` (whoami / limits / export / delete / suppressions)
+
+Well-built scope-aware account resource. Two findings connect to earlier threads: a confirmed GDPR-export gap, and the load-bearing account-admin-scope cross-ref.
+
+**🟡 GDPR export omits `screening_events` (confirms the screening review's flag).** `handleExportUserData` dumps `Domains/Agents/APIKeys/Messages/UsageEvents/OAuthConnections` (`account.go:192–197`) — but **not** `screening_events`. Those rows are the agent's personal data (the flagged sender/recipient addresses in `subject_addr`, scan `spans`/`categories`) and a right-of-access export should include them. The outbound-retention/screening review already flagged `screening_events` as missing from `ExportUserData`/`DeleteUserData`; this is the same gap surfacing at the API layer. *Fix:* add `ScreeningEvents` to `UserExport` (and confirm the matching erasure in `DeleteUserData`, since the table is a soft-ref that outlives the message TTL and must still be erasable on account delete).
+
+**🟡 Cross-ref (the security keystone): does `requireAccountUser` bar agent-scoped credentials?** Delete-account (`account.go:213`), export (`account.go:178`), and suppressions all gate on `requireAccountUser`. If that helper does **not** reject an agent-scoped token, an agent credential could **delete the entire account** or export all account data — catastrophic escalation. Strong signal it's safe: `handleGetMyLimits` (whoami) deliberately uses `requirePrincipal` *instead* (`account.go:235`) precisely because whoami must work for both scopes — implying `requireAccountUser` is the scope ceiling. **Must confirm in #10 (`scope.go`)** — this is the single most important auth invariant on the surface, and #1's create-scope question folds into the same check.
+
+**🔵 Inconsistent DELETE semantics.** `deleteAccount` returns **200 + body** (`DeleteUserDataResult`, `account.go:209–228`) while agent/domain/suppression deletes return **204 No Content**. The informative body is reasonable, but the inconsistency means a client's delete-handling can't be uniform.
+
+**✅ Verified clean:**
+- **whoami dual-scope** (`account.go:231–256`): authenticates any principal; `agent_address` populated only for agent scope (the credential *is* one agent), omitted for account scope. Correct.
+- **Export hygiene**: empty collections render `[]` not `null` (A-3, `orEmpty`); `Content-Disposition` filename uses server-controlled `user.ID` (no header injection).
+- **Suppressions**: cursor `(created_at, address)` is complete (no filters to bind); un-suppress releases cached idempotency keys so a previously-blocked send then succeeds (`account.go:84`) — thoughtful.
+- **Graceful degradation**: every optional dep (`ListSuppressions`/`ExportUserData`/`GetLimits`…) returns 501/503 rather than panicking when unwired.
+- **`confirm=DELETE`** required on account delete.
 
 ### 8. API — `domains.go` (registration / verify / sending identity)
 
