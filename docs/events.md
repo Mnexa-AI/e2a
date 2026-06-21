@@ -55,8 +55,11 @@ for e in client.events.list(type="email.received", limit=20):
 
 | Type | When it fires | Guarantee |
 |---|---|---|
-| `email.received` | Inbound SMTP message accepted | **At-least-once** end-to-end |
-| `email.flagged` | Inbound message accepted but did not match the agent's `inbound_policy` (delivered + flagged, never dropped) | **At-least-once** end-to-end |
+| `email.received` | Inbound SMTP message accepted and delivered | **At-least-once** end-to-end |
+| `email.flagged` | Inbound screening → **flag** disposition (sender gate or content scan): delivered + annotated, never dropped | **At-least-once** end-to-end |
+| `email.held` | Inbound screening → **review** disposition: held for human review (`pending_review`); delivery suppressed until approved or the TTL expires | **At-least-once** end-to-end |
+| `email.blocked` | Inbound screening → **block** disposition: refused (accept-then-quarantine), never delivered | **At-least-once** end-to-end |
+| `email.injection_detected` | Content scan detected a prompt-injection — fires **additively** alongside the disposition event above (`flagged`/`held`/`blocked`), only on a real scan detection (never for a pure sender-gate hold) | **At-least-once** end-to-end |
 | `email.sent` | Outbound `/send` accepted by SES | Best-effort |
 | `email.pending_approval` | HITL-gated message held for human review | **At-least-once** |
 | `email.approval_accepted` | Reviewer approved + SES accepted | Best-effort |
