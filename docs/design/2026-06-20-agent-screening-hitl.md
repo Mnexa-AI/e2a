@@ -328,8 +328,9 @@ the gate already blocks. (If a future external scan is expensive, add a
 - **Inbound holds are lighter**: content already lives in `raw_message`. A
   `review`/`block`(quarantine) inbound message is persisted with
   `status = pending_review` and **webhook/WS delivery suppressed** (do not enqueue
-  `email.received`; enqueue `email.injection_detected` instead). No held-body columns
-  needed.
+  `email.received`; enqueue the disposition event `email.held` — plus the additive
+  `email.injection_detected` when the scan actually tripped — per §4.5). No held-body
+  columns needed.
 - **Release branches on direction**:
 
   | | approve | reject |
@@ -408,8 +409,40 @@ CREATE INDEX IF NOT EXISTS idx_screening_message ON screening_events (message_id
    - **No cascade**: `message_id` is a soft reference. Detection trail survives the
      message's 30-day TTL. (Separate, longer retention/GC for `screening_events` is
      future work; v1 keeps them.)
-3. **Events** — `email.injection_detected` (new `webhookpub` type) for review/block;
-   continue `email.flagged` for `flag`. Fire-and-forget notification only.
+3. **Events** — explicit, separately-subscribable notification events on **two axes**
+   (fire-and-forget; deterministic ids via `DeterministicEventID(message_id, type)`).
+   v1 emits these for **inbound only**; outbound holds keep the existing
+   `email.pending_approval` + `email.approval_accepted`/`approval_rejected` track.
+
+   **Disposition — what we did (exactly one per screened message, keyed on the
+   most-severe of gate + scan):**
+   - `email.flagged` — delivered + annotated (`action=flag`); `email.received` still fires.
+   - `email.held` — held for human review (`action=review` → `pending_review`); delivery +
+     `email.received` suppressed. *(new type)*
+   - `email.blocked` — refused / accept-then-quarantine (`action=block`); delivery suppressed. *(new type)*
+   - `allow` → no disposition event (clean delivery — `email.received` only).
+
+   Payload: `source: gate|scan|both`, `reason` (the `review_reason` vocab), `score?`, `message_id`.
+
+   **Detection — what we found (additive):**
+   - `email.injection_detected` — the content scan actually tripped. Fires **in addition** to
+     the disposition event, and **only on a real scan detection** (`Detected`), carrying
+     `score`, `categories`, `spans`, `detector`. A pure **sender-gate** hold does NOT fire it.
+
+   So a scan-held message emits `email.held` **+** `email.injection_detected` (distinct
+   subscribers — review-queue UI vs security dashboard); a benign allowlist hold emits only
+   `email.held`. This replaces the prior conflation, where `injection_detected` fired for
+   *every* hold (gate or scan) and "held"/"blocked" had no event of their own. *(Decision
+   2026-06-21: additive detail · three disposition events · inbound-only for v1.)*
+
+   **Subscribe contract + drift gate (the GA blocker fix).** Add `email.held`,
+   `email.blocked`, `email.injection_detected` to `webhookpub.AllEventTypes` **and** to every
+   Huma `enum:"…"` struct tag on the webhook/event input+output structs (today 5 hand-copies
+   in `internal/httpapi/webhooks.go` omit `injection_detected`, so Huma 422s a subscribe
+   *before* the handler's correct `IsValidEventType` runs). Add a unit test asserting each
+   struct-tag enum **==** `AllEventTypes`, so the spec/SDK/MCP can never again drift from the
+   canonical list; then `make generate` and update the 2 MCP descriptions (`create_webhook`,
+   `list_events`) in the same change.
 
 **Feedback loop**: join `screening_events` → message disposition
 (`reviewed_by_user_id`, `rejection_reason`, approved/rejected status) to compute
