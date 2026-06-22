@@ -160,7 +160,16 @@ func (e *testEnv) injectInboundMessage(t *testing.T, agentEmail, from, subject s
 	if err != nil {
 		t.Fatalf("get agent: %v", err)
 	}
-	msg, err := e.store.CreateInboundMessage(ctx, "", ag.ID, from, agentEmail, "", subject, "", "unread", nil, nil, nil, false, "", nil, nil, nil, identity.InboundScreening{})
+	// A faithful inbound message carries its raw MIME and the X-E2A-Auth-* blob
+	// the relay stamps after SPF/DKIM/DMARC — without auth_headers the detail
+	// view omits the field (it is omitempty), which is not how a real received
+	// message looks. Populate both so the contract exercises the real shape.
+	raw := []byte("From: " + from + "\r\nTo: " + agentEmail + "\r\nSubject: " + subject + "\r\n\r\nbody\r\n")
+	authHeaders := map[string]string{
+		"X-E2A-Auth-Results":  "spf=pass; dkim=pass; dmarc=pass",
+		"X-E2A-Auth-Verified": "true",
+	}
+	msg, err := e.store.CreateInboundMessage(ctx, "", ag.ID, from, agentEmail, "", subject, "", "unread", raw, authHeaders, nil, false, "", nil, nil, nil, identity.InboundScreening{})
 	if err != nil {
 		t.Fatalf("store message: %v", err)
 	}
