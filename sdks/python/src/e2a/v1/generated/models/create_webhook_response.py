@@ -32,7 +32,7 @@ class CreateWebhookResponse(BaseModel):
     created_at: datetime
     description: StrictStr
     enabled: StrictBool
-    events: List[StrictStr] = Field(description="Beta: email.flagged, email.blocked, and email.pending_review (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable.")
+    events: List[StrictStr] = Field(description="Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable.")
     filters: WebhookFiltersView
     id: StrictStr
     last_delivered_at: Optional[datetime] = None

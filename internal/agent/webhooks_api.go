@@ -78,6 +78,7 @@ func (a *API) buildPendingApprovalEvent(
 ) webhookpub.Event {
 	data := map[string]interface{}{
 		"message_id":          msg.ID,
+		"direction":           "outbound",
 		"from":                agent.EmailAddress(),
 		"to":                  req.To,
 		"cc":                  req.CC,
@@ -89,7 +90,7 @@ func (a *API) buildPendingApprovalEvent(
 	}
 	return webhookpub.Event{
 		ID:             generateEventIDForAgent(),
-		Type:           webhookpub.EventEmailPendingApproval,
+		Type:           webhookpub.EventEmailPendingReview,
 		CreatedAt:      time.Now().UTC(),
 		UserID:         agent.UserID,
 		AgentID:        agent.ID,
@@ -108,6 +109,7 @@ func (a *API) buildApprovedEvent(
 ) webhookpub.Event {
 	data := map[string]interface{}{
 		"message_id":          sent.ID,
+		"direction":           "outbound",
 		"provider_message_id": sent.ProviderMessageID,
 		"method":              sent.Method,
 		"from":                agent.EmailAddress(),
@@ -119,7 +121,7 @@ func (a *API) buildApprovedEvent(
 	}
 	return webhookpub.Event{
 		ID:        generateEventIDForAgent(),
-		Type:      webhookpub.EventEmailApproved,
+		Type:      webhookpub.EventEmailReviewApproved,
 		CreatedAt: time.Now().UTC(),
 		UserID:    agent.UserID,
 		AgentID:   agent.ID,
@@ -139,13 +141,14 @@ func (a *API) buildRejectedEvent(
 ) webhookpub.Event {
 	data := map[string]interface{}{
 		"message_id":          rejected.ID,
+		"direction":           "outbound",
 		"type":                rejected.Type,
 		"rejection_reason":    reason,
 		"reviewed_by_user_id": userID,
 	}
 	return webhookpub.Event{
 		ID:        generateEventIDForAgent(),
-		Type:      webhookpub.EventEmailRejected,
+		Type:      webhookpub.EventEmailReviewRejected,
 		CreatedAt: time.Now().UTC(),
 		UserID:    userID,
 		AgentID:   rejected.AgentID,

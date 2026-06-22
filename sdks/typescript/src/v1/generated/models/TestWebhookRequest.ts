@@ -45,9 +45,8 @@ export class TestWebhookRequest {
 export enum TestWebhookRequestEventEnum {
     EmailReceived = 'email.received',
     EmailSent = 'email.sent',
-    EmailPendingApproval = 'email.pending_approval',
-    EmailApprovalAccepted = 'email.approval_accepted',
-    EmailApprovalRejected = 'email.approval_rejected',
+    EmailReviewApproved = 'email.review_approved',
+    EmailReviewRejected = 'email.review_rejected',
     DomainSendingVerified = 'domain.sending_verified',
     DomainSendingFailed = 'domain.sending_failed',
     EmailDelivered = 'email.delivered',

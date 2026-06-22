@@ -19,7 +19,7 @@ export class CreateWebhookResponse {
     'description': string;
     'enabled': boolean;
     /**
-    * Beta: email.flagged, email.blocked, and email.pending_review (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable.
+    * Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable.
     */
     'events': Array<CreateWebhookResponseEventsEnum>;
     'filters': WebhookFiltersView;
@@ -105,9 +105,8 @@ export class CreateWebhookResponse {
 export enum CreateWebhookResponseEventsEnum {
     EmailReceived = 'email.received',
     EmailSent = 'email.sent',
-    EmailPendingApproval = 'email.pending_approval',
-    EmailApprovalAccepted = 'email.approval_accepted',
-    EmailApprovalRejected = 'email.approval_rejected',
+    EmailReviewApproved = 'email.review_approved',
+    EmailReviewRejected = 'email.review_rejected',
     DomainSendingVerified = 'domain.sending_verified',
     DomainSendingFailed = 'domain.sending_failed',
     EmailDelivered = 'email.delivered',

@@ -481,14 +481,13 @@ components:
         description:
           type: string
         events:
-          description: "Beta: email.flagged, email.blocked, and email.pending_review (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
+          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
               - email.sent
-              - email.pending_approval
-              - email.approval_accepted
-              - email.approval_rejected
+              - email.review_approved
+              - email.review_rejected
               - domain.sending_verified
               - domain.sending_failed
               - email.delivered
@@ -522,14 +521,13 @@ components:
         enabled:
           type: boolean
         events:
-          description: "Beta: email.flagged, email.blocked, and email.pending_review (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
+          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
               - email.sent
-              - email.pending_approval
-              - email.approval_accepted
-              - email.approval_rejected
+              - email.review_approved
+              - email.review_rejected
               - domain.sending_verified
               - domain.sending_failed
               - email.delivered
@@ -821,9 +819,8 @@ components:
           enum:
             - email.received
             - email.sent
-            - email.pending_approval
-            - email.approval_accepted
-            - email.approval_rejected
+            - email.review_approved
+            - email.review_rejected
             - domain.sending_verified
             - domain.sending_failed
             - email.delivered
@@ -1636,9 +1633,8 @@ components:
           enum:
             - email.received
             - email.sent
-            - email.pending_approval
-            - email.approval_accepted
-            - email.approval_rejected
+            - email.review_approved
+            - email.review_rejected
             - domain.sending_verified
             - domain.sending_failed
             - email.delivered
@@ -1764,14 +1760,13 @@ components:
         enabled:
           type: boolean
         events:
-          description: "Beta: email.flagged, email.blocked, and email.pending_review (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
+          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
               - email.sent
-              - email.pending_approval
-              - email.approval_accepted
-              - email.approval_rejected
+              - email.review_approved
+              - email.review_rejected
               - domain.sending_verified
               - domain.sending_failed
               - email.delivered
@@ -1906,9 +1901,8 @@ components:
           enum:
             - email.received
             - email.sent
-            - email.pending_approval
-            - email.approval_accepted
-            - email.approval_rejected
+            - email.review_approved
+            - email.review_rejected
             - domain.sending_verified
             - domain.sending_failed
             - email.delivered
@@ -1976,14 +1970,13 @@ components:
         enabled:
           type: boolean
         events:
-          description: "Beta: email.flagged, email.blocked, and email.pending_review (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
+          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
               - email.sent
-              - email.pending_approval
-              - email.approval_accepted
-              - email.approval_rejected
+              - email.review_approved
+              - email.review_rejected
               - domain.sending_verified
               - domain.sending_failed
               - email.delivered
