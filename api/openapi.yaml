@@ -521,6 +521,7 @@ components:
         enabled:
           type: boolean
         events:
+          description: "Beta: email.flagged and email.blocked (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
@@ -1969,6 +1970,7 @@ components:
         enabled:
           type: boolean
         events:
+          description: "Beta: email.flagged and email.blocked (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received

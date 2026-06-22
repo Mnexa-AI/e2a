@@ -38,7 +38,7 @@ type WebhookView struct {
 	ID              string             `json:"id"`
 	URL             string             `json:"url"`
 	Description     string             `json:"description"`
-	Events          []string           `json:"events" nullable:"false" enum:"email.received,email.sent,email.pending_approval,email.approval_accepted,email.approval_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked"`
+	Events          []string           `json:"events" nullable:"false" enum:"email.received,email.sent,email.pending_approval,email.approval_accepted,email.approval_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked" doc:"Beta: email.flagged and email.blocked (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."`
 	Filters         WebhookFiltersView `json:"filters"`
 	Enabled         bool               `json:"enabled"`
 	AutoDisabledAt  string             `json:"auto_disabled_at,omitempty" format:"date-time"`

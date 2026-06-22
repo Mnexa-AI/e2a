@@ -1181,6 +1181,7 @@ func (a *API) SendTestCore(ctx context.Context, agent *identity.AgentIdentity) (
 	verdict := a.screenOutbound(ctx, agent, testReq)
 	if verdict.Block() {
 		a.auditRowless(ctx, agent, blockAuditID(agent.ID, testReq), testReq, verdict)
+		a.emitBlockedOutbound(agent, blockAuditID(agent.ID, testReq), testReq, verdict)
 		return nil, &OutboundError{http.StatusForbidden, "blocked_by_policy", "test message blocked by outbound policy"}
 	}
 	if verdict.Review() {

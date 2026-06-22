@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.webhook_filters_view import WebhookFiltersView
 from typing import Optional, Set
@@ -32,7 +32,7 @@ class WebhookView(BaseModel):
     created_at: datetime
     description: StrictStr
     enabled: StrictBool
-    events: List[StrictStr]
+    events: List[StrictStr] = Field(description="Beta: email.flagged and email.blocked (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable.")
     filters: WebhookFiltersView
     id: StrictStr
     last_delivered_at: Optional[datetime] = None

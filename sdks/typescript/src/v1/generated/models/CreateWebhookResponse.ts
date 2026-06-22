@@ -18,6 +18,9 @@ export class CreateWebhookResponse {
     'createdAt': Date;
     'description': string;
     'enabled': boolean;
+    /**
+    * Beta: email.flagged and email.blocked (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable.
+    */
     'events': Array<CreateWebhookResponseEventsEnum>;
     'filters': WebhookFiltersView;
     'id': string;
