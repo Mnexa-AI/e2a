@@ -682,7 +682,7 @@ export class PromiseMessagesApi {
     }
 
     /**
-     * Approve a pending_approval draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
+     * Approve a pending_review draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
      * Approve a held message
      * @param email
      * @param id
@@ -696,7 +696,7 @@ export class PromiseMessagesApi {
     }
 
     /**
-     * Approve a pending_approval draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
+     * Approve a pending_review draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
      * Approve a held message
      * @param email
      * @param id
@@ -790,7 +790,7 @@ export class PromiseMessagesApi {
     }
 
     /**
-     * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.
+     * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.
      * List messages
      * @param email
      * @param [direction] Defaults to inbound.
@@ -812,7 +812,7 @@ export class PromiseMessagesApi {
     }
 
     /**
-     * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.
+     * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.
      * List messages
      * @param email
      * @param [direction] Defaults to inbound.
@@ -834,7 +834,7 @@ export class PromiseMessagesApi {
     }
 
     /**
-     * Reject a pending_approval draft so it is never sent.
+     * Reject a pending_review draft so it is never sent.
      * Reject a held message
      * @param email
      * @param id
@@ -847,7 +847,7 @@ export class PromiseMessagesApi {
     }
 
     /**
-     * Reject a pending_approval draft so it is never sent.
+     * Reject a pending_review draft so it is never sent.
      * Reject a held message
      * @param email
      * @param id
@@ -888,7 +888,7 @@ export class PromiseMessagesApi {
     }
 
     /**
-     * Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.
+     * Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key.
      * Send a new email
      * @param email
      * @param sendEmailRequest
@@ -901,7 +901,7 @@ export class PromiseMessagesApi {
     }
 
     /**
-     * Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.
+     * Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key.
      * Send a new email
      * @param email
      * @param sendEmailRequest

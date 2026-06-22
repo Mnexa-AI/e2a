@@ -50,7 +50,7 @@ func TestApproveNotOwnedAgent(t *testing.T) {
 func TestReject(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_pending/reject", "good", map[string]any{"reason": "not now"})
-	if code != 200 || body["status"] != "rejected" || body["rejection_reason"] != "not now" {
+	if code != 200 || body["status"] != "review_rejected" || body["rejection_reason"] != "not now" {
 		t.Fatalf("want 200 rejected, got %d %v", code, body)
 	}
 }

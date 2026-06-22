@@ -106,8 +106,8 @@ func TestBuildPendingApprovalEvent(t *testing.T) {
 	msg := &identity.Message{ID: "pend_1", ApprovalExpiresAt: &expiry}
 	req := outbound.SendRequest{To: []string{"alice@example.com"}, Subject: "review me"}
 	ev := a.buildPendingApprovalEvent(agent, msg, req, "send")
-	if ev.Type != webhookpub.EventEmailPendingApproval {
-		t.Errorf("Type = %q, want email.pending_approval", ev.Type)
+	if ev.Type != webhookpub.EventEmailPendingReview {
+		t.Errorf("Type = %q, want email.pending_review", ev.Type)
 	}
 	if ev.MessageID != "pend_1" {
 		t.Errorf("MessageID = %q, want pend_1", ev.MessageID)
@@ -130,7 +130,7 @@ func TestBuildApprovedEvent(t *testing.T) {
 		Edited:            true,
 	}
 	ev := a.buildApprovedEvent(agent, sent, "u_reviewer")
-	if ev.Type != webhookpub.EventEmailApproved {
+	if ev.Type != webhookpub.EventEmailReviewApproved {
 		t.Errorf("Type = %q", ev.Type)
 	}
 	if ev.MessageID != "msg_a" {
@@ -149,7 +149,7 @@ func TestBuildRejectedEvent(t *testing.T) {
 	a := &API{}
 	rejected := &identity.Message{ID: "msg_r", AgentID: "bot@x.example.com", Type: "send"}
 	ev := a.buildRejectedEvent("u_reviewer", rejected, "off-policy")
-	if ev.Type != webhookpub.EventEmailRejected {
+	if ev.Type != webhookpub.EventEmailReviewRejected {
 		t.Errorf("Type = %q", ev.Type)
 	}
 	if ev.MessageID != "msg_r" {

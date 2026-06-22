@@ -257,7 +257,7 @@ type Message struct {
 	Labels []string `json:"labels,omitempty"`
 
 	// HITL approval fields. Status defaults to 'sent'; body and attachments
-	// are populated only while a message is in 'pending_approval', and are
+	// are populated only while a message is in 'pending_review', and are
 	// scrubbed on any terminal transition.
 	Status            string     `json:"status,omitempty"`
 	ApprovalExpiresAt *time.Time `json:"approval_expires_at,omitempty"`
@@ -297,18 +297,15 @@ type Message struct {
 	ScanAction   string   `json:"scan_action,omitempty"`
 }
 
-// Message status values mirror the CHECK constraint in migration 003_hitl.sql.
+// Message status values mirror the CHECK constraint in migration 044_unify_holds.sql.
 const (
-	MessageStatusSent            = "sent"
-	MessageStatusPendingApproval = "pending_approval"
-	MessageStatusRejected        = "rejected"
-	MessageStatusExpiredApproved = "expired_approved"
-	MessageStatusExpiredRejected = "expired_rejected"
+	MessageStatusSent = "sent"
 
-	// Inbound/screening review-hold statuses (migration 037 / Slice 2): the
-	// direction-aware analogue of the outbound pending_approval lifecycle. On
-	// release, approve = deliver to the agent, reject = drop. pending_approval stays
-	// reserved for the explicit user-send-approval (edit-then-approve) flow.
+	// Unified review-hold statuses (direction-aware — design 2026-06-22). A held
+	// message is one primitive regardless of direction; on resolution, approve =
+	// send (outbound) / deliver to the agent (inbound), reject = drop. Outbound's
+	// "approved" terminal is MessageStatusSent (the approve triggers the send), so
+	// there is no separate outbound approved-but-unsent state.
 	MessageStatusPendingReview         = "pending_review"
 	MessageStatusReviewApproved        = "review_approved"
 	MessageStatusReviewRejected        = "review_rejected"
@@ -941,7 +938,7 @@ func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIde
 		           WHERE m.agent_id = a.id AND m.direction = 'outbound'
 		             AND m.created_at > now() - interval '7 days') AS outbound_7d,
 		        (SELECT count(*) FROM messages m
-		           WHERE m.agent_id = a.id AND m.status = 'pending_approval') AS pending_count,
+		           WHERE m.agent_id = a.id AND m.status = 'pending_review' AND m.direction = 'outbound') AS pending_count,
 		        (SELECT max(m.created_at) FROM messages m
 		           WHERE m.agent_id = a.id AND m.direction = 'outbound'
 		             AND m.status = 'sent') AS last_delivery_at,
@@ -1268,7 +1265,7 @@ func (s *Store) CreateOutboundMessage(ctx context.Context, agentID string, toRec
 }
 
 // CreatePendingOutboundMessage stores a fully composed outbound email in
-// pending_approval status, including body_text, body_html, and attachments so
+// pending_review status, including body_text, body_html, and attachments so
 // that approval can reconstruct the original SendRequest (or accept edits)
 // without the caller needing to retain it. ttlSeconds sets how long the
 // message remains pending before the expiration worker resolves it.
@@ -1315,7 +1312,7 @@ func (s *Store) CreatePendingOutboundMessage(ctx context.Context, agentID string
 		ToRecipients:      toRecipients,
 		CC:                cc,
 		BCC:               bcc,
-		Status:            MessageStatusPendingApproval,
+		Status:            MessageStatusPendingReview,
 		ApprovalExpiresAt: &approvalExpiresAt,
 		BodyText:          bodyText,
 		BodyHTML:          bodyHTML,
@@ -1361,7 +1358,7 @@ func nullIfEmptyString(s string) interface{} {
 // --- HITL approval store helpers ---
 
 // ErrNotPendingApproval is returned when an approve or reject operation
-// targets a message that is not (or is no longer) in pending_approval status.
+// targets a message that is not (or is no longer) in pending_review status.
 // Handlers map this to HTTP 409 Conflict.
 var ErrNotPendingApproval = fmt.Errorf("message is not pending approval")
 
@@ -1537,7 +1534,7 @@ func (s *Store) ListPendingOutboundForUser(ctx context.Context, userID string, l
 		        COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, '')
 		 FROM messages m
 		 JOIN agent_identities a ON a.id = m.agent_id
-		 WHERE a.user_id = $1 AND m.status = 'pending_approval'
+		 WHERE a.user_id = $1 AND m.status = 'pending_review' AND m.direction = 'outbound'
 		 ORDER BY m.approval_expires_at ASC
 		 LIMIT $2`, userID, limit,
 	)
@@ -1582,7 +1579,7 @@ type SendResult struct {
 	Raw []byte
 }
 
-// ApproveAndSend finalizes a pending_approval message by running it through
+// ApproveAndSend finalizes a pending_review message by running it through
 // a caller-supplied send function inside a transaction that holds a row lock
 // on the pending row. If send returns an error the transaction rolls back
 // and the message remains pending. On success the row is updated to
@@ -1596,7 +1593,7 @@ type SendResult struct {
 //
 // Ownership is enforced by the agent -> user join. Messages owned by
 // another user return ErrMessageNotFound. Messages whose status is not
-// 'pending_approval' return ErrNotPendingApproval. If another worker is
+// 'pending_review' return ErrNotPendingApproval. If another worker is
 // already mid-send for this message (rare; only possible after the
 // approval row lock was released without status changing — e.g. a
 // pool drop mid-send), this returns ErrSendInProgress.
@@ -1691,7 +1688,7 @@ func (s *Store) ApproveAndSend(
 	if ownerUserID != userID {
 		return nil, ErrMessageNotFound
 	}
-	if m.Status != MessageStatusPendingApproval {
+	if m.Status != MessageStatusPendingReview {
 		return nil, ErrNotPendingApproval
 	}
 	if method != nil {
@@ -1857,7 +1854,7 @@ type ExpirationCandidate struct {
 	ExpirationAction string // 'approve' or 'reject'
 }
 
-// ListExpiredPending returns pending_approval messages whose
+// ListExpiredPending returns pending_review messages whose
 // approval_expires_at is in the past, joined with their agent's
 // hitl_expiration_action. Ordered by approval_expires_at ASC so
 // earliest-expired are handled first.
@@ -1869,7 +1866,7 @@ func (s *Store) ListExpiredPending(ctx context.Context, limit int) ([]Expiration
 		`SELECT m.id, m.agent_id, a.hitl_expiration_action
 		 FROM messages m
 		 JOIN agent_identities a ON a.id = m.agent_id
-		 WHERE m.status = 'pending_approval'
+		 WHERE m.status = 'pending_review' AND m.direction = 'outbound'
 		   AND m.approval_expires_at < now()
 		 ORDER BY m.approval_expires_at ASC
 		 LIMIT $1`, limit,
@@ -1893,7 +1890,7 @@ func (s *Store) ListExpiredPending(ctx context.Context, limit int) ([]Expiration
 // no user ownership check (the caller is the expiration worker, which is
 // system-scoped), SELECT ... FOR NO KEY UPDATE SKIP LOCKED so concurrent
 // workers don't race for the same row, and the terminal status is
-// 'expired_approved' instead of 'sent'. On send failure the transaction
+// 'review_expired_approved' instead of 'sent'. On send failure the transaction
 // rolls back; the worker should then call ExpireReject to move the row
 // to a final state so the row doesn't get picked up on every sweep.
 //
@@ -1958,7 +1955,7 @@ func (s *Store) ExpireApproveAndSend(
 		 FROM messages
 		 WHERE id = $1
 		   AND direction = 'outbound'
-		   AND status = 'pending_approval'
+		   AND status = 'pending_review'
 		   AND approval_expires_at < now()
 		 FOR NO KEY UPDATE SKIP LOCKED`,
 		messageID,
@@ -2043,7 +2040,7 @@ func (s *Store) ExpireApproveAndSend(
 		        attachments_json  = NULL
 		  WHERE id = $1`,
 		messageID,
-		MessageStatusExpiredApproved,
+		MessageStatusReviewExpiredApproved,
 		result.ProviderMessageID,
 		result.Method,
 		result.To,
@@ -2060,7 +2057,7 @@ func (s *Store) ExpireApproveAndSend(
 	}
 	committed = true
 
-	m.Status = MessageStatusExpiredApproved
+	m.Status = MessageStatusReviewExpiredApproved
 	m.ProviderMessageID = result.ProviderMessageID
 	m.Method = result.Method
 	m.ToRecipients = result.To
@@ -2077,7 +2074,7 @@ func (s *Store) ExpireApproveAndSend(
 	return &m, nil
 }
 
-// ExpireReject transitions a pending_approval message to expired_rejected
+// ExpireReject transitions a pending_review message to review_expired_rejected
 // and scrubs body columns. No user ownership check — this is the worker
 // path. If the row is no longer pending (racing worker, already handled)
 // returns ErrNotPendingApproval; caller can treat as a no-op.
@@ -2090,8 +2087,8 @@ func (s *Store) ExpireReject(ctx context.Context, messageID, reason string) (*Me
 		        body_text = NULL,
 		        body_html = NULL,
 		        attachments_json = NULL
-		  WHERE id = $1 AND status = 'pending_approval'`,
-		messageID, MessageStatusExpiredRejected, reason,
+		  WHERE id = $1 AND status = 'pending_review' AND direction = 'outbound'`,
+		messageID, MessageStatusReviewExpiredRejected, reason,
 	)
 	if err != nil {
 		return nil, err
@@ -2140,7 +2137,7 @@ func (s *Store) ExpireReject(ctx context.Context, messageID, reason string) (*Me
 	return m, nil
 }
 
-// RejectPending transitions a pending_approval message to rejected,
+// RejectPending transitions a pending_review message to rejected,
 // records the reviewer's reason (empty string allowed), and scrubs
 // body_text / body_html / attachments_json. Ownership checked; missing
 // rows return ErrMessageNotFound. Non-pending rows return ErrNotPendingApproval.
@@ -2158,9 +2155,10 @@ func (s *Store) RejectPending(ctx context.Context, messageID, userID, reason str
 		        body_html = NULL,
 		        attachments_json = NULL
 		  WHERE id = $1
-		    AND status = 'pending_approval'
+		    AND status = 'pending_review'
+		    AND direction = 'outbound'
 		    AND agent_id IN (SELECT id FROM agent_identities WHERE user_id = $2)`,
-		messageID, userID, MessageStatusRejected, reason,
+		messageID, userID, MessageStatusReviewRejected, reason,
 	)
 	if err != nil {
 		return nil, err
@@ -2312,7 +2310,7 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]
 	// (blocked / human-rejected), and review_expired_rejected (TTL-dropped) stay
 	// hidden; review_approved / review_expired_approved (and plain 'sent') are
 	// delivered and shown. The clause is direction-aware so outbound rows
-	// (pending_approval etc.) are unaffected.
+	// (pending_review etc.) are unaffected.
 	switch f.Direction {
 	case "outbound":
 		// no inbound rows in the result set
@@ -2638,7 +2636,7 @@ func (s *Store) LookupConversationID(ctx context.Context, agentID string, messag
 // an inbox-style conversation list without a per-row drill-down.
 //
 // HasUnread is true iff at least one INBOUND member is in
-// inbox_status='unread'. Outbound pending_approval doesn't count —
+// inbox_status='unread'. Outbound pending_review doesn't count —
 // the conversation list is the agent's mailbox view, not the
 // reviewer's HITL queue.
 type ConversationSummary struct {
@@ -3143,7 +3141,7 @@ func (s *Store) GetDashboardStats(ctx context.Context, userID string, windowDays
 
 	// 2) Pending HITL approvals across the user's agents. Joining via
 	// the agent_id keeps the per-user partial index on messages
-	// (idx_messages_pending_approval) usable.
+	// (idx_messages_pending_review) usable.
 	var pendingCount int
 	var oldestSec *int
 	err = s.pool.QueryRow(ctx,
@@ -3153,7 +3151,7 @@ func (s *Store) GetDashboardStats(ctx context.Context, userID string, windowDays
 		        END
 		 FROM messages m
 		 JOIN agent_identities a ON a.id = m.agent_id
-		 WHERE a.user_id = $1 AND m.status = 'pending_approval'`,
+		 WHERE a.user_id = $1 AND m.status = 'pending_review' AND m.direction = 'outbound'`,
 		userID).Scan(&pendingCount, &oldestSec)
 	if err != nil {
 		return nil, fmt.Errorf("pending count: %w", err)

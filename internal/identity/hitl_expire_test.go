@@ -139,7 +139,7 @@ func TestExpireApproveAndSendHappyPath(t *testing.T) {
 	if sentSubject != "Held" {
 		t.Errorf("send got subject %q", sentSubject)
 	}
-	if sent.Status != identity.MessageStatusExpiredApproved {
+	if sent.Status != identity.MessageStatusReviewExpiredApproved {
 		t.Errorf("status = %q", sent.Status)
 	}
 
@@ -151,7 +151,7 @@ func TestExpireApproveAndSendHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dbStatus != identity.MessageStatusExpiredApproved {
+	if dbStatus != identity.MessageStatusReviewExpiredApproved {
 		t.Errorf("db status = %q", dbStatus)
 	}
 	if dbBodyText != nil {
@@ -232,7 +232,7 @@ func TestExpireApproveAndSendSendFailureRollsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != identity.MessageStatusPendingApproval {
+	if status != identity.MessageStatusPendingReview {
 		t.Errorf("status = %q, want still pending after send failure", status)
 	}
 	if bodyText == nil || *bodyText != "body" {
@@ -258,7 +258,7 @@ func TestExpireRejectHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExpireReject: %v", err)
 	}
-	if got.Status != identity.MessageStatusExpiredRejected {
+	if got.Status != identity.MessageStatusReviewExpiredRejected {
 		t.Errorf("status = %q", got.Status)
 	}
 	if got.RejectionReason != "ttl_expired" {

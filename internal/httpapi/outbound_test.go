@@ -24,7 +24,7 @@ func TestSendHeldForApproval(t *testing.T) {
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
 		"to": []string{"alice@x.com"}, "subject": "HOLD please", "body": "hello",
 	})
-	if code != 202 || body["status"] != "pending_approval" || body["message_id"] != "msg_pending_1" {
+	if code != 202 || body["status"] != "pending_review" || body["message_id"] != "msg_pending_1" {
 		t.Fatalf("want 202 pending_approval, got %d %v", code, body)
 	}
 	if body["approval_expires_at"] == nil {

@@ -320,7 +320,7 @@ func testServer(t *testing.T) *httptest.Server {
 		},
 		RejectPending: func(ctx context.Context, userID, messageID, expectedAgentEmail, reason string) (*identity.Message, *agent.OutboundError) {
 			if messageID == "msg_pending" {
-				return &identity.Message{ID: "msg_pending", Status: "rejected", RejectionReason: reason}, nil
+				return &identity.Message{ID: "msg_pending", Status: "review_rejected", RejectionReason: reason}, nil
 			}
 			return nil, &agent.OutboundError{Status: http.StatusNotFound, Code: "not_found", Msg: "message not found"}
 		},

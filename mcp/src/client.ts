@@ -29,12 +29,11 @@ import type {
 import type { McpConfig } from "./config.js";
 import type { Scope } from "./tools/tiers.js";
 
-// Outbound drafts held for human approval surface in the message list
-// with this status (see api/openapi.yaml listMessages: "Held outbound
-// drafts appear as status=pending_approval"). There is no dedicated
-// status query param for them, so HITL listing filters outbound rows
-// on this value.
-export const PENDING_APPROVAL_STATUS = "pending_approval";
+// Outbound drafts held for human review surface in the message list with
+// this status (the hold vocabulary was unified on `pending_review` across
+// both directions — see api/openapi.yaml). There is no dedicated status
+// query param for them, so HITL listing filters outbound rows on this value.
+export const PENDING_REVIEW_STATUS = "pending_review";
 
 const DEFAULT_LIST_LIMIT = 1000;
 
@@ -265,7 +264,7 @@ export class McpClient {
 
   // ── HITL (pending outbound) ─────────────────────────────────────
 
-  // Pending drafts surface as outbound messages with status=pending_approval.
+  // Pending drafts surface as outbound messages with status=pending_review.
   // There is no dedicated "pending" status filter, so we list outbound and
   // filter on the status field. Searches across every owned agent when no
   // default address is pinned so the queue is visible without a default.
@@ -281,7 +280,7 @@ export class McpClient {
       for (const r of rows) {
         // Held drafts carry the HITL lifecycle in hitl_status (read_status is
         // the inbox read-state, "" for outbound). MSG-1.
-        if (r.hitlStatus === PENDING_APPROVAL_STATUS) out.push(r);
+        if (r.hitlStatus === PENDING_REVIEW_STATUS) out.push(r);
       }
     }
     return out;

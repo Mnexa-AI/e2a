@@ -138,7 +138,7 @@ func TestMagicLinkGETDoesNotExecute(t *testing.T) {
 
 	// Row stays pending.
 	got, _ := store.GetOutboundMessageForUser(context.Background(), msg.ID, userID)
-	if got.Status != identity.MessageStatusPendingApproval {
+	if got.Status != identity.MessageStatusPendingReview {
 		t.Errorf("status after GET = %q, want still pending_approval", got.Status)
 	}
 }
@@ -322,7 +322,7 @@ func TestMagicRejectPOSTWithReason(t *testing.T) {
 	}
 
 	got, _ := store.GetOutboundMessageForUser(context.Background(), msg.ID, userID)
-	if got.Status != identity.MessageStatusRejected {
+	if got.Status != identity.MessageStatusReviewRejected {
 		t.Errorf("status = %q, want rejected", got.Status)
 	}
 	if got.RejectionReason != "not the right tone" {

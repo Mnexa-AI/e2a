@@ -28,14 +28,17 @@ import (
 // means typos at trigger sites fail at compile time. The handler-layer
 // allowlist of accepted event names mirrors this list.
 const (
-	EventEmailReceived        = "email.received"
-	EventEmailSent            = "email.sent"
-	EventEmailPendingApproval = "email.pending_approval"
-	// HITL decision events (EV-1): symmetric, unambiguous names so neither is
-	// confused with delivery/recipient rejection (email.bounced) or inbound
-	// policy flagging (email.flagged).
-	EventEmailApproved = "email.approval_accepted"
-	EventEmailRejected = "email.approval_rejected"
+	EventEmailReceived = "email.received"
+	EventEmailSent     = "email.sent"
+	// Review-hold lifecycle (unified, direction-aware — design 2026-06-22). A held
+	// message fires email.pending_review (defined below); on resolution it fires
+	// email.review_approved (outbound: sent; inbound: released to the agent) or
+	// email.review_rejected. These replace the outbound-only pending_approval /
+	// approval_accepted / approval_rejected — outbound holds now fire the same
+	// direction-aware review events as inbound, distinguished by the `direction`
+	// field in the payload.
+	EventEmailReviewApproved = "email.review_approved"
+	EventEmailReviewRejected = "email.review_rejected"
 	// Sender identity (decision 4 / Slice 4): the async SES sending identity
 	// for a domain reached a terminal state. Lets agents skip polling
 	// GET /domains/{domain} for sending_status.
@@ -74,9 +77,8 @@ const (
 var AllEventTypes = []string{
 	EventEmailReceived,
 	EventEmailSent,
-	EventEmailPendingApproval,
-	EventEmailApproved,
-	EventEmailRejected,
+	EventEmailReviewApproved,
+	EventEmailReviewRejected,
 	EventDomainSendingVerified,
 	EventDomainSendingFailed,
 	EventEmailDelivered,

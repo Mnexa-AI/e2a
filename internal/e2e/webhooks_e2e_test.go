@@ -35,7 +35,7 @@ func sendURL(base, agentEmail string) string {
 // agent_identities.webhook_url path (per-agent, single URL, no filters).
 //
 // Coverage map (from the approved test plan):
-//   P1 — outbound events: email.sent, email.pending_approval,
+//   P1 — outbound events: email.sent, email.pending_review,
 //         email.approved, email.rejected fire from real handler triggers
 //   P2 — inbound:         email.received fires from a real SMTP message
 //   P3 — filters:         agent_ids + conversation_ids + labels (H5)
@@ -143,11 +143,29 @@ func setupSubscriberOwner(t *testing.T, ts *testutil.E2ATestServer, prefix strin
 		t.Fatalf("CreateAgent: %v", err)
 	}
 	if hitl {
-		// Enable HITL with a reasonable TTL.
+		// Hold every outbound send for human review. Post-HITL-retirement (migrations
+		// 042/043) holds come from the outbound policy gate, not a hitl_enabled flag:
+		// outbound_policy=allowlist with an empty allowlist flags every recipient, and
+		// outbound_policy_action=review turns that flag into a pending_review hold.
+		if err := ts.Store.UpdateAgentScanConfig(ctx, agent.ID, user.ID, identity.ScanConfig{
+			InboundPolicyAction:         "flag",
+			OutboundPolicy:              "allowlist",
+			OutboundAllowlist:           []string{},
+			OutboundPolicyAction:        "review",
+			InboundScan:                 "off",
+			InboundScanReviewThreshold:  0.5,
+			InboundScanBlockThreshold:   0.9,
+			OutboundScan:                "off",
+			OutboundScanReviewThreshold: 0.5,
+			OutboundScanBlockThreshold:  0.9,
+		}); err != nil {
+			t.Fatalf("UpdateAgentScanConfig: %v", err)
+		}
+		// TTL + expiration action for the sweep.
 		if err := ts.Store.UpdateAgentHITL(ctx, agent.ID, user.ID, 3600, "reject"); err != nil {
 			t.Fatalf("UpdateAgentHITL: %v", err)
 		}
-		// Reload so the in-test agent struct reflects HITL flag.
+		// Reload so the in-test agent struct reflects the held-outbound config.
 		agent, err = ts.Store.GetAgentByID(ctx, agent.ID)
 		if err != nil {
 			t.Fatalf("GetAgentByID: %v", err)
@@ -224,9 +242,9 @@ func TestWebhooksE2E_HITL_PendingApproved(t *testing.T) {
 
 	_, key, agent := setupSubscriberOwner(t, ts, "wh-hitl", true)
 	pendingHook := registerWebhook(t, ts, agent.UserID, receiver.Server.URL+"/pending",
-		[]string{"email.pending_approval"}, identity.WebhookFilters{})
+		[]string{"email.pending_review"}, identity.WebhookFilters{})
 	approvedHook := registerWebhook(t, ts, agent.UserID, receiver.Server.URL+"/approved",
-		[]string{"email.approval_accepted"}, identity.WebhookFilters{})
+		[]string{"email.review_approved"}, identity.WebhookFilters{})
 
 	// send → held for approval, returns 202 + message_id.
 	body := `{"to":["alice@example.com"],"subject":"draft","body":"please review"}`
@@ -241,14 +259,14 @@ func TestWebhooksE2E_HITL_PendingApproved(t *testing.T) {
 		t.Fatalf("no message_id in hold response: %s", string(respBytes))
 	}
 
-	// First tick — should deliver email.pending_approval.
+	// First tick — should deliver email.pending_review.
 	tick(t, ts)
 	receiver.WaitFor(t, 2*time.Second, func(c []testutil.SubscriberCaptured) bool { return len(c) >= 1 })
 	got := receiver.Captured()
 	if len(got) != 1 {
 		t.Fatalf("after pending: got %d captures, want 1", len(got))
 	}
-	if got[0].URL != "/pending" || got[0].Envelope["type"] != "email.pending_approval" {
+	if got[0].URL != "/pending" || got[0].Envelope["type"] != "email.pending_review" {
 		t.Errorf("first capture path=%q event=%v", got[0].URL, got[0].Envelope["type"])
 	}
 	if !verifyHMACv1(t, got[0].Headers, got[0].RawBody, pendingHook.SigningSecret) {
@@ -272,7 +290,7 @@ func TestWebhooksE2E_HITL_PendingApproved(t *testing.T) {
 		t.Fatalf("after approve: got %d captures, want 2", len(got))
 	}
 	approved := got[1]
-	if approved.URL != "/approved" || approved.Envelope["type"] != "email.approval_accepted" {
+	if approved.URL != "/approved" || approved.Envelope["type"] != "email.review_approved" {
 		t.Errorf("second capture path=%q event=%v", approved.URL, approved.Envelope["type"])
 	}
 	if !verifyHMACv1(t, approved.Headers, approved.RawBody, approvedHook.SigningSecret) {
@@ -294,7 +312,7 @@ func TestWebhooksE2E_HITL_Rejected(t *testing.T) {
 
 	_, key, agent := setupSubscriberOwner(t, ts, "wh-reject", true)
 	rejectedHook := registerWebhook(t, ts, agent.UserID, receiver.Server.URL+"/rejected",
-		[]string{"email.approval_rejected"}, identity.WebhookFilters{})
+		[]string{"email.review_rejected"}, identity.WebhookFilters{})
 
 	body := `{"to":["alice@example.com"],"subject":"nope","body":"please reject"}`
 	status, respBytes := authedJSON(t, "POST", sendURL(ts.HTTPServer.URL, agent.EmailAddress()), key.PlaintextKey, body)
@@ -324,7 +342,7 @@ func TestWebhooksE2E_HITL_Rejected(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("after reject: got %d captures, want 1", len(got))
 	}
-	if got[0].URL != "/rejected" || got[0].Envelope["type"] != "email.approval_rejected" {
+	if got[0].URL != "/rejected" || got[0].Envelope["type"] != "email.review_rejected" {
 		t.Errorf("path=%q event=%v", got[0].URL, got[0].Envelope["type"])
 	}
 	if !verifyHMACv1(t, got[0].Headers, got[0].RawBody, rejectedHook.SigningSecret) {

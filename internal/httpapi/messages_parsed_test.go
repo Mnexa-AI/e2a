@@ -58,7 +58,7 @@ func TestMessageViewCarriesWebhookStatusAndSize(t *testing.T) {
 // second representation the unified read serves (sent/inbound use raw_message).
 func TestMessageViewHeldDraftBody(t *testing.T) {
 	draft := messageViewFromIdentity(&identity.Message{
-		ID: "msg_d", Direction: "outbound", Status: "pending_approval",
+		ID: "msg_d", Direction: "outbound", Status: "pending_review",
 		BodyText: "draft text", BodyHTML: "<p>draft</p>",
 	})
 	if draft.Body == nil || draft.Body.Text != "draft text" || draft.Body.HTML != "<p>draft</p>" {

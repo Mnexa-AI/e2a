@@ -260,8 +260,8 @@ func TestCreatePendingOutboundMessage(t *testing.T) {
 	after := time.Now()
 
 	// In-memory shape
-	if msg.Status != identity.MessageStatusPendingApproval {
-		t.Errorf("Status = %q, want %q", msg.Status, identity.MessageStatusPendingApproval)
+	if msg.Status != identity.MessageStatusPendingReview {
+		t.Errorf("Status = %q, want %q", msg.Status, identity.MessageStatusPendingReview)
 	}
 	if msg.Direction != "outbound" {
 		t.Errorf("Direction = %q, want outbound", msg.Direction)
@@ -314,8 +314,8 @@ func TestCreatePendingOutboundMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read back pending row: %v", err)
 	}
-	if dbStatus != identity.MessageStatusPendingApproval {
-		t.Errorf("db status = %q, want %q", dbStatus, identity.MessageStatusPendingApproval)
+	if dbStatus != identity.MessageStatusPendingReview {
+		t.Errorf("db status = %q, want %q", dbStatus, identity.MessageStatusPendingReview)
 	}
 	if dbSubject != "Draft subject" {
 		t.Errorf("db subject = %q", dbSubject)
@@ -450,23 +450,36 @@ func TestMessageStatusDBCheck(t *testing.T) {
 
 // TestPendingApprovalIndex verifies the partial index created by migration 003
 // actually exists; this is a cheap sanity check that migrations applied cleanly.
-func TestPendingApprovalIndex(t *testing.T) {
+func TestPendingReviewIndex(t *testing.T) {
 	pool := testutil.TestDB(t)
 	ctx := context.Background()
 
+	// After the hold unification (migration 044) the outbound pending-sweep index is
+	// folded into idx_messages_pending_review, which spans both directions.
 	var exists bool
 	err := pool.QueryRow(ctx,
 		`SELECT EXISTS (
 		   SELECT 1 FROM pg_indexes
 		   WHERE schemaname = 'public'
 		     AND tablename = 'messages'
-		     AND indexname = 'idx_messages_pending_approval'
+		     AND indexname = 'idx_messages_pending_review'
 		 )`,
 	).Scan(&exists)
 	if err != nil {
 		t.Fatalf("pg_indexes lookup: %v", err)
 	}
 	if !exists {
-		t.Error("idx_messages_pending_approval not found — migration 003 may not have applied")
+		t.Error("idx_messages_pending_review not found — migration 040/044 may not have applied")
+	}
+
+	// The retired outbound index must be gone (migration 044 dropped it).
+	var oldExists bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_messages_pending_approval')`,
+	).Scan(&oldExists); err != nil {
+		t.Fatalf("pg_indexes lookup (old): %v", err)
+	}
+	if oldExists {
+		t.Error("idx_messages_pending_approval still present — migration 044 should have dropped it")
 	}
 }

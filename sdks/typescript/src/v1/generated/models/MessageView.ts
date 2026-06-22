@@ -235,11 +235,11 @@ export enum MessageViewDirectionEnum {
     Outbound = 'outbound'
 }
 export enum MessageViewHitlStatusEnum {
-    PendingApproval = 'pending_approval',
+    PendingReview = 'pending_review',
     Sent = 'sent',
-    Rejected = 'rejected',
-    ExpiredApproved = 'expired_approved',
-    ExpiredRejected = 'expired_rejected'
+    ReviewRejected = 'review_rejected',
+    ReviewExpiredApproved = 'review_expired_approved',
+    ReviewExpiredRejected = 'review_expired_rejected'
 }
 export enum MessageViewSentAsEnum {
     OwnAddress = 'own_address',

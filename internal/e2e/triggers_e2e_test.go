@@ -16,7 +16,7 @@ import (
 // contract level:
 //
 //   * email.sent           → PublishBestEffortTx (post-SES, no rollback)
-//   * email.pending_approval → PublishTx (pre-side-effect, strong)
+//   * email.pending_review → PublishTx (pre-side-effect, strong)
 //   * email.approved       → PublishBestEffortTx (post-SES, no rollback)
 //   * email.rejected       → PublishTx (pre-side-effect, strong)
 //
@@ -82,7 +82,7 @@ func TestTriggers_EmailSent_BestEffortAllowsCallerToProceed(t *testing.T) {
 
 // TestTriggers_PendingApproval_StrongGuaranteeReturnsError proves that
 // when the outbox INSERT fails on a pre-side-effect trigger like
-// email.pending_approval, PublishTx surfaces the error so the caller
+// email.pending_review, PublishTx surfaces the error so the caller
 // can roll back its business state. publishPendingApproval in api.go
 // relies on this — if the outbox write fails, the pending_messages row
 // must not commit either (so retries are idempotent).
@@ -95,8 +95,8 @@ func TestTriggers_PendingApproval_StrongGuaranteeReturnsError(t *testing.T) {
 
 	missingMessageID := "msg_NOT_IN_DB_pending"
 	event := webhookpub.Event{
-		ID:        webhookpub.DeterministicEventID(missingMessageID, webhookpub.EventEmailPendingApproval),
-		Type:      webhookpub.EventEmailPendingApproval,
+		ID:        webhookpub.DeterministicEventID(missingMessageID, webhookpub.EventEmailPendingReview),
+		Type:      webhookpub.EventEmailPendingReview,
 		UserID:    user,
 		AgentID:   agent,
 		MessageID: missingMessageID,
@@ -127,8 +127,8 @@ func TestTriggers_Approved_BestEffortAfterSES(t *testing.T) {
 	agent := fix.seedAgent(user, "approved")
 
 	event := webhookpub.Event{
-		ID:     webhookpub.DeterministicEventID("msg_NOT_IN_DB_approved", webhookpub.EventEmailApproved),
-		Type:   webhookpub.EventEmailApproved,
+		ID:     webhookpub.DeterministicEventID("msg_NOT_IN_DB_approved", webhookpub.EventEmailReviewApproved),
+		Type:   webhookpub.EventEmailReviewApproved,
 		UserID: user, AgentID: agent,
 		MessageID: "msg_NOT_IN_DB_approved",
 		Data:      map[string]any{"reviewed_by_user_id": user},
@@ -160,8 +160,8 @@ func TestTriggers_Rejected_StrongGuaranteeReturnsError(t *testing.T) {
 
 	missingMessageID := "msg_NOT_IN_DB_rejected"
 	event := webhookpub.Event{
-		ID:        webhookpub.DeterministicEventID(missingMessageID, webhookpub.EventEmailRejected),
-		Type:      webhookpub.EventEmailRejected,
+		ID:        webhookpub.DeterministicEventID(missingMessageID, webhookpub.EventEmailReviewRejected),
+		Type:      webhookpub.EventEmailReviewRejected,
 		UserID:    user,
 		AgentID:   agent,
 		MessageID: missingMessageID,
@@ -191,9 +191,9 @@ func TestTriggers_DeterministicID_DistinctPerEventType(t *testing.T) {
 	for _, eventType := range []string{
 		webhookpub.EventEmailReceived,
 		webhookpub.EventEmailSent,
-		webhookpub.EventEmailPendingApproval,
-		webhookpub.EventEmailApproved,
-		webhookpub.EventEmailRejected,
+		webhookpub.EventEmailPendingReview,
+		webhookpub.EventEmailReviewApproved,
+		webhookpub.EventEmailReviewRejected,
 	} {
 		ids[eventType] = webhookpub.DeterministicEventID(messageID, eventType)
 	}

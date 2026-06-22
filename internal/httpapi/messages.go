@@ -36,11 +36,11 @@ type MessageView struct {
 	// webhook_status — the conflation that caused bug B2. Left open (not an enum)
 	// because outbound rows carry "".
 	Status string `json:"read_status"`
-	// HITLStatus is the human-in-the-loop lifecycle (e.g. pending_approval) —
+	// HITLStatus is the human-in-the-loop lifecycle (e.g. pending_review) —
 	// outbound only, mirroring MessageSummaryView. Distinct from read_status,
 	// delivery_status, and webhook_status (each a separate axis). Closed set =
 	// migration 003 CHECK.
-	HITLStatus string `json:"hitl_status,omitempty" enum:"pending_approval,sent,rejected,expired_approved,expired_rejected"`
+	HITLStatus string `json:"hitl_status,omitempty" enum:"pending_review,sent,review_rejected,review_expired_approved,review_expired_rejected"`
 	// WebhookStatus / WebhookError mirror MessageSummaryView so the detail view
 	// is a strict superset of the list item (a client fetching one message keeps
 	// the webhook delivery context). Apply to both directions; omitempty hides
@@ -82,7 +82,7 @@ type MessageView struct {
 	// made on `auth` + provenance, never on this stripped text.
 	Parsed *MessageParsedView `json:"parsed,omitempty"`
 	// Body is the mutable draft body for a held outbound message
-	// (status=pending_approval), which has no raw_message yet. This is the
+	// (status=pending_review), which has no raw_message yet. This is the
 	// second representation the unified read exposes (decision 9): held drafts
 	// carry body_text/body_html, sent/inbound carry raw_message. Omitted when
 	// empty (sent/inbound rows).
@@ -177,7 +177,7 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		}
 	}
 	// Held-draft body (decision 9 unification): the second representation a
-	// pending_approval outbound message carries instead of raw_message. Gated on
+	// pending_review outbound message carries instead of raw_message. Gated on
 	// outbound direction so it can never surface on an inbound row even if a
 	// future load path populates the body columns.
 	if m.Direction == "outbound" && (m.BodyText != "" || m.BodyHTML != "") {
@@ -215,7 +215,7 @@ type MessageSummaryView struct {
 	ConversationID string   `json:"conversation_id,omitempty"`
 	// Status is the inbox read-state, exposed as `read_status` (MSG-1).
 	Status string `json:"read_status"`
-	HITLStatus     string   `json:"hitl_status,omitempty" enum:"pending_approval,sent,rejected,expired_approved,expired_rejected"`
+	HITLStatus     string   `json:"hitl_status,omitempty" enum:"pending_review,sent,review_rejected,review_expired_approved,review_expired_rejected"`
 	WebhookStatus  string   `json:"webhook_status,omitempty"`
 	WebhookError   string   `json:"webhook_error,omitempty"`
 	// DeliveryStatus / DeliveryDetail / SentAs are the outbound delivery
@@ -329,7 +329,7 @@ func (s *Server) registerMessages() {
 		Method:      http.MethodGet,
 		Path:        "/v1/agents/{email}/messages",
 		Summary:     "List messages",
-		Description: "List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.",
+		Description: "List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.",
 		Tags:        []string{"messages"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleListMessages)

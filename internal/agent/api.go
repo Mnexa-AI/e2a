@@ -336,9 +336,9 @@ func (a *API) publishSent(ctx context.Context, e webhookpub.Event, outMsg *ident
 	}
 }
 
-// publishPendingApproval fires email.pending_approval via the outbox
-// (PublishTx — pre-side-effect: the pending row hasn't been sent to
-// SES yet) AND the legacy goroutine. pendingMsgID seeds the
+// publishPendingApproval fires email.pending_review (direction=outbound)
+// via the outbox (PublishTx — pre-side-effect: the pending row hasn't been
+// sent to SES yet) AND the legacy goroutine. pendingMsgID seeds the
 // deterministic event id so /send retries with the same idempotency
 // key don't fire duplicate events.
 func (a *API) publishPendingApproval(ctx context.Context, e webhookpub.Event, pendingMsgID string) {
@@ -349,7 +349,7 @@ func (a *API) publishPendingApproval(ctx context.Context, e webhookpub.Event, pe
 			return a.outbox.PublishTx(ctx, tx, e)
 		})
 		if err != nil {
-			log.Printf("[api] outbox tx for email.pending_approval err: %v", err)
+			log.Printf("[api] outbox tx for email.pending_review err: %v", err)
 		} else {
 			// err==nil means the tx committed AND PublishTx returned
 			// nil — both are required for the row to be durably

@@ -103,8 +103,8 @@ func TestWorkerAutoRejectsExpiredPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != identity.MessageStatusExpiredRejected {
-		t.Errorf("status = %q, want %q", status, identity.MessageStatusExpiredRejected)
+	if status != identity.MessageStatusReviewExpiredRejected {
+		t.Errorf("status = %q, want %q", status, identity.MessageStatusReviewExpiredRejected)
 	}
 	if reason == nil || *reason != "ttl_expired" {
 		t.Errorf("reason = %v, want 'ttl_expired'", reason)
@@ -150,8 +150,8 @@ func TestWorkerAutoApprovesExpiredPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != identity.MessageStatusExpiredApproved {
-		t.Errorf("status = %q, want %q", status, identity.MessageStatusExpiredApproved)
+	if status != identity.MessageStatusReviewExpiredApproved {
+		t.Errorf("status = %q, want %q", status, identity.MessageStatusReviewExpiredApproved)
 	}
 	if providerID == "" {
 		t.Error("provider_message_id should be populated after auto-send")
@@ -202,8 +202,8 @@ func TestWorkerAutoApproveSelfSendDeliversViaLoopback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != identity.MessageStatusExpiredApproved {
-		t.Errorf("status = %q, want %q (worker should NOT have fallen back to expired_rejected)", status, identity.MessageStatusExpiredApproved)
+	if status != identity.MessageStatusReviewExpiredApproved {
+		t.Errorf("status = %q, want %q (worker should NOT have fallen back to expired_rejected)", status, identity.MessageStatusReviewExpiredApproved)
 	}
 	if method != "loopback" {
 		t.Errorf("method = %q, want loopback", method)
@@ -253,9 +253,9 @@ func TestWorkerAutoApproveSendFailureFallsBackToRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != identity.MessageStatusExpiredRejected {
+	if status != identity.MessageStatusReviewExpiredRejected {
 		t.Errorf("status = %q, want %q (send failure should fall back to rejected)",
-			status, identity.MessageStatusExpiredRejected)
+			status, identity.MessageStatusReviewExpiredRejected)
 	}
 	if reason == nil || !strings.Contains(*reason, "auto-approve send failed") {
 		t.Errorf("reason = %v, want containing 'auto-approve send failed'", reason)
@@ -292,7 +292,7 @@ func TestWorkerAutoApproveUnverifiedAgentRejects(t *testing.T) {
 	pool.QueryRow(ctx,
 		`SELECT status, rejection_reason FROM messages WHERE id = $1`, msg.ID,
 	).Scan(&status, &reason)
-	if status != identity.MessageStatusExpiredRejected {
+	if status != identity.MessageStatusReviewExpiredRejected {
 		t.Errorf("status = %q, want expired_rejected", status)
 	}
 	if reason == nil || !strings.Contains(*reason, "not verified") {
@@ -322,7 +322,7 @@ func TestWorkerSkipsFreshPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != identity.MessageStatusPendingApproval {
+	if status != identity.MessageStatusPendingReview {
 		t.Errorf("status = %q, should still be pending_approval", status)
 	}
 	if bodyText == nil {

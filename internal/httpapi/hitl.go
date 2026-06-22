@@ -49,14 +49,14 @@ func (s *Server) registerHITL() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "approveMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/approve",
 		Summary: "Approve a held message", Tags: []string{"messages"},
-		Description: "Approve a pending_approval draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).",
+		Description: "Approve a pending_review draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleApprove)
 
 	huma.Register(s.API, huma.Operation{
 		OperationID: "rejectMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/reject",
 		Summary: "Reject a held message", Tags: []string{"messages"},
-		Description: "Reject a pending_approval draft so it is never sent.",
+		Description: "Reject a pending_review draft so it is never sent.",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleReject)
 }

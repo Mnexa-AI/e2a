@@ -207,7 +207,7 @@ func TestApproveAndSend_TxRollbackRetry_DoesNotCallSendTwice(t *testing.T) {
 	// with the provider id cleared.
 	if _, err := pool.Exec(ctx,
 		`UPDATE messages
-		    SET status = 'pending_approval',
+		    SET status = 'pending_review',
 		        provider_message_id = '',
 		        reviewed_at = NULL,
 		        reviewed_by_user_id = NULL,
@@ -264,7 +264,7 @@ func TestApproveAndSend_SendErrorMarksFailedAndAllowsRetry(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT status FROM messages WHERE id = $1`, msg.ID).Scan(&status); err != nil {
 		t.Fatalf("read status: %v", err)
 	}
-	if status != identity.MessageStatusPendingApproval {
+	if status != identity.MessageStatusPendingReview {
 		t.Errorf("messages.status = %q, want pending_approval", status)
 	}
 
@@ -336,7 +336,7 @@ func TestExpireApproveAndSend_TxRollbackRetry_DoesNotCallSendTwice(t *testing.T)
 	// re-aged so the next poll still matches.
 	if _, err := pool.Exec(ctx,
 		`UPDATE messages
-		    SET status              = 'pending_approval',
+		    SET status              = 'pending_review',
 		        provider_message_id = '',
 		        reviewed_at         = NULL,
 		        body_text           = 'body',
@@ -361,7 +361,7 @@ func TestExpireApproveAndSend_TxRollbackRetry_DoesNotCallSendTwice(t *testing.T)
 	if second.ProviderMessageID != "<ses-exp-orig@amazonses.com>" {
 		t.Errorf("retry returned ProviderMessageID = %q, want the cached <ses-exp-orig@amazonses.com>", second.ProviderMessageID)
 	}
-	if second.Status != identity.MessageStatusExpiredApproved {
+	if second.Status != identity.MessageStatusReviewExpiredApproved {
 		t.Errorf("retry returned status = %q, want expired_approved", second.Status)
 	}
 }

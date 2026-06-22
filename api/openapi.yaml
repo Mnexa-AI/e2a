@@ -481,14 +481,13 @@ components:
         description:
           type: string
         events:
-          description: "Beta: email.flagged, email.blocked, and email.pending_review (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
+          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
               - email.sent
-              - email.pending_approval
-              - email.approval_accepted
-              - email.approval_rejected
+              - email.review_approved
+              - email.review_rejected
               - domain.sending_verified
               - domain.sending_failed
               - email.delivered
@@ -522,14 +521,13 @@ components:
         enabled:
           type: boolean
         events:
-          description: "Beta: email.flagged, email.blocked, and email.pending_review (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
+          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
               - email.sent
-              - email.pending_approval
-              - email.approval_accepted
-              - email.approval_rejected
+              - email.review_approved
+              - email.review_rejected
               - domain.sending_verified
               - domain.sending_failed
               - email.delivered
@@ -821,9 +819,8 @@ components:
           enum:
             - email.received
             - email.sent
-            - email.pending_approval
-            - email.approval_accepted
-            - email.approval_rejected
+            - email.review_approved
+            - email.review_rejected
             - domain.sending_verified
             - domain.sending_failed
             - email.delivered
@@ -1101,11 +1098,11 @@ components:
           type: string
         hitl_status:
           enum:
-            - pending_approval
+            - pending_review
             - sent
-            - rejected
-            - expired_approved
-            - expired_rejected
+            - review_rejected
+            - review_expired_approved
+            - review_expired_rejected
           type: string
         labels:
           items:
@@ -1199,11 +1196,11 @@ components:
           type: string
         hitl_status:
           enum:
-            - pending_approval
+            - pending_review
             - sent
-            - rejected
-            - expired_approved
-            - expired_rejected
+            - review_rejected
+            - review_expired_approved
+            - review_expired_rejected
           type: string
         labels:
           items:
@@ -1587,7 +1584,7 @@ components:
         status:
           enum:
             - sent
-            - pending_approval
+            - pending_review
           type: string
       required:
         - status
@@ -1636,9 +1633,8 @@ components:
           enum:
             - email.received
             - email.sent
-            - email.pending_approval
-            - email.approval_accepted
-            - email.approval_rejected
+            - email.review_approved
+            - email.review_rejected
             - domain.sending_verified
             - domain.sending_failed
             - email.delivered
@@ -1764,14 +1760,13 @@ components:
         enabled:
           type: boolean
         events:
-          description: "Beta: email.flagged, email.blocked, and email.pending_review (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
+          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
               - email.sent
-              - email.pending_approval
-              - email.approval_accepted
-              - email.approval_rejected
+              - email.review_approved
+              - email.review_rejected
               - domain.sending_verified
               - domain.sending_failed
               - email.delivered
@@ -1906,9 +1901,8 @@ components:
           enum:
             - email.received
             - email.sent
-            - email.pending_approval
-            - email.approval_accepted
-            - email.approval_rejected
+            - email.review_approved
+            - email.review_rejected
             - domain.sending_verified
             - domain.sending_failed
             - email.delivered
@@ -1976,14 +1970,13 @@ components:
         enabled:
           type: boolean
         events:
-          description: "Beta: email.flagged, email.blocked, and email.pending_review (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
+          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
               - email.sent
-              - email.pending_approval
-              - email.approval_accepted
-              - email.approval_rejected
+              - email.review_approved
+              - email.review_rejected
               - domain.sending_verified
               - domain.sending_failed
               - email.delivered
@@ -2401,7 +2394,7 @@ paths:
         - conversations
   /v1/agents/{email}/messages:
     get:
-      description: List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.
+      description: List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.
       operationId: listMessages
       parameters:
         - in: path
@@ -2518,7 +2511,7 @@ paths:
       tags:
         - messages
     post:
-      description: Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.
+      description: Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key.
       operationId: sendMessage
       parameters:
         - in: path
@@ -2553,7 +2546,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
-          description: Accepted — held for human approval (status=pending_approval).
+          description: Accepted — held for human approval (status=pending_review).
         default:
           content:
             application/json:
@@ -2642,7 +2635,7 @@ paths:
         - messages
   /v1/agents/{email}/messages/{id}/approve:
     post:
-      description: Approve a pending_approval draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
+      description: Approve a pending_review draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
       operationId: approveMessage
       parameters:
         - in: path
@@ -2777,7 +2770,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
-          description: Accepted — held for human approval (status=pending_approval).
+          description: Accepted — held for human approval (status=pending_review).
         default:
           content:
             application/json:
@@ -2791,7 +2784,7 @@ paths:
         - messages
   /v1/agents/{email}/messages/{id}/reject:
     post:
-      description: Reject a pending_approval draft so it is never sent.
+      description: Reject a pending_review draft so it is never sent.
       operationId: rejectMessage
       parameters:
         - in: path
@@ -2870,7 +2863,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
-          description: Accepted — held for human approval (status=pending_approval).
+          description: Accepted — held for human approval (status=pending_review).
         default:
           content:
             application/json:
@@ -2906,7 +2899,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
-          description: Accepted — held for human approval (status=pending_approval).
+          description: Accepted — held for human approval (status=pending_review).
         default:
           content:
             application/json:

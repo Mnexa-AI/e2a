@@ -62,7 +62,7 @@ func TestGetOutboundMessageForUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOutboundMessageForUser: %v", err)
 	}
-	if got.Status != identity.MessageStatusPendingApproval {
+	if got.Status != identity.MessageStatusPendingReview {
 		t.Errorf("Status = %q", got.Status)
 	}
 	if got.Subject != "Draft" {
@@ -462,7 +462,7 @@ func TestApproveAndSendSendFailureRollsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != identity.MessageStatusPendingApproval {
+	if status != identity.MessageStatusPendingReview {
 		t.Errorf("status = %q, want still pending_approval after send failure", status)
 	}
 	if bodyText == nil || *bodyText != "body" {
@@ -705,7 +705,7 @@ func TestRejectPendingHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RejectPending: %v", err)
 	}
-	if got.Status != identity.MessageStatusRejected {
+	if got.Status != identity.MessageStatusReviewRejected {
 		t.Errorf("Status = %q", got.Status)
 	}
 	if got.RejectionReason != "inappropriate tone" {
