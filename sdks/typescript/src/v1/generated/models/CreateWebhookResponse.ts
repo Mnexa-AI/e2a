@@ -111,6 +111,7 @@ export enum CreateWebhookResponseEventsEnum {
     EmailBounced = 'email.bounced',
     EmailComplained = 'email.complained',
     DomainSuppressionAdded = 'domain.suppression_added',
-    EmailFlagged = 'email.flagged'
+    EmailFlagged = 'email.flagged',
+    EmailBlocked = 'email.blocked'
 }
 

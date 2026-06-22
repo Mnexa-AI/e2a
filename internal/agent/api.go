@@ -1082,6 +1082,7 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		// audit lives in screening_events keyed to a STABLE soft-ref id so a
 		// retried block doesn't write duplicate audit rows / events.
 		a.auditRowless(ctx, agent, blockAuditID(agent.ID, req), req, verdict)
+		a.emitBlockedOutbound(agent, blockAuditID(agent.ID, req), req, verdict)
 		return nil, &OutboundError{http.StatusForbidden, "blocked_by_policy", "message blocked by outbound policy"}
 	}
 

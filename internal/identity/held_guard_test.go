@@ -25,9 +25,9 @@ func seedHeldAgent(t *testing.T, store *identity.Store, ctx context.Context, dom
 	return ag.ID
 }
 
-// TestHeldMessage_MutationGuard: an agent that learns a held message's ID (it
-// receives it in the email.injection_detected webhook) must NOT be able to mutate
-// or oracle it via the label/inbox-status paths — they're held, so they 404.
+// TestHeldMessage_MutationGuard: an agent that learns a held message's ID must NOT
+// be able to mutate or oracle it via the label/inbox-status paths — they're held,
+// so they 404.
 func TestHeldMessage_MutationGuard(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)

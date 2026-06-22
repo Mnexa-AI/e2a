@@ -133,9 +133,6 @@ func TestScreenInbound_ReviewHolds(t *testing.T) {
 	if res.Denorm.ApprovalExpiresAt == nil {
 		t.Errorf("review hold must set approval_expires_at (TTL)")
 	}
-	if !res.Emit() {
-		t.Errorf("held message must emit the injection event")
-	}
 }
 
 func TestScreenInbound_BlockQuarantines(t *testing.T) {

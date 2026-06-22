@@ -161,6 +161,40 @@ func TestBuildRejectedEvent(t *testing.T) {
 	}
 }
 
+func TestEmitBlockedOutbound(t *testing.T) {
+	fp := &fakePublisher{}
+	a := &API{publisher: fp}
+	agent := &identity.AgentIdentity{ID: "bot@x.example.com", Domain: "x.example.com", UserID: "u_1"}
+	req := outbound.SendRequest{To: []string{"alice@evil.com"}, Subject: "blocked one", ConversationID: "conv_9"}
+	v := outboundVerdict{Applied: "block", ReviewReason: "recipient_gate", Reason: "recipient not in allowlist"}
+	softRef := blockAuditID(agent.ID, req)
+
+	a.emitBlockedOutbound(agent, softRef, req, v)
+	fp.wait(t, 1)
+
+	ev := fp.events[0]
+	if ev.Type != webhookpub.EventEmailBlocked {
+		t.Errorf("Type = %q, want email.blocked", ev.Type)
+	}
+	if ev.UserID != "u_1" || ev.AgentID != agent.ID || ev.MessageID != softRef {
+		t.Errorf("routing keys = (user=%q agent=%q msg=%q)", ev.UserID, ev.AgentID, ev.MessageID)
+	}
+	// Deterministic id keeps a retried block idempotent.
+	if want := webhookpub.DeterministicEventID(softRef, webhookpub.EventEmailBlocked); ev.ID != want {
+		t.Errorf("ID = %q, want deterministic %q", ev.ID, want)
+	}
+	data, ok := ev.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("Data is not a map: %T", ev.Data)
+	}
+	if data["direction"] != "outbound" {
+		t.Errorf("direction = %v, want outbound", data["direction"])
+	}
+	if data["reason_source"] != "recipient_gate" {
+		t.Errorf("reason_source = %v, want recipient_gate", data["reason_source"])
+	}
+}
+
 func TestPublishAsync_DispatchesViaPublisher(t *testing.T) {
 	fp := &fakePublisher{}
 	a := &API{publisher: fp}

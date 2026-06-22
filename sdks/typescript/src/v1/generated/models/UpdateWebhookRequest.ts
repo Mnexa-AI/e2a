@@ -16,6 +16,9 @@ import { HttpFile } from '../http/http.js';
 export class UpdateWebhookRequest {
     'description'?: string;
     'enabled'?: boolean;
+    /**
+    * Beta: email.flagged and email.blocked (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable.
+    */
     'events'?: Array<UpdateWebhookRequestEventsEnum>;
     'filters'?: WebhookFiltersView;
     'url'?: string;
@@ -76,6 +79,7 @@ export enum UpdateWebhookRequestEventsEnum {
     EmailBounced = 'email.bounced',
     EmailComplained = 'email.complained',
     DomainSuppressionAdded = 'domain.suppression_added',
-    EmailFlagged = 'email.flagged'
+    EmailFlagged = 'email.flagged',
+    EmailBlocked = 'email.blocked'
 }
 

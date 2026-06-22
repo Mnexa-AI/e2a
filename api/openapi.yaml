@@ -481,6 +481,7 @@ components:
         description:
           type: string
         events:
+          description: "Beta: email.flagged and email.blocked (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
@@ -495,6 +496,7 @@ components:
               - email.complained
               - domain.suppression_added
               - email.flagged
+              - email.blocked
             type: string
           type: array
         filters:
@@ -533,6 +535,7 @@ components:
               - email.complained
               - domain.suppression_added
               - email.flagged
+              - email.blocked
             type: string
           type: array
         filters:
@@ -825,6 +828,7 @@ components:
             - email.complained
             - domain.suppression_added
             - email.flagged
+            - email.blocked
           type: string
       required:
         - id
@@ -1638,6 +1642,7 @@ components:
             - email.complained
             - domain.suppression_added
             - email.flagged
+            - email.blocked
           type: string
       type: object
     TestWebhookResponse:
@@ -1754,6 +1759,7 @@ components:
         enabled:
           type: boolean
         events:
+          description: "Beta: email.flagged and email.blocked (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
@@ -1768,6 +1774,7 @@ components:
               - email.complained
               - domain.suppression_added
               - email.flagged
+              - email.blocked
             type: string
           type: array
         filters:
@@ -1903,6 +1910,7 @@ components:
             - email.complained
             - domain.suppression_added
             - email.flagged
+            - email.blocked
           type: string
         id:
           type: string
@@ -1975,6 +1983,7 @@ components:
               - email.complained
               - domain.suppression_added
               - email.flagged
+              - email.blocked
             type: string
           type: array
         filters:

@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.webhook_filters_view import WebhookFiltersView
 from typing import Optional, Set
@@ -29,7 +29,7 @@ class UpdateWebhookRequest(BaseModel):
     """ # noqa: E501
     description: Optional[StrictStr] = None
     enabled: Optional[StrictBool] = None
-    events: Optional[List[StrictStr]] = None
+    events: Optional[List[StrictStr]] = Field(default=None, description="Beta: email.flagged and email.blocked (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable.")
     filters: Optional[WebhookFiltersView] = None
     url: Optional[StrictStr] = None
     __properties: ClassVar[List[str]] = ["description", "enabled", "events", "filters", "url"]
