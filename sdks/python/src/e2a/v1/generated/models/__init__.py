@@ -56,6 +56,11 @@ from e2a.v1.generated.models.page_message_summary_view import PageMessageSummary
 from e2a.v1.generated.models.page_suppression import PageSuppression
 from e2a.v1.generated.models.page_webhook_delivery_view import PageWebhookDeliveryView
 from e2a.v1.generated.models.page_webhook_view import PageWebhookView
+from e2a.v1.generated.models.protection_config_view import ProtectionConfigView
+from e2a.v1.generated.models.protection_direction_view import ProtectionDirectionView
+from e2a.v1.generated.models.protection_gate_view import ProtectionGateView
+from e2a.v1.generated.models.protection_holds_view import ProtectionHoldsView
+from e2a.v1.generated.models.protection_scan_view import ProtectionScanView
 from e2a.v1.generated.models.redeliver_delivery import RedeliverDelivery
 from e2a.v1.generated.models.redeliver_event_request import RedeliverEventRequest
 from e2a.v1.generated.models.redeliver_view import RedeliverView

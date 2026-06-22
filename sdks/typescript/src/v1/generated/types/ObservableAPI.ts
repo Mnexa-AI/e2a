@@ -46,6 +46,11 @@ import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
+import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
+import { ProtectionDirectionView } from '../models/ProtectionDirectionView.js';
+import { ProtectionGateView } from '../models/ProtectionGateView.js';
+import { ProtectionHoldsView } from '../models/ProtectionHoldsView.js';
+import { ProtectionScanView } from '../models/ProtectionScanView.js';
 import { RedeliverDelivery } from '../models/RedeliverDelivery.js';
 import { RedeliverEventRequest } from '../models/RedeliverEventRequest.js';
 import { RedeliverView } from '../models/RedeliverView.js';
@@ -381,6 +386,40 @@ export class ObservableAgentsApi {
     }
 
     /**
+     * Read the agent\'s protection posture — inbound/outbound trust gate, content-scan sensitivity, and hold-queue mechanism. Account scope only: an agent-scoped credential cannot read its own protection config. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
+     * Get an agent\'s protection config (beta)
+     * @param email The agent\&#39;s full email address.
+     */
+    public getAgentProtectionWithHttpInfo(email: string, _options?: ConfigurationOptions): Observable<HttpInfo<ProtectionConfigView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.getAgentProtection(email, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.getAgentProtectionWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Read the agent\'s protection posture — inbound/outbound trust gate, content-scan sensitivity, and hold-queue mechanism. Account scope only: an agent-scoped credential cannot read its own protection config. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
+     * Get an agent\'s protection config (beta)
+     * @param email The agent\&#39;s full email address.
+     */
+    public getAgentProtection(email: string, _options?: ConfigurationOptions): Observable<ProtectionConfigView> {
+        return this.getAgentProtectionWithHttpInfo(email, _options).pipe(map((apiResponse: HttpInfo<ProtectionConfigView>) => apiResponse.data));
+    }
+
+    /**
      * List the agents owned by the authenticated account.
      * List agents
      */
@@ -410,6 +449,42 @@ export class ObservableAgentsApi {
      */
     public listAgents(_options?: ConfigurationOptions): Observable<PageAgentView> {
         return this.listAgentsWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageAgentView>) => apiResponse.data));
+    }
+
+    /**
+     * Replace the agent\'s protection posture wholesale. The three top-level keys (inbound, outbound, holds) are required; leaves default. Account scope only. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
+     * Replace an agent\'s protection config (beta)
+     * @param email The agent\&#39;s full email address.
+     * @param protectionConfigView
+     */
+    public putAgentProtectionWithHttpInfo(email: string, protectionConfigView: ProtectionConfigView, _options?: ConfigurationOptions): Observable<HttpInfo<ProtectionConfigView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.putAgentProtection(email, protectionConfigView, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.putAgentProtectionWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Replace the agent\'s protection posture wholesale. The three top-level keys (inbound, outbound, holds) are required; leaves default. Account scope only. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
+     * Replace an agent\'s protection config (beta)
+     * @param email The agent\&#39;s full email address.
+     * @param protectionConfigView
+     */
+    public putAgentProtection(email: string, protectionConfigView: ProtectionConfigView, _options?: ConfigurationOptions): Observable<ProtectionConfigView> {
+        return this.putAgentProtectionWithHttpInfo(email, protectionConfigView, _options).pipe(map((apiResponse: HttpInfo<ProtectionConfigView>) => apiResponse.data));
     }
 
     /**
@@ -447,7 +522,7 @@ export class ObservableAgentsApi {
     }
 
     /**
-     * Patch an agent\'s HITL settings. Returns the post-update agent.
+     * Update an agent\'s display name. The screening/protection config lives on the /v1/agents/{email}/protection sub-resource. Returns the post-update agent.
      * Update an agent
      * @param email
      * @param updateAgentRequest
@@ -473,7 +548,7 @@ export class ObservableAgentsApi {
     }
 
     /**
-     * Patch an agent\'s HITL settings. Returns the post-update agent.
+     * Update an agent\'s display name. The screening/protection config lives on the /v1/agents/{email}/protection sub-resource. Returns the post-update agent.
      * Update an agent
      * @param email
      * @param updateAgentRequest

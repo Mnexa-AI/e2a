@@ -45,6 +45,11 @@ import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
+import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
+import { ProtectionDirectionView } from '../models/ProtectionDirectionView.js';
+import { ProtectionGateView } from '../models/ProtectionGateView.js';
+import { ProtectionHoldsView } from '../models/ProtectionHoldsView.js';
+import { ProtectionScanView } from '../models/ProtectionScanView.js';
 import { RedeliverDelivery } from '../models/RedeliverDelivery.js';
 import { RedeliverEventRequest } from '../models/RedeliverEventRequest.js';
 import { RedeliverView } from '../models/RedeliverView.js';
@@ -282,6 +287,28 @@ export class PromiseAgentsApi {
     }
 
     /**
+     * Read the agent\'s protection posture — inbound/outbound trust gate, content-scan sensitivity, and hold-queue mechanism. Account scope only: an agent-scoped credential cannot read its own protection config. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
+     * Get an agent\'s protection config (beta)
+     * @param email The agent\&#39;s full email address.
+     */
+    public getAgentProtectionWithHttpInfo(email: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<ProtectionConfigView>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.getAgentProtectionWithHttpInfo(email, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Read the agent\'s protection posture — inbound/outbound trust gate, content-scan sensitivity, and hold-queue mechanism. Account scope only: an agent-scoped credential cannot read its own protection config. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
+     * Get an agent\'s protection config (beta)
+     * @param email The agent\&#39;s full email address.
+     */
+    public getAgentProtection(email: string, _options?: PromiseConfigurationOptions): Promise<ProtectionConfigView> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.getAgentProtection(email, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
      * List the agents owned by the authenticated account.
      * List agents
      */
@@ -298,6 +325,30 @@ export class PromiseAgentsApi {
     public listAgents(_options?: PromiseConfigurationOptions): Promise<PageAgentView> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.listAgents(observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Replace the agent\'s protection posture wholesale. The three top-level keys (inbound, outbound, holds) are required; leaves default. Account scope only. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
+     * Replace an agent\'s protection config (beta)
+     * @param email The agent\&#39;s full email address.
+     * @param protectionConfigView
+     */
+    public putAgentProtectionWithHttpInfo(email: string, protectionConfigView: ProtectionConfigView, _options?: PromiseConfigurationOptions): Promise<HttpInfo<ProtectionConfigView>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.putAgentProtectionWithHttpInfo(email, protectionConfigView, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Replace the agent\'s protection posture wholesale. The three top-level keys (inbound, outbound, holds) are required; leaves default. Account scope only. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
+     * Replace an agent\'s protection config (beta)
+     * @param email The agent\&#39;s full email address.
+     * @param protectionConfigView
+     */
+    public putAgentProtection(email: string, protectionConfigView: ProtectionConfigView, _options?: PromiseConfigurationOptions): Promise<ProtectionConfigView> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.putAgentProtection(email, protectionConfigView, observableOptions);
         return result.toPromise();
     }
 
@@ -324,7 +375,7 @@ export class PromiseAgentsApi {
     }
 
     /**
-     * Patch an agent\'s HITL settings. Returns the post-update agent.
+     * Update an agent\'s display name. The screening/protection config lives on the /v1/agents/{email}/protection sub-resource. Returns the post-update agent.
      * Update an agent
      * @param email
      * @param updateAgentRequest
@@ -336,7 +387,7 @@ export class PromiseAgentsApi {
     }
 
     /**
-     * Patch an agent\'s HITL settings. Returns the post-update agent.
+     * Update an agent\'s display name. The screening/protection config lives on the /v1/agents/{email}/protection sub-resource. Returns the post-update agent.
      * Update an agent
      * @param email
      * @param updateAgentRequest

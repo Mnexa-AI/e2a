@@ -27,6 +27,7 @@ export class AgentIdentity {
     'inboundScan': string;
     'inboundScanBlockThreshold': number;
     'inboundScanReviewThreshold': number;
+    'inboundScanSensitivity': string;
     'lastDeliveryAt'?: Date;
     'name': string;
     'outbound7d': number;
@@ -36,6 +37,7 @@ export class AgentIdentity {
     'outboundScan': string;
     'outboundScanBlockThreshold': number;
     'outboundScanReviewThreshold': number;
+    'outboundScanSensitivity': string;
     'pendingCount': number;
     '_public': boolean;
     'userId': string;
@@ -131,6 +133,12 @@ export class AgentIdentity {
             "format": "double"
         },
         {
+            "name": "inboundScanSensitivity",
+            "baseName": "inbound_scan_sensitivity",
+            "type": "string",
+            "format": ""
+        },
+        {
             "name": "lastDeliveryAt",
             "baseName": "last_delivery_at",
             "type": "Date",
@@ -183,6 +191,12 @@ export class AgentIdentity {
             "baseName": "outbound_scan_review_threshold",
             "type": "number",
             "format": "double"
+        },
+        {
+            "name": "outboundScanSensitivity",
+            "baseName": "outbound_scan_sensitivity",
+            "type": "string",
+            "format": ""
         },
         {
             "name": "pendingCount",

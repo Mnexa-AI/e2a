@@ -17,23 +17,19 @@ import pprint
 import re  # noqa: F401
 import json
 
-from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
-from typing import Any, ClassVar, Dict, List
+from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
+from typing import Any, ClassVar, Dict, List, Optional
+from typing_extensions import Annotated
 from typing import Optional, Set
 from typing_extensions import Self
 
-class AgentView(BaseModel):
+class ProtectionHoldsView(BaseModel):
     """
-    AgentView
+    ProtectionHoldsView
     """ # noqa: E501
-    created_at: datetime
-    domain: StrictStr
-    domain_verified: StrictBool
-    email: StrictStr
-    id: StrictStr
-    name: StrictStr
-    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "id", "name"]
+    on_expiry: Optional[StrictStr] = Field(default='reject', description="What happens to a held item when its TTL expires.")
+    ttl_seconds: Optional[Annotated[int, Field(strict=True, ge=0)]] = Field(default=604800, description="How long a held item waits before its on_expiry action fires.")
+    __properties: ClassVar[List[str]] = ["on_expiry", "ttl_seconds"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -53,7 +49,7 @@ class AgentView(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of AgentView from a JSON string"""
+        """Create an instance of ProtectionHoldsView from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -78,7 +74,7 @@ class AgentView(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of AgentView from a dict"""
+        """Create an instance of ProtectionHoldsView from a dict"""
         if obj is None:
             return None
 
@@ -86,12 +82,8 @@ class AgentView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "created_at": obj.get("created_at"),
-            "domain": obj.get("domain"),
-            "domain_verified": obj.get("domain_verified"),
-            "email": obj.get("email"),
-            "id": obj.get("id"),
-            "name": obj.get("name")
+            "on_expiry": obj.get("on_expiry") if obj.get("on_expiry") is not None else 'reject',
+            "ttl_seconds": obj.get("ttl_seconds") if obj.get("ttl_seconds") is not None else 604800
         })
         return _obj
 

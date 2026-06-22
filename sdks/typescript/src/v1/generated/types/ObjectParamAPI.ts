@@ -45,6 +45,11 @@ import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
+import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
+import { ProtectionDirectionView } from '../models/ProtectionDirectionView.js';
+import { ProtectionGateView } from '../models/ProtectionGateView.js';
+import { ProtectionHoldsView } from '../models/ProtectionHoldsView.js';
+import { ProtectionScanView } from '../models/ProtectionScanView.js';
 import { RedeliverDelivery } from '../models/RedeliverDelivery.js';
 import { RedeliverEventRequest } from '../models/RedeliverEventRequest.js';
 import { RedeliverView } from '../models/RedeliverView.js';
@@ -259,7 +264,33 @@ export interface AgentsApiGetAgentRequest {
     email: string
 }
 
+export interface AgentsApiGetAgentProtectionRequest {
+    /**
+     * The agent\&#39;s full email address.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AgentsApigetAgentProtection
+     */
+    email: string
+}
+
 export interface AgentsApiListAgentsRequest {
+}
+
+export interface AgentsApiPutAgentProtectionRequest {
+    /**
+     * The agent\&#39;s full email address.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AgentsApiputAgentProtection
+     */
+    email: string
+    /**
+     * 
+     * @type ProtectionConfigView
+     * @memberof AgentsApiputAgentProtection
+     */
+    protectionConfigView: ProtectionConfigView
 }
 
 export interface AgentsApiTestAgentRequest {
@@ -350,6 +381,24 @@ export class ObjectAgentsApi {
     }
 
     /**
+     * Read the agent\'s protection posture — inbound/outbound trust gate, content-scan sensitivity, and hold-queue mechanism. Account scope only: an agent-scoped credential cannot read its own protection config. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
+     * Get an agent\'s protection config (beta)
+     * @param param the request object
+     */
+    public getAgentProtectionWithHttpInfo(param: AgentsApiGetAgentProtectionRequest, options?: ConfigurationOptions): Promise<HttpInfo<ProtectionConfigView>> {
+        return this.api.getAgentProtectionWithHttpInfo(param.email,  options).toPromise();
+    }
+
+    /**
+     * Read the agent\'s protection posture — inbound/outbound trust gate, content-scan sensitivity, and hold-queue mechanism. Account scope only: an agent-scoped credential cannot read its own protection config. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
+     * Get an agent\'s protection config (beta)
+     * @param param the request object
+     */
+    public getAgentProtection(param: AgentsApiGetAgentProtectionRequest, options?: ConfigurationOptions): Promise<ProtectionConfigView> {
+        return this.api.getAgentProtection(param.email,  options).toPromise();
+    }
+
+    /**
      * List the agents owned by the authenticated account.
      * List agents
      * @param param the request object
@@ -365,6 +414,24 @@ export class ObjectAgentsApi {
      */
     public listAgents(param: AgentsApiListAgentsRequest = {}, options?: ConfigurationOptions): Promise<PageAgentView> {
         return this.api.listAgents( options).toPromise();
+    }
+
+    /**
+     * Replace the agent\'s protection posture wholesale. The three top-level keys (inbound, outbound, holds) are required; leaves default. Account scope only. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
+     * Replace an agent\'s protection config (beta)
+     * @param param the request object
+     */
+    public putAgentProtectionWithHttpInfo(param: AgentsApiPutAgentProtectionRequest, options?: ConfigurationOptions): Promise<HttpInfo<ProtectionConfigView>> {
+        return this.api.putAgentProtectionWithHttpInfo(param.email, param.protectionConfigView,  options).toPromise();
+    }
+
+    /**
+     * Replace the agent\'s protection posture wholesale. The three top-level keys (inbound, outbound, holds) are required; leaves default. Account scope only. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
+     * Replace an agent\'s protection config (beta)
+     * @param param the request object
+     */
+    public putAgentProtection(param: AgentsApiPutAgentProtectionRequest, options?: ConfigurationOptions): Promise<ProtectionConfigView> {
+        return this.api.putAgentProtection(param.email, param.protectionConfigView,  options).toPromise();
     }
 
     /**
@@ -386,7 +453,7 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * Patch an agent\'s HITL settings. Returns the post-update agent.
+     * Update an agent\'s display name. The screening/protection config lives on the /v1/agents/{email}/protection sub-resource. Returns the post-update agent.
      * Update an agent
      * @param param the request object
      */
@@ -395,7 +462,7 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * Patch an agent\'s HITL settings. Returns the post-update agent.
+     * Update an agent\'s display name. The screening/protection config lives on the /v1/agents/{email}/protection sub-resource. Returns the post-update agent.
      * Update an agent
      * @param param the request object
      */

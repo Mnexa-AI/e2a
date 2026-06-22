@@ -10,13 +10,13 @@
  * Do not edit the class manually.
  */
 
+import { ProtectionGateView } from '../models/ProtectionGateView.js';
+import { ProtectionScanView } from '../models/ProtectionScanView.js';
 import { HttpFile } from '../http/http.js';
 
-export class UpdateAgentRequest {
-    /**
-    * New display name for the agent (a UI label; the agent\'s identity is its email).
-    */
-    'name'?: string;
+export class ProtectionDirectionView {
+    'gate': ProtectionGateView;
+    'scan': ProtectionScanView;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -24,14 +24,20 @@ export class UpdateAgentRequest {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "name",
-            "baseName": "name",
-            "type": "string",
+            "name": "gate",
+            "baseName": "gate",
+            "type": "ProtectionGateView",
+            "format": ""
+        },
+        {
+            "name": "scan",
+            "baseName": "scan",
+            "type": "ProtectionScanView",
             "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return UpdateAgentRequest.attributeTypeMap;
+        return ProtectionDirectionView.attributeTypeMap;
     }
 
     public constructor() {

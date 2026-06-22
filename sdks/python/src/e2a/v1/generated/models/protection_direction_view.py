@@ -17,23 +17,20 @@ import pprint
 import re  # noqa: F401
 import json
 
-from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
+from pydantic import BaseModel, ConfigDict
 from typing import Any, ClassVar, Dict, List
+from e2a.v1.generated.models.protection_gate_view import ProtectionGateView
+from e2a.v1.generated.models.protection_scan_view import ProtectionScanView
 from typing import Optional, Set
 from typing_extensions import Self
 
-class AgentView(BaseModel):
+class ProtectionDirectionView(BaseModel):
     """
-    AgentView
+    ProtectionDirectionView
     """ # noqa: E501
-    created_at: datetime
-    domain: StrictStr
-    domain_verified: StrictBool
-    email: StrictStr
-    id: StrictStr
-    name: StrictStr
-    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "id", "name"]
+    gate: ProtectionGateView
+    scan: ProtectionScanView
+    __properties: ClassVar[List[str]] = ["gate", "scan"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -53,7 +50,7 @@ class AgentView(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of AgentView from a JSON string"""
+        """Create an instance of ProtectionDirectionView from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -74,11 +71,17 @@ class AgentView(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
+        # override the default output from pydantic by calling `to_dict()` of gate
+        if self.gate:
+            _dict['gate'] = self.gate.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of scan
+        if self.scan:
+            _dict['scan'] = self.scan.to_dict()
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of AgentView from a dict"""
+        """Create an instance of ProtectionDirectionView from a dict"""
         if obj is None:
             return None
 
@@ -86,12 +89,8 @@ class AgentView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "created_at": obj.get("created_at"),
-            "domain": obj.get("domain"),
-            "domain_verified": obj.get("domain_verified"),
-            "email": obj.get("email"),
-            "id": obj.get("id"),
-            "name": obj.get("name")
+            "gate": ProtectionGateView.from_dict(obj["gate"]) if obj.get("gate") is not None else None,
+            "scan": ProtectionScanView.from_dict(obj["scan"]) if obj.get("scan") is not None else None
         })
         return _obj
 

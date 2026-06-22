@@ -12,6 +12,7 @@ import { AgentView } from '../models/AgentView.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { PageAgentView } from '../models/PageAgentView.js';
+import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
 import { SendResultView } from '../models/SendResultView.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 
@@ -152,6 +153,44 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
+     * Read the agent\'s protection posture — inbound/outbound trust gate, content-scan sensitivity, and hold-queue mechanism. Account scope only: an agent-scoped credential cannot read its own protection config. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
+     * Get an agent\'s protection config (beta)
+     * @param email The agent\&#39;s full email address.
+     */
+    public async getAgentProtection(email: string, _options?: Configuration): Promise<RequestContext> {
+        let _config = _options || this.configuration;
+
+        // verify required parameter 'email' is not null or undefined
+        if (email === null || email === undefined) {
+            throw new RequiredError("AgentsApi", "getAgentProtection", "email");
+        }
+
+
+        // Path Params
+        const localVarPath = '/v1/agents/{email}/protection'
+            .replace('{' + 'email' + '}', encodeURIComponent(String(email)));
+
+        // Make Request Context
+        const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.GET);
+        requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+
+        let authMethod: SecurityAuthentication | undefined;
+        // Apply auth methods
+        authMethod = _config.authMethods["bearer"]
+        if (authMethod?.applySecurityAuthentication) {
+            await authMethod?.applySecurityAuthentication(requestContext);
+        }
+        
+        const defaultAuth: SecurityAuthentication | undefined = _config?.authMethods?.default
+        if (defaultAuth?.applySecurityAuthentication) {
+            await defaultAuth?.applySecurityAuthentication(requestContext);
+        }
+
+        return requestContext;
+    }
+
+    /**
      * List the agents owned by the authenticated account.
      * List agents
      */
@@ -165,6 +204,62 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.GET);
         requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
 
+
+        let authMethod: SecurityAuthentication | undefined;
+        // Apply auth methods
+        authMethod = _config.authMethods["bearer"]
+        if (authMethod?.applySecurityAuthentication) {
+            await authMethod?.applySecurityAuthentication(requestContext);
+        }
+        
+        const defaultAuth: SecurityAuthentication | undefined = _config?.authMethods?.default
+        if (defaultAuth?.applySecurityAuthentication) {
+            await defaultAuth?.applySecurityAuthentication(requestContext);
+        }
+
+        return requestContext;
+    }
+
+    /**
+     * Replace the agent\'s protection posture wholesale. The three top-level keys (inbound, outbound, holds) are required; leaves default. Account scope only. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
+     * Replace an agent\'s protection config (beta)
+     * @param email The agent\&#39;s full email address.
+     * @param protectionConfigView 
+     */
+    public async putAgentProtection(email: string, protectionConfigView: ProtectionConfigView, _options?: Configuration): Promise<RequestContext> {
+        let _config = _options || this.configuration;
+
+        // verify required parameter 'email' is not null or undefined
+        if (email === null || email === undefined) {
+            throw new RequiredError("AgentsApi", "putAgentProtection", "email");
+        }
+
+
+        // verify required parameter 'protectionConfigView' is not null or undefined
+        if (protectionConfigView === null || protectionConfigView === undefined) {
+            throw new RequiredError("AgentsApi", "putAgentProtection", "protectionConfigView");
+        }
+
+
+        // Path Params
+        const localVarPath = '/v1/agents/{email}/protection'
+            .replace('{' + 'email' + '}', encodeURIComponent(String(email)));
+
+        // Make Request Context
+        const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.PUT);
+        requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+
+        // Body Params
+        const contentType = ObjectSerializer.getPreferredMediaType([
+            "application/json"
+        ]);
+        requestContext.setHeaderParam("Content-Type", contentType);
+        const serializedBody = ObjectSerializer.stringify(
+            ObjectSerializer.serialize(protectionConfigView, "ProtectionConfigView", ""),
+            contentType
+        );
+        requestContext.setBody(serializedBody);
 
         let authMethod: SecurityAuthentication | undefined;
         // Apply auth methods
@@ -220,7 +315,7 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Patch an agent\'s HITL settings. Returns the post-update agent.
+     * Update an agent\'s display name. The screening/protection config lives on the /v1/agents/{email}/protection sub-resource. Returns the post-update agent.
      * Update an agent
      * @param email 
      * @param updateAgentRequest 
@@ -387,6 +482,42 @@ export class AgentsApiResponseProcessor {
      * Unwraps the actual response sent by the server from the response context and deserializes the response content
      * to the expected objects
      *
+     * @params response Response returned by the server for a request to getAgentProtection
+     * @throws ApiException if the response code was not in [200, 299]
+     */
+     public async getAgentProtectionWithHttpInfo(response: ResponseContext): Promise<HttpInfo<ProtectionConfigView >> {
+        const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
+        if (isCodeInRange("200", response.httpStatusCode)) {
+            const body: ProtectionConfigView = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ProtectionConfigView", ""
+            ) as ProtectionConfigView;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+        if (isCodeInRange("0", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error", body, response.headers);
+        }
+
+        // Work around for missing responses in specification, e.g. for petstore.yaml
+        if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
+            const body: ProtectionConfigView = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ProtectionConfigView", ""
+            ) as ProtectionConfigView;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+
+        throw new ApiException<string | Blob | undefined>(response.httpStatusCode, "Unknown API Status Code!", await response.getBodyAsAny(), response.headers);
+    }
+
+    /**
+     * Unwraps the actual response sent by the server from the response context and deserializes the response content
+     * to the expected objects
+     *
      * @params response Response returned by the server for a request to listAgents
      * @throws ApiException if the response code was not in [200, 299]
      */
@@ -413,6 +544,42 @@ export class AgentsApiResponseProcessor {
                 ObjectSerializer.parse(await response.body.text(), contentType),
                 "PageAgentView", ""
             ) as PageAgentView;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+
+        throw new ApiException<string | Blob | undefined>(response.httpStatusCode, "Unknown API Status Code!", await response.getBodyAsAny(), response.headers);
+    }
+
+    /**
+     * Unwraps the actual response sent by the server from the response context and deserializes the response content
+     * to the expected objects
+     *
+     * @params response Response returned by the server for a request to putAgentProtection
+     * @throws ApiException if the response code was not in [200, 299]
+     */
+     public async putAgentProtectionWithHttpInfo(response: ResponseContext): Promise<HttpInfo<ProtectionConfigView >> {
+        const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
+        if (isCodeInRange("200", response.httpStatusCode)) {
+            const body: ProtectionConfigView = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ProtectionConfigView", ""
+            ) as ProtectionConfigView;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+        if (isCodeInRange("0", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error", body, response.headers);
+        }
+
+        // Work around for missing responses in specification, e.g. for petstore.yaml
+        if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
+            const body: ProtectionConfigView = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ProtectionConfigView", ""
+            ) as ProtectionConfigView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 
