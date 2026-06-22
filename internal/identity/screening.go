@@ -9,13 +9,13 @@ import (
 	"time"
 )
 
-// Screening source values (screening_events.source).
+// Screening source values (protection_events.source).
 const (
 	ScreeningSourceGate = "gate"
 	ScreeningSourceScan = "scan"
 )
 
-// Review reason values (messages.review_reason and screening_events.reason).
+// Review reason values (messages.review_reason and protection_events.reason).
 const (
 	ReviewReasonSenderGate    = "sender_gate"
 	ReviewReasonRecipientGate = "recipient_gate"
@@ -24,12 +24,12 @@ const (
 	ReviewReasonOutboundSend  = "outbound_send"
 )
 
-// ScreeningEvent is one row of the durable, append-only screening audit log
+// ProtectionEvent is one row of the durable, append-only screening audit log
 // (migration 037). It records a single producer's verdict on a message — a gate
 // violation (source=gate; the scan-only columns are nil) or a scan detection
 // (source=scan; detector/score/categories/spans/raw populated). message_id is a soft
 // reference: the trail outlives the message's 30-day TTL.
-type ScreeningEvent struct {
+type ProtectionEvent struct {
 	ID          string          `json:"id"`
 	MessageID   string          `json:"message_id"`
 	AgentID     string          `json:"agent_id"`
@@ -46,28 +46,28 @@ type ScreeningEvent struct {
 	CreatedAt   time.Time       `json:"created_at"`
 }
 
-// NewScreeningEventID returns a fresh random screening-event id.
-func NewScreeningEventID() string { return "scr_" + generateID() }
+// NewProtectionEventID returns a fresh random screening-event id.
+func NewProtectionEventID() string { return "scr_" + generateID() }
 
-// DeterministicScreeningEventID derives a stable id from the dedupe key
+// DeterministicProtectionEventID derives a stable id from the dedupe key
 // (message + source + reason + detector) so that re-screening the same message — e.g.
 // an MTA-retried inbound delivery — inserts the SAME row via ON CONFLICT DO NOTHING
 // instead of a duplicate. Mirrors webhookpub.DeterministicEventID.
-func DeterministicScreeningEventID(messageID, source, reason, detector string) string {
+func DeterministicProtectionEventID(messageID, source, reason, detector string) string {
 	h := sha256.Sum256([]byte(messageID + "|" + source + "|" + reason + "|" + detector))
 	return "scr_" + hex.EncodeToString(h[:16])
 }
 
-// CreateScreeningEvent appends a screening event. The insert is idempotent on the
-// primary key: callers that set a DeterministicScreeningEventID get exactly-once
+// CreateProtectionEvent appends a screening event. The insert is idempotent on the
+// primary key: callers that set a DeterministicProtectionEventID get exactly-once
 // recording across retries. If ev.ID is empty a random id is assigned. A conflicting
 // id is a no-op (returns nil).
-func (s *Store) CreateScreeningEvent(ctx context.Context, ev ScreeningEvent) error {
+func (s *Store) CreateProtectionEvent(ctx context.Context, ev ProtectionEvent) error {
 	if ev.ID == "" {
-		ev.ID = NewScreeningEventID()
+		ev.ID = NewProtectionEventID()
 	}
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO screening_events
+		`INSERT INTO protection_events
 		    (id, message_id, agent_id, direction, source, reason, action,
 		     subject_addr, detector, score, categories, spans, raw)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
@@ -82,13 +82,13 @@ func (s *Store) CreateScreeningEvent(ctx context.Context, ev ScreeningEvent) err
 	return nil
 }
 
-// ListScreeningEventsByMessage returns every screening event recorded against a
+// ListProtectionEventsByMessage returns every screening event recorded against a
 // message, newest first — the breakdown a reviewer sees for a held item.
-func (s *Store) ListScreeningEventsByMessage(ctx context.Context, messageID string) ([]ScreeningEvent, error) {
+func (s *Store) ListProtectionEventsByMessage(ctx context.Context, messageID string) ([]ProtectionEvent, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, message_id, agent_id, direction, source, reason, action,
 		        subject_addr, detector, score, categories, spans, raw, created_at
-		   FROM screening_events
+		   FROM protection_events
 		  WHERE message_id = $1
 		  ORDER BY created_at DESC, id`,
 		messageID,
@@ -97,19 +97,19 @@ func (s *Store) ListScreeningEventsByMessage(ctx context.Context, messageID stri
 		return nil, fmt.Errorf("list screening events by message: %w", err)
 	}
 	defer rows.Close()
-	return scanScreeningEvents(rows)
+	return scanProtectionEvents(rows)
 }
 
-// ListScreeningEventsByAgent returns an agent's most recent screening events
+// ListProtectionEventsByAgent returns an agent's most recent screening events
 // (newest first, capped by limit) for the security/analytics view.
-func (s *Store) ListScreeningEventsByAgent(ctx context.Context, agentID string, limit int) ([]ScreeningEvent, error) {
+func (s *Store) ListProtectionEventsByAgent(ctx context.Context, agentID string, limit int) ([]ProtectionEvent, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, message_id, agent_id, direction, source, reason, action,
 		        subject_addr, detector, score, categories, spans, raw, created_at
-		   FROM screening_events
+		   FROM protection_events
 		  WHERE agent_id = $1
 		  ORDER BY created_at DESC, id
 		  LIMIT $2`,
@@ -119,10 +119,10 @@ func (s *Store) ListScreeningEventsByAgent(ctx context.Context, agentID string, 
 		return nil, fmt.Errorf("list screening events by agent: %w", err)
 	}
 	defer rows.Close()
-	return scanScreeningEvents(rows)
+	return scanProtectionEvents(rows)
 }
 
-// rowScanner is the minimal surface of pgx.Rows used here, so scanScreeningEvents
+// rowScanner is the minimal surface of pgx.Rows used here, so scanProtectionEvents
 // stays decoupled from the concrete driver type.
 type rowScanner interface {
 	Next() bool
@@ -130,10 +130,10 @@ type rowScanner interface {
 	Err() error
 }
 
-func scanScreeningEvents(rows rowScanner) ([]ScreeningEvent, error) {
-	var out []ScreeningEvent
+func scanProtectionEvents(rows rowScanner) ([]ProtectionEvent, error) {
+	var out []ProtectionEvent
 	for rows.Next() {
-		var ev ScreeningEvent
+		var ev ProtectionEvent
 		var subjectAddr, detector *string
 		var categories, spans, raw []byte
 		if err := rows.Scan(

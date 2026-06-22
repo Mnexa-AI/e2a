@@ -121,7 +121,7 @@ func TestScreenOutbound_Scan(t *testing.T) {
 }
 
 // TestBlockAuditID_Stable: a retried block (same request) yields the SAME audit id
-// so screening_events dedupe; a different request yields a different id.
+// so protection_events dedupe; a different request yields a different id.
 func TestBlockAuditID_Stable(t *testing.T) {
 	req := outbound.SendRequest{To: []string{"x@evil.com"}, Subject: "s", Body: "b"}
 	id1 := blockAuditID("agent_1", req)

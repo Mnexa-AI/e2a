@@ -339,7 +339,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	policyDecision := inboundpolicy.EvaluateIngestion(agent.InboundPolicy, agent.InboundAllowlist, senderEmail, dmarcPass)
 
 	// Content screening (Slice 4): run the per-agent inbound scan and record the
-	// audit trail (screening_events) + the denormalized verdict. Detection +
+	// audit trail (protection_events) + the denormalized verdict. Detection +
 	// annotation only here — review/block holds are a later slice, so the message
 	// still delivers.
 	screenRes := s.relay.screenInbound(ctx, agent, messageID, senderEmail, body, domainAuth, policyDecision)
@@ -411,7 +411,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// email.blocked: fired when the applied action is block — the message is
 	// accept-then-quarantined (review_rejected, dropped, no human). It is the only
 	// signal a subscriber gets for a dropped inbound message, so emit it regardless of
-	// producer. reason_source mirrors the screening_events audit vocabulary
+	// producer. reason_source mirrors the protection_events audit vocabulary
 	// (sender_gate / inbound_scan). Deterministic id keeps MTA retries idempotent.
 	var blockedEvent *webhookpub.Event
 	if screenRes.Blocked() {
@@ -542,7 +542,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// Append the screening audit rows (gate + scan violations) best-effort. Soft-ref
 	// + deterministic ids make this idempotent under MTA retry, so it's safe outside
 	// the message transaction.
-	s.relay.writeScreeningEvents(ctx, messageID, screenRes.Events)
+	s.relay.writeProtectionEvents(ctx, messageID, screenRes.Events)
 
 	slug, _, _ := strings.Cut(rcpt, "@")
 

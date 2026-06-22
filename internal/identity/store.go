@@ -297,7 +297,7 @@ type Message struct {
 	// rendering. ReviewReason is one of sender_gate|recipient_gate|inbound_scan|
 	// outbound_scan|outbound_send; ScanAction is the applied action
 	// (flag|review|block); ScanScore is the aggregate 0..1 score (nil for gate-only
-	// holds). The full per-detector breakdown lives in screening_events.
+	// holds). The full per-detector breakdown lives in protection_events.
 	ReviewReason string   `json:"review_reason,omitempty"`
 	ScanScore    *float64 `json:"scan_score,omitempty"`
 	ScanAction   string   `json:"scan_action,omitempty"`

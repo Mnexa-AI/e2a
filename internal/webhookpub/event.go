@@ -61,7 +61,7 @@ const (
 	// also gets a synchronous 4xx). It is the disposition event for the `block` action,
 	// firing for BOTH directions; `reason_source` names the producer that drove it
 	// (sender_gate / recipient_gate / inbound_scan / outbound_scan), mirroring the
-	// screening_events audit vocabulary so a subscriber can correlate the two.
+	// protection_events audit vocabulary so a subscriber can correlate the two.
 	EventEmailBlocked = "email.blocked"
 	// EventEmailPendingReview fires when an inbound message is held for human review
 	// (applied action = review → status pending_review). It is the inbound twin of
