@@ -1144,7 +1144,7 @@ export class ObjectMessagesApi {
     }
 
     /**
-     * Approve a pending_review draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
+     * Approve a message held in pending_review. The action branches on the message\'s direction: an **outbound** hold is sent via SES (honoring Idempotency-Key and optional reviewer overrides; the response carries the send result), and an **inbound** hold is released to the agent\'s inbox (it becomes readable; the response status is review_approved). Account-scoped credentials only — an agent-scoped credential cannot release its own hold (self-approval would defeat the review gate).
      * Approve a held message
      * @param param the request object
      */
@@ -1153,7 +1153,7 @@ export class ObjectMessagesApi {
     }
 
     /**
-     * Approve a pending_review draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
+     * Approve a message held in pending_review. The action branches on the message\'s direction: an **outbound** hold is sent via SES (honoring Idempotency-Key and optional reviewer overrides; the response carries the send result), and an **inbound** hold is released to the agent\'s inbox (it becomes readable; the response status is review_approved). Account-scoped credentials only — an agent-scoped credential cannot release its own hold (self-approval would defeat the review gate).
      * Approve a held message
      * @param param the request object
      */
@@ -1234,7 +1234,7 @@ export class ObjectMessagesApi {
     }
 
     /**
-     * Reject a pending_review draft so it is never sent.
+     * Reject a message held in pending_review. An **outbound** hold is discarded so it is never sent; an **inbound** hold is dropped so it never reaches the agent (its raw payload is retained, hidden, for forensics). Account-scoped credentials only.
      * Reject a held message
      * @param param the request object
      */
@@ -1243,7 +1243,7 @@ export class ObjectMessagesApi {
     }
 
     /**
-     * Reject a pending_review draft so it is never sent.
+     * Reject a message held in pending_review. An **outbound** hold is discarded so it is never sent; an **inbound** hold is dropped so it never reaches the agent (its raw payload is retained, hidden, for forensics). Account-scoped credentials only.
      * Reject a held message
      * @param param the request object
      */

@@ -324,6 +324,33 @@ func testServer(t *testing.T) *httptest.Server {
 			}
 			return nil, &agent.OutboundError{Status: http.StatusNotFound, Code: "not_found", Msg: "message not found"}
 		},
+		// Inbound review dispatch (slice 3). GetReviewMessage resolves direction
+		// so the approve/reject handlers branch: outbound ids fall through to the
+		// send-approval path above; inbound ids route to the release path.
+		GetReviewMessage: func(ctx context.Context, messageID, agentID string) (*identity.ReviewMessageMeta, error) {
+			switch messageID {
+			case "msg_pending", "msg_notpending":
+				return &identity.ReviewMessageMeta{ID: messageID, AgentID: agentID, Direction: "outbound", Status: "pending_review"}, nil
+			case "msg_in_held":
+				return &identity.ReviewMessageMeta{ID: messageID, AgentID: agentID, Direction: "inbound", Status: "pending_review", Sender: "attacker@x.com", Subject: "Held"}, nil
+			case "msg_in_notpending":
+				return &identity.ReviewMessageMeta{ID: messageID, AgentID: agentID, Direction: "inbound", Status: "review_approved"}, nil
+			default:
+				return nil, errors.New("not found")
+			}
+		},
+		ApproveInboundReview: func(ctx context.Context, userID string, msg *identity.ReviewMessageMeta) *agent.OutboundError {
+			if msg.ID == "msg_in_notpending" {
+				return &agent.OutboundError{Status: http.StatusConflict, Code: "message_not_pending", Msg: "message is not pending review"}
+			}
+			return nil
+		},
+		RejectInboundReview: func(ctx context.Context, userID, reason string, msg *identity.ReviewMessageMeta) *agent.OutboundError {
+			if msg.ID == "msg_in_notpending" {
+				return &agent.OutboundError{Status: http.StatusConflict, Code: "message_not_pending", Msg: "message is not pending review"}
+			}
+			return nil
+		},
 		GetInboundMessage: func(ctx context.Context, messageID string) (*identity.Message, error) {
 			if messageID == "msg_in1" {
 				return &identity.Message{

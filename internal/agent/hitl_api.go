@@ -235,3 +235,48 @@ func (a *API) RejectPendingCore(ctx context.Context, userID, messageID, expected
 	a.publishRejected(ctx, a.buildRejectedEvent(userID, rejected, reason), rejected.ID)
 	return rejected, nil
 }
+
+// ApproveInboundReviewCore releases a held INBOUND message to its agent's inbox
+// (status pending_review → review_approved, now readable) and fires
+// email.review_approved — the inbound analogue of ApprovePendingCore. There is no
+// SES send and no draft edit: an inbound hold is a screening decision, not a draft.
+//
+// msg is the dispatch view the account-scoped handler already resolved via
+// GetReviewMessage (ownership + tenant isolation proven there); userID is the
+// reviewing owner. The store transition is a compare-and-set on
+// status='pending_review' AND agent_id, so a concurrent reviewer or the TTL sweep
+// racing this call results in ErrNotPendingReview (409), never a double release.
+func (a *API) ApproveInboundReviewCore(ctx context.Context, userID string, msg *identity.ReviewMessageMeta) *OutboundError {
+	if err := a.store.ApproveInboundReview(ctx, msg.ID, msg.AgentID, userID); err != nil {
+		if errors.Is(err, identity.ErrNotPendingReview) {
+			return &OutboundError{http.StatusConflict, "message_not_pending", "message is not pending review"}
+		}
+		log.Printf("[api] approve inbound review %s: %v", msg.ID, err)
+		return &OutboundError{http.StatusInternalServerError, "internal_error", "failed to approve message"}
+	}
+	log.Printf("[mail:%s] dir=inbound type=%s status=review_approved agent=%s approved_by=user:%s",
+		msg.ID, msg.Type, msg.AgentID, userID)
+	// Post-side-effect publish (the release row is already committed): reuse the
+	// approved-event plumbing (deterministic id off the message id → MTA/retry
+	// idempotent). A minimal *identity.Message carries the id publishApproved needs.
+	a.publishApproved(ctx, a.buildInboundReleasedEvent(msg, userID), &identity.Message{ID: msg.ID, AgentID: msg.AgentID})
+	return nil
+}
+
+// RejectInboundReviewCore drops a held INBOUND message (status pending_review →
+// review_rejected; it stays hidden from the agent, raw payload retained for
+// forensics) and fires email.review_rejected. Compare-and-set semantics as in
+// ApproveInboundReviewCore.
+func (a *API) RejectInboundReviewCore(ctx context.Context, userID, reason string, msg *identity.ReviewMessageMeta) *OutboundError {
+	if err := a.store.RejectInboundReview(ctx, msg.ID, msg.AgentID, userID, reason); err != nil {
+		if errors.Is(err, identity.ErrNotPendingReview) {
+			return &OutboundError{http.StatusConflict, "message_not_pending", "message is not pending review"}
+		}
+		log.Printf("[api] reject inbound review %s: %v", msg.ID, err)
+		return &OutboundError{http.StatusInternalServerError, "internal_error", "failed to reject message"}
+	}
+	log.Printf("[mail:%s] dir=inbound type=%s status=review_rejected agent=%s rejected_by=user:%s reason=%q",
+		msg.ID, msg.Type, msg.AgentID, userID, reason)
+	a.publishRejected(ctx, a.buildInboundRejectedEvent(msg, userID, reason), msg.ID)
+	return nil
+}

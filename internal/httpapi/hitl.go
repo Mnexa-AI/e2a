@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/Mnexa-AI/e2a/internal/agent"
+	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/danielgtaylor/huma/v2"
 )
 
@@ -49,16 +50,33 @@ func (s *Server) registerHITL() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "approveMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/approve",
 		Summary: "Approve a held message", Tags: []string{"messages"},
-		Description: "Approve a pending_review draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).",
+		Description: "Approve a message held in pending_review. The action branches on the message's direction: an **outbound** hold is sent via SES (honoring Idempotency-Key and optional reviewer overrides; the response carries the send result), and an **inbound** hold is released to the agent's inbox (it becomes readable; the response status is review_approved). Account-scoped credentials only — an agent-scoped credential cannot release its own hold (self-approval would defeat the review gate).",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleApprove)
 
 	huma.Register(s.API, huma.Operation{
 		OperationID: "rejectMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/reject",
 		Summary: "Reject a held message", Tags: []string{"messages"},
-		Description: "Reject a pending_review draft so it is never sent.",
+		Description: "Reject a message held in pending_review. An **outbound** hold is discarded so it is never sent; an **inbound** hold is dropped so it never reaches the agent (its raw payload is retained, hidden, for forensics). Account-scoped credentials only.",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleReject)
+}
+
+// resolveHeldDirection looks up a held message scoped to the resolved owned agent
+// and reports whether it is inbound. It returns (meta, true, nil) for an inbound
+// hold (route to the release path), (nil, false, nil) for an outbound hold (fall
+// through to the send-approval path), or a 404 envelope when the message does not
+// exist for this agent. When the GetReviewMessage dep is not wired the endpoints
+// stay outbound-only (pre-slice-3 behavior).
+func (s *Server) resolveHeldDirection(ctx context.Context, messageID, agentID string) (*identity.ReviewMessageMeta, bool, error) {
+	if s.deps.GetReviewMessage == nil {
+		return nil, false, nil
+	}
+	meta, err := s.deps.GetReviewMessage(ctx, messageID, agentID)
+	if err != nil {
+		return nil, false, NewError(http.StatusNotFound, "not_found", "message not found")
+	}
+	return meta, meta.Direction == "inbound", nil
 }
 
 func (s *Server) handleApprove(ctx context.Context, in *approveInput) (*approveOutput, error) {
@@ -75,6 +93,23 @@ func (s *Server) handleApprove(ctx context.Context, in *approveInput) (*approveO
 	ag, err := s.resolveOwnedAgent(ctx, in.Address)
 	if err != nil {
 		return nil, err
+	}
+	// Branch on direction: an inbound hold is a screening decision, not a send,
+	// so it skips the send-limit / idempotency / SES machinery entirely.
+	meta, inbound, err := s.resolveHeldDirection(ctx, in.ID, ag.ID)
+	if err != nil {
+		return nil, err
+	}
+	if inbound {
+		if s.deps.ApproveInboundReview == nil {
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "approve unavailable")
+		}
+		if derr := s.deps.ApproveInboundReview(ctx, user.ID, meta); derr != nil {
+			return nil, NewError(derr.Status, derr.Code, derr.Msg)
+		}
+		return &approveOutput{Body: SendResultView{
+			Status: identity.MessageStatusReviewApproved, MessageID: meta.ID,
+		}}, nil
 	}
 	if env := s.checkSendLimit(ag.ID); env != nil {
 		return nil, env
@@ -110,6 +145,21 @@ func (s *Server) handleReject(ctx context.Context, in *rejectInput) (*rejectOutp
 	ag, err := s.resolveOwnedAgent(ctx, in.Address)
 	if err != nil {
 		return nil, err
+	}
+	meta, inbound, err := s.resolveHeldDirection(ctx, in.ID, ag.ID)
+	if err != nil {
+		return nil, err
+	}
+	if inbound {
+		if s.deps.RejectInboundReview == nil {
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "reject unavailable")
+		}
+		if derr := s.deps.RejectInboundReview(ctx, user.ID, in.Body.Reason, meta); derr != nil {
+			return nil, NewError(derr.Status, derr.Code, derr.Msg)
+		}
+		return &rejectOutput{Body: RejectResultView{
+			Status: identity.MessageStatusReviewRejected, MessageID: meta.ID, RejectionReason: in.Body.Reason,
+		}}, nil
 	}
 	if s.deps.RejectPending == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "reject unavailable")

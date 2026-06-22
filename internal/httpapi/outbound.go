@@ -50,7 +50,10 @@ func (s *Server) errorEnvelopeResponse() *huma.Response {
 // the SES id is provider_message_id. `reject` keeps its own RejectResultView
 // (it is not a send).
 type SendResultView struct {
-	Status            string     `json:"status" enum:"sent,pending_review"`
+	// review_approved is the inbound-release outcome of POST .../approve (an
+	// inbound hold released to the agent's inbox — no send). sent/pending_review
+	// are the send/outbound-approve outcomes.
+	Status            string     `json:"status" enum:"sent,pending_review,review_approved"`
 	MessageID         string     `json:"message_id"`
 	ProviderMessageID string     `json:"provider_message_id,omitempty"`
 	SentAs            string     `json:"sent_as,omitempty" enum:"own_address,relay"`

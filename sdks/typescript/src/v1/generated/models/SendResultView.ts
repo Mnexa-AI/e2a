@@ -87,6 +87,7 @@ export enum SendResultViewSentAsEnum {
 }
 export enum SendResultViewStatusEnum {
     Sent = 'sent',
-    PendingReview = 'pending_review'
+    PendingReview = 'pending_review',
+    ReviewApproved = 'review_approved'
 }
 

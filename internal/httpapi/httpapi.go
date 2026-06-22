@@ -133,6 +133,16 @@ type Deps struct {
 	ApprovePending     func(ctx context.Context, userID, messageID, expectedAgentEmail string, ovr agent.ApproveOverrides) (*identity.Message, *agent.OutboundError)
 	RejectPending      func(ctx context.Context, userID, messageID, expectedAgentEmail, reason string) (*identity.Message, *agent.OutboundError)
 	EnforceMessageSend func(ctx context.Context, userID string) error
+	// Inbound review release — the held-screening decision (design 2026-06-22 §5).
+	// GetReviewMessage resolves a held message's direction so /approve+/reject can
+	// branch (it intentionally sees held inbound statuses, scoped to the resolved
+	// owned agent — account-scope only). ApproveInboundReview releases the message
+	// to the agent's inbox; RejectInboundReview drops it. Both fire the unified
+	// review_approved/review_rejected events. Optional — nil leaves the endpoints
+	// outbound-only (pre-slice-3 behavior).
+	GetReviewMessage     func(ctx context.Context, messageID, agentID string) (*identity.ReviewMessageMeta, error)
+	ApproveInboundReview func(ctx context.Context, userID string, msg *identity.ReviewMessageMeta) *agent.OutboundError
+	RejectInboundReview  func(ctx context.Context, userID, reason string, msg *identity.ReviewMessageMeta) *agent.OutboundError
 	// SendLimit is the per-agent outbound rate limiter (mirrors
 	// sendLimit.AllowWithRetryAfter; key = agent id). Optional.
 	SendLimit func(key string) (ok bool, retryAfter time.Duration)

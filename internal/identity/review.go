@@ -16,6 +16,50 @@ var ErrNotPendingReview = fmt.Errorf("message is not pending review")
 // that intentionally include them. See docs/design/2026-06-20-agent-screening-hitl.md §4.4.
 const heldInboundStatuses = `'pending_review', 'review_rejected', 'review_expired_rejected'`
 
+// ReviewMessageMeta is the minimal dispatch view of a held message returned by
+// GetReviewMessage: enough to branch the /approve+/reject endpoints on direction
+// and to populate the resolution webhook (review_approved / review_rejected).
+type ReviewMessageMeta struct {
+	ID        string
+	AgentID   string
+	Direction string // inbound | outbound
+	Status    string
+	Sender    string
+	Recipient string
+	Subject   string
+	Type      string
+}
+
+// GetReviewMessage is the review-queue single-item getter: it loads a message
+// scoped to agentID REGARDLESS of held status (unlike every agent-facing read
+// path, which excludes heldInboundStatuses). It exists so the account-scoped
+// /approve+/reject endpoints can resolve a held message's direction and dispatch
+// the correct release path.
+//
+// SECURITY: this deliberately bypasses the held-inbound read boundary, so it MUST
+// only ever be reachable from an account-scoped reviewer flow that has already
+// proven ownership of agentID (resolveOwnedAgent). It is NOT an agent read path —
+// do not wire it onto any agent-scoped surface. The agentID filter is the
+// tenant-isolation guard: a reviewer can only resolve a message belonging to an
+// agent they own. Returns sql.ErrNoRows when no such message exists for the agent.
+func (s *Store) GetReviewMessage(ctx context.Context, messageID, agentID string) (*ReviewMessageMeta, error) {
+	m := &ReviewMessageMeta{}
+	var msgType *string
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, agent_id, direction, status, sender, recipient, subject, message_type
+		   FROM messages
+		  WHERE id = $1 AND agent_id = $2`,
+		messageID, agentID,
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Status, &m.Sender, &m.Recipient, &m.Subject, &msgType)
+	if err != nil {
+		return nil, err
+	}
+	if msgType != nil {
+		m.Type = *msgType
+	}
+	return m, nil
+}
+
 // ListExpiredReviews returns inbound pending_review messages whose
 // approval_expires_at has passed, joined with their agent's hitl_expiration_action
 // — the inbound analogue of ListExpiredPending. The expiry worker uses these to
