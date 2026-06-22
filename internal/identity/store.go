@@ -124,6 +124,12 @@ type AgentIdentity struct {
 	OutboundScan                string   `json:"outbound_scan"`
 	OutboundScanReviewThreshold float64  `json:"outbound_scan_review_threshold"`
 	OutboundScanBlockThreshold  float64  `json:"outbound_scan_block_threshold"`
+	// Scan sensitivity (migration 045) is the protection API's content-scan knob
+	// (off|low|medium|high). It is the read-back source of truth; the float
+	// thresholds above are derived from it on write and are what the piguard
+	// engine consumes. See docs/design/2026-06-22-agent-protection-config.md.
+	InboundScanSensitivity  string `json:"inbound_scan_sensitivity"`
+	OutboundScanSensitivity string `json:"outbound_scan_sensitivity"`
 	// AssertionVersion is the auth.md kill-switch counter (migration 035 /
 	// Slice 5b-2): stamped into minted identity_assertion/access_token JWTs and
 	// re-checked at the token endpoint; a bump invalidates prior tokens.
@@ -778,6 +784,7 @@ func (s *Store) GetAgentByID(ctx context.Context, id string) (*AgentIdentity, er
 		        a.outbound_policy, a.outbound_allowlist, a.outbound_policy_action,
 		        a.inbound_scan, a.inbound_scan_review_threshold, a.inbound_scan_block_threshold,
 		        a.outbound_scan, a.outbound_scan_review_threshold, a.outbound_scan_block_threshold,
+		        a.inbound_scan_sensitivity, a.outbound_scan_sensitivity,
 		        COALESCE(a.assertion_version, 1),
 		        d.verified as domain_verified
 		 FROM agent_identities a
@@ -790,6 +797,7 @@ func (s *Store) GetAgentByID(ctx context.Context, id string) (*AgentIdentity, er
 		&a.OutboundPolicy, &a.OutboundAllowlist, &a.OutboundPolicyAction,
 		&a.InboundScan, &a.InboundScanReviewThreshold, &a.InboundScanBlockThreshold,
 		&a.OutboundScan, &a.OutboundScanReviewThreshold, &a.OutboundScanBlockThreshold,
+		&a.InboundScanSensitivity, &a.OutboundScanSensitivity,
 		&a.AssertionVersion,
 		&a.DomainVerified)
 	if err != nil {
@@ -930,6 +938,7 @@ func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIde
 		        a.outbound_policy, a.outbound_allowlist, a.outbound_policy_action,
 		        a.inbound_scan, a.inbound_scan_review_threshold, a.inbound_scan_block_threshold,
 		        a.outbound_scan, a.outbound_scan_review_threshold, a.outbound_scan_block_threshold,
+		        a.inbound_scan_sensitivity, a.outbound_scan_sensitivity,
 		        d.verified as domain_verified,
 		        (SELECT count(*) FROM messages m
 		           WHERE m.agent_id = a.id AND m.direction = 'inbound'
@@ -970,6 +979,7 @@ func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIde
 			&a.OutboundPolicy, &a.OutboundAllowlist, &a.OutboundPolicyAction,
 			&a.InboundScan, &a.InboundScanReviewThreshold, &a.InboundScanBlockThreshold,
 			&a.OutboundScan, &a.OutboundScanReviewThreshold, &a.OutboundScanBlockThreshold,
+			&a.InboundScanSensitivity, &a.OutboundScanSensitivity,
 			&a.DomainVerified,
 			&a.Inbound7d, &a.Outbound7d, &a.PendingCount,
 			&lastDeliveryAt, &a.WebhookHealthy); err != nil {
