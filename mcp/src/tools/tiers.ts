@@ -47,6 +47,11 @@ export const RUNTIME_TOOLS: ReadonlySet<string> = new Set([
 export const ADMIN_TOOLS: ReadonlySet<string> = new Set([
   "create_agent",
   "update_agent",
+  // Protection config is account-only — an agent-scoped session must not read or
+  // change its own detection tuning (audit #13). get_protection is admin even
+  // though get_agent is runtime.
+  "get_protection",
+  "update_protection",
   "delete_agent",
   // HITL approval is an account-owner / human review action — NOT something the
   // gated agent may do to its own held outbound (that would be self-approval,

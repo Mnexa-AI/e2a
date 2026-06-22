@@ -264,6 +264,8 @@ describe("HTTP MCP server", () => {
         "create_agent",
         "update_agent",
         "delete_agent",
+        "get_protection",
+        "update_protection",
         "list_domains",
         "register_domain",
         "verify_domain",

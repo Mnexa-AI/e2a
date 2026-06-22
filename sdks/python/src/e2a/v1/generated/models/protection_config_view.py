@@ -17,23 +17,21 @@ import pprint
 import re  # noqa: F401
 import json
 
-from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
+from pydantic import BaseModel, ConfigDict
 from typing import Any, ClassVar, Dict, List
+from e2a.v1.generated.models.protection_direction_view import ProtectionDirectionView
+from e2a.v1.generated.models.protection_holds_view import ProtectionHoldsView
 from typing import Optional, Set
 from typing_extensions import Self
 
-class AgentView(BaseModel):
+class ProtectionConfigView(BaseModel):
     """
-    AgentView
+    ProtectionConfigView
     """ # noqa: E501
-    created_at: datetime
-    domain: StrictStr
-    domain_verified: StrictBool
-    email: StrictStr
-    id: StrictStr
-    name: StrictStr
-    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "id", "name"]
+    holds: ProtectionHoldsView
+    inbound: ProtectionDirectionView
+    outbound: ProtectionDirectionView
+    __properties: ClassVar[List[str]] = ["holds", "inbound", "outbound"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -53,7 +51,7 @@ class AgentView(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of AgentView from a JSON string"""
+        """Create an instance of ProtectionConfigView from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -74,11 +72,20 @@ class AgentView(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
+        # override the default output from pydantic by calling `to_dict()` of holds
+        if self.holds:
+            _dict['holds'] = self.holds.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of inbound
+        if self.inbound:
+            _dict['inbound'] = self.inbound.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of outbound
+        if self.outbound:
+            _dict['outbound'] = self.outbound.to_dict()
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of AgentView from a dict"""
+        """Create an instance of ProtectionConfigView from a dict"""
         if obj is None:
             return None
 
@@ -86,12 +93,9 @@ class AgentView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "created_at": obj.get("created_at"),
-            "domain": obj.get("domain"),
-            "domain_verified": obj.get("domain_verified"),
-            "email": obj.get("email"),
-            "id": obj.get("id"),
-            "name": obj.get("name")
+            "holds": ProtectionHoldsView.from_dict(obj["holds"]) if obj.get("holds") is not None else None,
+            "inbound": ProtectionDirectionView.from_dict(obj["inbound"]) if obj.get("inbound") is not None else None,
+            "outbound": ProtectionDirectionView.from_dict(obj["outbound"]) if obj.get("outbound") is not None else None
         })
         return _obj
 

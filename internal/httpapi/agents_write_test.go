@@ -2,14 +2,9 @@ package httpapi
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
-	"net/http/httptest"
 	"testing"
-
-	"github.com/Mnexa-AI/e2a/internal/identity"
 )
 
 func sendJSON(t *testing.T, method, url, bearer string, body any) (int, map[string]any) {
@@ -30,10 +25,12 @@ func sendJSON(t *testing.T, method, url, bearer string, body any) (int, map[stri
 	return resp.StatusCode, out
 }
 
-func TestUpdateAgentHITL(t *testing.T) {
+// TestUpdateAgentName exercises the post-reshape agent PATCH: the only mutable
+// field is the display name (screening config moved to /protection).
+func TestUpdateAgentName(t *testing.T) {
 	srv := testServer(t)
 	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/agents/support%40acme.com", "good", map[string]any{
-		"hitl_ttl_seconds": 3600, "hitl_expiration_action": "reject",
+		"name": "Renamed Support",
 	})
 	if code != 200 {
 		t.Fatalf("status %d body %v", code, body)
@@ -41,47 +38,6 @@ func TestUpdateAgentHITL(t *testing.T) {
 	// Returns the reloaded agent.
 	if body["email"] != "support@acme.com" {
 		t.Fatalf("expected reloaded agent, got %v", body)
-	}
-}
-
-// TestUpdateAgentInboundPolicy exercises the full PATCH → store → re-read →
-// AgentView round-trip for the inbound ingestion gate (Slice 7). The fake
-// store mutates a captured agent so GetAgent returns the post-update shape.
-func TestUpdateAgentInboundPolicy(t *testing.T) {
-	ag := sampleAgent()
-	ag.InboundPolicy = "open"
-	deps := Deps{
-		Authenticator: func(r *http.Request) (*identity.User, error) {
-			if r.Header.Get("Authorization") == "Bearer good" {
-				return &identity.User{ID: "u_1", Email: "owner@acme.com"}, nil
-			}
-			return nil, errors.New("unauthorized")
-		},
-		GetAgent: func(ctx context.Context, address string) (*identity.AgentIdentity, error) {
-			if address == "support@acme.com" {
-				a := ag
-				return &a, nil
-			}
-			return nil, errors.New("not found")
-		},
-		UpdateAgentInboundPolicy: func(ctx context.Context, agentID, userID, policy string, allowlist []string) error {
-			ag.InboundPolicy = policy
-			ag.InboundAllowlist = allowlist
-			return nil
-		},
-		Legacy: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) }),
-	}
-	srv := httptest.NewServer(New(deps))
-	t.Cleanup(srv.Close)
-
-	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/agents/support%40acme.com", "good", map[string]any{
-		"inbound_policy": "verified_only",
-	})
-	if code != 200 {
-		t.Fatalf("status %d body %v", code, body)
-	}
-	if body["inbound_policy"] != "verified_only" {
-		t.Fatalf("expected inbound_policy=verified_only on AgentView, got %v", body["inbound_policy"])
 	}
 }
 
@@ -96,7 +52,7 @@ func TestUpdateAgentNoFields(t *testing.T) {
 func TestUpdateAgentNotOwned(t *testing.T) {
 	srv := testServer(t)
 	code, _ := sendJSON(t, "PATCH", srv.URL+"/v1/agents/other%40acme.com", "good", map[string]any{
-		"hitl_ttl_seconds": 3600,
+		"name": "x",
 	})
 	if code != 403 {
 		t.Fatalf("want 403, got %d", code)

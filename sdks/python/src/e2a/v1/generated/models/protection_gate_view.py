@@ -17,23 +17,20 @@ import pprint
 import re  # noqa: F401
 import json
 
-from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
-from typing import Any, ClassVar, Dict, List
+from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
+from typing import Any, ClassVar, Dict, List, Optional
+from typing_extensions import Annotated
 from typing import Optional, Set
 from typing_extensions import Self
 
-class AgentView(BaseModel):
+class ProtectionGateView(BaseModel):
     """
-    AgentView
+    ProtectionGateView
     """ # noqa: E501
-    created_at: datetime
-    domain: StrictStr
-    domain_verified: StrictBool
-    email: StrictStr
-    id: StrictStr
-    name: StrictStr
-    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "id", "name"]
+    action: Optional[StrictStr] = Field(default='flag', description="What a gate non-match does: flag (deliver + annotate), review (hold), block.")
+    allowlist: Optional[Annotated[List[StrictStr], Field(max_length=1000)]] = Field(default=None, description="Addresses (allowlist) or domains (domain) the gate trusts; ignored for open.")
+    policy: Optional[StrictStr] = Field(default='open', description="Trust gate: open (all), domain (listed domains), allowlist (listed addresses). A legacy 'verified_only' may appear on read but cannot be set here.")
+    __properties: ClassVar[List[str]] = ["action", "allowlist", "policy"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -53,7 +50,7 @@ class AgentView(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of AgentView from a JSON string"""
+        """Create an instance of ProtectionGateView from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -78,7 +75,7 @@ class AgentView(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of AgentView from a dict"""
+        """Create an instance of ProtectionGateView from a dict"""
         if obj is None:
             return None
 
@@ -86,12 +83,9 @@ class AgentView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "created_at": obj.get("created_at"),
-            "domain": obj.get("domain"),
-            "domain_verified": obj.get("domain_verified"),
-            "email": obj.get("email"),
-            "id": obj.get("id"),
-            "name": obj.get("name")
+            "action": obj.get("action") if obj.get("action") is not None else 'flag',
+            "allowlist": obj.get("allowlist"),
+            "policy": obj.get("policy") if obj.get("policy") is not None else 'open'
         })
         return _obj
 

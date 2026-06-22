@@ -88,9 +88,8 @@ func BuildDeps(p Params) httpapi.Deps {
 		CreateAgent:              p.Store.CreateAgent,
 		LookupDomain:             p.Store.LookupDomain,
 		EnforceAgentCreate:       p.Enforcer.CheckAgentCreate,
-		UpdateAgentHITL:          p.Store.UpdateAgentHITL,
-		UpdateAgentInboundPolicy: p.Store.UpdateAgentInboundPolicy,
-		UpdateAgentScanConfig:    p.Store.UpdateAgentScanConfig,
+		UpdateAgentName:          p.Store.UpdateAgentName,
+		UpdateAgentProtection:    p.Store.UpdateAgentProtection,
 		DeleteAgent:              p.Store.DeleteAgent,
 
 		ListDomains:         p.Store.ListDomainsByUser,

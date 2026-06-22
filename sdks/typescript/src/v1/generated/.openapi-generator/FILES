@@ -58,6 +58,11 @@ models/PageMessageSummaryView.ts
 models/PageSuppression.ts
 models/PageWebhookDeliveryView.ts
 models/PageWebhookView.ts
+models/ProtectionConfigView.ts
+models/ProtectionDirectionView.ts
+models/ProtectionGateView.ts
+models/ProtectionHoldsView.ts
+models/ProtectionScanView.ts
 models/RedeliverDelivery.ts
 models/RedeliverEventRequest.ts
 models/RedeliverView.ts

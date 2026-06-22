@@ -55,6 +55,7 @@ from .generated.models import (
     Suppression,
     TestWebhookResponse,
     TestWebhookRequest,
+    ProtectionConfigView,
     UpdateAgentRequest,
     UpdateDomainRequest,
     UpdateMessageRequest,
@@ -225,6 +226,21 @@ class AgentsResource:
         req = _coerce(UpdateAgentRequest, patch)
         return await self._c._write_idempotent(
             lambda h: self._api.update_agent(email, req, _headers=h)
+        )
+
+    async def get_protection(self, email: str) -> ProtectionConfigView:
+        """Read an agent's protection config (gate + scan sensitivity + holds).
+
+        Beta; account scope only — an agent-scoped key cannot read its own config.
+        """
+        return await self._c._read(lambda h: self._api.get_agent_protection(email, _headers=h))
+
+    async def replace_protection(self, email: str, config: Body) -> ProtectionConfigView:
+        """Replace an agent's protection config wholesale (all three top-level
+        keys required). Beta; account scope only. PUT is idempotent."""
+        req = _coerce(ProtectionConfigView, config)
+        return await self._c._write_idempotent(
+            lambda h: self._api.put_agent_protection(email, req, _headers=h)
         )
 
     async def delete(self, email: str) -> None:

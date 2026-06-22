@@ -17,23 +17,17 @@ import pprint
 import re  # noqa: F401
 import json
 
-from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
-from typing import Any, ClassVar, Dict, List
+from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
+from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
 
-class AgentView(BaseModel):
+class ProtectionScanView(BaseModel):
     """
-    AgentView
+    ProtectionScanView
     """ # noqa: E501
-    created_at: datetime
-    domain: StrictStr
-    domain_verified: StrictBool
-    email: StrictStr
-    id: StrictStr
-    name: StrictStr
-    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "id", "name"]
+    sensitivity: Optional[StrictStr] = Field(default='off', description="Content-scan sensitivity: off disables; low|medium|high increase aggressiveness.")
+    __properties: ClassVar[List[str]] = ["sensitivity"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -53,7 +47,7 @@ class AgentView(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of AgentView from a JSON string"""
+        """Create an instance of ProtectionScanView from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -78,7 +72,7 @@ class AgentView(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of AgentView from a dict"""
+        """Create an instance of ProtectionScanView from a dict"""
         if obj is None:
             return None
 
@@ -86,12 +80,7 @@ class AgentView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "created_at": obj.get("created_at"),
-            "domain": obj.get("domain"),
-            "domain_verified": obj.get("domain_verified"),
-            "email": obj.get("email"),
-            "id": obj.get("id"),
-            "name": obj.get("name")
+            "sensitivity": obj.get("sensitivity") if obj.get("sensitivity") is not None else 'off'
         })
         return _obj
 

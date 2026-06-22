@@ -17,8 +17,9 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictFloat, StrictInt, StrictStr, field_validator
-from typing import Any, ClassVar, Dict, List, Optional, Union
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Any, ClassVar, Dict, List, Optional
+from typing_extensions import Annotated
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -26,21 +27,8 @@ class UpdateAgentRequest(BaseModel):
     """
     UpdateAgentRequest
     """ # noqa: E501
-    hitl_expiration_action: Optional[StrictStr] = None
-    hitl_ttl_seconds: Optional[StrictInt] = None
-    inbound_allowlist: Optional[List[StrictStr]] = None
-    inbound_policy: Optional[StrictStr] = None
-    inbound_policy_action: Optional[StrictStr] = None
-    inbound_scan: Optional[StrictStr] = None
-    inbound_scan_block_threshold: Optional[Union[StrictFloat, StrictInt]] = None
-    inbound_scan_review_threshold: Optional[Union[StrictFloat, StrictInt]] = None
-    outbound_allowlist: Optional[List[StrictStr]] = None
-    outbound_policy: Optional[StrictStr] = None
-    outbound_policy_action: Optional[StrictStr] = None
-    outbound_scan: Optional[StrictStr] = None
-    outbound_scan_block_threshold: Optional[Union[StrictFloat, StrictInt]] = None
-    outbound_scan_review_threshold: Optional[Union[StrictFloat, StrictInt]] = None
-    __properties: ClassVar[List[str]] = ["hitl_expiration_action", "hitl_ttl_seconds", "inbound_allowlist", "inbound_policy", "inbound_policy_action", "inbound_scan", "inbound_scan_block_threshold", "inbound_scan_review_threshold", "outbound_allowlist", "outbound_policy", "outbound_policy_action", "outbound_scan", "outbound_scan_block_threshold", "outbound_scan_review_threshold"]
+    name: Optional[Annotated[str, Field(strict=True, max_length=200)]] = Field(default=None, description="New display name for the agent (a UI label; the agent's identity is its email).")
+    __properties: ClassVar[List[str]] = ["name"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -93,20 +81,7 @@ class UpdateAgentRequest(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "hitl_expiration_action": obj.get("hitl_expiration_action"),
-            "hitl_ttl_seconds": obj.get("hitl_ttl_seconds"),
-            "inbound_allowlist": obj.get("inbound_allowlist"),
-            "inbound_policy": obj.get("inbound_policy"),
-            "inbound_policy_action": obj.get("inbound_policy_action"),
-            "inbound_scan": obj.get("inbound_scan"),
-            "inbound_scan_block_threshold": obj.get("inbound_scan_block_threshold"),
-            "inbound_scan_review_threshold": obj.get("inbound_scan_review_threshold"),
-            "outbound_allowlist": obj.get("outbound_allowlist"),
-            "outbound_policy": obj.get("outbound_policy"),
-            "outbound_policy_action": obj.get("outbound_policy_action"),
-            "outbound_scan": obj.get("outbound_scan"),
-            "outbound_scan_block_threshold": obj.get("outbound_scan_block_threshold"),
-            "outbound_scan_review_threshold": obj.get("outbound_scan_review_threshold")
+            "name": obj.get("name")
         })
         return _obj
 

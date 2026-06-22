@@ -22,7 +22,7 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
       title: "Get one agent's configuration",
       annotations: { readOnlyHint: true },
       description:
-        "Fetch a single agent by its email address — full config: name, HITL settings (hitl_enabled/hitl_mode/hitl_ttl_seconds/hitl_expiration_action), inbound policy (inbound_policy/inbound_allowlist), and sending status. Use to inspect or confirm one agent's settings without listing every agent. Read-only.",
+        "Fetch a single agent by its email address — identity + status (name, domain, verification, created_at). The screening/protection config (gate, scan, holds) is NOT here: it is account-only and lives on `get_protection`. Use to inspect or confirm one agent without listing every agent. Read-only.",
       inputSchema: strictInputSchema({
         email: z
           .string()
@@ -77,10 +77,10 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
   server.registerTool(
     "update_agent",
     {
-      title: "Update an agent's configuration",
+      title: "Rename an agent",
       annotations: { idempotentHint: true, destructiveHint: false },
       description:
-        "Mutate an agent's HITL and inbound-policy settings. **The path to enable HITL approval gates** (HITL is NOT in create_agent): set `hitl_enabled: true`, optionally with `hitl_ttl_seconds`, `hitl_expiration_action`, and `hitl_mode` (`all` holds every outbound; `high_impact` holds only high-impact actions). Also sets the inbound trust gate: `inbound_policy` (`open`/`allowlist`/`domain`/`verified_only`) + `inbound_allowlist`. Omitted fields keep their current value; an explicit zero is honored (e.g. `hitl_ttl_seconds: 0`).",
+        "Update an agent's display name (a UI label; the agent's identity is its email). The screening/protection config (gate, scan, holds) is NOT here — use `update_protection`.",
       inputSchema: strictInputSchema({
         email: z
           .string()
@@ -89,62 +89,115 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
           .describe(
             "Agent to update (full email). Defaults to the credential's bound agent (agent-scoped credentials); required otherwise.",
           ),
-        hitl_enabled: z
-          .boolean()
+        name: z.string().max(200).describe("New display name for the agent."),
+      }),
+    },
+    async (args) => runTool(() => client.updateAgent({ name: args.name }, args.email)),
+  );
+
+  server.registerTool(
+    "get_protection",
+    {
+      title: "Get an agent's protection config (beta)",
+      annotations: { readOnlyHint: true },
+      description:
+        "Read an agent's protection posture: the inbound/outbound trust gate (policy + allowlist + action), the content-scan sensitivity, and the hold-queue mechanism. BETA — the shape may change. Account scope only: an agent-scoped credential cannot read its own protection config.",
+      inputSchema: strictInputSchema({
+        email: z
+          .string()
+          .email()
           .optional()
           .describe(
-            "Hold outbound mail for human approval before it ships. When true, send/reply/forward return a pending message id rather than a sent receipt; reviewers approve via the dashboard or the magic link.",
+            "Agent to read (full email). Defaults to the credential's bound agent; required for account-scoped credentials.",
           ),
-        hitl_ttl_seconds: z
+      }),
+    },
+    async (args) => runTool(() => client.getProtection(args.email)),
+  );
+
+  server.registerTool(
+    "update_protection",
+    {
+      title: "Update an agent's protection config (beta)",
+      annotations: { idempotentHint: true, destructiveHint: false },
+      description:
+        "Set an agent's protection posture. Read-modify-write: only the fields you pass change; the rest keep their current value. The gate decides who may send and what a non-match does (flag/review/block); the scan sensitivity (off|low|medium|high) tunes content screening; holds govern the review queue. BETA. Account scope only.",
+      inputSchema: strictInputSchema({
+        email: z
+          .string()
+          .email()
+          .optional()
+          .describe("Agent to update (full email). Defaults to the credential's bound agent."),
+        inbound_gate_policy: z
+          .enum(["open", "allowlist", "domain"])
+          .optional()
+          .describe("Inbound trust gate: open (all), domain (listed domains), allowlist (listed addresses)."),
+        inbound_gate_allowlist: z
+          .array(z.string())
+          .optional()
+          .describe("Inbound trusted addresses (allowlist) or domains (domain)."),
+        inbound_gate_action: z
+          .enum(["flag", "review", "block"])
+          .optional()
+          .describe("What an inbound gate non-match does: flag (deliver+annotate), review (hold), block."),
+        inbound_scan_sensitivity: z
+          .enum(["off", "low", "medium", "high"])
+          .optional()
+          .describe("Inbound content-scan sensitivity. off disables; low|medium|high increase aggressiveness."),
+        outbound_gate_policy: z
+          .enum(["open", "allowlist", "domain"])
+          .optional()
+          .describe("Outbound recipient gate."),
+        outbound_gate_allowlist: z
+          .array(z.string())
+          .optional()
+          .describe("Outbound allowed recipient addresses or domains."),
+        outbound_gate_action: z
+          .enum(["flag", "review", "block"])
+          .optional()
+          .describe("What an outbound gate non-match does."),
+        outbound_scan_sensitivity: z
+          .enum(["off", "low", "medium", "high"])
+          .optional()
+          .describe("Outbound content-scan sensitivity."),
+        holds_ttl_seconds: z
           .number()
           .int()
           .min(0)
           .optional()
-          .describe("How long a pending outbound stays in the approval queue before it expires."),
-        hitl_expiration_action: z
+          .describe("How long a held item waits before its on_expiry action fires."),
+        holds_on_expiry: z
           .enum(["approve", "reject"])
           .optional()
-          .describe("At TTL expiry: `approve` ships the pending message; `reject` drops it."),
-        hitl_mode: z
-          .enum(["all", "high_impact"])
-          .optional()
-          .describe(
-            "What HITL holds: `all` (every outbound) or `high_impact` (only high-impact actions on weakly-authenticated inbound). Meaningful only when hitl_enabled.",
-          ),
-        inbound_policy: z
-          .enum(["open", "allowlist", "domain", "verified_only"])
-          .optional()
-          .describe(
-            "Inbound ingestion gate: `open` (accept all), `allowlist`/`domain` (accept only listed senders/domains), `verified_only` (require SPF+DKIM+DMARC alignment). Non-matches are flagged, not dropped.",
-          ),
-        inbound_allowlist: z
-          .array(z.string())
-          .optional()
-          .describe("Trusted sender addresses (for `allowlist`) or domains (for `domain`)."),
+          .describe("What happens to a held item at TTL expiry."),
       }),
     },
     async (args) =>
-      runTool(() => {
-        const patch: {
-          hitlEnabled?: boolean;
-          hitlTtlSeconds?: number;
-          hitlExpirationAction?: string;
-          hitlMode?: string;
-          inboundPolicy?: string;
-          inboundAllowlist?: Array<string>;
-        } = {
-          ...(args.hitl_enabled !== undefined ? { hitlEnabled: args.hitl_enabled } : {}),
-          ...(args.hitl_ttl_seconds !== undefined ? { hitlTtlSeconds: args.hitl_ttl_seconds } : {}),
-          ...(args.hitl_expiration_action !== undefined
-            ? { hitlExpirationAction: args.hitl_expiration_action }
-            : {}),
-          ...(args.hitl_mode !== undefined ? { hitlMode: args.hitl_mode } : {}),
-          ...(args.inbound_policy !== undefined ? { inboundPolicy: args.inbound_policy } : {}),
-          ...(args.inbound_allowlist !== undefined
-            ? { inboundAllowlist: args.inbound_allowlist }
-            : {}),
-        };
-        return client.updateAgent(patch, args.email);
+      runTool(async () => {
+        // Read-modify-write over the full-replace PUT: fetch current, overlay
+        // only the provided fields, write back. Avoids a partial PUT resetting
+        // sections the caller didn't mean to touch.
+        const cfg = await client.getProtection(args.email);
+        // The generated view uses string-enum types; the Zod enums produce the
+        // same literals, so cast each to the field's own type.
+        if (args.inbound_gate_policy !== undefined)
+          cfg.inbound.gate.policy = args.inbound_gate_policy as typeof cfg.inbound.gate.policy;
+        if (args.inbound_gate_allowlist !== undefined) cfg.inbound.gate.allowlist = args.inbound_gate_allowlist;
+        if (args.inbound_gate_action !== undefined)
+          cfg.inbound.gate.action = args.inbound_gate_action as typeof cfg.inbound.gate.action;
+        if (args.inbound_scan_sensitivity !== undefined)
+          cfg.inbound.scan.sensitivity = args.inbound_scan_sensitivity as typeof cfg.inbound.scan.sensitivity;
+        if (args.outbound_gate_policy !== undefined)
+          cfg.outbound.gate.policy = args.outbound_gate_policy as typeof cfg.outbound.gate.policy;
+        if (args.outbound_gate_allowlist !== undefined) cfg.outbound.gate.allowlist = args.outbound_gate_allowlist;
+        if (args.outbound_gate_action !== undefined)
+          cfg.outbound.gate.action = args.outbound_gate_action as typeof cfg.outbound.gate.action;
+        if (args.outbound_scan_sensitivity !== undefined)
+          cfg.outbound.scan.sensitivity = args.outbound_scan_sensitivity as typeof cfg.outbound.scan.sensitivity;
+        if (args.holds_ttl_seconds !== undefined) cfg.holds.ttlSeconds = args.holds_ttl_seconds;
+        if (args.holds_on_expiry !== undefined)
+          cfg.holds.onExpiry = args.holds_on_expiry as typeof cfg.holds.onExpiry;
+        return client.updateProtection(cfg, args.email);
       }),
   );
 

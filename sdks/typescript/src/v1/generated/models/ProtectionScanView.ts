@@ -12,11 +12,11 @@
 
 import { HttpFile } from '../http/http.js';
 
-export class UpdateAgentRequest {
+export class ProtectionScanView {
     /**
-    * New display name for the agent (a UI label; the agent\'s identity is its email).
+    * Content-scan sensitivity: off disables; low|medium|high increase aggressiveness.
     */
-    'name'?: string;
+    'sensitivity'?: ProtectionScanViewSensitivityEnum;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -24,16 +24,24 @@ export class UpdateAgentRequest {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "name",
-            "baseName": "name",
-            "type": "string",
+            "name": "sensitivity",
+            "baseName": "sensitivity",
+            "type": "ProtectionScanViewSensitivityEnum",
             "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return UpdateAgentRequest.attributeTypeMap;
+        return ProtectionScanView.attributeTypeMap;
     }
 
     public constructor() {
     }
 }
+
+export enum ProtectionScanViewSensitivityEnum {
+    Off = 'off',
+    Low = 'low',
+    Medium = 'medium',
+    High = 'high'
+}
+

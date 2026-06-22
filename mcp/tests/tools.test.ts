@@ -90,6 +90,12 @@ function makeStubClient(
       email: "bot@example.com",
       ...body,
     })),
+    getProtection: vi.fn(async (_addr?: string) => ({
+      inbound: { gate: { policy: "open", allowlist: [], action: "flag" }, scan: { sensitivity: "off" } },
+      outbound: { gate: { policy: "open", allowlist: [], action: "flag" }, scan: { sensitivity: "off" } },
+      holds: { ttlSeconds: 604800, onExpiry: "reject" },
+    })),
+    updateProtection: vi.fn(async (config: unknown, _addr?: string) => config),
     deleteAgent: vi.fn(async (addr?: string) => addr ?? "bot@example.com"),
     listDomains: vi.fn(async () => [
       { domain: "mail.acme.com", verified: true, verificationToken: "tok1" },
@@ -200,6 +206,8 @@ describe("e2a MCP server", () => {
         "create_agent",
         "update_agent",
         "delete_agent",
+        "get_protection",
+        "update_protection",
         "list_domains",
         "register_domain",
         "verify_domain",
@@ -246,7 +254,7 @@ describe("e2a MCP server", () => {
     registerWebhookTools(recorder, stub);
     registerEventTools(recorder, stub);
 
-    expect(names).toHaveLength(35);
+    expect(names).toHaveLength(37);
     // Throws if any registered tool is untiered / double-tiered / phantom.
     expect(() => assertToolTiersComplete(names)).not.toThrow();
   });
@@ -255,13 +263,13 @@ describe("e2a MCP server", () => {
     expect(toolNamesForScope("bogus")).toBe(RUNTIME_TOOLS);
     expect(toolNamesForScope("")).toBe(RUNTIME_TOOLS);
     expect(toolNamesForScope("agent")).toBe(RUNTIME_TOOLS);
-    expect(toolNamesForScope("account").size).toBe(35);
+    expect(toolNamesForScope("account").size).toBe(37);
   });
 
-  it("account scope exposes all 35 tools (runtime + admin)", async () => {
+  it("account scope exposes all 37 tools (runtime + admin)", async () => {
     const acct = await connect(makeStubClient({ scope: "account" }));
     const { tools } = await acct.listTools();
-    expect(tools).toHaveLength(35);
+    expect(tools).toHaveLength(37);
   });
 
   it("agent scope exposes only the 14 runtime tools — admin tools hidden", async () => {
@@ -281,6 +289,7 @@ describe("e2a MCP server", () => {
     // Admin tools hidden — incl. approve/reject: self-approval would defeat HITL.
     for (const n of [
       "create_agent", "update_agent", "delete_agent",
+      "get_protection", "update_protection",
       "approve_message", "reject_message",
       "list_domains", "get_domain", "register_domain", "verify_domain", "delete_domain",
       "list_webhooks", "get_webhook", "create_webhook", "update_webhook",
@@ -311,7 +320,7 @@ describe("e2a MCP server", () => {
   // ── §6a tool annotations (#2) ───────────────────────────────────────
 
   it("every tool carries MCP annotations with the correct hints", async () => {
-    const { tools } = await client.listTools(); // account scope → all 35
+    const { tools } = await client.listTools(); // account scope → all 37
     const byName = new Map(tools.map((t) => [t.name, t.annotations ?? {}]));
 
     // Every tool has an annotations object.
@@ -603,51 +612,42 @@ describe("e2a MCP server", () => {
     expect(payload.deliveries[0].webhookId).toBe("wh_abc");
   });
 
-  it("update_agent maps HITL fields to camelCase and uses bound agent by default", async () => {
+  it("update_agent sends the name and uses bound agent by default", async () => {
     await client.callTool({
       name: "update_agent",
-      arguments: { hitl_enabled: true, hitl_ttl_seconds: 3600 },
+      arguments: { name: "Renamed Bot" },
     });
     expect(stub.updateAgent).toHaveBeenCalledWith(
-      { hitlEnabled: true, hitlTtlSeconds: 3600 },
+      { name: "Renamed Bot" },
       undefined, // no explicit email → wrapper resolves the bound agent
-    );
-  });
-
-  it("update_agent maps the new HITL/inbound-policy fields to camelCase", async () => {
-    // hitl_mode + inbound_policy + inbound_allowlist were added; verify
-    // the snake→camel mapping of each new field.
-    await client.callTool({
-      name: "update_agent",
-      arguments: {
-        hitl_mode: "high_impact",
-        inbound_policy: "allowlist",
-        inbound_allowlist: ["trusted@example.com"],
-      },
-    });
-    expect(stub.updateAgent).toHaveBeenCalledWith(
-      {
-        hitlMode: "high_impact",
-        inboundPolicy: "allowlist",
-        inboundAllowlist: ["trusted@example.com"],
-      },
-      undefined,
     );
   });
 
   it("update_agent threads explicit email", async () => {
     await client.callTool({
       name: "update_agent",
-      arguments: {
-        email: "other@example.com",
-        hitl_expiration_action: "reject",
-      },
+      arguments: { email: "other@example.com", name: "Other" },
     });
-    // Only the mapped HITL fields reach the SDK; the address is passed through.
     expect(stub.updateAgent).toHaveBeenCalledWith(
-      { hitlExpirationAction: "reject" },
+      { name: "Other" },
       "other@example.com",
     );
+  });
+
+  it("update_protection read-modify-writes only the provided fields", async () => {
+    await client.callTool({
+      name: "update_protection",
+      arguments: { inbound_scan_sensitivity: "high", outbound_gate_policy: "allowlist" },
+    });
+    // Reads current config, then writes back with only the two fields changed.
+    expect(stub.getProtection).toHaveBeenCalled();
+    const [cfg, addr] = stub.updateProtection.mock.calls.at(-1)!;
+    expect(cfg.inbound.scan.sensitivity).toBe("high");
+    expect(cfg.outbound.gate.policy).toBe("allowlist");
+    // Untouched sections keep their current value.
+    expect(cfg.inbound.gate.policy).toBe("open");
+    expect(cfg.holds.onExpiry).toBe("reject");
+    expect(addr).toBeUndefined();
   });
 
   it("delete_agent requires confirm:true — server-side schema rejects when omitted", async () => {

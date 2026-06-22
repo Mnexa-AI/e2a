@@ -12,11 +12,15 @@
 
 import { HttpFile } from '../http/http.js';
 
-export class UpdateAgentRequest {
+export class ProtectionHoldsView {
     /**
-    * New display name for the agent (a UI label; the agent\'s identity is its email).
+    * What happens to a held item when its TTL expires.
     */
-    'name'?: string;
+    'onExpiry'?: ProtectionHoldsViewOnExpiryEnum;
+    /**
+    * How long a held item waits before its on_expiry action fires.
+    */
+    'ttlSeconds'?: number;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -24,16 +28,28 @@ export class UpdateAgentRequest {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "name",
-            "baseName": "name",
-            "type": "string",
+            "name": "onExpiry",
+            "baseName": "on_expiry",
+            "type": "ProtectionHoldsViewOnExpiryEnum",
             "format": ""
+        },
+        {
+            "name": "ttlSeconds",
+            "baseName": "ttl_seconds",
+            "type": "number",
+            "format": "int64"
         }    ];
 
     static getAttributeTypeMap() {
-        return UpdateAgentRequest.attributeTypeMap;
+        return ProtectionHoldsView.attributeTypeMap;
     }
 
     public constructor() {
     }
 }
+
+export enum ProtectionHoldsViewOnExpiryEnum {
+    Approve = 'approve',
+    Reject = 'reject'
+}
+

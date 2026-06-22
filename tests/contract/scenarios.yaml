@@ -420,19 +420,26 @@ scenarios:
           email: bot@hitl-hold.test.dev
     steps:
       - id: enable_outbound_review
-        # /v1 agent updates use PATCH (the legacy PUT was dropped). hitl_enabled
-        # is retired; an empty-allowlist review policy holds every send.
+        # Screening config lives on the account-scoped /protection sub-resource
+        # (PUT, full replace). An empty-allowlist outbound review gate holds every send.
         action: request
-        method: PATCH
-        path: /v1/agents/{agent_email}
+        method: PUT
+        path: /v1/agents/{agent_email}/protection
         body:
-          outbound_policy: allowlist
-          outbound_policy_action: review
-          outbound_allowlist: []
+          inbound:
+            gate: {}
+            scan: {}
+          outbound:
+            gate:
+              policy: allowlist
+              action: review
+              allowlist: []
+            scan: {}
+          holds: {}
         expect:
           status: 200
           body_match:
-            outbound_policy_action: review
+            outbound.gate.action: review
 
       - id: send_held
         action: request
@@ -466,12 +473,19 @@ scenarios:
     steps:
       - id: enable_outbound_review
         action: request
-        method: PATCH
-        path: /v1/agents/{agent_email}
+        method: PUT
+        path: /v1/agents/{agent_email}/protection
         body:
-          outbound_policy: allowlist
-          outbound_policy_action: review
-          outbound_allowlist: []
+          inbound:
+            gate: {}
+            scan: {}
+          outbound:
+            gate:
+              policy: allowlist
+              action: review
+              allowlist: []
+            scan: {}
+          holds: {}
         expect:
           status: 200
 
@@ -526,12 +540,19 @@ scenarios:
     steps:
       - id: enable_outbound_review
         action: request
-        method: PATCH
-        path: /v1/agents/{agent_email}
+        method: PUT
+        path: /v1/agents/{agent_email}/protection
         body:
-          outbound_policy: allowlist
-          outbound_policy_action: review
-          outbound_allowlist: []
+          inbound:
+            gate: {}
+            scan: {}
+          outbound:
+            gate:
+              policy: allowlist
+              action: review
+              allowlist: []
+            scan: {}
+          holds: {}
         expect:
           status: 200
 

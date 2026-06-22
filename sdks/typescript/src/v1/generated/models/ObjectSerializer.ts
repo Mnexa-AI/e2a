@@ -41,6 +41,11 @@ export * from '../models/PageMessageSummaryView.js';
 export * from '../models/PageSuppression.js';
 export * from '../models/PageWebhookDeliveryView.js';
 export * from '../models/PageWebhookView.js';
+export * from '../models/ProtectionConfigView.js';
+export * from '../models/ProtectionDirectionView.js';
+export * from '../models/ProtectionGateView.js';
+export * from '../models/ProtectionHoldsView.js';
+export * from '../models/ProtectionScanView.js';
 export * from '../models/RedeliverDelivery.js';
 export * from '../models/RedeliverEventRequest.js';
 export * from '../models/RedeliverView.js';
@@ -73,7 +78,7 @@ import { APIKeyExportEntry } from '../models/APIKeyExportEntry.js';
 import { AccountUserView } from '../models/AccountUserView.js';
 import { AccountView   , AccountViewScopeEnum      } from '../models/AccountView.js';
 import { AgentIdentity } from '../models/AgentIdentity.js';
-import { AgentView    , AgentViewHitlExpirationActionEnum     , AgentViewInboundPolicyEnum  , AgentViewInboundPolicyActionEnum  , AgentViewInboundScanEnum      , AgentViewOutboundPolicyEnum  , AgentViewOutboundPolicyActionEnum  , AgentViewOutboundScanEnum     } from '../models/AgentView.js';
+import { AgentView } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
 import { Attachment } from '../models/Attachment.js';
 import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
@@ -112,6 +117,11 @@ import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
+import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
+import { ProtectionDirectionView } from '../models/ProtectionDirectionView.js';
+import { ProtectionGateView, ProtectionGateViewActionEnum   , ProtectionGateViewPolicyEnum   } from '../models/ProtectionGateView.js';
+import { ProtectionHoldsView, ProtectionHoldsViewOnExpiryEnum    } from '../models/ProtectionHoldsView.js';
+import { ProtectionScanView, ProtectionScanViewSensitivityEnum   } from '../models/ProtectionScanView.js';
 import { RedeliverDelivery  , RedeliverDeliveryStatusEnum    } from '../models/RedeliverDelivery.js';
 import { RedeliverEventRequest } from '../models/RedeliverEventRequest.js';
 import { RedeliverView   , RedeliverViewStatusEnum    } from '../models/RedeliverView.js';
@@ -127,7 +137,7 @@ import { SendingDNSRecordView } from '../models/SendingDNSRecordView.js';
 import { Suppression } from '../models/Suppression.js';
 import { TestWebhookRequest , TestWebhookRequestEventEnum   } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
-import { UpdateAgentRequest, UpdateAgentRequestHitlExpirationActionEnum    , UpdateAgentRequestInboundPolicyEnum  , UpdateAgentRequestInboundPolicyActionEnum  , UpdateAgentRequestInboundScanEnum     , UpdateAgentRequestOutboundPolicyEnum  , UpdateAgentRequestOutboundPolicyActionEnum  , UpdateAgentRequestOutboundScanEnum     } from '../models/UpdateAgentRequest.js';
+import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 import { UpdateDomainRequest } from '../models/UpdateDomainRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
 import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
@@ -154,13 +164,6 @@ let primitives = [
 
 let enumsMap: Set<string> = new Set<string>([
     "AccountViewScopeEnum",
-    "AgentViewHitlExpirationActionEnum",
-    "AgentViewInboundPolicyEnum",
-    "AgentViewInboundPolicyActionEnum",
-    "AgentViewInboundScanEnum",
-    "AgentViewOutboundPolicyEnum",
-    "AgentViewOutboundPolicyActionEnum",
-    "AgentViewOutboundScanEnum",
     "CreateWebhookRequestEventsEnum",
     "CreateWebhookResponseEventsEnum",
     "DomainViewSendingStatusEnum",
@@ -174,19 +177,16 @@ let enumsMap: Set<string> = new Set<string>([
     "MessageViewDirectionEnum",
     "MessageViewHitlStatusEnum",
     "MessageViewSentAsEnum",
+    "ProtectionGateViewActionEnum",
+    "ProtectionGateViewPolicyEnum",
+    "ProtectionHoldsViewOnExpiryEnum",
+    "ProtectionScanViewSensitivityEnum",
     "RedeliverDeliveryStatusEnum",
     "RedeliverViewStatusEnum",
     "SendResultViewMethodEnum",
     "SendResultViewSentAsEnum",
     "SendResultViewStatusEnum",
     "TestWebhookRequestEventEnum",
-    "UpdateAgentRequestHitlExpirationActionEnum",
-    "UpdateAgentRequestInboundPolicyEnum",
-    "UpdateAgentRequestInboundPolicyActionEnum",
-    "UpdateAgentRequestInboundScanEnum",
-    "UpdateAgentRequestOutboundPolicyEnum",
-    "UpdateAgentRequestOutboundPolicyActionEnum",
-    "UpdateAgentRequestOutboundScanEnum",
     "UpdateWebhookRequestEventsEnum",
     "WebhookDeliveryViewEventTypeEnum",
     "WebhookDeliveryViewStatusEnum",
@@ -237,6 +237,11 @@ let typeMap: {[index: string]: any} = {
     "PageSuppression": PageSuppression,
     "PageWebhookDeliveryView": PageWebhookDeliveryView,
     "PageWebhookView": PageWebhookView,
+    "ProtectionConfigView": ProtectionConfigView,
+    "ProtectionDirectionView": ProtectionDirectionView,
+    "ProtectionGateView": ProtectionGateView,
+    "ProtectionHoldsView": ProtectionHoldsView,
+    "ProtectionScanView": ProtectionScanView,
     "RedeliverDelivery": RedeliverDelivery,
     "RedeliverEventRequest": RedeliverEventRequest,
     "RedeliverView": RedeliverView,

@@ -70,8 +70,7 @@ type AgentCreateEnforcer func(ctx context.Context, userID string) error
 
 // Agent mutation funcs mirror the like-named store methods.
 type (
-	AgentHITLUpdater func(ctx context.Context, agentID, userID string, ttlSeconds int, expirationAction string) error
-	AgentDeleter     func(ctx context.Context, agentID, userID string) error
+	AgentDeleter func(ctx context.Context, agentID, userID string) error
 )
 
 // Deps are the collaborators the v1 layer needs. Everything is injected so
@@ -99,15 +98,14 @@ type Deps struct {
 	CreateAgent        AgentCreator
 	LookupDomain       DomainLookup
 	EnforceAgentCreate AgentCreateEnforcer
-	UpdateAgentHITL    AgentHITLUpdater
-	// UpdateAgentInboundPolicy sets the per-agent inbound ingestion gate
-	// (migration 033 / Slice 7). Returns a validation error for an unknown
-	// policy, which the handler maps to 400 invalid_request.
-	UpdateAgentInboundPolicy func(ctx context.Context, agentID, userID, policy string, allowlist []string) error
-	// UpdateAgentScanConfig sets the per-agent content-screening config (migration
-	// 038 / Slice 3). Returns a validation error for an invalid posture, which the
-	// handler maps to 400 invalid_request.
-	UpdateAgentScanConfig func(ctx context.Context, agentID, userID string, cfg identity.ScanConfig) error
+	// UpdateAgentName updates an agent's display name (the only mutable field on
+	// the agent PATCH after the screening config moved to /protection).
+	UpdateAgentName func(ctx context.Context, agentID, userID, name string) error
+	// UpdateAgentProtection writes the full per-agent protection posture (gate +
+	// scan sensitivity + holds) for the /v1/agents/{email}/protection resource.
+	// Returns a validation error for an invalid posture, which the handler maps
+	// to 400 invalid_request.
+	UpdateAgentProtection func(ctx context.Context, agentID, userID string, cfg identity.ProtectionConfig) error
 	DeleteAgent           AgentDeleter
 
 	// domains
@@ -327,6 +325,7 @@ func (s *Server) registerOperations() {
 	s.registerAttachments()
 	s.registerConversations()
 	s.registerAgentWrites()
+	s.registerAgentProtection()
 	s.registerDomains()
 	s.registerWebhooks()
 	s.registerEvents()

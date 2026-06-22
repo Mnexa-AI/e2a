@@ -24,6 +24,7 @@ import type {
   AgentView,
   CreateAgentRequest,
   UpdateAgentRequest,
+  ProtectionConfigView,
   MessageView,
   AttachmentView,
   MessageSummaryView,
@@ -188,6 +189,20 @@ class AgentsResource {
   }
   update(email: string, patch: UpdateAgentRequest): Promise<AgentView> {
     return call(() => this.api.updateAgent(email, patch));
+  }
+  /**
+   * Read an agent's protection config (gate + scan sensitivity + holds). Beta;
+   * account scope only — an agent-scoped key cannot read its own config.
+   */
+  getProtection(email: string): Promise<ProtectionConfigView> {
+    return call(() => this.api.getAgentProtection(email));
+  }
+  /**
+   * Replace an agent's protection config wholesale (all three top-level keys
+   * required). Beta; account scope only.
+   */
+  replaceProtection(email: string, config: ProtectionConfigView): Promise<ProtectionConfigView> {
+    return call(() => this.api.putAgentProtection(email, config));
   }
   async delete(email: string): Promise<void> {
     // The typed .delete() call is itself the confirmation; the ?confirm=DELETE
