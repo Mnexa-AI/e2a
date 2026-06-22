@@ -16,6 +16,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/loopback"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/usage"
+	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 )
 
 // DefaultInterval is the sweep cadence. One minute matches the design doc
@@ -36,7 +37,17 @@ type Worker struct {
 	fromDomain string
 	interval   time.Duration
 	batchSize  int
+	// publisher fires the review-resolution webhook when the sweep auto-resolves
+	// a hold, so a TTL-resolved hold notifies subscribers exactly like a
+	// human-resolved one (the user-driven path emits review_approved/rejected
+	// from internal/agent). Optional — nil leaves the sweep silent (legacy
+	// behavior). Wired via SetPublisher.
+	publisher webhookpub.Publisher
 }
+
+// SetPublisher wires the webhook publisher used to emit review-resolution events
+// on TTL auto-resolution. Without it the sweep transitions rows silently.
+func (w *Worker) SetPublisher(p webhookpub.Publisher) { w.publisher = p }
 
 // New constructs a Worker. fromDomain is the deployment's outbound
 // from-domain (cfg.OutboundSMTP.FromDomain) — used by the self-send
@@ -98,13 +109,37 @@ func (w *Worker) sweepReviews(ctx context.Context) {
 		return
 	}
 	for _, c := range candidates {
+		// Capture the dispatch view + owner BEFORE the transition: a reject
+		// makes the row terminal/hidden, and the resolution event mirrors the
+		// human path's payload (sender/subject) and routes on the owner. A
+		// lookup failure means we still resolve the hold but skip the event
+		// (better than stranding the row).
+		meta, mErr := w.store.GetReviewMessage(ctx, c.MessageID, c.AgentID)
+		ownerUserID := ""
+		if ag, aErr := w.store.GetAgentByID(ctx, c.AgentID); aErr == nil && ag != nil {
+			ownerUserID = ag.UserID
+		}
+		canEmit := mErr == nil && meta != nil && ownerUserID != ""
+
 		if c.ExpirationAction == identity.HITLExpirationApprove {
-			if err := w.store.ExpireApproveReview(ctx, c.MessageID); err != nil && err != identity.ErrNotPendingReview {
-				log.Printf("[hitl-worker] expire-approve review %s: %v", c.MessageID, err)
+			if err := w.store.ExpireApproveReview(ctx, c.MessageID); err != nil {
+				if err != identity.ErrNotPendingReview {
+					log.Printf("[hitl-worker] expire-approve review %s: %v", c.MessageID, err)
+				}
+				continue // not transitioned by us → don't emit
+			}
+			if canEmit {
+				w.emitInboundResolved(meta, ownerUserID, true, "")
 			}
 		} else {
-			if err := w.store.ExpireRejectReview(ctx, c.MessageID, "ttl_expired"); err != nil && err != identity.ErrNotPendingReview {
-				log.Printf("[hitl-worker] expire-reject review %s: %v", c.MessageID, err)
+			if err := w.store.ExpireRejectReview(ctx, c.MessageID, "ttl_expired"); err != nil {
+				if err != identity.ErrNotPendingReview {
+					log.Printf("[hitl-worker] expire-reject review %s: %v", c.MessageID, err)
+				}
+				continue
+			}
+			if canEmit {
+				w.emitInboundResolved(meta, ownerUserID, false, "ttl_expired")
 			}
 		}
 	}
@@ -203,6 +238,9 @@ func (w *Worker) autoApprove(ctx context.Context, c identity.ExpirationCandidate
 	}
 	log.Printf("[mail:%s] dir=outbound type=%s status=expired_approved agent=%s to=%v auto_sent=true",
 		sent.ID, sent.Type, agent.ID, sent.ToRecipients)
+	// Mirror the user-driven approve: fire email.review_approved (the send
+	// already happened; this is the post-side-effect notification).
+	w.emitOutboundApproved(agent, sent)
 }
 
 func (w *Worker) autoReject(ctx context.Context, messageID, reason string) {
@@ -223,6 +261,7 @@ func (w *Worker) autoReject(ctx context.Context, messageID, reason string) {
 	}
 	log.Printf("[mail:%s] dir=outbound type=%s status=expired_rejected agent=%s reason=%q auto_rejected=true",
 		rejected.ID, rejected.Type, rejected.AgentID, reason)
+	w.emitOutboundRejected(ctx, rejected, reason)
 }
 
 // attachReferencesChain rebuilds the References chain on a HITL-approved

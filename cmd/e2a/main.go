@@ -510,6 +510,11 @@ func main() {
 	// blew past their TTL into expired_approved (auto-send) or
 	// expired_rejected based on the owning agent's hitl_expiration_action.
 	hitlWorker := hitlworker.New(store, sender, usageTracker, cfg.OutboundSMTP.FromDomain)
+	// Fire review_approved/review_rejected on TTL auto-resolution, so a hold
+	// resolved by timeout notifies subscribers exactly like a human-resolved one
+	// (same legacy publisher as the agent API). Load-bearing for inbound approve:
+	// a TTL-released inbound message has no other push signal.
+	hitlWorker.SetPublisher(webhookPublisher)
 	hitlCtx, hitlCancel := context.WithCancel(context.Background())
 	workerWG.Add(1)
 	go func() {
