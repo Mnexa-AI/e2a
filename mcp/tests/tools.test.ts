@@ -155,7 +155,7 @@ function makeStubClient(
     listPendingMessages: vi.fn(async () => []),
     getPendingMessage: vi.fn(async (id: string) => ({
       messageId: id,
-      hitlStatus: "pending_approval",
+      hitlStatus: "pending_review",
     })),
     approveMessage: vi.fn(async () => ({ messageId: "msg_x", status: "sent" })),
     rejectMessage: vi.fn(async () => ({ messageId: "msg_x", status: "rejected" })),

@@ -7,13 +7,17 @@
 -- so a held message is one direction-aware primitive. Outbound's "approved" terminal
 -- stays `sent` (the approve triggers the send; there is no approved-but-unsent state).
 --
--- Idempotent + non-destructive on the prod-sized messages table:
+-- Idempotent + non-destructive:
 --   1. Backfill is scoped to the four retiring outbound statuses (a tiny, ≤10-day-TTL
 --      slice) and is allowed under the existing 040 CHECK (which already permits the
 --      review_* targets), so it runs before the constraint swap with no gap.
---   2. The CHECK is added NOT VALID then VALIDATE'd separately, so the validating scan
---      takes only SHARE UPDATE EXCLUSIVE (does not block reads/writes) — avoids the
---      long ACCESS EXCLUSIVE lock a plain ADD CONSTRAINT would take on `messages`.
+--   2. ADD CONSTRAINT takes ACCESS EXCLUSIVE on `messages` for the validation scan.
+--      The migration runner wraps each file in one transaction, so a NOT VALID +
+--      separate VALIDATE split would NOT reduce that (the lock is held across both in
+--      one txn) — it is omitted here. The lock is bounded by the 10-day message TTL,
+--      which keeps the table (hence the scan) small. If `messages` ever outgrows that
+--      bound, split this into single-statement `-- e2a:no-transaction` migrations to
+--      validate lock-free.
 
 -- 1. Backfill the retiring outbound statuses onto the review vocabulary.
 UPDATE messages SET status = CASE status
@@ -32,9 +36,8 @@ DO $$ BEGIN
             'sent',
             'pending_review', 'review_approved', 'review_rejected',
             'review_expired_approved', 'review_expired_rejected'
-        )) NOT VALID;
+        ));
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-ALTER TABLE messages VALIDATE CONSTRAINT messages_status_check;
 
 -- 3. The outbound pending-sweep index is now covered by idx_messages_pending_review
 --    (status='pending_review' spans both directions); drop the stale outbound index.

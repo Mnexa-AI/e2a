@@ -21,7 +21,7 @@ function makeStubClient(): McpClient {
     listAgents: vi.fn(async () => []),
     createAgent: vi.fn(async () => ({ email: "x@y", id: "x", domain: "y" })),
     listPendingMessages: vi.fn(async () => []),
-    getPendingMessage: vi.fn(async () => ({ messageId: "p", status: "pending_approval" })),
+    getPendingMessage: vi.fn(async () => ({ messageId: "p", status: "pending_review" })),
     approveMessage: vi.fn(async () => ({ messageId: "x", status: "sent" })),
     rejectMessage: vi.fn(async () => ({ messageId: "x", status: "rejected" })),
   };

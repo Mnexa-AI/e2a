@@ -11,7 +11,7 @@ export function registerHitlTools(server: McpServer, client: McpClient): void {
       title: "List outbound messages awaiting approval",
       annotations: { readOnlyHint: true },
       description:
-        "Use when the user asks what's awaiting approval, or after a `send_message`/`reply_to_message` returned `pending_approval` and they want to see the queue. Lists held outbound messages from HITL-enabled agents sorted by soonest-expiring first. Body content is summary-only — call `get_pending_message` for the full draft of one. Read-only; cheap, but don't poll it on a loop.",
+        "Use when the user asks what's awaiting approval, or after a `send_message`/`reply_to_message` returned `pending_review` and they want to see the queue. Lists held outbound messages from HITL-enabled agents sorted by soonest-expiring first. Body content is summary-only — call `get_pending_message` for the full draft of one. Read-only; cheap, but don't poll it on a loop.",
       inputSchema: strictInputSchema({}),
     },
     async () => runTool(async () => ({ messages: await client.listPendingMessages() })),
@@ -23,7 +23,7 @@ export function registerHitlTools(server: McpServer, client: McpClient): void {
       title: "Get a pending-approval message",
       annotations: { readOnlyHint: true },
       description:
-        "Fetch the full draft (subject, recipients, body, attachments) of one outbound message awaiting human approval. Body content is only present while the message is `pending_approval` — after a terminal transition the server scrubs it.",
+        "Fetch the full draft (subject, recipients, body, attachments) of one outbound message awaiting human approval. Body content is only present while the message is `pending_review` — after a terminal transition the server scrubs it.",
       inputSchema: strictInputSchema({
         message_id: z.string().describe("The pending message ID (msg_…)."),
       }),

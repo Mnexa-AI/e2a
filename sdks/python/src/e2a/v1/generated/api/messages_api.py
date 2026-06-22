@@ -72,7 +72,7 @@ class MessagesApi:
     ) -> SendResultView:
         """Approve a held message
 
-        Approve a pending_approval draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
+        Approve a pending_review draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
 
         :param email: (required)
         :type email: str
@@ -151,7 +151,7 @@ class MessagesApi:
     ) -> ApiResponse[SendResultView]:
         """Approve a held message
 
-        Approve a pending_approval draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
+        Approve a pending_review draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
 
         :param email: (required)
         :type email: str
@@ -230,7 +230,7 @@ class MessagesApi:
     ) -> RESTResponseType:
         """Approve a held message
 
-        Approve a pending_approval draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
+        Approve a pending_review draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
 
         :param email: (required)
         :type email: str
@@ -1307,7 +1307,7 @@ class MessagesApi:
     ) -> PageMessageSummaryView:
         """List messages
 
-        List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.
+        List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.
 
         :param email: (required)
         :type email: str
@@ -1418,7 +1418,7 @@ class MessagesApi:
     ) -> ApiResponse[PageMessageSummaryView]:
         """List messages
 
-        List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.
+        List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.
 
         :param email: (required)
         :type email: str
@@ -1529,7 +1529,7 @@ class MessagesApi:
     ) -> RESTResponseType:
         """List messages
 
-        List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.
+        List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.
 
         :param email: (required)
         :type email: str
@@ -1747,7 +1747,7 @@ class MessagesApi:
     ) -> RejectResultView:
         """Reject a held message
 
-        Reject a pending_approval draft so it is never sent.
+        Reject a pending_review draft so it is never sent.
 
         :param email: (required)
         :type email: str
@@ -1822,7 +1822,7 @@ class MessagesApi:
     ) -> ApiResponse[RejectResultView]:
         """Reject a held message
 
-        Reject a pending_approval draft so it is never sent.
+        Reject a pending_review draft so it is never sent.
 
         :param email: (required)
         :type email: str
@@ -1897,7 +1897,7 @@ class MessagesApi:
     ) -> RESTResponseType:
         """Reject a held message
 
-        Reject a pending_approval draft so it is never sent.
+        Reject a pending_review draft so it is never sent.
 
         :param email: (required)
         :type email: str
@@ -2374,7 +2374,7 @@ class MessagesApi:
     ) -> SendResultView:
         """Send a new email
 
-        Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.
+        Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key.
 
         :param email: (required)
         :type email: str
@@ -2450,7 +2450,7 @@ class MessagesApi:
     ) -> ApiResponse[SendResultView]:
         """Send a new email
 
-        Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.
+        Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key.
 
         :param email: (required)
         :type email: str
@@ -2526,7 +2526,7 @@ class MessagesApi:
     ) -> RESTResponseType:
         """Send a new email
 
-        Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.
+        Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key.
 
         :param email: (required)
         :type email: str

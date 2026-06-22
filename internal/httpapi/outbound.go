@@ -115,17 +115,17 @@ type sendOutput struct {
 
 func (s *Server) registerOutbound() {
 	// 202 Accepted is the HITL-hold outcome of every outbound op: the message
-	// is queued as a pending_approval draft rather than sent. Declared
+	// is queued as a pending_review draft rather than sent. Declared
 	// explicitly because Huma infers only the single DefaultStatus (200).
 	held202 := func() *huma.Response {
 		return s.jsonResponse(reflect.TypeOf(SendResultView{}), "SendResultView",
-			"Accepted — held for human approval (status=pending_approval).")
+			"Accepted — held for human approval (status=pending_review).")
 	}
 
 	huma.Register(s.API, huma.Operation{
 		OperationID: "sendMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages",
 		Summary: "Send a new email", Tags: []string{"messages"},
-		Description:  "Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.",
+		Description:  "Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key.",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
 		Responses:    map[string]*huma.Response{"202": held202(), "default": s.errorEnvelopeResponse()},
