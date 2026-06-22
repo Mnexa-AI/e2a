@@ -409,26 +409,30 @@ scenarios:
 
   - name: hitl_send_holds_202
     description: >
-      With HITL enabled on the agent, POST /send returns 202 +
-      status=pending_approval + approval_expires_at, and the message
-      surfaces on GET /messages?status=pending_approval.
+      With an outbound review policy on the agent (outbound_policy=allowlist +
+      outbound_policy_action=review, empty allowlist → every recipient unknown),
+      POST /send returns 202 + status=pending_review + approval_expires_at.
+      (hitl_enabled was retired — holds now come from the screening policy.)
     setup:
       - register_domain: hitl-hold.test.dev
       - verify_domain: hitl-hold.test.dev
       - register_agent:
           email: bot@hitl-hold.test.dev
     steps:
-      - id: enable_hitl
-        # /v1 agent updates use PATCH (the legacy PUT was dropped).
+      - id: enable_outbound_review
+        # /v1 agent updates use PATCH (the legacy PUT was dropped). hitl_enabled
+        # is retired; an empty-allowlist review policy holds every send.
         action: request
         method: PATCH
         path: /v1/agents/{agent_email}
         body:
-          hitl_enabled: true
+          outbound_policy: allowlist
+          outbound_policy_action: review
+          outbound_allowlist: []
         expect:
           status: 200
           body_match:
-            hitl_enabled: true
+            outbound_policy_action: review
 
       - id: send_held
         action: request
@@ -446,25 +450,28 @@ scenarios:
             - message_id
             - approval_expires_at
           body_match:
-            status: pending_approval
+            status: pending_review
 
   - name: hitl_reject_records_reason
     description: >
-      Reject endpoint accepts a reason in the body and the detail GET
-      surfaces it. Catches the chunked-body regression (rejection
-      reason was silently dropped when ContentLength was unknown).
+      Reject endpoint accepts a reason in the body and surfaces it. Catches the
+      chunked-body regression (rejection reason was silently dropped when
+      ContentLength was unknown). Uses the outbound review policy to hold the send
+      (hitl_enabled retired); reject yields the unified status=review_rejected.
     setup:
       - register_domain: hitl-reject.test.dev
       - verify_domain: hitl-reject.test.dev
       - register_agent:
           email: bot@hitl-reject.test.dev
     steps:
-      - id: enable_hitl
+      - id: enable_outbound_review
         action: request
         method: PATCH
         path: /v1/agents/{agent_email}
         body:
-          hitl_enabled: true
+          outbound_policy: allowlist
+          outbound_policy_action: review
+          outbound_allowlist: []
         expect:
           status: 200
 
@@ -487,7 +494,8 @@ scenarios:
       - id: reject
         # The flat /api/v1/messages/{id}/reject route was dropped; reject is
         # now the per-agent /v1 operation. RejectResultView surfaces
-        # {status, message_id, rejection_reason}.
+        # {status, message_id, rejection_reason}. Status is the unified
+        # review_rejected (was the outbound-only 'rejected').
         action: request
         method: POST
         path: /v1/agents/{agent_email}/messages/{held_id}/reject
@@ -496,7 +504,7 @@ scenarios:
         expect:
           status: 200
           body_match:
-            status: rejected
+            status: review_rejected
             rejection_reason: off-topic for this audience
 
   - name: messages_direction_all_shape
@@ -516,12 +524,14 @@ scenarios:
           from: external@example.com
           subject: an inbound row
     steps:
-      - id: enable_hitl
+      - id: enable_outbound_review
         action: request
         method: PATCH
         path: /v1/agents/{agent_email}
         body:
-          hitl_enabled: true
+          outbound_policy: allowlist
+          outbound_policy_action: review
+          outbound_allowlist: []
         expect:
           status: 200
 
@@ -553,7 +563,7 @@ scenarios:
           body_match:
             "items.length": 2
             "items[0].direction": outbound
-            "items[0].hitl_status": pending_approval
+            "items[0].hitl_status": pending_review
             "items[1].direction": inbound
 
   - name: info_unauthenticated_shape
