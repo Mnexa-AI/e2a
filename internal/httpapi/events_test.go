@@ -20,8 +20,9 @@ func TestListEventsNoOverflow(t *testing.T) {
 
 func TestListEventsCursorRoundTrip(t *testing.T) {
 	srv := testServer(t)
-	// limit=1: page1 evt_b + cursor; follow -> page2 evt_a (+ boundary
-	// cursor, matching the legacy len==limit heuristic); follow -> empty.
+	// limit=1 with limit+1 over-fetch: page1 = evt_b (+cursor); page2 = evt_a
+	// with a NULL cursor (the over-fetch sees no further row, so no spurious
+	// empty page).
 	code, body := getJSON(t, srv.URL+"/v1/events?limit=1", "good")
 	if code != 200 || body["items"].([]any)[0].(map[string]any)["id"] != "evt_b" {
 		t.Fatalf("page1: %d %v", code, body)
@@ -31,13 +32,26 @@ func TestListEventsCursorRoundTrip(t *testing.T) {
 	if body["items"].([]any)[0].(map[string]any)["id"] != "evt_a" {
 		t.Fatalf("page2: %v", body)
 	}
-	cur2 := body["next_cursor"].(string)
-	_, body = getJSON(t, srv.URL+"/v1/events?limit=1&cursor="+cur2, "good")
-	if items, _ := body["items"].([]any); len(items) != 0 {
-		t.Fatalf("page3 should be empty, got %v", body)
-	}
 	if body["next_cursor"] != nil {
-		t.Fatalf("page3 next_cursor should be null, got %v", body["next_cursor"])
+		t.Fatalf("page2 next_cursor should be null (last page), got %v", body["next_cursor"])
+	}
+}
+
+// TestListEventsCursorRejectsChangedFilter pins the filter-binding: a cursor
+// minted under one filter set must be rejected if a continuation changes the
+// filters (else the keyset position is meaningless and the page silently wrong).
+func TestListEventsCursorRejectsChangedFilter(t *testing.T) {
+	srv := testServer(t)
+	// Mint a cursor with NO type filter...
+	_, body := getJSON(t, srv.URL+"/v1/events?limit=1", "good")
+	cur, _ := body["next_cursor"].(string)
+	if cur == "" {
+		t.Fatal("expected a next_cursor on page 1")
+	}
+	// ...then reuse it WITH a type filter -> invalid_cursor.
+	code, body := getJSON(t, srv.URL+"/v1/events?limit=1&type=email.sent&cursor="+cur, "good")
+	if code != 400 || errCode(body) != "invalid_cursor" {
+		t.Fatalf("want 400 invalid_cursor when filters change under a cursor, got %d %v", code, body)
 	}
 }
 
