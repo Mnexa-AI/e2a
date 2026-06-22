@@ -172,6 +172,75 @@ func TestUpdateAgentProtectionWrongOwner(t *testing.T) {
 	}
 }
 
+// TestProtectionSensitivityBackfill guards the migration-045 backfill: a pre-045
+// agent with scan='on' whose new sensitivity column defaulted to 'off' must be
+// re-derived from its review threshold, so a later read-modify-write PUT doesn't
+// silently disable a live scan. (Adversarial/independent review convergent #1.)
+func TestProtectionSensitivityBackfill(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	user, err := store.CreateOrGetUser(ctx, "owner@bf.example.com", "Owner", "google-bf")
+	if err != nil {
+		t.Fatalf("CreateOrGetUser: %v", err)
+	}
+	if _, err := store.ClaimOrCreateDomain(ctx, "bf.example.com", user.ID); err != nil {
+		t.Fatalf("ClaimOrCreateDomain: %v", err)
+	}
+	agent, err := store.CreateAgent(ctx, "agent@bf.example.com", "bf.example.com", "", "", "", user.ID)
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	// Simulate the pre-045 hazard: scan on with real thresholds, sensitivity
+	// stuck at the column default 'off' (inbound default pair → medium, outbound
+	// aggressive pair → high).
+	if _, err := pool.Exec(ctx, `UPDATE agent_identities SET
+	        inbound_scan='on',  inbound_scan_review_threshold=0.5,  inbound_scan_block_threshold=0.9,  inbound_scan_sensitivity='off',
+	        outbound_scan='on', outbound_scan_review_threshold=0.3, outbound_scan_block_threshold=0.8, outbound_scan_sensitivity='off'
+	      WHERE id=$1`, agent.ID); err != nil {
+		t.Fatalf("seed legacy row: %v", err)
+	}
+
+	// Mirror of the migrations/045 backfill statements.
+	backfill := []string{
+		`UPDATE agent_identities SET inbound_scan_sensitivity = CASE
+		    WHEN inbound_scan_review_threshold <= 0.40 THEN 'high'
+		    WHEN inbound_scan_review_threshold <= 0.60 THEN 'medium' ELSE 'low' END
+		  WHERE inbound_scan = 'on' AND inbound_scan_sensitivity = 'off'`,
+		`UPDATE agent_identities SET outbound_scan_sensitivity = CASE
+		    WHEN outbound_scan_review_threshold <= 0.40 THEN 'high'
+		    WHEN outbound_scan_review_threshold <= 0.60 THEN 'medium' ELSE 'low' END
+		  WHERE outbound_scan = 'on' AND outbound_scan_sensitivity = 'off'`,
+	}
+	runBackfill := func() {
+		for _, q := range backfill {
+			if _, err := pool.Exec(ctx, q); err != nil {
+				t.Fatalf("backfill: %v", err)
+			}
+		}
+	}
+	runBackfill()
+
+	got, err := store.GetAgentByID(ctx, agent.ID)
+	if err != nil {
+		t.Fatalf("GetAgentByID: %v", err)
+	}
+	if got.InboundScanSensitivity != identity.SensitivityMedium {
+		t.Errorf("inbound backfill = %q, want medium (review 0.5)", got.InboundScanSensitivity)
+	}
+	if got.OutboundScanSensitivity != identity.SensitivityHigh {
+		t.Errorf("outbound backfill = %q, want high (review 0.3)", got.OutboundScanSensitivity)
+	}
+
+	// Idempotent: a second run touches nothing (no scan-on row still shows 'off').
+	runBackfill()
+	got2, _ := store.GetAgentByID(ctx, agent.ID)
+	if got2.InboundScanSensitivity != identity.SensitivityMedium || got2.OutboundScanSensitivity != identity.SensitivityHigh {
+		t.Errorf("backfill not idempotent: in=%q out=%q", got2.InboundScanSensitivity, got2.OutboundScanSensitivity)
+	}
+}
+
 func makeAllowlist(n int) []string {
 	out := make([]string, n)
 	for i := range out {

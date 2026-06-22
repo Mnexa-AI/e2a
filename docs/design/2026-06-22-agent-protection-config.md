@@ -256,6 +256,20 @@ web dashboard agent-settings page reads/writes the sub-resource. All gated by
   protection *on* is an explicit operator action. (The hard scope ceiling and
   SPF/DKIM verdict recording are unaffected and always on.)
 - **`holds.on_expiry` semantics** unchanged from the existing HITL mechanism.
+- **Legacy `verified_only` inbound policy (known limitation, fail-closed).** A
+  pre-existing agent whose `inbound_policy` is `verified_only` reads back that
+  value on GET (Huma doesn't validate responses), but a PUT echoing it is
+  **422-rejected** (`inboundGatePolicyValid` excludes it). So a read-modify-write
+  on such an agent fails until the operator explicitly sets a settable
+  `inbound.gate.policy`. This is fail-closed — the anti-spoofing gate is never
+  silently downgraded — but is an operability snag worth a release note. The
+  clean resolution is the deferred `gate.require_auth` flag (§6), which folds
+  `verified_only` back in as a composable boolean.
+- **Migration 045 backfill.** Pre-045 agents with `scan='on'` get their
+  sensitivity level re-derived from the stored review threshold (the column
+  default `'off'` would otherwise misreport and let a read-modify-write PUT
+  disable a live scan). Idempotent; only touches `scan='on'` rows still at
+  `'off'`.
 
 ## 6. Scalability and extensibility notes
 
