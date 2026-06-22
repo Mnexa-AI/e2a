@@ -116,6 +116,8 @@ export enum EventJSONTypeEnum {
     EmailBounced = 'email.bounced',
     EmailComplained = 'email.complained',
     DomainSuppressionAdded = 'domain.suppression_added',
-    EmailFlagged = 'email.flagged'
+    EmailFlagged = 'email.flagged',
+    EmailBlocked = 'email.blocked',
+    EmailPendingReview = 'email.pending_review'
 }
 

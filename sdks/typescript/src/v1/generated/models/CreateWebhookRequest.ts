@@ -15,6 +15,9 @@ import { HttpFile } from '../http/http.js';
 
 export class CreateWebhookRequest {
     'description'?: string;
+    /**
+    * Beta: email.flagged, email.blocked, and email.pending_review (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable.
+    */
     'events': Array<CreateWebhookRequestEventsEnum>;
     'filters'?: WebhookFiltersView;
     'url': string;
@@ -69,6 +72,8 @@ export enum CreateWebhookRequestEventsEnum {
     EmailBounced = 'email.bounced',
     EmailComplained = 'email.complained',
     DomainSuppressionAdded = 'domain.suppression_added',
-    EmailFlagged = 'email.flagged'
+    EmailFlagged = 'email.flagged',
+    EmailBlocked = 'email.blocked',
+    EmailPendingReview = 'email.pending_review'
 }
 

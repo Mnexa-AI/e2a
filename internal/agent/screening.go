@@ -16,8 +16,8 @@ import (
 
 // outboundVerdict is the outcome of screening one outbound send: the applied
 // action (most-severe of the recipient gate + content scan) plus the data needed
-// to annotate the message row, append audit rows, and emit
-// email.injection_detected. Mirrors relay.inboundScreenResult on the egress side.
+// to annotate the message row, append audit rows, and (when blocked) emit
+// email.blocked. Mirrors relay.inboundScreenResult on the egress side.
 type outboundVerdict struct {
 	Applied      piguard.Action // most-severe of gate + scan
 	scanAction   piguard.Action // the scan's own action (for its audit row)
@@ -142,7 +142,7 @@ func headerSafe(s string) string {
 // blockAuditID derives a STABLE soft-ref message id for a blocked send. A block
 // persists no message row, so the audit/event must anchor to a deterministic id
 // (not a fresh random one) — otherwise a retried block writes duplicate
-// screening_events rows + duplicate email.injection_detected events. Keyed on the
+// screening_events rows + duplicate email.blocked events. Keyed on the
 // request-stable inputs so retries collapse to one audit row.
 func blockAuditID(agentID string, req outbound.SendRequest) string {
 	h := sha256.New()
@@ -267,46 +267,41 @@ func (a *API) writeScreeningEvents(ctx context.Context, messageID string, events
 }
 
 // annotateAndAudit denormalizes the verdict onto the (already-created) message
-// row, writes the audit rows, and emits email.injection_detected. Used on the
-// flag (sent) and review (held) paths once the row id is known.
+// row and writes the audit rows. Used on the flag (sent) and review (held) paths
+// once the row id is known.
 func (a *API) annotateAndAudit(ctx context.Context, agent *identity.AgentIdentity, messageID string, req outbound.SendRequest, v outboundVerdict) {
 	if err := a.store.SetMessageScreening(ctx, messageID, agent.ID, v.ReviewReason, v.ScanScore, string(v.Applied)); err != nil {
 		log.Printf("[mail:%s] set screening denorm failed: %v", messageID, err)
 	}
 	a.writeScreeningEvents(ctx, messageID, v.screeningEvents(messageID, agent))
-	a.emitInjectionOutbound(ctx, agent, messageID, req, v)
 }
 
-// auditRowless writes the audit rows + emits email.injection_detected WITHOUT
-// denormalizing a message row — for outbound paths that persist no message row:
-// a blocked (refused) send, and a flagged test send. Callers pass a stable
-// soft-ref id (blockAuditID) so retries stay idempotent.
+// auditRowless writes the audit rows WITHOUT denormalizing a message row — for
+// outbound paths that persist no message row: a blocked (refused) send, and a
+// flagged test send. Callers pass a stable soft-ref id (blockAuditID) so retries
+// stay idempotent.
 func (a *API) auditRowless(ctx context.Context, agent *identity.AgentIdentity, messageID string, req outbound.SendRequest, v outboundVerdict) {
 	a.writeScreeningEvents(ctx, messageID, v.screeningEvents(messageID, agent))
-	a.emitInjectionOutbound(ctx, agent, messageID, req, v)
 }
 
-// emitInjectionOutbound fires the fire-and-forget email.injection_detected event
-// for an outbound verdict (mirrors the inbound emission in relay/server.go).
-func (a *API) emitInjectionOutbound(ctx context.Context, agent *identity.AgentIdentity, messageID string, req outbound.SendRequest, v outboundVerdict) {
-	score := 0.0
-	if v.ScanScore != nil {
-		score = *v.ScanScore
-	}
-	e := webhookpub.NewEvent(webhookpub.EventEmailInjectionDetected, agent.UserID, map[string]interface{}{
-		"message_id": messageID,
-		"agent":      map[string]interface{}{"id": agent.ID, "email": agent.EmailAddress(), "domain": agent.Domain},
-		"direction":  "outbound",
-		"recipients": allRecipients(req),
-		"subject":    req.Subject,
-		"score":      score,
-		"action":     string(v.Applied),
-		"categories": v.Categories,
-		"reason":     v.Reason,
+// emitBlockedOutbound fires the fire-and-forget email.blocked event for an outbound
+// send refused by screening (applied action = block). messageID is the stable
+// soft-ref (blockAuditID) since no message row is persisted, so the deterministic id
+// keeps retries idempotent. reason_source mirrors the screening_events vocabulary
+// (recipient_gate / outbound_scan).
+func (a *API) emitBlockedOutbound(agent *identity.AgentIdentity, messageID string, req outbound.SendRequest, v outboundVerdict) {
+	e := webhookpub.NewEvent(webhookpub.EventEmailBlocked, agent.UserID, map[string]interface{}{
+		"message_id":    messageID,
+		"agent":         map[string]interface{}{"id": agent.ID, "email": agent.EmailAddress(), "domain": agent.Domain},
+		"direction":     "outbound",
+		"recipients":    allRecipients(req),
+		"subject":       req.Subject,
+		"reason":        v.Reason,
+		"reason_source": v.ReviewReason,
 	})
 	e.AgentID = agent.ID
 	e.ConversationID = req.ConversationID
 	e.MessageID = messageID
-	e.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailInjectionDetected)
+	e.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailBlocked)
 	a.publishAsync(e)
 }

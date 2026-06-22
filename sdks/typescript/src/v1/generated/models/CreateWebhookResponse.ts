@@ -18,6 +18,9 @@ export class CreateWebhookResponse {
     'createdAt': Date;
     'description': string;
     'enabled': boolean;
+    /**
+    * Beta: email.flagged, email.blocked, and email.pending_review (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable.
+    */
     'events': Array<CreateWebhookResponseEventsEnum>;
     'filters': WebhookFiltersView;
     'id': string;
@@ -111,6 +114,8 @@ export enum CreateWebhookResponseEventsEnum {
     EmailBounced = 'email.bounced',
     EmailComplained = 'email.complained',
     DomainSuppressionAdded = 'domain.suppression_added',
-    EmailFlagged = 'email.flagged'
+    EmailFlagged = 'email.flagged',
+    EmailBlocked = 'email.blocked',
+    EmailPendingReview = 'email.pending_review'
 }
 

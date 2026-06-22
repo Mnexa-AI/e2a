@@ -380,8 +380,8 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// ingestion policy didn't match, so operators get a signal that this message
 	// is untrusted. Deterministic id keeps MTA retries idempotent.
 	// email.flagged fires for a delivered gate-flag. When the message is HELD
-	// (review/block), delivery is suppressed and email.injection_detected carries
-	// the signal instead, so don't also fire email.flagged.
+	// (review/block), delivery is suppressed and email.flagged is not fired: a
+	// block emits email.blocked, a review emits email.pending_review (below).
 	var flaggedEvent *webhookpub.Event
 	if policyDecision.Flagged && !screenRes.Hold {
 		fe := webhookpub.NewEvent(webhookpub.EventEmailFlagged, agent.UserID, map[string]interface{}{
@@ -408,28 +408,55 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 		flaggedEvent = &fe
 	}
 
-	// email.injection_detected (Slice 4): fired when the content scan flags the
-	// message. Carries the score, applied action, and categories. Deterministic id
-	// keeps MTA retries idempotent, mirroring email.flagged.
-	var injectionEvent *webhookpub.Event
-	if screenRes.Emit() {
-		ie := webhookpub.NewEvent(webhookpub.EventEmailInjectionDetected, agent.UserID, map[string]interface{}{
+	// email.blocked: fired when the applied action is block — the message is
+	// accept-then-quarantined (review_rejected, dropped, no human). It is the only
+	// signal a subscriber gets for a dropped inbound message, so emit it regardless of
+	// producer. reason_source mirrors the screening_events audit vocabulary
+	// (sender_gate / inbound_scan). Deterministic id keeps MTA retries idempotent.
+	var blockedEvent *webhookpub.Event
+	if screenRes.Blocked() {
+		be := webhookpub.NewEvent(webhookpub.EventEmailBlocked, agent.UserID, map[string]interface{}{
 			"message_id":      messageID,
 			"conversation_id": conversationID,
 			"agent":           map[string]interface{}{"id": agent.ID, "email": agent.EmailAddress(), "domain": agent.Domain},
+			"direction":       "inbound",
 			"from":            senderEmail,
 			"recipient":       rcpt,
 			"subject":         s.inboundSubject,
-			"score":           screenRes.Score,
-			"action":          screenRes.Action,
-			"categories":      screenRes.Categories,
 			"reason":          screenRes.Reason,
+			"reason_source":   screenRes.Denorm.ReviewReason,
 		})
-		ie.AgentID = agent.ID
-		ie.ConversationID = conversationID
-		ie.MessageID = messageID
-		ie.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailInjectionDetected)
-		injectionEvent = &ie
+		be.AgentID = agent.ID
+		be.ConversationID = conversationID
+		be.MessageID = messageID
+		be.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailBlocked)
+		blockedEvent = &be
+	}
+
+	// email.pending_review: fired when the applied action is review — the message is
+	// held as pending_review awaiting a human / TTL. The inbound twin of
+	// email.pending_approval; carries the review TTL (approval_expires_at) and
+	// reason_source so a subscriber can drive a review queue from push. Deterministic
+	// id keeps MTA retries idempotent.
+	var pendingReviewEvent *webhookpub.Event
+	if screenRes.Review() {
+		pe := webhookpub.NewEvent(webhookpub.EventEmailPendingReview, agent.UserID, map[string]interface{}{
+			"message_id":          messageID,
+			"conversation_id":     conversationID,
+			"agent":               map[string]interface{}{"id": agent.ID, "email": agent.EmailAddress(), "domain": agent.Domain},
+			"direction":           "inbound",
+			"from":                senderEmail,
+			"recipient":           rcpt,
+			"subject":             s.inboundSubject,
+			"reason":              screenRes.Reason,
+			"reason_source":       screenRes.Denorm.ReviewReason,
+			"approval_expires_at": screenRes.Denorm.ApprovalExpiresAt,
+		})
+		pe.AgentID = agent.ID
+		pe.ConversationID = conversationID
+		pe.MessageID = messageID
+		pe.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailPendingReview)
+		pendingReviewEvent = &pe
 	}
 
 	// Record inbound message with full content. Pass messageID so the
@@ -484,8 +511,13 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 					return txErr
 				}
 			}
-			if injectionEvent != nil {
-				if txErr = s.relay.outbox.PublishTx(ctx, tx, *injectionEvent); txErr != nil {
+			if blockedEvent != nil {
+				if txErr = s.relay.outbox.PublishTx(ctx, tx, *blockedEvent); txErr != nil {
+					return txErr
+				}
+			}
+			if pendingReviewEvent != nil {
+				if txErr = s.relay.outbox.PublishTx(ctx, tx, *pendingReviewEvent); txErr != nil {
 					return txErr
 				}
 			}
@@ -548,8 +580,11 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 		if flaggedEvent != nil {
 			go s.relay.publisher.Publish(context.Background(), *flaggedEvent)
 		}
-		if injectionEvent != nil {
-			go s.relay.publisher.Publish(context.Background(), *injectionEvent)
+		if blockedEvent != nil {
+			go s.relay.publisher.Publish(context.Background(), *blockedEvent)
+		}
+		if pendingReviewEvent != nil {
+			go s.relay.publisher.Publish(context.Background(), *pendingReviewEvent)
 		}
 	}
 

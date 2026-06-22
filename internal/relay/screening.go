@@ -14,7 +14,8 @@ import (
 
 // inboundScreenResult is the outcome of content-screening one inbound message: the
 // denormalized verdict (incl. any review-hold status) for the message row, the audit
-// rows to append, and the data the email.injection_detected event carries.
+// rows to append, and (when the applied action is block) the data the email.blocked
+// event carries.
 type inboundScreenResult struct {
 	Denorm        identity.InboundScreening
 	Events        []identity.ScreeningEvent
@@ -27,9 +28,13 @@ type inboundScreenResult struct {
 	Reason        string
 }
 
-// Emit reports whether the email.injection_detected event should fire: when the scan
-// flagged the message OR it was held.
-func (r inboundScreenResult) Emit() bool { return r.Detected || r.Hold }
+// Blocked reports whether the applied action is block — the message is
+// accept-then-quarantined (review_rejected). Drives the email.blocked event.
+func (r inboundScreenResult) Blocked() bool { return r.AppliedAction == piguard.ActionBlock }
+
+// Review reports whether the applied action is review — the message is held as
+// pending_review awaiting a human / TTL. Drives the email.pending_review event.
+func (r inboundScreenResult) Review() bool { return r.AppliedAction == piguard.ActionReview }
 
 // screenInbound runs the agent's content scan (when inbound_scan='on'), combines it
 // with the ingestion-gate decision into one applied action, and decides whether the
