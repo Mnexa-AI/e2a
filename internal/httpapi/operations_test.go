@@ -393,7 +393,10 @@ func testServer(t *testing.T) *httptest.Server {
 			}
 			return nil
 		},
-		UpdateAgentHITL: func(ctx context.Context, agentID, userID string, ttl int, action string) error {
+		UpdateAgentName: func(ctx context.Context, agentID, userID, name string) error {
+			return nil
+		},
+		UpdateAgentProtection: func(ctx context.Context, agentID, userID string, cfg identity.ProtectionConfig) error {
 			return nil
 		},
 		DeleteAgent: func(ctx context.Context, agentID, userID string) error {

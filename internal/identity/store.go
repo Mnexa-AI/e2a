@@ -922,6 +922,29 @@ func (s *Store) UpdateAgentInboundPolicy(ctx context.Context, agentID, userID, p
 	return nil
 }
 
+// maxAgentNameLen bounds the agent display name (a UI label, not an identifier).
+const maxAgentNameLen = 200
+
+// UpdateAgentName sets an agent's display name for an agent owned by userID.
+// The name is a UI label only — the agent's identity is its email. Returns an
+// error if the agent isn't found or not owned.
+func (s *Store) UpdateAgentName(ctx context.Context, agentID, userID, name string) error {
+	if len(name) > maxAgentNameLen {
+		return fmt.Errorf("name has %d characters, max %d", len(name), maxAgentNameLen)
+	}
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE agent_identities SET name = $3 WHERE id = $1 AND user_id = $2`,
+		agentID, userID, name,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("agent not found or not owned by user")
+	}
+	return nil
+}
+
 // ListAgentsByUser returns all agents owned by the user, joined with
 // domain verification AND enriched with per-agent stats for the
 // dashboard. Five correlated subqueries compute

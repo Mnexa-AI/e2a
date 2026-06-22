@@ -49,7 +49,10 @@ func scopeTestServer(t *testing.T) *httptest.Server {
 			}
 			return nil, errors.New("not found")
 		},
-		UpdateAgentHITL: func(ctx context.Context, agentID, userID string, ttl int, action string) error {
+		UpdateAgentName: func(ctx context.Context, agentID, userID, name string) error {
+			return nil
+		},
+		UpdateAgentProtection: func(ctx context.Context, agentID, userID string, cfg identity.ProtectionConfig) error {
 			return nil
 		},
 		DeleteAgent: func(ctx context.Context, agentID, userID string) error { return nil },
@@ -73,6 +76,10 @@ func TestScope_AccountOnlyRoutesRejectAgentKeys(t *testing.T) {
 		// Delete agent is admin even on the bound agent.
 		{"delete/account-ok", "DELETE", "/v1/agents/support%40acme.com?confirm=DELETE", "acct", 204},
 		{"delete/agent-bound-403", "DELETE", "/v1/agents/support%40acme.com", "agtSupport", 403},
+		// Protection config is account-only — the #13 fix: the screened agent
+		// cannot even READ its own detection tuning, let alone change it.
+		{"protection-get/account-ok", "GET", "/v1/agents/support%40acme.com/protection", "acct", 200},
+		{"protection-get/agent-bound-403", "GET", "/v1/agents/support%40acme.com/protection", "agtSupport", 403},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -91,7 +98,7 @@ func TestScope_AccountOnlyRoutesRejectAgentKeys(t *testing.T) {
 // agent-scoped credential even on its own bound agent.
 func TestScope_UpdateAgentIsAccountOnly(t *testing.T) {
 	srv := scopeTestServer(t)
-	body := map[string]any{"hitl_ttl_seconds": 3600, "hitl_expiration_action": "reject"}
+	body := map[string]any{"name": "Renamed"}
 
 	code, _ := sendJSON(t, "PATCH", srv.URL+"/v1/agents/support%40acme.com", "acct", body)
 	if code != 200 {
@@ -100,6 +107,26 @@ func TestScope_UpdateAgentIsAccountOnly(t *testing.T) {
 	code, resp := sendJSON(t, "PATCH", srv.URL+"/v1/agents/support%40acme.com", "agtSupport", body)
 	if code != 403 || errCode(resp) != "forbidden" {
 		t.Errorf("agent key PATCH own agent: status %d body %v, want 403 forbidden", code, resp)
+	}
+}
+
+// TestScope_ProtectionPutIsAccountOnly: writing protection config is barred for
+// an agent-scoped credential even on its own bound agent (#13). A valid body is
+// sent so the request clears Huma schema validation and reaches the scope gate.
+func TestScope_ProtectionPutIsAccountOnly(t *testing.T) {
+	srv := scopeTestServer(t)
+	body := map[string]any{
+		"inbound":  map[string]any{"gate": map[string]any{}, "scan": map[string]any{}},
+		"outbound": map[string]any{"gate": map[string]any{}, "scan": map[string]any{}},
+		"holds":    map[string]any{},
+	}
+	code, _ := sendJSON(t, "PUT", srv.URL+"/v1/agents/support%40acme.com/protection", "acct", body)
+	if code != 200 {
+		t.Errorf("account key PUT protection: status %d, want 200", code)
+	}
+	code, resp := sendJSON(t, "PUT", srv.URL+"/v1/agents/support%40acme.com/protection", "agtSupport", body)
+	if code != 403 || errCode(resp) != "forbidden" {
+		t.Errorf("agent key PUT own protection: status %d body %v, want 403 forbidden", code, resp)
 	}
 }
 

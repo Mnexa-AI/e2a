@@ -86,7 +86,7 @@ func (s *Server) registerAgentWrites() {
 		Method:      http.MethodPatch,
 		Path:        "/v1/agents/{email}",
 		Summary:     "Update an agent",
-		Description: "Patch an agent's HITL settings. Returns the post-update agent.",
+		Description: "Update an agent's display name. The screening/protection config lives on the /v1/agents/{email}/protection sub-resource. Returns the post-update agent.",
 		Tags:        []string{"agents"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleUpdateAgent)
@@ -103,33 +103,12 @@ func (s *Server) registerAgentWrites() {
 	}, s.handleDeleteAgent)
 }
 
-// UpdateAgentRequest is the /v1 agent PATCH body — pointer fields so
-// absent != zero. webhook_url/agent_mode were dropped (migration 029); only
-// HITL settings remain mutable.
+// UpdateAgentRequest is the /v1 agent PATCH body. The per-agent screening/HITL
+// config moved to the /v1/agents/{email}/protection sub-resource (design
+// 2026-06-22), so the only mutable field left on the agent itself is the
+// display name. Pointer so absent != "" (an empty name is a valid clear).
 type UpdateAgentRequest struct {
-	// hitl_enabled / hitl_mode were retired as producer policy in Slice 5b — use
-	// outbound_policy / outbound_scan instead. The HITL mechanism fields below
-	// survive as the review-queue knobs.
-	HITLTTLSeconds       *int    `json:"hitl_ttl_seconds,omitempty"`
-	HITLExpirationAction *string `json:"hitl_expiration_action,omitempty" enum:"approve,reject"`
-	// InboundPolicy / InboundAllowlist set the per-agent inbound ingestion gate
-	// (migration 033 / Slice 7). Pointers so absent != zero.
-	InboundPolicy    *string   `json:"inbound_policy,omitempty" enum:"open,allowlist,domain,verified_only"`
-	InboundAllowlist *[]string `json:"inbound_allowlist,omitempty"`
-	// Screening config (migration 038 / Slice 3). Each settable independently
-	// (additive PATCH). Gate actions decide what a policy violation does; the
-	// outbound recipient gate is the egress firewall; the scans toggle content
-	// screening with a review/block threshold ladder.
-	InboundPolicyAction         *string   `json:"inbound_policy_action,omitempty" enum:"flag,review,block"`
-	OutboundPolicy              *string   `json:"outbound_policy,omitempty" enum:"open,allowlist,domain"`
-	OutboundAllowlist           *[]string `json:"outbound_allowlist,omitempty"`
-	OutboundPolicyAction        *string   `json:"outbound_policy_action,omitempty" enum:"flag,review,block"`
-	InboundScan                 *string   `json:"inbound_scan,omitempty" enum:"off,on"`
-	InboundScanReviewThreshold  *float64  `json:"inbound_scan_review_threshold,omitempty"`
-	InboundScanBlockThreshold   *float64  `json:"inbound_scan_block_threshold,omitempty"`
-	OutboundScan                *string   `json:"outbound_scan,omitempty" enum:"off,on"`
-	OutboundScanReviewThreshold *float64  `json:"outbound_scan_review_threshold,omitempty"`
-	OutboundScanBlockThreshold  *float64  `json:"outbound_scan_block_threshold,omitempty"`
+	Name *string `json:"name,omitempty" maxLength:"200" doc:"New display name for the agent (a UI label; the agent's identity is its email)."`
 }
 
 type updateAgentInput struct {
@@ -138,9 +117,10 @@ type updateAgentInput struct {
 }
 
 func (s *Server) handleUpdateAgent(ctx context.Context, in *updateAgentInput) (*agentOutput, error) {
-	// Mutating agent config (HITL, inbound_policy) is account administration —
-	// an agent-scoped credential must not change its own security posture
-	// (Slice 5a hard ceiling), so this is account-only even for the bound agent.
+	// Mutating an agent is account administration — an agent-scoped credential
+	// must not rename its own agent (Slice 5a hard ceiling), so this is
+	// account-only even for the bound agent. (Screening posture moved to the
+	// account-scoped /protection sub-resource; only the display name is left.)
 	if _, err := s.requireAccountScope(ctx); err != nil {
 		return nil, err
 	}
@@ -148,105 +128,14 @@ func (s *Server) handleUpdateAgent(ctx context.Context, in *updateAgentInput) (*
 	if err != nil {
 		return nil, err
 	}
-	req := in.Body
-	touched := false
-
-	if req.HITLTTLSeconds != nil || req.HITLExpirationAction != nil {
-		ttl := ag.HITLTTLSeconds
-		if req.HITLTTLSeconds != nil {
-			ttl = *req.HITLTTLSeconds
-		}
-		action := ag.HITLExpirationAction
-		if req.HITLExpirationAction != nil {
-			action = *req.HITLExpirationAction
-		}
-		if s.deps.UpdateAgentHITL == nil {
-			return nil, NewError(http.StatusInternalServerError, "internal_error", "update unavailable")
-		}
-		if err := s.deps.UpdateAgentHITL(ctx, ag.ID, ag.UserID, ttl, action); err != nil {
-			return nil, NewError(http.StatusBadRequest, "invalid_request", err.Error())
-		}
-		touched = true
-	}
-
-	if req.InboundPolicy != nil || req.InboundAllowlist != nil {
-		policy := ag.InboundPolicy
-		if req.InboundPolicy != nil {
-			policy = *req.InboundPolicy
-		}
-		allowlist := ag.InboundAllowlist
-		if req.InboundAllowlist != nil {
-			allowlist = *req.InboundAllowlist
-		}
-		if s.deps.UpdateAgentInboundPolicy == nil {
-			return nil, NewError(http.StatusInternalServerError, "internal_error", "update unavailable")
-		}
-		if err := s.deps.UpdateAgentInboundPolicy(ctx, ag.ID, ag.UserID, policy, allowlist); err != nil {
-			return nil, NewError(http.StatusBadRequest, "invalid_request", err.Error())
-		}
-		touched = true
-	}
-
-	if req.InboundPolicyAction != nil || req.OutboundPolicy != nil || req.OutboundAllowlist != nil ||
-		req.OutboundPolicyAction != nil || req.InboundScan != nil || req.InboundScanReviewThreshold != nil ||
-		req.InboundScanBlockThreshold != nil || req.OutboundScan != nil || req.OutboundScanReviewThreshold != nil ||
-		req.OutboundScanBlockThreshold != nil {
-		if s.deps.UpdateAgentScanConfig == nil {
-			return nil, NewError(http.StatusInternalServerError, "internal_error", "update unavailable")
-		}
-		// Merge the provided fields over the agent's current config so each is
-		// settable independently (additive PATCH), then validate the effective
-		// posture in the store method.
-		cfg := identity.ScanConfig{
-			InboundPolicyAction:         ag.InboundPolicyAction,
-			OutboundPolicy:              ag.OutboundPolicy,
-			OutboundAllowlist:           ag.OutboundAllowlist,
-			OutboundPolicyAction:        ag.OutboundPolicyAction,
-			InboundScan:                 ag.InboundScan,
-			InboundScanReviewThreshold:  ag.InboundScanReviewThreshold,
-			InboundScanBlockThreshold:   ag.InboundScanBlockThreshold,
-			OutboundScan:                ag.OutboundScan,
-			OutboundScanReviewThreshold: ag.OutboundScanReviewThreshold,
-			OutboundScanBlockThreshold:  ag.OutboundScanBlockThreshold,
-		}
-		if req.InboundPolicyAction != nil {
-			cfg.InboundPolicyAction = *req.InboundPolicyAction
-		}
-		if req.OutboundPolicy != nil {
-			cfg.OutboundPolicy = *req.OutboundPolicy
-		}
-		if req.OutboundAllowlist != nil {
-			cfg.OutboundAllowlist = *req.OutboundAllowlist
-		}
-		if req.OutboundPolicyAction != nil {
-			cfg.OutboundPolicyAction = *req.OutboundPolicyAction
-		}
-		if req.InboundScan != nil {
-			cfg.InboundScan = *req.InboundScan
-		}
-		if req.InboundScanReviewThreshold != nil {
-			cfg.InboundScanReviewThreshold = *req.InboundScanReviewThreshold
-		}
-		if req.InboundScanBlockThreshold != nil {
-			cfg.InboundScanBlockThreshold = *req.InboundScanBlockThreshold
-		}
-		if req.OutboundScan != nil {
-			cfg.OutboundScan = *req.OutboundScan
-		}
-		if req.OutboundScanReviewThreshold != nil {
-			cfg.OutboundScanReviewThreshold = *req.OutboundScanReviewThreshold
-		}
-		if req.OutboundScanBlockThreshold != nil {
-			cfg.OutboundScanBlockThreshold = *req.OutboundScanBlockThreshold
-		}
-		if err := s.deps.UpdateAgentScanConfig(ctx, ag.ID, ag.UserID, cfg); err != nil {
-			return nil, NewError(http.StatusBadRequest, "invalid_request", err.Error())
-		}
-		touched = true
-	}
-
-	if !touched {
+	if in.Body.Name == nil {
 		return nil, NewError(http.StatusBadRequest, "invalid_request", "no recognized fields in request")
+	}
+	if s.deps.UpdateAgentName == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "update unavailable")
+	}
+	if err := s.deps.UpdateAgentName(ctx, ag.ID, ag.UserID, *in.Body.Name); err != nil {
+		return nil, NewError(http.StatusBadRequest, "invalid_request", err.Error())
 	}
 
 	// Re-read for the authoritative post-update state (ag.ID is the email).
