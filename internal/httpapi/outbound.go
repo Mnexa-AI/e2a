@@ -43,14 +43,14 @@ func (s *Server) errorEnvelopeResponse() *huma.Response {
 // test (MSG-9). Per scenario:
 //   - sent:  status="sent" + message_id (the e2a msg_ id) + provider_message_id
 //     (SES id) + sent_as + method.
-//   - held:  status="pending_approval" + message_id + approval_expires_at.
+//   - held:  status="pending_review" + message_id + approval_expires_at.
 //   - approved+sent: the "sent" set + edited (reviewer edited the draft).
 //
 // message_id is always the e2a message id (GET-able), never the provider id —
 // the SES id is provider_message_id. `reject` keeps its own RejectResultView
 // (it is not a send).
 type SendResultView struct {
-	Status            string     `json:"status" enum:"sent,pending_approval"`
+	Status            string     `json:"status" enum:"sent,pending_review"`
 	MessageID         string     `json:"message_id"`
 	ProviderMessageID string     `json:"provider_message_id,omitempty"`
 	SentAs            string     `json:"sent_as,omitempty" enum:"own_address,relay"`
@@ -189,7 +189,7 @@ func (s *Server) handleTestSend(ctx context.Context, in *AddressParam) (*sendOut
 		return nil, NewError(derr.Status, derr.Code, derr.Msg)
 	}
 	if res.Held {
-		return &sendOutput{Status: http.StatusAccepted, Body: SendResultView{Status: "pending_approval", MessageID: res.PendingMessageID, ApprovalExpiresAt: res.ApprovalExpiresAt}}, nil
+		return &sendOutput{Status: http.StatusAccepted, Body: SendResultView{Status: "pending_review", MessageID: res.PendingMessageID, ApprovalExpiresAt: res.ApprovalExpiresAt}}, nil
 	}
 	return &sendOutput{Status: http.StatusOK, Body: SendResultView{Status: "sent", MessageID: res.MessageID, ProviderMessageID: res.ProviderMessageID, SentAs: res.SentAs, Method: res.Method}}, nil
 }
@@ -383,7 +383,7 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 			return 0, SendResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
 		}
 		if res.Held {
-			return http.StatusAccepted, SendResultView{Status: "pending_approval", MessageID: res.PendingMessageID, ApprovalExpiresAt: res.ApprovalExpiresAt}, nil
+			return http.StatusAccepted, SendResultView{Status: "pending_review", MessageID: res.PendingMessageID, ApprovalExpiresAt: res.ApprovalExpiresAt}, nil
 		}
 		return http.StatusOK, SendResultView{Status: "sent", MessageID: res.MessageID, ProviderMessageID: res.ProviderMessageID, SentAs: res.SentAs, Method: res.Method}, nil
 	})

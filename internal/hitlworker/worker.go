@@ -1,6 +1,7 @@
-// Package hitlworker runs the periodic sweep that finalizes pending_approval
-// messages whose TTL has elapsed. Each row becomes either expired_approved
-// (sent as-is) or expired_rejected based on the owning agent's
+// Package hitlworker runs the periodic sweep that finalizes pending_review
+// holds whose TTL has elapsed. Outbound holds become sent (auto-approved) or
+// review_expired_rejected; inbound holds become review_expired_approved
+// (released to the agent) or review_expired_rejected — per the owning agent's
 // hitl_expiration_action column. Body columns are scrubbed in both cases.
 package hitlworker
 
@@ -23,7 +24,7 @@ import (
 const DefaultInterval = 60 * time.Second
 
 // DefaultBatchSize caps how many rows one sweep will try to finalize. The
-// partial index on (approval_expires_at) WHERE status='pending_approval'
+// partial index on (approval_expires_at) WHERE status='pending_review'
 // keeps the list query cheap regardless of total table size.
 const DefaultBatchSize = 100
 
@@ -84,11 +85,12 @@ func (w *Worker) RunOnce(ctx context.Context) {
 	w.sweepReviews(ctx)
 }
 
-// sweepReviews auto-resolves expired inbound review holds (Slice 4b). Unlike the
-// outbound pending_approval path, there is no send to perform: approve = release
-// the held message to the agent's inbox (it becomes visible), reject = drop it.
-// The compare-and-set status guard in the store methods makes concurrent/duplicate
-// sweeps safe.
+// sweepReviews auto-resolves expired INBOUND review holds. Both directions share
+// the pending_review status (unified — design 2026-06-22); ListExpiredReviews is
+// direction='inbound'-scoped, so this never touches an outbound hold (those are the
+// `sweep` path, where approve = send). Inbound: approve = release the held message
+// to the agent's inbox (it becomes visible), reject = drop it. The compare-and-set
+// status guard in the store methods makes concurrent/duplicate sweeps safe.
 func (w *Worker) sweepReviews(ctx context.Context) {
 	candidates, err := w.store.ListExpiredReviews(ctx, w.batchSize)
 	if err != nil {

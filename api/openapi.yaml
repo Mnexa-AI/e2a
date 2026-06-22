@@ -1101,11 +1101,11 @@ components:
           type: string
         hitl_status:
           enum:
-            - pending_approval
+            - pending_review
             - sent
-            - rejected
-            - expired_approved
-            - expired_rejected
+            - review_rejected
+            - review_expired_approved
+            - review_expired_rejected
           type: string
         labels:
           items:
@@ -1199,11 +1199,11 @@ components:
           type: string
         hitl_status:
           enum:
-            - pending_approval
+            - pending_review
             - sent
-            - rejected
-            - expired_approved
-            - expired_rejected
+            - review_rejected
+            - review_expired_approved
+            - review_expired_rejected
           type: string
         labels:
           items:
@@ -1587,7 +1587,7 @@ components:
         status:
           enum:
             - sent
-            - pending_approval
+            - pending_review
           type: string
       required:
         - status

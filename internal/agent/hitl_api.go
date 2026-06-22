@@ -77,7 +77,7 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 	if err != nil {
 		return nil, &OutboundError{http.StatusNotFound, "not_found", "message not found"}
 	}
-	if preview.Status != identity.MessageStatusPendingApproval {
+	if preview.Status != identity.MessageStatusPendingReview {
 		return nil, &OutboundError{http.StatusConflict, "message_not_pending", "message is not pending approval"}
 	}
 	agent, err := a.store.GetAgentByID(ctx, preview.AgentID)

@@ -67,7 +67,7 @@ func (a *API) renderConfirmPage(w http.ResponseWriter, r *http.Request, endpoint
 			"This message no longer exists.")
 		return
 	}
-	if msg.Status != identity.MessageStatusPendingApproval {
+	if msg.Status != identity.MessageStatusPendingReview {
 		writeMagicMessage(w, http.StatusConflict, "Already resolved",
 			"This message has already been approved, rejected, or expired.")
 		return

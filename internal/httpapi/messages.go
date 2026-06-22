@@ -40,7 +40,7 @@ type MessageView struct {
 	// outbound only, mirroring MessageSummaryView. Distinct from read_status,
 	// delivery_status, and webhook_status (each a separate axis). Closed set =
 	// migration 003 CHECK.
-	HITLStatus string `json:"hitl_status,omitempty" enum:"pending_approval,sent,rejected,expired_approved,expired_rejected"`
+	HITLStatus string `json:"hitl_status,omitempty" enum:"pending_review,sent,review_rejected,review_expired_approved,review_expired_rejected"`
 	// WebhookStatus / WebhookError mirror MessageSummaryView so the detail view
 	// is a strict superset of the list item (a client fetching one message keeps
 	// the webhook delivery context). Apply to both directions; omitempty hides
@@ -215,7 +215,7 @@ type MessageSummaryView struct {
 	ConversationID string   `json:"conversation_id,omitempty"`
 	// Status is the inbox read-state, exposed as `read_status` (MSG-1).
 	Status string `json:"read_status"`
-	HITLStatus     string   `json:"hitl_status,omitempty" enum:"pending_approval,sent,rejected,expired_approved,expired_rejected"`
+	HITLStatus     string   `json:"hitl_status,omitempty" enum:"pending_review,sent,review_rejected,review_expired_approved,review_expired_rejected"`
 	WebhookStatus  string   `json:"webhook_status,omitempty"`
 	WebhookError   string   `json:"webhook_error,omitempty"`
 	// DeliveryStatus / DeliveryDetail / SentAs are the outbound delivery

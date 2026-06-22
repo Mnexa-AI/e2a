@@ -28,7 +28,7 @@ func (s *Store) ListExpiredReviews(ctx context.Context, limit int) ([]Expiration
 		`SELECT m.id, m.agent_id, a.hitl_expiration_action
 		 FROM messages m
 		 JOIN agent_identities a ON a.id = m.agent_id
-		 WHERE m.status = 'pending_review'
+		 WHERE m.status = 'pending_review' AND m.direction = 'inbound'
 		   AND m.approval_expires_at < now()
 		 ORDER BY m.approval_expires_at ASC
 		 LIMIT $1`, limit,
