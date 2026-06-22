@@ -32,6 +32,10 @@ type inboundScreenResult struct {
 // accept-then-quarantined (review_rejected). Drives the email.blocked event.
 func (r inboundScreenResult) Blocked() bool { return r.AppliedAction == piguard.ActionBlock }
 
+// Review reports whether the applied action is review — the message is held as
+// pending_review awaiting a human / TTL. Drives the email.pending_review event.
+func (r inboundScreenResult) Review() bool { return r.AppliedAction == piguard.ActionReview }
+
 // screenInbound runs the agent's content scan (when inbound_scan='on'), combines it
 // with the ingestion-gate decision into one applied action, and decides whether the
 // message is HELD (review/block) or delivered (flag/allow).

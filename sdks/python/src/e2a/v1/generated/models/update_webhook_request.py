@@ -29,7 +29,7 @@ class UpdateWebhookRequest(BaseModel):
     """ # noqa: E501
     description: Optional[StrictStr] = None
     enabled: Optional[StrictBool] = None
-    events: Optional[List[StrictStr]] = Field(default=None, description="Beta: email.flagged and email.blocked (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable.")
+    events: Optional[List[StrictStr]] = Field(default=None, description="Beta: email.flagged, email.blocked, and email.pending_review (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable.")
     filters: Optional[WebhookFiltersView] = None
     url: Optional[StrictStr] = None
     __properties: ClassVar[List[str]] = ["description", "enabled", "events", "filters", "url"]

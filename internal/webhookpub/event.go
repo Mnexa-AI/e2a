@@ -60,6 +60,12 @@ const (
 	// (sender_gate / recipient_gate / inbound_scan / outbound_scan), mirroring the
 	// screening_events audit vocabulary so a subscriber can correlate the two.
 	EventEmailBlocked = "email.blocked"
+	// EventEmailPendingReview fires when an inbound message is held for human review
+	// (applied action = review → status pending_review). It is the inbound twin of
+	// email.pending_approval (outbound HITL holds) and carries the review TTL plus
+	// reason_source (sender_gate / inbound_scan) so a subscriber can drive an inbound
+	// review queue from push instead of polling.
+	EventEmailPendingReview = "email.pending_review"
 )
 
 // AllEventTypes is the canonical allowlist of event names. Used by
@@ -79,6 +85,7 @@ var AllEventTypes = []string{
 	EventDomainSuppressionAdded,
 	EventEmailFlagged,
 	EventEmailBlocked,
+	EventEmailPendingReview,
 }
 
 // IsValidEventType reports whether name is one of the catalog

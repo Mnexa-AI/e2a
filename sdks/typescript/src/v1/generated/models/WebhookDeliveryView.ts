@@ -104,7 +104,8 @@ export enum WebhookDeliveryViewEventTypeEnum {
     EmailComplained = 'email.complained',
     DomainSuppressionAdded = 'domain.suppression_added',
     EmailFlagged = 'email.flagged',
-    EmailBlocked = 'email.blocked'
+    EmailBlocked = 'email.blocked',
+    EmailPendingReview = 'email.pending_review'
 }
 export enum WebhookDeliveryViewStatusEnum {
     Pending = 'pending',

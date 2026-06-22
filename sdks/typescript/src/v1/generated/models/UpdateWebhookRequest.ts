@@ -17,7 +17,7 @@ export class UpdateWebhookRequest {
     'description'?: string;
     'enabled'?: boolean;
     /**
-    * Beta: email.flagged and email.blocked (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable.
+    * Beta: email.flagged, email.blocked, and email.pending_review (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable.
     */
     'events'?: Array<UpdateWebhookRequestEventsEnum>;
     'filters'?: WebhookFiltersView;
@@ -80,6 +80,7 @@ export enum UpdateWebhookRequestEventsEnum {
     EmailComplained = 'email.complained',
     DomainSuppressionAdded = 'domain.suppression_added',
     EmailFlagged = 'email.flagged',
-    EmailBlocked = 'email.blocked'
+    EmailBlocked = 'email.blocked',
+    EmailPendingReview = 'email.pending_review'
 }
 

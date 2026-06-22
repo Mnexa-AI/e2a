@@ -481,7 +481,7 @@ components:
         description:
           type: string
         events:
-          description: "Beta: email.flagged and email.blocked (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
+          description: "Beta: email.flagged, email.blocked, and email.pending_review (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
@@ -497,6 +497,7 @@ components:
               - domain.suppression_added
               - email.flagged
               - email.blocked
+              - email.pending_review
             type: string
           type: array
         filters:
@@ -521,7 +522,7 @@ components:
         enabled:
           type: boolean
         events:
-          description: "Beta: email.flagged and email.blocked (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
+          description: "Beta: email.flagged, email.blocked, and email.pending_review (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
@@ -537,6 +538,7 @@ components:
               - domain.suppression_added
               - email.flagged
               - email.blocked
+              - email.pending_review
             type: string
           type: array
         filters:
@@ -830,6 +832,7 @@ components:
             - domain.suppression_added
             - email.flagged
             - email.blocked
+            - email.pending_review
           type: string
       required:
         - id
@@ -1644,6 +1647,7 @@ components:
             - domain.suppression_added
             - email.flagged
             - email.blocked
+            - email.pending_review
           type: string
       type: object
     TestWebhookResponse:
@@ -1760,7 +1764,7 @@ components:
         enabled:
           type: boolean
         events:
-          description: "Beta: email.flagged and email.blocked (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
+          description: "Beta: email.flagged, email.blocked, and email.pending_review (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
@@ -1776,6 +1780,7 @@ components:
               - domain.suppression_added
               - email.flagged
               - email.blocked
+              - email.pending_review
             type: string
           type: array
         filters:
@@ -1912,6 +1917,7 @@ components:
             - domain.suppression_added
             - email.flagged
             - email.blocked
+            - email.pending_review
           type: string
         id:
           type: string
@@ -1970,7 +1976,7 @@ components:
         enabled:
           type: boolean
         events:
-          description: "Beta: email.flagged and email.blocked (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
+          description: "Beta: email.flagged, email.blocked, and email.pending_review (screening dispositions) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
@@ -1986,6 +1992,7 @@ components:
               - domain.suppression_added
               - email.flagged
               - email.blocked
+              - email.pending_review
             type: string
           type: array
         filters:
