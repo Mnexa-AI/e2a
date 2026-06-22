@@ -300,3 +300,33 @@ func TestGetReviewMessage_DispatchView(t *testing.T) {
 		t.Errorf("unknown id must error")
 	}
 }
+
+// TestInboundReview_RejectDeliveredMessageIsNoop is the safety property behind the
+// compare-and-set guard: a normally-delivered inbound message (never held — status
+// 'unread') must NOT be droppable into the hidden review_rejected state. Without
+// the status guard, an account owner (or a confused-deputy bug) could silently
+// disappear a legitimately delivered message via /reject.
+func TestInboundReview_RejectDeliveredMessageIsNoop(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userID, agentID := seedReviewAgent(t, store, ctx, "delivered.example.com")
+
+	// A clean delivery — no screening hold (default status path).
+	delivered := createInbound(t, store, ctx, agentID, "ok@x.com", "hello", identity.InboundScreening{})
+
+	if err := store.RejectInboundReview(ctx, delivered, agentID, userID, "nope"); err != identity.ErrNotPendingReview {
+		t.Errorf("reject of a delivered message = %v, want ErrNotPendingReview (no-op)", err)
+	}
+	if err := store.ApproveInboundReview(ctx, delivered, agentID, userID); err != identity.ErrNotPendingReview {
+		t.Errorf("approve of a delivered message = %v, want ErrNotPendingReview (no-op)", err)
+	}
+	// The row is untouched — still a normal, agent-visible delivery.
+	var st string
+	if err := pool.QueryRow(ctx, `SELECT status FROM messages WHERE id=$1`, delivered).Scan(&st); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if st == identity.MessageStatusReviewRejected {
+		t.Error("a delivered message was dropped to review_rejected via /reject — must be impossible")
+	}
+}

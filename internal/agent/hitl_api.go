@@ -259,8 +259,21 @@ func (a *API) ApproveInboundReviewCore(ctx context.Context, userID string, msg *
 	// Post-side-effect publish (the release row is already committed): reuse the
 	// approved-event plumbing (deterministic id off the message id → MTA/retry
 	// idempotent). A minimal *identity.Message carries the id publishApproved needs.
-	a.publishApproved(ctx, a.buildInboundReleasedEvent(msg, userID), &identity.Message{ID: msg.ID, AgentID: msg.AgentID})
+	a.publishApproved(ctx, a.buildInboundReleasedEvent(msg, a.reviewOwnerID(ctx, msg.AgentID, userID), userID), &identity.Message{ID: msg.ID, AgentID: msg.AgentID})
 	return nil
+}
+
+// reviewOwnerID returns the agent's owner user id — the webhook routing key for
+// an inbound review event. It equals the reviewer today (the endpoint is
+// account-scoped + ownership-checked), so on any lookup failure we fall back to
+// the reviewer id rather than fail the already-committed release.
+func (a *API) reviewOwnerID(ctx context.Context, agentID, fallbackUserID string) string {
+	ag, err := a.store.GetAgentByID(ctx, agentID)
+	if err != nil || ag == nil {
+		log.Printf("[api] review owner lookup for agent %s: %v (routing on reviewer)", agentID, err)
+		return fallbackUserID
+	}
+	return ag.UserID
 }
 
 // RejectInboundReviewCore drops a held INBOUND message (status pending_review →
@@ -277,6 +290,6 @@ func (a *API) RejectInboundReviewCore(ctx context.Context, userID, reason string
 	}
 	log.Printf("[mail:%s] dir=inbound type=%s status=review_rejected agent=%s rejected_by=user:%s reason=%q",
 		msg.ID, msg.Type, msg.AgentID, userID, reason)
-	a.publishRejected(ctx, a.buildInboundRejectedEvent(msg, userID, reason), msg.ID)
+	a.publishRejected(ctx, a.buildInboundRejectedEvent(msg, a.reviewOwnerID(ctx, msg.AgentID, userID), userID, reason), msg.ID)
 	return nil
 }

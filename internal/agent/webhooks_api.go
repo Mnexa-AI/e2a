@@ -163,7 +163,13 @@ func (a *API) buildRejectedEvent(
 // email.received was suppressed while it was held and is not re-fired on release
 // (push re-delivery is a tracked follow-up), so without this event an approved
 // inbound message is invisible to subscribers. See design 2026-06-22 §4 (Q2).
-func (a *API) buildInboundReleasedEvent(msg *identity.ReviewMessageMeta, reviewerUserID string) webhookpub.Event {
+//
+// ownerUserID is the ROUTING key (whose webhooks fire) — always the agent's
+// owner, mirroring buildApprovedEvent. reviewerUserID is the human who acted; it
+// goes in the payload as reviewed_by_user_id. They are equal today (the endpoint
+// is account-scoped + ownership-checked) but are kept distinct so a future
+// multi-reviewer ACL can't misroute the event to a non-owner reviewer.
+func (a *API) buildInboundReleasedEvent(msg *identity.ReviewMessageMeta, ownerUserID, reviewerUserID string) webhookpub.Event {
 	data := map[string]interface{}{
 		"message_id":          msg.ID,
 		"direction":           "inbound",
@@ -176,10 +182,7 @@ func (a *API) buildInboundReleasedEvent(msg *identity.ReviewMessageMeta, reviewe
 		ID:        generateEventIDForAgent(),
 		Type:      webhookpub.EventEmailReviewApproved,
 		CreatedAt: time.Now().UTC(),
-		// Routing key: the reviewer is the account owner of the agent
-		// (the endpoint is account-scoped + ownership-checked), so the
-		// reviewer's user id is the owner whose webhooks must fire.
-		UserID:    reviewerUserID,
+		UserID:    ownerUserID,
 		AgentID:   msg.AgentID,
 		MessageID: msg.ID,
 		Data:      data,
@@ -188,8 +191,9 @@ func (a *API) buildInboundReleasedEvent(msg *identity.ReviewMessageMeta, reviewe
 
 // buildInboundRejectedEvent fires when a reviewer drops a held inbound message
 // (status pending_review → review_rejected; it stays hidden from the agent and
-// its raw payload is retained for forensics — design §4.4).
-func (a *API) buildInboundRejectedEvent(msg *identity.ReviewMessageMeta, reviewerUserID, reason string) webhookpub.Event {
+// its raw payload is retained for forensics — design §4.4). Routing key is the
+// agent owner (see buildInboundReleasedEvent).
+func (a *API) buildInboundRejectedEvent(msg *identity.ReviewMessageMeta, ownerUserID, reviewerUserID, reason string) webhookpub.Event {
 	data := map[string]interface{}{
 		"message_id":          msg.ID,
 		"direction":           "inbound",
@@ -201,7 +205,7 @@ func (a *API) buildInboundRejectedEvent(msg *identity.ReviewMessageMeta, reviewe
 		ID:        generateEventIDForAgent(),
 		Type:      webhookpub.EventEmailReviewRejected,
 		CreatedAt: time.Now().UTC(),
-		UserID:    reviewerUserID,
+		UserID:    ownerUserID,
 		AgentID:   msg.AgentID,
 		MessageID: msg.ID,
 		Data:      data,

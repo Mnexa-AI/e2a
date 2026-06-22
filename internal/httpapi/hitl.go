@@ -73,7 +73,7 @@ func (s *Server) resolveHeldDirection(ctx context.Context, messageID, agentID st
 		return nil, false, nil
 	}
 	meta, err := s.deps.GetReviewMessage(ctx, messageID, agentID)
-	if err != nil {
+	if err != nil || meta == nil {
 		return nil, false, NewError(http.StatusNotFound, "not_found", "message not found")
 	}
 	return meta, meta.Direction == "inbound", nil
