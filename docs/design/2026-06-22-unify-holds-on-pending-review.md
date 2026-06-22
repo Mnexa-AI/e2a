@@ -161,11 +161,52 @@ Behavior is preserved; only the selection/dispatch is unified.
 
 ## 11. Slices
 
-1. **DB + status constants** — migration 044 + `internal/identity` status vocabulary, backfill, sweep dispatch.
-2. **Events** — webhookpub consts, emit sites, enum/`AllEventTypes`, spec+SDK regen.
-3. **Endpoint dispatch** — `/approve`+`/reject` branch on direction; wire inbound review; preserve outbound machinery.
-4. **Periphery** — MCP, web, magic-link copy, notifier.
-5. **Tests + e2e** across all of the above.
+1. **DB + status constants** — migration 044 + `internal/identity` status vocabulary, backfill, sweep dispatch. **(done — #266)**
+2. **Events** — webhookpub consts, emit sites, enum/`AllEventTypes`, spec+SDK regen. **(done — #266)**
+3. **Endpoint dispatch** — `/approve`+`/reject` branch on direction; wire inbound review; preserve outbound machinery. **(done)**
+4. **Periphery** — MCP, web, magic-link copy, notifier. **(done for MCP; web/magic-link/notifier deferred — see As-built)**
+5. **Tests + e2e** across all of the above. **(done)**
+
+### As-built (slices 3–5)
+
+- **Dispatch (slice 3):** `POST /v1/agents/{email}/messages/{id}/approve|reject`
+  resolve the held message via a new `identity.GetReviewMessage` (the review-queue
+  single getter — it intentionally sees held inbound statuses, scoped to the
+  resolved owned agent) and branch on `direction`. Outbound holds keep the exact
+  existing send-approval path (send-limit, idempotency, SES, magic-link, the §6
+  guarantees). Inbound holds route to `agent.ApproveInboundReviewCore` /
+  `RejectInboundReviewCore`, which wire the previously-dead
+  `ApproveInboundReview` / `RejectInboundReview` store methods and emit
+  `email.review_approved` / `email.review_rejected` (`direction=inbound`).
+- **Scope decision:** both directions require **account scope** (the existing
+  `requireAccountScope`). Releasing an inbound *screening* hold from an
+  agent-scoped credential would be self-approval of the very gate meant to protect
+  the agent from prompt injection — the same threat the outbound self-approval
+  guard addresses (and consistent with the MCP `ADMIN_TOOLS` tier map). Inbound
+  approve returns `SendResultView{status: review_approved}` (the operation keeps a
+  single response schema; the send-only fields are omitted).
+- **MCP (slice 4):** `approve_message` / `reject_message` descriptions now document
+  both directions; a held inbound message is discovered via the
+  `email.pending_review` webhook (not `list_pending_messages`, which stays
+  outbound-only). No new MCP client code — the server dispatches by direction.
+
+### Deferred (with reason)
+
+- **Web review-queue UI** — tracked in the separate web doc (design §4.4 / the
+  06-20 doc §2 non-goals); this slice ships the API/data it will consume.
+- **Magic-link copy + owner notifier (`hitlnotify`)** — outbound-send-specific
+  (magic-link approves a *send*; the notifier emails the owner about an outbound
+  draft). Inbound holds notify via the `email.pending_review` webhook, so no
+  inbound change is needed.
+- **TTL-sweep event emission** — the `hitlworker` releases/drops inbound holds on
+  TTL expiry but, as before this work, emits no webhook (it has no publisher
+  wired, and outbound TTL auto-approve is likewise silent). So a *human*-released
+  inbound message now fires `email.review_approved`, but a *TTL*-released one is
+  still silent. Closing this is a separable change (wire a publisher into
+  `hitlworker` for both directions) and is left as a follow-up.
+- **Push re-delivery of `email.received` on inbound approve** — per design §4.4,
+  release makes the message readable and fires `email.review_approved` as the
+  signal; re-pushing the full `email.received` is a tracked follow-up.
 
 ## 12. Open questions / risks
 
