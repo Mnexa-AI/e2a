@@ -21,6 +21,7 @@ import type {
   TestWebhookResponse,
   Attachment,
   UpdateAgentRequest,
+  ProtectionConfigView,
   CreateWebhookRequest,
   UpdateWebhookRequest,
   TestWebhookRequest,
@@ -113,18 +114,23 @@ export class McpClient {
     return this.sdk.agents.create(body);
   }
 
-  updateAgent(
-    patch: {
-      hitlEnabled?: boolean;
-      hitlTtlSeconds?: number;
-      hitlExpirationAction?: string;
-      hitlMode?: string;
-      inboundPolicy?: string;
-      inboundAllowlist?: Array<string>;
-    },
+  // Consume the generated UpdateAgentRequest directly (no hand-declared
+  // duplicate, no cast): a field removed/renamed at the API layer is a compile
+  // error here. Post-reshape the only mutable agent field is the display name;
+  // screening config lives on the protection sub-resource below.
+  updateAgent(patch: UpdateAgentRequest, explicitAddress?: string): Promise<AgentView> {
+    return this.sdk.agents.update(this.resolveAddress(explicitAddress), patch);
+  }
+
+  getProtection(explicitAddress?: string): Promise<ProtectionConfigView> {
+    return this.sdk.agents.getProtection(this.resolveAddress(explicitAddress));
+  }
+
+  updateProtection(
+    config: ProtectionConfigView,
     explicitAddress?: string,
-  ): Promise<AgentView> {
-    return this.sdk.agents.update(this.resolveAddress(explicitAddress), patch as UpdateAgentRequest);
+  ): Promise<ProtectionConfigView> {
+    return this.sdk.agents.replaceProtection(this.resolveAddress(explicitAddress), config);
   }
 
   async deleteAgent(explicitAddress?: string): Promise<string> {
