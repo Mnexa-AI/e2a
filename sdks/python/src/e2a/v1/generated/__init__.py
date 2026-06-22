@@ -80,6 +80,7 @@ __all__ = [
     "PageWebhookView",
     "ProtectionConfigView",
     "ProtectionDirectionView",
+    "ProtectionEventExportEntry",
     "ProtectionGateView",
     "ProtectionHoldsView",
     "ProtectionScanView",
@@ -96,6 +97,7 @@ __all__ = [
     "SendResultView",
     "SendingDNSRecordView",
     "Suppression",
+    "SuppressionExportEntry",
     "TestWebhookRequest",
     "TestWebhookResponse",
     "UpdateAgentRequest",
@@ -179,6 +181,7 @@ from e2a.v1.generated.models.page_webhook_delivery_view import PageWebhookDelive
 from e2a.v1.generated.models.page_webhook_view import PageWebhookView as PageWebhookView
 from e2a.v1.generated.models.protection_config_view import ProtectionConfigView as ProtectionConfigView
 from e2a.v1.generated.models.protection_direction_view import ProtectionDirectionView as ProtectionDirectionView
+from e2a.v1.generated.models.protection_event_export_entry import ProtectionEventExportEntry as ProtectionEventExportEntry
 from e2a.v1.generated.models.protection_gate_view import ProtectionGateView as ProtectionGateView
 from e2a.v1.generated.models.protection_holds_view import ProtectionHoldsView as ProtectionHoldsView
 from e2a.v1.generated.models.protection_scan_view import ProtectionScanView as ProtectionScanView
@@ -195,6 +198,7 @@ from e2a.v1.generated.models.send_email_request import SendEmailRequest as SendE
 from e2a.v1.generated.models.send_result_view import SendResultView as SendResultView
 from e2a.v1.generated.models.sending_dns_record_view import SendingDNSRecordView as SendingDNSRecordView
 from e2a.v1.generated.models.suppression import Suppression as Suppression
+from e2a.v1.generated.models.suppression_export_entry import SuppressionExportEntry as SuppressionExportEntry
 from e2a.v1.generated.models.test_webhook_request import TestWebhookRequest as TestWebhookRequest
 from e2a.v1.generated.models.test_webhook_response import TestWebhookResponse as TestWebhookResponse
 from e2a.v1.generated.models.update_agent_request import UpdateAgentRequest as UpdateAgentRequest

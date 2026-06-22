@@ -15,6 +15,8 @@ import { AgentIdentity } from '../models/AgentIdentity.js';
 import { Domain } from '../models/Domain.js';
 import { Message } from '../models/Message.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
+import { ProtectionEventExportEntry } from '../models/ProtectionEventExportEntry.js';
+import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
 import { UsageEventEntry } from '../models/UsageEventEntry.js';
 import { UserExportUser } from '../models/UserExportUser.js';
 import { HttpFile } from '../http/http.js';
@@ -26,7 +28,9 @@ export class UserExport {
     'generatedAt': Date;
     'messages': Array<Message>;
     'oauthConnections'?: Array<OAuthConnectionEntry>;
+    'protectionEvents': Array<ProtectionEventExportEntry>;
     'schemaVersion': string;
+    'suppressions': Array<SuppressionExportEntry>;
     'usageEvents'?: Array<UsageEventEntry>;
     'user': UserExportUser;
 
@@ -72,9 +76,21 @@ export class UserExport {
             "format": ""
         },
         {
+            "name": "protectionEvents",
+            "baseName": "protection_events",
+            "type": "Array<ProtectionEventExportEntry>",
+            "format": ""
+        },
+        {
             "name": "schemaVersion",
             "baseName": "schema_version",
             "type": "string",
+            "format": ""
+        },
+        {
+            "name": "suppressions",
+            "baseName": "suppressions",
+            "type": "Array<SuppressionExportEntry>",
             "format": ""
         },
         {

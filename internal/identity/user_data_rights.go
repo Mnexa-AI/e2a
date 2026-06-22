@@ -26,10 +26,40 @@ type UserExport struct {
 	Domains          []Domain               `json:"domains" nullable:"false"`
 	Agents           []AgentIdentity        `json:"agents" nullable:"false"`
 	APIKeys          []APIKeyExportEntry    `json:"api_keys" nullable:"false"`
-	Messages         []Message              `json:"messages" nullable:"false"`
-	UsageEvents      []UsageEventEntry      `json:"usage_events,omitempty" nullable:"false"`
-	OAuthConnections []OAuthConnectionEntry `json:"oauth_connections,omitempty" nullable:"false"`
+	Messages         []Message                    `json:"messages" nullable:"false"`
+	Suppressions     []SuppressionExportEntry     `json:"suppressions" nullable:"false"`
+	ProtectionEvents []ProtectionEventExportEntry `json:"protection_events" nullable:"false"`
+	UsageEvents      []UsageEventEntry            `json:"usage_events,omitempty" nullable:"false"`
+	OAuthConnections []OAuthConnectionEntry       `json:"oauth_connections,omitempty" nullable:"false"`
 } // @name UserExport
+
+// SuppressionExportEntry is one suppressed recipient address the account owns.
+// source_message_id is an internal correlation id, deliberately omitted.
+type SuppressionExportEntry struct {
+	Address   string    `json:"address"`
+	Reason    string    `json:"reason,omitempty"`
+	Source    string    `json:"source"`
+	CreatedAt time.Time `json:"created_at"`
+} // @name SuppressionExportEntry
+
+// ProtectionEventExportEntry is one row of the protection_events audit log for
+// the user's agents — a metadata projection. The provider-forensics `raw` blob
+// and the `spans`/`categories` detector internals are omitted (internal, noisy,
+// and not user-meaningful); the disposition (source/reason/action) and the
+// counterparty address that tripped a gate are included.
+type ProtectionEventExportEntry struct {
+	ID          string    `json:"id"`
+	MessageID   string    `json:"message_id"`
+	AgentID     string    `json:"agent_id"`
+	Direction   string    `json:"direction"`
+	Source      string    `json:"source"`
+	Reason      string    `json:"reason"`
+	Action      string    `json:"action"`
+	SubjectAddr string    `json:"subject_addr,omitempty"`
+	Detector    string    `json:"detector,omitempty"`
+	Score       *float64  `json:"score,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+} // @name ProtectionEventExportEntry
 
 // OAuthConnectionEntry is one OAuth/MCP client connection. The
 // underlying token signatures are intentionally excluded — they are
@@ -122,6 +152,18 @@ func (s *Store) ExportUserData(ctx context.Context, userID string) (*UserExport,
 		return nil, fmt.Errorf("export: load messages: %w", err)
 	}
 
+	// Suppressions (recipient addresses the account suppressed)
+	suppressions, err := scanSuppressionsForUser(ctx, tx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("export: load suppressions: %w", err)
+	}
+
+	// Protection events (the screening audit log across the user's agents)
+	protectionEvents, err := scanProtectionEventsForUser(ctx, tx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("export: load protection events: %w", err)
+	}
+
 	// Usage events (only present if E2A_USAGE_TRACKING is on)
 	events, err := scanUsageEventsForUser(ctx, tx, userID)
 	if err != nil {
@@ -133,15 +175,63 @@ func (s *Store) ExportUserData(ctx context.Context, userID string) (*UserExport,
 	}
 
 	return &UserExport{
-		GeneratedAt:   time.Now().UTC(),
-		SchemaVersion: "1",
-		User:          u,
-		Domains:       domains,
-		Agents:        agents,
-		APIKeys:       keys,
-		Messages:      messages,
-		UsageEvents:   events,
+		GeneratedAt:      time.Now().UTC(),
+		SchemaVersion:    "2",
+		User:             u,
+		Domains:          domains,
+		Agents:           agents,
+		APIKeys:          keys,
+		Messages:         messages,
+		Suppressions:     suppressions,
+		ProtectionEvents: protectionEvents,
+		UsageEvents:      events,
 	}, nil
+}
+
+// scanSuppressionsForUser loads the user's suppression list for the export.
+func scanSuppressionsForUser(ctx context.Context, tx pgx.Tx, userID string) ([]SuppressionExportEntry, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT address, COALESCE(reason, ''), source, created_at
+		   FROM suppressions WHERE user_id = $1 ORDER BY created_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []SuppressionExportEntry{}
+	for rows.Next() {
+		var e SuppressionExportEntry
+		if err := rows.Scan(&e.Address, &e.Reason, &e.Source, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// scanProtectionEventsForUser loads the screening audit log across all the user's
+// agents (metadata projection — see ProtectionEventExportEntry).
+func scanProtectionEventsForUser(ctx context.Context, tx pgx.Tx, userID string) ([]ProtectionEventExportEntry, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT pe.id, pe.message_id, pe.agent_id, pe.direction, pe.source, pe.reason,
+		        pe.action, COALESCE(pe.subject_addr, ''), COALESCE(pe.detector, ''), pe.score, pe.created_at
+		   FROM protection_events pe
+		   JOIN agent_identities a ON a.id = pe.agent_id
+		  WHERE a.user_id = $1
+		  ORDER BY pe.created_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ProtectionEventExportEntry{}
+	for rows.Next() {
+		var e ProtectionEventExportEntry
+		if err := rows.Scan(&e.ID, &e.MessageID, &e.AgentID, &e.Direction, &e.Source, &e.Reason,
+			&e.Action, &e.SubjectAddr, &e.Detector, &e.Score, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 // DeleteUserDataResult breaks out per-table row counts for audit logs.

@@ -1358,6 +1358,43 @@ components:
         - gate
         - scan
       type: object
+    ProtectionEventExportEntry:
+      additionalProperties: false
+      properties:
+        action:
+          type: string
+        agent_id:
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        detector:
+          type: string
+        direction:
+          type: string
+        id:
+          type: string
+        message_id:
+          type: string
+        reason:
+          type: string
+        score:
+          format: double
+          type: number
+        source:
+          type: string
+        subject_addr:
+          type: string
+      required:
+        - id
+        - message_id
+        - agent_id
+        - direction
+        - source
+        - reason
+        - action
+        - created_at
+      type: object
     ProtectionGateView:
       additionalProperties: false
       properties:
@@ -1636,6 +1673,23 @@ components:
         - source
         - created_at
       type: object
+    SuppressionExportEntry:
+      additionalProperties: false
+      properties:
+        address:
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        reason:
+          type: string
+        source:
+          type: string
+      required:
+        - address
+        - source
+        - created_at
+      type: object
     TestWebhookRequest:
       additionalProperties: false
       properties:
@@ -1787,8 +1841,16 @@ components:
           items:
             $ref: "#/components/schemas/OAuthConnectionEntry"
           type: array
+        protection_events:
+          items:
+            $ref: "#/components/schemas/ProtectionEventExportEntry"
+          type: array
         schema_version:
           type: string
+        suppressions:
+          items:
+            $ref: "#/components/schemas/SuppressionExportEntry"
+          type: array
         usage_events:
           items:
             $ref: "#/components/schemas/UsageEventEntry"
@@ -1803,6 +1865,8 @@ components:
         - agents
         - api_keys
         - messages
+        - suppressions
+        - protection_events
       type: object
     UserExportUser:
       additionalProperties: false

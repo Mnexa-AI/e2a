@@ -25,6 +25,8 @@ from e2a.v1.generated.models.api_key_export_entry import APIKeyExportEntry
 from e2a.v1.generated.models.domain import Domain
 from e2a.v1.generated.models.message import Message
 from e2a.v1.generated.models.o_auth_connection_entry import OAuthConnectionEntry
+from e2a.v1.generated.models.protection_event_export_entry import ProtectionEventExportEntry
+from e2a.v1.generated.models.suppression_export_entry import SuppressionExportEntry
 from e2a.v1.generated.models.usage_event_entry import UsageEventEntry
 from e2a.v1.generated.models.user_export_user import UserExportUser
 from typing import Optional, Set
@@ -40,10 +42,12 @@ class UserExport(BaseModel):
     generated_at: datetime
     messages: List[Message]
     oauth_connections: Optional[List[OAuthConnectionEntry]] = None
+    protection_events: List[ProtectionEventExportEntry]
     schema_version: StrictStr
+    suppressions: List[SuppressionExportEntry]
     usage_events: Optional[List[UsageEventEntry]] = None
     user: UserExportUser
-    __properties: ClassVar[List[str]] = ["agents", "api_keys", "domains", "generated_at", "messages", "oauth_connections", "schema_version", "usage_events", "user"]
+    __properties: ClassVar[List[str]] = ["agents", "api_keys", "domains", "generated_at", "messages", "oauth_connections", "protection_events", "schema_version", "suppressions", "usage_events", "user"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -119,6 +123,20 @@ class UserExport(BaseModel):
                 if _item_oauth_connections:
                     _items.append(_item_oauth_connections.to_dict())
             _dict['oauth_connections'] = _items
+        # override the default output from pydantic by calling `to_dict()` of each item in protection_events (list)
+        _items = []
+        if self.protection_events:
+            for _item_protection_events in self.protection_events:
+                if _item_protection_events:
+                    _items.append(_item_protection_events.to_dict())
+            _dict['protection_events'] = _items
+        # override the default output from pydantic by calling `to_dict()` of each item in suppressions (list)
+        _items = []
+        if self.suppressions:
+            for _item_suppressions in self.suppressions:
+                if _item_suppressions:
+                    _items.append(_item_suppressions.to_dict())
+            _dict['suppressions'] = _items
         # override the default output from pydantic by calling `to_dict()` of each item in usage_events (list)
         _items = []
         if self.usage_events:
@@ -147,7 +165,9 @@ class UserExport(BaseModel):
             "generated_at": obj.get("generated_at"),
             "messages": [Message.from_dict(_item) for _item in obj["messages"]] if obj.get("messages") is not None else None,
             "oauth_connections": [OAuthConnectionEntry.from_dict(_item) for _item in obj["oauth_connections"]] if obj.get("oauth_connections") is not None else None,
+            "protection_events": [ProtectionEventExportEntry.from_dict(_item) for _item in obj["protection_events"]] if obj.get("protection_events") is not None else None,
             "schema_version": obj.get("schema_version"),
+            "suppressions": [SuppressionExportEntry.from_dict(_item) for _item in obj["suppressions"]] if obj.get("suppressions") is not None else None,
             "usage_events": [UsageEventEntry.from_dict(_item) for _item in obj["usage_events"]] if obj.get("usage_events") is not None else None,
             "user": UserExportUser.from_dict(obj["user"]) if obj.get("user") is not None else None
         })
