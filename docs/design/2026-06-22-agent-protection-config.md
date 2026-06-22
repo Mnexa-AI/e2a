@@ -164,14 +164,17 @@ threshold pair. The level is the operator-facing contract; the pair is internal:
 `medium` deliberately equals today's default pair (0.5 / 0.9) so existing agents
 read back as `medium`-tuned (with scan still `off`).
 
-**Storage decision (recommended):** add an **additive** `inbound_scan_sensitivity`
-/ `outbound_scan_sensitivity` `TEXT` column (`migration 042`, default `'off'`),
-make it the API source of truth, and have the engine map level → (review, block)
-at eval time. The legacy `*_scan` + threshold columns are retained (no drop —
-non-destructive) but no longer API-exposed; they become the future raw-override
-escape hatch. This avoids a lossy float→level reverse-mapping on GET. Alternative
-(no migration) is derive-on-read, rejected because a non-canonical float pair
-(direct DB edit / future override) has no clean level to report.
+**Storage decision (as built, O4):** added an **additive**
+`inbound_scan_sensitivity` / `outbound_scan_sensitivity` `TEXT` column
+(`migration 045`, default `'off'`). The sensitivity column is the API
+source-of-truth for read-back. **Deviation from the first draft:** rather than
+have the piguard engine map level→thresholds at eval time (which would touch the
+security-critical screening hot path), `UpdateAgentProtection` writes the
+sensitivity column **and** derives + writes the existing `*_scan` toggle +
+`*_scan_*_threshold` columns in the same statement. The engine is therefore
+**unchanged** — it keeps reading the float thresholds. The two can't drift
+because only `UpdateAgentProtection` writes them, together. The retained float
+columns are also the future raw-override escape hatch.
 
 ### 4.4 Handler flow
 
@@ -315,7 +318,7 @@ Resolved (2026-06-22):
 
 Still open:
 - **O4 — sensitivity column vs derive-on-read** (§4.3). Recommend the **additive
-  column** (`migration 042`); confirm acceptance.
+  column** (`migration 045`); confirm acceptance.
 - **O5 — exact level→threshold values** (§4.3 table). Calibrate against piguard's
   score distribution before freezing the numbers (internal, so tunable even
   post-beta).
