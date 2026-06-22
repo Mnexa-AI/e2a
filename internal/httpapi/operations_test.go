@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -357,6 +358,20 @@ func testServer(t *testing.T) *httptest.Server {
 					ID: "msg_in1", AgentID: "support@acme.com", Sender: "alice@x.com",
 					Subject: "Question", EmailMessageID: "<abc@x.com>",
 					RawMessage: []byte("From: alice@x.com\r\nTo: support@acme.com\r\nSubject: Question\r\nMessage-ID: <abc@x.com>\r\n\r\nhi"),
+				}, nil
+			}
+			if messageID == "msg_bigthread" {
+				// An inbound on a thread with 60 To recipients — reply_all fans
+				// them all into the outbound set, exceeding the 50 cap.
+				var to []string
+				for i := 0; i < 60; i++ {
+					to = append(to, fmt.Sprintf("person%d@x.com", i))
+				}
+				raw := "From: alice@x.com\r\nTo: " + strings.Join(to, ", ") +
+					"\r\nSubject: Big\r\nMessage-ID: <big@x.com>\r\n\r\nhi"
+				return &identity.Message{
+					ID: "msg_bigthread", AgentID: "support@acme.com", Sender: "alice@x.com",
+					Subject: "Big", EmailMessageID: "<big@x.com>", RawMessage: []byte(raw),
 				}, nil
 			}
 			return nil, errors.New("not found")
