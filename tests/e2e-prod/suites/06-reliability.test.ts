@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { cleanup, track } from "../harness/cleanup.ts";
-import { uniqueSlug } from "../harness/fixtures.ts";
+import { uniqueSlug, holdAllOutbound } from "../harness/fixtures.ts";
 import { fail, info, warn, writeReport } from "../harness/report.ts";
 
 const client = new ApiClient();
@@ -14,7 +14,7 @@ before(async () => {
   // Single agent shared across reliability tests to avoid hitting the agent-creation rate limit.
   const slug = uniqueSlug("rel");
   const c = await client.post<{ email: string }>("/v1/agents", {
-    body: { slug, name: "rel-shared", agent_mode: "local" },
+    body: { email: `${slug}@${client.env.sharedDomain}`, name: "rel-shared" },
   });
   if (c.status !== 201) {
     throw new Error(`shared-agent setup failed: ${c.status} ${c.raw.slice(0, 200)}`);
@@ -147,18 +147,16 @@ test("reliability: two concurrent WS sessions to same agent", async () => {
   try { b.close(); } catch {}
 });
 
-test("reliability: idempotent PUT — applying same payload twice yields same state", async () => {
-  const payload = { hitl_enabled: true, hitl_expiration_action: "reject", hitl_ttl_seconds: 120 };
-  const first = await client.put(`/v1/agents/${encodeURIComponent(sharedAgentEmail)}`, { body: payload });
-  const second = await client.put(`/v1/agents/${encodeURIComponent(sharedAgentEmail)}`, { body: payload });
+test("reliability: idempotent protection PUT — applying same payload twice yields same state", async () => {
+  const first = await holdAllOutbound(client, sharedAgentEmail);
+  const second = await holdAllOutbound(client, sharedAgentEmail);
   assert.equal(first.status, 200);
   assert.equal(second.status, 200);
-  const g = await client.get<{ hitl_enabled: boolean; hitl_ttl_seconds: number; hitl_expiration_action: string }>(
-    `/v1/agents/${encodeURIComponent(sharedAgentEmail)}`,
+  const g = await client.get<{ outbound: { gate: { policy: string; action: string } } }>(
+    `/v1/agents/${encodeURIComponent(sharedAgentEmail)}/protection`,
   );
-  assert.equal(g.body?.hitl_enabled, true);
-  assert.equal(g.body?.hitl_ttl_seconds, 120);
-  assert.equal(g.body?.hitl_expiration_action, "reject");
+  assert.equal(g.body?.outbound?.gate?.action, "review");
+  assert.equal(g.body?.outbound?.gate?.policy, "allowlist");
 });
 
 test("reliability: server timestamps are RFC3339-parseable", async () => {

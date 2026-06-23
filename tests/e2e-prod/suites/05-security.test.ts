@@ -2,7 +2,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { cleanup, track } from "../harness/cleanup.ts";
-import { uniqueSlug } from "../harness/fixtures.ts";
+import { uniqueSlug, holdAllOutbound } from "../harness/fixtures.ts";
 import { fail, info, warn, writeReport } from "../harness/report.ts";
 
 const client = new ApiClient();
@@ -18,7 +18,7 @@ test("security: agent name field doesn't leak HTML/script into stored body", asy
   const slug = uniqueSlug("xss");
   const payload = `<script>alert("xss")</script>&"<><`;
   const c = await client.post<{ email: string }>("/v1/agents", {
-    body: { slug, name: payload, agent_mode: "local" },
+    body: { email: `${slug}@${client.env.sharedDomain}`, name: payload },
   });
   assert.equal(c.status, 201, c.raw.slice(0, 200));
   track("agent", c.body!.email);
@@ -39,7 +39,7 @@ test("security: agent name field doesn't leak HTML/script into stored body", asy
 
 test("security: slug accepts only safe characters (no spaces/slashes injected)", async () => {
   const r = await client.post("/v1/agents", {
-    body: { slug: "evil slug with spaces /and/slashes", name: "x", agent_mode: "local" },
+    body: { email: `evil slug with spaces /and/slashes@${client.env.sharedDomain}`, name: "x" },
   });
   if (r.status === 201) {
     fail(SUITE, "unsafe-slug-accepted", `server accepted slug with spaces and slashes: ${r.raw.slice(0, 200)}`);
@@ -51,13 +51,11 @@ test("security: slug accepts only safe characters (no spaces/slashes injected)",
 test("security: extremely long subject is bounded (no 500)", async () => {
   const slug = uniqueSlug("longsubj");
   const c = await client.post<{ email: string }>("/v1/agents", {
-    body: { slug, name: "long", agent_mode: "local" },
+    body: { email: `${slug}@${client.env.sharedDomain}`, name: "long" },
   });
   assert.equal(c.status, 201);
   track("agent", c.body!.email);
-  await client.put(`/v1/agents/${encodeURIComponent(c.body!.email)}`, {
-    body: { hitl_enabled: true, hitl_expiration_action: "reject" },
-  });
+  await holdAllOutbound(client, c.body!.email);
 
   const subject = "A".repeat(10_000);
   const r = await client.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(c.body!.email)}/messages`, {
@@ -76,13 +74,11 @@ test("security: extremely long subject is bounded (no 500)", async () => {
 test("security: CRLF injection in subject rejected or sanitized (no header smuggling)", async () => {
   const slug = uniqueSlug("crlf");
   const c = await client.post<{ email: string }>("/v1/agents", {
-    body: { slug, name: "crlf", agent_mode: "local" },
+    body: { email: `${slug}@${client.env.sharedDomain}`, name: "crlf" },
   });
   assert.equal(c.status, 201);
   track("agent", c.body!.email);
-  await client.put(`/v1/agents/${encodeURIComponent(c.body!.email)}`, {
-    body: { hitl_enabled: true, hitl_expiration_action: "reject" },
-  });
+  await holdAllOutbound(client, c.body!.email);
 
   const r = await client.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(c.body!.email)}/messages`, {
     body: {
@@ -131,13 +127,11 @@ test("security: case-insensitive email path doesn't bypass ownership", async () 
 test("security: send body with HTML — html_body distinct from body", async () => {
   const slug = uniqueSlug("html");
   const c = await client.post<{ email: string }>("/v1/agents", {
-    body: { slug, name: "html", agent_mode: "local" },
+    body: { email: `${slug}@${client.env.sharedDomain}`, name: "html" },
   });
   assert.equal(c.status, 201);
   track("agent", c.body!.email);
-  await client.put(`/v1/agents/${encodeURIComponent(c.body!.email)}`, {
-    body: { hitl_enabled: true, hitl_expiration_action: "reject" },
-  });
+  await holdAllOutbound(client, c.body!.email);
 
   const r = await client.post<{ message_id: string; status: string }>(`/v1/agents/${encodeURIComponent(c.body!.email)}/messages`, {
     body: {

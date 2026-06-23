@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { cleanup, track } from "../harness/cleanup.ts";
 import { StdioMcpClient, callTool } from "../harness/mcp.ts";
-import { uniqueSlug, uniqueSubject, SINK_EMAIL } from "../harness/fixtures.ts";
+import { uniqueSlug, uniqueSubject, SINK_EMAIL, holdAllOutbound } from "../harness/fixtures.ts";
 import { fail, info, warn, writeReport } from "../harness/report.ts";
 
 const apiClient = new ApiClient();
@@ -36,21 +36,19 @@ function extractText(r: { content?: Array<{ type: string; text?: string }> }): s
 async function ensureHitlAgent(): Promise<string> {
   const slug = uniqueSlug("mcpe");
   const c = await apiClient.post<{ email: string }>("/v1/agents", {
-    body: { slug, name: "mcp ext", agent_mode: "local" },
+    body: { email: `${slug}@${apiClient.env.sharedDomain}`, name: "mcp ext" },
   });
   if (c.status !== 201) throw new Error(`create agent: ${c.status} ${c.raw.slice(0, 200)}`);
   const email = c.body!.email;
   track("agent", email);
-  const u = await apiClient.put(`/v1/agents/${encodeURIComponent(email)}`, {
-    body: { hitl_enabled: true, hitl_expiration_action: "reject", hitl_ttl_seconds: 120 },
-  });
-  if (u.status !== 200) throw new Error(`enable HITL: ${u.status}`);
+  const u = await holdAllOutbound(apiClient, email);
+  if (u.status !== 200) throw new Error(`enable outbound review: ${u.status}`);
   return email;
 }
 
 test("mcp-ext: create_agent tool registers a new agent via MCP", async () => {
   const slug = uniqueSlug("mcpcreate");
-  const r = await callTool(mcp, "create_agent", { slug, name: "mcp created", agent_mode: "local" });
+  const r = await callTool(mcp, "create_agent", { email: `${slug}@${apiClient.env.sharedDomain}`, name: "mcp created" });
   if (r.isError) {
     fail(SUITE, "create-agent-error", `create_agent reported isError: ${extractText(r).slice(0, 200)}`);
     return;
@@ -93,8 +91,8 @@ test("mcp-ext: send_email tool happy path with HITL agent queues message", async
   }
   const parsed = JSON.parse(extractText(r)) as { message_id?: string; status?: string };
   assert.ok(parsed.message_id?.startsWith("msg_"), `expected msg_ prefix, got "${parsed.message_id}"`);
-  if (parsed.status !== "pending_approval") {
-    info(SUITE, "mcp-send-not-pending", `expected pending_approval for HITL, got "${parsed.status}"`);
+  if (parsed.status !== "pending_review") {
+    info(SUITE, "mcp-send-not-pending", `expected pending_review for review-gated agent, got "${parsed.status}"`);
   }
   // Clean up via API.
   await apiClient.post(`/v1/agents/${encodeURIComponent(email)}/messages/${parsed.message_id}/reject`, { body: { reason: "e2e mcp send cleanup" } });

@@ -2,7 +2,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { cleanup, track } from "../harness/cleanup.ts";
-import { uniqueSlug } from "../harness/fixtures.ts";
+import { uniqueSlug, holdAllOutbound } from "../harness/fixtures.ts";
 import { info, warn, writeReport, fail } from "../harness/report.ts";
 
 const client = new ApiClient();
@@ -20,7 +20,7 @@ test("concurrency: 5 parallel creates with distinct slugs all succeed", async ()
   const slugs = Array.from({ length: 5 }, () => uniqueSlug("par"));
   const results = await Promise.all(
     slugs.map((slug) =>
-      burst.post<{ email: string }>("/v1/agents", { body: { slug, name: "par", agent_mode: "local" } }),
+      burst.post<{ email: string }>("/v1/agents", { body: { email: `${slug}@${burst.env.sharedDomain}`, name: "par" } }),
     ),
   );
   for (const r of results) {
@@ -33,7 +33,7 @@ test("concurrency: 5 parallel creates with the SAME slug — exactly one wins, r
   const slug = uniqueSlug("race");
   const results = await Promise.all(
     Array.from({ length: 5 }, () =>
-      burst.post<{ email: string }>("/v1/agents", { body: { slug, name: "race", agent_mode: "local" } }),
+      burst.post<{ email: string }>("/v1/agents", { body: { email: `${slug}@${burst.env.sharedDomain}`, name: "race" } }),
     ),
   );
   const successes = results.filter((r) => r.status === 201);
@@ -57,14 +57,14 @@ test("concurrency: 5 parallel creates with the SAME slug — exactly one wins, r
 test("concurrency: parallel reads of same agent return consistent body", async () => {
   const slug = uniqueSlug("cr");
   const c = await client.post<{ email: string }>("/v1/agents", {
-    body: { slug, name: "consistency", agent_mode: "local" },
+    body: { email: `${slug}@${client.env.sharedDomain}`, name: "consistency" },
   });
   assert.equal(c.status, 201);
   const email = c.body!.email;
   track("agent", email);
 
   const reads = await Promise.all(
-    Array.from({ length: 8 }, () => burst.get<{ email: string; hitl_enabled: boolean }>(`/v1/agents/${encodeURIComponent(email)}`)),
+    Array.from({ length: 8 }, () => burst.get<{ email: string }>(`/v1/agents/${encodeURIComponent(email)}`)),
   );
   for (const r of reads) {
     assert.equal(r.status, 200);
@@ -74,31 +74,31 @@ test("concurrency: parallel reads of same agent return consistent body", async (
   assert.equal(bodies.size, 1, `expected identical bodies under parallel read, got ${bodies.size} distinct`);
 });
 
-test("concurrency: parallel PUT toggles converge to a final state (no 500)", async () => {
+test("concurrency: parallel protection PUTs converge to a final state (no 500)", async () => {
   const slug = uniqueSlug("toggle");
   const c = await client.post<{ email: string }>("/v1/agents", {
-    body: { slug, name: "toggle", agent_mode: "local" },
+    body: { email: `${slug}@${client.env.sharedDomain}`, name: "toggle" },
   });
   assert.equal(c.status, 201);
   const email = c.body!.email;
   track("agent", email);
 
   const ops = await Promise.all([
-    burst.put(`/v1/agents/${encodeURIComponent(email)}`, { body: { hitl_enabled: true } }),
-    burst.put(`/v1/agents/${encodeURIComponent(email)}`, { body: { hitl_enabled: false } }),
-    burst.put(`/v1/agents/${encodeURIComponent(email)}`, { body: { hitl_enabled: true } }),
-    burst.put(`/v1/agents/${encodeURIComponent(email)}`, { body: { hitl_enabled: false } }),
+    holdAllOutbound(burst, email),
+    holdAllOutbound(burst, email),
+    holdAllOutbound(burst, email),
+    holdAllOutbound(burst, email),
   ]);
   for (const r of ops) {
     if (r.status >= 500) {
-      fail(SUITE, "parallel-put-500", `PUT returned ${r.status} under concurrent updates: ${r.raw.slice(0, 200)}`);
+      fail(SUITE, "parallel-put-500", `protection PUT returned ${r.status} under concurrent updates: ${r.raw.slice(0, 200)}`);
     }
     assert.ok(r.status < 500, `no 5xx under contention, got ${r.status}`);
   }
-  // Final state should be one of the toggled values, not corrupted.
-  const final = await client.get<{ hitl_enabled: boolean }>(`/v1/agents/${encodeURIComponent(email)}`);
+  // Final state should be a valid protection config, not corrupted.
+  const final = await client.get<{ outbound: { gate: { action: string } } }>(`/v1/agents/${encodeURIComponent(email)}/protection`);
   assert.equal(final.status, 200);
-  assert.equal(typeof final.body?.hitl_enabled, "boolean");
+  assert.equal(typeof final.body?.outbound?.gate?.action, "string");
 });
 
 test("concurrency: parallel DELETE of the same agent is idempotent under contention (no 5xx)", async () => {
@@ -112,7 +112,7 @@ test("concurrency: parallel DELETE of the same agent is idempotent under content
   // specifically, tighten the assertion to ok.length === 1.
   const slug = uniqueSlug("del");
   const c = await client.post<{ email: string }>("/v1/agents", {
-    body: { slug, name: "del", agent_mode: "local" },
+    body: { email: `${slug}@${client.env.sharedDomain}`, name: "del" },
   });
   assert.equal(c.status, 201);
   const email = c.body!.email;
@@ -140,14 +140,12 @@ test("concurrency: parallel DELETE of the same agent is idempotent under content
 test("concurrency: 8 parallel sends from HITL agent — all queue (no dropped/duplicated)", async () => {
   const slug = uniqueSlug("hitlconc");
   const c = await client.post<{ email: string }>("/v1/agents", {
-    body: { slug, name: "hitl-conc", agent_mode: "local" },
+    body: { email: `${slug}@${client.env.sharedDomain}`, name: "hitl-conc" },
   });
   assert.equal(c.status, 201);
   const email = c.body!.email;
   track("agent", email);
-  const u = await client.put(`/v1/agents/${encodeURIComponent(email)}`, {
-    body: { hitl_enabled: true, hitl_expiration_action: "reject", hitl_ttl_seconds: 60 },
-  });
+  const u = await holdAllOutbound(client, email);
   assert.equal(u.status, 200);
 
   const N = 8;

@@ -2,7 +2,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { cleanup, track } from "../harness/cleanup.ts";
-import { uniqueSlug } from "../harness/fixtures.ts";
+import { uniqueSlug, holdAllOutbound } from "../harness/fixtures.ts";
 import { fail, info, warn, writeReport } from "../harness/report.ts";
 
 const client = new ApiClient();
@@ -19,14 +19,12 @@ after(async () => {
 test("quota: send /v1/agents/{email}/messages rapidly until first 429 (spec says 60/min/agent)", async () => {
   const slug = uniqueSlug("quota");
   const c = await client.post<{ email: string }>("/v1/agents", {
-    body: { slug, name: "quota", agent_mode: "local" },
+    body: { email: `${slug}@${client.env.sharedDomain}`, name: "quota" },
   });
   assert.equal(c.status, 201);
   const email = c.body!.email;
   track("agent", email);
-  await client.put(`/v1/agents/${encodeURIComponent(email)}`, {
-    body: { hitl_enabled: true, hitl_expiration_action: "reject", hitl_ttl_seconds: 60 },
-  });
+  await holdAllOutbound(client, email);
 
   const ids: string[] = [];
   let limited: { status: number; retryAfter: string | undefined; index: number } | null = null;
@@ -71,7 +69,7 @@ test("quota: 429 on /agents create is documented and observable under repeated c
   let lastCreatedEmail: string | null = null;
   for (let i = 0; i < 15; i++) {
     const r = await burst.post<{ email: string }>("/v1/agents", {
-      body: { slug: uniqueSlug(`q${i}`), name: "q", agent_mode: "local" },
+      body: { email: `${uniqueSlug(`q${i}`)}@${burst.env.sharedDomain}`, name: "q" },
     });
     if (r.body?.email) {
       track("agent", r.body.email);
