@@ -151,9 +151,7 @@ class Runner:
             if "register_agent" in s:
                 agent = s["register_agent"]
                 email = self.resolve(agent["email"])
-                resp = self._raw(
-                    "POST", "/v1/agents", {"address": email, "agent_mode": agent.get("agent_mode")}
-                )
+                resp = self._raw("POST", "/v1/agents", {"email": email})
                 if resp.status_code >= 400 and resp.status_code != 409:
                     resp.raise_for_status()
                 self.vars["agent_email"] = email

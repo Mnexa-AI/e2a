@@ -53,8 +53,7 @@ type setupStep struct {
 }
 
 type agentSetup struct {
-	Email     string `yaml:"email"`
-	AgentMode string `yaml:"agent_mode"`
+	Email string `yaml:"email"`
 }
 
 type messageSetup struct {
