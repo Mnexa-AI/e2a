@@ -97,9 +97,33 @@ export type AgentCreateResponse = {
   email: string;
 };
 
-/** Update agent request for PUT /api/dashboard/agents/{email}. Only the
- *  review-queue TTL knobs are still honored by the backend. */
-export type UpdateAgentRequest = {
-  hitl_ttl_seconds?: number;
-  hitl_expiration_action?: "approve" | "reject";
+// ── Protection config (GET/PUT /v1/agents/{email}/protection) ──
+// Mirrors ProtectionConfigView. Beta. The dashboard only edits the
+// `holds` section; inbound/outbound are read + passed back unchanged on
+// the wholesale PUT.
+
+export type ProtectionGate = {
+  policy?: "open" | "allowlist" | "domain";
+  allowlist?: string[];
+  action?: "flag" | "review" | "block";
+};
+
+export type ProtectionScan = {
+  sensitivity?: "off" | "low" | "medium" | "high";
+};
+
+export type ProtectionDirection = {
+  gate: ProtectionGate;
+  scan: ProtectionScan;
+};
+
+export type ProtectionHolds = {
+  ttl_seconds?: number;
+  on_expiry?: "approve" | "reject";
+};
+
+export type ProtectionConfig = {
+  inbound: ProtectionDirection;
+  outbound: ProtectionDirection;
+  holds: ProtectionHolds;
 };

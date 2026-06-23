@@ -18,6 +18,12 @@ export const agentsKey = "agents";
 export const domainsKey = "domains";
 export const pendingMessagesKey = "pending-messages";
 
+// Per-agent protection config (GET /v1/agents/{address}/protection),
+// keyed by the owning agent's email. The inbox-settings Review-queue
+// editor reads + writes the `holds` section through this key.
+export const protectionKey = (email: string) =>
+  ["protection", email] as const;
+
 // Key tuple includes every filter that affects the response so two
 // surfaces fetching the same email under different filters don't
 // poison each other's cache. Pre-fix the key omitted `status`, so a
@@ -95,4 +101,11 @@ export function invalidateAllAgentMessages() {
 
 export function invalidateDomains() {
   return mutate(domainsKey);
+}
+
+// After the Review-queue editor saves a new TTL / on-expiry, the per-
+// agent protection fetch needs to refetch so the collapsed summary
+// reflects the change.
+export function invalidateProtection(email: string) {
+  return mutate(protectionKey(email));
 }

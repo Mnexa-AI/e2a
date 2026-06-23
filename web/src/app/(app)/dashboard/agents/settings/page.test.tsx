@@ -59,6 +59,14 @@ const baseAgent = {
   hitl_expiration_action: "reject" as const,
 };
 
+// GET /v1/agents/{email}/protection response — the review-queue editor
+// reads holds.{ttl_seconds,on_expiry} from here (the beta protection API).
+const PROTECTION = {
+  inbound: { gate: { policy: "open", action: "flag" }, scan: { sensitivity: "off" } },
+  outbound: { gate: { policy: "open", action: "flag" }, scan: { sensitivity: "off" } },
+  holds: { ttl_seconds: 604800, on_expiry: "reject" },
+};
+
 function mockAgent(agent: typeof baseAgent) {
   mockFetch.mockImplementation((url: string, init?: RequestInit) => {
     if (url === "/api/dashboard/agents" && !init?.method) {
@@ -67,6 +75,9 @@ function mockAgent(agent: typeof baseAgent) {
         status: 200,
         json: () => Promise.resolve({ agents: [agent] }),
       });
+    }
+    if (url === `/v1/agents/${encodeURIComponent(agent.email)}/protection` && !init?.method) {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(PROTECTION) });
     }
     return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve("not found") });
   });
@@ -99,8 +110,12 @@ describe("AgentSettingsPage", () => {
       expect(screen.getByTestId("agent-settings")).toBeInTheDocument();
     });
 
-    // Review queue (HITL TTL) section + collapsed editor summary.
-    expect(screen.getByText("Review queue")).toBeInTheDocument();
+    // Review queue (beta) section + collapsed editor summary — gated on
+    // the protection fetch, so wait for it to settle.
+    await waitFor(() => {
+      expect(screen.getByText("Review queue")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Beta")).toBeInTheDocument();
     expect(screen.getByText(/Review window:/)).toBeInTheDocument();
 
     // The retired Mode + per-agent Webhook sections must not render.
@@ -113,8 +128,9 @@ describe("AgentSettingsPage", () => {
     expect(screen.getByRole("button", { name: /Delete inbox/i })).toBeInTheDocument();
   });
 
-  it("editing the review-queue TTL PUTs hitl_ttl_seconds + hitl_expiration_action", async () => {
+  it("editing the review-queue TTL PUTs the patched holds to the protection API", async () => {
     setSearchParams({ email: baseAgent.email });
+    const protectionUrl = `/v1/agents/${encodeURIComponent(baseAgent.email)}/protection`;
     let putBody: string | null = null;
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (url === "/api/dashboard/agents" && !init?.method) {
@@ -124,12 +140,12 @@ describe("AgentSettingsPage", () => {
           json: () => Promise.resolve({ agents: [baseAgent] }),
         });
       }
-      if (
-        url === `/api/dashboard/agents/${encodeURIComponent(baseAgent.email)}` &&
-        init?.method === "PUT"
-      ) {
+      if (url === protectionUrl && !init?.method) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(PROTECTION) });
+      }
+      if (url === protectionUrl && init?.method === "PUT") {
         putBody = (init.body as string) ?? "";
-        return Promise.resolve({ ok: true, status: 204 });
+        return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve("") });
       }
       return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve("not found") });
     });
@@ -147,9 +163,11 @@ describe("AgentSettingsPage", () => {
     await waitFor(() => {
       expect(putBody).not.toBeNull();
     });
-    expect(putBody).toBe(
-      JSON.stringify({ hitl_ttl_seconds: 3600, hitl_expiration_action: "reject" }),
-    );
+    // Wholesale PUT: holds patched, inbound/outbound preserved.
+    const body = JSON.parse(putBody!);
+    expect(body.holds).toEqual({ ttl_seconds: 3600, on_expiry: "reject" });
+    expect(body.inbound).toEqual(PROTECTION.inbound);
+    expect(body.outbound).toEqual(PROTECTION.outbound);
   });
 
   it("clicking 'Delete inbox' DELETEs and routes back to /dashboard", async () => {

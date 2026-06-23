@@ -4,7 +4,7 @@
 import type {
   DomainInfo,
   AgentCreateResponse,
-  UpdateAgentRequest,
+  ProtectionConfig,
 } from "./types";
 import type {
   DashboardAgent,
@@ -350,16 +350,38 @@ export async function getMessageDetail(
   };
 }
 
-// ── Agent update (general) ──────────────────────────────
+// ── Protection config (review-queue holds) ──────────────
 
-export async function updateAgent(
+// GET /v1/agents/{address}/protection — the agent's protection posture
+// (inbound/outbound trust gate + content scan + the review-hold queue).
+// Account-scope only; the dashboard's session cookie qualifies. Beta:
+// the shape may change before it's declared stable.
+export async function getProtection(email: string): Promise<ProtectionConfig> {
+  return request<ProtectionConfig>(
+    "/v1/agents/" + encodeURIComponent(email) + "/protection",
+  );
+}
+
+// Update only the review-queue holds (TTL + on-expiry action). The
+// protection PUT is a wholesale replace (inbound/outbound/holds all
+// required), so we read the current config, patch `holds`, and write the
+// whole thing back — preserving the inbound/outbound sections we don't
+// touch here.
+export async function setProtectionHolds(
   email: string,
-  update: UpdateAgentRequest,
+  holds: { ttlSeconds: number; onExpiry: "approve" | "reject" },
 ): Promise<void> {
-  return request("/api/dashboard/agents/" + encodeURIComponent(email), {
-    method: "PUT",
-    body: JSON.stringify(update),
-  });
+  const current = await getProtection(email);
+  return request(
+    "/v1/agents/" + encodeURIComponent(email) + "/protection",
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        ...current,
+        holds: { ttl_seconds: holds.ttlSeconds, on_expiry: holds.onExpiry },
+      }),
+    },
+  );
 }
 
 // ── HITL pending messages ───────────────────────────────

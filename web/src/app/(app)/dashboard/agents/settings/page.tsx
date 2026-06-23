@@ -6,10 +6,16 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import useSWR from "swr";
 import { Eyebrow } from "../../../../components/loft/Eyebrow";
-import { deleteAgent } from "../../../../components/onboarding/api";
+import { Chip } from "../../../../components/loft/Chip";
+import { deleteAgent, getProtection } from "../../../../components/onboarding/api";
 import { useAgents } from "../../../../components/hooks/useAgents";
-import { invalidateAgents } from "../../../../../lib/swrKeys";
+import {
+  invalidateAgents,
+  invalidateProtection,
+  protectionKey,
+} from "../../../../../lib/swrKeys";
 import { HITLEditor } from "../../_components/HITLEditor";
 
 // Suspense-wrap so useSearchParams stays inside a Suspense boundary
@@ -38,6 +44,14 @@ function AgentSettingsContent({ email }: { email: string }) {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
+  // Review-queue config lives on the beta protection sub-resource
+  // (GET /v1/agents/{email}/protection → holds.{ttl_seconds,on_expiry}),
+  // not on the agent identity. Fetched separately, keyed by email.
+  const { data: protection } = useSWR(
+    agent ? protectionKey(agent.email) : null,
+    () => getProtection(agent!.email),
+  );
+
   // Three error states surfaced as one string:
   //   1. Missing ?email= → URL-shape problem
   //   2. The fetch errored
@@ -50,12 +64,10 @@ function AgentSettingsContent({ email }: { email: string }) {
         ? `Inbox ${email} not found`
         : "";
 
-  // Editor saves invalidate the shared `agentsKey` cache (see
-  // HITLEditor). We re-derive the local `agent` value from
-  // useAgents(), so no refreshKey-bump pattern is needed any more —
-  // SWR fans the new data out to every consumer.
+  // After the Review-queue editor saves, refetch the protection config
+  // so the collapsed summary reflects the new TTL / on-expiry.
   const onEditorSaved = () => {
-    void invalidateAgents();
+    if (agent) void invalidateProtection(agent.email);
   };
 
   const onDelete = async () => {
@@ -106,18 +118,20 @@ function AgentSettingsContent({ email }: { email: string }) {
         width: "100%",
       }}
     >
-      {/* Review queue — only when the domain is verified, matches the
-          prior gating (the approve / reject pipeline needs a real
-          domain to deliver notifications). */}
-      {agent.domain_verified && (
+      {/* Review queue — backed by the beta protection sub-resource.
+          Only when the domain is verified (the approve / reject pipeline
+          needs a real domain to deliver notifications) and once the
+          protection config has loaded. */}
+      {agent.domain_verified && protection && (
         <Section
           title="Review queue"
+          beta
           subtitle="When a message is held for review (by an inbound/outbound policy or content scan), it waits for an Approve or Reject — or auto-resolves at the TTL below."
         >
           <HITLEditor
             email={agent.email}
-            ttlSeconds={agent.hitl_ttl_seconds}
-            expirationAction={agent.hitl_expiration_action}
+            ttlSeconds={protection.holds.ttl_seconds ?? 604800}
+            expirationAction={protection.holds.on_expiry ?? "reject"}
             onUpdated={onEditorSaved}
           />
         </Section>
@@ -189,10 +203,12 @@ function AgentSettingsContent({ email }: { email: string }) {
 function Section({
   title,
   subtitle,
+  beta = false,
   children,
 }: {
   title: string;
   subtitle: string;
+  beta?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -205,7 +221,10 @@ function Section({
         padding: "20px 22px",
       }}
     >
-      <Eyebrow>{title}</Eyebrow>
+      <div className="flex items-center gap-2">
+        <Eyebrow>{title}</Eyebrow>
+        {beta && <Chip tone="warn">Beta</Chip>}
+      </div>
       <p
         className="mt-2 mb-4"
         style={{

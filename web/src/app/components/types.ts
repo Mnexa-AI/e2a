@@ -17,10 +17,7 @@ export type DashboardAgent = {
   email: string;
   name: string;
   domain_verified: boolean;
-  public: boolean;
   created_at: string;
-  hitl_ttl_seconds: number;
-  hitl_expiration_action: "approve" | "reject";
 };
 
 // Aggregated client-side from `GET /v1/agents/{address}/messages?

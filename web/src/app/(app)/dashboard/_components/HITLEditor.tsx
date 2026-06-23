@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { updateAgent } from "../../../components/onboarding/api";
+import { setProtectionHolds } from "../../../components/onboarding/api";
 
 // TTL presets in seconds; "custom" maps to an inline number input.
 const TTL_PRESETS: Array<{ label: string; seconds: number }> = [
@@ -70,14 +70,14 @@ export function HITLEditor({
     setSaving(true);
     setError("");
     try {
-      await updateAgent(email, {
-        hitl_ttl_seconds: draftTTL,
-        hitl_expiration_action: draftAction,
+      await setProtectionHolds(email, {
+        ttlSeconds: draftTTL,
+        onExpiry: draftAction,
       });
       setEditing(false);
       onUpdated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update HITL");
+      setError(err instanceof Error ? err.message : "Failed to update review queue");
     } finally {
       setSaving(false);
     }
