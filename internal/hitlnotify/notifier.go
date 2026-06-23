@@ -1,5 +1,5 @@
 // Package hitlnotify sends the approval notification email that fires
-// whenever a new outbound message enters pending_approval.
+// whenever a new outbound message enters pending_review.
 //
 // The notification is the reviewer's primary touchpoint with HITL — it
 // arrives in the account owner's inbox with a preview of the held
@@ -153,7 +153,7 @@ func (n *Notifier) NotifyPendingApprovalAsync(msg *identity.Message, agent *iden
 		// Operator-side misconfiguration: notifier wasn't wired (most
 		// likely because OutboundSMTP.FromDomain or HTTP.PublicURL is
 		// unset; the wiring in cmd/e2a/main.go gates on both). The API
-		// still returns 202 pending_approval to the caller, but the
+		// still returns 202 pending_review to the caller, but the
 		// reviewer never gets an email — silent and confusing without
 		// a log line.
 		msgID := ""

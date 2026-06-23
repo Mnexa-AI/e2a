@@ -201,15 +201,15 @@ type API struct {
 	// configured (the orphan reaper is the backstop either way).
 	domainTeardownHook func(ctx context.Context, tx pgx.Tx, domain string) error
 
-	// publisher routes email.sent / email.pending_approval /
-	// email.approved / email.rejected events to the webhooks
+	// publisher routes email.sent / email.pending_review /
+	// email.review_approved / email.review_rejected events to the webhooks
 	// resource — the sole push path since the legacy per-agent
 	// webhook_url was removed in slice 3. Optional — when nil, the
 	// trigger sites silently skip the publish step.
 	publisher webhookpub.Publisher
 	// outbox is the slice-4 transactional publisher for outbound
 	// events. When wired AND its FeatureFlag is enabled, post-side-
-	// effect events (email.sent, email.approved) fire via
+	// effect events (email.sent, email.review_approved) fire via
 	// PublishBestEffortTx so the outbox write never rolls back the
 	// already-committed SES.Send. Pre-side-effect HITL events stay on
 	// the legacy `go publisher.Publish` path per the §5.12 design
@@ -367,7 +367,7 @@ func (a *API) publishPendingApproval(ctx context.Context, e webhookpub.Event, pe
 	}
 }
 
-// publishApproved fires email.approved via the outbox
+// publishApproved fires email.review_approved via the outbox
 // (PublishBestEffortTx — POST-side-effect: SES has already accepted
 // the approved send) AND the legacy goroutine.
 func (a *API) publishApproved(ctx context.Context, e webhookpub.Event, sentMsg *identity.Message) {
@@ -389,7 +389,7 @@ func (a *API) publishApproved(ctx context.Context, e webhookpub.Event, sentMsg *
 	}
 }
 
-// publishRejected fires email.rejected via the outbox (PublishTx —
+// publishRejected fires email.review_rejected via the outbox (PublishTx —
 // pre-side-effect: rejection is a row update, no SES involvement) AND
 // the legacy goroutine.
 func (a *API) publishRejected(ctx context.Context, e webhookpub.Event, rejectedMsgID string) {
@@ -960,7 +960,7 @@ func checkDomainRecords(domain, smtpDomain, verificationToken, dkimSelector, dki
 }
 
 // holdForApproval persists a fully composed outbound SendRequest as a
-// pending_approval message and writes a 202 response. It is the shared
+// pending_review message and writes a 202 response. It is the shared
 // branch taken by handleSendEmail, handleReplyToMessage, and
 // handleSendTestEmail when outbound screening holds the message for review.
 //

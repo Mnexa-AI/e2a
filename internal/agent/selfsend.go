@@ -118,7 +118,7 @@ func (a *API) performSelfSend(
 // Failure-mode note: the inbound row write happens INSIDE ApproveAndSend's
 // send callback but uses a non-tx connection. If the callback succeeds but
 // the subsequent tx UPDATE / Commit fails, the inbound row will exist
-// while the outbound row stays pending_approval. Same crash-window class
+// while the outbound row stays pending_review. Same crash-window class
 // as the existing SES-side issue documented on ApproveAndSend's docstring.
 // Operator-visible symptom: a "self-message" inbox row with no matching
 // status=sent outbound row.

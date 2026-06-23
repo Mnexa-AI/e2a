@@ -251,7 +251,7 @@ func (w *Worker) autoReject(ctx context.Context, messageID, reason string) {
 		}
 		// This is the worst-case path: auto-approve already failed (or
 		// the policy was reject), and now the rejection write fails too.
-		// The row is stuck in pending_approval until an operator
+		// The row is stuck in pending_review until an operator
 		// intervenes. Tag the log line so monitors / alerting can match
 		// on it specifically — distinct from routine "[hitl-worker]"
 		// noise.

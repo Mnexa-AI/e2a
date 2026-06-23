@@ -33,7 +33,7 @@ type Outbox interface {
 	// its business state if the outbox write fails.
 	//
 	// Used for PRE-side-effect triggers (email.received, future
-	// email.bounced from SNS, email.pending_approval, email.rejected).
+	// email.bounced from SNS, email.pending_review, email.review_rejected).
 	// If the outbox write fails the caller's tx rolls back; on
 	// retry, the deterministic event id makes the second outbox
 	// INSERT a no-op via ON CONFLICT (id) DO NOTHING.
@@ -52,7 +52,7 @@ type Outbox interface {
 	// the event. Without this signal, an outbox failure under
 	// WEBHOOKS_OUTBOX_ENABLED=true would silently drop the event.
 	//
-	// Used for POST-side-effect triggers (email.sent, email.approved)
+	// Used for POST-side-effect triggers (email.sent, email.review_approved)
 	// where the irreversible action (SES.Send) has already happened
 	// and rolling back the business state would orphan an SES
 	// delivery.

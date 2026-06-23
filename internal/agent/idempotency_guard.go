@@ -36,7 +36,7 @@ import (
 //
 // Status-code policy for finalize:
 //   - 2xx → Complete (cache for TTL). 202 (HITL held) included; a
-//     retry must not create a second pending_approval row.
+//     retry must not create a second pending_review row.
 //   - 4xx or 5xx, side effect NOT committed → Release. Client errors
 //     mean the caller can fix and retry; an early server error before
 //     the side effect happened means the caller can safely retry too.
