@@ -18,22 +18,28 @@ from e2a.v1.websocket import WSNotification, _build_ws_url
 
 
 def test_build_ws_url_https():
-    url = _build_ws_url("https://e2a.dev", "bot@agents.e2a.dev", "e2a_key")
-    assert url == "wss://e2a.dev/v1/agents/bot%40agents.e2a.dev/ws?token=e2a_key"
+    # Auth is the Authorization header now — the key must NOT appear in the URL.
+    url = _build_ws_url("https://e2a.dev", "bot@agents.e2a.dev")
+    assert url == "wss://e2a.dev/v1/agents/bot%40agents.e2a.dev/ws"
 
 
 def test_build_ws_url_http():
-    url = _build_ws_url("http://localhost:8080", "bot@agents.e2a.dev", "key")
-    assert url == "ws://localhost:8080/v1/agents/bot%40agents.e2a.dev/ws?token=key"
+    url = _build_ws_url("http://localhost:8080", "bot@agents.e2a.dev")
+    assert url == "ws://localhost:8080/v1/agents/bot%40agents.e2a.dev/ws"
+
+
+def test_build_ws_url_no_credential_in_url():
+    url = _build_ws_url("https://e2a.dev", "bot@agents.e2a.dev")
+    assert "token=" not in url and "?" not in url
 
 
 def test_build_ws_url_encodes_email():
-    url = _build_ws_url("https://e2a.dev", "bot+tag@agents.e2a.dev", "k")
+    url = _build_ws_url("https://e2a.dev", "bot+tag@agents.e2a.dev")
     assert "bot%2Btag%40agents.e2a.dev" in url
 
 
 def test_build_ws_url_uses_v1_path():
-    url = _build_ws_url("https://e2a.dev", "bot@agents.e2a.dev", "k")
+    url = _build_ws_url("https://e2a.dev", "bot@agents.e2a.dev")
     assert "/v1/agents/" in url
     # Must NOT use legacy /api/agents/ path
     assert "/api/agents/" not in url.replace("/v1/agents/", "")
@@ -121,7 +127,7 @@ async def test_connect_and_stream_yields_notifications_no_fetch():
 
     with _patch_websockets_connect(fake_ws):
         results = []
-        async for notif in _connect_and_stream("wss://e2a.dev/ws", "bot@agents.e2a.dev"):
+        async for notif in _connect_and_stream("wss://e2a.dev/ws", "k", "bot@agents.e2a.dev"):
             results.append(notif)
 
     assert len(results) == 1
@@ -149,7 +155,7 @@ async def test_connect_and_stream_tolerates_legacy_to_field():
     fake_ws = FakeWebSocket([payload])
 
     with _patch_websockets_connect(fake_ws):
-        async for notif in _connect_and_stream("wss://e2a.dev/ws", "bot@agents.e2a.dev"):
+        async for notif in _connect_and_stream("wss://e2a.dev/ws", "k", "bot@agents.e2a.dev"):
             assert notif.recipient == "bot@agents.e2a.dev"
 
 
@@ -162,7 +168,7 @@ async def test_connect_and_stream_no_ack_sent():
     fake_ws = FakeWebSocket([payload])
 
     with _patch_websockets_connect(fake_ws):
-        async for _ in _connect_and_stream("wss://e2a.dev/ws", "bot@agents.e2a.dev"):
+        async for _ in _connect_and_stream("wss://e2a.dev/ws", "k", "bot@agents.e2a.dev"):
             pass
 
     fake_ws.send.assert_not_called()
@@ -181,7 +187,7 @@ async def test_connect_and_stream_skips_malformed():
 
     with _patch_websockets_connect(fake_ws):
         results = []
-        async for notif in _connect_and_stream("wss://e2a.dev/ws", "bot@agents.e2a.dev"):
+        async for notif in _connect_and_stream("wss://e2a.dev/ws", "k", "bot@agents.e2a.dev"):
             results.append(notif)
 
     assert len(results) == 1
@@ -195,7 +201,31 @@ def test_wsstream_builds_v1_url():
     from e2a.v1.websocket import WSStream
 
     s = WSStream(api_key="k", agent_email="bot@agents.e2a.dev", base_url="https://e2a.dev")
-    assert s._url == "wss://e2a.dev/v1/agents/bot%40agents.e2a.dev/ws?token=k"
+    # Auth is the Authorization header now — the key must NOT be in the URL.
+    assert s._url == "wss://e2a.dev/v1/agents/bot%40agents.e2a.dev/ws"
+    assert "token=" not in s._url
+
+
+@pytest.mark.anyio
+async def test_ws_connect_sends_authorization_header():
+    """The API key must be sent as the Authorization: Bearer handshake header
+    (via websockets' additional_headers), never in the URL."""
+    from e2a.v1.websocket import _connect_and_stream
+
+    fake_ws = FakeWebSocket([
+        json.dumps({"message_id": "m1", "from": "a@b.c", "recipient": "bot@x.dev", "subject": "", "received_at": ""})
+    ])
+    mock_module = MagicMock()
+    mock_module.connect = MagicMock(return_value=fake_ws)
+    with patch.dict(sys.modules, {"websockets": mock_module}):
+        async for _ in _connect_and_stream("wss://e2a.dev/v1/agents/bot%40x.dev/ws", "secret_key", "bot@x.dev"):
+            pass
+
+    mock_module.connect.assert_called_once()
+    _args, kwargs = mock_module.connect.call_args
+    assert kwargs.get("additional_headers") == {"Authorization": "Bearer secret_key"}, kwargs
+    url_arg = mock_module.connect.call_args.args[0]
+    assert "secret_key" not in url_arg and "token=" not in url_arg
 
 
 @pytest.mark.anyio

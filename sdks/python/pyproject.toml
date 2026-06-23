@@ -41,4 +41,4 @@ Documentation = "https://e2a.dev"
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "pytest-httpx", "anyio[trio]", "pyyaml>=6", "build", "twine"]
-ws = ["websockets>=12"]
+ws = ["websockets>=14"]

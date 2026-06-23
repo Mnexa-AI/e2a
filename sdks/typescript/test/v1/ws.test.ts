@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { WSNotification } from "../../src/v1/ws.js";
 
 // These are pure unit tests for the WS surface. Network-level tests
@@ -57,6 +57,38 @@ describe("WSListener exponential backoff", () => {
     // construction).
     expect(l).toBeDefined();
     l.close();
+  });
+});
+
+describe("WSListener auth", () => {
+  it("sends the API key as an Authorization: Bearer handshake header, not in the URL", async () => {
+    const calls: Array<{ url: string; opts: unknown }> = [];
+    vi.resetModules();
+    vi.doMock("ws", () => {
+      class FakeWS {
+        constructor(url: string, opts: unknown) {
+          calls.push({ url, opts });
+        }
+        on() {
+          return this;
+        }
+        close() {}
+      }
+      return { default: FakeWS };
+    });
+
+    const { WSListener } = await import("../../src/v1/ws.js");
+    const l = new WSListener({ apiKey: "secret_key", agentEmail: "bot@x.dev", reconnect: false });
+    l.connect();
+    l.close();
+    vi.doUnmock("ws");
+    vi.resetModules();
+
+    expect(calls).toHaveLength(1);
+    // Credential is in the header, never the URL.
+    expect(calls[0].url).not.toContain("token=");
+    expect(calls[0].url).not.toContain("secret_key");
+    expect(calls[0].opts).toEqual({ headers: { Authorization: "Bearer secret_key" } });
   });
 });
 

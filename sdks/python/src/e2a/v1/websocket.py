@@ -20,7 +20,7 @@ import json
 import logging
 from dataclasses import dataclass
 from typing import AsyncIterator, Optional
-from urllib.parse import quote, urlencode, urlparse, urlunparse
+from urllib.parse import quote, urlparse, urlunparse
 
 from .errors import E2AAuthError, E2AError, E2APermissionError
 
@@ -105,18 +105,17 @@ class WSNotification:
         )
 
 
-def _build_ws_url(base_url: str, agent_email: str, api_key: str) -> str:
+def _build_ws_url(base_url: str, agent_email: str) -> str:
     """Build the versioned WebSocket URL from the HTTP base URL.
 
-    Note: auth is passed as a ``?token=`` query parameter, which can land in
-    server/proxy access logs (a logged-credential limitation). A header- or
-    ticket-based handshake is planned to replace it.
+    Auth is the ``Authorization: Bearer`` handshake header (see ``_ws_connect``),
+    so the API key never appears in the URL — nothing for access logs / proxy
+    traces to leak.
     """
     parsed = urlparse(base_url)
     scheme = "wss" if parsed.scheme == "https" else "ws"
     path = f"/v1/agents/{quote(agent_email, safe='')}/ws"
-    query = urlencode({"token": api_key})
-    return urlunparse((scheme, parsed.netloc, path, "", query, ""))
+    return urlunparse((scheme, parsed.netloc, path, "", "", ""))
 
 
 class WSStream:
@@ -139,7 +138,8 @@ class WSStream:
         reconnect: bool = True,
         max_backoff: float = 30.0,
     ) -> None:
-        self._url = _build_ws_url(base_url, agent_email, api_key)
+        self._url = _build_ws_url(base_url, agent_email)
+        self._api_key = api_key
         self._email = agent_email
         self._reconnect = reconnect
         self._max_backoff = max_backoff
@@ -159,7 +159,7 @@ class WSStream:
         backoff = 1.0
         while True:
             try:
-                async for notif in _connect_and_stream(self._url, self._email):
+                async for notif in _connect_and_stream(self._url, self._api_key, self._email):
                     yield notif
                     backoff = 1.0  # reset on a successful message
             except E2AError:
@@ -184,11 +184,24 @@ class WSStream:
             backoff = min(backoff * 2, self._max_backoff)
 
 
-async def _connect_and_stream(ws_url: str, agent_email: str) -> AsyncIterator[WSNotification]:
-    """Connect once and yield notifications until disconnect. Sends no frames."""
+def _ws_connect(ws_url: str, api_key: str):
+    """Open the WS handshake with the API key in the Authorization header.
+
+    Uses ``additional_headers`` (websockets >= 14, the dependency floor). Note
+    websockets validates connect kwargs lazily — at ``__aenter__``, not at this
+    call — so version handling must be by capability, not a try/except here.
+    """
     import websockets
 
-    async with websockets.connect(ws_url) as ws:
+    headers = {"Authorization": f"Bearer {api_key}"}
+    return websockets.connect(ws_url, additional_headers=headers)
+
+
+async def _connect_and_stream(
+    ws_url: str, api_key: str, agent_email: str
+) -> AsyncIterator[WSNotification]:
+    """Connect once and yield notifications until disconnect. Sends no frames."""
+    async with _ws_connect(ws_url, api_key) as ws:
         logger.info("Connected to WebSocket for %s", agent_email)
         async for raw in ws:
             try:

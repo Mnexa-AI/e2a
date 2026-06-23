@@ -432,16 +432,22 @@ func (r *runner) execWSConnect(t *testing.T, s *step) {
 	}
 	r.wsAgent = ag.ID
 
-	wsURL := "ws" + strings.TrimPrefix(r.env.baseURL, "http") + path + "?token=" + r.env.apiKey
+	wsURL := "ws" + strings.TrimPrefix(r.env.baseURL, "http") + path
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, _, err := websocket.Dial(ctx, wsURL, wsDialOpts(r.env.apiKey))
 	if err != nil {
 		t.Fatalf("step %s: ws dial: %v", s.ID, err)
 	}
 	r.wsConn = conn
 	r.env.waitWSConnected(t, r.wsAgent)
+}
+
+// wsDialOpts authenticates the WS handshake with Authorization: Bearer (the
+// credential is never in the URL — header-only auth).
+func wsDialOpts(apiKey string) *websocket.DialOptions {
+	return &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": {"Bearer " + apiKey}}}
 }
 
 func (r *runner) execWSReconnect(t *testing.T, s *step) {
@@ -453,11 +459,11 @@ func (r *runner) execWSReconnect(t *testing.T, s *step) {
 	r.env.waitWSDisconnected(t, r.wsAgent)
 
 	path := r.resolve(s.Path)
-	wsURL := "ws" + strings.TrimPrefix(r.env.baseURL, "http") + path + "?token=" + r.env.apiKey
+	wsURL := "ws" + strings.TrimPrefix(r.env.baseURL, "http") + path
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, _, err := websocket.Dial(ctx, wsURL, wsDialOpts(r.env.apiKey))
 	if err != nil {
 		t.Fatalf("step %s: ws reconnect: %v", s.ID, err)
 	}

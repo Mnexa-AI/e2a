@@ -143,8 +143,9 @@ to stop early).
 
 ## WebSocket (real-time delivery for local agents)
 
-Local-mode agents receive lightweight notifications over a WebSocket; auth is
-via the `?token=` query parameter — no public URL needed.
+Agents receive lightweight notifications over a WebSocket; auth is the
+`Authorization: Bearer <api_key>` handshake header (the key never appears in the
+URL) — no public URL needed.
 
 ```typescript
 import { E2AClient } from "@e2a/sdk/v1";
