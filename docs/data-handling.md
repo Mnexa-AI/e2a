@@ -10,7 +10,7 @@ For vulnerability reporting and the security model, see [SECURITY.md](../SECURIT
 |---|---|---|
 | Inbound + outbound message envelopes (sender, recipient, subject, conversation_id, timestamps) | Postgres `messages` | Default 10 days; `expires_at` per row, hourly cleanup worker. Chosen to exceed the 7-day HITL max TTL with a 3-day audit buffer. |
 | Inbound message bodies (raw RFC822 in `raw_message`) | Postgres `messages` | Same 10-day default |
-| Outbound message bodies (only while in `pending_approval`) | Postgres `messages.body_text` / `body_html` / `attachments_json` | **Scrubbed on terminal HITL transition** (approve/reject/expire) — only metadata persists after that |
+| Outbound message bodies (only while in `pending_review`) | Postgres `messages.body_text` / `body_html` / `attachments_json` | **Scrubbed on terminal review transition** (approve/reject/expire) — only metadata persists after that |
 | Attachments | Postgres rows (`attachments_json`, JSONB) | Same lifetime as the parent message — no S3/GCS |
 | Agent + domain ownership records | Postgres `agent_identities`, `domains` | Until the user deletes the agent/domain or the account |
 | API keys | Postgres `api_keys`, **hash only** (SHA over the plaintext) | Until revoked or the user is deleted; plaintext exists only in the create response and is never persisted |
