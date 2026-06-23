@@ -139,6 +139,9 @@ describe("AgentInboxPage", () => {
   it("pending callout appears in the thread detail when a thread is pending", async () => {
     setSearchParams({ email: "support@acme.io" });
     mockMessages([PENDING_REPLY, PARENT_INBOUND]);
+    // Gmail model: open the conversation (select its thread) to see the
+    // detail + pending callout — the default view is the list.
+    window.history.replaceState(null, "", "#conv:conv_K3p9aQ");
 
     render(<AgentInboxPage />);
 
@@ -151,6 +154,7 @@ describe("AgentInboxPage", () => {
   it("clicking the pending callout navigates to the focus page with that message id", async () => {
     setSearchParams({ email: "support@acme.io" });
     mockMessages([PENDING_REPLY, PARENT_INBOUND]);
+    window.history.replaceState(null, "", "#conv:conv_K3p9aQ");
     const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
 
     render(<AgentInboxPage />);
@@ -194,12 +198,30 @@ describe("AgentInboxPage", () => {
 
     render(<AgentInboxPage />);
 
+    // A hash selects the thread → the conversation view replaces the list.
     await waitFor(() => {
-      expect(screen.getAllByTestId("thread-row")).toHaveLength(2);
+      expect(screen.getByTestId("thread-detail")).toBeInTheDocument();
     });
     const detail = screen.getByTestId("thread-detail");
     // The selected thread's subject renders in both the detail header
     // (h2) and the bubble button. Assert at least one match.
     expect(within(detail).getAllByText("PR #2841 merged").length).toBeGreaterThan(0);
+  });
+
+  it("clicking a thread row opens its conversation (selects via hash)", async () => {
+    setSearchParams({ email: "support@acme.io" });
+    mockMessages([ORPHAN_INBOUND]);
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+
+    render(<AgentInboxPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("thread-row")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("thread-row"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("thread-detail")).toBeInTheDocument();
+    });
   });
 });

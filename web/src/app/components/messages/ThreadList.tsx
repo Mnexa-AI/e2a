@@ -32,10 +32,9 @@ export function ThreadList({
   return (
     <div
       data-testid="thread-list"
-      className="flex flex-col min-h-0 overflow-hidden"
+      className="flex-1 flex flex-col min-h-0 overflow-hidden"
       style={{
         background: "var(--bg-panel)",
-        borderRight: "1px solid var(--border)",
       }}
     >
       {/* Sticky list header */}

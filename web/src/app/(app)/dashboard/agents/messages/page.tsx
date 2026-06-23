@@ -18,7 +18,7 @@ import { listAgentMessages } from "../../../../components/onboarding/api";
 import type { MessageSummary } from "../../../../components/types";
 import { ThreadList } from "../../../../components/messages/ThreadList";
 import { ThreadDetail } from "../../../../components/messages/ThreadDetail";
-import { findThread, groupIntoThreads } from "../../../../components/messages/threading";
+import { groupIntoThreads } from "../../../../components/messages/threading";
 import { agentMessagesKey } from "../../../../../lib/swrKeys";
 
 // Sync the URL fragment into React state. useSyncExternalStore is the
@@ -108,18 +108,27 @@ function AgentInboxContent() {
     [rows],
   );
   const hash = useUrlHash();
-  const selected = findThread(threads, hash);
+  // Gmail model: an empty hash shows the inbox LIST; a hash selects a
+  // thread and shows that conversation full-width. (No auto-select of
+  // threads[0] — the list is the default landing.)
+  const selected = hash ? threads.find((t) => t.key === hash) ?? null : null;
   const pendingCount = threads.filter((t) => t.state === "pending").length;
   const error = loadError || (fetchError ? fetchError.message || "Failed to load messages" : "");
 
   const selectThread = (key: string) => {
     if (typeof window !== "undefined") {
-      // history.replaceState skips a scroll-to-top + skips a navigation
-      // entry. window.location.hash = … would push a new entry, which
-      // makes Back move between threads — pleasant for keyboard, but
-      // chatty in the browser history. replace keeps Back going to
-      // /dashboard.
       window.history.replaceState(null, "", `#${key}`);
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    }
+  };
+  // Back to the inbox list — strip the thread hash.
+  const clearSelection = () => {
+    if (typeof window !== "undefined") {
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search,
+      );
       window.dispatchEvent(new HashChangeEvent("hashchange"));
     }
   };
@@ -175,54 +184,60 @@ function AgentInboxContent() {
   return (
     <div
       data-testid="agent-inbox"
-      className="grid grid-cols-1 md:grid-cols-[360px_minmax(0,1fr)]"
+      className="flex flex-col min-h-0"
       style={{
         borderTop: "1px solid var(--border)",
-        // Fill remaining viewport under (app) chrome + agent header.
-        minHeight: "calc(100vh - var(--chrome-h) - 200px)",
+        // Fill remaining viewport under (app) chrome + agent header so the
+        // list / conversation scrolls internally like an email client.
+        height: "calc(100vh - var(--chrome-h) - 200px)",
+        minHeight: 520,
       }}
     >
-      <ThreadList
-        threads={threads}
-        selectedKey={selected?.key ?? null}
-        onSelect={selectThread}
-        total={threads.length}
-        pendingCount={pendingCount}
-        hasMore={!!nextCursor}
-        onLoadMore={loadOlder}
-        loadingMore={loadingMore}
-      />
-      <div className="flex flex-col min-h-0">
-        {error && (
-          <div
-            className="m-6 p-4 text-[13px]"
-            style={{
-              background: "var(--danger-bg)",
-              border: "1px solid var(--danger-bg)",
-              color: "var(--danger-strong)",
-              borderRadius: "var(--r-md)",
-            }}
-          >
-            {error}
-          </div>
-        )}
-        {!error && !initialPage && (
-          <div
-            className="px-7 py-8 text-[13px]"
-            style={{ color: "var(--fg-muted)" }}
-          >
-            Loading inbox…
-          </div>
-        )}
-        {!error && initialPage && (
-          <ThreadDetail
-            thread={selected}
-            agentEmail={email}
-            onOpenMessage={openMessage}
-            onOpenHeaders={openMessageWithHeaders}
-          />
-        )}
-      </div>
+      {error && (
+        <div
+          className="m-6 p-4 text-[13px]"
+          style={{
+            background: "var(--danger-bg)",
+            border: "1px solid var(--danger-bg)",
+            color: "var(--danger-strong)",
+            borderRadius: "var(--r-md)",
+          }}
+        >
+          {error}
+        </div>
+      )}
+      {!error && !initialPage && (
+        <div
+          className="px-7 py-8 text-[13px]"
+          style={{ color: "var(--fg-muted)" }}
+        >
+          Loading inbox…
+        </div>
+      )}
+      {!error && initialPage && (
+        <div className="flex-1 min-h-0 flex flex-col">
+          {selected ? (
+            <ThreadDetail
+              thread={selected}
+              agentEmail={email}
+              onBack={clearSelection}
+              onOpenMessage={openMessage}
+              onOpenHeaders={openMessageWithHeaders}
+            />
+          ) : (
+            <ThreadList
+              threads={threads}
+              selectedKey={null}
+              onSelect={selectThread}
+              total={threads.length}
+              pendingCount={pendingCount}
+              hasMore={!!nextCursor}
+              onLoadMore={loadOlder}
+              loadingMore={loadingMore}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

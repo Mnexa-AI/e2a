@@ -1,21 +1,12 @@
 "use client";
 
-// One row in the inbox thread list. 5 stacked rows per the design spec
-// (identity + timestamp / conv id / subject / preview / state + count).
-// The conv-id line is omitted for synthetic (orphan) threads.
+// One row in the Gmail-style inbox list: a single dense line —
+// sender · subject — preview ……… [pending] [count] time. Unread threads
+// render bold. Clicking opens the conversation full-width.
 
-import { Chip } from "../loft/Chip";
 import { CounterpartyAvatar } from "./CounterpartyAvatar";
-import { MessageDirectionIcon } from "./MessageDirectionIcon";
 import { formatRelativeAge } from "../../../lib/relativeTime";
 import type { Thread } from "./threading";
-
-const STATE_CHIPS: Record<Thread["state"], { tone: "warn" | "info" | "accent" | "neutral"; label: string }> = {
-  pending: { tone: "warn", label: "Pending review" },
-  active: { tone: "info", label: "Active" },
-  "handed-off": { tone: "accent", label: "Handed off" },
-  closed: { tone: "neutral", label: "Closed" },
-};
 
 export function ThreadRow({
   thread,
@@ -26,8 +17,13 @@ export function ThreadRow({
   active: boolean;
   onSelect: (key: string) => void;
 }) {
-  const stateChip = STATE_CHIPS[thread.state];
-  const orgHint = thread.counterparty.email.split("@")[1] || "";
+  // Unread = any inbound message still marked unread (inbox_status rides
+  // on MessageSummary.status for inbound rows). Drives Gmail's bold row.
+  const unread = thread.messages.some(
+    (m) => m.direction === "inbound" && m.status === "unread",
+  );
+  const pending = thread.state === "pending";
+  const fw = unread ? 600 : 400;
 
   return (
     <div
@@ -43,131 +39,83 @@ export function ThreadRow({
           onSelect(thread.key);
         }
       }}
+      className="flex items-center hover:bg-[var(--bg-elev)] transition"
       style={{
-        padding: "14px 16px",
+        gap: 12,
+        padding: "10px 18px",
         borderBottom: "1px solid var(--border-sub)",
-        background: active ? "var(--bg-elev)" : "transparent",
+        background: active ? "var(--bg-elev)" : unread ? "var(--bg-panel)" : "transparent",
         boxShadow: active ? "inset 2px 0 0 var(--accent)" : "none",
         cursor: "pointer",
       }}
     >
-      {/* Row 1: avatar + name + org + timestamp */}
-      <div
-        className="flex items-center"
-        style={{ gap: 10, marginBottom: 6 }}
-      >
-        <CounterpartyAvatar
-          email={thread.counterparty.email}
-          name={thread.counterparty.name}
-          size={28}
-        />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-baseline" style={{ gap: 6 }}>
-            <span
-              style={{
-                fontSize: 13,
-                fontWeight: 600,
-                color: "var(--fg)",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {thread.counterparty.name}
-            </span>
-            {orgHint && (
-              <span
-                style={{
-                  fontFamily: "var(--f-mono)",
-                  fontSize: 10,
-                  color: "var(--fg-subtle)",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                · {orgHint}
-              </span>
-            )}
-            <span className="flex-1" />
-            <span
-              style={{
-                fontFamily: "var(--f-mono)",
-                fontSize: 10,
-                color: "var(--fg-subtle)",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {formatRelativeAge(thread.lastMessageAt)}
-            </span>
-          </div>
-          {thread.conversationId && (
-            <div
-              style={{
-                fontFamily: "var(--f-mono)",
-                fontSize: 10,
-                color: "var(--fg-subtle)",
-                letterSpacing: "0.02em",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {thread.conversationId}
-            </div>
-          )}
-        </div>
-      </div>
+      <CounterpartyAvatar
+        email={thread.counterparty.email}
+        name={thread.counterparty.name}
+        size={26}
+      />
 
-      {/* Row 3: subject */}
-      <div
+      {/* Sender — fixed-ish column so subjects line up like Gmail. */}
+      <span
         style={{
           fontSize: 13,
-          fontWeight: 600,
+          fontWeight: fw,
           color: "var(--fg)",
-          marginBottom: 4,
+          width: 170,
+          flexShrink: 0,
           whiteSpace: "nowrap",
           overflow: "hidden",
           textOverflow: "ellipsis",
         }}
       >
-        {thread.subject}
-      </div>
+        {thread.counterparty.name}
+        {thread.msgCount > 1 && (
+          <span style={{ color: "var(--fg-subtle)", fontWeight: 400 }}>
+            {" "}
+            {thread.msgCount}
+          </span>
+        )}
+      </span>
 
-      {/* Row 4: direction icon + preview */}
-      <div className="flex items-center" style={{ gap: 7 }}>
-        <MessageDirectionIcon direction={thread.lastDirection} size={10} />
-        <span
-          style={{
-            fontSize: 12,
-            color: "var(--fg-muted)",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            flex: 1,
-            minWidth: 0,
-          }}
-        >
-          {thread.lastPreview}
-        </span>
-      </div>
+      {/* Subject — preview, single line, takes the remaining width. */}
+      <span className="flex-1 min-w-0" style={{ fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <span style={{ color: "var(--fg)", fontWeight: fw }}>{thread.subject}</span>
+        {thread.lastPreview && thread.lastPreview !== thread.subject && (
+          <span style={{ color: "var(--fg-subtle)" }}> — {thread.lastPreview}</span>
+        )}
+      </span>
 
-      {/* Row 5: state chip + msg count */}
-      <div
-        className="flex items-center"
-        style={{ marginTop: 8, gap: 6 }}
-      >
-        <Chip tone={stateChip.tone}>{stateChip.label}</Chip>
+      {/* Right meta: pending pill (needs attention) + timestamp. */}
+      {pending && (
         <span
+          className="shrink-0"
           style={{
-            fontFamily: "var(--f-mono)",
             fontSize: 10,
-            color: "var(--fg-subtle)",
+            fontWeight: 600,
+            color: "var(--warn-strong)",
+            background: "var(--warn-bg)",
+            borderRadius: 999,
+            padding: "1px 8px",
+            whiteSpace: "nowrap",
           }}
         >
-          {thread.msgCount} {thread.msgCount === 1 ? "msg" : "msgs"}
+          Pending
         </span>
-      </div>
+      )}
+      <span
+        className="shrink-0"
+        style={{
+          fontFamily: "var(--f-mono)",
+          fontSize: 11,
+          color: unread ? "var(--fg)" : "var(--fg-subtle)",
+          fontWeight: unread ? 600 : 400,
+          whiteSpace: "nowrap",
+          minWidth: 52,
+          textAlign: "right",
+        }}
+      >
+        {formatRelativeAge(thread.lastMessageAt)}
+      </span>
     </div>
   );
 }
