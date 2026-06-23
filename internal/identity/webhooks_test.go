@@ -177,10 +177,12 @@ func TestCreateWebhook_EnforcesPerUserCap(t *testing.T) {
 	// account_limits has several NOT NULL columns without defaults
 	// (max_agents, max_domains, max_messages_month, max_storage_bytes)
 	// — seed reasonable values so the row passes constraints.
+	// account_limits PK flipped user_id → workspace_id (Migration A). Seed by
+	// the user's default workspace; user_id is retained for the cap read.
 	_, err := pool.Exec(ctx,
-		`INSERT INTO account_limits (user_id, plan_code, max_agents, max_domains, max_messages_month, max_storage_bytes, max_webhooks)
-		 VALUES ($1, 'test', 10, 10, 100000, 1073741824, 2)
-		 ON CONFLICT (user_id) DO UPDATE SET max_webhooks = 2`, userID)
+		`INSERT INTO account_limits (user_id, workspace_id, plan_code, max_agents, max_domains, max_messages_month, max_storage_bytes, max_webhooks)
+		 VALUES ($1, $2, 'test', 10, 10, 100000, 1073741824, 2)
+		 ON CONFLICT (workspace_id) DO UPDATE SET max_webhooks = 2`, userID, identity.DefaultWorkspaceID(userID))
 	if err != nil {
 		t.Fatalf("seed account_limits: %v", err)
 	}

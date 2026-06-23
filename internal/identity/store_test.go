@@ -1299,10 +1299,10 @@ func TestGetDashboardStats_TodayAndDelta(t *testing.T) {
 	// Expected deltas: inbound +25% (100→80 is actually +25% reverse — let
 	// me re-check: (100-80)/80 = +25 ✓), outbound 0% (50/50 unchanged).
 	_, err := pool.Exec(ctx,
-		`INSERT INTO usage_summaries (user_id, bucket_date, inbound_count, outbound_count, total_count)
-		 VALUES ($1, current_date, 100, 50, 150),
-		        ($1, current_date - 1, 80, 50, 130)`,
-		user.ID)
+		`INSERT INTO usage_summaries (user_id, workspace_id, bucket_date, inbound_count, outbound_count, total_count)
+		 VALUES ($1, $2, current_date, 100, 50, 150),
+		        ($1, $2, current_date - 1, 80, 50, 130)`,
+		user.ID, identity.DefaultWorkspaceID(user.ID))
 	if err != nil {
 		t.Fatalf("seed usage_summaries: %v", err)
 	}
@@ -1335,9 +1335,9 @@ func TestGetDashboardStats_NoYesterdayBaseline(t *testing.T) {
 	user, _ := store.CreateOrGetUser(ctx, "no-base@example.com", "Owner", "google-nb")
 
 	_, err := pool.Exec(ctx,
-		`INSERT INTO usage_summaries (user_id, bucket_date, inbound_count, outbound_count, total_count)
-		 VALUES ($1, current_date, 42, 7, 49)`,
-		user.ID)
+		`INSERT INTO usage_summaries (user_id, workspace_id, bucket_date, inbound_count, outbound_count, total_count)
+		 VALUES ($1, $2, current_date, 42, 7, 49)`,
+		user.ID, identity.DefaultWorkspaceID(user.ID))
 	if err != nil {
 		t.Fatalf("seed usage_summaries: %v", err)
 	}
@@ -1591,9 +1591,9 @@ func TestGetDashboardStats_WindowedTotals(t *testing.T) {
 		{5, 40, 16}, // 5 days ago
 	} {
 		_, err := pool.Exec(ctx,
-			`INSERT INTO usage_summaries (user_id, bucket_date, inbound_count, outbound_count, total_count)
-			 VALUES ($1, current_date - make_interval(days => $2), $3, $4, $5)`,
-			user.ID, row.daysAgo, row.in, row.out, row.in+row.out)
+			`INSERT INTO usage_summaries (user_id, workspace_id, bucket_date, inbound_count, outbound_count, total_count)
+			 VALUES ($1, $6, current_date - make_interval(days => $2), $3, $4, $5)`,
+			user.ID, row.daysAgo, row.in, row.out, row.in+row.out, identity.DefaultWorkspaceID(user.ID))
 		if err != nil {
 			t.Fatalf("seed: %v", err)
 		}

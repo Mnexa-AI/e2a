@@ -6,8 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // seedUser inserts a users row so the FK on webhook_events.user_id is
@@ -21,6 +23,19 @@ func seedUser(t *testing.T, ctx context.Context, pool interface {
 	// signature here to keep the integration helper local.
 	t.Helper()
 	return "u_outbox_test"
+}
+
+// seedWorkspaceFor inserts the user's deterministic personal workspace so the
+// webhook_events.workspace_id FK (Migration A) is satisfied — the outbox now
+// stamps workspace_id = DefaultWorkspaceID(user) on every row (B3). Idempotent.
+func seedWorkspaceFor(t *testing.T, ctx context.Context, pool *pgxpool.Pool, userID string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO workspaces (id, name, created_by) VALUES ($1, 'Test WS', $2)
+		 ON CONFLICT (id) DO NOTHING`,
+		identity.DefaultWorkspaceID(userID), userID); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
 }
 
 // TestOutbox_Integration_HappyPath_RowCommitsWithExpectedFields exercises
@@ -40,6 +55,7 @@ func TestOutbox_Integration_HappyPath_RowCommitsWithExpectedFields(t *testing.T)
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
+	seedWorkspaceFor(t, ctx, pool, userID)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM webhook_events WHERE user_id = $1`, userID)
 		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
@@ -153,6 +169,7 @@ func TestOutbox_Integration_OnConflictDoNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
+	seedWorkspaceFor(t, ctx, pool, userID)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM webhook_events WHERE user_id = $1`, userID)
 		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
@@ -229,6 +246,7 @@ func TestOutbox_Integration_FlagOffNoWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
+	seedWorkspaceFor(t, ctx, pool, userID)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM webhook_events WHERE user_id = $1`, userID)
 		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
@@ -293,6 +311,7 @@ func TestOutbox_Integration_JanitorDeletesExpired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
+	seedWorkspaceFor(t, ctx, pool, userID)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM webhook_events WHERE user_id = $1`, userID)
 		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
@@ -381,6 +400,7 @@ func TestOutbox_Integration_TxRollback_NoOrphanRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
+	seedWorkspaceFor(t, ctx, pool, userID)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM webhook_events WHERE user_id = $1`, userID)
 		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)

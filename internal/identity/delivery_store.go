@@ -202,11 +202,14 @@ type Suppression struct {
 // false when it already existed, so the caller fires domain.suppression_added
 // at most once per address.
 func (s *Store) AddSuppression(ctx context.Context, userID, address, reason, source, sourceMessageID string) (bool, error) {
+	// suppressions re-keyed to (workspace_id, address) in Migration A — the
+	// dedup is per-workspace now (else a complaint leaks cross-member). For v1
+	// the workspace is the user's default workspace; user_id stays for audit.
 	tag, err := s.pool.Exec(ctx,
-		`INSERT INTO suppressions (id, user_id, address, reason, source, source_message_id)
-		 VALUES ($1, $2, $3, $4, $5, $6)
-		 ON CONFLICT (user_id, address) DO NOTHING`,
-		"supp_"+generateID(), userID, NormalizeEmail(address), reason, source, nullIfEmpty(sourceMessageID),
+		`INSERT INTO suppressions (id, user_id, workspace_id, address, reason, source, source_message_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 ON CONFLICT (workspace_id, address) DO NOTHING`,
+		"supp_"+generateID(), userID, DefaultWorkspaceID(userID), NormalizeEmail(address), reason, source, nullIfEmpty(sourceMessageID),
 	)
 	if err != nil {
 		return false, err
