@@ -9,11 +9,13 @@
 // Webhooks · Settings). Only Messages is active in this slice;
 // the other tabs render as disabled placeholders with a tooltip.
 
+import { useState } from "react";
 import Link from "next/link";
 import { Chip } from "../loft/Chip";
 import { Dot } from "../loft/Dot";
 import { Eyebrow } from "../loft/Eyebrow";
 import { CounterpartyAvatar } from "./CounterpartyAvatar";
+import { sendAgentTestEmail } from "../onboarding/api";
 import type { DashboardAgent } from "../types";
 
 export type AgentTab = "messages" | "settings";
@@ -39,6 +41,8 @@ export function AgentHeader({
   tab: AgentTab;
 }) {
   const emailQs = encodeURIComponent(agent.email);
+  const [testState, setTestState] = useState<"idle" | "sending" | "sent">("idle");
+  const [testError, setTestError] = useState("");
 
   return (
     <div
@@ -104,6 +108,66 @@ export function AgentHeader({
             })}
           </div>
         </div>
+
+        {/* Send a test message — exercises outbound SMTP + inbound
+            delivery + the webhook/WS round-trip for this inbox. Verified
+            inboxes only. */}
+        {agent.domain_verified && (
+          <div className="shrink-0 md:text-right mt-2 md:mt-7">
+            <button
+              onClick={async () => {
+                setTestError("");
+                setTestState("sending");
+                try {
+                  await sendAgentTestEmail(agent.email);
+                  setTestState("sent");
+                  setTimeout(() => setTestState("idle"), 3000);
+                } catch (err) {
+                  setTestError(
+                    err instanceof Error ? err.message : "Network error",
+                  );
+                  setTestState("idle");
+                }
+              }}
+              disabled={testState === "sending"}
+              className={`text-[12px] px-3 py-1.5 transition cursor-pointer disabled:cursor-not-allowed${
+                testState === "idle"
+                  ? " hover:bg-[var(--bg-elev)] hover:border-[var(--border-strong)]"
+                  : ""
+              }`}
+              style={{
+                background:
+                  testState === "sent"
+                    ? "var(--success)"
+                    : testState === "sending"
+                      ? "var(--bg-elev)"
+                      : "var(--bg-panel)",
+                color:
+                  testState === "sent"
+                    ? "#fff"
+                    : testState === "sending"
+                      ? "var(--fg-muted)"
+                      : "var(--fg)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--r-md)",
+              }}
+            >
+              {testState === "sent"
+                ? "Sent ✓"
+                : testState === "sending"
+                  ? "Sending…"
+                  : "Send a test message"}
+            </button>
+            {testError && (
+              <p
+                className="text-[12px] mt-1.5"
+                style={{ color: "var(--danger-strong)" }}
+              >
+                {testError}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Tab strip */}

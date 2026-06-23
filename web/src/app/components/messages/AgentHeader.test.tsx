@@ -1,0 +1,81 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { AgentHeader } from "./AgentHeader";
+import type { DashboardAgent } from "../types";
+
+jest.mock("next/link", () => {
+  return function MockLink({
+    href,
+    children,
+    ...rest
+  }: {
+    href: string;
+    children: React.ReactNode;
+    [k: string]: unknown;
+  }) {
+    return (
+      <a href={href} {...rest}>
+        {children}
+      </a>
+    );
+  };
+});
+
+const verified: DashboardAgent = {
+  id: "a",
+  domain: "acme.dev",
+  email: "support@acme.dev",
+  name: "support",
+  domain_verified: true,
+  created_at: "2026-05-12T00:00:00Z",
+};
+const unverified: DashboardAgent = {
+  ...verified,
+  email: "new@acme.dev",
+  domain_verified: false,
+};
+
+const mockFetch = jest.fn();
+beforeEach(() => {
+  mockFetch.mockReset();
+  global.fetch = mockFetch as unknown as typeof fetch;
+});
+
+describe("AgentHeader — test-send action (moved from the dashboard card)", () => {
+  it("shows 'Send a test message' for a verified inbox", () => {
+    render(<AgentHeader agent={verified} tab="messages" />);
+    expect(
+      screen.getByRole("button", { name: "Send a test message" }),
+    ).toBeInTheDocument();
+  });
+
+  it("hides the action for an unverified inbox", () => {
+    render(<AgentHeader agent={unverified} tab="messages" />);
+    expect(
+      screen.queryByRole("button", { name: "Send a test message" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("POSTs the agent test endpoint and surfaces success", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: () =>
+        Promise.resolve(JSON.stringify({ status: "queued", message_id: "m1" })),
+    });
+    const user = userEvent.setup();
+    render(<AgentHeader agent={verified} tab="messages" />);
+
+    await user.click(
+      screen.getByRole("button", { name: "Send a test message" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("Sent ✓")).toBeInTheDocument(),
+    );
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining("/v1/agents/support%40acme.dev/test"),
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+});
