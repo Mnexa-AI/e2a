@@ -526,7 +526,7 @@ scenarios:
       GET /agents/{email}/messages?direction=all returns the dashboard-
       inbox shape: every row carries `direction`, outbound rows carry
       `hitl_status` and `webhook_status`. Catches the H1 SDK contract
-      drift if api_docs.MessageSummary falls out of sync with the
+      drift if httpapi.MessageSummaryView falls out of sync with the
       handler again.
     setup:
       - register_domain: mixed.test.dev
