@@ -506,9 +506,9 @@ func main() {
 		outboxWorker.Start(subRetryCtx)
 	}()
 
-	// HITL expiration worker: transitions pending_approval messages that
-	// blew past their TTL into expired_approved (auto-send) or
-	// expired_rejected based on the owning agent's hitl_expiration_action.
+	// HITL expiration worker: transitions pending_review messages that
+	// blew past their TTL into review_expired_approved (auto-send/release) or
+	// review_expired_rejected based on the owning agent's hitl_expiration_action.
 	hitlWorker := hitlworker.New(store, sender, usageTracker, cfg.OutboundSMTP.FromDomain)
 	// Fire review_approved/review_rejected on TTL auto-resolution, so a hold
 	// resolved by timeout notifies subscribers exactly like a human-resolved one

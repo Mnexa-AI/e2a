@@ -433,8 +433,8 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	}
 
 	// email.pending_review: fired when the applied action is review — the message is
-	// held as pending_review awaiting a human / TTL. The inbound twin of
-	// email.pending_approval; carries the review TTL (approval_expires_at) and
+	// held as pending_review awaiting a human / TTL. The same event fires for
+	// outbound HITL holds (direction-aware); carries the review TTL (approval_expires_at) and
 	// reason_source so a subscriber can drive a review queue from push. Deterministic
 	// id keeps MTA retries idempotent.
 	var pendingReviewEvent *webhookpub.Event
