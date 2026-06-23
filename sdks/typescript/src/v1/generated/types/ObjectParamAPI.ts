@@ -6,6 +6,7 @@ import { APIKeyExportEntry } from '../models/APIKeyExportEntry.js';
 import { APIKeyView } from '../models/APIKeyView.js';
 import { AccountUserView } from '../models/AccountUserView.js';
 import { AccountView } from '../models/AccountView.js';
+import { AccountWorkspaceView } from '../models/AccountWorkspaceView.js';
 import { AgentIdentity } from '../models/AgentIdentity.js';
 import { AgentView } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
@@ -19,6 +20,8 @@ import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAPIKeyRequest } from '../models/CreateAPIKeyRequest.js';
 import { CreateAPIKeyResponse } from '../models/CreateAPIKeyResponse.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
+import { CreateInvitationInputBody } from '../models/CreateInvitationInputBody.js';
+import { CreateInvitationResponse } from '../models/CreateInvitationResponse.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
 import { DNSRecordView } from '../models/DNSRecordView.js';
@@ -32,8 +35,10 @@ import { ErrorBody } from '../models/ErrorBody.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { EventJSON } from '../models/EventJSON.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
+import { InvitationView } from '../models/InvitationView.js';
 import { LimitsCapsView } from '../models/LimitsCapsView.js';
 import { LimitsUsageView } from '../models/LimitsUsageView.js';
+import { MemberView } from '../models/MemberView.js';
 import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
@@ -45,10 +50,13 @@ import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
 import { PageDomainView } from '../models/PageDomainView.js';
 import { PageEventJSON } from '../models/PageEventJSON.js';
+import { PageInvitationView } from '../models/PageInvitationView.js';
+import { PageMemberView } from '../models/PageMemberView.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
+import { PageWorkspaceView } from '../models/PageWorkspaceView.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
 import { ProtectionDirectionView } from '../models/ProtectionDirectionView.js';
 import { ProtectionEventExportEntry } from '../models/ProtectionEventExportEntry.js';
@@ -61,12 +69,14 @@ import { RedeliverView } from '../models/RedeliverView.js';
 import { RegisterDomainRequest } from '../models/RegisterDomainRequest.js';
 import { RejectRequest } from '../models/RejectRequest.js';
 import { RejectResultView } from '../models/RejectResultView.js';
+import { RenameWorkspaceInputBody } from '../models/RenameWorkspaceInputBody.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
 import { SendingDNSRecordView } from '../models/SendingDNSRecordView.js';
+import { SetMemberRoleInputBody } from '../models/SetMemberRoleInputBody.js';
 import { Suppression } from '../models/Suppression.js';
 import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
@@ -83,6 +93,7 @@ import { VerifyDomainView } from '../models/VerifyDomainView.js';
 import { WebhookDeliveryView } from '../models/WebhookDeliveryView.js';
 import { WebhookFiltersView } from '../models/WebhookFiltersView.js';
 import { WebhookView } from '../models/WebhookView.js';
+import { WorkspaceView } from '../models/WorkspaceView.js';
 
 import { ObservableAccountApi } from "./ObservableAPI.js";
 import { AccountApiRequestFactory, AccountApiResponseProcessor} from "../apis/AccountApi.js";
@@ -1740,6 +1751,386 @@ export class ObjectWebhooksApi {
      */
     public updateWebhook(param: WebhooksApiUpdateWebhookRequest, options?: ConfigurationOptions): Promise<WebhookView> {
         return this.api.updateWebhook(param.id, param.updateWebhookRequest,  options).toPromise();
+    }
+
+}
+
+import { ObservableWorkspacesApi } from "./ObservableAPI.js";
+import { WorkspacesApiRequestFactory, WorkspacesApiResponseProcessor} from "../apis/WorkspacesApi.js";
+
+export interface WorkspacesApiAcceptInvitationRequest {
+    /**
+     * 
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApiacceptInvitation
+     */
+    token: string
+}
+
+export interface WorkspacesApiCreateInvitationRequest {
+    /**
+     * 
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApicreateInvitation
+     */
+    id: string
+    /**
+     * 
+     * @type CreateInvitationInputBody
+     * @memberof WorkspacesApicreateInvitation
+     */
+    createInvitationInputBody: CreateInvitationInputBody
+    /**
+     * Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApicreateInvitation
+     */
+    xE2AWorkspace?: string
+}
+
+export interface WorkspacesApiGetWorkspaceRequest {
+    /**
+     * 
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApigetWorkspace
+     */
+    id: string
+    /**
+     * Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApigetWorkspace
+     */
+    xE2AWorkspace?: string
+}
+
+export interface WorkspacesApiListInvitationsRequest {
+    /**
+     * 
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApilistInvitations
+     */
+    id: string
+    /**
+     * Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApilistInvitations
+     */
+    xE2AWorkspace?: string
+}
+
+export interface WorkspacesApiListMembersRequest {
+    /**
+     * 
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApilistMembers
+     */
+    id: string
+    /**
+     * Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApilistMembers
+     */
+    xE2AWorkspace?: string
+}
+
+export interface WorkspacesApiListWorkspacesRequest {
+}
+
+export interface WorkspacesApiRemoveMemberRequest {
+    /**
+     * 
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApiremoveMember
+     */
+    id: string
+    /**
+     * 
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApiremoveMember
+     */
+    userId: string
+    /**
+     * Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApiremoveMember
+     */
+    xE2AWorkspace?: string
+}
+
+export interface WorkspacesApiRenameWorkspaceRequest {
+    /**
+     * 
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApirenameWorkspace
+     */
+    id: string
+    /**
+     * 
+     * @type RenameWorkspaceInputBody
+     * @memberof WorkspacesApirenameWorkspace
+     */
+    renameWorkspaceInputBody: RenameWorkspaceInputBody
+    /**
+     * Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApirenameWorkspace
+     */
+    xE2AWorkspace?: string
+}
+
+export interface WorkspacesApiRevokeInvitationRequest {
+    /**
+     * 
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApirevokeInvitation
+     */
+    id: string
+    /**
+     * 
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApirevokeInvitation
+     */
+    invitationId: string
+    /**
+     * Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApirevokeInvitation
+     */
+    xE2AWorkspace?: string
+}
+
+export interface WorkspacesApiSetMemberRoleRequest {
+    /**
+     * 
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApisetMemberRole
+     */
+    id: string
+    /**
+     * 
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApisetMemberRole
+     */
+    userId: string
+    /**
+     * 
+     * @type SetMemberRoleInputBody
+     * @memberof WorkspacesApisetMemberRole
+     */
+    setMemberRoleInputBody: SetMemberRoleInputBody
+    /**
+     * Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     * Defaults to: undefined
+     * @type string
+     * @memberof WorkspacesApisetMemberRole
+     */
+    xE2AWorkspace?: string
+}
+
+export class ObjectWorkspacesApi {
+    private api: ObservableWorkspacesApi
+
+    public constructor(configuration: Configuration, requestFactory?: WorkspacesApiRequestFactory, responseProcessor?: WorkspacesApiResponseProcessor) {
+        this.api = new ObservableWorkspacesApi(configuration, requestFactory, responseProcessor);
+    }
+
+    /**
+     * Accept an invitation. Requires the signed-in user\'s email to match the invited email. Idempotent (a second accept by the already-joined user returns 200). A revoked/expired/torn-down invitation returns 410.
+     * Accept an invitation
+     * @param param the request object
+     */
+    public acceptInvitationWithHttpInfo(param: WorkspacesApiAcceptInvitationRequest, options?: ConfigurationOptions): Promise<HttpInfo<WorkspaceView>> {
+        return this.api.acceptInvitationWithHttpInfo(param.token,  options).toPromise();
+    }
+
+    /**
+     * Accept an invitation. Requires the signed-in user\'s email to match the invited email. Idempotent (a second accept by the already-joined user returns 200). A revoked/expired/torn-down invitation returns 410.
+     * Accept an invitation
+     * @param param the request object
+     */
+    public acceptInvitation(param: WorkspacesApiAcceptInvitationRequest, options?: ConfigurationOptions): Promise<WorkspaceView> {
+        return this.api.acceptInvitation(param.token,  options).toPromise();
+    }
+
+    /**
+     * Invite an email to join with a role. Sends an accept link. Inviting an existing member returns 409 already_member (use PATCH …/members to change a role). Rate-limited. Admin only.
+     * Invite a member
+     * @param param the request object
+     */
+    public createInvitationWithHttpInfo(param: WorkspacesApiCreateInvitationRequest, options?: ConfigurationOptions): Promise<HttpInfo<CreateInvitationResponse>> {
+        return this.api.createInvitationWithHttpInfo(param.id, param.createInvitationInputBody, param.xE2AWorkspace,  options).toPromise();
+    }
+
+    /**
+     * Invite an email to join with a role. Sends an accept link. Inviting an existing member returns 409 already_member (use PATCH …/members to change a role). Rate-limited. Admin only.
+     * Invite a member
+     * @param param the request object
+     */
+    public createInvitation(param: WorkspacesApiCreateInvitationRequest, options?: ConfigurationOptions): Promise<CreateInvitationResponse> {
+        return this.api.createInvitation(param.id, param.createInvitationInputBody, param.xE2AWorkspace,  options).toPromise();
+    }
+
+    /**
+     * A workspace by id, with your role. Any live member.
+     * Get a workspace
+     * @param param the request object
+     */
+    public getWorkspaceWithHttpInfo(param: WorkspacesApiGetWorkspaceRequest, options?: ConfigurationOptions): Promise<HttpInfo<WorkspaceView>> {
+        return this.api.getWorkspaceWithHttpInfo(param.id, param.xE2AWorkspace,  options).toPromise();
+    }
+
+    /**
+     * A workspace by id, with your role. Any live member.
+     * Get a workspace
+     * @param param the request object
+     */
+    public getWorkspace(param: WorkspacesApiGetWorkspaceRequest, options?: ConfigurationOptions): Promise<WorkspaceView> {
+        return this.api.getWorkspace(param.id, param.xE2AWorkspace,  options).toPromise();
+    }
+
+    /**
+     * Pending invitations for the workspace. Admin only.
+     * List pending invitations
+     * @param param the request object
+     */
+    public listInvitationsWithHttpInfo(param: WorkspacesApiListInvitationsRequest, options?: ConfigurationOptions): Promise<HttpInfo<PageInvitationView>> {
+        return this.api.listInvitationsWithHttpInfo(param.id, param.xE2AWorkspace,  options).toPromise();
+    }
+
+    /**
+     * Pending invitations for the workspace. Admin only.
+     * List pending invitations
+     * @param param the request object
+     */
+    public listInvitations(param: WorkspacesApiListInvitationsRequest, options?: ConfigurationOptions): Promise<PageInvitationView> {
+        return this.api.listInvitations(param.id, param.xE2AWorkspace,  options).toPromise();
+    }
+
+    /**
+     * Members and their roles. Any live member.
+     * List workspace members
+     * @param param the request object
+     */
+    public listMembersWithHttpInfo(param: WorkspacesApiListMembersRequest, options?: ConfigurationOptions): Promise<HttpInfo<PageMemberView>> {
+        return this.api.listMembersWithHttpInfo(param.id, param.xE2AWorkspace,  options).toPromise();
+    }
+
+    /**
+     * Members and their roles. Any live member.
+     * List workspace members
+     * @param param the request object
+     */
+    public listMembers(param: WorkspacesApiListMembersRequest, options?: ConfigurationOptions): Promise<PageMemberView> {
+        return this.api.listMembers(param.id, param.xE2AWorkspace,  options).toPromise();
+    }
+
+    /**
+     * Every workspace you are a live member of, each annotated with your role. Your personal (default) workspace sorts first.
+     * List my workspaces
+     * @param param the request object
+     */
+    public listWorkspacesWithHttpInfo(param: WorkspacesApiListWorkspacesRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<PageWorkspaceView>> {
+        return this.api.listWorkspacesWithHttpInfo( options).toPromise();
+    }
+
+    /**
+     * Every workspace you are a live member of, each annotated with your role. Your personal (default) workspace sorts first.
+     * List my workspaces
+     * @param param the request object
+     */
+    public listWorkspaces(param: WorkspacesApiListWorkspacesRequest = {}, options?: ConfigurationOptions): Promise<PageWorkspaceView> {
+        return this.api.listWorkspaces( options).toPromise();
+    }
+
+    /**
+     * Remove a member, or leave the workspace by targeting yourself. Cannot remove the last admin. Admin (or self for a leave).
+     * Remove a member (or leave)
+     * @param param the request object
+     */
+    public removeMemberWithHttpInfo(param: WorkspacesApiRemoveMemberRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
+        return this.api.removeMemberWithHttpInfo(param.id, param.userId, param.xE2AWorkspace,  options).toPromise();
+    }
+
+    /**
+     * Remove a member, or leave the workspace by targeting yourself. Cannot remove the last admin. Admin (or self for a leave).
+     * Remove a member (or leave)
+     * @param param the request object
+     */
+    public removeMember(param: WorkspacesApiRemoveMemberRequest, options?: ConfigurationOptions): Promise<void> {
+        return this.api.removeMember(param.id, param.userId, param.xE2AWorkspace,  options).toPromise();
+    }
+
+    /**
+     * Change a workspace\'s display name (e.g. \"Josh\'s Workspace\" → \"Acme\"). Admin only; reachable only through a human session.
+     * Rename a workspace
+     * @param param the request object
+     */
+    public renameWorkspaceWithHttpInfo(param: WorkspacesApiRenameWorkspaceRequest, options?: ConfigurationOptions): Promise<HttpInfo<WorkspaceView>> {
+        return this.api.renameWorkspaceWithHttpInfo(param.id, param.renameWorkspaceInputBody, param.xE2AWorkspace,  options).toPromise();
+    }
+
+    /**
+     * Change a workspace\'s display name (e.g. \"Josh\'s Workspace\" → \"Acme\"). Admin only; reachable only through a human session.
+     * Rename a workspace
+     * @param param the request object
+     */
+    public renameWorkspace(param: WorkspacesApiRenameWorkspaceRequest, options?: ConfigurationOptions): Promise<WorkspaceView> {
+        return this.api.renameWorkspace(param.id, param.renameWorkspaceInputBody, param.xE2AWorkspace,  options).toPromise();
+    }
+
+    /**
+     * Revoke a pending invitation; its accept link stops working. Admin only.
+     * Revoke a pending invitation
+     * @param param the request object
+     */
+    public revokeInvitationWithHttpInfo(param: WorkspacesApiRevokeInvitationRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
+        return this.api.revokeInvitationWithHttpInfo(param.id, param.invitationId, param.xE2AWorkspace,  options).toPromise();
+    }
+
+    /**
+     * Revoke a pending invitation; its accept link stops working. Admin only.
+     * Revoke a pending invitation
+     * @param param the request object
+     */
+    public revokeInvitation(param: WorkspacesApiRevokeInvitationRequest, options?: ConfigurationOptions): Promise<void> {
+        return this.api.revokeInvitation(param.id, param.invitationId, param.xE2AWorkspace,  options).toPromise();
+    }
+
+    /**
+     * Promote to admin or demote to member. Promotion is the transfer-admin mechanism (admins are peers). Cannot demote the last admin. Admin only.
+     * Set a member\'s role
+     * @param param the request object
+     */
+    public setMemberRoleWithHttpInfo(param: WorkspacesApiSetMemberRoleRequest, options?: ConfigurationOptions): Promise<HttpInfo<MemberView>> {
+        return this.api.setMemberRoleWithHttpInfo(param.id, param.userId, param.setMemberRoleInputBody, param.xE2AWorkspace,  options).toPromise();
+    }
+
+    /**
+     * Promote to admin or demote to member. Promotion is the transfer-admin mechanism (admins are peers). Cannot demote the last admin. Admin only.
+     * Set a member\'s role
+     * @param param the request object
+     */
+    public setMemberRole(param: WorkspacesApiSetMemberRoleRequest, options?: ConfigurationOptions): Promise<MemberView> {
+        return this.api.setMemberRole(param.id, param.userId, param.setMemberRoleInputBody, param.xE2AWorkspace,  options).toPromise();
     }
 
 }

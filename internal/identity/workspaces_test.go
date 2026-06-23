@@ -188,14 +188,14 @@ func TestRenameWorkspace(t *testing.T) {
 
 	u := newUser(t, store, "rn@example.com", "RN", "gsub-rn")
 	wsID := identity.DefaultWorkspaceID(u.ID)
-	if err := store.RenameWorkspace(ctx, wsID, "Acme"); err != nil {
+	if err := store.RenameWorkspace(ctx, wsID, "Acme", u.ID); err != nil {
 		t.Fatalf("RenameWorkspace: %v", err)
 	}
 	w, _ := store.GetWorkspace(ctx, wsID)
 	if w.Name != "Acme" {
 		t.Errorf("name = %q, want Acme", w.Name)
 	}
-	if err := store.RenameWorkspace(ctx, "ws_nonexistent", "X"); !errors.Is(err, identity.ErrWorkspaceNotFound) {
+	if err := store.RenameWorkspace(ctx, "ws_nonexistent", "X", u.ID); !errors.Is(err, identity.ErrWorkspaceNotFound) {
 		t.Errorf("rename missing ws err = %v, want ErrWorkspaceNotFound", err)
 	}
 }
@@ -215,7 +215,7 @@ func TestMembership_SetRoleAndRemove(t *testing.T) {
 	}
 
 	// Promote member → admin.
-	if err := store.SetMemberRole(ctx, wsID, member.ID, identity.RoleAdmin); err != nil {
+	if err := store.SetMemberRole(ctx, wsID, member.ID, identity.RoleAdmin, admin.ID); err != nil {
 		t.Fatalf("promote: %v", err)
 	}
 	role, _ := store.ResolveMembership(ctx, member.ID, wsID)
@@ -224,7 +224,7 @@ func TestMembership_SetRoleAndRemove(t *testing.T) {
 	}
 
 	// Idempotent same-role no-op.
-	if err := store.SetMemberRole(ctx, wsID, member.ID, identity.RoleAdmin); err != nil {
+	if err := store.SetMemberRole(ctx, wsID, member.ID, identity.RoleAdmin, admin.ID); err != nil {
 		t.Fatalf("idempotent set-role: %v", err)
 	}
 
@@ -233,12 +233,12 @@ func TestMembership_SetRoleAndRemove(t *testing.T) {
 	if n != 2 {
 		t.Fatalf("admins = %d, want 2", n)
 	}
-	if err := store.SetMemberRole(ctx, wsID, member.ID, identity.RoleMember); err != nil {
+	if err := store.SetMemberRole(ctx, wsID, member.ID, identity.RoleMember, admin.ID); err != nil {
 		t.Fatalf("demote: %v", err)
 	}
 
 	// Remove the member (leave).
-	if err := store.RemoveMember(ctx, wsID, member.ID); err != nil {
+	if err := store.RemoveMember(ctx, wsID, member.ID, admin.ID); err != nil {
 		t.Fatalf("RemoveMember: %v", err)
 	}
 	if _, err := store.ResolveMembership(ctx, member.ID, wsID); !errors.Is(err, identity.ErrNotMember) {
@@ -246,10 +246,10 @@ func TestMembership_SetRoleAndRemove(t *testing.T) {
 	}
 
 	// SetRole / Remove on a non-member → ErrNotMember.
-	if err := store.SetMemberRole(ctx, wsID, member.ID, identity.RoleAdmin); !errors.Is(err, identity.ErrNotMember) {
+	if err := store.SetMemberRole(ctx, wsID, member.ID, identity.RoleAdmin, admin.ID); !errors.Is(err, identity.ErrNotMember) {
 		t.Errorf("set-role non-member err = %v, want ErrNotMember", err)
 	}
-	if err := store.RemoveMember(ctx, wsID, member.ID); !errors.Is(err, identity.ErrNotMember) {
+	if err := store.RemoveMember(ctx, wsID, member.ID, admin.ID); !errors.Is(err, identity.ErrNotMember) {
 		t.Errorf("remove non-member err = %v, want ErrNotMember", err)
 	}
 }
@@ -266,11 +266,11 @@ func TestLastAdminGuard(t *testing.T) {
 	wsID := identity.DefaultWorkspaceID(admin.ID)
 
 	// Sole admin cannot demote self.
-	if err := store.SetMemberRole(ctx, wsID, admin.ID, identity.RoleMember); !errors.Is(err, identity.ErrLastAdmin) {
+	if err := store.SetMemberRole(ctx, wsID, admin.ID, identity.RoleMember, admin.ID); !errors.Is(err, identity.ErrLastAdmin) {
 		t.Errorf("demote sole admin err = %v, want ErrLastAdmin", err)
 	}
 	// Sole admin cannot be removed.
-	if err := store.RemoveMember(ctx, wsID, admin.ID); !errors.Is(err, identity.ErrLastAdmin) {
+	if err := store.RemoveMember(ctx, wsID, admin.ID, admin.ID); !errors.Is(err, identity.ErrLastAdmin) {
 		t.Errorf("remove sole admin err = %v, want ErrLastAdmin", err)
 	}
 
@@ -288,7 +288,7 @@ func TestLastAdminGuard(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		go func(i int) {
 			defer wg.Done()
-			errs[i] = store.SetMemberRole(ctx, wsID, targets[i], identity.RoleMember)
+			errs[i] = store.SetMemberRole(ctx, wsID, targets[i], identity.RoleMember, targets[i])
 		}(i)
 	}
 	wg.Wait()
@@ -383,7 +383,7 @@ func TestInvitation_AcceptFlow(t *testing.T) {
 	}
 
 	// Revoke → token resolves to gone.
-	if err := store.RevokeInvitation(ctx, wsID, inv2.ID); err != nil {
+	if err := store.RevokeInvitation(ctx, wsID, inv2.ID, admin.ID); err != nil {
 		t.Fatalf("RevokeInvitation: %v", err)
 	}
 	if _, err := store.GetInvitationByToken(ctx, inv2.PlaintextToken); !errors.Is(err, identity.ErrInvitationNotFound) {
@@ -394,7 +394,7 @@ func TestInvitation_AcceptFlow(t *testing.T) {
 		t.Errorf("accept revoked err = %v, want ErrInvitationNotFound", err)
 	}
 	// Revoking an already-revoked invite → not-found (idempotent).
-	if err := store.RevokeInvitation(ctx, wsID, inv2.ID); !errors.Is(err, identity.ErrInvitationNotFound) {
+	if err := store.RevokeInvitation(ctx, wsID, inv2.ID, admin.ID); !errors.Is(err, identity.ErrInvitationNotFound) {
 		t.Errorf("re-revoke err = %v, want ErrInvitationNotFound", err)
 	}
 

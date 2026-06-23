@@ -6,6 +6,7 @@ apis/EventsApi.ts
 apis/MessagesApi.ts
 apis/MetaApi.ts
 apis/WebhooksApi.ts
+apis/WorkspacesApi.ts
 apis/baseapi.ts
 apis/exception.ts
 auth/auth.ts
@@ -18,6 +19,7 @@ models/APIKeyExportEntry.ts
 models/APIKeyView.ts
 models/AccountUserView.ts
 models/AccountView.ts
+models/AccountWorkspaceView.ts
 models/AgentIdentity.ts
 models/AgentView.ts
 models/ApproveRequest.ts
@@ -31,6 +33,8 @@ models/ConversationSummaryView.ts
 models/CreateAPIKeyRequest.ts
 models/CreateAPIKeyResponse.ts
 models/CreateAgentRequest.ts
+models/CreateInvitationInputBody.ts
+models/CreateInvitationResponse.ts
 models/CreateWebhookRequest.ts
 models/CreateWebhookResponse.ts
 models/DNSRecordView.ts
@@ -44,8 +48,10 @@ models/ErrorBody.ts
 models/ErrorEnvelope.ts
 models/EventJSON.ts
 models/ForwardRequest.ts
+models/InvitationView.ts
 models/LimitsCapsView.ts
 models/LimitsUsageView.ts
+models/MemberView.ts
 models/Message.ts
 models/MessageBodyView.ts
 models/MessageParsedView.ts
@@ -58,10 +64,13 @@ models/PageAgentView.ts
 models/PageConversationSummaryView.ts
 models/PageDomainView.ts
 models/PageEventJSON.ts
+models/PageInvitationView.ts
+models/PageMemberView.ts
 models/PageMessageSummaryView.ts
 models/PageSuppression.ts
 models/PageWebhookDeliveryView.ts
 models/PageWebhookView.ts
+models/PageWorkspaceView.ts
 models/ProtectionConfigView.ts
 models/ProtectionDirectionView.ts
 models/ProtectionEventExportEntry.ts
@@ -74,12 +83,14 @@ models/RedeliverView.ts
 models/RegisterDomainRequest.ts
 models/RejectRequest.ts
 models/RejectResultView.ts
+models/RenameWorkspaceInputBody.ts
 models/ReplyRequest.ts
 models/Result.ts
 models/RotateSecretResponse.ts
 models/SendEmailRequest.ts
 models/SendResultView.ts
 models/SendingDNSRecordView.ts
+models/SetMemberRoleInputBody.ts
 models/Suppression.ts
 models/SuppressionExportEntry.ts
 models/TestWebhookRequest.ts
@@ -96,6 +107,7 @@ models/VerifyDomainView.ts
 models/WebhookDeliveryView.ts
 models/WebhookFiltersView.ts
 models/WebhookView.ts
+models/WorkspaceView.ts
 models/all.ts
 rxjsStub.ts
 servers.ts

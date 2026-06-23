@@ -17,6 +17,7 @@ from e2a.v1.generated.models.api_key_export_entry import APIKeyExportEntry
 from e2a.v1.generated.models.api_key_view import APIKeyView
 from e2a.v1.generated.models.account_user_view import AccountUserView
 from e2a.v1.generated.models.account_view import AccountView
+from e2a.v1.generated.models.account_workspace_view import AccountWorkspaceView
 from e2a.v1.generated.models.agent_identity import AgentIdentity
 from e2a.v1.generated.models.agent_view import AgentView
 from e2a.v1.generated.models.approve_request import ApproveRequest
@@ -30,6 +31,8 @@ from e2a.v1.generated.models.conversation_summary_view import ConversationSummar
 from e2a.v1.generated.models.create_api_key_request import CreateAPIKeyRequest
 from e2a.v1.generated.models.create_api_key_response import CreateAPIKeyResponse
 from e2a.v1.generated.models.create_agent_request import CreateAgentRequest
+from e2a.v1.generated.models.create_invitation_input_body import CreateInvitationInputBody
+from e2a.v1.generated.models.create_invitation_response import CreateInvitationResponse
 from e2a.v1.generated.models.create_webhook_request import CreateWebhookRequest
 from e2a.v1.generated.models.create_webhook_response import CreateWebhookResponse
 from e2a.v1.generated.models.dns_record_view import DNSRecordView
@@ -43,8 +46,10 @@ from e2a.v1.generated.models.error_body import ErrorBody
 from e2a.v1.generated.models.error_envelope import ErrorEnvelope
 from e2a.v1.generated.models.event_json import EventJSON
 from e2a.v1.generated.models.forward_request import ForwardRequest
+from e2a.v1.generated.models.invitation_view import InvitationView
 from e2a.v1.generated.models.limits_caps_view import LimitsCapsView
 from e2a.v1.generated.models.limits_usage_view import LimitsUsageView
+from e2a.v1.generated.models.member_view import MemberView
 from e2a.v1.generated.models.message import Message
 from e2a.v1.generated.models.message_body_view import MessageBodyView
 from e2a.v1.generated.models.message_parsed_view import MessageParsedView
@@ -56,10 +61,13 @@ from e2a.v1.generated.models.page_agent_view import PageAgentView
 from e2a.v1.generated.models.page_conversation_summary_view import PageConversationSummaryView
 from e2a.v1.generated.models.page_domain_view import PageDomainView
 from e2a.v1.generated.models.page_event_json import PageEventJSON
+from e2a.v1.generated.models.page_invitation_view import PageInvitationView
+from e2a.v1.generated.models.page_member_view import PageMemberView
 from e2a.v1.generated.models.page_message_summary_view import PageMessageSummaryView
 from e2a.v1.generated.models.page_suppression import PageSuppression
 from e2a.v1.generated.models.page_webhook_delivery_view import PageWebhookDeliveryView
 from e2a.v1.generated.models.page_webhook_view import PageWebhookView
+from e2a.v1.generated.models.page_workspace_view import PageWorkspaceView
 from e2a.v1.generated.models.protection_config_view import ProtectionConfigView
 from e2a.v1.generated.models.protection_direction_view import ProtectionDirectionView
 from e2a.v1.generated.models.protection_event_export_entry import ProtectionEventExportEntry
@@ -72,12 +80,14 @@ from e2a.v1.generated.models.redeliver_view import RedeliverView
 from e2a.v1.generated.models.register_domain_request import RegisterDomainRequest
 from e2a.v1.generated.models.reject_request import RejectRequest
 from e2a.v1.generated.models.reject_result_view import RejectResultView
+from e2a.v1.generated.models.rename_workspace_input_body import RenameWorkspaceInputBody
 from e2a.v1.generated.models.reply_request import ReplyRequest
 from e2a.v1.generated.models.result import Result
 from e2a.v1.generated.models.rotate_secret_response import RotateSecretResponse
 from e2a.v1.generated.models.send_email_request import SendEmailRequest
 from e2a.v1.generated.models.send_result_view import SendResultView
 from e2a.v1.generated.models.sending_dns_record_view import SendingDNSRecordView
+from e2a.v1.generated.models.set_member_role_input_body import SetMemberRoleInputBody
 from e2a.v1.generated.models.suppression import Suppression
 from e2a.v1.generated.models.suppression_export_entry import SuppressionExportEntry
 from e2a.v1.generated.models.test_webhook_request import TestWebhookRequest
@@ -94,4 +104,5 @@ from e2a.v1.generated.models.verify_domain_view import VerifyDomainView
 from e2a.v1.generated.models.webhook_delivery_view import WebhookDeliveryView
 from e2a.v1.generated.models.webhook_filters_view import WebhookFiltersView
 from e2a.v1.generated.models.webhook_view import WebhookView
+from e2a.v1.generated.models.workspace_view import WorkspaceView
 

@@ -9,4 +9,5 @@ from e2a.v1.generated.api.events_api import EventsApi
 from e2a.v1.generated.api.messages_api import MessagesApi
 from e2a.v1.generated.api.meta_api import MetaApi
 from e2a.v1.generated.api.webhooks_api import WebhooksApi
+from e2a.v1.generated.api.workspaces_api import WorkspacesApi
 

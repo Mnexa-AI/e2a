@@ -96,7 +96,7 @@ func TestResolveActiveWorkspace_NoHeaderNeverFails(t *testing.T) {
 		t.Fatalf("AddMember: %v", err)
 	}
 	setSessionLastActive(t, pool, token, otherWS)
-	if err := store.RemoveMember(ctx, otherWS, owner.ID); err != nil {
+	if err := store.RemoveMember(ctx, otherWS, owner.ID, other.ID); err != nil {
 		t.Fatalf("RemoveMember: %v", err)
 	}
 	ws, role, err = store.ResolveActiveWorkspace(ctx, owner.ID, "", token)
@@ -161,7 +161,7 @@ func TestConcurrentLeave_LastAdminRace(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		go func(i int) {
 			defer wg.Done()
-			errs[i] = store.RemoveMember(ctx, wsID, targets[i])
+			errs[i] = store.RemoveMember(ctx, wsID, targets[i], targets[i])
 		}(i)
 	}
 	wg.Wait()

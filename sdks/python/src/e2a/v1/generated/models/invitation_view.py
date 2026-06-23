@@ -17,29 +17,23 @@ import pprint
 import re  # noqa: F401
 import json
 
+from datetime import datetime
 from pydantic import BaseModel, ConfigDict, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
-from e2a.v1.generated.models.account_user_view import AccountUserView
-from e2a.v1.generated.models.account_workspace_view import AccountWorkspaceView
-from e2a.v1.generated.models.limits_caps_view import LimitsCapsView
-from e2a.v1.generated.models.limits_usage_view import LimitsUsageView
 from typing import Optional, Set
 from typing_extensions import Self
 
-class AccountView(BaseModel):
+class InvitationView(BaseModel):
     """
-    AccountView
+    InvitationView
     """ # noqa: E501
-    agent_address: Optional[StrictStr] = None
-    limits: LimitsCapsView
-    plan_code: StrictStr
-    role: Optional[StrictStr] = None
-    scope: StrictStr
-    upgrade_url: StrictStr
-    usage: LimitsUsageView
-    user: AccountUserView
-    workspace: Optional[AccountWorkspaceView] = None
-    __properties: ClassVar[List[str]] = ["agent_address", "limits", "plan_code", "role", "scope", "upgrade_url", "usage", "user", "workspace"]
+    created_at: datetime
+    email: StrictStr
+    expires_at: Optional[datetime] = None
+    id: StrictStr
+    role: StrictStr
+    status: StrictStr
+    __properties: ClassVar[List[str]] = ["created_at", "email", "expires_at", "id", "role", "status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -59,7 +53,7 @@ class AccountView(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of AccountView from a JSON string"""
+        """Create an instance of InvitationView from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -80,23 +74,11 @@ class AccountView(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of limits
-        if self.limits:
-            _dict['limits'] = self.limits.to_dict()
-        # override the default output from pydantic by calling `to_dict()` of usage
-        if self.usage:
-            _dict['usage'] = self.usage.to_dict()
-        # override the default output from pydantic by calling `to_dict()` of user
-        if self.user:
-            _dict['user'] = self.user.to_dict()
-        # override the default output from pydantic by calling `to_dict()` of workspace
-        if self.workspace:
-            _dict['workspace'] = self.workspace.to_dict()
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of AccountView from a dict"""
+        """Create an instance of InvitationView from a dict"""
         if obj is None:
             return None
 
@@ -104,15 +86,12 @@ class AccountView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "agent_address": obj.get("agent_address"),
-            "limits": LimitsCapsView.from_dict(obj["limits"]) if obj.get("limits") is not None else None,
-            "plan_code": obj.get("plan_code"),
+            "created_at": obj.get("created_at"),
+            "email": obj.get("email"),
+            "expires_at": obj.get("expires_at"),
+            "id": obj.get("id"),
             "role": obj.get("role"),
-            "scope": obj.get("scope"),
-            "upgrade_url": obj.get("upgrade_url"),
-            "usage": LimitsUsageView.from_dict(obj["usage"]) if obj.get("usage") is not None else None,
-            "user": AccountUserView.from_dict(obj["user"]) if obj.get("user") is not None else None,
-            "workspace": AccountWorkspaceView.from_dict(obj["workspace"]) if obj.get("workspace") is not None else None
+            "status": obj.get("status")
         })
         return _obj
 

@@ -2,6 +2,7 @@ export * from '../models/APIKeyExportEntry.js';
 export * from '../models/APIKeyView.js';
 export * from '../models/AccountUserView.js';
 export * from '../models/AccountView.js';
+export * from '../models/AccountWorkspaceView.js';
 export * from '../models/AgentIdentity.js';
 export * from '../models/AgentView.js';
 export * from '../models/ApproveRequest.js';
@@ -15,6 +16,8 @@ export * from '../models/ConversationSummaryView.js';
 export * from '../models/CreateAPIKeyRequest.js';
 export * from '../models/CreateAPIKeyResponse.js';
 export * from '../models/CreateAgentRequest.js';
+export * from '../models/CreateInvitationInputBody.js';
+export * from '../models/CreateInvitationResponse.js';
 export * from '../models/CreateWebhookRequest.js';
 export * from '../models/CreateWebhookResponse.js';
 export * from '../models/DNSRecordView.js';
@@ -28,8 +31,10 @@ export * from '../models/ErrorBody.js';
 export * from '../models/ErrorEnvelope.js';
 export * from '../models/EventJSON.js';
 export * from '../models/ForwardRequest.js';
+export * from '../models/InvitationView.js';
 export * from '../models/LimitsCapsView.js';
 export * from '../models/LimitsUsageView.js';
+export * from '../models/MemberView.js';
 export * from '../models/Message.js';
 export * from '../models/MessageBodyView.js';
 export * from '../models/MessageParsedView.js';
@@ -41,10 +46,13 @@ export * from '../models/PageAgentView.js';
 export * from '../models/PageConversationSummaryView.js';
 export * from '../models/PageDomainView.js';
 export * from '../models/PageEventJSON.js';
+export * from '../models/PageInvitationView.js';
+export * from '../models/PageMemberView.js';
 export * from '../models/PageMessageSummaryView.js';
 export * from '../models/PageSuppression.js';
 export * from '../models/PageWebhookDeliveryView.js';
 export * from '../models/PageWebhookView.js';
+export * from '../models/PageWorkspaceView.js';
 export * from '../models/ProtectionConfigView.js';
 export * from '../models/ProtectionDirectionView.js';
 export * from '../models/ProtectionEventExportEntry.js';
@@ -57,12 +65,14 @@ export * from '../models/RedeliverView.js';
 export * from '../models/RegisterDomainRequest.js';
 export * from '../models/RejectRequest.js';
 export * from '../models/RejectResultView.js';
+export * from '../models/RenameWorkspaceInputBody.js';
 export * from '../models/ReplyRequest.js';
 export * from '../models/Result.js';
 export * from '../models/RotateSecretResponse.js';
 export * from '../models/SendEmailRequest.js';
 export * from '../models/SendResultView.js';
 export * from '../models/SendingDNSRecordView.js';
+export * from '../models/SetMemberRoleInputBody.js';
 export * from '../models/Suppression.js';
 export * from '../models/SuppressionExportEntry.js';
 export * from '../models/TestWebhookRequest.js';
@@ -79,11 +89,13 @@ export * from '../models/VerifyDomainView.js';
 export * from '../models/WebhookDeliveryView.js';
 export * from '../models/WebhookFiltersView.js';
 export * from '../models/WebhookView.js';
+export * from '../models/WorkspaceView.js';
 
 import { APIKeyExportEntry } from '../models/APIKeyExportEntry.js';
 import { APIKeyView       , APIKeyViewScopeEnum   } from '../models/APIKeyView.js';
 import { AccountUserView } from '../models/AccountUserView.js';
-import { AccountView   , AccountViewScopeEnum      } from '../models/AccountView.js';
+import { AccountView   , AccountViewRoleEnum  , AccountViewScopeEnum       } from '../models/AccountView.js';
+import { AccountWorkspaceView } from '../models/AccountWorkspaceView.js';
 import { AgentIdentity } from '../models/AgentIdentity.js';
 import { AgentView } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
@@ -97,6 +109,8 @@ import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAPIKeyRequest   , CreateAPIKeyRequestScopeEnum   } from '../models/CreateAPIKeyRequest.js';
 import { CreateAPIKeyResponse        , CreateAPIKeyResponseScopeEnum   } from '../models/CreateAPIKeyResponse.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
+import { CreateInvitationInputBody , CreateInvitationInputBodyRoleEnum   } from '../models/CreateInvitationInputBody.js';
+import { CreateInvitationResponse    , CreateInvitationResponseRoleEnum     } from '../models/CreateInvitationResponse.js';
 import { CreateWebhookRequest , CreateWebhookRequestEventsEnum     } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse    , CreateWebhookResponseEventsEnum        } from '../models/CreateWebhookResponse.js';
 import { DNSRecordView } from '../models/DNSRecordView.js';
@@ -110,8 +124,10 @@ import { ErrorBody } from '../models/ErrorBody.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { EventJSON        , EventJSONStatusEnum  , EventJSONTypeEnum   } from '../models/EventJSON.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
+import { InvitationView    , InvitationViewRoleEnum    } from '../models/InvitationView.js';
 import { LimitsCapsView } from '../models/LimitsCapsView.js';
 import { LimitsUsageView } from '../models/LimitsUsageView.js';
+import { MemberView   , MemberViewRoleEnum    } from '../models/MemberView.js';
 import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
@@ -123,10 +139,13 @@ import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
 import { PageDomainView } from '../models/PageDomainView.js';
 import { PageEventJSON } from '../models/PageEventJSON.js';
+import { PageInvitationView } from '../models/PageInvitationView.js';
+import { PageMemberView } from '../models/PageMemberView.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
+import { PageWorkspaceView } from '../models/PageWorkspaceView.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
 import { ProtectionDirectionView } from '../models/ProtectionDirectionView.js';
 import { ProtectionEventExportEntry } from '../models/ProtectionEventExportEntry.js';
@@ -139,12 +158,14 @@ import { RedeliverView   , RedeliverViewStatusEnum    } from '../models/Redelive
 import { RegisterDomainRequest } from '../models/RegisterDomainRequest.js';
 import { RejectRequest } from '../models/RejectRequest.js';
 import { RejectResultView } from '../models/RejectResultView.js';
+import { RenameWorkspaceInputBody } from '../models/RenameWorkspaceInputBody.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView   , SendResultViewMethodEnum   , SendResultViewSentAsEnum  , SendResultViewStatusEnum   } from '../models/SendResultView.js';
 import { SendingDNSRecordView } from '../models/SendingDNSRecordView.js';
+import { SetMemberRoleInputBody, SetMemberRoleInputBodyRoleEnum   } from '../models/SetMemberRoleInputBody.js';
 import { Suppression } from '../models/Suppression.js';
 import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
 import { TestWebhookRequest , TestWebhookRequestEventEnum   } from '../models/TestWebhookRequest.js';
@@ -161,6 +182,7 @@ import { VerifyDomainView } from '../models/VerifyDomainView.js';
 import { WebhookDeliveryView  , WebhookDeliveryViewEventTypeEnum       , WebhookDeliveryViewStatusEnum   } from '../models/WebhookDeliveryView.js';
 import { WebhookFiltersView } from '../models/WebhookFiltersView.js';
 import { WebhookView    , WebhookViewEventsEnum       } from '../models/WebhookView.js';
+import { WorkspaceView   , WorkspaceViewRoleEnum   } from '../models/WorkspaceView.js';
 
 /* tslint:disable:no-unused-variable */
 let primitives = [
@@ -176,14 +198,19 @@ let primitives = [
 
 let enumsMap: Set<string> = new Set<string>([
     "APIKeyViewScopeEnum",
+    "AccountViewRoleEnum",
     "AccountViewScopeEnum",
     "CreateAPIKeyRequestScopeEnum",
     "CreateAPIKeyResponseScopeEnum",
+    "CreateInvitationInputBodyRoleEnum",
+    "CreateInvitationResponseRoleEnum",
     "CreateWebhookRequestEventsEnum",
     "CreateWebhookResponseEventsEnum",
     "DomainViewSendingStatusEnum",
     "EventJSONStatusEnum",
     "EventJSONTypeEnum",
+    "InvitationViewRoleEnum",
+    "MemberViewRoleEnum",
     "MessageSummaryViewDeliveryStatusEnum",
     "MessageSummaryViewDirectionEnum",
     "MessageSummaryViewReviewStatusEnum",
@@ -201,11 +228,13 @@ let enumsMap: Set<string> = new Set<string>([
     "SendResultViewMethodEnum",
     "SendResultViewSentAsEnum",
     "SendResultViewStatusEnum",
+    "SetMemberRoleInputBodyRoleEnum",
     "TestWebhookRequestEventEnum",
     "UpdateWebhookRequestEventsEnum",
     "WebhookDeliveryViewEventTypeEnum",
     "WebhookDeliveryViewStatusEnum",
     "WebhookViewEventsEnum",
+    "WorkspaceViewRoleEnum",
 ]);
 
 let typeMap: {[index: string]: any} = {
@@ -213,6 +242,7 @@ let typeMap: {[index: string]: any} = {
     "APIKeyView": APIKeyView,
     "AccountUserView": AccountUserView,
     "AccountView": AccountView,
+    "AccountWorkspaceView": AccountWorkspaceView,
     "AgentIdentity": AgentIdentity,
     "AgentView": AgentView,
     "ApproveRequest": ApproveRequest,
@@ -226,6 +256,8 @@ let typeMap: {[index: string]: any} = {
     "CreateAPIKeyRequest": CreateAPIKeyRequest,
     "CreateAPIKeyResponse": CreateAPIKeyResponse,
     "CreateAgentRequest": CreateAgentRequest,
+    "CreateInvitationInputBody": CreateInvitationInputBody,
+    "CreateInvitationResponse": CreateInvitationResponse,
     "CreateWebhookRequest": CreateWebhookRequest,
     "CreateWebhookResponse": CreateWebhookResponse,
     "DNSRecordView": DNSRecordView,
@@ -239,8 +271,10 @@ let typeMap: {[index: string]: any} = {
     "ErrorEnvelope": ErrorEnvelope,
     "EventJSON": EventJSON,
     "ForwardRequest": ForwardRequest,
+    "InvitationView": InvitationView,
     "LimitsCapsView": LimitsCapsView,
     "LimitsUsageView": LimitsUsageView,
+    "MemberView": MemberView,
     "Message": Message,
     "MessageBodyView": MessageBodyView,
     "MessageParsedView": MessageParsedView,
@@ -252,10 +286,13 @@ let typeMap: {[index: string]: any} = {
     "PageConversationSummaryView": PageConversationSummaryView,
     "PageDomainView": PageDomainView,
     "PageEventJSON": PageEventJSON,
+    "PageInvitationView": PageInvitationView,
+    "PageMemberView": PageMemberView,
     "PageMessageSummaryView": PageMessageSummaryView,
     "PageSuppression": PageSuppression,
     "PageWebhookDeliveryView": PageWebhookDeliveryView,
     "PageWebhookView": PageWebhookView,
+    "PageWorkspaceView": PageWorkspaceView,
     "ProtectionConfigView": ProtectionConfigView,
     "ProtectionDirectionView": ProtectionDirectionView,
     "ProtectionEventExportEntry": ProtectionEventExportEntry,
@@ -268,12 +305,14 @@ let typeMap: {[index: string]: any} = {
     "RegisterDomainRequest": RegisterDomainRequest,
     "RejectRequest": RejectRequest,
     "RejectResultView": RejectResultView,
+    "RenameWorkspaceInputBody": RenameWorkspaceInputBody,
     "ReplyRequest": ReplyRequest,
     "Result": Result,
     "RotateSecretResponse": RotateSecretResponse,
     "SendEmailRequest": SendEmailRequest,
     "SendResultView": SendResultView,
     "SendingDNSRecordView": SendingDNSRecordView,
+    "SetMemberRoleInputBody": SetMemberRoleInputBody,
     "Suppression": Suppression,
     "SuppressionExportEntry": SuppressionExportEntry,
     "TestWebhookRequest": TestWebhookRequest,
@@ -290,6 +329,7 @@ let typeMap: {[index: string]: any} = {
     "WebhookDeliveryView": WebhookDeliveryView,
     "WebhookFiltersView": WebhookFiltersView,
     "WebhookView": WebhookView,
+    "WorkspaceView": WorkspaceView,
 }
 
 type MimeTypeDescriptor = {

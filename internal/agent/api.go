@@ -179,6 +179,7 @@ type API struct {
 	feedbackLimit     *ratelimit.Limiter
 	dcrLimit          *ratelimit.Limiter    // OAuth Dynamic Client Registration — anonymous endpoint, per-IP
 	downloadLimit     *ratelimit.Limiter    // attachment byte-download — capability-token route (no bearer), per-IP
+	inviteLimit       *ratelimit.Limiter    // workspace-invitation send — per-workspace (§4.6 spam-cannon guard)
 	approvalSigner    *approvaltoken.Signer // optional; if nil, magic-link endpoints return 404
 	notifier          *hitlnotify.Notifier  // optional; if nil, holdForApproval doesn't send notification email
 	oauthProvider     fosite.OAuth2Provider // optional; if nil, /oauth2/* endpoints return 404
@@ -482,6 +483,13 @@ func (a *API) DownloadLimitAllow(key string) (bool, time.Duration, int, int, int
 	return a.downloadLimit.AllowSnapshot(key)
 }
 
+// InviteLimitAllow exposes the per-workspace invitation limiter (key =
+// workspace id), returning the IETF RateLimit snapshot so the v1 httpapi layer
+// can map an exceeded limit to a 429 with Retry-After (§4.6).
+func (a *API) InviteLimitAllow(key string) (bool, time.Duration, int, int, int) {
+	return a.inviteLimit.AllowSnapshot(key)
+}
+
 // SetUsageStore wires in the usage store used by handleGetMyLimits to
 // surface the user's current counts (agents, domains, messages this
 // month, storage bytes) alongside the resolved caps. Separate from the
@@ -523,12 +531,13 @@ func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.
 		sharedDomain:  sharedDomain,
 		publicURL:     publicURL,
 		production:    production,
-		sendLimit:     ratelimit.New(1*time.Minute, 60), // 60 sends per agent per minute
-		regLimit:      ratelimit.New(1*time.Hour, 200),  // 200 registrations per IP per hour
-		pollLimit:     ratelimit.New(1*time.Minute, 60), // 60 poll requests per user per minute
-		feedbackLimit: ratelimit.New(1*time.Hour, 10),   // 10 feedback submissions per IP per hour
-		dcrLimit:      ratelimit.New(1*time.Hour, 10),   // 10 OAuth client registrations per IP per hour
+		sendLimit:     ratelimit.New(1*time.Minute, 60),  // 60 sends per agent per minute
+		regLimit:      ratelimit.New(1*time.Hour, 200),   // 200 registrations per IP per hour
+		pollLimit:     ratelimit.New(1*time.Minute, 60),  // 60 poll requests per user per minute
+		feedbackLimit: ratelimit.New(1*time.Hour, 10),    // 10 feedback submissions per IP per hour
+		dcrLimit:      ratelimit.New(1*time.Hour, 10),    // 10 OAuth client registrations per IP per hour
 		downloadLimit: ratelimit.New(1*time.Minute, 120), // 120 attachment downloads per IP per minute
+		inviteLimit:   ratelimit.New(1*time.Hour, 50),    // 50 workspace invitations per workspace per hour
 	}
 }
 
@@ -1257,6 +1266,39 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		SentAs:            result.SentAs,
 		Method:            result.Method,
 	}, nil
+}
+
+// SendInvitationCore emails a workspace-invitation accept link via the
+// system-mail noreply path (design 2026-06-23 §4.6 step 2). It deliberately
+// uses the platform noreply@{fromDomain} sender + the SMTP relay directly —
+// NOT the agent-keyed outbound.Sender (which requires a verified-domain agent)
+// and NOT hitl-noreply@. Best-effort: the caller treats a send error as
+// non-fatal (the admin can re-invite, rotating the token). Returns an error
+// only so the caller can log it.
+func (a *API) SendInvitationCore(ctx context.Context, email, workspaceID, token string) error {
+	if a.smtpRelay == nil || a.fromDomain == "" {
+		return fmt.Errorf("system mail not configured")
+	}
+	envelopeFrom := fmt.Sprintf("noreply@%s", a.fromDomain)
+	headerFrom := fmt.Sprintf("%q <%s>", "e2a", envelopeFrom)
+	to := []string{email}
+	subject := "You've been invited to a workspace on e2a"
+	acceptURL := token
+	if a.publicURL != "" {
+		acceptURL = fmt.Sprintf("%s/invite/accept?token=%s", strings.TrimRight(a.publicURL, "/"), token)
+	}
+	body := fmt.Sprintf(
+		"You've been invited to join a workspace on e2a.\n\nAccept the invitation:\n%s\n\nIf you weren't expecting this, you can ignore this email.",
+		acceptURL,
+	)
+	message, err := outbound.ComposeMessage(headerFrom, to, nil, subject, body, "text/plain", "", nil, a.fromDomain, "", "")
+	if err != nil {
+		return fmt.Errorf("compose invitation email: %w", err)
+	}
+	if _, err := a.smtpRelay.Send(envelopeFrom, to, message); err != nil {
+		return fmt.Errorf("send invitation email: %w", err)
+	}
+	return nil
 }
 
 // SendTestCore composes and sends (or HITL-holds) a platform test email to
