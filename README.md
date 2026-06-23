@@ -190,8 +190,7 @@ When an agent's protection config holds an outbound message for review, `send` a
 Reviewers can approve or reject via:
 
 - **Dashboard / API** — `POST /v1/agents/{address}/messages/{id}/approve` or `/reject`
-- **Magic-link email** — sent automatically when HITL fires; one-click `GET /v1/approve?t=…` and `/v1/reject?t=…` URLs (requires `E2A_PUBLIC_URL` and outbound SMTP configured)
-- **CLI** — `e2a pending` lists held messages
+- **Magic-link email** — sent automatically when a hold fires; one-click `GET /v1/approve?t=…` and `/v1/reject?t=…` URLs (requires `E2A_PUBLIC_URL` and outbound SMTP configured)
 
 Enable review holds on an agent via `PUT /v1/agents/{address}/protection`: set the outbound gate action to `review` (or turn on the content scan), plus the hold TTL and `hitl_expiration_action`. (The old `hitl_enabled`/`hitl_mode` flags were retired in the screening cutover.)
 
