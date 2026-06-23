@@ -17,10 +17,11 @@ export function ThreadRow({
   active: boolean;
   onSelect: (key: string) => void;
 }) {
-  // Unread = any inbound message still marked unread (inbox_status rides
-  // on MessageSummary.status for inbound rows). Drives Gmail's bold row.
+  // Unread = any inbound message still marked unread. v1 carries inbound
+  // read state in read_status (delivery_status is outbound-only). Drives
+  // Gmail's bold row.
   const unread = thread.messages.some(
-    (m) => m.direction === "inbound" && m.status === "unread",
+    (m) => m.direction === "inbound" && m.read_status === "unread",
   );
   const pending = thread.state === "pending";
   const fw = unread ? 600 : 400;

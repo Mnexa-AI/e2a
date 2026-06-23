@@ -51,6 +51,32 @@ describe("message projection (v1 contract)", () => {
     expect(res.items[0].status).toBe("queued"); // delivery rollup
   });
 
+  it("maps inbound read_status (delivery_status is outbound-only)", async () => {
+    // Regression: inbound unread state lives in read_status, not status —
+    // dropping it silently disabled the inbox's unread/bold affordance.
+    mockFetch.mockImplementation((url: string) =>
+      url.includes("/messages")
+        ? okJson({
+            items: [
+              {
+                message_id: "m1",
+                direction: "inbound",
+                from: "b@y.com",
+                to: ["a@x.com"],
+                recipient: "a@x.com",
+                subject: "hi",
+                read_status: "unread",
+                created_at: "2026-01-01T00:00:00Z",
+              },
+            ],
+            next_cursor: null,
+          })
+        : notFound(),
+    );
+    const res = await listAgentMessages("a@x.com", { direction: "all" });
+    expect(res.items[0].read_status).toBe("unread");
+  });
+
   it("surfaces a v1 pending_review outbound row in the pending queue", async () => {
     mockFetch.mockImplementation((url: string) => {
       if (url === "/v1/agents") return okJson({ items: [{ email: "a@x.com" }] });

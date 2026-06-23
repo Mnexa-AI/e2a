@@ -159,7 +159,7 @@ export function deriveLifecycleSteps(input: LifecycleInput): LifecycleStep[] {
 
   if (hitlEnabled) {
     steps.push({
-      label: "Held for HITL approval",
+      label: "Held for review",
       caption: terminal
         ? input.reviewedAt
           ? `${fmtClock(input.reviewedAt)} · resolved`

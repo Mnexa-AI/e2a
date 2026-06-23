@@ -186,6 +186,9 @@ function projectSummary(w: MessageSummaryWire): import("../types").MessageSummar
     // review_status.
     status: w.delivery_status ?? "",
     review_status: w.review_status,
+    // Inbound unread state lives in read_status on v1 (delivery_status is
+    // outbound-only); the inbox's unread affordance reads this.
+    read_status: w.read_status,
     webhook_status: w.webhook_status,
     webhook_error: w.webhook_error,
     size_bytes: w.size_bytes,

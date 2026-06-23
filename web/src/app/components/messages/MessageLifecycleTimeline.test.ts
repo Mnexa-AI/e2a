@@ -12,7 +12,7 @@ describe("deriveLifecycleSteps", () => {
     expect(steps.map((s) => s.label)).toEqual([
       "Inbound received",
       "Agent drafted reply",
-      "Held for HITL approval",
+      "Held for review",
       "Sent to recipient",
     ]);
     expect(steps[2].current).toBe(true);
@@ -26,7 +26,7 @@ describe("deriveLifecycleSteps", () => {
     });
     expect(steps.map((s) => s.label)).toEqual([
       "Agent drafted reply",
-      "Held for HITL approval",
+      "Held for review",
       "Sent to recipient",
     ]);
   });
@@ -112,7 +112,7 @@ describe("deriveLifecycleSteps", () => {
       status: "pending_review",
       draftedAt: "2026-05-24T14:18:09Z",
     });
-    const held = pending.find((s) => s.label === "Held for HITL approval");
+    const held = pending.find((s) => s.label === "Held for review");
     expect(held?.current).toBe(true);
     expect(held?.caption).toBe("awaiting reviewer");
 
@@ -121,6 +121,6 @@ describe("deriveLifecycleSteps", () => {
       draftedAt: "2026-05-24T14:18:09Z",
       reviewedAt: "2026-05-24T14:25:00Z",
     });
-    expect(sent.find((s) => s.label === "Held for HITL approval")?.caption).toContain("resolved");
+    expect(sent.find((s) => s.label === "Held for review")?.caption).toContain("resolved");
   });
 });

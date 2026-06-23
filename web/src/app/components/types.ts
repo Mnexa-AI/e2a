@@ -100,6 +100,9 @@ export type MessageSummary = {
   // Review lifecycle (from v1 review_status): pending_review | sent |
   // review_rejected | review_expired_approved | review_expired_rejected.
   review_status?: string;
+  // Inbound read state (from v1 read_status): "unread" | "read". Empty on
+  // outbound rows. Drives the inbox's unread/bold affordance.
+  read_status?: string;
   // Outbound webhook delivery state.
   webhook_status?: string;
   webhook_error?: string;
