@@ -1,9 +1,24 @@
 # Agent Screening + Human-in-the-Loop Review (pre-GA)
 
-Status: Draft for review
+Status: Implemented, with as-built deltas (see below)
 Date: 2026-06-20
 Branch: `worktree-design+agent-screening-hitl`
 Author: design pass (formalizes a converged discussion)
+
+> **As-built deltas (the body below is the original proposal; reality diverged):**
+> - The `screening_events` table is now **`protection_events`** and gained an
+>   `agent_id` FK `ON DELETE CASCADE` so it's erased with the account (migrations
+>   040 + 046). `message_id` stays a soft ref.
+> - The `verified_only` inbound gate posture was **removed** pre-GA (migration 047);
+>   it may return later as an additive policy.
+> - Per-agent scan **thresholds** are not exposed publicly — the surface is an
+>   `off|low|medium|high` **sensitivity** band that maps to internal thresholds
+>   (so an agent-scoped credential can't read its own detection tuning).
+> - Outbound HITL holds were **unified onto the `pending_review` vocabulary**
+>   (was `pending_approval`); approve/reject branch on direction (outbound: send;
+>   inbound: release to inbox). See `2026-06-22-unify-holds-on-pending-review.md`.
+> - The config lives on a dedicated **`PUT /v1/agents/{email}/protection`**
+>   sub-resource, not flat agent fields. See `2026-06-22-agent-protection-config.md`.
 
 ---
 
