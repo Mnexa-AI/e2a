@@ -35,7 +35,7 @@ export const RUNTIME_TOOLS: ReadonlySet<string> = new Set([
   "forward_message",
   // NOTE: approve_message / reject_message are deliberately NOT here — they are
   // admin/account-scope (below). Letting the gated agent approve its own held
-  // outbound would be self-approval and defeat the HITL gate; approval is an
+  // outbound would be self-approval and defeat the review gate; approval is an
   // account-owner / human action (or the magic-link browser flow). An
   // agent-scoped credential can send (which gets held) and SEE its pending
   // queue (list_pending_messages / get_pending_message), but not release it.
@@ -53,10 +53,10 @@ export const ADMIN_TOOLS: ReadonlySet<string> = new Set([
   "get_protection",
   "update_protection",
   "delete_agent",
-  // HITL approval is an account-owner / human review action — NOT something the
+  // Review approval is an account-owner / human review action — NOT something the
   // gated agent may do to its own held outbound (that would be self-approval,
-  // defeating HITL). The backend enforces this too: the approve/reject handlers
-  // (internal/httpapi/hitl.go) require account scope (403 for agent-scoped).
+  // defeating the review gate). The backend enforces this too: the approve/reject
+  // handlers (internal/httpapi/hitl.go) require account scope (403 for agent-scoped).
   "approve_message",
   "reject_message",
   "list_domains",

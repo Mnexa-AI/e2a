@@ -108,8 +108,8 @@ import { LimitsUsageView } from '../models/LimitsUsageView.js';
 import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
-import { MessageSummaryView     , MessageSummaryViewDeliveryStatusEnum  , MessageSummaryViewDirectionEnum     , MessageSummaryViewHitlStatusEnum       , MessageSummaryViewSentAsEnum        } from '../models/MessageSummaryView.js';
-import { MessageView        , MessageViewDeliveryStatusEnum  , MessageViewDirectionEnum     , MessageViewHitlStatusEnum         , MessageViewSentAsEnum        } from '../models/MessageView.js';
+import { MessageSummaryView     , MessageSummaryViewDeliveryStatusEnum  , MessageSummaryViewDirectionEnum          , MessageSummaryViewReviewStatusEnum  , MessageSummaryViewSentAsEnum        } from '../models/MessageSummaryView.js';
+import { MessageView        , MessageViewDeliveryStatusEnum  , MessageViewDirectionEnum            , MessageViewReviewStatusEnum  , MessageViewSentAsEnum        } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
 import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
@@ -175,11 +175,11 @@ let enumsMap: Set<string> = new Set<string>([
     "EventJSONTypeEnum",
     "MessageSummaryViewDeliveryStatusEnum",
     "MessageSummaryViewDirectionEnum",
-    "MessageSummaryViewHitlStatusEnum",
+    "MessageSummaryViewReviewStatusEnum",
     "MessageSummaryViewSentAsEnum",
     "MessageViewDeliveryStatusEnum",
     "MessageViewDirectionEnum",
-    "MessageViewHitlStatusEnum",
+    "MessageViewReviewStatusEnum",
     "MessageViewSentAsEnum",
     "ProtectionGateViewActionEnum",
     "ProtectionGateViewPolicyEnum",

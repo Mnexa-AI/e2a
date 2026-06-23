@@ -87,8 +87,8 @@ type AgentIdentity struct {
 	// were retired (Slice 5b/5c, columns dropped in migration 043) — outbound_policy
 	// + outbound_scan own holds now. These two knobs govern how the review queue
 	// behaves (TTL + expiry action) for both directions.
-	HITLTTLSeconds       int    `json:"hitl_ttl_seconds"`
-	HITLExpirationAction string `json:"hitl_expiration_action"`
+	HITLTTLSeconds       int    `json:"review_ttl_seconds"`
+	HITLExpirationAction string `json:"review_expiration_action"`
 	// Dashboard enrichment fields. Computed at read
 	// time by ListAgentsByUser via correlated subqueries — other load
 	// paths (GetAgentByID / GetAgentByEmail) leave them at zero values,

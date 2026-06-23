@@ -33,7 +33,7 @@ import type { Scope } from "./tools/tiers.js";
 // Outbound drafts held for human review surface in the message list with
 // this status (the hold vocabulary was unified on `pending_review` across
 // both directions — see api/openapi.yaml). There is no dedicated status
-// query param for them, so HITL listing filters outbound rows on this value.
+// query param for them, so the review queue filters outbound rows on this value.
 export const PENDING_REVIEW_STATUS = "pending_review";
 
 const DEFAULT_LIST_LIMIT = 1000;
@@ -232,6 +232,7 @@ export class McpClient {
   // Cursor pagination (§6a #3): returns ONE page + next_cursor. `limit` is the
   // page size; pass a prior response's next_cursor as `cursor` for the next page.
   listMessages(params: {
+    direction?: "inbound" | "outbound" | "all";
     readStatus?: "unread" | "read" | "all";
     sort?: "asc" | "desc";
     from?: string;
@@ -268,7 +269,7 @@ export class McpClient {
     );
   }
 
-  // ── HITL (pending outbound) ─────────────────────────────────────
+  // ── Review queue (pending outbound) ─────────────────────────────
 
   // Pending drafts surface as outbound messages with status=pending_review.
   // There is no dedicated "pending" status filter, so we list outbound and
@@ -284,9 +285,9 @@ export class McpClient {
         .list(address, { direction: "outbound" })
         .toArray({ limit: DEFAULT_LIST_LIMIT });
       for (const r of rows) {
-        // Held drafts carry the HITL lifecycle in hitl_status (read_status is
-        // the inbox read-state, "" for outbound). MSG-1.
-        if (r.hitlStatus === PENDING_REVIEW_STATUS) out.push(r);
+        // Held drafts carry the review-hold lifecycle in review_status
+        // (read_status is the inbox read-state, "" for outbound). MSG-1.
+        if (r.reviewStatus === PENDING_REVIEW_STATUS) out.push(r);
       }
     }
     return out;

@@ -17,8 +17,6 @@ export class AgentIdentity {
     'domain': string;
     'domainVerified': boolean;
     'email': string;
-    'hitlExpirationAction': string;
-    'hitlTtlSeconds': number;
     'id': string;
     'inbound7d': number;
     'inboundAllowlist'?: Array<string> | null;
@@ -40,6 +38,8 @@ export class AgentIdentity {
     'outboundScanSensitivity': string;
     'pendingCount': number;
     '_public': boolean;
+    'reviewExpirationAction': string;
+    'reviewTtlSeconds': number;
     'userId': string;
     'webhookHealthy': boolean;
 
@@ -71,18 +71,6 @@ export class AgentIdentity {
             "baseName": "email",
             "type": "string",
             "format": ""
-        },
-        {
-            "name": "hitlExpirationAction",
-            "baseName": "hitl_expiration_action",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "hitlTtlSeconds",
-            "baseName": "hitl_ttl_seconds",
-            "type": "number",
-            "format": "int64"
         },
         {
             "name": "id",
@@ -209,6 +197,18 @@ export class AgentIdentity {
             "baseName": "public",
             "type": "boolean",
             "format": ""
+        },
+        {
+            "name": "reviewExpirationAction",
+            "baseName": "review_expiration_action",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "reviewTtlSeconds",
+            "baseName": "review_ttl_seconds",
+            "type": "number",
+            "format": "int64"
         },
         {
             "name": "userId",

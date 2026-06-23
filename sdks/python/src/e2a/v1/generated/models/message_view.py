@@ -44,7 +44,6 @@ class MessageView(BaseModel):
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
     var_from: StrictStr = Field(alias="from")
-    hitl_status: Optional[StrictStr] = None
     labels: List[StrictStr]
     message_id: StrictStr
     parsed: Optional[MessageParsedView] = None
@@ -52,13 +51,14 @@ class MessageView(BaseModel):
     read_status: StrictStr
     recipient: StrictStr
     reply_to: List[StrictStr]
+    review_status: Optional[StrictStr] = None
     sent_as: Optional[StrictStr] = None
     size_bytes: Optional[StrictInt] = None
     subject: StrictStr
     to: List[StrictStr]
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
-    __properties: ClassVar[List[str]] = ["attachments", "auth", "auth_headers", "body", "cc", "conversation_id", "created_at", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "hitl_status", "labels", "message_id", "parsed", "raw_message", "read_status", "recipient", "reply_to", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
+    __properties: ClassVar[List[str]] = ["attachments", "auth", "auth_headers", "body", "cc", "conversation_id", "created_at", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "labels", "message_id", "parsed", "raw_message", "read_status", "recipient", "reply_to", "review_status", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -140,7 +140,6 @@ class MessageView(BaseModel):
             "flag_reason": obj.get("flag_reason"),
             "flagged": obj.get("flagged"),
             "from": obj.get("from"),
-            "hitl_status": obj.get("hitl_status"),
             "labels": obj.get("labels"),
             "message_id": obj.get("message_id"),
             "parsed": MessageParsedView.from_dict(obj["parsed"]) if obj.get("parsed") is not None else None,
@@ -148,6 +147,7 @@ class MessageView(BaseModel):
             "read_status": obj.get("read_status"),
             "recipient": obj.get("recipient"),
             "reply_to": obj.get("reply_to"),
+            "review_status": obj.get("review_status"),
             "sent_as": obj.get("sent_as"),
             "size_bytes": obj.get("size_bytes"),
             "subject": obj.get("subject"),

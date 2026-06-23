@@ -8,7 +8,7 @@ import { assertToolTiersComplete, toolNamesForScope, RUNTIME_TOOLS } from "../sr
 import { registerMessageTools } from "../src/tools/messages.js";
 import { registerAgentTools } from "../src/tools/agents.js";
 import { registerDomainTools } from "../src/tools/domains.js";
-import { registerHitlTools } from "../src/tools/hitl.js";
+import { registerReviewTools } from "../src/tools/review.js";
 import { registerWebhookTools } from "../src/tools/webhooks.js";
 import { registerEventTools } from "../src/tools/events.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -161,7 +161,7 @@ function makeStubClient(
     listPendingMessages: vi.fn(async () => []),
     getPendingMessage: vi.fn(async (id: string) => ({
       messageId: id,
-      hitlStatus: "pending_review",
+      reviewStatus: "pending_review",
     })),
     approveMessage: vi.fn(async () => ({ messageId: "msg_x", status: "sent" })),
     rejectMessage: vi.fn(async () => ({ messageId: "msg_x", status: "rejected" })),
@@ -250,7 +250,7 @@ describe("e2a MCP server", () => {
     registerMessageTools(recorder, stub);
     registerAgentTools(recorder, stub);
     registerDomainTools(recorder, stub);
-    registerHitlTools(recorder, stub);
+    registerReviewTools(recorder, stub);
     registerWebhookTools(recorder, stub);
     registerEventTools(recorder, stub);
 

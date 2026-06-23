@@ -154,8 +154,8 @@ func TestSpecStatusEnums(t *testing.T) {
 	}{
 		{"MessageView", "direction", []string{"inbound", "outbound"}},
 		{"MessageSummaryView", "direction", []string{"inbound", "outbound"}},
-		{"MessageView", "hitl_status", []string{"pending_review", "sent", "review_rejected", "review_expired_approved", "review_expired_rejected"}},
-		{"MessageSummaryView", "hitl_status", []string{"pending_review", "sent", "review_rejected", "review_expired_approved", "review_expired_rejected"}},
+		{"MessageView", "review_status", []string{"pending_review", "sent", "review_rejected", "review_expired_approved", "review_expired_rejected"}},
+		{"MessageSummaryView", "review_status", []string{"pending_review", "sent", "review_rejected", "review_expired_approved", "review_expired_rejected"}},
 		{"SendResultView", "status", []string{"sent", "pending_review", "review_approved"}},
 		{"EventJSON", "status", []string{"pending", "processed", "no_match"}},
 		{"RedeliverView", "status", []string{"pending", "scheduled"}},

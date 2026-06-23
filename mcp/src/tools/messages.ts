@@ -24,7 +24,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       title: "Send email",
       annotations: { destructiveHint: false },
       description:
-        "Use when starting a NEW email thread to a fresh recipient. To respond to a message you can see in `list_messages`, use `reply_to_message` instead — it preserves the In-Reply-To / References headers so the reply lands in the same thread, which this tool deliberately does not do. Attach files via `attachments`; pass base64 strings produced by other tools (e.g. `get_attachment`) verbatim — don't hand-encode raw text. **`pending_review` is not failure.** If the agent has HITL enabled, the response is `{ status: \"pending_review\", message_id: ... }`; the message is held for human review — do not retry. Check on it with `list_messages` (held drafts show hitl_status=pending_review) / `get_message`.",
+        "Use when starting a NEW email thread to a fresh recipient. To respond to a message you can see in `list_messages`, use `reply_to_message` instead — it preserves the In-Reply-To / References headers so the reply lands in the same thread, which this tool deliberately does not do. Attach files via `attachments`; pass base64 strings produced by other tools (e.g. `get_attachment`) verbatim — don't hand-encode raw text. **`pending_review` is not failure.** If the agent's review policy holds the send, the response is `{ status: \"pending_review\", message_id: ... }`; the message is held for human review — do not retry. Check on it with `list_messages` (held drafts show review_status=pending_review) / `get_message`.",
       inputSchema: strictInputSchema({
         to: z.array(z.string()).describe("Recipient email addresses (one or more)."),
         subject: z.string(),
@@ -84,7 +84,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       title: "Reply to a received message",
       annotations: { destructiveHint: false },
       description:
-        "Use whenever you're responding to a message you can see in the inbox — preserves the In-Reply-To and References headers so the reply joins the original email thread instead of starting a new one. Prefer this over `send_message` for any response to an inbound; thread fragmentation (broken conversation view in the recipient's mail client) is the most visible symptom of using `send_message` by mistake. Pass `reply_all: true` to copy the original Cc list; subject is auto-derived as `Re: …` by the server. Same HITL caveat as `send_message`: a `pending_review` status is success, not failure.",
+        "Use whenever you're responding to a message you can see in the inbox — preserves the In-Reply-To and References headers so the reply joins the original email thread instead of starting a new one. Prefer this over `send_message` for any response to an inbound; thread fragmentation (broken conversation view in the recipient's mail client) is the most visible symptom of using `send_message` by mistake. Pass `reply_all: true` to copy the original Cc list; subject is auto-derived as `Re: …` by the server. Same review caveat as `send_message`: a `pending_review` status is success, not failure.",
       inputSchema: strictInputSchema({
         message_id: z.string().describe("ID of the inbound message to reply to (e.g. msg_…)."),
         body: z.string().describe("Plain-text reply body."),
@@ -139,7 +139,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       title: "Forward an inbound message",
       annotations: { destructiveHint: false },
       description:
-        "Forward a message the agent has received to one or more new recipients. The server auto-prepends a Gmail-style header block (From/Date/Subject/To/Cc) and the original body to whatever optional comment you pass in `body`/`html_body`. **Unlike `reply_to_message`, a forward is a NEW thread** — no In-Reply-To / References headers are emitted, so the recipient sees a fresh conversation. Use this when the user asks to share a received email with someone else; use `reply_to_message` when continuing the existing conversation. Same HITL behavior as send/reply: `pending_review` is success, not failure.",
+        "Forward a message the agent has received to one or more new recipients. The server auto-prepends a Gmail-style header block (From/Date/Subject/To/Cc) and the original body to whatever optional comment you pass in `body`/`html_body`. **Unlike `reply_to_message`, a forward is a NEW thread** — no In-Reply-To / References headers are emitted, so the recipient sees a fresh conversation. Use this when the user asks to share a received email with someone else; use `reply_to_message` when continuing the existing conversation. Same review behavior as send/reply: `pending_review` is success, not failure.",
       inputSchema: strictInputSchema({
         message_id: z.string().describe("ID of the inbound message to forward (e.g. msg_…)."),
         to: z.array(z.string()).describe("Forward target addresses (one or more)."),
@@ -288,11 +288,17 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
   server.registerTool(
     "list_messages",
     {
-      title: "List inbound messages",
+      title: "List messages (inbox or sent)",
       annotations: { readOnlyHint: true },
       description:
-        "List messages the agent has received, newest first by default. Filter by `read_status` (unread/read/all; default unread). **Cursor-paginated:** returns one page in `messages` plus a `next_cursor` when more remain — pass it back as `cursor` for the next page (keep the same filters + sort). Pass `sort: \"asc\"` for FIFO order (oldest unread first) to drain the inbox in arrival order. **Search filters** (`from`, `subject_contains`, `conversation_id`, `since`, `until`) narrow server-side — use them instead of paging the whole inbox. Returns summaries only — use `get_message` for the full body.",
+        "List the agent's messages, newest first by default. Use `direction` to pick the folder: `inbound` (the Inbox — received mail, the default), `outbound` (the Sent folder — mail this agent sent, including held drafts), or `all` (both). Filter received mail by `read_status` (unread/read/all; default unread — applies to inbound only; sent mail has no read-state). **Cursor-paginated:** returns one page in `messages` plus a `next_cursor` when more remain — pass it back as `cursor` for the next page (keep the same filters + sort). Pass `sort: \"asc\"` for FIFO order (oldest first) to drain in arrival order. **Search filters** (`from`, `subject_contains`, `conversation_id`, `since`, `until`) narrow server-side — use them instead of paging the whole folder. Returns summaries only — use `get_message` for the full body.",
       inputSchema: strictInputSchema({
+        direction: z
+          .enum(["inbound", "outbound", "all"])
+          .optional()
+          .describe(
+            "Which folder to list: `inbound` = Inbox (received, default), `outbound` = Sent (this agent's sent mail + held drafts), `all` = both.",
+          ),
         read_status: z.enum(["unread", "read", "all"]).optional(),
         ...paginationInput,
         sort: z
@@ -344,6 +350,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
     async (args) =>
       runTool(async () => {
         const page = await client.listMessages({
+          ...(args.direction !== undefined ? { direction: args.direction } : {}),
           ...(args.read_status !== undefined ? { readStatus: args.read_status } : {}),
           ...(args.cursor !== undefined ? { cursor: args.cursor } : {}),
           ...(args.limit !== undefined ? { limit: args.limit } : {}),

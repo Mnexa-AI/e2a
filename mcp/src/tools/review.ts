@@ -4,7 +4,7 @@ import { z } from "zod";
 import { runTool, strictInputSchema } from "./util.js";
 import { attachmentsArraySchema } from "./attachments.js";
 
-export function registerHitlTools(server: McpServer, client: McpClient): void {
+export function registerReviewTools(server: McpServer, client: McpClient): void {
   server.registerTool(
     "list_pending_messages",
     {

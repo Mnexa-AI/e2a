@@ -24,12 +24,12 @@ export class MessageSummaryView {
     'flagReason'?: string;
     'flagged'?: boolean;
     '_from': string;
-    'hitlStatus'?: MessageSummaryViewHitlStatusEnum;
     'labels': Array<string>;
     'messageId': string;
     'readStatus': string;
     'recipient': string;
     'replyTo'?: Array<string>;
+    'reviewStatus'?: MessageSummaryViewReviewStatusEnum;
     'sentAs'?: MessageSummaryViewSentAsEnum;
     'sizeBytes'?: number;
     'subject': string;
@@ -103,12 +103,6 @@ export class MessageSummaryView {
             "format": ""
         },
         {
-            "name": "hitlStatus",
-            "baseName": "hitl_status",
-            "type": "MessageSummaryViewHitlStatusEnum",
-            "format": ""
-        },
-        {
             "name": "labels",
             "baseName": "labels",
             "type": "Array<string>",
@@ -136,6 +130,12 @@ export class MessageSummaryView {
             "name": "replyTo",
             "baseName": "reply_to",
             "type": "Array<string>",
+            "format": ""
+        },
+        {
+            "name": "reviewStatus",
+            "baseName": "review_status",
+            "type": "MessageSummaryViewReviewStatusEnum",
             "format": ""
         },
         {
@@ -196,7 +196,7 @@ export enum MessageSummaryViewDirectionEnum {
     Inbound = 'inbound',
     Outbound = 'outbound'
 }
-export enum MessageSummaryViewHitlStatusEnum {
+export enum MessageSummaryViewReviewStatusEnum {
     PendingReview = 'pending_review',
     Sent = 'sent',
     ReviewRejected = 'review_rejected',

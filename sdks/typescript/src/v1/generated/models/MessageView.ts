@@ -30,7 +30,6 @@ export class MessageView {
     'flagReason'?: string;
     'flagged'?: boolean;
     '_from': string;
-    'hitlStatus'?: MessageViewHitlStatusEnum;
     'labels': Array<string>;
     'messageId': string;
     'parsed'?: MessageParsedView;
@@ -38,6 +37,7 @@ export class MessageView {
     'readStatus': string;
     'recipient': string;
     'replyTo': Array<string>;
+    'reviewStatus'?: MessageViewReviewStatusEnum;
     'sentAs'?: MessageViewSentAsEnum;
     'sizeBytes'?: number;
     'subject': string;
@@ -129,12 +129,6 @@ export class MessageView {
             "format": ""
         },
         {
-            "name": "hitlStatus",
-            "baseName": "hitl_status",
-            "type": "MessageViewHitlStatusEnum",
-            "format": ""
-        },
-        {
             "name": "labels",
             "baseName": "labels",
             "type": "Array<string>",
@@ -174,6 +168,12 @@ export class MessageView {
             "name": "replyTo",
             "baseName": "reply_to",
             "type": "Array<string>",
+            "format": ""
+        },
+        {
+            "name": "reviewStatus",
+            "baseName": "review_status",
+            "type": "MessageViewReviewStatusEnum",
             "format": ""
         },
         {
@@ -234,7 +234,7 @@ export enum MessageViewDirectionEnum {
     Inbound = 'inbound',
     Outbound = 'outbound'
 }
-export enum MessageViewHitlStatusEnum {
+export enum MessageViewReviewStatusEnum {
     PendingReview = 'pending_review',
     Sent = 'sent',
     ReviewRejected = 'review_rejected',

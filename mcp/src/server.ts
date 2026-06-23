@@ -3,7 +3,7 @@ import type { McpClient } from "./client.js";
 import { registerMessageTools } from "./tools/messages.js";
 import { registerAgentTools } from "./tools/agents.js";
 import { registerDomainTools } from "./tools/domains.js";
-import { registerHitlTools } from "./tools/hitl.js";
+import { registerReviewTools } from "./tools/review.js";
 import { registerWebhookTools } from "./tools/webhooks.js";
 import { registerEventTools } from "./tools/events.js";
 import { toolNamesForScope } from "./tools/tiers.js";
@@ -44,7 +44,7 @@ export function buildServer({ client, version = "0.1.0" }: BuildServerOptions): 
   registerMessageTools(server, client);
   registerAgentTools(server, client);
   registerDomainTools(server, client);
-  registerHitlTools(server, client);
+  registerReviewTools(server, client);
   registerWebhookTools(server, client);
   registerEventTools(server, client);
   return server;

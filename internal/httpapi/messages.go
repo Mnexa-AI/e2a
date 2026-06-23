@@ -36,11 +36,11 @@ type MessageView struct {
 	// webhook_status — the conflation that caused bug B2. Left open (not an enum)
 	// because outbound rows carry "".
 	Status string `json:"read_status"`
-	// HITLStatus is the human-in-the-loop lifecycle (e.g. pending_review) —
-	// outbound only, mirroring MessageSummaryView. Distinct from read_status,
-	// delivery_status, and webhook_status (each a separate axis). Closed set =
-	// migration 003 CHECK.
-	HITLStatus string `json:"hitl_status,omitempty" enum:"pending_review,sent,review_rejected,review_expired_approved,review_expired_rejected"`
+	// HITLStatus is the review-hold lifecycle (e.g. pending_review) — outbound
+	// only, mirroring MessageSummaryView. Exposed as `review_status` (the holds
+	// vocabulary unified on `review` in migration 044). Distinct from read_status,
+	// delivery_status, and webhook_status (each a separate axis).
+	HITLStatus string `json:"review_status,omitempty" enum:"pending_review,sent,review_rejected,review_expired_approved,review_expired_rejected"`
 	// WebhookStatus / WebhookError mirror MessageSummaryView so the detail view
 	// is a strict superset of the list item (a client fetching one message keeps
 	// the webhook delivery context). Apply to both directions; omitempty hides
@@ -215,7 +215,7 @@ type MessageSummaryView struct {
 	ConversationID string   `json:"conversation_id,omitempty"`
 	// Status is the inbox read-state, exposed as `read_status` (MSG-1).
 	Status string `json:"read_status"`
-	HITLStatus     string   `json:"hitl_status,omitempty" enum:"pending_review,sent,review_rejected,review_expired_approved,review_expired_rejected"`
+	HITLStatus     string   `json:"review_status,omitempty" enum:"pending_review,sent,review_rejected,review_expired_approved,review_expired_rejected"`
 	WebhookStatus  string   `json:"webhook_status,omitempty"`
 	WebhookError   string   `json:"webhook_error,omitempty"`
 	// DeliveryStatus / DeliveryDetail / SentAs are the outbound delivery

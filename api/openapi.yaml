@@ -75,11 +75,6 @@ components:
           type: boolean
         email:
           type: string
-        hitl_expiration_action:
-          type: string
-        hitl_ttl_seconds:
-          format: int64
-          type: integer
         id:
           type: string
         inbound_7d:
@@ -138,6 +133,11 @@ components:
           type: integer
         public:
           type: boolean
+        review_expiration_action:
+          type: string
+        review_ttl_seconds:
+          format: int64
+          type: integer
         user_id:
           type: string
         webhook_healthy:
@@ -151,8 +151,8 @@ components:
         - public
         - created_at
         - user_id
-        - hitl_ttl_seconds
-        - hitl_expiration_action
+        - review_ttl_seconds
+        - review_expiration_action
         - inbound_7d
         - outbound_7d
         - pending_count
@@ -1027,14 +1027,6 @@ components:
           type: boolean
         from:
           type: string
-        hitl_status:
-          enum:
-            - pending_review
-            - sent
-            - review_rejected
-            - review_expired_approved
-            - review_expired_rejected
-          type: string
         labels:
           items:
             type: string
@@ -1049,6 +1041,14 @@ components:
           items:
             type: string
           type: array
+        review_status:
+          enum:
+            - pending_review
+            - sent
+            - review_rejected
+            - review_expired_approved
+            - review_expired_rejected
+          type: string
         sent_as:
           enum:
             - own_address
@@ -1125,14 +1125,6 @@ components:
           type: boolean
         from:
           type: string
-        hitl_status:
-          enum:
-            - pending_review
-            - sent
-            - review_rejected
-            - review_expired_approved
-            - review_expired_rejected
-          type: string
         labels:
           items:
             type: string
@@ -1152,6 +1144,14 @@ components:
           items:
             type: string
           type: array
+        review_status:
+          enum:
+            - pending_review
+            - sent
+            - review_rejected
+            - review_expired_approved
+            - review_expired_rejected
+          type: string
         sent_as:
           enum:
             - own_address
