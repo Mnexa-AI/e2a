@@ -605,23 +605,34 @@ scenarios:
             - slug_registration_enabled
 
   - name: ws_auth_rejection
-    description: WebSocket endpoint rejects missing or invalid query-param tokens
+    description: WebSocket endpoint rejects a missing or invalid Authorization Bearer credential
     setup:
       - register_domain: wsauth.test.dev
       - verify_domain: wsauth.test.dev
       - register_agent:
           email: bot@wsauth.test.dev
     steps:
-      - id: no_token
+      - id: no_auth
         action: request
         method: GET
         path: /v1/agents/bot@wsauth.test.dev/ws
+        auth_override: none
         expect:
           status: 401
 
-      - id: invalid_token
+      - id: invalid_bearer
+        action: request
+        method: GET
+        path: /v1/agents/bot@wsauth.test.dev/ws
+        auth_override: "Bearer invalid_key_12345"
+        expect:
+          status: 401
+
+      - id: query_token_rejected
+        # The legacy ?token= query is no longer accepted — only the header.
         action: request
         method: GET
         path: /v1/agents/bot@wsauth.test.dev/ws?token=invalid_key_12345
+        auth_override: none
         expect:
           status: 401

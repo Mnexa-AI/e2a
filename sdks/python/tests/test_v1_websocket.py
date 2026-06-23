@@ -18,22 +18,28 @@ from e2a.v1.websocket import WSNotification, _build_ws_url
 
 
 def test_build_ws_url_https():
-    url = _build_ws_url("https://e2a.dev", "bot@agents.e2a.dev", "e2a_key")
-    assert url == "wss://e2a.dev/v1/agents/bot%40agents.e2a.dev/ws?token=e2a_key"
+    # Auth is the Authorization header now — the key must NOT appear in the URL.
+    url = _build_ws_url("https://e2a.dev", "bot@agents.e2a.dev")
+    assert url == "wss://e2a.dev/v1/agents/bot%40agents.e2a.dev/ws"
 
 
 def test_build_ws_url_http():
-    url = _build_ws_url("http://localhost:8080", "bot@agents.e2a.dev", "key")
-    assert url == "ws://localhost:8080/v1/agents/bot%40agents.e2a.dev/ws?token=key"
+    url = _build_ws_url("http://localhost:8080", "bot@agents.e2a.dev")
+    assert url == "ws://localhost:8080/v1/agents/bot%40agents.e2a.dev/ws"
+
+
+def test_build_ws_url_no_credential_in_url():
+    url = _build_ws_url("https://e2a.dev", "bot@agents.e2a.dev")
+    assert "token=" not in url and "?" not in url
 
 
 def test_build_ws_url_encodes_email():
-    url = _build_ws_url("https://e2a.dev", "bot+tag@agents.e2a.dev", "k")
+    url = _build_ws_url("https://e2a.dev", "bot+tag@agents.e2a.dev")
     assert "bot%2Btag%40agents.e2a.dev" in url
 
 
 def test_build_ws_url_uses_v1_path():
-    url = _build_ws_url("https://e2a.dev", "bot@agents.e2a.dev", "k")
+    url = _build_ws_url("https://e2a.dev", "bot@agents.e2a.dev")
     assert "/v1/agents/" in url
     # Must NOT use legacy /api/agents/ path
     assert "/api/agents/" not in url.replace("/v1/agents/", "")

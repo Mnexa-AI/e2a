@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
@@ -34,7 +35,7 @@ func NewHandler(hub *Hub, store HandlerStore) *Handler {
 }
 
 // Handle is the HTTP handler for WebSocket upgrade requests.
-// Route: GET /api/v1/agents/{email}/ws?token={api_key}
+// Route: GET /v1/agents/{email}/ws — authenticated by `Authorization: Bearer <api_key>`.
 // Handle reads the agent email from the gorilla/mux route var (legacy
 // /api/v1/agents/{email}/ws).
 func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
@@ -49,10 +50,18 @@ func (h *Handler) ServeWithEmail(w http.ResponseWriter, r *http.Request, rawEmai
 }
 
 func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string) {
-	// Authenticate via query param (WebSocket clients can't set headers during upgrade)
-	token := r.URL.Query().Get("token")
+	// Authenticate via the `Authorization: Bearer <api_key>` handshake header —
+	// the standard shape for non-browser WebSocket clients (matches OpenAI
+	// Realtime server-side, Slack Socket Mode, Kubernetes). The credential never
+	// touches the URL, so it can't leak to access logs / browser history /
+	// Referer the way a `?token=` query param does. All e2a WS clients (the TS +
+	// Python SDKs and the CLI) are non-browser and set the header on the
+	// handshake. (A short-lived connect ticket is the path to add later if an
+	// in-browser client ever needs to connect — browsers can't set headers.)
+	token := bearerToken(r)
 	if token == "" {
-		http.Error(w, "token query parameter required", http.StatusUnauthorized)
+		w.Header().Set("WWW-Authenticate", `Bearer realm="e2a"`)
+		http.Error(w, "missing credential — send Authorization: Bearer <api_key>", http.StatusUnauthorized)
 		return
 	}
 
@@ -84,16 +93,13 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string)
 		return
 	}
 
-	// Upgrade to WebSocket. Origin checks are intentionally disabled
-	// because authentication uses the `token=` query parameter (the
-	// agent owner's API key), not cookies. Cross-origin WebSockets from
-	// a malicious site would still need to know that token, and an
-	// attacker who already has the token has full REST API access too.
-	// CLI/SDK clients also have no Origin to check.
-	//
-	// The known tradeoff: tokens in URLs leak to access logs, browser
-	// history, and Referer. Operators should scrub access logs and
-	// avoid linking to WS URLs from any HTML page.
+	// Upgrade to WebSocket. Origin checks are intentionally disabled because
+	// authentication is the `Authorization: Bearer` header, not cookies — and a
+	// browser cannot set that header on a cross-site WebSocket, so there is no
+	// cross-site-WebSocket-hijacking (CSWSH) vector to defend against here.
+	// CLI/SDK clients have no Origin to check. (Header auth is strictly safer
+	// than the old `?token=` query param it replaced, which leaked the key to
+	// access logs / history / Referer.)
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
 	})
@@ -120,6 +126,18 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string)
 	h.hub.Unregister(agent.ID, conn)
 	conn.Close(websocket.StatusNormalClosure, "")
 	log.Printf("[ws] disconnected: %s", email)
+}
+
+// bearerToken extracts the API key from the `Authorization: Bearer <key>`
+// handshake header (scheme match is case-insensitive per RFC 7235). Returns ""
+// when the header is absent or not a Bearer credential.
+func bearerToken(r *http.Request) string {
+	h := r.Header.Get("Authorization")
+	const prefix = "Bearer "
+	if len(h) < len(prefix) || !strings.EqualFold(h[:len(prefix)], prefix) {
+		return ""
+	}
+	return strings.TrimSpace(h[len(prefix):])
 }
 
 // drainUnread sends notifications for all unread messages. Notifications are

@@ -74,7 +74,7 @@ These moved under the `/v1` prefix in the cutover (previously root-level `/appro
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/agents/{address}/ws?token={api_key}` | WebSocket for local-mode agents. Auth via query param (WebSocket clients can't set headers during upgrade). |
+| `GET` | `/agents/{address}/ws` | WebSocket for real-time inbound. Auth via the `Authorization: Bearer <api_key>` handshake header (the credential never appears in the URL). |
 
 The server pushes lightweight JSON notifications (metadata only):
 

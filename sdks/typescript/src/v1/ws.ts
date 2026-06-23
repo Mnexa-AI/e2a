@@ -33,7 +33,7 @@ export interface WSNotification {
 }
 
 export interface WSListenerOptions {
-  /** API key used as the `?token=` query parameter. */
+  /** API key, sent as the `Authorization: Bearer` handshake header. */
   apiKey: string;
   /** Agent email to listen for. */
   agentEmail: string;
@@ -60,15 +60,12 @@ export interface WSListenerEvents {
 /**
  * Notification-only WebSocket listener.
  *
- * Connects to `/v1/agents/{address}/ws?token={apiKey}` and emits
- * `"notification"` events with lightweight metadata. The protocol is
- * server→client only — the client never sends application frames.
+ * Connects to `/v1/agents/{address}/ws` and emits `"notification"` events with
+ * lightweight metadata. The protocol is server→client only — the client never
+ * sends application frames.
  *
- * Auth note: the API key currently rides in the `?token=` query parameter.
- * Query strings can leak into access logs and proxy traces, so this is a
- * known logged-credential limitation; moving auth to a header or a
- * short-lived connect ticket is a planned server-side change. No client
- * behavior changes when that lands — only this URL construction.
+ * Auth: the API key is sent as the `Authorization: Bearer` handshake header, so
+ * it never appears in the URL (no leak to access logs / proxy traces / Referer).
  *
  * For modern code, prefer {@link E2AClient.listen} which wraps this
  * class with an async-iteration-friendly API while still exposing the
@@ -87,7 +84,7 @@ export class WSListener extends EventEmitter<WSListenerEvents> {
     super();
     const base = (opts.baseUrl ?? "https://api.e2a.dev").replace(/\/+$/, "");
     const wsBase = base.replace(/^http/, "ws");
-    this.url = `${wsBase}/v1/agents/${encodeURIComponent(opts.agentEmail)}/ws?token=${encodeURIComponent(opts.apiKey)}`;
+    this.url = `${wsBase}/v1/agents/${encodeURIComponent(opts.agentEmail)}/ws`;
     this.shouldReconnect = opts.reconnect ?? true;
     this.initialDelayMs = opts.reconnectDelay ?? 1000;
     this.maxBackoffMs = opts.maxBackoffMs ?? 30_000;
@@ -111,7 +108,12 @@ export class WSListener extends EventEmitter<WSListenerEvents> {
   }
 
   private dial(): void {
-    const ws = new WebSocket(this.url);
+    // Auth rides in the handshake header, never the URL — keeps the long-lived
+    // API key out of access logs / proxy traces. Node's `ws` supports handshake
+    // headers (a browser WebSocket could not, which is why this SDK targets Node).
+    const ws = new WebSocket(this.url, {
+      headers: { Authorization: `Bearer ${this.opts.apiKey}` },
+    });
     // A fatal (4xx) handshake rejection — captured here, acted on in `close`.
     // The credential/request is wrong, so reconnecting would loop forever (F6).
     let fatal: E2AError | null = null;

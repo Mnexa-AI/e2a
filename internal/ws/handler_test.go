@@ -71,13 +71,18 @@ func startServer(t *testing.T, handler *Handler) *httptest.Server {
 	return srv
 }
 
-// dialWSPath connects to a specific WS path on the test server.
+// dialWSPath connects to a specific WS path on the test server, authenticating
+// with the Authorization: Bearer header (the credential is never in the URL).
 func dialWSPath(t *testing.T, srv *httptest.Server, path, token string) (*websocket.Conn, *http.Response) {
 	t.Helper()
-	url := fmt.Sprintf("ws%s%s?token=%s", strings.TrimPrefix(srv.URL, "http"), path, token)
+	url := fmt.Sprintf("ws%s%s", strings.TrimPrefix(srv.URL, "http"), path)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	conn, resp, err := websocket.Dial(ctx, url, nil)
+	opts := &websocket.DialOptions{HTTPHeader: http.Header{}}
+	if token != "" {
+		opts.HTTPHeader.Set("Authorization", "Bearer "+token)
+	}
+	conn, resp, err := websocket.Dial(ctx, url, opts)
 	if err != nil {
 		// Return nil conn for error-path tests
 		return nil, resp
@@ -105,11 +110,19 @@ func waitConnected(t *testing.T, hub *Hub, agentID string) {
 	}
 }
 
-// doHTTP does a plain HTTP GET (no upgrade) to the WS endpoint.
+// doHTTP does a plain HTTP GET (no upgrade) to the WS endpoint, sending the
+// credential (when non-empty) as an Authorization: Bearer header.
 func doHTTP(t *testing.T, srv *httptest.Server, email, token string) *http.Response {
 	t.Helper()
-	url := fmt.Sprintf("%s/api/v1/agents/%s/ws?token=%s", srv.URL, email, token)
-	resp, err := http.Get(url)
+	url := fmt.Sprintf("%s/api/v1/agents/%s/ws", srv.URL, email)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("HTTP GET failed: %v", err)
 	}
@@ -131,8 +144,29 @@ func TestHandler_NoToken(t *testing.T) {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "token query parameter required") {
+	if !strings.Contains(string(body), "Authorization: Bearer") {
 		t.Fatalf("unexpected body: %s", body)
+	}
+}
+
+// TestHandler_QueryTokenRejected pins the cutover: the legacy `?token=<key>`
+// query parameter is no longer accepted — only the Authorization: Bearer header.
+func TestHandler_QueryTokenRejected(t *testing.T) {
+	hub := NewHub()
+	defer hub.Close()
+	store := &mockStore{user: newTestUser()}
+	handler := NewHandler(hub, store)
+	srv := startServer(t, handler)
+
+	// GET with the credential ONLY in the query string, no Authorization header.
+	url := fmt.Sprintf("%s/api/v1/agents/%s/ws?token=%s", srv.URL, "bot@agents.e2a.dev", "valid_key")
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("a ?token= query must be rejected (header-only auth), got %d", resp.StatusCode)
 	}
 }
 
