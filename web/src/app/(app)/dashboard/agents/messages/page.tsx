@@ -148,11 +148,10 @@ function AgentInboxContent() {
       (withHeaders ? "&headers=1" : "")
     );
   };
+  // Only the pending-review callout navigates to the approve/reject
+  // surface; reading happens inline in the conversation.
   const openMessage = (m: MessageSummary) => {
     router.push(focusUrl(m, false));
-  };
-  const openMessageWithHeaders = (m: MessageSummary) => {
-    router.push(focusUrl(m, true));
   };
 
   const loadOlder = async () => {
@@ -222,7 +221,6 @@ function AgentInboxContent() {
               agentEmail={email}
               onBack={clearSelection}
               onOpenMessage={openMessage}
-              onOpenHeaders={openMessageWithHeaders}
             />
           ) : (
             <ThreadList

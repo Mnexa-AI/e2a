@@ -27,17 +27,15 @@ export function ThreadDetail({
   agentEmail,
   onBack,
   onOpenMessage,
-  onOpenHeaders,
 }: {
   thread: Thread | null;
   agentEmail: string;
   /** Return to the inbox list (clears the selected-thread hash). */
   onBack: () => void;
-  // Pass the whole row so the focus page can thread direction +
-  // pending-state through the URL (the detail endpoint can't recover
-  // either from its MessageView payload).
+  // Only the pending-review callout navigates away (to the approve/reject
+  // surface). Reading a message never leaves the conversation — bodies
+  // render inline in the bubbles.
   onOpenMessage: (message: MessageSummary) => void;
-  onOpenHeaders: (message: MessageSummary) => void;
 }) {
   if (!thread) {
     return (
@@ -171,8 +169,6 @@ export function ThreadDetail({
             message={m}
             counterparty={thread.counterparty}
             agentEmail={agentEmail}
-            onOpen={onOpenMessage}
-            onOpenHeaders={onOpenHeaders}
           />
         ))}
 

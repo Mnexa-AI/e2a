@@ -1,70 +1,106 @@
 "use client";
 
-// One chat bubble inside the thread detail view. Inbound bubbles sit on
-// the left with a `bg-panel` background and `--border`; outbound on the
-// right with `--accent-soft` + `--accent`. The "tail" corner (top of
-// the avatar side) is reduced to 4px to match the email-client look.
-//
-// Footer mono row carries the message's provenance/delivery signal —
-// what we can derive from the wire payload today: size · auth pill
-// (inbound) or status (outbound) · `headers` link to the focus page.
+// One message inside the conversation view, laid out like a Gmail
+// message (flat vertical list — not chat bubbles): sender + absolute
+// time on the right, a collapsible Details row (Subject / To / Cc /
+// Reply-To), then the body rendered INLINE. The body is fetched
+// per-message from the detail endpoint (the list/summary payload carries
+// no body); recipients/subject come from the summary row itself.
 
+import { useState } from "react";
+import useSWR from "swr";
 import { Chip } from "../loft/Chip";
 import { Dot } from "../loft/Dot";
 import { CounterpartyAvatar } from "./CounterpartyAvatar";
-import { deriveStatusChip } from "./MessageStatusChip";
+import { getMessageDetail } from "../onboarding/api";
 import { formatRelativeAge } from "../../../lib/relativeTime";
 import type { MessageSummary } from "../types";
 import type { Counterparty } from "./threading";
 
-function formatSize(bytes?: number): string {
-  if (!bytes || bytes <= 0) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+// Absolute, human time for the message header (e.g. "Jun 21, 8:07 PM").
+// title carries the full locale string for hover.
+function fmtTime(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+// Decode the base64 raw RFC-822 bytes and return the body (everything
+// after the first blank line). Honest fallback for inbound rows whose
+// parsed body_text isn't on the wire; multipart bodies render with
+// boundary markers visible (a tracked backend follow-up).
+function decodeRawBody(b64?: string): string {
+  if (!b64) return "";
+  try {
+    const bin = atob(b64);
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    const text = new TextDecoder().decode(bytes);
+    const idx = text.search(/\r?\n\r?\n/);
+    return idx >= 0 ? text.slice(idx).replace(/^\r?\n\r?\n/, "") : text;
+  } catch {
+    return "";
+  }
+}
+
+function MetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex" style={{ gap: 8 }}>
+      <span style={{ color: "var(--fg-subtle)", width: 64, flexShrink: 0 }}>{label}</span>
+      <span style={{ color: "var(--fg-muted)", wordBreak: "break-word" }}>{value}</span>
+    </div>
+  );
 }
 
 export function ThreadBubble({
   message,
   counterparty,
   agentEmail,
-  onOpen,
-  onOpenHeaders,
 }: {
   message: MessageSummary;
   counterparty: Counterparty;
   agentEmail: string;
-  /** Click on the bubble body — navigate to the focus page. Receives the
-   *  whole row so the caller can thread direction + pending-state into
-   *  the focus-page URL (the MessageView detail can't recover them). */
-  onOpen: (message: MessageSummary) => void;
-  /** Click on the bubble footer's `headers` link — focus page w/ headers open. */
-  onOpenHeaders: (message: MessageSummary) => void;
 }) {
   const isInbound = message.direction === "inbound";
   const pending = message.hitl_status === "pending_approval";
-  const size = formatSize(message.size_bytes);
+  const [showDetails, setShowDetails] = useState(false);
+
+  // Fetch this message's body. Keyed per (agent, id, direction) so each
+  // message caches independently and shares with the focus page's cache.
+  const { data: detail, isLoading } = useSWR(
+    ["thread-msg-body", agentEmail, message.message_id, message.direction] as const,
+    () => getMessageDetail(agentEmail, message.message_id, message.direction),
+  );
+
+  let body = "";
+  if (detail) {
+    if (detail.direction === "outbound") {
+      body = detail.data.body_text ?? "";
+    } else {
+      body = detail.data.body?.text || decodeRawBody(detail.data.raw_message) || "";
+    }
+  }
+  const showBody = body.trim() !== "";
+
+  const senderName = isInbound ? counterparty.name : "Agent";
+  const senderEmail = isInbound ? counterparty.email : agentEmail;
+  const toList = (message.to ?? []).join(", ");
 
   return (
     <div
       data-testid="thread-bubble"
       data-message-id={message.message_id}
       className="flex"
-      style={{
-        gap: 12,
-        flexDirection: isInbound ? "row" : "row-reverse",
-        marginBottom: 24,
-        alignItems: "flex-start",
-      }}
+      style={{ gap: 12, marginBottom: 20, alignItems: "flex-start" }}
     >
-      {/* Avatar (counterparty on inbound, agent tile on outbound) */}
-      <div style={{ flexShrink: 0, paddingTop: 4 }}>
+      {/* Avatar — counterparty face for inbound, e2a tile for outbound. */}
+      <div style={{ flexShrink: 0, paddingTop: 2 }}>
         {isInbound ? (
-          <CounterpartyAvatar
-            email={counterparty.email}
-            name={counterparty.name}
-            size={32}
-          />
+          <CounterpartyAvatar email={counterparty.email} name={counterparty.name} size={32} />
         ) : (
           <span
             aria-hidden
@@ -87,109 +123,57 @@ export function ThreadBubble({
         )}
       </div>
 
-      {/* Bubble + header + footer */}
-      <div style={{ maxWidth: 560, minWidth: 0, flex: 1 }}>
-        {/* Header row above the bubble */}
-        <div
-          className="flex items-baseline"
-          style={{
-            gap: 8,
-            marginBottom: 5,
-            flexDirection: isInbound ? "row" : "row-reverse",
-          }}
-        >
-          <span
-            style={{
-              fontSize: 12,
-              fontWeight: 600,
-              color: "var(--fg)",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              maxWidth: 240,
-            }}
-          >
-            {isInbound ? counterparty.name : agentEmail}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {/* Header: sender ……… time */}
+        <div className="flex items-baseline" style={{ gap: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)", whiteSpace: "nowrap" }}>
+            {senderName}
           </span>
           <span
+            className="min-w-0"
             style={{
               fontFamily: "var(--f-mono)",
-              fontSize: 10,
+              fontSize: 11,
               color: "var(--fg-subtle)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
               whiteSpace: "nowrap",
             }}
           >
-            {isInbound
-              ? counterparty.email
-              : pending
-                ? "agent · drafted"
-                : "agent"}{" "}
-            · {formatRelativeAge(message.created_at)}
+            {senderEmail}
           </span>
           {pending && (
             <Chip tone="warn">
               <Dot tone="warn" /> Pending
             </Chip>
           )}
+          <span className="flex-1" />
+          <span
+            title={new Date(message.created_at).toLocaleString()}
+            style={{
+              fontFamily: "var(--f-mono)",
+              fontSize: 11,
+              color: "var(--fg-subtle)",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+          >
+            {fmtTime(message.created_at)}
+          </span>
         </div>
 
-        {/* Bubble body — clicking navigates to the focus page */}
-        <button
-          type="button"
-          onClick={() => onOpen(message)}
-          className="text-left"
-          style={{
-            background: isInbound ? "var(--bg-panel)" : "var(--accent-soft)",
-            border: `1px solid ${isInbound ? "var(--border)" : "var(--accent)"}`,
-            borderRadius: "var(--r-lg)",
-            borderTopLeftRadius: isInbound ? 4 : "var(--r-lg)",
-            borderTopRightRadius: isInbound ? "var(--r-lg)" : 4,
-            padding: "12px 14px",
-            fontSize: 13.5,
-            lineHeight: 1.55,
-            color: "var(--fg)",
-            display: "block",
-            width: "100%",
-            cursor: "pointer",
-          }}
-        >
-          {/* Subject + preview — body parts aren't on the wire yet, so we
-              show the subject as a placeholder. When `body_text` lands on
-              the message summary, swap this for a short preview snippet. */}
-          {message.subject || (
-            <span style={{ fontStyle: "italic", color: "var(--fg-muted)" }}>
-              (no subject)
-            </span>
-          )}
-        </button>
-
-        {/* Footer: provenance / delivery */}
+        {/* Recipients line + Details toggle */}
         <div
           className="flex items-center"
-          style={{
-            marginTop: 6,
-            gap: 10,
-            flexDirection: isInbound ? "row" : "row-reverse",
-            fontFamily: "var(--f-mono)",
-            fontSize: 10,
-            color: "var(--fg-subtle)",
-            letterSpacing: "0.02em",
-          }}
+          style={{ gap: 8, marginTop: 2, marginBottom: 8, fontFamily: "var(--f-mono)", fontSize: 11 }}
         >
-          {size && <span>{size}</span>}
-          {size && <span aria-hidden>·</span>}
-          {isInbound ? (
-            <span style={{ color: "var(--success)" }}>auth verified</span>
-          ) : (
-            <OutboundStatusInline message={message} />
-          )}
-          <span aria-hidden>·</span>
+          <span style={{ color: "var(--fg-subtle)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+            to {toList || message.recipient}
+          </span>
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenHeaders(message);
-            }}
+            onClick={() => setShowDetails((v) => !v)}
+            aria-expanded={showDetails}
             style={{
               color: "var(--accent-strong)",
               background: "transparent",
@@ -198,56 +182,64 @@ export function ThreadBubble({
               cursor: "pointer",
               fontFamily: "inherit",
               fontSize: "inherit",
+              flexShrink: 0,
             }}
           >
-            headers
+            {showDetails ? "Hide details ▴" : "Details ▾"}
           </button>
+        </div>
+
+        {/* Details panel */}
+        {showDetails && (
+          <div
+            className="mb-3"
+            style={{
+              fontFamily: "var(--f-mono)",
+              fontSize: 11,
+              lineHeight: 1.7,
+              padding: "8px 10px",
+              background: "var(--bg-elev)",
+              border: "1px solid var(--border-sub)",
+              borderRadius: "var(--r-sm)",
+            }}
+          >
+            <MetaRow label="Subject" value={message.subject || "(no subject)"} />
+            <MetaRow label="From" value={message.from} />
+            <MetaRow label="To" value={toList || message.recipient || "—"} />
+            {message.cc && message.cc.length > 0 && (
+              <MetaRow label="Cc" value={message.cc.join(", ")} />
+            )}
+            {message.reply_to && message.reply_to.length > 0 && (
+              <MetaRow label="Reply-To" value={message.reply_to.join(", ")} />
+            )}
+          </div>
+        )}
+
+        {/* Inline body */}
+        <div
+          style={{
+            background: isInbound ? "var(--bg-panel)" : "var(--accent-soft)",
+            border: `1px solid ${isInbound ? "var(--border)" : "var(--accent)"}`,
+            borderRadius: "var(--r-lg)",
+            padding: "12px 14px",
+            fontSize: 13.5,
+            lineHeight: 1.6,
+            color: "var(--fg)",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          {showBody ? (
+            body
+          ) : isLoading ? (
+            <span style={{ color: "var(--fg-subtle)" }}>Loading…</span>
+          ) : (
+            <span style={{ fontStyle: "italic", color: "var(--fg-muted)" }}>
+              {message.subject || "(no content)"}
+            </span>
+          )}
         </div>
       </div>
     </div>
-  );
-}
-
-// Webhook error strings are uncontrolled by us — they come from
-// whatever the customer's webhook target returned (often URLs with
-// query strings or sometimes echoed credentials). Truncate to a sane
-// length and strip query parameters from anything that looks like a
-// URL so screen-shares / screenshots don't accidentally leak request
-// internals.
-function scrubWebhookError(raw: string): string {
-  if (!raw) return "";
-  const stripped = raw.replace(/(https?:\/\/[^\s?]+)\?[^\s]*/gi, "$1?…");
-  return stripped.length > 80 ? stripped.slice(0, 77) + "…" : stripped;
-}
-
-// Inline status snippet for the bubble footer. Shares precedence with
-// the focus-page chip (`deriveStatusChip`) — single source of truth.
-// Re-uses the chip's `Failed` / `Pending` / `Rejected` / `Sent` /
-// `Sent (auto)` / `Auto-rejected` labels, lowercased for the mono
-// footer aesthetic, with the (scrubbed) webhook error appended when
-// delivery failed.
-function OutboundStatusInline({ message }: { message: MessageSummary }) {
-  const spec = deriveStatusChip({
-    direction: "outbound",
-    hitl_status: message.hitl_status,
-    webhook_status: message.webhook_status,
-  });
-  const color =
-    spec.tone === "danger"
-      ? "var(--danger-strong)"
-      : spec.tone === "warn"
-        ? "var(--warn-strong)"
-        : spec.tone === "success"
-          ? "var(--success)"
-          : "var(--fg-muted)";
-  const errSuffix =
-    message.webhook_status === "failed" && message.webhook_error
-      ? ` · ${scrubWebhookError(message.webhook_error)}`
-      : "";
-  return (
-    <span style={{ color }}>
-      {spec.label.toLowerCase()}
-      {errSuffix}
-    </span>
   );
 }
