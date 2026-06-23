@@ -29,13 +29,14 @@ class APIKeyView(BaseModel):
     """ # noqa: E501
     agent: Optional[StrictStr] = Field(default=None, description="Bound inbox email for agent-scoped keys; omitted for account scope.")
     created_at: datetime
+    created_by: Optional[StrictStr] = Field(default=None, description="User id that minted the key (audit / revoke-scoping). Empty when the minter has since been deleted.")
     expires_at: Optional[datetime] = None
     id: StrictStr
     key_prefix: StrictStr = Field(description="Non-secret visible prefix (e.g. e2a_acct_… / e2a_agt_…).")
     last_used_at: Optional[datetime] = None
     name: StrictStr
-    scope: StrictStr = Field(description="account = workspace admin; agent = bound to one inbox.")
-    __properties: ClassVar[List[str]] = ["agent", "created_at", "expires_at", "id", "key_prefix", "last_used_at", "name", "scope"]
+    scope: StrictStr = Field(description="account = workspace-wide (member floor); agent = bound to one inbox.")
+    __properties: ClassVar[List[str]] = ["agent", "created_at", "created_by", "expires_at", "id", "key_prefix", "last_used_at", "name", "scope"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -90,6 +91,7 @@ class APIKeyView(BaseModel):
         _obj = cls.model_validate({
             "agent": obj.get("agent"),
             "created_at": obj.get("created_at"),
+            "created_by": obj.get("created_by"),
             "expires_at": obj.get("expires_at"),
             "id": obj.get("id"),
             "key_prefix": obj.get("key_prefix"),

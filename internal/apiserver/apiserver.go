@@ -157,9 +157,9 @@ func BuildDeps(p Params) httpapi.Deps {
 		TestWebhookInsert: p.SubscriberStore.InsertPendingForTest,
 		ListDeliveries:    p.SubscriberStore.ListDeliveriesByWebhook,
 
-		CreateScopedAPIKey: p.Store.CreateScopedAPIKey,
-		ListAPIKeys:        p.Store.ListAPIKeys,
-		DeleteAPIKey:       p.Store.DeleteAPIKey,
+		CreateScopedAPIKey:      p.Store.CreateScopedAPIKey,
+		ListAPIKeysForWorkspace: p.Store.ListAPIKeysForWorkspace,
+		RevokeAPIKeyInWorkspace: p.Store.RevokeAPIKeyInWorkspace,
 
 		// Workspaces (design 2026-06-23 §4.4–§4.6).
 		ListWorkspacesForUser:  p.Store.ListWorkspacesForUser,

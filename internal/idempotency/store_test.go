@@ -167,6 +167,47 @@ func TestClaim_DifferentUsersIsolated(t *testing.T) {
 	}
 }
 
+// TestIdempotency_TwoMembersOneWorkspaceCollide documents the §4.1 dedup
+// widening: idempotency_keys is keyed on (workspace_id, key), so two members
+// of ONE workspace replaying the same key now collide (a deliberate, tested
+// choice). The v1 Claim API derives workspace_id from the *caller's* default
+// workspace, so two distinct members of a shared workspace exercise the
+// collision at the (workspace_id, key) PK directly — which is what this test
+// asserts: a second member's INSERT under the same workspace+key is rejected
+// by the primary key, surfacing as the spurious 422 the design calls out.
+func TestIdempotency_TwoMembersOneWorkspaceCollide(t *testing.T) {
+	pool := testutil.TestDB(t)
+	identStore := identity.NewStore(pool)
+	ctx := context.Background()
+
+	founder, _ := identStore.CreateOrGetUser(ctx, "idem-founder@example.com", "Founder", "google-idem-founder")
+	member, _ := identStore.CreateOrGetUser(ctx, "idem-member@example.com", "Member", "google-idem-member")
+	ws := identity.DefaultWorkspaceID(founder.ID)
+	if err := identStore.AddMember(ctx, ws, member.ID, identity.RoleMember, founder.ID); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+
+	insert := func(userID string) error {
+		_, err := pool.Exec(ctx,
+			`INSERT INTO idempotency_keys (
+			     user_id, workspace_id, key, request_path, request_body_hash,
+			     response_status, response_content_type, response_body,
+			     status, created_at, completed_at)
+			 VALUES ($1, $2, 'shared-key', '/v1/messages', $3, 0, '', ''::bytea, 'in_progress', now(), NULL)`,
+			userID, ws, idempotency.HashBody([]byte(`{"member":"`+userID+`"}`)))
+		return err
+	}
+
+	if err := insert(founder.ID); err != nil {
+		t.Fatalf("founder claim: %v", err)
+	}
+	// The second member, in the SAME workspace, replaying the same key with a
+	// different body collides on the (workspace_id, key) PK.
+	if err := insert(member.ID); err == nil {
+		t.Fatal("want a (workspace_id, key) PK collision for two members in one workspace, got nil — dedup did not widen to the workspace")
+	}
+}
+
 func TestRelease_AllowsFreshClaim(t *testing.T) {
 	store, userID, _ := newStoreAndUser(t)
 	ctx := context.Background()

@@ -3378,6 +3378,12 @@ type APIKey struct {
 	Scope string `json:"scope"`
 	// AgentID is the bound agent for ScopeAgent keys; nil for account keys.
 	AgentID *string `json:"agent_id,omitempty"`
+	// WorkspaceID is the tenant the key acts in (intrinsic, pinned at mint;
+	// §4.3.1). Resolves the active workspace for key-auth with no header.
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	// CreatedBy is the minting user, for audit + revoke-scoping (§4.3.1). NULL
+	// (→ "") when the minter has since been deleted (ON DELETE SET NULL).
+	CreatedBy *string `json:"created_by,omitempty"`
 	// LastUsedAt is updated by GetUserByAPIKey on every successful
 	// AuthenticateRequest. NULL on keys that have never been used.
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
@@ -3440,6 +3446,8 @@ func (s *Store) CreateScopedAPIKey(ctx context.Context, userID, name, scope, age
 	if scope == ScopeAgent {
 		agentCol = &agentID
 	}
+	wsID := DefaultWorkspaceID(userID)
+	creator := userID
 	ak := &APIKey{
 		ID:           id,
 		UserID:       userID,
@@ -3449,6 +3457,8 @@ func (s *Store) CreateScopedAPIKey(ctx context.Context, userID, name, scope, age
 		CreatedAt:    now,
 		Scope:        scope,
 		AgentID:      agentCol,
+		WorkspaceID:  wsID,
+		CreatedBy:    &creator,
 		ExpiresAt:    expiresAt,
 	}
 	// Stamp workspace_id (intrinsic — resolves the active workspace for
@@ -3458,7 +3468,7 @@ func (s *Store) CreateScopedAPIKey(ctx context.Context, userID, name, scope, age
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO api_keys (id, user_id, workspace_id, created_by, name, key_prefix, key_hash, scope, agent_id, created_at, expires_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-		ak.ID, ak.UserID, DefaultWorkspaceID(userID), userID, ak.Name, ak.KeyPrefix, keyHash, ak.Scope, agentCol, ak.CreatedAt, ak.ExpiresAt,
+		ak.ID, ak.UserID, wsID, creator, ak.Name, ak.KeyPrefix, keyHash, ak.Scope, agentCol, ak.CreatedAt, ak.ExpiresAt,
 	)
 	if err != nil {
 		return nil, err
@@ -3478,19 +3488,44 @@ func (s *Store) userOwnsAgent(ctx context.Context, agentID, userID string) (bool
 
 func (s *Store) ListAPIKeys(ctx context.Context, userID string) ([]APIKey, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, user_id, name, key_prefix, COALESCE(scope, 'account'), agent_id, created_at, last_used_at, expires_at
+		`SELECT id, user_id, workspace_id, created_by, name, key_prefix, COALESCE(scope, 'account'), agent_id, created_at, last_used_at, expires_at
 		   FROM api_keys WHERE user_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC`,
 		userID,
 	)
 	if err != nil {
 		return nil, err
 	}
+	return scanAPIKeyRows(rows)
+}
+
+// ListAPIKeysForWorkspace lists every live key minted inside a workspace
+// (§4.3.1): keys are workspace service credentials, so any member sees the
+// whole workspace's key set, and created_by makes ownership legible (the
+// revoke path is creator-own / admin-any). Ordered newest-first.
+func (s *Store) ListAPIKeysForWorkspace(ctx context.Context, workspaceID string) ([]APIKey, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, user_id, workspace_id, created_by, name, key_prefix, COALESCE(scope, 'account'), agent_id, created_at, last_used_at, expires_at
+		   FROM api_keys WHERE workspace_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC`,
+		workspaceID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return scanAPIKeyRows(rows)
+}
+
+// scanAPIKeyRows drains a *pgx.Rows of the shared api_keys metadata projection.
+func scanAPIKeyRows(rows pgx.Rows) ([]APIKey, error) {
 	defer rows.Close()
 	var keys []APIKey
 	for rows.Next() {
 		var k APIKey
-		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.KeyPrefix, &k.Scope, &k.AgentID, &k.CreatedAt, &k.LastUsedAt, &k.ExpiresAt); err != nil {
+		var workspaceID *string
+		if err := rows.Scan(&k.ID, &k.UserID, &workspaceID, &k.CreatedBy, &k.Name, &k.KeyPrefix, &k.Scope, &k.AgentID, &k.CreatedAt, &k.LastUsedAt, &k.ExpiresAt); err != nil {
 			return nil, err
+		}
+		if workspaceID != nil {
+			k.WorkspaceID = *workspaceID
 		}
 		keys = append(keys, k)
 	}
@@ -3515,6 +3550,55 @@ func (s *Store) DeleteAPIKey(ctx context.Context, keyID, userID string) error {
 		return ErrAPIKeyNotFound
 	}
 	return nil
+}
+
+// ErrAPIKeyForbidden is returned by RevokeAPIKeyInWorkspace when the key exists
+// in the workspace but the actor is neither its creator nor a workspace admin
+// (§4.3.1 / §5: a member revoking another member's key → 403; admin may revoke
+// any). Distinct from ErrAPIKeyNotFound so the HTTP layer maps it to 403, not
+// 404.
+var ErrAPIKeyForbidden = errors.New("api key not owned by caller")
+
+// RevokeAPIKeyInWorkspace revokes a key by id within a workspace under the
+// §4.3.1 revoke authority rules: the creator may revoke keys they created; an
+// admin may revoke ANY key in the workspace. Returns ErrAPIKeyNotFound when no
+// live key with that id exists in the workspace (idempotent: an already-revoked
+// or missing key is a not-found), and ErrAPIKeyForbidden when the key exists
+// but the actor is a non-admin who did not create it.
+func (s *Store) RevokeAPIKeyInWorkspace(ctx context.Context, keyID, workspaceID, actorUserID string, actorIsAdmin bool) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var createdBy *string
+	err = tx.QueryRow(ctx,
+		`SELECT created_by FROM api_keys
+		  WHERE id = $1 AND workspace_id = $2 AND revoked_at IS NULL`,
+		keyID, workspaceID,
+	).Scan(&createdBy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrAPIKeyNotFound
+	}
+	if err != nil {
+		return err
+	}
+	// Authority: admins may revoke any key; a non-admin may revoke only keys
+	// they created. A key whose creator was deleted (created_by NULL) is
+	// admin-only to revoke.
+	if !actorIsAdmin {
+		if createdBy == nil || *createdBy != actorUserID {
+			return ErrAPIKeyForbidden
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND workspace_id = $2`,
+		keyID, workspaceID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // GetUserByAPIKey authenticates a bearer token and returns the owning

@@ -49,6 +49,26 @@ func testServer(t *testing.T) *httptest.Server {
 				return nil, errors.New("unauthorized")
 			}
 		},
+		// Scope-aware path so handlers that need the active workspace + role
+		// (e.g. API-key management, §4.3.1) resolve. account scope, admin role
+		// in the canonical fixture workspace ws_1.
+		PrincipalAuthenticator: func(r *http.Request) (*identity.Principal, error) {
+			var u *identity.User
+			switch r.Header.Get("Authorization") {
+			case "Bearer good":
+				u = &identity.User{ID: "u_1", Email: "owner@acme.com"}
+			case "Bearer overcap":
+				u = &identity.User{ID: "u_overcap", Email: "full@acme.com"}
+			default:
+				return nil, errors.New("unauthorized")
+			}
+			return &identity.Principal{
+				User:      u,
+				Scope:     identity.ScopeAccount,
+				Workspace: &identity.Workspace{ID: "ws_1", Name: "Acme"},
+				Role:      identity.RoleAdmin,
+			}, nil
+		},
 		ListAgents: func(ctx context.Context, userID string) ([]identity.AgentIdentity, error) {
 			if userID != "u_1" {
 				return nil, errors.New("unexpected user")
@@ -78,18 +98,19 @@ func testServer(t *testing.T) *httptest.Server {
 				CreatedAt: time.Unix(1700000400, 0).UTC(), ExpiresAt: expiresAt,
 			}, nil
 		},
-		ListAPIKeys: func(ctx context.Context, userID string) ([]identity.APIKey, error) {
-			if userID != "u_1" {
-				return nil, errors.New("unexpected user")
+		ListAPIKeysForWorkspace: func(ctx context.Context, workspaceID string) ([]identity.APIKey, error) {
+			if workspaceID != "ws_1" {
+				return nil, errors.New("unexpected workspace")
 			}
+			creator := "u_1"
 			return []identity.APIKey{{
-				ID: "apk_1", UserID: userID, Name: "default",
+				ID: "apk_1", UserID: "u_1", WorkspaceID: workspaceID, CreatedBy: &creator, Name: "default",
 				KeyPrefix: "e2a_acct_abcd", Scope: "account",
 				CreatedAt: time.Unix(1700000100, 0).UTC(),
 			}}, nil
 		},
-		DeleteAPIKey: func(ctx context.Context, keyID, userID string) error {
-			if keyID == "apk_1" && userID == "u_1" {
+		RevokeAPIKeyInWorkspace: func(ctx context.Context, keyID, workspaceID, actorUserID string, actorIsAdmin bool) error {
+			if keyID == "apk_1" && workspaceID == "ws_1" {
 				return nil
 			}
 			return identity.ErrAPIKeyNotFound

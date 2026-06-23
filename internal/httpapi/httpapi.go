@@ -196,10 +196,12 @@ type Deps struct {
 
 	// API keys (account-scope management). CreateScopedAPIKey returns the
 	// minted key including its one-time plaintext; agentID is "" for account
-	// scope and a resolved agent id for agent scope.
-	CreateScopedAPIKey func(ctx context.Context, userID, name, scope, agentID string, expiresAt *time.Time) (*identity.APIKey, error)
-	ListAPIKeys        func(ctx context.Context, userID string) ([]identity.APIKey, error)
-	DeleteAPIKey       func(ctx context.Context, keyID, userID string) error
+	// scope and a resolved agent id for agent scope. Keys are workspace service
+	// credentials (§4.3.1): list is per-workspace and shows created_by, revoke
+	// is creator-own / admin-any.
+	CreateScopedAPIKey      func(ctx context.Context, userID, name, scope, agentID string, expiresAt *time.Time) (*identity.APIKey, error)
+	ListAPIKeysForWorkspace func(ctx context.Context, workspaceID string) ([]identity.APIKey, error)
+	RevokeAPIKeyInWorkspace func(ctx context.Context, keyID, workspaceID, actorUserID string, actorIsAdmin bool) error
 
 	// Workspaces (design 2026-06-23 §4.4–§4.6). The closures bind the
 	// identity.Store workspace methods; nil leaves the /v1/workspaces surface

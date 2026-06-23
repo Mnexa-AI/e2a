@@ -50,6 +50,10 @@ var (
 	// ErrAlreadyMember — invite targets a user who is already a member
 	// (§4.6 → 409 already_member; PATCH …/members is the role writer).
 	ErrAlreadyMember = errors.New("user is already a member of this workspace")
+	// ErrSoleAdminWorkspace — the user is the only admin of a workspace that
+	// still has other members, so account deletion would leave it adminless.
+	// User-delete fails closed; promote another member to admin first (§5).
+	ErrSoleAdminWorkspace = errors.New("cannot delete account: you are the sole admin of a workspace with other members; promote another member to admin first")
 )
 
 // Workspace is the billed tenant: it owns agents, domains, keys, limits, and

@@ -18,6 +18,10 @@ export class APIKeyView {
     */
     'agent'?: string;
     'createdAt': Date;
+    /**
+    * User id that minted the key (audit / revoke-scoping). Empty when the minter has since been deleted.
+    */
+    'createdBy'?: string;
     'expiresAt'?: Date;
     'id': string;
     /**
@@ -27,7 +31,7 @@ export class APIKeyView {
     'lastUsedAt'?: Date;
     'name': string;
     /**
-    * account = workspace admin; agent = bound to one inbox.
+    * account = workspace-wide (member floor); agent = bound to one inbox.
     */
     'scope': APIKeyViewScopeEnum;
 
@@ -47,6 +51,12 @@ export class APIKeyView {
             "baseName": "created_at",
             "type": "Date",
             "format": "date-time"
+        },
+        {
+            "name": "createdBy",
+            "baseName": "created_by",
+            "type": "string",
+            "format": ""
         },
         {
             "name": "expiresAt",

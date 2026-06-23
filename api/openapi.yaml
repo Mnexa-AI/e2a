@@ -33,6 +33,9 @@ components:
         created_at:
           format: date-time
           type: string
+        created_by:
+          description: User id that minted the key (audit / revoke-scoping). Empty when the minter has since been deleted.
+          type: string
         expires_at:
           format: date-time
           type: string
@@ -47,7 +50,7 @@ components:
         name:
           type: string
         scope:
-          description: account = workspace admin; agent = bound to one inbox.
+          description: account = workspace-wide (member floor); agent = bound to one inbox.
           enum:
             - account
             - agent
@@ -478,6 +481,9 @@ components:
         created_at:
           format: date-time
           type: string
+        created_by:
+          description: User id that minted the key (audit / revoke-scoping). Empty when the minter has since been deleted.
+          type: string
         expires_at:
           format: date-time
           type: string
@@ -495,7 +501,7 @@ components:
         name:
           type: string
         scope:
-          description: account = workspace admin; agent = bound to one inbox.
+          description: account = workspace-wide (member floor); agent = bound to one inbox.
           enum:
             - account
             - agent
