@@ -11,9 +11,9 @@ export type ThreadListProps = {
   threads: Thread[];
   selectedKey: string | null;
   onSelect: (key: string) => void;
-  /** Total in the active window — drives the header subtitle. */
-  total: number;
-  pendingCount: number;
+  /** Accepted for API compatibility; the count band was removed. */
+  total?: number;
+  pendingCount?: number;
   hasMore?: boolean;
   onLoadMore?: () => void;
   loadingMore?: boolean;
@@ -23,8 +23,6 @@ export function ThreadList({
   threads,
   selectedKey,
   onSelect,
-  total,
-  pendingCount,
   hasMore,
   onLoadMore,
   loadingMore,
@@ -37,30 +35,6 @@ export function ThreadList({
         background: "var(--bg-panel)",
       }}
     >
-      {/* Sticky list header */}
-      <div
-        className="flex items-center justify-between"
-        style={{
-          padding: "11px 16px",
-          borderBottom: "1px solid var(--border)",
-          background: "var(--bg-elev)",
-        }}
-      >
-        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--fg)" }}>
-          Inbox
-        </span>
-        <span
-          style={{
-            fontFamily: "var(--f-mono)",
-            fontSize: 11,
-            color: "var(--fg-subtle)",
-          }}
-        >
-          {total} {total === 1 ? "thread" : "threads"}
-          {pendingCount > 0 && ` · ${pendingCount} pending`}
-        </span>
-      </div>
-
       {/* Rows */}
       <div className="overflow-y-auto flex-1">
         {threads.length === 0 && (

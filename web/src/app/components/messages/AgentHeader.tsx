@@ -29,7 +29,7 @@ export type AgentTab = "messages" | "settings";
 // third tab is added, restore the `ready` flag + disabled-tab branch
 // (see git history at 63876fc).
 const TABS: { key: AgentTab; label: string; slug: string }[] = [
-  { key: "messages", label: "Messages", slug: "messages" },
+  { key: "messages", label: "Inbox", slug: "messages" },
   { key: "settings", label: "Settings", slug: "settings" },
 ];
 
