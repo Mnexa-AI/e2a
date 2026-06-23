@@ -92,7 +92,7 @@ func testServer(t *testing.T) *httptest.Server {
 			if keyID == "apk_1" && userID == "u_1" {
 				return nil
 			}
-			return errors.New("not found")
+			return identity.ErrAPIKeyNotFound
 		},
 		ListMessages: func(ctx context.Context, f identity.MessageListFilter) ([]identity.Message, error) {
 			if f.AgentID != "support@acme.com" {

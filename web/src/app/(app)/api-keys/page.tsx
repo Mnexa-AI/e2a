@@ -57,10 +57,11 @@ export default function APIKeysPage() {
   const [newKeyName, setNewKeyName] = useState("");
   const [creating, setCreating] = useState(false);
   const [createdKey, setCreatedKey] = useState<APIKeyData | null>(null);
+  const [createError, setCreateError] = useState("");
   const [sort, setSort] = useState<SortKey>("last_used");
   // expiresIn: "never" or a number of days from now. The backend
-  // accepts an RFC 3339 timestamp on POST /api/keys; we compute the
-  // absolute time from this relative choice at submit. Custom dates
+  // accepts an RFC 3339 timestamp on POST /v1/account/api-keys; we compute
+  // the absolute time from this relative choice at submit. Custom dates
   // are deferred — the four presets cover the bulk of real workflows.
   const [expiresIn, setExpiresIn] = useState<"never" | "30" | "90" | "365">(
     "never",
@@ -120,6 +121,7 @@ export default function APIKeysPage() {
 
   const handleCreate = async () => {
     setCreating(true);
+    setCreateError("");
     try {
       const body: {
         name: string;
@@ -150,7 +152,12 @@ export default function APIKeysPage() {
         setScope("account");
         setAgentEmail("");
         fetchKeys();
+      } else {
+        const msg = await res.text();
+        setCreateError(msg || `Could not create the key (HTTP ${res.status}).`);
       }
+    } catch {
+      setCreateError("Network error — check your connection and try again.");
     } finally {
       setCreating(false);
     }
@@ -207,6 +214,20 @@ export default function APIKeysPage() {
           >
             Dismiss
           </button>
+        </div>
+      )}
+
+      {createError && (
+        <div
+          className="mb-6 p-3 text-[13px]"
+          style={{
+            background: "var(--danger-bg)",
+            color: "var(--danger-strong)",
+            border: "1px solid var(--danger-bg)",
+            borderRadius: "var(--r-md)",
+          }}
+        >
+          {createError}
         </div>
       )}
 
@@ -289,6 +310,11 @@ export default function APIKeysPage() {
                 </option>
               ))}
             </select>
+            {agents.length === 0 && (
+              <p className="mt-1 text-[11px]" style={{ color: "var(--fg-subtle)" }}>
+                No inboxes yet — create one first.
+              </p>
+            )}
           </div>
         )}
         <div className="md:min-w-[140px]">

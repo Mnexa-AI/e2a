@@ -58,6 +58,9 @@ import type {
   UserExport,
   DeleteUserDataResult,
   Suppression,
+  APIKeyView,
+  CreateAPIKeyRequest,
+  CreateAPIKeyResponse,
   DeploymentInfoView,
 } from "./generated/index.js";
 import { RetryHttpLibrary, type RetryOptions } from "./retry.js";
@@ -385,10 +388,30 @@ class SuppressionsResource {
   }
 }
 
+class APIKeysResource {
+  constructor(private readonly api: PromiseAccountApi) {}
+  list(): AutoPager<APIKeyView> {
+    return new AutoPager(async (cursor) => {
+      void cursor; // listApiKeys has no cursor param — single page by contract.
+      const page = await call(() => this.api.listApiKeys());
+      return { items: page.items ?? [], next_cursor: undefined };
+    });
+  }
+  // create returns the one-time plaintext key in `.key` — store it now.
+  create(body: CreateAPIKeyRequest): Promise<CreateAPIKeyResponse> {
+    return call(() => this.api.createApiKey(body));
+  }
+  async delete(id: string): Promise<void> {
+    await call(() => this.api.deleteApiKey(id));
+  }
+}
+
 class AccountResource {
   readonly suppressions: SuppressionsResource;
+  readonly apiKeys: APIKeysResource;
   constructor(private readonly api: PromiseAccountApi) {
     this.suppressions = new SuppressionsResource(api);
+    this.apiKeys = new APIKeysResource(api);
   }
   get(): Promise<AccountView> {
     return call(() => this.api.getAccount());

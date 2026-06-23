@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -172,7 +173,10 @@ func (s *Server) handleDeleteAPIKey(ctx context.Context, in *deleteAPIKeyInput) 
 		return nil, NewError(http.StatusNotImplemented, "not_implemented", "API keys are not available on this deployment")
 	}
 	if err := s.deps.DeleteAPIKey(ctx, in.ID, user.ID); err != nil {
-		return nil, NewError(http.StatusNotFound, "not_found", "API key not found")
+		if errors.Is(err, identity.ErrAPIKeyNotFound) {
+			return nil, NewError(http.StatusNotFound, "not_found", "API key not found")
+		}
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to revoke API key")
 	}
 	return &deleteAPIKeyOutput{Status: http.StatusNoContent}, nil
 }

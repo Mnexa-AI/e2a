@@ -1,6 +1,14 @@
 package httpapi
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/Mnexa-AI/e2a/internal/identity"
+)
 
 func TestListAPIKeys(t *testing.T) {
 	srv := testServer(t)
@@ -120,5 +128,27 @@ func TestAPIKeysUnauthorized(t *testing.T) {
 	code, _ := getJSON(t, srv.URL+"/v1/account/api-keys", "")
 	if code != 401 {
 		t.Fatalf("want 401, got %d", code)
+	}
+}
+
+// A non-sentinel store error (e.g. a DB failure) on delete must surface as
+// 500 — NOT be masked as a 404 "not found", which would tell the caller a
+// live key was already revoked. Regression guard for the error-mapping split.
+func TestDeleteAPIKeyInternalErrorNotMaskedAs404(t *testing.T) {
+	srv := httptest.NewServer(New(Deps{
+		Authenticator: func(r *http.Request) (*identity.User, error) {
+			if r.Header.Get("Authorization") == "Bearer good" {
+				return &identity.User{ID: "u_1", Email: "owner@acme.com"}, nil
+			}
+			return nil, errors.New("unauthorized")
+		},
+		DeleteAPIKey: func(ctx context.Context, keyID, userID string) error {
+			return errors.New("db connection lost")
+		},
+	}))
+	defer srv.Close()
+	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/account/api-keys/apk_x", "good", nil)
+	if code != 500 {
+		t.Fatalf("want 500 for a non-sentinel delete error, got %d", code)
 	}
 }

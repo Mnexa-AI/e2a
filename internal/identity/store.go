@@ -3400,6 +3400,13 @@ func (s *Store) ListAPIKeys(ctx context.Context, userID string) ([]APIKey, error
 	return keys, rows.Err()
 }
 
+// ErrAPIKeyNotFound is returned by DeleteAPIKey when no live key matched the
+// (id, user) — i.e. it doesn't exist, isn't owned by the caller, or was
+// already revoked. Distinct from a DB/connection error so the HTTP layer can
+// map it to 404 while surfacing real failures as 500 (mirrors
+// ErrWebhookNotFound).
+var ErrAPIKeyNotFound = errors.New("api key not found")
+
 func (s *Store) DeleteAPIKey(ctx context.Context, keyID, userID string) error {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL`, keyID, userID,
@@ -3408,7 +3415,7 @@ func (s *Store) DeleteAPIKey(ctx context.Context, keyID, userID string) error {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("api key not found or not owned by user")
+		return ErrAPIKeyNotFound
 	}
 	return nil
 }

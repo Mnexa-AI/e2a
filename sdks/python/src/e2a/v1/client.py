@@ -28,10 +28,13 @@ from .generated.api_client import ApiClient
 from .generated.configuration import Configuration
 from .generated.models import (
     AgentView,
+    APIKeyView,
     ApproveRequest,
     ConversationDetailView,
     ConversationSummaryView,
     CreateAgentRequest,
+    CreateAPIKeyRequest,
+    CreateAPIKeyResponse,
     CreateWebhookRequest,
     CreateWebhookResponse,
     DeleteUserDataResult,
@@ -550,11 +553,36 @@ class SuppressionsResource:
         await self._c._write_idempotent(lambda h: self._api.delete_suppression(email, _headers=h))
 
 
+class APIKeysResource:
+    def __init__(self, api: AccountApi, client: E2AClient) -> None:
+        self._api = api
+        self._c = client
+
+    def list(self) -> AutoPager[APIKeyView]:
+        # No cursor param: single page by contract (see webhooks list).
+        async def fetch(cursor: Optional[str]) -> Page:
+            resp = await self._c._read(lambda h: self._api.list_api_keys(_headers=h))
+            return _page(resp.items, None)
+
+        return AutoPager(fetch)
+
+    async def create(self, body: Body) -> CreateAPIKeyResponse:
+        # Returns the one-time plaintext key in `.key` — store it now. Not
+        # retried (mirrors webhooks.create): minting a secret isn't safely
+        # replayable.
+        req = _coerce(CreateAPIKeyRequest, body)
+        return await self._c._write_unsafe(lambda h: self._api.create_api_key(req, _headers=h))
+
+    async def delete(self, key_id: str) -> None:
+        await self._c._write_idempotent(lambda h: self._api.delete_api_key(key_id, _headers=h))
+
+
 class AccountResource:
     def __init__(self, api: AccountApi, client: E2AClient) -> None:
         self._api = api
         self._c = client
         self.suppressions = SuppressionsResource(api, client)
+        self.api_keys = APIKeysResource(api, client)
 
     async def get(self) -> AccountView:
         return await self._c._read(lambda h: self._api.get_account(_headers=h))
