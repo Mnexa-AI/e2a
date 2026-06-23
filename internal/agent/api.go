@@ -379,7 +379,7 @@ func (a *API) publishApproved(ctx context.Context, e webhookpub.Event, sentMsg *
 			return nil
 		})
 		if err != nil {
-			log.Printf("[api] outbox tx for email.approved err: %v", err)
+			log.Printf("[api] outbox tx for %s err: %v", e.Type, err)
 			outboxWrote = false
 		}
 	}
@@ -400,7 +400,7 @@ func (a *API) publishRejected(ctx context.Context, e webhookpub.Event, rejectedM
 			return a.outbox.PublishTx(ctx, tx, e)
 		})
 		if err != nil {
-			log.Printf("[api] outbox tx for email.rejected err: %v", err)
+			log.Printf("[api] outbox tx for %s err: %v", e.Type, err)
 		} else {
 			outboxWrote = true
 		}
@@ -1001,8 +1001,8 @@ func (a *API) HoldForApprovalCore(ctx context.Context, agent *identity.AgentIden
 	}
 
 	slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
-	log.Printf("[mail:%s] dir=outbound type=%s status=pending_approval from=%s to=%v slug=%s conv_id=%s subject=%q approval_expires_at=%s",
-		msg.ID, msgType, agent.EmailAddress(), req.To, slug, req.ConversationID, req.Subject, msg.ApprovalExpiresAt.Format(time.RFC3339))
+	log.Printf("[mail:%s] dir=outbound type=%s status=%s from=%s to=%v slug=%s conv_id=%s subject=%q approval_expires_at=%s",
+		msg.ID, msgType, msg.Status, agent.EmailAddress(), req.To, slug, req.ConversationID, req.Subject, msg.ApprovalExpiresAt.Format(time.RFC3339))
 
 	// Fire the reviewer notification asynchronously. Failures are logged
 	// inside the notifier and must never block the response — the pending

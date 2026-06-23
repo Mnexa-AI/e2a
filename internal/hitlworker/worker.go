@@ -236,8 +236,8 @@ func (w *Worker) autoApprove(ctx context.Context, c identity.ExpirationCandidate
 	if _, err := w.usage.RecordAndCheck(ctx, agent.UserID, agent.ID, agent.Domain, "outbound"); err != nil {
 		log.Printf("[hitl-worker] usage recording error: %v", err)
 	}
-	log.Printf("[mail:%s] dir=outbound type=%s status=expired_approved agent=%s to=%v auto_sent=true",
-		sent.ID, sent.Type, agent.ID, sent.ToRecipients)
+	log.Printf("[mail:%s] dir=outbound type=%s status=%s agent=%s to=%v auto_sent=true",
+		sent.ID, sent.Type, sent.Status, agent.ID, sent.ToRecipients)
 	// Mirror the user-driven approve: fire email.review_approved (the send
 	// already happened; this is the post-side-effect notification).
 	w.emitOutboundApproved(agent, sent)
@@ -259,8 +259,8 @@ func (w *Worker) autoReject(ctx context.Context, messageID, reason string) {
 			messageID, reason, err)
 		return
 	}
-	log.Printf("[mail:%s] dir=outbound type=%s status=expired_rejected agent=%s reason=%q auto_rejected=true",
-		rejected.ID, rejected.Type, rejected.AgentID, reason)
+	log.Printf("[mail:%s] dir=outbound type=%s status=%s agent=%s reason=%q auto_rejected=true",
+		rejected.ID, rejected.Type, rejected.Status, rejected.AgentID, reason)
 	w.emitOutboundRejected(ctx, rejected, reason)
 }
 

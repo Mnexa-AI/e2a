@@ -135,8 +135,8 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 		log.Printf("[api] usage recording error: %v", err)
 	}
 	slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
-	log.Printf("[mail:%s] dir=outbound type=%s status=sent from=%s to=%v slug=%s subject=%q edited=%v approved=user:%s",
-		sent.ID, sent.Type, agent.EmailAddress(), sent.ToRecipients, slug, sent.Subject, sent.Edited, userID)
+	log.Printf("[mail:%s] dir=outbound type=%s status=%s from=%s to=%v slug=%s subject=%q edited=%v approved=user:%s",
+		sent.ID, sent.Type, sent.Status, agent.EmailAddress(), sent.ToRecipients, slug, sent.Subject, sent.Edited, userID)
 	a.publishApproved(ctx, a.buildApprovedEvent(agent, sent, userID), sent)
 	return sent, nil
 }
@@ -230,8 +230,8 @@ func (a *API) RejectPendingCore(ctx context.Context, userID, messageID, expected
 			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to reject message"}
 		}
 	}
-	log.Printf("[mail:%s] dir=outbound type=%s status=rejected agent=%s rejected_by=user:%s reason=%q",
-		rejected.ID, rejected.Type, rejected.AgentID, userID, reason)
+	log.Printf("[mail:%s] dir=outbound type=%s status=%s agent=%s rejected_by=user:%s reason=%q",
+		rejected.ID, rejected.Type, rejected.Status, rejected.AgentID, userID, reason)
 	a.publishRejected(ctx, a.buildRejectedEvent(userID, rejected, reason), rejected.ID)
 	return rejected, nil
 }
@@ -254,8 +254,8 @@ func (a *API) ApproveInboundReviewCore(ctx context.Context, userID string, msg *
 		log.Printf("[api] approve inbound review %s: %v", msg.ID, err)
 		return &OutboundError{http.StatusInternalServerError, "internal_error", "failed to approve message"}
 	}
-	log.Printf("[mail:%s] dir=inbound type=%s status=review_approved agent=%s approved_by=user:%s",
-		msg.ID, msg.Type, msg.AgentID, userID)
+	log.Printf("[mail:%s] dir=inbound type=%s status=%s agent=%s approved_by=user:%s",
+		msg.ID, msg.Type, msg.Status, msg.AgentID, userID)
 	// Post-side-effect publish (the release row is already committed): reuse the
 	// approved-event plumbing (deterministic id off the message id → MTA/retry
 	// idempotent). A minimal *identity.Message carries the id publishApproved needs.
@@ -288,8 +288,8 @@ func (a *API) RejectInboundReviewCore(ctx context.Context, userID, reason string
 		log.Printf("[api] reject inbound review %s: %v", msg.ID, err)
 		return &OutboundError{http.StatusInternalServerError, "internal_error", "failed to reject message"}
 	}
-	log.Printf("[mail:%s] dir=inbound type=%s status=review_rejected agent=%s rejected_by=user:%s reason=%q",
-		msg.ID, msg.Type, msg.AgentID, userID, reason)
+	log.Printf("[mail:%s] dir=inbound type=%s status=%s agent=%s rejected_by=user:%s reason=%q",
+		msg.ID, msg.Type, msg.Status, msg.AgentID, userID, reason)
 	a.publishRejected(ctx, a.buildInboundRejectedEvent(msg, a.reviewOwnerID(ctx, msg.AgentID, userID), userID, reason), msg.ID)
 	return nil
 }

@@ -269,8 +269,8 @@ func (a *API) magicApprove(w http.ResponseWriter, r *http.Request, messageID, us
 	if _, err := a.usage.RecordAndCheck(r.Context(), userID, agent.ID, agent.Domain, "outbound"); err != nil {
 		log.Printf("[api] magic-approve usage error: %v", err)
 	}
-	log.Printf("[mail:%s] dir=outbound type=%s status=sent agent=%s to=%v approved=magic-link:user:%s",
-		sent.ID, sent.Type, agent.EmailAddress(), sent.ToRecipients, userID)
+	log.Printf("[mail:%s] dir=outbound type=%s status=%s agent=%s to=%v approved=magic-link:user:%s",
+		sent.ID, sent.Type, sent.Status, agent.EmailAddress(), sent.ToRecipients, userID)
 
 	writeMagicMessage(w, http.StatusOK,
 		"Approved",
@@ -294,8 +294,8 @@ func (a *API) magicReject(w http.ResponseWriter, r *http.Request, messageID, use
 		}
 		return
 	}
-	log.Printf("[mail:%s] dir=outbound type=%s status=rejected rejected_by=magic-link:user:%s reason=%q",
-		rejected.ID, rejected.Type, userID, reason)
+	log.Printf("[mail:%s] dir=outbound type=%s status=%s rejected_by=magic-link:user:%s reason=%q",
+		rejected.ID, rejected.Type, rejected.Status, userID, reason)
 
 	writeMagicMessage(w, http.StatusOK, "Rejected",
 		"The message has been discarded and will not be sent.")
