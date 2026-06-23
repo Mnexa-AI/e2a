@@ -142,6 +142,11 @@ export type APIKeyData = {
   key?: string;        // one-time plaintext, only present on creation response
   key_prefix?: string; // non-secret prefix, shown in list view
   name: string;
+  // Credential scope: "account" (workspace admin) or "agent" (bound to a
+  // single inbox). `agent` is the bound inbox email, present only for agent
+  // scope.
+  scope?: string;
+  agent?: string;
   created_at: string;
   // Updated on every successful authenticated request. Null until the
   // key is first used. Surfaces in the "Last used" column.

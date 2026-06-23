@@ -34,27 +34,33 @@ function stageList(initial: unknown[] = []) {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   mockFetch.mockImplementation((url: string, init?: RequestInit) => {
     calls.push({ url, init });
-    if (url === "/api/keys" && (!init || !init.method || init.method === "GET")) {
+    if (url === "/v1/account/api-keys" && (!init || !init.method || init.method === "GET")) {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve(initial),
+        json: () => Promise.resolve({ items: initial }),
       });
     }
-    if (url === "/api/keys" && init?.method === "POST") {
+    if (url === "/v1/account/api-keys" && init?.method === "POST") {
       const body = JSON.parse(init.body as string);
       return Promise.resolve({
         ok: true,
+        status: 201,
         json: () =>
           Promise.resolve({
             id: "apk_new",
-            user_id: "usr",
             name: body.name,
             key_prefix: "e2a_abcd",
             key: "e2a_abcd_PLAINTEXT",
+            scope: body.scope ?? "account",
+            agent: body.agent,
             created_at: new Date().toISOString(),
             expires_at: body.expires_at ?? null,
           }),
       });
+    }
+    // useAgents() fetches the inbox list for the agent-scope dropdown.
+    if (url === "/v1/agents") {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [] }) });
     }
     return Promise.resolve({
       ok: false,
@@ -68,7 +74,7 @@ function stageList(initial: unknown[] = []) {
 function lastCreateBody(calls: Array<{ url: string; init?: RequestInit }>) {
   const create = [...calls]
     .reverse()
-    .find((c) => c.url === "/api/keys" && c.init?.method === "POST");
+    .find((c) => c.url === "/v1/account/api-keys" && c.init?.method === "POST");
   return create ? JSON.parse(create.init!.body as string) : null;
 }
 
@@ -159,10 +165,10 @@ describe("API keys table — Expires column", () => {
 
   it("renders 'Never' for keys with no expires_at", async () => {
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/keys" && (!init || !init.method)) {
+      if (url === "/v1/account/api-keys" && (!init || !init.method)) {
         return Promise.resolve({
           ok: true,
-          json: async () => [{ ...baseKey, expires_at: null }],
+          json: async () => ({ items: [{ ...baseKey, expires_at: null }] }),
         });
       }
       return Promise.resolve({
@@ -184,10 +190,10 @@ describe("API keys table — Expires column", () => {
       Date.now() + 12 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000,
     ).toISOString();
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/keys" && (!init || !init.method)) {
+      if (url === "/v1/account/api-keys" && (!init || !init.method)) {
         return Promise.resolve({
           ok: true,
-          json: async () => [{ ...baseKey, expires_at: future }],
+          json: async () => ({ items: [{ ...baseKey, expires_at: future }] }),
         });
       }
       return Promise.resolve({ ok: false, text: async () => "" });
@@ -200,10 +206,10 @@ describe("API keys table — Expires column", () => {
   it("renders 'expired' for past expires_at", async () => {
     const past = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/keys" && (!init || !init.method)) {
+      if (url === "/v1/account/api-keys" && (!init || !init.method)) {
         return Promise.resolve({
           ok: true,
-          json: async () => [{ ...baseKey, expires_at: past }],
+          json: async () => ({ items: [{ ...baseKey, expires_at: past }] }),
         });
       }
       return Promise.resolve({ ok: false, text: async () => "" });
