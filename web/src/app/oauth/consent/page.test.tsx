@@ -85,11 +85,11 @@ function mockClientAndAgents(opts: {
         json: () => Promise.resolve(clientBody),
       });
     }
-    if (url === "/api/dashboard/agents") {
+    if (url === "/v1/agents") {
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ agents }),
+        json: () => Promise.resolve({ items: agents }),
       });
     }
     return Promise.resolve({ ok: false, status: 404 });

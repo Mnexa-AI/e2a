@@ -24,10 +24,10 @@ function mockDomainsAndAgents(
         json: () => Promise.resolve({ items: domains }),
       });
     }
-    if (url === "/api/dashboard/agents") {
+    if (url === "/v1/agents") {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ agents }),
+        json: () => Promise.resolve({ items: agents }),
       });
     }
     return Promise.resolve({ ok: false, text: () => Promise.resolve("not found") });
@@ -216,7 +216,7 @@ describe("Domains page — error handling", () => {
       }
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ agents: [] }),
+        json: () => Promise.resolve({ items: [] }),
       });
     });
 
@@ -250,10 +250,10 @@ describe("Domains page — verify domain", () => {
           json: () => Promise.resolve({ items: domains }),
         });
       }
-      if (url === "/api/dashboard/agents") {
+      if (url === "/v1/agents") {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ agents: [] }),
+          json: () => Promise.resolve({ items: [] }),
         });
       }
       return Promise.resolve({ ok: false, text: () => Promise.resolve("not found") });
@@ -289,10 +289,10 @@ describe("Domains page — verify domain", () => {
           json: () => Promise.resolve({ items: [sampleDomain] }),
         });
       }
-      if (url === "/api/dashboard/agents") {
+      if (url === "/v1/agents") {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ agents: [] }),
+          json: () => Promise.resolve({ items: [] }),
         });
       }
       return Promise.resolve({ ok: false, text: () => Promise.resolve("not found") });
@@ -328,10 +328,10 @@ describe("Domains page — Make primary action", () => {
               }),
           });
         }
-        if (url === "/api/dashboard/agents") {
+        if (url === "/v1/agents") {
           return Promise.resolve({
             ok: true,
-            json: () => Promise.resolve({ agents: [] }),
+            json: () => Promise.resolve({ items: [] }),
           });
         }
         if (

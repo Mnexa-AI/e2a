@@ -1,7 +1,7 @@
 "use client";
 
-// Shared SWR hook for `GET /api/dashboard/agents` — the per-user
-// dashboard agents list (identity + verification + HITL config).
+// Shared SWR hook for `GET /v1/agents` — the per-user inbox list
+// (slim identity: id/domain/email/name/domain_verified/created_at).
 //
 // Called from three surfaces:
 //   • /dashboard           — the agent grid

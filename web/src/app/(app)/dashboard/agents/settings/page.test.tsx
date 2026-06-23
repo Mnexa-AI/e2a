@@ -69,11 +69,11 @@ const PROTECTION = {
 
 function mockAgent(agent: typeof baseAgent) {
   mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-    if (url === "/api/dashboard/agents" && !init?.method) {
+    if (url === "/v1/agents" && !init?.method) {
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ agents: [agent] }),
+        json: () => Promise.resolve({ items: [agent] }),
       });
     }
     if (url === `/v1/agents/${encodeURIComponent(agent.email)}/protection` && !init?.method) {
@@ -133,11 +133,11 @@ describe("AgentSettingsPage", () => {
     const protectionUrl = `/v1/agents/${encodeURIComponent(baseAgent.email)}/protection`;
     let putBody: string | null = null;
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/dashboard/agents" && !init?.method) {
+      if (url === "/v1/agents" && !init?.method) {
         return Promise.resolve({
           ok: true,
           status: 200,
-          json: () => Promise.resolve({ agents: [baseAgent] }),
+          json: () => Promise.resolve({ items: [baseAgent] }),
         });
       }
       if (url === protectionUrl && !init?.method) {
@@ -174,11 +174,11 @@ describe("AgentSettingsPage", () => {
     setSearchParams({ email: baseAgent.email });
     let deleted = false;
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/dashboard/agents" && !init?.method) {
+      if (url === "/v1/agents" && !init?.method) {
         return Promise.resolve({
           ok: true,
           status: 200,
-          json: () => Promise.resolve({ agents: [baseAgent] }),
+          json: () => Promise.resolve({ items: [baseAgent] }),
         });
       }
       if (
@@ -210,11 +210,11 @@ describe("AgentSettingsPage", () => {
 
     let deleted = false;
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/dashboard/agents" && !init?.method) {
+      if (url === "/v1/agents" && !init?.method) {
         return Promise.resolve({
           ok: true,
           status: 200,
-          json: () => Promise.resolve({ agents: [baseAgent] }),
+          json: () => Promise.resolve({ items: [baseAgent] }),
         });
       }
       if (init?.method === "DELETE") {

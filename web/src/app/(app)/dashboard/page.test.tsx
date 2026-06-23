@@ -69,11 +69,11 @@ const unverifiedAgent = {
 
 function mockAgentList(agents: typeof localAgent[]) {
   mockFetch.mockImplementation((url: string) => {
-    if (url === "/api/dashboard/agents") {
+    if (url === "/v1/agents") {
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ agents }),
+        json: () => Promise.resolve({ items: agents }),
       });
     }
     return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve("not found") });

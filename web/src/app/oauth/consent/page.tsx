@@ -116,15 +116,15 @@ function ConsentInner() {
   useEffect(() => {
     if (!user || missing.length > 0) return;
     let cancelled = false;
-    fetch("/api/dashboard/agents", { credentials: "include" })
+    fetch("/v1/agents", { credentials: "include" })
       .then(async (r) => {
         if (cancelled) return;
         if (!r.ok) {
           setAgentsError(`Could not list your agents (HTTP ${r.status}).`);
           return;
         }
-        const data: { agents: DashboardAgent[] } = await r.json();
-        if (!cancelled) setAgents(data.agents ?? []);
+        const data: { items?: DashboardAgent[] | null } = await r.json();
+        if (!cancelled) setAgents(data.items ?? []);
       })
       .catch((e) => {
         if (!cancelled) setAgentsError(String(e));

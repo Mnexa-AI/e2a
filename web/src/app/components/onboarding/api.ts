@@ -96,9 +96,13 @@ export async function setDomainPrimary(domain: string): Promise<DomainInfo> {
 
 // ── Agents ───────────────────────────────────────────────
 
+// GET /v1/agents → PageAgentView. AgentView carries exactly the slim
+// identity fields the dashboard list needs (id/domain/email/name/
+// domain_verified/created_at), so the wire rows map straight onto
+// DashboardAgent. (Per-agent config moved to the protection sub-resource.)
 export async function listAgents(): Promise<DashboardAgent[]> {
-  const data = await request<{ agents: DashboardAgent[] }>("/api/dashboard/agents");
-  return data.agents ?? [];
+  const data = await request<{ items?: DashboardAgent[] | null }>("/v1/agents");
+  return data.items ?? [];
 }
 
 export async function createAgent(params: {
