@@ -52,8 +52,8 @@ const (
 	EventEmailComplained        = "email.complained"
 	EventDomainSuppressionAdded = "domain.suppression_added"
 	// Inbound trust policy (decision 10 / Slice 7): an inbound message did not
-	// match the agent's ingestion policy (allowlist/domain/verified_only). It is
-	// delivered but flagged — operators get a signal, nothing is dropped.
+	// match the agent's ingestion policy (allowlist/domain). It is delivered but
+	// flagged — operators get a signal, nothing is dropped.
 	EventEmailFlagged = "email.flagged"
 	// EventEmailBlocked fires when a message is refused by screening — the applied
 	// action (gate ∨ scan) is `block`. Inbound: the message is accept-then-quarantined

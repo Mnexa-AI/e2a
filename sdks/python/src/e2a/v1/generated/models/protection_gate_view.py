@@ -29,7 +29,7 @@ class ProtectionGateView(BaseModel):
     """ # noqa: E501
     action: Optional[StrictStr] = Field(default='flag', description="What a gate non-match does: flag (deliver + annotate), review (hold), block.")
     allowlist: Optional[Annotated[List[StrictStr], Field(max_length=1000)]] = Field(default=None, description="Addresses (allowlist) or domains (domain) the gate trusts; ignored for open.")
-    policy: Optional[StrictStr] = Field(default='open', description="Trust gate: open (all), domain (listed domains), allowlist (listed addresses). A legacy 'verified_only' may appear on read but cannot be set here.")
+    policy: Optional[StrictStr] = Field(default='open', description="Trust gate: open (all), domain (listed domains), allowlist (listed addresses).")
     __properties: ClassVar[List[str]] = ["action", "allowlist", "policy"]
 
     model_config = ConfigDict(

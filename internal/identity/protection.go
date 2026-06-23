@@ -60,10 +60,9 @@ type ProtectionConfig struct {
 	HITLExpirationAction    string
 }
 
-// inboundGatePolicyValid restricts the inbound trust gate to the protection
-// API's monotonic ladder (open|allowlist|domain). verified_only is retained in
-// the column/inboundpolicy package for legacy rows but is not a settable value
-// on this surface (design D1 / §2 — it returns later as a composable flag).
+// inboundGatePolicyValid restricts the inbound trust gate to the supported
+// ladder (open|allowlist|domain). A DMARC-alignment "verified_only" posture was
+// dropped pre-GA (migration 047) and may return later as a composable flag.
 func inboundGatePolicyValid(p string) bool {
 	return p == inboundpolicy.Open || p == inboundpolicy.Allowlist || p == inboundpolicy.Domain
 }

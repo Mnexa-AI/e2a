@@ -1414,7 +1414,7 @@ components:
           type: array
         policy:
           default: open
-          description: "Trust gate: open (all), domain (listed domains), allowlist (listed addresses). A legacy 'verified_only' may appear on read but cannot be set here."
+          description: "Trust gate: open (all), domain (listed domains), allowlist (listed addresses)."
           enum:
             - open
             - allowlist

@@ -4,10 +4,12 @@
 //
 // Two orthogonal axes compose (decision 10 says the postures "compose", which a
 // single enum can't express):
-//   - Ingestion gate (this package): inbound_policy ∈ {open, allowlist, domain,
-//     verified_only}. Decides, on arrival, whether a message is trusted or
-//     FLAGGED. Flagged messages are still delivered (never dropped) + emit
-//     email.flagged so nothing disappears and operators get a signal.
+//   - Ingestion gate (this package): inbound_policy ∈ {open, allowlist, domain}.
+//     Decides, on arrival, whether a message is trusted or FLAGGED. Flagged
+//     messages are still delivered (never dropped) + emit email.flagged so
+//     nothing disappears and operators get a signal. (A DMARC-alignment
+//     "verified_only" posture was removed pre-GA; it may return as an additive
+//     policy later.)
 //   - Action gate (the hitl axis, Slice 7b): holds suspicious outbound as
 //     pending_approval. Reconciled from the existing hitl_enabled flag.
 //
@@ -28,17 +30,12 @@ const (
 	// Domain accepts only senders whose domain is on inbound_allowlist; others
 	// are flagged (a TRUST gate — known domains).
 	Domain = "domain"
-	// VerifiedOnly accepts only DMARC-passing (aligned) mail; others are flagged.
-	// An ANTI-SPOOFING gate — it proves the mail came from the *claimed* From
-	// domain, NOT that the domain is friendly (pair with allowlist/domain or the
-	// hitl action gate for actual trust).
-	VerifiedOnly = "verified_only"
 )
 
 // Valid reports whether p is a known ingestion policy.
 func Valid(p string) bool {
 	switch p {
-	case Open, Allowlist, Domain, VerifiedOnly:
+	case Open, Allowlist, Domain:
 		return true
 	}
 	return false
@@ -55,12 +52,10 @@ type Decision struct {
 //   - allowlist: the agent's inbound_allowlist (addresses for Allowlist,
 //     domains for Domain); matching is case-insensitive.
 //   - senderEmail: the message's display sender (From identity).
-//   - dmarcPass: whether the server-owned auth verdict has dmarc=pass
-//     (alignment — decision 9 / Slice 4b-2).
 //
 // Flagged is fail-closed for the gating postures: an empty/garbage sender, or
 // an empty allowlist, flags everything (you opted into a gate but listed no one).
-func EvaluateIngestion(policy string, allowlist []string, senderEmail string, dmarcPass bool) Decision {
+func EvaluateIngestion(policy string, allowlist []string, senderEmail string) Decision {
 	switch policy {
 	case Allowlist:
 		if containsFold(allowlist, strings.TrimSpace(senderEmail)) {
@@ -73,11 +68,6 @@ func EvaluateIngestion(policy string, allowlist []string, senderEmail string, dm
 			return Decision{}
 		}
 		return Decision{Flagged: true, Reason: "sender domain not on the agent's inbound allowlist"}
-	case VerifiedOnly:
-		if dmarcPass {
-			return Decision{}
-		}
-		return Decision{Flagged: true, Reason: "failed DMARC alignment (verified_only policy)"}
 	default: // Open or unknown → never flag
 		return Decision{}
 	}

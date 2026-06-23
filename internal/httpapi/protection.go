@@ -26,7 +26,7 @@ const protectionBetaDoc = "Beta: the agent protection config is unstable — its
 // keys (inbound/outbound/holds) stay required (design D3) — a missing section
 // is a 422, not a silent reset.
 type ProtectionGateView struct {
-	Policy    string   `json:"policy,omitempty" enum:"open,allowlist,domain" default:"open" doc:"Trust gate: open (all), domain (listed domains), allowlist (listed addresses). A legacy 'verified_only' may appear on read but cannot be set here."`
+	Policy    string   `json:"policy,omitempty" enum:"open,allowlist,domain" default:"open" doc:"Trust gate: open (all), domain (listed domains), allowlist (listed addresses)."`
 	Allowlist []string `json:"allowlist,omitempty" nullable:"false" maxItems:"1000" doc:"Addresses (allowlist) or domains (domain) the gate trusts; ignored for open."`
 	Action    string   `json:"action,omitempty" enum:"flag,review,block" default:"flag" doc:"What a gate non-match does: flag (deliver + annotate), review (hold), block."`
 }

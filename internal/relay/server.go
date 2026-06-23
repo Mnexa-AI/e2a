@@ -335,8 +335,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// SPF/DKIM/DMARC pertain to), NOT displaySender (Reply-To is attacker-
 	// controllable). A non-match is FLAGGED — still delivered (never dropped),
 	// marked on the row, and emits email.flagged so operators get a signal.
-	dmarcPass := domainAuth.DMARC.Status == emailauth.StatusPass
-	policyDecision := inboundpolicy.EvaluateIngestion(agent.InboundPolicy, agent.InboundAllowlist, senderEmail, dmarcPass)
+	policyDecision := inboundpolicy.EvaluateIngestion(agent.InboundPolicy, agent.InboundAllowlist, senderEmail)
 
 	// Content screening (Slice 4): run the per-agent inbound scan and record the
 	// audit trail (protection_events) + the denormalized verdict. Detection +
@@ -629,7 +628,7 @@ func buildEmailReceivedPayload(
 		// authenticated_from is the From-header identity that SPF/DKIM/DMARC
 		// and the inbound trust policy (decision 10) actually pertain to.
 		// It can differ from "from" (which prefers Reply-To for reply
-		// routing): a consumer of a verified_only/allowlist agent MUST treat
+		// routing): a consumer of an allowlist/domain-gated agent MUST treat
 		// authenticated_from — not from — as the gated/verified identity.
 		"authenticated_from": authenticatedFrom,
 		"to":                 threadInfo.To,
