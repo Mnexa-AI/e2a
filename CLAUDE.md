@@ -119,7 +119,7 @@ Layered: generated types → `E2AApi` (raw HTTP) → `E2AClient` (high-level wit
 
 ### CLI (`cli/`)
 
-Commands: login, agents, domains, inbox, read, reply, send, listen, config. Config stored in `~/.e2a/config.json`. The `listen` command supports `--forward` mode for proxying WebSocket messages to local HTTP endpoints.
+Commands: login, listen, config. Config stored in `~/.e2a/config.json`. The `listen` command supports `--forward` mode for proxying WebSocket messages to local HTTP endpoints.
 
 ### Web (`web/`)
 
