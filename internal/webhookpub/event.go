@@ -7,8 +7,9 @@
 // webhook_subscriber_deliveries row per match, and returns; actual
 // HTTP delivery is the retry worker's job.
 //
-// Slice 1 only fires email.received from the relay. Slice 3 extends
-// to email.sent, email.pending_approval, email.approved, email.rejected.
+// Slice 1 only fires email.received from the relay. Later slices add
+// email.sent and the unified review-hold events (email.pending_review,
+// email.review_approved, email.review_rejected).
 //
 // This is the sole push path: the legacy per-agent
 // agent_identities.webhook_url + agent_mode columns (and the
@@ -64,8 +65,8 @@ const (
 	// protection_events audit vocabulary so a subscriber can correlate the two.
 	EventEmailBlocked = "email.blocked"
 	// EventEmailPendingReview fires when an inbound message is held for human review
-	// (applied action = review → status pending_review). It is the inbound twin of
-	// email.pending_approval (outbound HITL holds) and carries the review TTL plus
+	// (applied action = review → status pending_review). The same event fires for
+	// outbound HITL holds (it is direction-aware) and carries the review TTL plus
 	// reason_source (sender_gate / inbound_scan) so a subscriber can drive an inbound
 	// review queue from push instead of polling.
 	EventEmailPendingReview = "email.pending_review"
@@ -137,7 +138,7 @@ type Event struct {
 
 	// MessageID is the originating message row, if any. May be empty
 	// for events without a direct message backing (e.g.
-	// email.pending_approval before the held message gets promoted).
+	// email.pending_review before the held message gets promoted).
 	MessageID string
 
 	// Data is the event-specific payload. Wrapped in the envelope
@@ -201,7 +202,7 @@ func generateEventID() string {
 //
 //	email.received: sha256(message_id || "|" || event_type)
 //	email.sent:     sha256(message_id || "|" || event_type)
-//	pending_approval/approved/rejected: sha256(pending_msg_id || "|" || event_type)
+//	pending_review/review_approved/review_rejected: sha256(pending_msg_id || "|" || event_type)
 //	future bounced/complained/delivered: sha256(message_id || "|" || event_type || "|" || ses_event_id)
 //
 // The "|" delimiter prevents accidental collisions where concatenated
