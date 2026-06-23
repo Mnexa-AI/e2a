@@ -83,11 +83,22 @@ test("concurrency: parallel protection PUTs converge to a final state (no 500)",
   const email = c.body!.email;
   track("agent", email);
 
+  // Genuinely conflicting concurrent writes: alternate the outbound gate action
+  // between two distinct postures so the convergence is non-trivial (not 4
+  // identical writes). One of them must win cleanly, with no 5xx or corruption.
+  const putAction = (action: string) =>
+    burst.put(`/v1/agents/${encodeURIComponent(email)}/protection`, {
+      body: {
+        inbound: { gate: {}, scan: {} },
+        outbound: { gate: { policy: "allowlist", action, allowlist: [] }, scan: {} },
+        holds: {},
+      },
+    });
   const ops = await Promise.all([
-    holdAllOutbound(burst, email),
-    holdAllOutbound(burst, email),
-    holdAllOutbound(burst, email),
-    holdAllOutbound(burst, email),
+    putAction("review"),
+    putAction("flag"),
+    putAction("review"),
+    putAction("flag"),
   ]);
   for (const r of ops) {
     if (r.status >= 500) {
@@ -95,10 +106,13 @@ test("concurrency: parallel protection PUTs converge to a final state (no 500)",
     }
     assert.ok(r.status < 500, `no 5xx under contention, got ${r.status}`);
   }
-  // Final state should be a valid protection config, not corrupted.
+  // Final state must be one of the values we actually wrote — converged, not corrupted.
   const final = await client.get<{ outbound: { gate: { action: string } } }>(`/v1/agents/${encodeURIComponent(email)}/protection`);
   assert.equal(final.status, 200);
-  assert.equal(typeof final.body?.outbound?.gate?.action, "string");
+  assert.ok(
+    ["review", "flag"].includes(final.body?.outbound?.gate?.action ?? ""),
+    `outbound action should converge to a written value, got ${final.body?.outbound?.gate?.action}`,
+  );
 });
 
 test("concurrency: parallel DELETE of the same agent is idempotent under contention (no 5xx)", async () => {
