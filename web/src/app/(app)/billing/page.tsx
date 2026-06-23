@@ -72,8 +72,8 @@ function pctTone(pct: number): "neutral" | "warn" | "danger" {
 // that an extra round-trip on the upgrade page isn't worth it. If you
 // change a cap on either side, update both files in the same PR.
 const PLAN_CATALOG = [
-  { code: "pro", name: "Pro", price: "$20/mo", chips: ["25 agents", "10 domains", "50k msgs/mo", "10 GiB"] },
-  { code: "scale", name: "Scale", price: "$99/mo", chips: ["250 agents", "50 domains", "500k msgs/mo", "100 GiB"] },
+  { code: "pro", name: "Pro", price: "$20/mo", chips: ["25 inboxes", "10 domains", "50k msgs/mo", "10 GiB"] },
+  { code: "scale", name: "Scale", price: "$99/mo", chips: ["250 inboxes", "50 domains", "500k msgs/mo", "100 GiB"] },
 ] as const;
 
 type UsageRowProps = {
@@ -309,7 +309,7 @@ export default function BillingPage() {
             </div>
 
             <UsageRow
-              label="Agents"
+              label="Inboxes"
               current={formatNumber(data.usage.agents)}
               limit={formatNumber(data.limits.max_agents)}
               pct={pct(data.usage.agents, data.limits.max_agents)}

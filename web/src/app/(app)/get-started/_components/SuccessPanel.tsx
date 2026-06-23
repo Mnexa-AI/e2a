@@ -47,7 +47,7 @@ export function SuccessPanel({
           borderRadius: "var(--r-md)",
         }}
       >
-        <span className="font-semibold">Agent registered!</span>{" "}
+        <span className="font-semibold">Inbox created!</span>{" "}
         Your agent&apos;s email is{" "}
         <code
           className="font-mono text-[12px] px-1.5 py-0.5"

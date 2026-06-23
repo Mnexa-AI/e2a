@@ -97,13 +97,13 @@ describe("empty state", () => {
     render(<DashboardPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("No agents yet")).toBeInTheDocument();
+      expect(screen.getByText("No inboxes yet")).toBeInTheDocument();
     });
-    expect(screen.getByText("Create your first agent")).toBeInTheDocument();
+    expect(screen.getByText("Create your first inbox")).toBeInTheDocument();
     expect(screen.getByText("Set up a domain")).toBeInTheDocument();
 
     // Check links
-    const createLink = screen.getByText("Create your first agent").closest("a");
+    const createLink = screen.getByText("Create your first inbox").closest("a");
     expect(createLink).toHaveAttribute("href", "/get-started");
 
     const domainLink = screen.getByText("Set up a domain").closest("a");

@@ -47,7 +47,7 @@ export function CustomAgentForm({
       await invalidateAgents();
       onCreated(result as AgentData);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Agent creation failed");
+      setError(err instanceof Error ? err.message : "Inbox creation failed");
     } finally {
       setLoading(false);
     }
@@ -65,7 +65,7 @@ export function CustomAgentForm({
           color: "var(--fg)",
         }}
       >
-        Create your agent
+        Create your inbox
       </h2>
       <p className="mb-7 text-[14px]" style={{ color: "var(--fg-muted)" }}>
         Your domain{" "}
@@ -80,7 +80,7 @@ export function CustomAgentForm({
         >
           {domain}
         </code>{" "}
-        is verified. Create an agent on it.
+        is verified. Create an inbox on it.
       </p>
 
       {error && (
@@ -92,7 +92,7 @@ export function CustomAgentForm({
       <form onSubmit={handleSubmit} className="space-y-5">
         {/* Email local part */}
         <div>
-          <label className="block text-sm font-medium mb-1.5">Agent email</label>
+          <label className="block text-sm font-medium mb-1.5">Inbox address</label>
           <div className="flex items-center gap-0">
             <input
               type="text"
@@ -105,7 +105,7 @@ export function CustomAgentForm({
               @{domain}
             </span>
           </div>
-          <p className="mt-1 text-xs text-muted">The local part for your agent&apos;s email address.</p>
+          <p className="mt-1 text-xs text-muted">The local part of the inbox address.</p>
         </div>
 
         {/* Display name */}
@@ -122,7 +122,7 @@ export function CustomAgentForm({
           disabled={!canSubmit}
           className="w-full bg-foreground text-background py-3 rounded-lg text-sm font-medium hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? "Creating..." : "Create agent"}
+          {loading ? "Creating..." : "Create inbox"}
         </button>
       </form>
     </div>

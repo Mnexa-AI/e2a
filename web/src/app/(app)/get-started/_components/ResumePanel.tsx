@@ -86,7 +86,7 @@ export function ResumePanel({
               </span>
             </div>
             <span className="text-xs text-accent font-medium shrink-0">
-              {option.type === "create_agent" ? "Create agent on this domain" : "Resume verification"}
+              {option.type === "create_agent" ? "Create inbox on this domain" : "Resume verification"}
             </span>
           </button>
         ))}

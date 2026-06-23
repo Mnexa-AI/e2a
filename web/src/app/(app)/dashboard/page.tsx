@@ -93,7 +93,7 @@ export default function DashboardPage() {
   const { data: domains = [] } = useSWR(domainsKey, () =>
     listDomains().catch(() => [] as DomainInfo[]),
   );
-  const error = agentsError ? agentsError.message || "Failed to load agents" : "";
+  const error = agentsError ? agentsError.message || "Failed to load inboxes" : "";
   const loading = agentsLoading;
   const [filter, setFilter] = useState<Filter>("all");
   const [sort, setSort] = useState<SortKey>("recent");
@@ -123,7 +123,7 @@ export default function DashboardPage() {
     return out;
   }, [agents, filter, sort]);
 
-  // Meta line: "N agents · M verified domains · indexed <relative> ago"
+  // Meta line: "N inboxes · M verified domains · indexed <relative> ago"
   const [indexedAt, setIndexedAt] = useState<number>(Date.now());
   useEffect(() => {
     setIndexedAt(Date.now());
@@ -142,17 +142,17 @@ export default function DashboardPage() {
   }, [indexedAt, tick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const verifiedDomains = domains.filter((d) => d.verified).length;
-  const agentLabel = agents.length === 1 ? "agent" : "agents";
+  const inboxLabel = agents.length === 1 ? "inbox" : "inboxes";
   const domainLabel = verifiedDomains === 1 ? "verified domain" : "verified domains";
 
   return (
     <PageShell
-      crumbs={["Agents"]}
+      crumbs={["Inboxes"]}
       eyebrow="Workspace"
-      title={<>Agents</>}
+      title={<>Inboxes</>}
       subtitle={
         <>
-          {agents.length} {agentLabel} · {verifiedDomains} {domainLabel} ·
+          {agents.length} {inboxLabel} · {verifiedDomains} {domainLabel} ·
           indexed{" "}
           <span style={{ fontFamily: "var(--f-mono)" }}>
             {indexedAgo} ago
@@ -174,7 +174,7 @@ export default function DashboardPage() {
               borderRadius: "var(--r-md)",
             }}
           >
-            <span className="font-mono">+</span> Create agent
+            <span className="font-mono">+</span> Create inbox
           </Link>
         ) : null
       }
@@ -217,7 +217,7 @@ export default function DashboardPage() {
                 className="text-[13px] py-8 text-center"
                 style={{ color: "var(--fg-muted)" }}
               >
-                No agents match this filter.
+                No inboxes match this filter.
               </p>
             ) : (
               visibleAgents.map((agent) => (

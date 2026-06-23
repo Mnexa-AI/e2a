@@ -77,10 +77,10 @@ export function SharedAgentForm({
           color: "var(--fg)",
         }}
       >
-        Create your agent
+        Create your inbox
       </h2>
       <p className="mb-7 text-[14px]" style={{ color: "var(--fg-muted)" }}>
-        Choose a slug and how your agent receives email.
+        Choose a slug for your inbox on the shared e2a domain.
       </p>
 
       {/* How it works */}
@@ -126,7 +126,7 @@ export function SharedAgentForm({
           disabled={!canSubmit}
           className="w-full bg-foreground text-background py-3 rounded-lg text-sm font-medium hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? "Creating..." : "Create agent"}
+          {loading ? "Creating..." : "Create inbox"}
         </button>
       </form>
     </div>

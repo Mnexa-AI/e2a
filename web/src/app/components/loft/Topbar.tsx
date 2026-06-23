@@ -38,7 +38,7 @@ function SearchAffordance() {
         <circle cx="11" cy="11" r="7" />
         <path d="M21 21l-4.3-4.3" />
       </svg>
-      <span>Search agents, messages…</span>
+      <span>Search inboxes, messages…</span>
       <span
         className="ml-auto px-1.5 py-px text-[10px] font-mono"
         style={{

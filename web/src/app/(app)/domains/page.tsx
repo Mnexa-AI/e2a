@@ -27,7 +27,7 @@ function DomainsStatsStrip({ domains }: { domains: DomainInfo[] }) {
         { label: "Total domains", value: String(domains.length) },
         { label: "Verified", value: String(verified) },
         { label: "Pending", value: String(unverified) },
-        { label: "Agents · 7d", value: "—" },
+        { label: "Inboxes · 7d", value: "—" },
       ].map((s) => (
         <div
           key={s.label}
@@ -123,7 +123,7 @@ export default function DomainsPage() {
         crumbs={["Domains"]}
         eyebrow="Workspace"
         title={<>Domains</>}
-        subtitle="Add a domain to create branded agent addresses."
+        subtitle="Add a domain to create branded inbox addresses."
       >
         <div
           className="p-8 text-center space-y-4"
@@ -172,7 +172,7 @@ export default function DomainsPage() {
       crumbs={["Domains"]}
       eyebrow="Workspace"
       title={<>Domains</>}
-      subtitle="Manage your domains. Verified domains can host agent email addresses."
+      subtitle="Manage your domains. Verified domains can host inbox addresses."
       actions={
         <button
           onClick={() => setShowAddForm(!showAddForm)}

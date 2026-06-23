@@ -22,13 +22,13 @@ export function AgentsEmptyState() {
           color: "var(--fg)",
         }}
       >
-        No agents yet
+        No inboxes yet
       </h3>
       <p
         className="mb-6 max-w-md mx-auto text-[14px] leading-[1.6]"
         style={{ color: "var(--fg-muted)" }}
       >
-        Create an agent to give it an email address — either on a shared e2a
+        Create an inbox — an email address for your agent — on a shared e2a
         domain or your own custom domain.
       </p>
       <div className="flex items-center justify-center gap-3 flex-wrap">
@@ -41,7 +41,7 @@ export function AgentsEmptyState() {
             borderRadius: "var(--r-md)",
           }}
         >
-          Create your first agent
+          Create your first inbox
           <span className="font-mono">→</span>
         </Link>
         <Link

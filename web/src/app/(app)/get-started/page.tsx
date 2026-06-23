@@ -28,9 +28,9 @@ const PAGE_HEADER = {
   eyebrow: "Onboarding · est. 3 minutes",
   // Plain Geist heading to match the rest of the (app) pages —
   // editorial italic stays on marketing/landing surfaces only.
-  title: "Wire up your first agent inbox.",
+  title: "Set up your first inbox.",
   subtitle:
-    "Pick how your agent gets mail, then point e2a at the place your code is running. You can change all of this later from the dashboard.",
+    "Claim an email address for your agent, then point e2a at where your code runs. You can change all of this later from the dashboard.",
 };
 
 export default function GetStartedPage() {

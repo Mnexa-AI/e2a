@@ -251,7 +251,7 @@ function ExportSection() {
     <section>
       <SectionHeading
         title="Your data"
-        subtitle="Download a JSON dump of everything we store about you: profile, agents, domains, API key metadata, all messages with bodies, and usage events. Internal identifiers (Google subject, key hashes, session tokens) are excluded. Right of access — GDPR Article 15 / CCPA equivalent."
+        subtitle="Download a JSON dump of everything we store about you: profile, inboxes, domains, API key metadata, all messages with bodies, and usage events. Internal identifiers (Google subject, key hashes, session tokens) are excluded. Right of access — GDPR Article 15 / CCPA equivalent."
       />
       <a
         href="/v1/account/export"

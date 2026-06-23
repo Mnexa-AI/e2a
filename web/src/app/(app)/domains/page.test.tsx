@@ -138,7 +138,7 @@ describe("Domains page — with domains", () => {
     render(<DomainsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("1 agent")).toBeInTheDocument();
+      expect(screen.getByText("1 inbox")).toBeInTheDocument();
     });
   });
 
@@ -147,7 +147,7 @@ describe("Domains page — with domains", () => {
     render(<DomainsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("No agents")).toBeInTheDocument();
+      expect(screen.getByText("No inboxes")).toBeInTheDocument();
     });
   });
 
@@ -165,9 +165,9 @@ describe("Domains page — with domains", () => {
     render(<DomainsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Create agent")).toBeInTheDocument();
+      expect(screen.getByText("Create inbox")).toBeInTheDocument();
     });
-    expect(screen.getByText("Create agent")).toHaveAttribute("href", "/get-started?domain=verified.example.com");
+    expect(screen.getByText("Create inbox")).toHaveAttribute("href", "/get-started?domain=verified.example.com");
   });
 
   it("toggles DNS records visibility", async () => {

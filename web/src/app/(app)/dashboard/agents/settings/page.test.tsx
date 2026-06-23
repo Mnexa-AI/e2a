@@ -110,7 +110,7 @@ describe("AgentSettingsPage", () => {
 
     // Danger zone
     expect(screen.getByTestId("danger-zone")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Delete agent/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Delete inbox/i })).toBeInTheDocument();
   });
 
   it("editing the review-queue TTL PUTs hitl_ttl_seconds + hitl_expiration_action", async () => {
@@ -152,7 +152,7 @@ describe("AgentSettingsPage", () => {
     );
   });
 
-  it("clicking 'Delete agent' DELETEs and routes back to /dashboard", async () => {
+  it("clicking 'Delete inbox' DELETEs and routes back to /dashboard", async () => {
     setSearchParams({ email: baseAgent.email });
     let deleted = false;
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
@@ -175,10 +175,10 @@ describe("AgentSettingsPage", () => {
 
     render(<AgentSettingsPage />);
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Delete agent/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Delete inbox/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Delete agent/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Delete inbox/i }));
 
     await waitFor(() => {
       expect(deleted).toBe(true);
@@ -208,10 +208,10 @@ describe("AgentSettingsPage", () => {
 
     render(<AgentSettingsPage />);
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Delete agent/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Delete inbox/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Delete agent/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Delete inbox/i }));
 
     // Give any in-flight handler a tick to fire (it shouldn't, but make
     // the negative assertion deterministic).

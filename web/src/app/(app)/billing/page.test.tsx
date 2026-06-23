@@ -74,7 +74,7 @@ describe("BillingPage", () => {
     await waitFor(() =>
       expect(screen.getByText(/Default \(operator-configured\)/i)).toBeInTheDocument(),
     );
-    expect(screen.getByText("Agents")).toBeInTheDocument();
+    expect(screen.getByText("Inboxes")).toBeInTheDocument();
     expect(screen.getByText("Domains")).toBeInTheDocument();
     expect(screen.getByText("Messages this month")).toBeInTheDocument();
     expect(screen.getByText("Storage")).toBeInTheDocument();

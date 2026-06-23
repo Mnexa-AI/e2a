@@ -187,7 +187,7 @@ describe("Address type choice", () => {
     fireEvent.click(screen.getByText("Shared e2a domain"));
 
     await waitFor(() => {
-      expect(screen.getByText("Create your agent")).toBeInTheDocument();
+      expect(screen.getByText("Create your inbox")).toBeInTheDocument();
     });
     expect(screen.getByPlaceholderText("my-agent")).toBeInTheDocument();
   });
@@ -225,7 +225,7 @@ describe("Shared local flow", () => {
     await userEvent.type(screen.getByPlaceholderText("my-agent"), "my-bot");
 
     // Submit
-    fireEvent.click(screen.getByText("Create agent"));
+    fireEvent.click(screen.getByText("Create inbox"));
 
     // Verify API call
     await waitFor(() => {
@@ -240,7 +240,7 @@ describe("Shared local flow", () => {
 
     // Should show success state
     await waitFor(() => {
-      expect(screen.getByText("Agent registered!")).toBeInTheDocument();
+      expect(screen.getByText("Inbox created!")).toBeInTheDocument();
     });
     expect(screen.getByText("Connect your agent")).toBeInTheDocument();
     expect(screen.getByText("Install the e2a skill")).toBeInTheDocument();
@@ -261,7 +261,7 @@ describe("Shared form validation", () => {
     });
 
     await userEvent.type(screen.getByPlaceholderText("my-agent"), "a");
-    fireEvent.click(screen.getByText("Create agent"));
+    fireEvent.click(screen.getByText("Create inbox"));
 
     await waitFor(() => {
       expect(screen.getByText(/Slug must be 2/)).toBeInTheDocument();
@@ -285,7 +285,7 @@ describe("Slug/server error handling", () => {
     });
 
     await userEvent.type(screen.getByPlaceholderText("my-agent"), "my-bot");
-    fireEvent.click(screen.getByText("Create agent"));
+    fireEvent.click(screen.getByText("Create inbox"));
 
     await waitFor(() => {
       expect(screen.getByText('slug "my-bot" is already taken')).toBeInTheDocument();
@@ -294,7 +294,7 @@ describe("Slug/server error handling", () => {
     // Slug field should still have the value
     expect(screen.getByPlaceholderText("my-agent")).toHaveValue("my-bot");
     // Should still be on the form
-    expect(screen.getByText("Create agent")).toBeInTheDocument();
+    expect(screen.getByText("Create inbox")).toBeInTheDocument();
   });
 });
 
@@ -307,7 +307,7 @@ describe("Query param support", () => {
 
     // Should skip the address choice and show the shared form
     expect(screen.queryByText("Give your agent an email address")).not.toBeInTheDocument();
-    expect(screen.getByText("Create your agent")).toBeInTheDocument();
+    expect(screen.getByText("Create your inbox")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("my-agent")).toBeInTheDocument();
   });
 
@@ -326,7 +326,7 @@ describe("Query param support", () => {
     render(<GetStartedPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Create your agent")).toBeInTheDocument();
+      expect(screen.getByText("Create your inbox")).toBeInTheDocument();
     });
     expect(screen.getByText("@verified.example.com")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("support")).toBeInTheDocument();
@@ -475,16 +475,16 @@ describe("Custom-domain flow: new domain -> DNS -> verify -> local agent", () =>
 
     // Should show agent creation
     await waitFor(() => {
-      expect(screen.getByText("Create your agent")).toBeInTheDocument();
+      expect(screen.getByText("Create your inbox")).toBeInTheDocument();
     });
 
     // Enter local part and submit
     await userEvent.type(screen.getByPlaceholderText("support"), "hello");
-    fireEvent.click(screen.getByText("Create agent"));
+    fireEvent.click(screen.getByText("Create inbox"));
 
     // Should show success
     await waitFor(() => {
-      expect(screen.getByText("Agent registered!")).toBeInTheDocument();
+      expect(screen.getByText("Inbox created!")).toBeInTheDocument();
     });
     expect(screen.getByText("Connect your agent")).toBeInTheDocument();
   });
@@ -518,15 +518,15 @@ describe("Custom-domain flow: existing verified domain -> create agent directly"
 
     // Should jump straight to agent creation
     await waitFor(() => {
-      expect(screen.getByText("Create your agent")).toBeInTheDocument();
+      expect(screen.getByText("Create your inbox")).toBeInTheDocument();
     });
 
     // Create agent
     await userEvent.type(screen.getByPlaceholderText("support"), "bot");
-    fireEvent.click(screen.getByText("Create agent"));
+    fireEvent.click(screen.getByText("Create inbox"));
 
     await waitFor(() => {
-      expect(screen.getByText("Agent registered!")).toBeInTheDocument();
+      expect(screen.getByText("Inbox created!")).toBeInTheDocument();
     });
   });
 });
@@ -569,7 +569,7 @@ describe("Custom-domain flow: existing unverified domain -> resume verify", () =
 
     // Should advance to agent creation
     await waitFor(() => {
-      expect(screen.getByText("Create your agent")).toBeInTheDocument();
+      expect(screen.getByText("Create your inbox")).toBeInTheDocument();
     });
   });
 });
@@ -743,7 +743,7 @@ describe("URL-driven step navigation", () => {
     setSearchParams({ step: "shared_form" });
     mockFreshUser();
     render(<GetStartedPage />);
-    expect(screen.getByText("Create your agent")).toBeInTheDocument();
+    expect(screen.getByText("Create your inbox")).toBeInTheDocument();
   });
 
   it("?step=custom_checklist renders the checklist directly", async () => {
@@ -761,7 +761,7 @@ describe("URL-driven step navigation", () => {
     setSearchParams({ step: "shared_form" });
     mockFreshUser();
     render(<GetStartedPage />);
-    await screen.findByText("Create your agent");
+    await screen.findByText("Create your inbox");
 
     fireEvent.click(screen.getByRole("button", { name: /back/i }));
 

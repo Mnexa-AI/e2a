@@ -67,7 +67,7 @@ describe("Sidebar — nav entries", () => {
     // "Agents" partial-matches the brand link "e2a — Email for AI agents").
     const expected: Array<{ label: string; href: string }> = [
       { label: "Get started", href: "/get-started" },
-      { label: "Agents", href: "/dashboard" },
+      { label: "Inboxes", href: "/dashboard" },
       { label: "Pending", href: "/dashboard/pending" },
       { label: "Domains", href: "/domains" },
       { label: "API keys", href: "/api-keys" },

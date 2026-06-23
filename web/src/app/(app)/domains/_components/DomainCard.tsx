@@ -143,7 +143,7 @@ export function DomainCard({
             </Chip>
             {domain.is_primary && (
               <span
-                title="Your default domain. New agents are created here by default and onboarding flows surface it first."
+                title="Your default domain. New inboxes are created here by default and onboarding flows surface it first."
                 style={{ cursor: "help" }}
               >
                 <Chip tone="neutral">Primary</Chip>
@@ -155,10 +155,10 @@ export function DomainCard({
             style={{ color: "var(--fg-muted)" }}
           >
             {agentCount === 0
-              ? "No agents"
+              ? "No inboxes"
               : agentCount === 1
-                ? "1 agent"
-                : `${agentCount} agents`}
+                ? "1 inbox"
+                : `${agentCount} inboxes`}
           </p>
           <p
             className="font-mono text-[11px] mt-0.5"
@@ -190,7 +190,7 @@ export function DomainCard({
             <button
               onClick={handleSetPrimary}
               disabled={promoting}
-              title="Mark this domain as your default. New agents will be created under it by default, and onboarding flows surface it first. You can have one primary domain at a time."
+              title="Mark this domain as your default. New inboxes will be created under it by default, and onboarding flows surface it first. You can have one primary domain at a time."
               className="text-[12px] px-3 py-1.5 transition disabled:opacity-50"
               style={{
                 background: "var(--bg-panel)",
@@ -212,7 +212,7 @@ export function DomainCard({
                 borderRadius: "var(--r-md)",
               }}
             >
-              Create agent
+              Create inbox
             </a>
           ) : (
             <button

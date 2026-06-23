@@ -29,7 +29,7 @@ function derivePhase(domain: DomainInfo | null): ChecklistPhase {
 const checklistItems = [
   { key: "domain", label: "Domain selected" },
   { key: "verified", label: "Domain verified" },
-  { key: "agent", label: "Agent created" },
+  { key: "agent", label: "Inbox created" },
 ] as const;
 
 function getCompletedSteps(phase: ChecklistPhase): Set<string> {

@@ -45,9 +45,9 @@ function AgentSettingsContent({ email }: { email: string }) {
   const error = !email
     ? "Missing ?email= query parameter"
     : fetchError
-      ? fetchError.message || "Failed to load agent"
+      ? fetchError.message || "Failed to load inbox"
       : !isLoading && !agent
-        ? `Agent ${email} not found`
+        ? `Inbox ${email} not found`
         : "";
 
   // Editor saves invalidate the shared `agentsKey` cache (see
@@ -60,7 +60,7 @@ function AgentSettingsContent({ email }: { email: string }) {
 
   const onDelete = async () => {
     if (!agent) return;
-    if (!confirm(`Delete agent ${agent.email}? This cannot be undone.`)) return;
+    if (!confirm(`Delete inbox ${agent.email}? This cannot be undone.`)) return;
     setDeleting(true);
     setDeleteError("");
     try {
@@ -68,7 +68,7 @@ function AgentSettingsContent({ email }: { email: string }) {
       await invalidateAgents();
       router.push("/dashboard");
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : "Failed to delete agent");
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete inbox");
       setDeleting(false);
     }
   };
@@ -144,14 +144,14 @@ function AgentSettingsContent({ email }: { email: string }) {
             color: "var(--fg)",
           }}
         >
-          Delete this agent
+          Delete this inbox
         </h2>
         <p
           className="mb-4"
           style={{ fontSize: 13, color: "var(--fg-muted)", lineHeight: 1.6 }}
         >
-          Removes the agent and all of its messages older than the
-          30-day retention window. Pending HITL drafts are auto-rejected.
+          Removes the inbox and all of its messages older than the
+          30-day retention window. Pending review drafts are auto-rejected.
           The email address becomes available for re-registration. This
           cannot be undone.
         </p>
@@ -171,7 +171,7 @@ function AgentSettingsContent({ email }: { email: string }) {
             cursor: deleting ? "default" : "pointer",
           }}
         >
-          {deleting ? "Deleting…" : "Delete agent"}
+          {deleting ? "Deleting…" : "Delete inbox"}
         </button>
         {deleteError && (
           <p
