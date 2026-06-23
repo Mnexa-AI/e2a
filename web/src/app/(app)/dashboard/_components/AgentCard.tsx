@@ -81,11 +81,44 @@ export function AgentCard({
           </p>
 
         </div>
+      </div>
 
-        {/* Actions: Test only. Editing (review queue) + delete live on
-            the per-agent Settings page, reached via the bottom CTA bar.
-            Connection setup lives in onboarding / the e2a skill. */}
-        <div className="flex gap-2 shrink-0 md:ml-4 flex-wrap">
+      {/* Bottom CTA bar — every action lives here on the RIGHT, grouped
+          into a single cluster: Open inbox + Settings (the two canonical
+          entry points into the per-agent surface) and the Test action.
+          Name + email chip also link to "Open inbox →" so there are
+          multiple discoverable paths to the same place. The test-error
+          message sits on its own row above so it never crowds the cluster. */}
+      <div
+        className="mt-3 pt-3"
+        style={{ borderTop: "1px solid var(--border-sub)" }}
+      >
+        {testError && (
+          <p
+            className="text-[12px] mb-2 text-right"
+            style={{ color: "var(--danger-strong)" }}
+          >
+            {testError}
+          </p>
+        )}
+        <div className="flex items-center justify-end gap-4 flex-wrap">
+          <Link
+            href={`/dashboard/agents/messages?email=${encodeURIComponent(agent.email)}`}
+            className="inline-flex items-center gap-1 text-[13px] font-medium hover:underline"
+            style={{ color: "var(--accent-strong)" }}
+          >
+            Open inbox <span aria-hidden>→</span>
+          </Link>
+          <Link
+            href={`/dashboard/agents/settings?email=${encodeURIComponent(agent.email)}`}
+            className="inline-flex items-center gap-1 text-[13px] hover:underline"
+            style={{ color: "var(--fg-muted)" }}
+          >
+            Settings
+          </Link>
+          {/* Test action. Editing (review queue) + delete live on the
+              per-agent Settings page; connection setup lives in
+              onboarding / the e2a skill. */}
           {agent.domain_verified && (
             <button
               onClick={async () => {
@@ -103,7 +136,11 @@ export function AgentCard({
                 }
               }}
               disabled={testState === "sending"}
-              className="text-[12px] px-3 py-1.5 transition disabled:cursor-not-allowed"
+              className={`text-[12px] px-3 py-1.5 transition cursor-pointer disabled:cursor-not-allowed${
+                testState === "idle"
+                  ? " hover:bg-[var(--bg-elev)] hover:border-[var(--border-strong)]"
+                  : ""
+              }`}
               style={{
                 background:
                   testState === "sent"
@@ -129,37 +166,6 @@ export function AgentCard({
             </button>
           )}
         </div>
-        {testError && (
-          <p
-            className="text-[12px] mt-1 text-right"
-            style={{ color: "var(--danger-strong)" }}
-          >
-            {testError}
-          </p>
-        )}
-      </div>
-
-      {/* Bottom CTA bar — the two canonical entry points into the
-          per-agent surface. Name + email chip also link to "Open inbox →"
-          so there are multiple discoverable paths to the same place. */}
-      <div
-        className="mt-3 pt-3 flex items-center gap-4 flex-wrap"
-        style={{ borderTop: "1px solid var(--border-sub)" }}
-      >
-        <Link
-          href={`/dashboard/agents/messages?email=${encodeURIComponent(agent.email)}`}
-          className="inline-flex items-center gap-1 text-[13px] font-medium hover:underline"
-          style={{ color: "var(--accent-strong)" }}
-        >
-          Open inbox <span aria-hidden>→</span>
-        </Link>
-        <Link
-          href={`/dashboard/agents/settings?email=${encodeURIComponent(agent.email)}`}
-          className="inline-flex items-center gap-1 text-[13px] hover:underline"
-          style={{ color: "var(--fg-muted)" }}
-        >
-          Settings
-        </Link>
       </div>
     </div>
   );
