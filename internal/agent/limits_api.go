@@ -10,7 +10,7 @@ import (
 	"net/http"
 )
 
-// LimitsInfo is the response body for GET /api/v1/users/me/limits. It
+// LimitsInfo is the response body for GET /v1/account. It
 // bundles the user's resolved caps with their current usage so the
 // dashboard renders the "you're using X of Y" surface in one round
 // trip. plan_code and upgrade_url come straight from the limits row

@@ -168,7 +168,7 @@ type API struct {
 	// See config.Config.SharedDomain for the rationale.
 	sharedDomain string
 	// publicURL is the externally visible base URL of the API. Surfaced
-	// via GET /api/v1/info so CLI/SDK clients can populate absolute
+	// via GET /v1/info so CLI/SDK clients can populate absolute
 	// links without each user configuring it. Empty when the operator
 	// hasn't set http.public_url.
 	publicURL         string
@@ -216,7 +216,7 @@ type API struct {
 	// limitation ("if we have it, keep it").
 	outbox webhookpub.Outbox
 	// eventsPool is the raw pgxpool used by the slice-6 events API.
-	// Optional — when nil, GET/POST /api/v1/events return 404.
+	// Optional — when nil, GET/POST /v1/events return 404.
 	eventsPool *pgxpool.Pool
 	// metrics is the slice 10 observability surface. Defaulted to
 	// NoOp; production wires telemetry.Log or a real backend.
@@ -1224,7 +1224,7 @@ func (a *API) SendTestCore(ctx context.Context, agent *identity.AgentIdentity) (
 
 // --- Send Email ---
 
-// ForwardRequest is the JSON body for /api/v1/agents/{email}/messages/{id}/forward.
+// ForwardRequest is the JSON body for /v1/agents/{email}/messages/{id}/forward.
 type ForwardRequest struct {
 	To             []string              `json:"to"`
 	CC             []string              `json:"cc,omitempty"`

@@ -14,9 +14,9 @@ import (
 
 // Slice 6: customer-facing event log API.
 //
-//   GET /api/v1/events                — list with cursor pagination
-//   GET /api/v1/events/{id}           — single event
-//   POST /api/v1/events/{id}/redeliver — slice 7 replay (lives here too)
+//   GET /v1/events                — list with cursor pagination
+//   GET /v1/events/{id}           — single event
+//   POST /v1/events/{id}/redeliver — slice 7 replay (lives here too)
 //
 // All scoped by the caller's user_id (Bearer auth). The handlers
 // expose the slice-1 webhook_events table as a queryable resource —

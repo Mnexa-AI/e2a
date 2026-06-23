@@ -221,7 +221,7 @@ func generateDeliveryID() string {
 // InsertPendingForTest creates a single delivery row tied to the given
 // webhook + event type with the supplied envelope bytes. The retry
 // worker picks it up on the next tick. Used by the
-// POST /api/v1/webhooks/{id}/test endpoint to schedule a one-off
+// POST /v1/webhooks/{id}/test endpoint to schedule a one-off
 // delivery without going through the publisher's filter-matching path.
 func (s *SubscriberStore) InsertPendingForTest(ctx context.Context, webhookID, eventType string, envelope []byte) (string, error) {
 	id := generateDeliveryID()

@@ -10,7 +10,7 @@ import (
 
 // --- Webhooks-as-a-resource HTTP layer (slice 2) ---
 //
-// The handlers here serve POST/GET/LIST/PATCH/DELETE on /api/v1/webhooks
+// The handlers here serve POST/GET/LIST/PATCH/DELETE on /v1/webhooks
 // plus /rotate-secret, /test, /deliveries subresources. The storage
 // layer in internal/identity/webhooks.go does the per-row work; this
 // layer applies the public-facing validation rules from the design.

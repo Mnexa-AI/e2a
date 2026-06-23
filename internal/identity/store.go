@@ -688,7 +688,7 @@ func (s *Store) SetDomainPrimary(ctx context.Context, domain, userID string) err
 }
 
 // TouchDomainLastChecked records that the verification probe ran. Call
-// this from POST /api/v1/domains/{domain}/verify whether the probe
+// this from POST /v1/domains/{domain}/verify whether the probe
 // succeeded or not — the LastCheckedAt column is "when did we last try",
 // not "when did we last succeed" (the latter is verified_at).
 func (s *Store) TouchDomainLastChecked(ctx context.Context, domain, userID string) error {

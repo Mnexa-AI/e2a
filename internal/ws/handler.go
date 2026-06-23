@@ -36,8 +36,7 @@ func NewHandler(hub *Hub, store HandlerStore) *Handler {
 
 // Handle is the HTTP handler for WebSocket upgrade requests.
 // Route: GET /v1/agents/{email}/ws — authenticated by `Authorization: Bearer <api_key>`.
-// Handle reads the agent email from the gorilla/mux route var (legacy
-// /api/v1/agents/{email}/ws).
+// Handle reads the agent email from the gorilla/mux route var.
 func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 	h.serve(w, r, mux.Vars(r)["email"])
 }

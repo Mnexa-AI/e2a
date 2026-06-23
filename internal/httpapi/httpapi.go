@@ -207,8 +207,7 @@ type Deps struct {
 	// agent.CheckDomainRecords).
 	VerifyProbe func(domain, verificationToken, dkimSelector, dkimPublicKey string) DomainCheckResult
 
-	// Deployment info surfaced by GET /v1/info (unchanged shape from the
-	// legacy /api/v1/info while we are in the consistency-only slice).
+	// Deployment info surfaced by GET /v1/info.
 	SharedDomain string
 	PublicURL    string
 

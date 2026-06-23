@@ -14,7 +14,7 @@ import (
 
 // --- Webhook resource (top-level webhooks-as-a-resource feature) ---
 //
-// A Webhook is one subscriber row in the new /api/v1/webhooks resource.
+// A Webhook is one subscriber row in the new /v1/webhooks resource.
 // It is owned by a user (cross-user reads return ErrWebhookNotFound to
 // avoid leaking existence), can subscribe to one or more event types,
 // and applies scope filters (agent_ids, conversation_ids, labels) to
@@ -220,7 +220,7 @@ func (s *Store) GetWebhookByIDInternal(ctx context.Context, webhookID string) (*
 }
 
 // ListWebhooksByUser returns every webhook owned by the user — used
-// by the slice-2 GET /api/v1/webhooks endpoint. Storage layer surfaces
+// by the slice-2 GET /v1/webhooks endpoint. Storage layer surfaces
 // enabled and disabled rows alike; filter at the handler if needed.
 func (s *Store) ListWebhooksByUser(ctx context.Context, userID string) ([]Webhook, error) {
 	rows, err := s.pool.Query(ctx,

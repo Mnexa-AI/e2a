@@ -330,7 +330,7 @@ func main() {
 		log.Printf("[oauth] provider enabled: issuer=%s", cfg.HTTP.PublicURL)
 	}
 
-	// Idempotency-Key support on /api/v1/send and /api/v1/agents/{email}/messages/{id}/reply.
+	// Idempotency-Key support on POST /v1/agents/{email}/messages (send) and .../reply.
 	// Replays the cached response on retry; closes the double-send window for callers
 	// behind at-least-once delivery (job queues, agent frameworks that retry tool calls,
 	// model-driven re-invocations). Always wired in production — keeping it optional in

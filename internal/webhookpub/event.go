@@ -1,6 +1,6 @@
 // Package webhookpub publishes events from the e2a core (relay,
 // outbound sender, HITL flow) to subscribers registered via the new
-// /api/v1/webhooks resource. It runs in-process and post-commit
+// /v1/webhooks resource. It runs in-process and post-commit
 // async: trigger code commits its primary DB write, then calls
 // Publisher.Publish in a goroutine. The publisher matches the event
 // against enabled subscribers (event type + filters), inserts one
