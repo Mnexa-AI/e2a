@@ -113,7 +113,7 @@ export function AgentHeader({
             delivery + the webhook/WS round-trip for this inbox. Verified
             inboxes only. */}
         {agent.domain_verified && (
-          <div className="shrink-0 md:text-right">
+          <div className="shrink-0 md:text-right mt-2 md:mt-7">
             <button
               onClick={async () => {
                 setTestError("");
