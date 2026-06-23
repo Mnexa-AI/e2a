@@ -90,7 +90,7 @@ Save the key — it's only shown once. Register an agent and confirm it works:
 KEY=e2a_...
 curl -X POST http://localhost:8080/v1/agents \
   -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-  -d '{"slug":"my-bot","agent_mode":"local"}'
+  -d '{"slug":"my-bot"}'
 
 curl -H "Authorization: Bearer $KEY" http://localhost:8080/v1/agents
 ```
@@ -111,16 +111,16 @@ Then register and verify the domain through the API (see [Domains](#domains)). W
 
 ## Concepts
 
-### Agent modes
+### Delivery channels
 
-Agents operate in one of two modes, set via `agent_mode` at registration:
+Inbound mail reaches you two complementary ways — chosen per integration, not set on the agent:
 
-| Mode | Delivery | Public URL needed? |
-|------|----------|---------------------|
-| `cloud` (default) | HTTPS webhook POST to `webhook_url` | Yes |
-| `local` | WebSocket notification + REST fetch | No |
+| Channel | How | Public URL needed? |
+|---------|-----|---------------------|
+| **Webhooks** | Account-level subscriptions (`POST /v1/webhooks`) — HTTPS POST per event, filterable by agent / conversation / event type | Yes |
+| **WebSocket** | Per-agent real-time notification stream (`/v1/agents/{address}/ws`) + REST fetch | No |
 
-Local-mode agents accumulate "unread" messages while disconnected; on reconnect, the server drains them as WebSocket notifications. Both modes can also poll messages via the REST API.
+A disconnected WebSocket client accumulates "unread" messages; on reconnect, the server drains them as notifications. Either channel can also poll messages via the REST API. (The old per-agent `agent_mode` / `webhook_url` fields were removed — webhooks are their own resource now.)
 
 ### Auth headers
 
@@ -199,7 +199,7 @@ Enable review holds on an agent via `PUT /v1/agents/{address}/protection`: set t
 
 All endpoints are under `/v1` unless noted. Auth is `Authorization: Bearer <api_key>` except for `/api/health`, `/v1/info`, `/api/feedback`, and the HITL magic-link routes. Path parameters containing `@` (agent emails) must be URL-encoded.
 
-The surface covers domain registration + verification, agent CRUD, inbound/outbound messages, HITL approve/reject (API key or signed magic-link token), GDPR-style export and deletion, and a WebSocket channel for local-mode agents.
+The surface covers domain registration + verification, agent CRUD, inbound/outbound messages, HITL approve/reject (API key or signed magic-link token), GDPR-style export and deletion, and a WebSocket channel for real-time inbound delivery.
 
 See [docs/api.md](docs/api.md) for the full endpoint reference, or [`api/openapi.yaml`](api/openapi.yaml) for the machine-readable spec.
 
