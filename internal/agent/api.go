@@ -663,7 +663,7 @@ func (a *API) AuthenticatePrincipal(r *http.Request) (*identity.Principal, error
 }
 
 // authenticateUser is the user-only convenience over authenticatePrincipal,
-// retained for the legacy /api/v1 handlers that don't enforce scope.
+// retained for the legacy mux handlers (OAuth / session auth) that do not enforce the v1 scope ceiling.
 func (a *API) authenticateUser(r *http.Request) (*identity.User, error) {
 	p, err := a.authenticatePrincipal(r)
 	if err != nil {

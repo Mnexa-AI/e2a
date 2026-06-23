@@ -53,7 +53,7 @@ func NewEventsAPIHarness(t *testing.T, pool *pgxpool.Pool, store *identity.Store
 	api.RegisterRoutes(router)
 
 	// Wrap the legacy mux with the typed /v1 surface so the events e2e
-	// tests exercise the real /v1 handlers; still-legacy /api/v1 routes
+	// tests exercise the real /v1 handlers; remaining non-v1 routes (oauth/auth/health)
 	// fall through to the mux.
 	v1 := apiserver.New(apiserver.Params{
 		API: api, Store: store, Enforcer: enforcer, UsageStore: usageStore,

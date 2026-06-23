@@ -394,7 +394,7 @@ type updateMessageOutput struct {
 
 // handleUpdateMessage applies a labels delta (PATCH
 // /v1/agents/{email}/messages/{id}; replaced the now-removed legacy
-// /api/v1 PATCH). This is a per-agent operation,
+// /v1 PATCH). This is a per-agent operation,
 // so an agent-scoped credential may label its own messages — it goes through
 // resolveOwnedAgent (which pins an agent-scoped credential to its bound agent),
 // NOT requireAccountScope. Label rules are validated via the shared

@@ -410,9 +410,9 @@ func main() {
 	// v1 contract layer (api-v1-redesign Slice 1). The new chi + Huma surface
 	// owns the `/v1` prefix (OpenAPI-as-source-of-truth, standardized error
 	// envelope + cursor pagination + X-Request-Id), and falls back to the
-	// legacy gorilla/mux handlers for every route not yet ported (the
-	// strangler). Legacy `/api/v1` routes are deleted as each resource lands
-	// on Huma, within this same PR. The chi root is the process HTTP handler.
+	// legacy gorilla/mux for the remaining non-v1 routes (OAuth, session auth,
+	// health/feedback, magic-link pages). The `/api/v1` surface is fully retired.
+	// The chi root is the process HTTP handler.
 	v1 := apiserver.New(apiserver.Params{
 		API:             api,
 		Store:           store,

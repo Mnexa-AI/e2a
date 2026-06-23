@@ -8,10 +8,10 @@
 // the canonical error envelope, cursor pagination, idempotency, and shared
 // middleware that every ported operation reuses.
 //
-// During the in-place rewrite this layer runs as a strangler in front of the
-// legacy gorilla/mux surface: chi owns the new `/v1` prefix and falls back to
-// the legacy `/api/v1` handlers for routes not yet ported. Legacy routes are
-// deleted as each resource lands on Huma, within the same PR (§9, no compat).
+// chi owns the `/v1` prefix and falls back to the legacy gorilla/mux for the
+// remaining non-v1 routes (OAuth, session auth, health/feedback, the magic-link
+// approve/reject pages). The `/api/v1` surface this strangler replaced is fully
+// retired — no `/api/v1` route is registered anymore.
 package httpapi
 
 import (

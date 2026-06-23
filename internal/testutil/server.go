@@ -128,7 +128,7 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 
 	// Wrap the legacy mux with the typed /v1 surface (the same apiserver
 	// builder prod + StartContractServer use) so e2e exercises the real /v1
-	// handler; the still-legacy /api/v1 routes fall through to the mux.
+	// handler; the remaining non-v1 routes (oauth/auth/health) fall through to the mux.
 	v1 := apiserver.New(apiserver.Params{
 		API: api, Store: store, Enforcer: enforcer, UsageStore: usageStore,
 		SubscriberStore: subscriberStore, Idempotency: idempotencyStore, Pool: pool,
