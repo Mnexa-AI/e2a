@@ -118,6 +118,7 @@ export function PendingRow({
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [hovered, setHovered] = useState(false);
 
   // Collapsing resets the transient edit/reject UI so reopening starts
   // clean (and an in-progress edit on a different row can't leak here).
@@ -181,8 +182,13 @@ export function PendingRow({
       <button
         onClick={onToggle}
         aria-expanded={expanded}
-        className="w-full text-left px-4 py-3 flex items-center gap-3 transition"
-        style={{ background: expanded ? "var(--bg-elev)" : "transparent" }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        className="w-full text-left px-4 py-3 flex items-center gap-3 transition cursor-pointer"
+        style={{
+          background:
+            expanded || hovered ? "var(--bg-elev)" : "transparent",
+        }}
       >
         <span
           className="flex items-center justify-center font-mono text-[10px] font-semibold shrink-0"
