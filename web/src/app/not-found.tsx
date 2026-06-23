@@ -17,11 +17,11 @@ export default function NotFound() {
       <div
         className="leading-none"
         style={{
-          fontFamily: "var(--f-editorial)",
-          fontStyle: "italic",
+          fontFamily: "var(--f-ui)",
+          fontWeight: 700,
           fontSize: "clamp(120px, 20vw, 200px)",
           color: "var(--accent-strong)",
-          letterSpacing: "-0.02em",
+          letterSpacing: "-0.03em",
         }}
       >
         404
@@ -29,7 +29,8 @@ export default function NotFound() {
       <p
         className="mt-2 mb-6"
         style={{
-          fontFamily: "var(--f-editorial)",
+          fontFamily: "var(--f-ui)",
+          fontWeight: 600,
           fontSize: "clamp(22px, 3vw, 30px)",
           color: "var(--fg)",
           letterSpacing: "-0.01em",

@@ -7,7 +7,7 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     h1: ({ children }) => (
       <h1
         style={{
-          fontFamily: "'Instrument Serif', Georgia, serif",
+          fontFamily: "var(--f-editorial)",
           fontSize: "clamp(32px, 3.5vw, 44px)",
           lineHeight: 1.15,
           fontWeight: 400,
@@ -22,7 +22,7 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     h2: ({ children }) => (
       <h2
         style={{
-          fontFamily: "'Instrument Serif', Georgia, serif",
+          fontFamily: "var(--f-editorial)",
           fontSize: 26,
           fontWeight: 400,
           color: "#1C1A17",
@@ -68,7 +68,7 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
         return (
           <code
             style={{
-              fontFamily: "'IBM Plex Mono', monospace",
+              fontFamily: "var(--f-mono)",
               fontSize: "0.92em",
               background: "#F0EAE0",
               padding: "1px 6px",
@@ -90,7 +90,7 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
           color: "#E8E0D4",
           padding: "20px 24px",
           borderRadius: 10,
-          fontFamily: "'IBM Plex Mono', monospace",
+          fontFamily: "var(--f-mono)",
           fontSize: 13,
           lineHeight: 1.7,
           overflowX: "auto",
