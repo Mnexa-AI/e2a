@@ -97,7 +97,7 @@ describe("PendingPage SWR subscription", () => {
     // Bug 1 guard: the held draft (status:"") is surfaced, not the
     // empty state.
     expect(
-      screen.queryByText(/No messages are waiting for review/),
+      screen.queryByText(/Nothing waiting for review/),
     ).not.toBeInTheDocument();
 
     // External mutate to the shared key — if PendingPage is subscribed
@@ -112,7 +112,7 @@ describe("PendingPage SWR subscription", () => {
       expect(screen.queryByText("Sample pending subject")).not.toBeInTheDocument();
     });
     expect(
-      screen.getByText(/No messages are waiting for review/),
+      screen.getByText(/Nothing waiting for review/),
     ).toBeInTheDocument();
   });
 });
