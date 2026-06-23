@@ -283,7 +283,7 @@ export function PendingRow({
                     <button
                       type="button"
                       onClick={() => setShowDetails((s) => !s)}
-                      className="font-mono text-[11px] shrink-0 hover:underline"
+                      className="font-mono text-[11px] shrink-0 cursor-pointer hover:underline"
                       style={{ color: "var(--fg-subtle)" }}
                     >
                       Details {showDetails ? "▴" : "▾"}
@@ -370,7 +370,7 @@ export function PendingRow({
                   <button
                     onClick={handleApprove}
                     disabled={busy}
-                    className="text-[13px] font-medium px-3.5 py-1.5 transition disabled:opacity-50"
+                    className="text-[13px] font-medium px-3.5 py-1.5 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
                     style={{
                       background: "var(--accent-fill)",
                       color: "var(--accent-fg)",
@@ -401,7 +401,7 @@ export function PendingRow({
                     <button
                       onClick={() => setEditing(false)}
                       disabled={busy}
-                      className="text-[13px] px-3 py-1.5 transition disabled:opacity-50"
+                      className="text-[13px] px-3 py-1.5 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:underline"
                       style={{ color: "var(--fg-muted)" }}
                     >
                       Cancel edit
@@ -410,7 +410,7 @@ export function PendingRow({
                   <button
                     onClick={() => setRejectOpen((s) => !s)}
                     disabled={busy}
-                    className="text-[13px] px-3 py-1.5 transition disabled:opacity-50"
+                    className="text-[13px] px-3 py-1.5 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:underline"
                     style={{ color: "var(--danger-strong)" }}
                   >
                     Reject {rejectOpen ? "▴" : "▾"}
@@ -440,7 +440,7 @@ export function PendingRow({
                   <button
                     onClick={handleReject}
                     disabled={busy}
-                    className="text-[13px] font-medium px-3.5 py-1.5 transition disabled:opacity-50"
+                    className="text-[13px] font-medium px-3.5 py-1.5 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
                     style={{
                       background: "var(--danger-strong)",
                       color: "#fff",
