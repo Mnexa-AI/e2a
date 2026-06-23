@@ -10,8 +10,9 @@
 //     nothing disappears and operators get a signal. (A DMARC-alignment
 //     "verified_only" posture was removed pre-GA; it may return as an additive
 //     policy later.)
-//   - Action gate (the hitl axis, Slice 7b): holds suspicious outbound as
-//     pending_approval. Reconciled from the existing hitl_enabled flag.
+//   - Action gate (the protection policy): holds suspicious outbound as
+//     pending_review, configured via the agent's outbound gate action / content
+//     scan (the old hitl_enabled flag was retired).
 //
 // This package is a stdlib-only leaf: it takes primitives (policy, allowlist,
 // sender, the DMARC verdict string) so callers (relay, store) don't couple to
