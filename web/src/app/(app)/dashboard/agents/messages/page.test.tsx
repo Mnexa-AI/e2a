@@ -45,7 +45,7 @@ const PENDING_REPLY: MessageSummary = {
   subject: "Re: Q3 contract renewal",
   conversation_id: "conv_K3p9aQ",
   status: "",
-  hitl_status: "pending_approval",
+  review_status: "pending_review",
   created_at: minutesAgo(13),
   size_bytes: 1200,
 };
@@ -170,7 +170,7 @@ describe("AgentInboxPage", () => {
     const url = mockRouterPush.mock.calls[0][0];
     expect(url).toContain("id=msg_pending");
     // Regression (Bug 2 + Bug 3): the inbox row carries direction +
-    // hitl_status, which the focus page can't recover from the detail
+    // review_status, which the focus page can't recover from the detail
     // MessageView — so they must be threaded into the URL. Without
     // &direction=outbound the focus page misclassifies it as inbound;
     // without &pending=1 it never shows approve/reject.

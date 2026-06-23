@@ -1,9 +1,9 @@
-// Maps a message's (direction, hitl_status, webhook_status, inbox_status)
+// Maps a message's (direction, review_status, webhook_status, inbox_status)
 // to a Loft Chip. The chip is the single source of truth for tone +
 // label across the inbox bubble footer and the focus-page title row.
 //
 // Status taxonomy in the backend:
-//   - Outbound `hitl_status`: 'sent' | 'pending_approval' | 'rejected'
+//   - Outbound `review_status`: 'sent' | 'pending_approval' | 'rejected'
 //     | 'expired_approved' | 'expired_rejected'.
 //   - Outbound `webhook_status`: webhook delivery state. 'failed' is
 //     terminal post-retry-exhaustion.
@@ -22,7 +22,7 @@ import type { ChipTone } from "../loft/Chip";
 export type MessageStatusInput = {
   direction: "inbound" | "outbound";
   /** Outbound HITL/send lifecycle. Empty on inbound. */
-  hitl_status?: string;
+  review_status?: string;
   /** Outbound webhook delivery state. */
   webhook_status?: string;
   /** Inbound unread→read marker. Empty on outbound. */
@@ -36,21 +36,21 @@ export function deriveStatusChip(m: MessageStatusInput): ChipSpec {
     if (m.webhook_status === "failed") {
       return { tone: "danger", label: "Failed", dot: true };
     }
-    switch (m.hitl_status) {
-      case "pending_approval":
+    switch (m.review_status) {
+      case "pending_review":
         return { tone: "warn", label: "Pending", dot: true };
-      case "rejected":
+      case "review_rejected":
         return { tone: "danger", label: "Rejected" };
-      case "expired_approved":
+      case "review_expired_approved":
         return { tone: "success", label: "Sent (auto)" };
-      case "expired_rejected":
+      case "review_expired_rejected":
         return { tone: "danger", label: "Auto-rejected" };
       case "sent":
       case undefined:
       case "":
         return { tone: "success", label: "Sent" };
       default:
-        return { tone: "neutral", label: m.hitl_status };
+        return { tone: "neutral", label: m.review_status };
     }
   }
   // Inbound

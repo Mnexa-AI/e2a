@@ -2,8 +2,8 @@
 // `pendingMessagesKey` SWR cache so a single fetch is shared with
 // the Sidebar badge (usePendingCount). In /v1 the queue is aggregated
 // client-side from GET /v1/agents + per-agent outbound message lists,
-// keeping rows whose `hitl_status === "pending_approval"`. NOTE: on the
-// real wire (MessageSummaryView) the pending state is in `hitl_status`,
+// keeping rows whose `review_status === "pending_review"`. NOTE: on the
+// real wire (MessageSummaryView) the pending state is in `review_status`,
 // and `status` is the (empty) delivery rollup — filtering on `status`
 // would surface nothing.
 
@@ -29,9 +29,9 @@ const AGENT_EMAIL = "ag_1@agents.e2a.dev";
 
 // REAL MessageSummaryView row (PageMessageSummaryView.items) for the
 // agent's outbound message list — a held draft. Per the server: outbound
-// rows carry the HITL lifecycle in `hitl_status`; the `status` field is
+// rows carry the HITL lifecycle in `review_status`; the `status` field is
 // the delivery rollup and is EMPTY for a held draft. `from` is also empty
-// on outbound. This is the shape the old `status === "pending_approval"`
+// on outbound. This is the shape the old `status === "pending_review"`
 // filter would have silently dropped.
 const SAMPLE_ROW = {
   message_id: "msg_1",
@@ -41,7 +41,7 @@ const SAMPLE_ROW = {
   recipient: "alice@example.com",
   subject: "Sample pending subject",
   status: "",
-  hitl_status: "pending_approval",
+  review_status: "pending_review",
   created_at: "2026-05-23T00:00:00Z",
 };
 
@@ -80,13 +80,13 @@ beforeEach(async () => {
 
 describe("PendingPage SWR subscription", () => {
   // The SAMPLE_ROW staged here is the REAL wire shape for a held draft:
-  // `status:""` + `hitl_status:"pending_approval"`. This is also the
+  // `status:""` + `review_status:"pending_review"`. This is also the
   // Bug 1 regression — the pre-fix queue filtered on
-  // `status === "pending_approval"`, which would have DROPPED this row
+  // `status === "pending_review"`, which would have DROPPED this row
   // and rendered the empty state. The first `waitFor` below (the row's
   // subject is visible, i.e. NOT the empty state) fails against the old
-  // `status` filter and passes only with the `hitl_status` filter.
-  it("reflects external mutate() to pendingMessagesKey (proves the page is a SWR subscriber, not local-state), and surfaces a status:'' + hitl_status:'pending_approval' row (Bug 1)", async () => {
+  // `status` filter and passes only with the `review_status` filter.
+  it("reflects external mutate() to pendingMessagesKey (proves the page is a SWR subscriber, not local-state), and surfaces a status:'' + review_status:'pending_approval' row (Bug 1)", async () => {
     stagePendingFetch();
 
     render(<PendingPage />);

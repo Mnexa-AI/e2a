@@ -154,8 +154,11 @@ type MessageSummaryWire = {
   recipient: string;
   subject: string;
   conversation_id?: string;
-  status: string;
-  hitl_status?: string;
+  // v1 splits message state into delivery rollup (delivery_status) and the
+  // review/HITL lifecycle (review_status). Both optional on the wire.
+  delivery_status?: string;
+  review_status?: string;
+  read_status?: string;
   webhook_status?: string;
   webhook_error?: string;
   size_bytes?: number;
@@ -178,8 +181,11 @@ function projectSummary(w: MessageSummaryWire): import("../types").MessageSummar
     recipient: w.recipient,
     subject: w.subject,
     conversation_id: w.conversation_id,
-    status: w.status,
-    hitl_status: w.hitl_status,
+    // App keeps `status` (delivery rollup) + `review_status` (review
+    // lifecycle) field names; v1 sources them from delivery_status /
+    // review_status.
+    status: w.delivery_status ?? "",
+    review_status: w.review_status,
     webhook_status: w.webhook_status,
     webhook_error: w.webhook_error,
     size_bytes: w.size_bytes,
@@ -227,7 +233,10 @@ type MessageViewWire = {
   recipient: string;
   subject: string;
   conversation_id?: string;
-  status: string;
+  direction?: "inbound" | "outbound";
+  delivery_status?: string;
+  review_status?: string;
+  read_status?: string;
   created_at: string;
   auth_headers?: Record<string, string>;
   body?: { text?: string; html?: string };
@@ -257,7 +266,7 @@ export async function getInboundMessage(
     recipient: w.recipient,
     subject: w.subject,
     conversation_id: w.conversation_id ?? "",
-    status: w.status,
+    status: w.delivery_status ?? "",
     created_at: w.created_at,
     auth_headers: w.auth_headers ?? {},
     body: w.body,
@@ -282,7 +291,9 @@ function projectPending(
     conversation_id: w.conversation_id,
     to: w.to ?? [],
     cc: w.cc ?? undefined,
-    status: w.status,
+    // A held draft's lifecycle state is the review_status (pending_review);
+    // the delivery rollup is empty until it's approved + sent.
+    status: w.review_status ?? "",
     created_at: w.created_at,
     body_text: w.body?.text,
     body_html: w.body?.html,
@@ -345,7 +356,7 @@ export async function getMessageDetail(
       recipient: w.recipient,
       subject: w.subject,
       conversation_id: w.conversation_id ?? "",
-      status: w.status,
+      status: w.delivery_status ?? "",
       created_at: w.created_at,
       auth_headers: w.auth_headers ?? {},
       body: w.body,
@@ -385,34 +396,31 @@ export async function setProtection(
 // Wire shape of an agent row in PageAgentView.items (GET /v1/agents).
 type AgentViewWire = {
   email: string;
-  hitl_enabled?: boolean;
 };
 
 // `/v1` has no cross-account pending endpoint. Pending drafts are
-// outbound messages whose HITL lifecycle is "pending_approval", scoped
-// per agent. NOTE: on MessageSummaryView the pending state lives in
-// `hitl_status`, NOT `status` — the wire `status` on an outbound row is
-// the delivery rollup (often empty for a held draft). We fan out over
-// the account's agents, list each agent's outbound messages, keep the
-// rows whose `hitl_status === "pending_approval"`, and tag each with the
-// owning agent's address so the detail/approve/reject calls can be
-// addressed. Aggregated newest-first.
+// outbound messages whose review lifecycle is "pending_review", scoped
+// per agent. NOTE: on MessageSummaryView the review state lives in
+// `review_status` (projected to the app's `review_status`), NOT
+// `delivery_status` — the delivery rollup on a held draft is empty. We
+// fan out over the account's agents, list each agent's outbound
+// messages, keep the rows whose review status is pending, and tag each
+// with the owning agent's address so the detail/approve/reject calls can
+// be addressed. Aggregated newest-first. (Per-agent review config lives
+// on the /protection sub-resource now — there is no agent-level flag to
+// pre-filter on, so we query every agent.)
 export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
   const agentsResp = await request<{ items?: AgentViewWire[] | null }>("/v1/agents");
   const agents = agentsResp.items ?? [];
-  // Only agents with HITL enabled can have pending drafts; querying
-  // the rest is wasted round-trips. Fall back to querying all if the
-  // flag is absent on the wire.
-  const candidates = agents.filter((a) => a.hitl_enabled !== false);
   const perAgent = await Promise.all(
-    candidates.map(async (a) => {
+    agents.map(async (a) => {
       try {
         const page = await listAgentMessages(a.email, {
           direction: "outbound",
           pageSize: 100,
         });
         return page.items
-          .filter((m) => m.hitl_status === "pending_approval")
+          .filter((m) => m.review_status === "pending_review")
           .map<PendingMessageSummary>((m) => ({
             id: m.message_id,
             agent_email: a.email,
@@ -423,8 +431,8 @@ export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
             cc: m.cc,
             // Surface the HITL lifecycle value as the row's `status` —
             // the wire `status` is the (empty) delivery rollup for a
-            // held draft, so the pending UI keys off hitl_status here.
-            status: m.hitl_status ?? "",
+            // held draft, so the pending UI keys off review_status here.
+            status: m.review_status ?? "",
             created_at: m.created_at,
           }));
       } catch {

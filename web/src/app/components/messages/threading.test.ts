@@ -90,7 +90,7 @@ describe("groupIntoThreads", () => {
         direction: "outbound",
         to: ["maya@stripe.com"],
         recipient: "maya@stripe.com",
-        hitl_status: "pending_approval",
+        review_status: "pending_review",
         created_at: isoMinutesAgo(NOW, 13),
       }),
     ];
@@ -135,7 +135,7 @@ describe("groupIntoThreads", () => {
         conversation_id: "conv_PEND",
         direction: "outbound",
         to: ["x@example.com"],
-        hitl_status: "pending_approval",
+        review_status: "pending_review",
         created_at: isoMinutesAgo(NOW, 60),
       }),
     ];

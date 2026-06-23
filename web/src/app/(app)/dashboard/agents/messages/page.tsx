@@ -134,13 +134,13 @@ function AgentInboxContent() {
   };
 
   // The focus page's MessageView detail carries NEITHER `direction` nor
-  // `hitl_status` (and blanks `from`/`status` on outbound), so we thread
+  // `review_status` (and blanks `from`/`status` on outbound), so we thread
   // both off the list row (MessageSummaryView has them) into the URL:
   //   &direction=<inbound|outbound>  → picks the detail projection
   //   &pending=1                     → gates approve/reject
   // The focus page defaults to inbound / not-pending when absent.
   const focusUrl = (m: MessageSummary, withHeaders: boolean) => {
-    const pending = m.hitl_status === "pending_approval" ? "&pending=1" : "";
+    const pending = m.review_status === "pending_review" ? "&pending=1" : "";
     return (
       `/dashboard/agents/messages/view?email=${encodeURIComponent(email)}` +
       `&id=${encodeURIComponent(m.message_id)}` +

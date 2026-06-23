@@ -4,7 +4,7 @@
 //
 // In /v1 there's one agent-scoped detail endpoint
 // (GET /v1/agents/{address}/messages/{id} → MessageView). That detail
-// shape carries NEITHER `direction` NOR `hitl_status`, and on outbound
+// shape carries NEITHER `direction` NOR `review_status`, and on outbound
 // rows the wire `from` and `status` come back as EMPTY strings — so the
 // page CANNOT recover direction or pending-state from the fetch. The
 // list/pending rows (MessageSummaryView) carry both, so they thread the
@@ -67,7 +67,7 @@ const AGENT_EMAIL = "support@acme.io";
 
 // REAL MessageView wire (GET /v1/agents/{address}/messages/{id}) for a
 // held outbound draft. Per the server: the detail view has NO `direction`
-// and NO `hitl_status`, and on an outbound row `from` and `status` are
+// and NO `review_status`, and on an outbound row `from` and `status` are
 // EMPTY strings. Direction + pending-state are NOT recoverable here —
 // they're threaded via the URL params. Body comes through `body.text`.
 const OUTBOUND_PENDING = {
@@ -171,7 +171,7 @@ describe("AgentMessageFocusPage", () => {
       expect(screen.getByTestId("message-focus")).toBeInTheDocument();
     });
     expect(screen.getByTestId("message-focus").dataset.direction).toBe("outbound");
-    expect(screen.getByTestId("message-focus").dataset.status).toBe("pending_approval");
+    expect(screen.getByTestId("message-focus").dataset.status).toBe("pending_review");
     expect(screen.getByRole("heading", { name: /Re: Q3 contract renewal/ })).toBeInTheDocument();
     expect(screen.getByTestId("action-card")).toBeInTheDocument();
     expect(screen.getByText(/Awaiting your approval/)).toBeInTheDocument();
@@ -270,7 +270,7 @@ describe("AgentMessageFocusPage", () => {
   });
 
   // Regression (Bug 2 + Bug 3): the detail MessageView for an outbound
-  // row has `from:""` and `status:""` and no direction/hitl_status. A
+  // row has `from:""` and `status:""` and no direction/review_status. A
   // deep link with NO `?direction=`/`&pending=` params must therefore
   // default to inbound + not-pending — render WITHOUT crashing and
   // WITHOUT offering approve/reject. (The old code derived direction
@@ -293,7 +293,7 @@ describe("AgentMessageFocusPage", () => {
   // Regression (Bug 2 + Bug 3): the SAME wire payload (from:"", status:"")
   // surfaces the approve/reject action card ONLY because direction +
   // pending are threaded in via the URL. The pre-fix code gated on the
-  // detail `status === "pending_approval"` (always false here) so the
+  // detail `status === "pending_review"` (always false here) so the
   // action card never appeared on the focus page.
   it("threaded ?direction=outbound&pending=1 surfaces approve/reject even though wire from/status are empty", async () => {
     setSearchParams({ email: "support@acme.io", id: "msg_pending", direction: "outbound", pending: "1" });
@@ -305,7 +305,7 @@ describe("AgentMessageFocusPage", () => {
       expect(screen.getByTestId("message-focus")).toBeInTheDocument();
     });
     expect(screen.getByTestId("message-focus").dataset.direction).toBe("outbound");
-    expect(screen.getByTestId("message-focus").dataset.status).toBe("pending_approval");
+    expect(screen.getByTestId("message-focus").dataset.status).toBe("pending_review");
     expect(screen.getByTestId("action-card")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Approve & send/i })).toBeInTheDocument();
   });
@@ -508,7 +508,7 @@ describe("AgentMessageFocusPage", () => {
       }
       if (url.endsWith("/reject") && init?.method === "POST") {
         rejectBody = (init.body as string) || "";
-        return jsonText({ status: "rejected", message_id: "msg_pending" });
+        return jsonText({ status: "review_rejected", message_id: "msg_pending" });
       }
       return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve("not found") });
     });

@@ -191,7 +191,7 @@ export function PendingDetailPanel({
     );
   }
 
-  const notPending = msg.status !== "pending_approval";
+  const notPending = msg.status !== "pending_review";
   const busy = approving || rejecting;
   const queuedAgo = formatQueuedAgo(msg.created_at);
 

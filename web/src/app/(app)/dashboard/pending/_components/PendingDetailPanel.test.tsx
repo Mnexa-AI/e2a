@@ -23,7 +23,7 @@ const baseView = {
   recipient: "alice@example.com",
   subject: "original subject",
   conversation_id: "conv_1",
-  status: "pending_approval",
+  review_status: "pending_review",
   created_at: "2026-05-23T00:00:00Z",
   body: { text: "original body", html: "" },
 };
@@ -124,7 +124,7 @@ describe("PendingDetailPanel", () => {
   });
 
   it("disables the form when the message is no longer pending", async () => {
-    stagePanelFetch({ ...baseView, status: "sent" });
+    stagePanelFetch({ ...baseView, review_status: "sent" });
 
     render(<PendingDetailPanel agentEmail="bot@acme.io" messageId="msg_abc" onChanged={() => {}} />);
 

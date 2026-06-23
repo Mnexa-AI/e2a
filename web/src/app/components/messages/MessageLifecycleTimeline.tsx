@@ -153,9 +153,9 @@ export function deriveLifecycleSteps(input: LifecycleInput): LifecycleStep[] {
 
   const terminal =
     input.status === "sent" ||
-    input.status === "rejected" ||
-    input.status === "expired_approved" ||
-    input.status === "expired_rejected";
+    input.status === "review_rejected" ||
+    input.status === "review_expired_approved" ||
+    input.status === "review_expired_rejected";
 
   if (hitlEnabled) {
     steps.push({
@@ -166,7 +166,7 @@ export function deriveLifecycleSteps(input: LifecycleInput): LifecycleStep[] {
           : "resolved"
         : "awaiting reviewer",
       kind: "warn",
-      current: input.status === "pending_approval",
+      current: input.status === "pending_review",
     });
   }
 
@@ -175,16 +175,16 @@ export function deriveLifecycleSteps(input: LifecycleInput): LifecycleStep[] {
   // When HITL is on we still prefer reviewedAt (approval = send-time).
   const sentAt = input.reviewedAt ?? (hitlEnabled ? null : input.draftedAt);
 
-  if (input.status === "sent" || input.status === "expired_approved") {
+  if (input.status === "sent" || input.status === "review_expired_approved") {
     steps.push({
       label: "Sent to recipient",
-      caption: `${sentAt ? fmtClock(sentAt) : "—"} · ${input.status === "expired_approved" ? "auto-approved" : "delivered"}`,
+      caption: `${sentAt ? fmtClock(sentAt) : "—"} · ${input.status === "review_expired_approved" ? "auto-approved" : "delivered"}`,
       kind: "success",
     });
-  } else if (input.status === "rejected" || input.status === "expired_rejected") {
+  } else if (input.status === "review_rejected" || input.status === "review_expired_rejected") {
     steps.push({
       label: "Rejected",
-      caption: `${input.reviewedAt ? fmtClock(input.reviewedAt) : "—"} · ${input.status === "expired_rejected" ? "auto-rejected" : "by reviewer"}`,
+      caption: `${input.reviewedAt ? fmtClock(input.reviewedAt) : "—"} · ${input.status === "review_expired_rejected" ? "auto-rejected" : "by reviewer"}`,
       kind: "neutral",
     });
   } else {

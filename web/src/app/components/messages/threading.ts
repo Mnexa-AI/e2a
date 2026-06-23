@@ -63,7 +63,7 @@ function nameFromEmail(email: string): string {
 
 function deriveState(messages: MessageSummary[], nowMs: number): ThreadState {
   // pending wins over everything else — operator action needed.
-  if (messages.some((m) => m.hitl_status === "pending_approval")) {
+  if (messages.some((m) => m.review_status === "pending_review")) {
     return "pending";
   }
 

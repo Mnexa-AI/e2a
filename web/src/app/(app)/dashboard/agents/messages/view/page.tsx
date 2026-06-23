@@ -116,7 +116,7 @@ function FocusPageRouter() {
   const id = searchParams.get("id") ?? "";
   const initialHeadersOpen = searchParams.get("headers") === "1";
   // The `/v1` detail endpoint (MessageView) carries NEITHER `direction`
-  // nor `hitl_status`, and blanks `from`/`status` on outbound rows — so
+  // nor `review_status`, and blanks `from`/`status` on outbound rows — so
   // direction and pending-state can't be recovered from the fetch. The
   // list/pending rows (MessageSummaryView) have both, so they thread the
   // authoritative values in via query params. Missing → inbound /
@@ -215,8 +215,8 @@ function FocusContent({
   }, [outboundData]);
 
   // The detail MessageView's `status` is the DELIVERY rollup
-  // (queued/sent/…), never the HITL lifecycle — "pending_approval" only
-  // ever lives in `hitl_status` on the summary view, which the detail
+  // (queued/sent/…), never the HITL lifecycle — "pending_review" only
+  // ever lives in `review_status` on the summary view, which the detail
   // doesn't return. So we gate the approve/reject affordances on the
   // `pending` flag threaded from the list/pending row (alongside
   // `direction`). Absent param → not pending → approve/reject hidden.
@@ -354,8 +354,8 @@ function FocusContent({
         }
       : null;
   // The detail MessageView's `status` is the delivery rollup; the HITL
-  // "pending_approval" state is threaded in, not present on the wire.
-  const statusAttr = isPending ? "pending_approval" : msg.data.status;
+  // "pending_review" state is threaded in, not present on the wire.
+  const statusAttr = isPending ? "pending_review" : msg.data.status;
 
   return (
     <div
@@ -405,10 +405,10 @@ function FocusContent({
           {direction === "outbound" && msg.data.status === "sent" && (
             <Chip tone="success">Sent</Chip>
           )}
-          {direction === "outbound" && (msg.data.status === "rejected" || msg.data.status === "expired_rejected") && (
-            <Chip tone="danger">{msg.data.status === "expired_rejected" ? "Auto-rejected" : "Rejected"}</Chip>
+          {direction === "outbound" && (msg.data.status === "review_rejected" || msg.data.status === "review_expired_rejected") && (
+            <Chip tone="danger">{msg.data.status === "review_expired_rejected" ? "Auto-rejected" : "Rejected"}</Chip>
           )}
-          {direction === "outbound" && msg.data.status === "expired_approved" && (
+          {direction === "outbound" && msg.data.status === "review_expired_approved" && (
             <Chip tone="success">Sent (auto)</Chip>
           )}
           <span className="flex-1" />
@@ -1040,7 +1040,7 @@ function LifecycleSection({ msg, hitlEnabled }: { msg: LoadedMessage; hitlEnable
   // agents the held step doesn't exist, so we summarize sent/created
   // directly instead of the misleading "resolved" fallback.
   const sentAt = d.reviewed_at ?? (!hitlEnabled ? d.created_at : null);
-  const heldSummary = d.status === "pending_approval"
+  const heldSummary = d.status === "pending_review"
     ? "held"
     : sentAt
       ? `${hitlEnabled ? "resolved" : "sent"} ${formatRelativeAge(sentAt)}`
@@ -1050,7 +1050,7 @@ function LifecycleSection({ msg, hitlEnabled }: { msg: LoadedMessage; hitlEnable
     <Collapsible
       label="Lifecycle"
       meta={
-        <span style={{ color: d.status === "pending_approval" ? "var(--warn-strong)" : "var(--fg-subtle)" }}>
+        <span style={{ color: d.status === "pending_review" ? "var(--warn-strong)" : "var(--fg-subtle)" }}>
           {heldSummary}
         </span>
       }

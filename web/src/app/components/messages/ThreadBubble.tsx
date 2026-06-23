@@ -66,7 +66,7 @@ export function ThreadBubble({
   agentEmail: string;
 }) {
   const isInbound = message.direction === "inbound";
-  const pending = message.hitl_status === "pending_approval";
+  const pending = message.review_status === "pending_review";
   const [showDetails, setShowDetails] = useState(false);
 
   // Fetch this message's body. Keyed per (agent, id, direction) so each
