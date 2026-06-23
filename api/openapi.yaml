@@ -1397,6 +1397,21 @@ components:
         - items
         - next_cursor
       type: object
+    PageReviewView:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/ReviewView"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
     PageSuppression:
       additionalProperties: false
       properties:
@@ -1672,6 +1687,50 @@ components:
         - spf
         - dkim
         - dmarc
+      type: object
+    ReviewView:
+      additionalProperties: false
+      properties:
+        agent:
+          description: The inbox (agent address) the held message belongs to.
+          type: string
+        conversation_id:
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        direction:
+          enum:
+            - inbound
+            - outbound
+          type: string
+        flag_reason:
+          type: string
+        flagged:
+          type: boolean
+        from:
+          type: string
+        id:
+          type: string
+        review_status:
+          enum:
+            - pending_review
+          type: string
+        subject:
+          type: string
+        to:
+          items:
+            type: string
+          type: array
+      required:
+        - id
+        - agent
+        - direction
+        - from
+        - to
+        - subject
+        - review_status
+        - created_at
       type: object
     RotateSecretResponse:
       additionalProperties: false
@@ -3503,6 +3562,133 @@ paths:
       summary: Deployment info
       tags:
         - meta
+  /v1/reviews:
+    get:
+      description: "The review queue: every message held in pending_review across the account's inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds."
+      operationId: listReviews
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageReviewView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: List messages awaiting review
+      tags:
+        - reviews
+  /v1/reviews/{id}:
+    get:
+      description: Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.
+      operationId: getReview
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Get a held message (full detail)
+      tags:
+        - reviews
+  /v1/reviews/{id}/approve:
+    post:
+      description: "Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold."
+      operationId: approveReview
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: Idempotency-Key
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveRequest"
+          application/octet-stream:
+            schema:
+              contentMediaType: application/octet-stream
+              format: binary
+              type: string
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResultView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Approve a held message
+      tags:
+        - reviews
+  /v1/reviews/{id}/reject:
+    post:
+      description: Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.
+      operationId: rejectReview
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RejectResultView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Reject a held message
+      tags:
+        - reviews
   /v1/webhooks:
     get:
       operationId: listWebhooks

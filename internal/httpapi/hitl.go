@@ -89,36 +89,44 @@ func (s *Server) handleApprove(ctx context.Context, in *approveInput) (*approveO
 	if err != nil {
 		return nil, err
 	}
-	user := p.User
 	ag, err := s.resolveOwnedAgent(ctx, in.Address)
 	if err != nil {
 		return nil, err
 	}
-	// Branch on direction: an inbound hold is a screening decision, not a send,
-	// so it skips the send-limit / idempotency / SES machinery entirely.
-	meta, inbound, err := s.resolveHeldDirection(ctx, in.ID, ag.ID)
+	view, err := s.approveHeld(ctx, p.User.ID, in.ID, ag.Email, in.Body, in.IdempotencyKey, in.RawBody)
 	if err != nil {
 		return nil, err
 	}
+	return &approveOutput{Body: view}, nil
+}
+
+// approveHeld is the shared approve dispatch (used by the agent-path
+// /messages/{id}/approve and the account-path /reviews/{id}/approve). The
+// caller MUST have proven account scope + ownership of agentEmail. Branches on
+// direction: inbound holds release to the inbox; outbound holds send via SES
+// (with send-limit + idempotency).
+func (s *Server) approveHeld(ctx context.Context, userID, msgID, agentEmail string, body agent.ApproveOverrides, idemKey string, rawBody []byte) (SendResultView, error) {
+	meta, inbound, err := s.resolveHeldDirection(ctx, msgID, agentEmail)
+	if err != nil {
+		return SendResultView{}, err
+	}
 	if inbound {
 		if s.deps.ApproveInboundReview == nil {
-			return nil, NewError(http.StatusInternalServerError, "internal_error", "approve unavailable")
+			return SendResultView{}, NewError(http.StatusInternalServerError, "internal_error", "approve unavailable")
 		}
-		if derr := s.deps.ApproveInboundReview(ctx, user.ID, meta); derr != nil {
-			return nil, NewError(derr.Status, derr.Code, derr.Msg)
+		if derr := s.deps.ApproveInboundReview(ctx, userID, meta); derr != nil {
+			return SendResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
 		}
-		return &approveOutput{Body: SendResultView{
-			Status: identity.MessageStatusReviewApproved, MessageID: meta.ID,
-		}}, nil
+		return SendResultView{Status: identity.MessageStatusReviewApproved, MessageID: meta.ID}, nil
 	}
-	if env := s.checkSendLimit(ag.ID); env != nil {
-		return nil, env
+	if env := s.checkSendLimit(agentEmail); env != nil {
+		return SendResultView{}, env
 	}
 	if s.deps.ApprovePending == nil {
-		return nil, NewError(http.StatusInternalServerError, "internal_error", "approve unavailable")
+		return SendResultView{}, NewError(http.StatusInternalServerError, "internal_error", "approve unavailable")
 	}
-	_, view, err := runIdempotent(s, ctx, user.ID, in.IdempotencyKey, "/v1/approve/"+in.ID, in.RawBody, func() (int, SendResultView, error) {
-		sent, derr := s.deps.ApprovePending(ctx, user.ID, in.ID, ag.Email, in.Body)
+	_, view, err := runIdempotent(s, ctx, userID, idemKey, "/v1/approve/"+msgID, rawBody, func() (int, SendResultView, error) {
+		sent, derr := s.deps.ApprovePending(ctx, userID, msgID, agentEmail, body)
 		if derr != nil {
 			return 0, SendResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
 		}
@@ -129,9 +137,9 @@ func (s *Server) handleApprove(ctx context.Context, in *approveInput) (*approveO
 		}, nil
 	})
 	if err != nil {
-		return nil, err
+		return SendResultView{}, err
 	}
-	return &approveOutput{Body: view}, nil
+	return view, nil
 }
 
 func (s *Server) handleReject(ctx context.Context, in *rejectInput) (*rejectOutput, error) {
@@ -141,34 +149,40 @@ func (s *Server) handleReject(ctx context.Context, in *rejectInput) (*rejectOutp
 	if err != nil {
 		return nil, err
 	}
-	user := p.User
 	ag, err := s.resolveOwnedAgent(ctx, in.Address)
 	if err != nil {
 		return nil, err
 	}
-	meta, inbound, err := s.resolveHeldDirection(ctx, in.ID, ag.ID)
+	view, err := s.rejectHeld(ctx, p.User.ID, in.ID, ag.Email, in.Body.Reason)
 	if err != nil {
 		return nil, err
 	}
+	return &rejectOutput{Body: view}, nil
+}
+
+// rejectHeld is the shared reject dispatch (agent-path + /reviews). Caller MUST
+// have proven account scope + ownership of agentEmail. Inbound holds are dropped
+// (hidden); outbound holds are discarded (never sent).
+func (s *Server) rejectHeld(ctx context.Context, userID, msgID, agentEmail, reason string) (RejectResultView, error) {
+	meta, inbound, err := s.resolveHeldDirection(ctx, msgID, agentEmail)
+	if err != nil {
+		return RejectResultView{}, err
+	}
 	if inbound {
 		if s.deps.RejectInboundReview == nil {
-			return nil, NewError(http.StatusInternalServerError, "internal_error", "reject unavailable")
+			return RejectResultView{}, NewError(http.StatusInternalServerError, "internal_error", "reject unavailable")
 		}
-		if derr := s.deps.RejectInboundReview(ctx, user.ID, in.Body.Reason, meta); derr != nil {
-			return nil, NewError(derr.Status, derr.Code, derr.Msg)
+		if derr := s.deps.RejectInboundReview(ctx, userID, reason, meta); derr != nil {
+			return RejectResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
 		}
-		return &rejectOutput{Body: RejectResultView{
-			Status: identity.MessageStatusReviewRejected, MessageID: meta.ID, RejectionReason: in.Body.Reason,
-		}}, nil
+		return RejectResultView{Status: identity.MessageStatusReviewRejected, MessageID: meta.ID, RejectionReason: reason}, nil
 	}
 	if s.deps.RejectPending == nil {
-		return nil, NewError(http.StatusInternalServerError, "internal_error", "reject unavailable")
+		return RejectResultView{}, NewError(http.StatusInternalServerError, "internal_error", "reject unavailable")
 	}
-	rejected, derr := s.deps.RejectPending(ctx, user.ID, in.ID, ag.Email, in.Body.Reason)
+	rejected, derr := s.deps.RejectPending(ctx, userID, msgID, agentEmail, reason)
 	if derr != nil {
-		return nil, NewError(derr.Status, derr.Code, derr.Msg)
+		return RejectResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
 	}
-	return &rejectOutput{Body: RejectResultView{
-		Status: rejected.Status, MessageID: rejected.ID, RejectionReason: rejected.RejectionReason,
-	}}, nil
+	return RejectResultView{Status: rejected.Status, MessageID: rejected.ID, RejectionReason: rejected.RejectionReason}, nil
 }

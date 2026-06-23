@@ -80,10 +80,23 @@ func TestScope_AccountOnlyRoutesRejectAgentKeys(t *testing.T) {
 		// cannot even READ its own detection tuning, let alone change it.
 		{"protection-get/account-ok", "GET", "/v1/agents/support%40acme.com/protection", "acct", 200},
 		{"protection-get/agent-bound-403", "GET", "/v1/agents/support%40acme.com/protection", "agtSupport", 403},
+		// The review queue is an operator surface — agents can neither see nor
+		// resolve holds (of either direction). 403 fires at the scope gate before
+		// any dep, so these hold even with the reviews deps unwired.
+		{"reviews-list/agent-403", "GET", "/v1/reviews", "agtSupport", 403},
+		{"reviews-get/agent-403", "GET", "/v1/reviews/msg_1", "agtSupport", 403},
+		{"reviews-approve/agent-403", "POST", "/v1/reviews/msg_1/approve", "agtSupport", 403},
+		{"reviews-reject/agent-403", "POST", "/v1/reviews/msg_1/reject", "agtSupport", 403},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			code, body := sendJSON(t, c.method, srv.URL+c.path, c.bearer, nil)
+			// POST routes need a valid (empty) JSON object so the request clears
+			// Huma body validation and reaches the scope gate.
+			var reqBody any
+			if c.method == "POST" {
+				reqBody = map[string]any{}
+			}
+			code, body := sendJSON(t, c.method, srv.URL+c.path, c.bearer, reqBody)
 			if code != c.wantStatus {
 				t.Fatalf("%s %s as %s: status %d, want %d (body %v)", c.method, c.path, c.bearer, code, c.wantStatus, body)
 			}

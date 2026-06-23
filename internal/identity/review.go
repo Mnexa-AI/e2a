@@ -2,8 +2,101 @@ package identity
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"time"
 )
+
+// ReviewListItem is one row of the human review queue (GET /v1/reviews):
+// non-secret summary of a held message of either direction. Bodies are
+// fetched per-item via GetReviewWithContent.
+type ReviewListItem struct {
+	ID             string
+	AgentID        string
+	Direction      string // inbound | outbound
+	Sender         string
+	To             []string
+	Subject        string
+	ConversationID string
+	Status         string // review lifecycle (pending_review)
+	CreatedAt      time.Time
+	Flagged        bool
+	FlagReason     string
+}
+
+// ListReviews returns every held (pending_review) message — BOTH directions —
+// across all of userID's agents, newest-first. This is the operator review
+// queue: it intentionally includes held inbound (which every agent-facing read
+// path excludes). SECURITY: account-scoped reviewer flow only; the user join is
+// the tenant-isolation guard.
+func (s *Store) ListReviews(ctx context.Context, userID string) ([]ReviewListItem, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT m.id, m.agent_id, m.direction, m.sender, m.to_recipients,
+		        COALESCE(m.subject, ''), COALESCE(m.conversation_id, ''),
+		        COALESCE(m.status, ''), m.created_at,
+		        COALESCE(m.flagged, false), COALESCE(m.flag_reason, '')
+		   FROM messages m
+		   JOIN agent_identities a ON a.id = m.agent_id
+		  WHERE a.user_id = $1 AND m.status = 'pending_review' AND m.expires_at > now()
+		  ORDER BY m.created_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ReviewListItem
+	for rows.Next() {
+		var it ReviewListItem
+		if err := rows.Scan(&it.ID, &it.AgentID, &it.Direction, &it.Sender, &it.To,
+			&it.Subject, &it.ConversationID, &it.Status, &it.CreatedAt,
+			&it.Flagged, &it.FlagReason); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
+
+// GetReviewWithContent loads one held message (either direction) with its body,
+// scoped to userID — the detail view behind GET /v1/reviews/{id}. Like
+// GetReviewMessage it deliberately bypasses the held-inbound exclusion, so it is
+// account-scoped reviewer flow ONLY (the user join is the tenant guard). Unlike
+// GetMessageWithContent it does NOT mark the message read (reviewing isn't
+// reading) and does NOT exclude held rows. Returns sql.ErrNoRows when no such
+// message exists for the user.
+func (s *Store) GetReviewWithContent(ctx context.Context, userID, messageID string) (*Message, error) {
+	m := &Message{}
+	var authHeadersJSON []byte
+	var authVerdict []byte
+	var outboundDeliveryStatus string
+	err := s.pool.QueryRow(ctx,
+		`SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.to_recipients, m.cc, m.reply_to, m.subject, m.email_message_id, m.conversation_id, COALESCE(m.inbox_status, ''), m.raw_message, m.auth_headers, m.auth_verdict, COALESCE(m.flagged, false), COALESCE(m.flag_reason, ''), m.created_at, m.expires_at, m.labels, COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, ''), COALESCE(m.body_text, ''), COALESCE(m.body_html, ''), COALESCE(m.status, ''), COALESCE(wd.status, ''), COALESCE(wd.last_error, '')
+		   FROM messages m
+		   JOIN agent_identities a ON a.id = m.agent_id
+		   LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
+		  WHERE m.id = $1 AND a.user_id = $2 AND m.expires_at > now()`,
+		messageID, userID,
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.InboxStatus, &m.RawMessage, &authHeadersJSON, &authVerdict, &m.Flagged, &m.FlagReason, &m.CreatedAt, &m.ExpiresAt, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &m.BodyText, &m.BodyHTML, &m.Status, &m.WebhookStatus, &m.WebhookError)
+	if err != nil {
+		return nil, err
+	}
+	m.SizeBytes = len(m.RawMessage)
+	if m.Direction == "outbound" {
+		m.DeliveryStatus = outboundDeliveryStatus
+	} else {
+		m.DeliveryStatus = m.InboxStatus
+	}
+	if authHeadersJSON != nil {
+		if err := json.Unmarshal(authHeadersJSON, &m.AuthHeaders); err != nil {
+			return nil, fmt.Errorf("unmarshal auth headers: %w", err)
+		}
+	}
+	if err := unmarshalAuthVerdict(authVerdict, m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
 
 // ErrNotPendingReview is returned when an approve/reject/expire targets an inbound
 // message that is not (or is no longer) in pending_review.

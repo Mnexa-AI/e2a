@@ -82,6 +82,10 @@ export function PendingRow({
 }) {
   const agentEmail = summary.agent_email;
   const id = summary.id;
+  // Inbound holds are screened *incoming* messages: approve = release to
+  // the inbox, reject = block. They aren't editable drafts, so the editor
+  // and "& send" wording are outbound-only.
+  const isInbound = summary.direction === "inbound";
 
   // Lazy: only fetch the body/recipients once the row is open. Shares the
   // pendingMessageKey cache with invalidateMessageDetail so resolving
@@ -276,8 +280,8 @@ export function PendingRow({
                     color: "var(--warn-strong)",
                   }}
                 >
-                  This draft is no longer pending ({msg.status}). It may have
-                  been resolved elsewhere or its review hold expired.
+                  This message is no longer pending ({msg.status}). It may
+                  have been resolved elsewhere or its review hold expired.
                 </p>
               )}
 
@@ -289,7 +293,9 @@ export function PendingRow({
                       className="font-mono text-[11px] truncate"
                       style={{ color: "var(--fg-muted)" }}
                     >
-                      to {joinCSV(msg.to) || "—"}
+                      {isInbound
+                        ? `from ${summary.from || "—"}`
+                        : `to ${joinCSV(msg.to) || "—"}`}
                     </span>
                     <button
                       type="button"
@@ -319,9 +325,7 @@ export function PendingRow({
                     style={{ color: "var(--fg)", lineHeight: 1.6 }}
                   >
                     {msg.body_text ||
-                      (msg.body_html
-                        ? "(HTML body — choose Edit draft to view/edit the source)"
-                        : "(empty body)")}
+                      (msg.body_html ? "(HTML body)" : "(empty body)")}
                   </div>
                 </div>
               ) : (
@@ -389,12 +393,17 @@ export function PendingRow({
                     }}
                   >
                     {approving
-                      ? "Sending…"
-                      : editing
-                        ? "Approve & send edited"
-                        : "Approve & send"}
+                      ? isInbound
+                        ? "Releasing…"
+                        : "Sending…"
+                      : isInbound
+                        ? "Approve & release"
+                        : editing
+                          ? "Approve & send edited"
+                          : "Approve & send"}
                   </button>
-                  {!editing ? (
+                  {!isInbound &&
+                    (!editing ? (
                     <button
                       onClick={() => setEditing(true)}
                       disabled={busy}
@@ -417,7 +426,7 @@ export function PendingRow({
                     >
                       Cancel edit
                     </button>
-                  )}
+                  ))}
                   <button
                     onClick={() => setRejectOpen((s) => !s)}
                     disabled={busy}

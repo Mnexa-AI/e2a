@@ -27,48 +27,30 @@ global.fetch = mockFetch;
 
 const AGENT_EMAIL = "ag_1@agents.e2a.dev";
 
-// REAL MessageSummaryView row (PageMessageSummaryView.items) for the
-// agent's outbound message list — a held draft. Per the server: outbound
-// rows carry the HITL lifecycle in `review_status`; the `status` field is
-// the delivery rollup and is EMPTY for a held draft. `from` is also empty
-// on outbound. This is the shape the old `status === "pending_review"`
-// filter would have silently dropped.
+// A ReviewView row from GET /v1/reviews (the account-scoped review queue).
 const SAMPLE_ROW = {
-  message_id: "msg_1",
+  id: "msg_1",
+  agent: AGENT_EMAIL,
   direction: "outbound",
-  from: "",
+  from: AGENT_EMAIL,
   to: ["alice@example.com"],
-  recipient: "alice@example.com",
   subject: "Sample pending subject",
-  status: "",
   review_status: "pending_review",
   created_at: "2026-05-23T00:00:00Z",
 };
 
-// Stage GET /v1/agents and the per-agent outbound message list.
+// Stage GET /v1/reviews (one account-scoped call; no per-agent fan-out).
 function stagePendingFetch() {
-  mockFetch.mockImplementation((url: string) => {
-    if (url === "/v1/agents") {
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        text: () =>
-          Promise.resolve(
-            JSON.stringify({
-              items: [{ email: AGENT_EMAIL, hitl_enabled: true }],
-            }),
-          ),
-      });
-    }
-    return Promise.resolve({
-      ok: true,
-      status: 200,
-      text: () =>
-        Promise.resolve(
-          JSON.stringify({ items: [SAMPLE_ROW], next_cursor: null }),
-        ),
-    });
-  });
+  mockFetch.mockImplementation((url: string) =>
+    url === "/v1/reviews"
+      ? Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () =>
+            Promise.resolve(JSON.stringify({ items: [SAMPLE_ROW], next_cursor: null })),
+        })
+      : Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve("nf") }),
+  );
 }
 
 beforeEach(async () => {
@@ -86,7 +68,7 @@ describe("PendingPage SWR subscription", () => {
   // and rendered the empty state. The first `waitFor` below (the row's
   // subject is visible, i.e. NOT the empty state) fails against the old
   // `status` filter and passes only with the `review_status` filter.
-  it("reflects external mutate() to pendingMessagesKey (proves the page is a SWR subscriber, not local-state), and surfaces a status:'' + review_status:'pending_approval' row (Bug 1)", async () => {
+  it("renders a review item from /v1/reviews and reflects external mutate() to pendingMessagesKey (proves it's an SWR subscriber, not local state)", async () => {
     stagePendingFetch();
 
     render(<PendingPage />);

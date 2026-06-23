@@ -243,6 +243,8 @@ type MessageViewWire = {
   created_at: string;
   auth_headers?: Record<string, string>;
   body?: { text?: string; html?: string };
+  // Inbound parsed/injection-reduced text (held inbound has no draft body).
+  parsed?: { text?: string };
   raw_message?: string;
 };
 
@@ -267,23 +269,24 @@ function projectPending(
     // the delivery rollup is empty until it's approved + sent.
     status: w.review_status ?? "",
     created_at: w.created_at,
-    body_text: w.body?.text,
+    // Outbound drafts carry an editable `body`; inbound holds carry the
+    // received content as `parsed.text` (no draft body). Fall back so the
+    // reviewer sees the message either way.
+    body_text: w.body?.text ?? w.parsed?.text,
     body_html: w.body?.html,
   };
 }
 
-// Pending-draft detail. `/v1` has no bare-id endpoint, so callers must
-// thread the owning agent's address. Built from the agent-scoped
-// MessageView.
+// Held-message detail for the review queue: GET /v1/reviews/{id}
+// (account-scoped; id is globally unique so no agent address is needed).
+// `email` is retained only for the SWR cache key. Built from the
+// MessageView the endpoint returns.
 export async function getPendingMessage(
   email: string,
   id: string,
 ): Promise<PendingMessageDetail> {
   const w = await request<MessageViewWire>(
-    "/v1/agents/" +
-      encodeURIComponent(email) +
-      "/messages/" +
-      encodeURIComponent(id),
+    "/v1/reviews/" + encodeURIComponent(id),
   );
   return projectPending(email, w);
 }
@@ -365,62 +368,40 @@ export async function setProtection(
 
 // ── HITL pending messages ───────────────────────────────
 
-// Wire shape of an agent row in PageAgentView.items (GET /v1/agents).
-type AgentViewWire = {
-  email: string;
+// Wire shape of a row in the review queue (GET /v1/reviews → { items }).
+// Mirrors ReviewView in api/openapi.yaml. The review queue is the
+// account-scoped operator surface for holds of BOTH directions (outbound
+// drafts awaiting send + inbound messages held by a screening gate).
+type ReviewWire = {
+  id: string;
+  agent: string;
+  direction: "inbound" | "outbound";
+  from: string;
+  to?: string[] | null;
+  subject: string;
+  conversation_id?: string;
+  review_status: string;
+  created_at: string;
 };
 
-// `/v1` has no cross-account pending endpoint. Pending drafts are
-// outbound messages whose review lifecycle is "pending_review", scoped
-// per agent. NOTE: on MessageSummaryView the review state lives in
-// `review_status` (projected to the app's `review_status`), NOT
-// `delivery_status` — the delivery rollup on a held draft is empty. We
-// fan out over the account's agents, list each agent's outbound
-// messages, keep the rows whose review status is pending, and tag each
-// with the owning agent's address so the detail/approve/reject calls can
-// be addressed. Aggregated newest-first. (Per-agent review config lives
-// on the /protection sub-resource now — there is no agent-level flag to
-// pre-filter on, so we query every agent.)
+// The pending-review queue: one account-scoped call to GET /v1/reviews
+// returns every hold (both directions) across the account's inboxes,
+// newest-first. (Replaces the old per-agent fan-out over /messages — the
+// dedicated /reviews resource is account-only, so agents can't see holds,
+// and held inbound is surfaced here without leaking onto the agent inbox.)
 export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
-  const agentsResp = await request<{ items?: AgentViewWire[] | null }>("/v1/agents");
-  const agents = agentsResp.items ?? [];
-  const perAgent = await Promise.all(
-    agents.map(async (a) => {
-      try {
-        const page = await listAgentMessages(a.email, {
-          direction: "outbound",
-          pageSize: 100,
-        });
-        return page.items
-          .filter((m) => m.review_status === "pending_review")
-          .map<PendingMessageSummary>((m) => ({
-            id: m.message_id,
-            agent_email: a.email,
-            direction: m.direction,
-            from: m.from,
-            subject: m.subject,
-            conversation_id: m.conversation_id,
-            to: m.to ?? [],
-            cc: m.cc,
-            // Surface the HITL lifecycle value as the row's `status` —
-            // the wire `status` is the (empty) delivery rollup for a
-            // held draft, so the pending UI keys off review_status here.
-            status: m.review_status ?? "",
-            created_at: m.created_at,
-          }));
-      } catch {
-        // One agent failing (e.g. transient 5xx) shouldn't blank the
-        // whole queue — drop its rows and surface the rest.
-        return [] as PendingMessageSummary[];
-      }
-    }),
-  );
-  return perAgent
-    .flat()
-    .sort(
-      (a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-    );
+  const page = await request<{ items?: ReviewWire[] | null }>("/v1/reviews");
+  return (page.items ?? []).map<PendingMessageSummary>((r) => ({
+    id: r.id,
+    agent_email: r.agent,
+    direction: r.direction,
+    from: r.from,
+    subject: r.subject,
+    conversation_id: r.conversation_id,
+    to: r.to ?? [],
+    status: r.review_status,
+    created_at: r.created_at,
+  }));
 }
 
 export type ApprovePayload = {
@@ -449,12 +430,9 @@ export async function approvePendingMessage(
   method?: string;
   edited?: boolean;
 }> {
+  void agentEmail; // not needed by /reviews (id is globally unique); kept for call-site compat
   return request(
-    "/v1/agents/" +
-      encodeURIComponent(agentEmail) +
-      "/messages/" +
-      encodeURIComponent(id) +
-      "/approve",
+    "/v1/reviews/" + encodeURIComponent(id) + "/approve",
     {
       method: "POST",
       body: JSON.stringify(overrides),
@@ -467,12 +445,9 @@ export async function rejectPendingMessage(
   id: string,
   reason: string,
 ): Promise<{ status: string; message_id: string; rejection_reason?: string }> {
+  void agentEmail;
   return request(
-    "/v1/agents/" +
-      encodeURIComponent(agentEmail) +
-      "/messages/" +
-      encodeURIComponent(id) +
-      "/reject",
+    "/v1/reviews/" + encodeURIComponent(id) + "/reject",
     {
       method: "POST",
       body: JSON.stringify({ reason }),

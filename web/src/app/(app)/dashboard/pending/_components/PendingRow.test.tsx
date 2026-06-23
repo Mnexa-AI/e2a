@@ -35,7 +35,9 @@ beforeEach(() => {
   global.fetch = mockFetch as unknown as typeof fetch;
 });
 
-const detailURL = `/v1/agents/${encodeURIComponent(AGENT)}/messages/msg_1`;
+// Detail + approve/reject now go through the account-scoped /v1/reviews
+// resource (id is globally unique; no agent address in the path).
+const detailURL = `/v1/reviews/msg_1`;
 function stage(overrides: Record<string, unknown> = {}) {
   mockFetch.mockImplementation((url: string, init?: { method?: string }) => {
     if (url === `${detailURL}/approve` && init?.method === "POST")
@@ -66,6 +68,22 @@ describe("PendingRow", () => {
     render(<PendingRow summary={inbound} expanded={false} onToggle={() => {}} onResolved={() => {}} />);
     expect(screen.getByText("Inbound")).toBeInTheDocument();
     expect(screen.getByText(/suspicious@spammy\.biz → support@acme\.dev/)).toBeInTheDocument();
+  });
+
+  it("inbound hold: release/block actions, no editor", async () => {
+    stage();
+    const inbound = {
+      ...summary,
+      direction: "inbound" as const,
+      from: "suspicious@spammy.biz",
+      to: [AGENT],
+    };
+    render(<PendingRow summary={inbound} expanded onToggle={() => {}} onResolved={() => {}} />);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Approve & release" })).toBeInTheDocument(),
+    );
+    // No draft editing for an inbound (incoming) message.
+    expect(screen.queryByRole("button", { name: "Edit draft" })).not.toBeInTheDocument();
   });
 
   it("collapsed shows the summary; not the body", () => {

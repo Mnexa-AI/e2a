@@ -25,6 +25,7 @@ __all__ = [
     "EventsApi",
     "MessagesApi",
     "MetaApi",
+    "ReviewsApi",
     "WebhooksApi",
     "ApiResponse",
     "ApiClient",
@@ -79,6 +80,7 @@ __all__ = [
     "PageDomainView",
     "PageEventJSON",
     "PageMessageSummaryView",
+    "PageReviewView",
     "PageSuppression",
     "PageWebhookDeliveryView",
     "PageWebhookView",
@@ -96,6 +98,7 @@ __all__ = [
     "RejectResultView",
     "ReplyRequest",
     "Result",
+    "ReviewView",
     "RotateSecretResponse",
     "SendEmailRequest",
     "SendResultView",
@@ -126,6 +129,7 @@ from e2a.v1.generated.api.domains_api import DomainsApi as DomainsApi
 from e2a.v1.generated.api.events_api import EventsApi as EventsApi
 from e2a.v1.generated.api.messages_api import MessagesApi as MessagesApi
 from e2a.v1.generated.api.meta_api import MetaApi as MetaApi
+from e2a.v1.generated.api.reviews_api import ReviewsApi as ReviewsApi
 from e2a.v1.generated.api.webhooks_api import WebhooksApi as WebhooksApi
 
 # import ApiClient
@@ -184,6 +188,7 @@ from e2a.v1.generated.models.page_conversation_summary_view import PageConversat
 from e2a.v1.generated.models.page_domain_view import PageDomainView as PageDomainView
 from e2a.v1.generated.models.page_event_json import PageEventJSON as PageEventJSON
 from e2a.v1.generated.models.page_message_summary_view import PageMessageSummaryView as PageMessageSummaryView
+from e2a.v1.generated.models.page_review_view import PageReviewView as PageReviewView
 from e2a.v1.generated.models.page_suppression import PageSuppression as PageSuppression
 from e2a.v1.generated.models.page_webhook_delivery_view import PageWebhookDeliveryView as PageWebhookDeliveryView
 from e2a.v1.generated.models.page_webhook_view import PageWebhookView as PageWebhookView
@@ -201,6 +206,7 @@ from e2a.v1.generated.models.reject_request import RejectRequest as RejectReques
 from e2a.v1.generated.models.reject_result_view import RejectResultView as RejectResultView
 from e2a.v1.generated.models.reply_request import ReplyRequest as ReplyRequest
 from e2a.v1.generated.models.result import Result as Result
+from e2a.v1.generated.models.review_view import ReviewView as ReviewView
 from e2a.v1.generated.models.rotate_secret_response import RotateSecretResponse as RotateSecretResponse
 from e2a.v1.generated.models.send_email_request import SendEmailRequest as SendEmailRequest
 from e2a.v1.generated.models.send_result_view import SendResultView as SendResultView

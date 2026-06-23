@@ -46,6 +46,7 @@ import { PageConversationSummaryView } from '../models/PageConversationSummaryVi
 import { PageDomainView } from '../models/PageDomainView.js';
 import { PageEventJSON } from '../models/PageEventJSON.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
+import { PageReviewView } from '../models/PageReviewView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
@@ -63,6 +64,7 @@ import { RejectRequest } from '../models/RejectRequest.js';
 import { RejectResultView } from '../models/RejectResultView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
+import { ReviewView } from '../models/ReviewView.js';
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
@@ -1096,6 +1098,117 @@ export class PromiseMetaApi {
     public getInfo(_options?: PromiseConfigurationOptions): Promise<DeploymentInfoView> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.getInfo(observableOptions);
+        return result.toPromise();
+    }
+
+
+}
+
+
+
+import { ObservableReviewsApi } from './ObservableAPI.js';
+
+import { ReviewsApiRequestFactory, ReviewsApiResponseProcessor} from "../apis/ReviewsApi.js";
+export class PromiseReviewsApi {
+    private api: ObservableReviewsApi
+
+    public constructor(
+        configuration: Configuration,
+        requestFactory?: ReviewsApiRequestFactory,
+        responseProcessor?: ReviewsApiResponseProcessor
+    ) {
+        this.api = new ObservableReviewsApi(configuration, requestFactory, responseProcessor);
+    }
+
+    /**
+     * Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.
+     * Approve a held message
+     * @param id
+     * @param approveRequest
+     * @param [idempotencyKey]
+     */
+    public approveReviewWithHttpInfo(id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendResultView>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.approveReviewWithHttpInfo(id, approveRequest, idempotencyKey, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.
+     * Approve a held message
+     * @param id
+     * @param approveRequest
+     * @param [idempotencyKey]
+     */
+    public approveReview(id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.approveReview(id, approveRequest, idempotencyKey, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.
+     * Get a held message (full detail)
+     * @param id
+     */
+    public getReviewWithHttpInfo(id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<MessageView>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.getReviewWithHttpInfo(id, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.
+     * Get a held message (full detail)
+     * @param id
+     */
+    public getReview(id: string, _options?: PromiseConfigurationOptions): Promise<MessageView> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.getReview(id, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * The review queue: every message held in pending_review across the account\'s inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds.
+     * List messages awaiting review
+     */
+    public listReviewsWithHttpInfo(_options?: PromiseConfigurationOptions): Promise<HttpInfo<PageReviewView>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.listReviewsWithHttpInfo(observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * The review queue: every message held in pending_review across the account\'s inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds.
+     * List messages awaiting review
+     */
+    public listReviews(_options?: PromiseConfigurationOptions): Promise<PageReviewView> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.listReviews(observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.
+     * Reject a held message
+     * @param id
+     * @param rejectRequest
+     */
+    public rejectReviewWithHttpInfo(id: string, rejectRequest: RejectRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<RejectResultView>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.rejectReviewWithHttpInfo(id, rejectRequest, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.
+     * Reject a held message
+     * @param id
+     * @param rejectRequest
+     */
+    public rejectReview(id: string, rejectRequest: RejectRequest, _options?: PromiseConfigurationOptions): Promise<RejectResultView> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.rejectReview(id, rejectRequest, observableOptions);
         return result.toPromise();
     }
 
