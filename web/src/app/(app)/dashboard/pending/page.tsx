@@ -79,12 +79,12 @@ function PendingContent() {
           ? ["Pending", (selected.subject || selectedId).slice(0, 28) + "…"]
           : ["Pending"]
       }
-      eyebrow="Review · Outbound holds"
+      eyebrow="Review · Message holds"
       title={<>Pending review</>}
       subtitle={
         messages.length > 0
-          ? `${messages.length} held ${messages.length === 1 ? "draft" : "drafts"} awaiting approval`
-          : "Outbound messages from inboxes with a review hold land here. Approve as-is, edit, or reject."
+          ? `${messages.length} held ${messages.length === 1 ? "message" : "messages"} awaiting review`
+          : "Inbound or outbound messages held by a review gate land here. Approve or reject each one."
       }
       maxWidth={900}
     >
@@ -123,8 +123,9 @@ function PendingContent() {
             Nothing waiting for review.
           </p>
           <p className="text-[12px] mt-1" style={{ color: "var(--fg-subtle)" }}>
-            Outbound messages from an inbox with a review hold appear here.
-            Turn one on in an inbox&apos;s Settings → Protection.
+            Inbound or outbound messages held by an inbox&apos;s review gate
+            appear here. Configure holds in an inbox&apos;s Settings →
+            Protection.
           </p>
         </div>
       ) : (

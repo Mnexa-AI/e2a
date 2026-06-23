@@ -215,10 +215,21 @@ export function PendingRow({
             className="block font-mono text-[11px] truncate"
             style={{ color: "var(--fg-subtle)" }}
           >
-            {agentEmail} → {(summary.to ?? [])[0] || "—"}
-            {summary.to && summary.to.length > 1 && ` +${summary.to.length - 1}`}
+            {summary.direction === "inbound" ? (
+              <>
+                {summary.from || "—"} → {agentEmail}
+              </>
+            ) : (
+              <>
+                {agentEmail} → {(summary.to ?? [])[0] || "—"}
+                {summary.to && summary.to.length > 1 && ` +${summary.to.length - 1}`}
+              </>
+            )}
           </span>
         </span>
+        <Chip tone={summary.direction === "inbound" ? "info" : "neutral"}>
+          {summary.direction === "inbound" ? "Inbound" : "Outbound"}
+        </Chip>
         <Chip tone="warn">
           <Dot tone="warn" /> Pending
         </Chip>

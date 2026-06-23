@@ -49,6 +49,25 @@ function stage(overrides: Record<string, unknown> = {}) {
 }
 
 describe("PendingRow", () => {
+  it("annotates direction: outbound shows inbox → recipient + Outbound", () => {
+    stage();
+    render(<PendingRow summary={summary} expanded={false} onToggle={() => {}} onResolved={() => {}} />);
+    expect(screen.getByText("Outbound")).toBeInTheDocument();
+    expect(screen.getByText(/support@acme\.dev → customer@bigco\.com/)).toBeInTheDocument();
+  });
+
+  it("annotates direction: inbound shows sender → inbox + Inbound", () => {
+    const inbound = {
+      ...summary,
+      direction: "inbound" as const,
+      from: "suspicious@spammy.biz",
+      to: [AGENT],
+    };
+    render(<PendingRow summary={inbound} expanded={false} onToggle={() => {}} onResolved={() => {}} />);
+    expect(screen.getByText("Inbound")).toBeInTheDocument();
+    expect(screen.getByText(/suspicious@spammy\.biz → support@acme\.dev/)).toBeInTheDocument();
+  });
+
   it("collapsed shows the summary; not the body", () => {
     stage();
     render(<PendingRow summary={summary} expanded={false} onToggle={() => {}} onResolved={() => {}} />);

@@ -396,7 +396,8 @@ export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
           .map<PendingMessageSummary>((m) => ({
             id: m.message_id,
             agent_email: a.email,
-            direction: "outbound",
+            direction: m.direction,
+            from: m.from,
             subject: m.subject,
             conversation_id: m.conversation_id,
             to: m.to ?? [],
