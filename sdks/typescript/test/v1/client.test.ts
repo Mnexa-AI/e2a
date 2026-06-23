@@ -121,7 +121,7 @@ describe("E2AClient", () => {
 
   it("agents.create POSTs the body to /v1/agents", async () => {
     globalThis.fetch = mockFetch(201, { id: "ag_new", email: "new@test.dev" });
-    const res = await client.agents.create({ email: "new@test.dev", agent_mode: "local" } as never);
+    const res = await client.agents.create({ email: "new@test.dev" });
     const { url, init } = lastCall();
     expect(init.method).toBe("POST");
     expect(url).toContain("/v1/agents");

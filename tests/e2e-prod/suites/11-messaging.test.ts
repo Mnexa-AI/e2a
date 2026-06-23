@@ -2,7 +2,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { cleanup, track } from "../harness/cleanup.ts";
-import { uniqueSlug, uniqueSubject, uniqueIdempotencyKey, SINK_EMAIL } from "../harness/fixtures.ts";
+import { uniqueSlug, uniqueSubject, uniqueIdempotencyKey, SINK_EMAIL, holdAllOutbound } from "../harness/fixtures.ts";
 import { fail, info, warn, writeReport } from "../harness/report.ts";
 
 const client = new ApiClient();
@@ -17,15 +17,13 @@ after(async () => {
 async function createHitlAgent(name: string): Promise<string> {
   const slug = uniqueSlug(name);
   const c = await client.post<{ email: string }>("/v1/agents", {
-    body: { slug, name, agent_mode: "local" },
+    body: { email: `${slug}@${client.env.sharedDomain}`, name },
   });
   if (c.status !== 201) throw new Error(`create agent failed: ${c.status} ${c.raw.slice(0, 200)}`);
   const email = c.body!.email;
   track("agent", email);
-  const u = await client.put(`/v1/agents/${encodeURIComponent(email)}`, {
-    body: { hitl_enabled: true, hitl_expiration_action: "reject", hitl_ttl_seconds: 120 },
-  });
-  if (u.status !== 200) throw new Error(`enable HITL failed: ${u.status} ${u.raw.slice(0, 200)}`);
+  const u = await holdAllOutbound(client, email);
+  if (u.status !== 200) throw new Error(`enable outbound review failed: ${u.status} ${u.raw.slice(0, 200)}`);
   return email;
 }
 
@@ -152,7 +150,7 @@ test("messaging: HITL approve flow — send queues, approve sends, status→sent
     info(SUITE, "approve-no-202", `expected 202 from HITL send, got ${s.status}: ${s.raw.slice(0, 200)}`);
     return;
   }
-  assert.equal(s.body?.status, "pending_approval");
+  assert.equal(s.body?.status, "pending_review");
   const id = s.body!.message_id;
 
   // Approve — empty body approves as-is. Goes out via SMTP to blackhole sink.

@@ -2,7 +2,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { cleanup, track } from "../harness/cleanup.ts";
-import { uniqueSlug, uniqueSubject, SINK_EMAIL } from "../harness/fixtures.ts";
+import { uniqueSlug, uniqueSubject, SINK_EMAIL, holdAllOutbound } from "../harness/fixtures.ts";
 import { fail, info, warn, writeReport } from "../harness/report.ts";
 
 const client = new ApiClient();
@@ -29,7 +29,7 @@ test("info: public deployment metadata is returned", async () => {
 });
 
 test("agents: list returns user's agents with required fields", async () => {
-  const r = await client.get<{ agents: Array<{ email: string; domain: string; agent_mode: string }> }>(
+  const r = await client.get<{ agents: Array<{ email: string; domain: string }> }>(
     "/v1/agents",
   );
   assert.equal(r.status, 200);
@@ -37,7 +37,6 @@ test("agents: list returns user's agents with required fields", async () => {
   for (const a of r.body!.agents) {
     assert.ok(a.email && a.email.includes("@"), `agent.email valid: ${a.email}`);
     assert.ok(a.domain, `agent.domain set: ${a.email}`);
-    assert.ok(["local", "cloud"].includes(a.agent_mode), `agent_mode in enum: ${a.agent_mode}`);
   }
 });
 
@@ -61,24 +60,10 @@ test("agents: get malformed email returns 4xx", async () => {
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}`);
 });
 
-test("agents: POST without agent_mode defaults to cloud and 400s (DX finding)", async () => {
-  const r = await client.post("/v1/agents", { body: { slug: uniqueSlug("nomode"), name: "no mode" } });
-  if (r.status === 201) {
-    info(SUITE, "no-mode-default", "POST /agents without agent_mode succeeded — default behavior should be documented");
-  } else {
-    info(
-      SUITE,
-      "no-mode-default",
-      `POST /agents without agent_mode → ${r.status} "${r.raw.slice(0, 120)}". RegisterAgentRequest schema does not declare a default or required mode. Recommend either documenting agent_mode as required, or defaulting to "local" for slug onboarding.`,
-    );
-  }
-  // No assertion — informational only.
-});
-
 test("agents: create + read + delete (slug on shared domain)", async () => {
   const slug = uniqueSlug();
   const create = await client.post<{ email: string; id: string; domain: string }>("/v1/agents", {
-    body: { slug, name: `e2e ${slug}`, agent_mode: "local" },
+    body: { email: `${slug}@${client.env.sharedDomain}`, name: `e2e ${slug}` },
   });
   assert.equal(create.status, 201, `create slug-agent expected 201, got ${create.status}: ${create.raw.slice(0, 200)}`);
   assert.ok(create.body?.email, "create returns email");
@@ -108,57 +93,44 @@ test("agents: create with missing slug AND email returns 4xx", async () => {
 test("agents: create with duplicate slug returns 409 (or 4xx)", async () => {
   const slug = uniqueSlug();
   const first = await client.post<{ email: string }>("/v1/agents", {
-    body: { slug, name: "first", agent_mode: "local" },
+    body: { email: `${slug}@${client.env.sharedDomain}`, name: "first" },
   });
   assert.equal(first.status, 201);
   track("agent", first.body!.email);
-  const second = await client.post("/v1/agents", { body: { slug, name: "second", agent_mode: "local" } });
+  const second = await client.post("/v1/agents", { body: { email: `${slug}@${client.env.sharedDomain}`, name: "second" } });
   assert.ok(second.status >= 400 && second.status < 500, `dup slug expected 4xx, got ${second.status}`);
   if (second.status !== 409) {
     info(SUITE, "dup-slug-code", `spec documents 409 for "Agent already exists" but got ${second.status}: ${second.raw.slice(0, 120)}`);
   }
 });
 
-test("agents: update hitl_enabled via PUT persists", async () => {
+test("agents: hold-all-outbound via protection persists", async () => {
   const slug = uniqueSlug();
   const c = await client.post<{ email: string }>("/v1/agents", {
-    body: { slug, name: "update target", agent_mode: "local" },
+    body: { email: `${slug}@${client.env.sharedDomain}`, name: "update target" },
   });
   assert.equal(c.status, 201);
   const email = c.body!.email;
   track("agent", email);
 
-  const upd = await client.put(`/v1/agents/${encodeURIComponent(email)}`, { body: { hitl_enabled: true } });
-  assert.equal(upd.status, 200, `update expected 200, got ${upd.status}: ${upd.raw.slice(0, 200)}`);
+  const upd = await holdAllOutbound(client, email);
+  assert.equal(upd.status, 200, `protection update expected 200, got ${upd.status}: ${upd.raw.slice(0, 200)}`);
 
-  const g = await client.get<{ hitl_enabled: boolean }>(`/v1/agents/${encodeURIComponent(email)}`);
-  assert.equal(g.body?.hitl_enabled, true, "hitl_enabled update persisted");
+  const g = await client.get<{ outbound: { gate: { action: string } } }>(
+    `/v1/agents/${encodeURIComponent(email)}/protection`,
+  );
+  assert.equal(g.body?.outbound?.gate?.action, "review", "outbound review gate persisted");
 });
 
-test("agents: update with invalid agent_mode enum returns 4xx", async () => {
-  const slug = uniqueSlug();
-  const c = await client.post<{ email: string }>("/v1/agents", {
-    body: { slug, name: "invalid mode", agent_mode: "local" },
-  });
-  assert.equal(c.status, 201);
-  track("agent", c.body!.email);
-  const r = await client.put(`/v1/agents/${encodeURIComponent(c.body!.email)}`, {
-    body: { agent_mode: "not-a-real-mode" },
-  });
-  assert.ok(r.status >= 400 && r.status < 500, `expected 4xx for bad enum, got ${r.status}: ${r.raw.slice(0, 200)}`);
-});
-
-test("send: HITL-enabled agent returns 202 pending_approval", async () => {
+test("send: review-gated agent returns 202 pending_review", async () => {
   const slug = uniqueSlug("hitl");
   const c = await client.post<{ email: string }>("/v1/agents", {
-    body: { slug, name: "hitl", agent_mode: "local" },
+    body: { email: `${slug}@${client.env.sharedDomain}`, name: "hitl" },
   });
   assert.equal(c.status, 201);
   const email = c.body!.email;
   track("agent", email);
-  const u = await client.put(`/v1/agents/${encodeURIComponent(email)}`, {
-    body: { hitl_enabled: true, hitl_expiration_action: "reject", hitl_ttl_seconds: 60 },
-  });
+  const u = await holdAllOutbound(client, email);
   assert.equal(u.status, 200);
 
   const send = await client.post<{ message_id: string; status: string }>(
@@ -176,10 +148,10 @@ test("send: HITL-enabled agent returns 202 pending_approval", async () => {
     `expected 202/200, got ${send.status}: ${send.raw.slice(0, 200)}`,
   );
   if (send.status !== 202) {
-    fail(SUITE, "send-hitl-pending", `HITL agent should yield 202 pending_approval, got ${send.status}`, send.body);
+    fail(SUITE, "send-hitl-pending", `review-gated agent should yield 202 pending_review, got ${send.status}`, send.body);
     return;
   }
-  assert.equal(send.body?.status, "pending_approval", "status field should be pending_approval");
+  assert.equal(send.body?.status, "pending_review", "status field should be pending_review");
   assert.ok(send.body?.message_id?.startsWith("msg_"), "message_id has msg_ prefix");
 
   const reject = await client.post(

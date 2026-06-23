@@ -14,23 +14,6 @@ after(async () => {
   writeReport(`./reports/09-postfix.json`);
 });
 
-test("postfix #3: POST /agents without agent_mode returns 400 (was implicit default to cloud)", async () => {
-  const slug = uniqueSlug("nomode");
-  const r = await client.post("/v1/agents", { body: { slug, name: "no mode" } });
-  assert.equal(r.status, 400, `expected 400, got ${r.status}: ${r.raw.slice(0, 200)}`);
-  // Body should mention agent_mode explicitly.
-  assert.ok(/agent_mode/i.test(r.raw), `expected error mentioning agent_mode, got: ${r.raw.slice(0, 200)}`);
-  info(SUITE, "agent-mode-required", `body: "${r.raw.trim()}"`);
-});
-
-test("postfix #3: invalid agent_mode value returns 400", async () => {
-  const slug = uniqueSlug("badmode");
-  const r = await client.post("/v1/agents", {
-    body: { slug, name: "bad mode", agent_mode: "neither-local-nor-cloud" },
-  });
-  assert.equal(r.status, 400, `expected 400, got ${r.status}`);
-});
-
 test("postfix #4: GET nonexistent path returns 404 with text/plain body", async () => {
   const r = await client.get("/v1/this/does/not/exist");
   assert.equal(r.status, 404, `expected 404, got ${r.status}`);
@@ -118,7 +101,7 @@ test("postfix #1 #2: /agents 429 includes Retry-After header (active probe — d
   let retryAfter: string | undefined;
   for (let i = 0; i < 25; i++) {
     const r = await client.post<{ email?: string }>("/v1/agents", {
-      body: { slug: uniqueSlug(`pf${i}`), name: "pf", agent_mode: "local" },
+      body: { email: `${uniqueSlug(`pf${i}`)}@${client.env.sharedDomain}`, name: "pf" },
     });
     if (r.status === 429) {
       saw429 = true;

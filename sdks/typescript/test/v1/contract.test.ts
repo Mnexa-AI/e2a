@@ -52,8 +52,8 @@ class RawApi {
     await this.raw("POST", "/v1/domains", input);
   }
 
-  async registerAgent(input: { email: string; agent_mode: string }): Promise<void> {
-    await this.raw("POST", "/v1/agents", { address: input.email, agent_mode: input.agent_mode });
+  async registerAgent(input: { email: string }): Promise<void> {
+    await this.raw("POST", "/v1/agents", { email: input.email });
   }
 }
 
@@ -70,7 +70,7 @@ interface Scenario {
 interface SetupStep {
   register_domain?: string;
   verify_domain?: string;
-  register_agent?: { email: string; agent_mode: string };
+  register_agent?: { email: string };
   inject_message?: { agent_email: string; from: string; subject: string };
 }
 
@@ -146,7 +146,7 @@ function valuesEqual(jsonVal: unknown, yamlVal: unknown): boolean {
   return String(jsonVal) === String(yamlVal);
 }
 
-/** Extract agent email from a WS path like /api/v1/agents/bot@ws.test.dev/ws */
+/** Extract agent email from a WS path like /v1/agents/bot@ws.test.dev/ws */
 function extractEmailFromWSPath(path: string): string {
   const parts = path.replace(/^\/+/, "").split("/");
   for (let i = 0; i < parts.length; i++) {
@@ -227,10 +227,7 @@ class Runner {
       if (s.register_agent) {
         const email = this.resolve(s.register_agent.email);
         try {
-          await this.api.registerAgent({
-            email,
-            agent_mode: s.register_agent.agent_mode,
-          });
+          await this.api.registerAgent({ email });
         } catch (err) {
           if (err instanceof RawApiError && err.statusCode === 409) {
             /* already exists */

@@ -79,9 +79,9 @@ test("authz: GET /agents/<email-i-dont-own> returns 403 (no info leak)", async (
   assert.equal(r.status, 403, `expected 403, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
-test("authz: PUT /agents/<email-i-dont-own> returns 403 or 4xx", async () => {
-  const r = await client.put(`/v1/agents/${encodeURIComponent("nobody@example.com")}`, {
-    body: { hitl_enabled: true },
+test("authz: PATCH /agents/<email-i-dont-own> returns 403 or 4xx", async () => {
+  const r = await client.patch(`/v1/agents/${encodeURIComponent("nobody@example.com")}`, {
+    body: { name: "rename attempt" },
   });
   assert.ok(r.status === 403 || (r.status >= 400 && r.status < 500), `expected 4xx, got ${r.status}`);
 });
@@ -124,7 +124,7 @@ test("authz: POST /messages/<bogus>/reject returns 4xx", async () => {
 test("authz: can act on own agent (positive control)", async () => {
   const slug = uniqueSlug("authz");
   const c = await client.post<{ email: string }>("/v1/agents", {
-    body: { slug, name: "authz pos", agent_mode: "local" },
+    body: { email: `${slug}@${client.env.sharedDomain}`, name: "authz pos" },
   });
   assert.equal(c.status, 201);
   track("agent", c.body!.email);
