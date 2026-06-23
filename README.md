@@ -185,7 +185,7 @@ First contact from a human arrives with `conversation_id: null` — the agent sh
 
 ### Human in the loop (HITL)
 
-When an agent has HITL enabled, outbound `send` and `reply` calls do **not** dispatch immediately. The message is stored with status `pending_approval` and the API returns HTTP `202 Accepted`. A reviewer must approve it before delivery; otherwise, after a configurable TTL, the message expires into `expired_approved` (auto-sent) or `expired_rejected` (discarded), depending on the agent's `hitl_expiration_action`.
+When an agent's protection config holds an outbound message for review, `send` and `reply` calls do **not** dispatch immediately. The message is stored with status `pending_review` and the API returns HTTP `202 Accepted`. A reviewer must approve it before delivery; otherwise, after a configurable TTL, the message expires into `review_expired_approved` (auto-sent) or `review_expired_rejected` (discarded), depending on the agent's `hitl_expiration_action`. (Inbound messages can be held for review too — approve releases them to the inbox.)
 
 Reviewers can approve or reject via:
 
@@ -193,7 +193,7 @@ Reviewers can approve or reject via:
 - **Magic-link email** — sent automatically when HITL fires; one-click `GET /v1/approve?t=…` and `/v1/reject?t=…` URLs (requires `E2A_PUBLIC_URL` and outbound SMTP configured)
 - **CLI** — `e2a pending` lists held messages
 
-Enable HITL on an agent via `PATCH /v1/agents/{address}` with `hitl_enabled: true` and an optional `hitl_expiration_action` and TTL.
+Enable review holds on an agent via `PUT /v1/agents/{address}/protection`: set the outbound gate action to `review` (or turn on the content scan), plus the hold TTL and `hitl_expiration_action`. (The old `hitl_enabled`/`hitl_mode` flags were retired in the screening cutover.)
 
 ## API
 
@@ -319,7 +319,7 @@ Four things that aren't possible to bolt on without significant rework:
 
 3. **Slug provisioning on a shared domain.** Operators set `shared_domain: agents.e2a.dev` and users `POST {"slug": "my-agent"}` to immediately get `my-agent@agents.e2a.dev` with no DNS configuration. Possible because e2a *is* the SMTP relay claiming the domain — Resend / SendGrid are providers, not platforms, and can't multi-tenant a shared address space without you running the relay yourself.
 
-4. **Built-in HITL hold + auto-expiration.** A per-agent `hitl_enabled` flag holds outbound mail in `pending_approval` state. Reviewers approve via dashboard, magic-link email, or CLI; a background worker auto-acts on expired holds based on `hitl_expiration_action` config. Magic-link tokens are HMAC-encoded — stateless, no session backend. With Resend / SendGrid you'd hold the message in your own DB, build the timer, the approval UI, and the stateless review tokens.
+4. **Built-in review hold + auto-expiration.** A per-agent protection policy (outbound gate action `review`, or the content scan) holds mail in `pending_review` state. Reviewers approve via dashboard, magic-link email, or CLI; a background worker auto-acts on expired holds based on `hitl_expiration_action` config. Magic-link tokens are HMAC-encoded — stateless, no session backend. With Resend / SendGrid you'd hold the message in your own DB, build the timer, the approval UI, and the stateless review tokens.
 
 You can absolutely use SES / Resend / SendGrid as e2a's *outbound* SMTP for delivery to humans — that's what `outbound_smtp` in `config.yaml` is for. They complement e2a; they don't replace the inbound receiver, agent abstraction, or any of the layers above transport.
 
