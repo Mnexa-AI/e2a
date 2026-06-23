@@ -668,12 +668,6 @@ function BodyCard({
             >
               cancel edit
             </button>
-            <span
-              title="Drafts are sent when you approve them."
-              style={{ color: "var(--fg-subtle)", cursor: "help" }}
-            >
-              Save draft (unavailable)
-            </span>
           </>
         ) : isOutbound && isPending ? (
           <>

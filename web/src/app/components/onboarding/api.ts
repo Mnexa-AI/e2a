@@ -243,37 +243,6 @@ type MessageViewWire = {
   raw_message?: string;
 };
 
-// Inbound focus-page payload. The `/v1` detail endpoint
-// (GET /v1/agents/{address}/messages/{id}) returns a MessageView for
-// both inbound and outbound rows; the focus page's inbound branch reads
-// these fields. Marks the row read as a server-side side effect.
-export async function getInboundMessage(
-  email: string,
-  id: string,
-): Promise<InboundMessageDetail> {
-  const w = await request<MessageViewWire>(
-    "/v1/agents/" +
-      encodeURIComponent(email) +
-      "/messages/" +
-      encodeURIComponent(id),
-  );
-  return {
-    message_id: w.message_id,
-    from: w.from,
-    to: w.to ?? [],
-    cc: w.cc ?? [],
-    reply_to: w.reply_to ?? [],
-    recipient: w.recipient,
-    subject: w.subject,
-    conversation_id: w.conversation_id ?? "",
-    status: w.delivery_status ?? "",
-    created_at: w.created_at,
-    auth_headers: w.auth_headers ?? {},
-    body: w.body,
-    raw_message: w.raw_message ?? "",
-  };
-}
-
 // Projects a MessageView into the PendingMessageDetail shape the review
 // surfaces read. Fields the `/v1` MessageView doesn't expose
 // (attachments, the parent inbound context, the reviewer identity) come

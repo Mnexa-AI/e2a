@@ -41,7 +41,6 @@ export const agentMessagesKey = (
 // messages/{id}, so the cache key carries the owning agent's email.
 export const pendingMessageKey = (email: string, id: string) =>
   ["pending-message", email, id] as const;
-export const inboundMessageKey = (email: string, id: string) => ["inbound-message", email, id] as const;
 
 // ── Invalidation helpers ─────────────────────────────────
 
