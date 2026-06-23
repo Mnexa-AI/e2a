@@ -525,7 +525,7 @@ scenarios:
     description: >
       GET /agents/{email}/messages?direction=all returns the dashboard-
       inbox shape: every row carries `direction`, outbound rows carry
-      `hitl_status` and `webhook_status`. Catches the H1 SDK contract
+      `review_status` and `webhook_status`. Catches the H1 SDK contract
       drift if httpapi.MessageSummaryView falls out of sync with the
       handler again.
     setup:
@@ -571,7 +571,7 @@ scenarios:
       - id: list_mixed
         # /v1 listMessages: cursor page envelope ({"items":[...]}), page-size
         # param is `limit` (not legacy `page_size`). MessageSummaryView keeps
-        # the per-row `direction`; outbound rows carry `hitl_status`.
+        # the per-row `direction`; outbound rows carry `review_status`.
         action: request
         method: GET
         path: /v1/agents/{agent_email}/messages?direction=all&limit=10
@@ -584,7 +584,7 @@ scenarios:
           body_match:
             "items.length": 2
             "items[0].direction": outbound
-            "items[0].hitl_status": pending_review
+            "items[0].review_status": pending_review
             "items[1].direction": inbound
 
   - name: info_unauthenticated_shape
