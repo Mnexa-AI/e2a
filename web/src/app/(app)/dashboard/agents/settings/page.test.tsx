@@ -3,7 +3,8 @@
 // Covers: required-param error, agent fetch, the three section
 // editors (mode switch / webhook URL / HITL) wire up to PUT
 // /api/dashboard/agents/{email}, and the danger-zone delete confirm
-// flow routes back to /dashboard on success.
+// flow (DELETE /v1/agents/{email}?confirm=DELETE) routes back to
+// /dashboard on success.
 
 import { render, screen, waitFor, fireEvent } from "../../../../../test-utils/swr";
 import userEvent from "@testing-library/user-event";
@@ -231,11 +232,11 @@ describe("AgentSettingsPage", () => {
         });
       }
       if (
-        url === `/api/dashboard/agents/${encodeURIComponent(baseAgent.email)}` &&
+        url === `/v1/agents/${encodeURIComponent(baseAgent.email)}?confirm=DELETE` &&
         init?.method === "DELETE"
       ) {
         deleted = true;
-        return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve("") });
+        return Promise.resolve({ ok: true, status: 204, text: () => Promise.resolve("") });
       }
       return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve("not found") });
     });

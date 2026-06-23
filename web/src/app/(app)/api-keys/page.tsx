@@ -101,7 +101,7 @@ export default function APIKeysPage() {
 
   const fetchKeys = useCallback(async () => {
     try {
-      const res = await fetch("/api/keys");
+      const res = await fetch("/api/keys", { credentials: "include" });
       if (res.ok) setKeys(await res.json());
     } finally {
       setLoading(false);
@@ -125,6 +125,7 @@ export default function APIKeysPage() {
       }
       const res = await fetch("/api/keys", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
@@ -147,7 +148,10 @@ export default function APIKeysPage() {
       )
     )
       return;
-    const res = await fetch(`/api/keys/${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/keys/${id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
     if (res.ok) fetchKeys();
   };
 
