@@ -4,7 +4,6 @@
 import type {
   DomainInfo,
   AgentCreateResponse,
-  AgentMode,
   UpdateAgentRequest,
 } from "./types";
 import type {
@@ -106,8 +105,6 @@ export async function createAgent(params: {
   slug?: string;
   email?: string;
   name?: string;
-  agent_mode: AgentMode;
-  webhook_url?: string;
 }): Promise<AgentCreateResponse> {
   return request<AgentCreateResponse>("/v1/agents", {
     method: "POST",

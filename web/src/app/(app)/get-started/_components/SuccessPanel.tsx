@@ -1,19 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import type { AgentMode } from "../../../components/onboarding/types";
 import type { AgentData } from "../../../components/types";
 
 type TestState = "idle" | "sending" | "delivered";
 
 export function SuccessPanel({
   agent,
-  mode,
-  webhookUrl,
 }: {
   agent: AgentData;
-  mode: AgentMode;
-  webhookUrl?: string;
 }) {
   const [testState, setTestState] = useState<TestState>("idle");
   const [sendError, setSendError] = useState("");
@@ -122,20 +117,6 @@ export function SuccessPanel({
       <p className="mb-6 text-[14px]" style={{ color: "var(--fg-muted)" }}>
         Give the following commands to your agent to learn the e2a skill. Works with OpenClaw, Claude Code, Gemini CLI, or any agent that supports skills.
       </p>
-
-      {/* Webhook summary for cloud-mode agents */}
-      {mode === "cloud" && webhookUrl && (
-        <div className="mb-6 p-4 border border-border rounded-lg space-y-2">
-          <p className="text-sm font-medium">Webhook endpoint</p>
-          <code className="block text-xs font-mono bg-surface px-3 py-2 rounded border border-border break-all">
-            {webhookUrl}
-          </code>
-          <p className="text-xs text-muted">
-            Inbound emails to <code className="bg-surface px-1 py-0.5 rounded border border-border">{agent.email}</code> will
-            be POSTed to this URL as JSON.
-          </p>
-        </div>
-      )}
 
       <div className="space-y-4">
         <CodeBlock

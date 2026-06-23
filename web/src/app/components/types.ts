@@ -16,12 +16,9 @@ export type DashboardAgent = {
   domain: string;
   email: string;
   name: string;
-  webhook_url: string;
-  agent_mode: string;
   domain_verified: boolean;
   public: boolean;
   created_at: string;
-  hitl_enabled: boolean;
   hitl_ttl_seconds: number;
   hitl_expiration_action: "approve" | "reject";
 };

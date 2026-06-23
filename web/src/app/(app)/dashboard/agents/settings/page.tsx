@@ -1,9 +1,8 @@
 "use client";
 
-// Per-agent Settings — composes the mode/webhook/HITL editors that
-// used to live inline on the dashboard agent card, plus a danger
+// Per-agent Settings — the review-queue (HITL) editor plus a danger
 // zone for deletion. The dashboard card is now lean: identity +
-// stats + Open-inbox / Settings CTAs only; the editors live here.
+// Open-inbox / Settings CTAs only; the editor lives here.
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -11,8 +10,6 @@ import { Eyebrow } from "../../../../components/loft/Eyebrow";
 import { deleteAgent } from "../../../../components/onboarding/api";
 import { useAgents } from "../../../../components/hooks/useAgents";
 import { invalidateAgents } from "../../../../../lib/swrKeys";
-import { AgentModeSwitcher } from "../../_components/AgentModeSwitcher";
-import { WebhookEditor } from "../../_components/WebhookEditor";
 import { HITLEditor } from "../../_components/HITLEditor";
 
 // Suspense-wrap so useSearchParams stays inside a Suspense boundary
@@ -53,11 +50,10 @@ function AgentSettingsContent({ email }: { email: string }) {
         ? `Agent ${email} not found`
         : "";
 
-  // Editor saves now invalidate the shared `agentsKey` cache (see
-  // AgentModeSwitcher / WebhookEditor / HITLEditor). We re-derive
-  // the local `agent` value from useAgents(), so no refreshKey-bump
-  // pattern is needed any more — SWR fans the new data out to every
-  // consumer.
+  // Editor saves invalidate the shared `agentsKey` cache (see
+  // HITLEditor). We re-derive the local `agent` value from
+  // useAgents(), so no refreshKey-bump pattern is needed any more —
+  // SWR fans the new data out to every consumer.
   const onEditorSaved = () => {
     void invalidateAgents();
   };
@@ -100,8 +96,6 @@ function AgentSettingsContent({ email }: { email: string }) {
     );
   }
 
-  const isCloud = agent.agent_mode !== "local";
-
   return (
     <div
       data-testid="agent-settings"
@@ -112,40 +106,16 @@ function AgentSettingsContent({ email }: { email: string }) {
         width: "100%",
       }}
     >
-      {/* Mode */}
-      <Section title="Delivery mode" subtitle="Where the agent receives mail — directly via webhook (cloud) or by polling / WebSocket (local).">
-        <AgentModeSwitcher
-          email={agent.email}
-          currentMode={agent.agent_mode}
-          onSwitched={onEditorSaved}
-        />
-      </Section>
-
-      {/* Webhook URL — cloud-only */}
-      {isCloud && (
-        <Section
-          title="Webhook"
-          subtitle="The HTTPS endpoint we POST inbound messages to. Updates take effect on the next delivery."
-        >
-          <WebhookEditor
-            email={agent.email}
-            currentUrl={agent.webhook_url}
-            onUpdated={onEditorSaved}
-          />
-        </Section>
-      )}
-
-      {/* HITL — only when the domain is verified, matches the prior
-          AgentCard gating (the approve / reject pipeline needs a real
+      {/* Review queue — only when the domain is verified, matches the
+          prior gating (the approve / reject pipeline needs a real
           domain to deliver notifications). */}
       {agent.domain_verified && (
         <Section
-          title="Human-in-the-loop approvals"
-          subtitle="Hold outbound messages for review. While HITL is on, every send waits for an Approve or Reject before delivery — or auto-resolves at the TTL."
+          title="Review queue"
+          subtitle="When a message is held for review (by an inbound/outbound policy or content scan), it waits for an Approve or Reject — or auto-resolves at the TTL below."
         >
           <HITLEditor
             email={agent.email}
-            enabled={agent.hitl_enabled}
             ttlSeconds={agent.hitl_ttl_seconds}
             expirationAction={agent.hitl_expiration_action}
             onUpdated={onEditorSaved}

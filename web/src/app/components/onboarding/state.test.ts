@@ -2,13 +2,10 @@ import {
   deriveChecklistStep,
   buildDomainProgress,
   getResumeTarget,
-  isCloudMode,
-  needsWebhookUrl,
   getAddressType,
   isValidSlug,
   isValidDomain,
   isValidLocalPart,
-  isValidWebhookUrl,
 } from "./state";
 import type { DomainInfo } from "./types";
 import type { DashboardAgent } from "../types";
@@ -36,11 +33,11 @@ function makeAgent(overrides: Partial<DashboardAgent> = {}): DashboardAgent {
     domain: "mail.example.com",
     email: "support@mail.example.com",
     name: "support",
-    webhook_url: "",
-    agent_mode: "local",
     domain_verified: true,
     public: false,
     created_at: "2026-01-01T00:00:00Z",
+    hitl_ttl_seconds: 604800,
+    hitl_expiration_action: "reject",
     ...overrides,
   };
 }
@@ -109,18 +106,6 @@ describe("getResumeTarget", () => {
     const progress = { domain: makeDomain({ verified: true }), step: "agent_created" as const, agentCount: 1 };
     expect(getResumeTarget(progress)).toBeNull();
   });
-});
-
-// ── Mode helpers ─────────────────────────────────────────
-
-describe("isCloudMode", () => {
-  it("returns true for cloud", () => expect(isCloudMode("cloud")).toBe(true));
-  it("returns false for local", () => expect(isCloudMode("local")).toBe(false));
-});
-
-describe("needsWebhookUrl", () => {
-  it("returns true for cloud", () => expect(needsWebhookUrl("cloud")).toBe(true));
-  it("returns false for local", () => expect(needsWebhookUrl("local")).toBe(false));
 });
 
 describe("getAddressType", () => {
@@ -196,14 +181,3 @@ describe("isValidLocalPart", () => {
   });
 });
 
-describe("isValidWebhookUrl", () => {
-  it("accepts https URLs", () => {
-    expect(isValidWebhookUrl("https://example.com/webhook")).toBe(true);
-  });
-
-  it("rejects non-https", () => {
-    expect(isValidWebhookUrl("http://example.com/webhook")).toBe(false);
-    expect(isValidWebhookUrl("not-a-url")).toBe(false);
-    expect(isValidWebhookUrl("")).toBe(false);
-  });
-});

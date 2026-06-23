@@ -114,7 +114,7 @@ describe("empty state", () => {
 // ── Local agent card ─────────────────────────────────────
 
 describe("local agent card", () => {
-  it("renders mode badge as local and shows connect action", async () => {
+  it("renders identity chips and shows connect action", async () => {
     mockAgentList([localAgent]);
     render(<DashboardPage />);
 
@@ -122,7 +122,6 @@ describe("local agent card", () => {
       expect(screen.getByText("bot@agents.e2a.dev")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Local")).toBeInTheDocument();
     expect(screen.getByText("Shared")).toBeInTheDocument();
     expect(screen.getByText("Verified")).toBeInTheDocument();
     expect(screen.getByText("Connect")).toBeInTheDocument();
@@ -203,7 +202,7 @@ describe("local agent card", () => {
 // ── Cloud agent card ─────────────────────────────────────
 
 describe("cloud agent card", () => {
-  it("renders mode + custom-domain chips and Connect action", async () => {
+  it("renders custom-domain chip and Connect action", async () => {
     mockAgentList([cloudAgent]);
     render(<DashboardPage />);
 
@@ -211,7 +210,6 @@ describe("cloud agent card", () => {
       expect(screen.getByText("support@mail.acme.com")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Cloud")).toBeInTheDocument();
     expect(screen.getByText("Custom")).toBeInTheDocument();
     expect(screen.getByText("Connect")).toBeInTheDocument();
     // Inline editors moved to /dashboard/agents/settings.
@@ -219,7 +217,7 @@ describe("cloud agent card", () => {
     expect(screen.queryByText("Webhook:")).not.toBeInTheDocument();
   });
 
-  it("shows connect instructions with webhook guidance when Connect is clicked", async () => {
+  it("shows connect instructions when Connect is clicked", async () => {
     mockAgentList([cloudAgent]);
     render(<DashboardPage />);
 
@@ -230,7 +228,7 @@ describe("cloud agent card", () => {
     fireEvent.click(screen.getByText("Connect"));
 
     await waitFor(() => {
-      expect(screen.getByText(/Install the e2a skill to set up your webhook endpoint/)).toBeInTheDocument();
+      expect(screen.getByText(/Install the e2a skill to connect your agent/)).toBeInTheDocument();
     });
   });
 });

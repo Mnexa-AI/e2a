@@ -38,7 +38,6 @@ export function AgentHeader({
   agent: DashboardAgent;
   tab: AgentTab;
 }) {
-  const isCloud = agent.agent_mode !== "local";
   const emailQs = encodeURIComponent(agent.email);
 
   return (
@@ -90,10 +89,6 @@ export function AgentHeader({
                 <Dot tone="warn" /> Unverified
               </Chip>
             )}
-            <Chip tone="neutral" mono>
-              {isCloud ? "Cloud" : "Local"}
-            </Chip>
-            {agent.hitl_enabled && <Chip tone="accent">HITL on</Chip>}
           </div>
           <div
             style={{
@@ -107,12 +102,6 @@ export function AgentHeader({
               month: "short",
               day: "numeric",
             })}
-            {agent.webhook_url && (
-              <>
-                {" · webhook "}
-                <span style={{ color: "var(--fg-muted)" }}>{agent.webhook_url}</span>
-              </>
-            )}
           </div>
         </div>
       </div>

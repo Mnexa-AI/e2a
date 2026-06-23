@@ -21,19 +21,16 @@ function presetLabelFor(seconds: number): string {
 
 export function HITLEditor({
   email,
-  enabled,
   ttlSeconds,
   expirationAction,
   onUpdated,
 }: {
   email: string;
-  enabled: boolean;
   ttlSeconds: number;
   expirationAction: "approve" | "reject";
   onUpdated: () => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [draftEnabled, setDraftEnabled] = useState(enabled);
   const [draftTTL, setDraftTTL] = useState(ttlSeconds);
   const [draftAction, setDraftAction] =
     useState<"approve" | "reject">(expirationAction);
@@ -41,19 +38,16 @@ export function HITLEditor({
   const [error, setError] = useState("");
 
   const resetDrafts = () => {
-    setDraftEnabled(enabled);
     setDraftTTL(ttlSeconds);
     setDraftAction(expirationAction);
     setError("");
   };
 
   if (!editing) {
-    const status = enabled
-      ? `Enabled · ${presetLabelFor(ttlSeconds)} · auto-${expirationAction} on expiry`
-      : "Disabled";
+    const status = `${presetLabelFor(ttlSeconds)} · auto-${expirationAction} on expiry`;
     return (
       <p className="text-xs text-muted">
-        HITL: <span className="text-foreground">{status}</span>
+        Review window: <span className="text-foreground">{status}</span>
         <button
           onClick={() => {
             resetDrafts();
@@ -77,7 +71,6 @@ export function HITLEditor({
     setError("");
     try {
       await updateAgent(email, {
-        hitl_enabled: draftEnabled,
         hitl_ttl_seconds: draftTTL,
         hitl_expiration_action: draftAction,
       });
@@ -94,22 +87,7 @@ export function HITLEditor({
 
   return (
     <form onSubmit={handleSave} className="space-y-3 border border-border rounded-md p-3">
-      <label className="flex items-center gap-2 text-xs">
-        <input
-          type="checkbox"
-          checked={draftEnabled}
-          onChange={(e) => setDraftEnabled(e.target.checked)}
-          className="h-3.5 w-3.5"
-        />
-        <span>
-          Require human approval before outbound messages are sent
-        </span>
-      </label>
-
-      <div
-        className={`space-y-2 ${draftEnabled ? "" : "opacity-50 pointer-events-none"}`}
-        aria-disabled={!draftEnabled}
-      >
+      <div className="space-y-2">
         <div>
           <div className="text-xs text-muted mb-1">Approval window</div>
           <div className="flex items-center gap-1 flex-wrap">
@@ -180,12 +158,12 @@ export function HITLEditor({
         </div>
 
         <p className="text-[11px] text-muted leading-snug">
-          While HITL is enabled, the full body and attachments of held
-          messages are stored for up to the approval window above, then
-          scrubbed on any terminal transition. Review notifications are
-          emailed to your account email with only recipients and subject —
-          the body is shown on the review page behind a token-gated link,
-          not in the email itself.
+          When a message is held for review, its full body and attachments
+          are stored for up to the approval window above, then scrubbed on
+          any terminal transition. Review notifications are emailed to your
+          account email with only recipients and subject — the body is shown
+          on the review page behind a token-gated link, not in the email
+          itself.
         </p>
       </div>
 

@@ -22,7 +22,6 @@ import {
   getMessageDetail,
   rejectPendingMessage,
 } from "../../../../../components/onboarding/api";
-import { useAgents } from "../../../../../components/hooks/useAgents";
 import type {
   InboundMessageDetail,
   PendingMessageDetail,
@@ -153,11 +152,10 @@ function FocusContent({
 }) {
   const router = useRouter();
 
-  // Agent lookup is needed for the lifecycle panel to know whether to
-  // render the "Held for HITL approval" step. Both this and AgentLayout
-  // share the same SWR key so the second consumer hits cache for free.
-  const { agents } = useAgents();
-  const hitlEnabled = agents.find((a) => a.email === email)?.hitl_enabled ?? true;
+  // Holds are now driven by inbound/outbound policy + content scans
+  // (there's no per-agent HITL on/off flag any more), so the lifecycle
+  // panel always includes the "Held for review" step.
+  const hitlEnabled = true;
 
   // `hasUserEditedRef` flips true the first time the user types into
   // the draft-body textarea OR clicks Edit. The seeding effect (below)

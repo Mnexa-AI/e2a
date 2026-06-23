@@ -22,7 +22,6 @@ export function AgentCard({
   const [testState, setTestState] = useState<"idle" | "sending" | "sent">("idle");
   const [testError, setTestError] = useState("");
 
-  const isLocal = agent.agent_mode === "local";
   const shared = isSharedDomain(agent.email);
 
   return (
@@ -80,10 +79,6 @@ export function AgentCard({
             <Chip tone={shared ? "info" : "accent"}>
               {shared ? "Shared" : "Custom"}
             </Chip>
-            <Chip tone="neutral" mono>
-              {isLocal ? "Local" : "Cloud"}
-            </Chip>
-            {agent.hitl_enabled && <Chip tone="accent">HITL on</Chip>}
           </div>
 
           {/* Meta info */}
@@ -173,7 +168,7 @@ export function AgentCard({
           first-mile onboarding affordance, not ongoing config. */}
       {showConnect && (
         <div className="mt-3 border-t border-border pt-4">
-          <ConnectInstructions mode={isLocal ? "local" : "cloud"} />
+          <ConnectInstructions />
         </div>
       )}
 

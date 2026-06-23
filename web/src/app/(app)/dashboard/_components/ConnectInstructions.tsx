@@ -2,23 +2,16 @@
 
 import { useState } from "react";
 
-export function ConnectInstructions({ mode }: { mode?: string }) {
-  const isLocal = mode === "local";
-
+export function ConnectInstructions() {
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted">
-        {isLocal
-          ? "Install the e2a skill to connect your agent. Works with OpenClaw, Claude Code, Gemini CLI, or any agent that supports skills."
-          : "Install the e2a skill to set up your webhook endpoint."}
+        Install the e2a skill to connect your agent. Works with OpenClaw, Claude Code, Gemini CLI, or any agent that supports skills.
       </p>
       <p className="text-xs font-medium text-foreground">Install the e2a skill</p>
       <CodeBlock code={`mkdir -p .claude/skills/e2a\ncurl -o .claude/skills/e2a/SKILL.md \\\n  https://raw.githubusercontent.com/Mnexa-AI/e2a/main/skills/using-e2a/SKILL.md`} />
       <p className="text-xs text-muted">
-        Then use <code className="text-[11px] bg-surface px-1 py-0.5 rounded border border-border">/e2a</code> in your agent to get started.
-        {isLocal
-          ? " The skill walks through login, agent registration, and listening for emails automatically."
-          : " The skill includes instructions for implementing a webhook endpoint to receive emails."}
+        Then use <code className="text-[11px] bg-surface px-1 py-0.5 rounded border border-border">/e2a</code> in your agent to get started. The skill walks through login, agent registration, and listening for emails automatically.
       </p>
     </div>
   );

@@ -37,11 +37,11 @@ function makeAgent(overrides: Partial<DashboardAgent> = {}): DashboardAgent {
     domain: "mail.example.com",
     email: "support@mail.example.com",
     name: "support",
-    webhook_url: "",
-    agent_mode: "local",
     domain_verified: true,
     public: false,
     created_at: "2026-01-01T00:00:00Z",
+    hitl_ttl_seconds: 604800,
+    hitl_expiration_action: "reject",
     ...overrides,
   };
 }

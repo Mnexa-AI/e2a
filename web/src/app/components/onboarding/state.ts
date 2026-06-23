@@ -3,7 +3,6 @@
 
 import type {
   AddressType,
-  AgentMode,
   ChecklistStep,
   DomainInfo,
   DomainProgress,
@@ -54,16 +53,6 @@ export function getResumeTarget(progress: DomainProgress): CustomFlowStep | null
   }
 }
 
-// ── Mode helpers ─────────────────────────────────────────
-
-export function isCloudMode(mode: AgentMode): boolean {
-  return mode === "cloud";
-}
-
-export function needsWebhookUrl(mode: AgentMode): boolean {
-  return mode === "cloud";
-}
-
 /** Determine the address type from a domain string. */
 export function getAddressType(domain: string): AddressType {
   return AGENTS_DOMAIN !== "" && domain === AGENTS_DOMAIN ? "shared" : "custom";
@@ -93,13 +82,4 @@ export function isValidDomain(domain: string): boolean {
 
 export function isValidLocalPart(localPart: string): boolean {
   return localPart.length >= 1 && localPart.length <= 64 && /^[a-z0-9][a-z0-9._-]*$/.test(localPart);
-}
-
-export function isValidWebhookUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
 }

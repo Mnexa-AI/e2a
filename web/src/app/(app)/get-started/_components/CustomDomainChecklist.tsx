@@ -6,7 +6,7 @@ import { DomainSelector } from "./DomainSelector";
 import { DNSSetupCard } from "./DNSSetupCard";
 import { VerifyDomainCard } from "./VerifyDomainCard";
 import { CustomAgentForm } from "./CustomAgentForm";
-import type { DomainInfo, AgentMode } from "../../../components/onboarding/types";
+import type { DomainInfo } from "../../../components/onboarding/types";
 import type { AgentData } from "../../../components/types";
 
 /**
@@ -53,7 +53,7 @@ export function CustomDomainChecklist({
   onBack,
 }: {
   initialDomain?: DomainInfo | null;
-  onComplete: (agent: AgentData, mode: AgentMode, webhookUrl: string) => void;
+  onComplete: (agent: AgentData) => void;
   /** Returns the user to the address-type chooser. Parent wires this
    * to router.back() so the browser history stays linear. */
   onBack?: () => void;

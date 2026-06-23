@@ -3,9 +3,8 @@
 import { useState } from "react";
 import { Field } from "../../../components/Field";
 import { createAgent } from "../../../components/onboarding/api";
-import { isValidSlug, isValidWebhookUrl } from "../../../components/onboarding/state";
+import { isValidSlug } from "../../../components/onboarding/state";
 import { track } from "../../../components/onboarding/analytics";
-import type { AgentMode } from "../../../components/onboarding/types";
 import type { AgentData } from "../../../components/types";
 import { AGENTS_DOMAIN_DISPLAY } from "../../../../lib/site";
 import { invalidateAgents } from "../../../../lib/swrKeys";
@@ -14,24 +13,17 @@ export function SharedAgentForm({
   onCreated,
   onBack,
 }: {
-  onCreated: (agent: AgentData, mode: AgentMode, webhookUrl: string) => void;
+  onCreated: (agent: AgentData) => void;
   /** Returns the user to the address-type chooser. Wired by the parent
    * to router.back() so the browser history stays consistent. */
   onBack?: () => void;
 }) {
   const [slug, setSlug] = useState("");
   const [name, setName] = useState("");
-  const [agentMode, setAgentMode] = useState<AgentMode>("local");
-  const [webhookUrl, setWebhookUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const isCloud = agentMode === "cloud";
-
-  const canSubmit =
-    !loading &&
-    slug.length > 0 &&
-    (!isCloud || webhookUrl.length > 0);
+  const canSubmit = !loading && slug.length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,26 +34,19 @@ export function SharedAgentForm({
       return;
     }
 
-    if (isCloud && !isValidWebhookUrl(webhookUrl)) {
-      setError("Webhook URL must be a valid HTTPS URL.");
-      return;
-    }
-
     setLoading(true);
-    track("agent_creation_started", { shared_or_custom: "shared", agent_mode: agentMode });
+    track("agent_creation_started", { shared_or_custom: "shared" });
     try {
       const result = await createAgent({
         slug,
         ...(name ? { name } : {}),
-        agent_mode: agentMode,
-        ...(isCloud ? { webhook_url: webhookUrl } : {}),
       });
-      track("agent_creation_succeeded", { shared_or_custom: "shared", agent_mode: agentMode });
+      track("agent_creation_succeeded", { shared_or_custom: "shared" });
       // Refresh the SWR `agents` cache so /dashboard shows the new
       // row immediately (otherwise keepPreviousData renders the
       // pre-create list until the next focus revalidation).
       await invalidateAgents();
-      onCreated(result as AgentData, agentMode, isCloud ? webhookUrl : "");
+      onCreated(result as AgentData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
@@ -106,9 +91,8 @@ export function SharedAgentForm({
           <code className="text-xs bg-white/60 px-1 py-0.5 rounded">
             {slug || "your-slug"}@{AGENTS_DOMAIN_DISPLAY}
           </code>
-          . {isCloud
-            ? "Inbound emails are delivered to your HTTPS webhook."
-            : "Emails arrive in real time via CLI, SDK, or WebSocket."}
+          . Emails arrive in real time via CLI, SDK, or WebSocket, or to an
+          account webhook you configure under Webhook secrets.
         </p>
       </div>
 
@@ -136,53 +120,6 @@ export function SharedAgentForm({
           onChange={setName}
           hint="Shown in the From header of outbound emails (optional)"
         />
-
-        {/* Mode selector */}
-        <div>
-          <label className="block text-sm font-medium mb-2">Delivery mode</label>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setAgentMode("local")}
-              className={`flex-1 px-4 py-2.5 text-sm rounded-lg border transition ${
-                agentMode === "local"
-                  ? "border-accent bg-accent/5 text-accent font-medium"
-                  : "border-border text-muted hover:text-foreground hover:border-foreground/20"
-              }`}
-            >
-              <span className="font-medium">Local agent</span>
-              <span className="block text-xs mt-0.5 opacity-80">
-                CLI, SDK, or WebSocket
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setAgentMode("cloud")}
-              className={`flex-1 px-4 py-2.5 text-sm rounded-lg border transition ${
-                agentMode === "cloud"
-                  ? "border-accent bg-accent/5 text-accent font-medium"
-                  : "border-border text-muted hover:text-foreground hover:border-foreground/20"
-              }`}
-            >
-              <span className="font-medium">Cloud agent</span>
-              <span className="block text-xs mt-0.5 opacity-80">
-                HTTPS webhook
-              </span>
-            </button>
-          </div>
-        </div>
-
-        {/* Webhook URL — only for cloud */}
-        {isCloud && (
-          <Field
-            label="Webhook URL"
-            placeholder="https://your-agent.com/webhook"
-            type="url"
-            value={webhookUrl}
-            onChange={setWebhookUrl}
-            hint="HTTPS endpoint where e2a delivers inbound emails via POST"
-          />
-        )}
 
         <button
           type="submit"

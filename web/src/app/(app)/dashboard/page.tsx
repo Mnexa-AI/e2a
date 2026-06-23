@@ -17,7 +17,7 @@ import { AgentCard } from "./_components/AgentCard";
 // agents list — the backend doesn't need to compute filter aggregates.
 // "Sort: last activity" uses created_at descending as a proxy; the
 // label is honest about what's available.
-type Filter = "all" | "cloud" | "local" | "hitl" | "unverified";
+type Filter = "all" | "unverified";
 type SortKey = "recent" | "name";
 
 function FilterBar({
@@ -35,16 +35,10 @@ function FilterBar({
 }) {
   const counts = {
     all: agents.length,
-    cloud: agents.filter((a) => a.agent_mode !== "local").length,
-    local: agents.filter((a) => a.agent_mode === "local").length,
-    hitl: agents.filter((a) => a.hitl_enabled).length,
     unverified: agents.filter((a) => !a.domain_verified).length,
   };
   const chips: { key: Filter; label: string; count: number }[] = [
     { key: "all", label: "All", count: counts.all },
-    { key: "cloud", label: "Cloud", count: counts.cloud },
-    { key: "local", label: "Local", count: counts.local },
-    { key: "hitl", label: "HITL on", count: counts.hitl },
     { key: "unverified", label: "Unverified", count: counts.unverified },
   ];
 
@@ -112,19 +106,8 @@ export default function DashboardPage() {
   // Derived: filtered + sorted agent list.
   const visibleAgents = useMemo(() => {
     let out = agents;
-    switch (filter) {
-      case "cloud":
-        out = out.filter((a) => a.agent_mode !== "local");
-        break;
-      case "local":
-        out = out.filter((a) => a.agent_mode === "local");
-        break;
-      case "hitl":
-        out = out.filter((a) => a.hitl_enabled);
-        break;
-      case "unverified":
-        out = out.filter((a) => !a.domain_verified);
-        break;
+    if (filter === "unverified") {
+      out = out.filter((a) => !a.domain_verified);
     }
     if (sort === "recent") {
       // created_at descending as a stand-in for last activity.

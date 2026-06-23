@@ -9,7 +9,7 @@ import { AddressChoice } from "./_components/AddressChoice";
 import { SharedAgentForm } from "./_components/SharedAgentForm";
 import { CustomDomainChecklist } from "./_components/CustomDomainChecklist";
 import { SuccessPanel } from "./_components/SuccessPanel";
-import type { AddressType, AgentMode } from "../../components/onboarding/types";
+import type { AddressType } from "../../components/onboarding/types";
 import type { DomainInfo } from "../../components/onboarding/types";
 import type { AgentData } from "../../components/types";
 
@@ -50,8 +50,6 @@ export default function GetStartedPage() {
 
   const [addressType, setAddressType] = useState<AddressType | null>(null);
   const [agent, setAgent] = useState<AgentData | null>(null);
-  const [agentMode, setAgentMode] = useState<AgentMode>("local");
-  const [webhookUrl, setWebhookUrl] = useState("");
   const [domainData, setDomainData] = useState<DomainInfo | null>(null);
   const [error, setError] = useState("");
   const [bootstrapping, setBootstrapping] = useState(true);
@@ -198,10 +196,8 @@ export default function GetStartedPage() {
       {step === "shared_form" && (
         <SharedAgentForm
           onBack={handleBackToChoose}
-          onCreated={(agentData, mode, wh) => {
+          onCreated={(agentData) => {
             setAgent(agentData);
-            setAgentMode(mode);
-            setWebhookUrl(wh);
             router.push("/get-started?step=success");
           }}
         />
@@ -211,10 +207,8 @@ export default function GetStartedPage() {
         <CustomDomainChecklist
           initialDomain={domainData}
           onBack={handleBackToChoose}
-          onComplete={(agentData, mode, wh) => {
+          onComplete={(agentData) => {
             setAgent(agentData);
-            setAgentMode(mode);
-            setWebhookUrl(wh);
             router.push("/get-started?step=success");
           }}
         />
@@ -224,13 +218,7 @@ export default function GetStartedPage() {
           If a user lands on ?step=success without state (refresh, share,
           back-then-forward), drop them back at the choose screen rather
           than rendering an empty success panel. */}
-      {step === "success" && agent && (
-        <SuccessPanel
-          agent={agent}
-          mode={agentMode}
-          webhookUrl={webhookUrl || undefined}
-        />
-      )}
+      {step === "success" && agent && <SuccessPanel agent={agent} />}
       {step === "success" && !agent && (
         <AddressChoice selected={null} onSelect={handleAddressChoice} />
       )}
