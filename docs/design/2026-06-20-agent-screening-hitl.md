@@ -6,9 +6,10 @@ Branch: `worktree-design+agent-screening-hitl`
 Author: design pass (formalizes a converged discussion)
 
 > **As-built deltas (the body below is the original proposal; reality diverged):**
-> - The `screening_events` table is now **`protection_events`** and gained an
->   `agent_id` FK `ON DELETE CASCADE` so it's erased with the account (migrations
->   040 + 046). `message_id` stays a soft ref.
+> - The `screening_events` table (created in migration 040) is now
+>   **`protection_events`** and gained an `agent_id` FK `ON DELETE CASCADE` so it's
+>   erased with the account — both the rename and the FK are in migration 046.
+>   `message_id` stays a soft ref.
 > - The `verified_only` inbound gate posture was **removed** pre-GA (migration 047);
 >   it may return later as an additive policy.
 > - Per-agent scan **thresholds** are not exposed publicly — the surface is an

@@ -90,7 +90,7 @@ Save the key — it's only shown once. Register an agent and confirm it works:
 KEY=e2a_...
 curl -X POST http://localhost:8080/v1/agents \
   -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-  -d '{"slug":"my-bot"}'
+  -d '{"email":"my-bot@agents.e2a.dev"}'   # an email on the deployment shared domain (or a domain you've verified)
 
 curl -H "Authorization: Bearer $KEY" http://localhost:8080/v1/agents
 ```
@@ -185,7 +185,7 @@ First contact from a human arrives with `conversation_id: null` — the agent sh
 
 ### Human in the loop (HITL)
 
-When an agent's protection config holds an outbound message for review, `send` and `reply` calls do **not** dispatch immediately. The message is stored with status `pending_review` and the API returns HTTP `202 Accepted`. A reviewer must approve it before delivery; otherwise, after a configurable TTL, the message expires into `review_expired_approved` (auto-sent) or `review_expired_rejected` (discarded), depending on the agent's `hitl_expiration_action`. (Inbound messages can be held for review too — approve releases them to the inbox.)
+When an agent's protection config holds an outbound message for review, `send` and `reply` calls do **not** dispatch immediately. The message is stored with status `pending_review` and the API returns HTTP `202 Accepted`. A reviewer must approve it before delivery; otherwise, after a configurable TTL, the agent's `hitl_expiration_action` decides the terminal: auto-send (the message just goes out, terminal status `sent` — for outbound, approving *is* sending) or discard (`review_expired_rejected`). (Inbound messages can be held for review too — there, the auto-approve terminal is `review_expired_approved`, releasing the message to the inbox.)
 
 Reviewers can approve or reject via:
 
