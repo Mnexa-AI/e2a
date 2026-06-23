@@ -14,7 +14,6 @@ import { Chip } from "../loft/Chip";
 import { Dot } from "../loft/Dot";
 import { Eyebrow } from "../loft/Eyebrow";
 import { CounterpartyAvatar } from "./CounterpartyAvatar";
-import { formatRelativeAge } from "../../../lib/relativeTime";
 import type { DashboardAgent } from "../types";
 
 export type AgentTab = "messages" | "settings";
@@ -40,12 +39,6 @@ export function AgentHeader({
   tab: AgentTab;
 }) {
   const isCloud = agent.agent_mode !== "local";
-  // Suppress the meta sub-line "last delivery" segment when we have no
-  // timestamp — the shared helper returns "—" which would render as
-  // "· last delivery —", but the design omits the segment entirely.
-  const lastDelivery = agent.last_delivery_at
-    ? formatRelativeAge(agent.last_delivery_at)
-    : null;
   const emailQs = encodeURIComponent(agent.email);
 
   return (
@@ -120,7 +113,6 @@ export function AgentHeader({
                 <span style={{ color: "var(--fg-muted)" }}>{agent.webhook_url}</span>
               </>
             )}
-            {lastDelivery && <> · last delivery {lastDelivery}</>}
           </div>
         </div>
       </div>

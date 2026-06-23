@@ -37,21 +37,13 @@ beforeEach(() => {
     loading: false,
     signOut,
   };
-  // The Settings → Usage section fetches /api/dashboard/stats on mount.
-  // Tests that don't care about Usage just stub fetch with a stats
-  // response so the section can settle into its 0-state instead of
-  // throwing an unhandled rejection.
+  // Generic fetch stub. The Settings page no longer fetches on mount
+  // (the Usage section was removed); the delete-account test overrides
+  // this with its own deferred mock.
   global.fetch = jest.fn(async () => ({
     ok: true,
     status: 200,
-    json: async () => ({
-      today: { inbound: 0, outbound: 0, inbound_delta_pct: 0, outbound_delta_pct: 0 },
-      pending: { count: 0, oldest_seconds: 0 },
-      delivery_success_pct: 0,
-      sample_window_days: 30,
-      inbound_window: 0,
-      outbound_window: 0,
-    }),
+    json: async () => ({}),
     text: async () => "",
   })) as unknown as typeof fetch;
 });

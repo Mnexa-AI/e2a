@@ -7,145 +7,11 @@ import { useAuth } from "../../components/AuthProvider";
 import { listDomains } from "../../components/onboarding/api";
 import { useAgents } from "../../components/hooks/useAgents";
 import { domainsKey } from "../../../lib/swrKeys";
-import type {
-  DashboardAgent,
-  DashboardStats,
-} from "../../components/types";
+import type { DashboardAgent } from "../../components/types";
 import type { DomainInfo } from "../../components/onboarding/types";
 import { PageShell } from "../../components/loft/PageShell";
 import { AgentsEmptyState } from "./_components/AgentsEmptyState";
 import { AgentCard } from "./_components/AgentCard";
-
-// Formats a percent-change number as a short delta string. 0 → null so
-// the caller can hide the row entirely (no baseline → no arrow).
-function formatDelta(pct: number): string | null {
-  if (pct === 0) return null;
-  const sign = pct > 0 ? "+" : "";
-  return `${sign}${pct}%`;
-}
-
-// formatRelativeSeconds renders the "oldest pending" age. Falls back to
-// the empty string when count is 0 so the caller can hide the line.
-function formatPendingOldest(seconds: number): string {
-  if (seconds <= 0) return "";
-  if (seconds < 60) return `oldest in <1m`;
-  const min = Math.floor(seconds / 60);
-  if (min < 60) return `oldest in ${min}m`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `oldest in ${hr}h`;
-  return `oldest in ${Math.floor(hr / 24)}d`;
-}
-
-// Stats strip — populated from GET /api/dashboard/stats. Mock specifies
-// sans-serif numerals at 28px/600 (NOT editorial italic); deltas tint by
-// tone (positive=success, negative=neutral, pending uses accent).
-function StatsStrip() {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/dashboard/stats")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!cancelled) setStats(data);
-      })
-      .catch(() => {
-        // Swallow — null state renders "—" below. Don't crash the
-        // dashboard if the stats endpoint is down or tracking disabled.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  type Card = {
-    label: string;
-    value: string;
-    sub: string | null;
-    tone: "success" | "info" | "accent" | "neutral";
-  };
-  const cards: Card[] = [
-    {
-      label: "Inbound · today",
-      value: stats ? String(stats.today.inbound) : "—",
-      sub: stats ? formatDelta(stats.today.inbound_delta_pct) : null,
-      tone: "success",
-    },
-    {
-      label: "Outbound · today",
-      value: stats ? String(stats.today.outbound) : "—",
-      sub: stats ? formatDelta(stats.today.outbound_delta_pct) : null,
-      tone: "info",
-    },
-    {
-      label: "Pending review",
-      value: stats ? String(stats.pending.count) : "—",
-      sub: stats && stats.pending.count > 0
-        ? formatPendingOldest(stats.pending.oldest_seconds)
-        : null,
-      tone: "accent",
-    },
-    {
-      label: "Delivery success",
-      value: stats
-        ? stats.delivery_success_pct > 0
-          ? `${stats.delivery_success_pct}%`
-          : "—"
-        : "—",
-      sub: stats ? `last ${stats.sample_window_days}d` : null,
-      tone: "neutral",
-    },
-  ];
-
-  const subColor = (tone: Card["tone"]) =>
-    tone === "accent"
-      ? "var(--accent-strong)"
-      : tone === "success"
-        ? "var(--success)"
-        : "var(--fg-muted)";
-
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-      {cards.map((s) => (
-        <div
-          key={s.label}
-          className="px-4 py-3.5"
-          style={{
-            background: "var(--bg-panel)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--r-lg)",
-          }}
-        >
-          <div
-            className="font-mono text-[10px] font-semibold uppercase mb-2"
-            style={{
-              color: "var(--fg-subtle)",
-              letterSpacing: "0.08em",
-            }}
-          >
-            {s.label}
-          </div>
-          <div
-            className="text-[28px] font-semibold"
-            style={{
-              color: "var(--fg)",
-              letterSpacing: "-0.02em",
-              lineHeight: 1,
-              marginBottom: 6,
-            }}
-          >
-            {s.value}
-          </div>
-          {s.sub && (
-            <div className="text-[11px]" style={{ color: subColor(s.tone) }}>
-              {s.sub}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // Filter chips + sort dropdown. Counts are derived client-side from the
 // agents list — the backend doesn't need to compute filter aggregates.
@@ -330,8 +196,6 @@ export default function DashboardPage() {
         ) : null
       }
     >
-      <StatsStrip />
-
       {error && (
         <div
           className="mb-6 p-3 text-[13px]"

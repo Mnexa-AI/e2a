@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useAuth } from "../../components/AuthProvider";
 import { PageShell } from "../../components/loft/PageShell";
-import type { DashboardStats } from "../../components/types";
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -20,7 +19,6 @@ export default function SettingsPage() {
     >
       <div className="space-y-12">
         <ProfileSection user={user} />
-        <UsageSection />
         <ExportSection />
         <NotificationsSection />
         <DangerZone />
@@ -199,99 +197,6 @@ function ProfileSection({
           <dt style={{ color: "var(--fg-muted)" }}>Member since</dt>
           <dd style={{ color: "var(--fg)" }}>{formatDate(user.created_at)}</dd>
         </dl>
-      </div>
-    </section>
-  );
-}
-
-function UsageSection() {
-  // Pulls a 30-day window from the same /api/dashboard/stats endpoint
-  // the dashboard strip uses. Backend computes inbound_window /
-  // outbound_window over the requested window, plus delivery success
-  // % over that same span. Pending count is always current (not
-  // window-scoped). Null state during fetch renders as "—".
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/dashboard/stats?window=30")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!cancelled) setStats(data);
-      })
-      .catch(() => {
-        // Don't crash the page — null state shows "—".
-      })
-      .finally(() => {
-        if (!cancelled) setLoaded(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const days = stats?.sample_window_days ?? 30;
-  const cards: { label: string; value: string }[] = [
-    {
-      label: `Inbound · ${days}d`,
-      value: stats ? String(stats.inbound_window) : loaded ? "0" : "—",
-    },
-    {
-      label: `Outbound · ${days}d`,
-      value: stats ? String(stats.outbound_window) : loaded ? "0" : "—",
-    },
-    {
-      label: "Pending",
-      value: stats ? String(stats.pending.count) : loaded ? "0" : "—",
-    },
-    {
-      label: "Delivery success",
-      value:
-        stats && stats.delivery_success_pct > 0
-          ? `${stats.delivery_success_pct}%`
-          : "—",
-    },
-  ];
-
-  return (
-    <section>
-      <SectionHeading
-        title="Usage"
-        subtitle="Inbound + outbound counts over the last 30 days. Pending shows messages currently waiting on HITL approval; delivery success is the share of webhook deliveries that finalised successfully."
-      />
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {cards.map((s) => (
-          <div
-            key={s.label}
-            className="px-4 py-3.5"
-            style={{
-              background: "var(--bg-panel)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--r-lg)",
-            }}
-          >
-            <div
-              className="font-mono text-[11px] font-semibold uppercase mb-1.5"
-              style={{
-                color: "var(--fg-subtle)",
-                letterSpacing: "0.08em",
-              }}
-            >
-              {s.label}
-            </div>
-            <div
-              className="text-[22px] font-semibold"
-              style={{
-                color: "var(--fg)",
-                letterSpacing: "-0.01em",
-                lineHeight: 1.1,
-              }}
-            >
-              {s.value}
-            </div>
-          </div>
-        ))}
       </div>
     </section>
   );

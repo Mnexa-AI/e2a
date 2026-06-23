@@ -24,15 +24,6 @@ export type DashboardAgent = {
   hitl_enabled: boolean;
   hitl_ttl_seconds: number;
   hitl_expiration_action: "approve" | "reject";
-  // Enriched stats — only populated by GET /api/dashboard/agents;
-  // other agent endpoints leave them at zero values. Fields are
-  // optional in the type so older deployments (no enrichment) still
-  // parse correctly.
-  inbound_7d?: number;
-  outbound_7d?: number;
-  pending_count?: number;
-  last_delivery_at?: string | null;
-  webhook_healthy?: boolean;
 };
 
 // Aggregated client-side from `GET /v1/agents/{address}/messages?
@@ -164,29 +155,6 @@ export type APIKeyData = {
   // Optional hard expiry — keys with null expires_at never expire.
   // AuthenticateRequest rejects expired keys at the auth gate.
   expires_at?: string | null;
-};
-
-// GET /api/dashboard/stats — workspace-level aggregates. The same
-// endpoint powers two surfaces:
-//   - Dashboard at-a-glance strip: uses `today` (default window=7)
-//   - Settings usage card: passes ?window=30 and uses the
-//     inbound_window / outbound_window / delivery_success_pct fields
-// sample_window_days echoes the window in effect for the response.
-export type DashboardStats = {
-  today: {
-    inbound: number;
-    outbound: number;
-    inbound_delta_pct: number;
-    outbound_delta_pct: number;
-  };
-  pending: {
-    count: number;
-    oldest_seconds: number;
-  };
-  delivery_success_pct: number;
-  sample_window_days: number;
-  inbound_window: number;
-  outbound_window: number;
 };
 
 // Domain enrichment fields — chips on the Domains page. is_primary is

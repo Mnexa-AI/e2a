@@ -1,8 +1,7 @@
 "use client";
 
 // Shared SWR hook for `GET /api/dashboard/agents` — the per-user
-// dashboard agents list including the enrichment fields (inbound_7d,
-// outbound_7d, pending_count, webhook_healthy, etc.).
+// dashboard agents list (identity + verification + HITL config).
 //
 // Called from three surfaces:
 //   • /dashboard           — the agent grid
