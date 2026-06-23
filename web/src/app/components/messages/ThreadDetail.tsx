@@ -159,7 +159,6 @@ export function ThreadDetail({
         {pendingDraft && (
           <PendingCallout
             draftedBy="agent"
-            expiresInLabel={null}
             onReview={() => onOpenMessage(pendingDraft)}
           />
         )}

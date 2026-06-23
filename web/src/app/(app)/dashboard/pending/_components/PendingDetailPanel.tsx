@@ -50,19 +50,6 @@ function verdictTone(
   return "neutral";
 }
 
-// formatExpiresIn returns the "47m" / "1h 23m" / "expired" form for the
-// header chip. Distinct from the queue row formatter (full "in 47m").
-function formatExpiresIn(iso?: string): string {
-  if (!iso) return "—";
-  const ms = new Date(iso).getTime() - Date.now();
-  if (ms <= 0) return "expired";
-  const min = Math.floor(ms / 60_000);
-  if (min < 60) return `${min}m`;
-  const h = Math.floor(min / 60);
-  const mm = min % 60;
-  return mm === 0 ? `${h}h` : `${h}h ${mm}m`;
-}
-
 function formatQueuedAgo(iso: string): string {
   const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (sec < 60) return `${sec}s ago`;
@@ -206,7 +193,6 @@ export function PendingDetailPanel({
 
   const notPending = msg.status !== "pending_approval";
   const busy = approving || rejecting;
-  const expiresIn = formatExpiresIn(msg.approval_expires_at);
   const queuedAgo = formatQueuedAgo(msg.created_at);
 
   return (
@@ -235,20 +221,6 @@ export function PendingDetailPanel({
             />
             {notPending ? msg.status : "Pending"}
           </Chip>
-          {!notPending && msg.approval_expires_at && (
-            <span
-              className="font-mono text-[11px] font-semibold"
-              style={{
-                color:
-                  expiresIn === "expired"
-                    ? "var(--danger-strong)"
-                    : "var(--warn-strong)",
-                letterSpacing: "0.02em",
-              }}
-            >
-              Expires in {expiresIn} · auto-reject on TTL
-            </span>
-          )}
           <span className="flex-1" />
           <span
             className="font-mono text-[11px]"

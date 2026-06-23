@@ -9,7 +9,6 @@ import type {
 } from "./types";
 import type {
   DashboardAgent,
-  ActivityEntry,
   InboundMessageDetail,
   ListMessagesResponse,
   PendingMessageSummary,
@@ -133,24 +132,6 @@ export async function sendAgentTestEmail(
   return request(
     "/v1/agents/" + encodeURIComponent(email) + "/test",
     { method: "POST" },
-  );
-}
-
-// ── Agent activity (deprecated) ─────────────────────────
-
-/**
- * @deprecated No web client reads this anymore. The dashboard agent
- * card used to expand an inline ActivityPanel that called this helper;
- * that panel was removed in favor of the threaded inbox at
- * `/dashboard/agents/messages`. The backend endpoint
- * `/api/dashboard/agents/{email}/activity` is also ready for deletion
- * — keep this helper around for one release in case external tooling
- * imported it via tree-shaken builds, then remove the helper + the
- * endpoint together in a follow-up.
- */
-export async function getAgentActivity(email: string): Promise<ActivityEntry[]> {
-  return request<ActivityEntry[]>(
-    "/api/dashboard/agents/" + encodeURIComponent(email) + "/activity",
   );
 }
 
@@ -281,9 +262,9 @@ export async function getInboundMessage(
 
 // Projects a MessageView into the PendingMessageDetail shape the review
 // surfaces read. Fields the `/v1` MessageView doesn't expose
-// (approval_expires_at, attachments, the parent inbound context, the
-// reviewer identity) come through undefined — the UI degrades
-// gracefully, hiding those affordances.
+// (attachments, the parent inbound context, the reviewer identity) come
+// through undefined — the UI degrades gracefully, hiding those
+// affordances.
 function projectPending(
   email: string,
   w: MessageViewWire,

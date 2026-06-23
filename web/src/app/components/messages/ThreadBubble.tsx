@@ -155,7 +155,7 @@ export function ThreadBubble({
         >
           {/* Subject + preview — body parts aren't on the wire yet, so we
               show the subject as a placeholder. When `body_text` lands on
-              ActivityEntry, swap this for a short preview snippet. */}
+              the message summary, swap this for a short preview snippet. */}
           {message.subject || (
             <span style={{ fontStyle: "italic", color: "var(--fg-muted)" }}>
               (no subject)

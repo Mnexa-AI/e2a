@@ -55,7 +55,6 @@ export type PendingMessageSummary = {
   cc?: string[];
   bcc?: string[];
   status: string;
-  approval_expires_at?: string;
   created_at: string;
 };
 
@@ -91,28 +90,6 @@ export type PendingMessageInboundContext = {
   subject: string;
   created_at: string;
   auth_headers?: Record<string, string>;
-};
-
-export type ActivityEntry = {
-  id: string;
-  direction: "inbound" | "outbound";
-  sender: string;
-  recipient: string;
-  subject: string;
-  method?: string;
-  type?: string;
-  created_at: string;
-  webhook_status?: string;
-  webhook_error?: string;
-  webhook_attempts?: number;
-  // Outbound-only multi-recipient fields
-  to_recipients?: string[];
-  cc?: string[];
-  bcc?: string[];
-  // Set by ListActivityByAgent for the per-agent activity feed. Older
-  // load paths leave these unset — UI renders "—" in that case.
-  conversation_id?: string;
-  size_bytes?: number;
 };
 
 // MessageSummaryView from `GET /v1/agents/{address}/messages`

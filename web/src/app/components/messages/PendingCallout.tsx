@@ -6,7 +6,6 @@
 
 export function PendingCallout({
   draftedBy,
-  expiresInLabel,
   onReview,
 }: {
   /** "agent:claude-sonnet-4-6" or similar — comes from the pending row's
@@ -14,7 +13,6 @@ export function PendingCallout({
    *  is the source of truth. The caller passes a best-effort label or
    *  the literal `agent` when unknown. */
   draftedBy: string;
-  expiresInLabel: string | null;
   onReview: () => void;
 }) {
   return (
@@ -58,7 +56,6 @@ export function PendingCallout({
         </div>
         <div style={{ fontSize: 12, color: "var(--fg-muted)" }}>
           Drafted by <span style={{ fontFamily: "var(--f-mono)" }}>{draftedBy}</span>
-          {expiresInLabel && <> · {expiresInLabel}</>}
         </div>
       </div>
       <button

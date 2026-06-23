@@ -8,7 +8,6 @@ describe("deriveLifecycleSteps", () => {
       status: "pending_approval",
       draftedAt: "2026-05-24T14:18:09Z",
       inboundReceivedAt: "2026-05-24T14:05:12Z",
-      ttlHint: "TTL 1h",
     });
     expect(steps.map((s) => s.label)).toEqual([
       "Inbound received",
@@ -112,15 +111,16 @@ describe("deriveLifecycleSteps", () => {
     const pending = deriveLifecycleSteps({
       status: "pending_approval",
       draftedAt: "2026-05-24T14:18:09Z",
-      ttlHint: "TTL 1h",
     });
-    expect(pending.find((s) => s.label === "Held for HITL approval")?.caption).toContain("TTL 1h");
+    const held = pending.find((s) => s.label === "Held for HITL approval");
+    expect(held?.current).toBe(true);
+    expect(held?.caption).toBe("awaiting reviewer");
 
     const sent = deriveLifecycleSteps({
       status: "sent",
       draftedAt: "2026-05-24T14:18:09Z",
       reviewedAt: "2026-05-24T14:25:00Z",
     });
-    expect(sent.find((s) => s.label === "Held for HITL approval")?.caption).not.toContain("TTL");
+    expect(sent.find((s) => s.label === "Held for HITL approval")?.caption).toContain("resolved");
   });
 });

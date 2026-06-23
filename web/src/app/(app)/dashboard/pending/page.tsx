@@ -25,16 +25,6 @@ import { PendingDetailPanel } from "./_components/PendingDetailPanel";
 // every keystroke. After approve/reject, the panel calls onChanged()
 // which refreshes the queue and auto-advances to the next pending row.
 
-function formatExpiresIn(iso?: string): string {
-  if (!iso) return "";
-  const ms = new Date(iso).getTime() - Date.now();
-  if (ms <= 0) return "expired";
-  const min = Math.floor(ms / 60_000);
-  if (min < 60) return `in ${min}m`;
-  const h = Math.floor(min / 60);
-  return h < 24 ? `in ${h}h` : `in ${Math.floor(h / 24)}d`;
-}
-
 function formatQueuedAgo(iso: string): string {
   const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (sec < 60) return `${sec}s ago`;
@@ -73,7 +63,6 @@ function QueueRow({
   active: boolean;
   onClick: () => void;
 }) {
-  const expires = formatExpiresIn(msg.approval_expires_at);
   const queued = formatQueuedAgo(msg.created_at);
   const hue = hueFor(msg.agent_email);
   const accent = active;
@@ -122,21 +111,6 @@ function QueueRow({
           className="font-mono text-[10.5px] flex items-center gap-1.5 mt-1 flex-wrap"
           style={{ color: "var(--fg-subtle)" }}
         >
-          {expires && (
-            <span
-              style={{
-                color:
-                  expires === "expired"
-                    ? "var(--danger-strong)"
-                    : expires.startsWith("in 0") || expires.match(/in \d+m$/)
-                      ? "var(--warn-strong)"
-                      : "var(--fg-subtle)",
-              }}
-            >
-              expires {expires}
-            </span>
-          )}
-          {expires && <span>·</span>}
           <span>{queued}</span>
           {msg.type && (
             <Chip tone="info" mono>
@@ -240,28 +214,10 @@ function PendingContent() {
     }
   }, [router, selectedId]);
 
-  const expiringSoon = messages.filter((m) => {
-    if (!m.approval_expires_at) return false;
-    const ms = new Date(m.approval_expires_at).getTime() - Date.now();
-    return ms > 0 && ms < 60 * 60 * 1000;
-  }).length;
-
   const subtitleLine =
-    messages.length > 0 ? (
-      <>
-        {messages.length} pending
-        {expiringSoon > 0 && (
-          <>
-            {" · "}
-            <span style={{ color: "var(--accent-strong)", fontWeight: 500 }}>
-              {expiringSoon} expire within 1h
-            </span>
-          </>
-        )}
-      </>
-    ) : (
-      "Outbound messages your agents want to send. Approve as-is, edit, or reject."
-    );
+    messages.length > 0
+      ? `${messages.length} pending`
+      : "Outbound messages your agents want to send. Approve as-is, edit, or reject.";
 
   return (
     <PageShell

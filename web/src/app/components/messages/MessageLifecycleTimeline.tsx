@@ -120,8 +120,6 @@ export type LifecycleInput = {
   inboundReceivedAt?: string | null;
   /** Optional ISO timestamp of the approval/rejection action. */
   reviewedAt?: string | null;
-  /** Optional TTL hint for the pending step. */
-  ttlHint?: string;
   /** Whether the owning agent has HITL enabled. When false the held
    *  step is omitted and the delivered timestamp falls back to
    *  `draftedAt` (messages go straight from draft → sent). Defaults
@@ -166,7 +164,7 @@ export function deriveLifecycleSteps(input: LifecycleInput): LifecycleStep[] {
         ? input.reviewedAt
           ? `${fmtClock(input.reviewedAt)} · resolved`
           : "resolved"
-        : `${input.ttlHint ?? "TTL"} · auto-reject on expiry`,
+        : "awaiting reviewer",
       kind: "warn",
       current: input.status === "pending_approval",
     });

@@ -50,16 +50,6 @@ type LoadedMessage =
   | { direction: "outbound"; data: PendingMessageDetail }
   | { direction: "inbound"; data: InboundMessageDetail };
 
-function formatExpiresIn(iso: string | undefined): string | null {
-  if (!iso) return null;
-  const diff = new Date(iso).getTime() - Date.now();
-  if (diff <= 0) return "expired";
-  const min = Math.floor(diff / 60_000);
-  if (min < 60) return `${min}m`;
-  const hr = Math.floor(min / 60);
-  return `${hr}h ${min % 60}m`;
-}
-
 // Decode base64 `raw_message` and pull out the body part — everything
 // after the first blank line is the body in RFC 5322 framing. Honest
 // fallback only: multipart / MIME-encoded messages will render with
@@ -365,16 +355,6 @@ function FocusContent({
           parentId: msg.data.email_message_id,
         }
       : null;
-  // `/v1` exposes NO approval expiry: `approval_expires_at` is on neither
-  // MessageView (detail) nor MessageSummaryView (list). It's read here only
-  // for forward-compat; today it's always undefined so `formatExpiresIn`
-  // returns null and the TTL affordances degrade to empty. Surfacing a real
-  // expiry would need a server change (add the field to the view).
-  const expiresIn =
-    direction === "outbound"
-      ? formatExpiresIn(msg.data.approval_expires_at)
-      : null;
-
   // The detail MessageView's `status` is the delivery rollup; the HITL
   // "pending_approval" state is threaded in, not present on the wire.
   const statusAttr = isPending ? "pending_approval" : msg.data.status;
@@ -421,7 +401,7 @@ function FocusContent({
           </span>
           {isPending && (
             <Chip tone="warn">
-              <Dot tone="warn" /> Pending review{expiresIn ? ` · ${expiresIn}` : ""}
+              <Dot tone="warn" /> Pending review
             </Chip>
           )}
           {direction === "outbound" && msg.data.status === "sent" && (
@@ -541,7 +521,6 @@ function FocusContent({
           {isPending && msg.direction === "outbound" && (
             <>
               <ActionCard
-                expiresIn={expiresIn}
                 submitting={submitting}
                 showRejectPrompt={showRejectPrompt}
                 rejectReason={rejectReason}
@@ -867,7 +846,6 @@ function buildOutboundHeaderLines(d: PendingMessageDetail): InkLine[] {
 }
 
 function ActionCard({
-  expiresIn,
   submitting,
   showRejectPrompt,
   rejectReason,
@@ -877,7 +855,6 @@ function ActionCard({
   onCancelReject,
   onConfirmReject,
 }: {
-  expiresIn: string | null;
   submitting: boolean;
   showRejectPrompt: boolean;
   rejectReason: string;
@@ -907,7 +884,7 @@ function ActionCard({
           letterSpacing: "0.02em",
         }}
       >
-        {expiresIn ? `expires in ${expiresIn} · ` : ""}default:{" "}
+        default:{" "}
         <span style={{ color: "var(--fg)" }}>auto-reject</span>
       </div>
       {showRejectPrompt ? (
@@ -1059,9 +1036,6 @@ function LifecycleSection({ msg, hitlEnabled }: { msg: LoadedMessage; hitlEnable
     draftedAt: d.created_at,
     inboundReceivedAt: d.inbound?.created_at ?? null,
     reviewedAt: d.reviewed_at ?? null,
-    ttlHint: d.approval_expires_at
-      ? `TTL ${formatExpiresIn(d.approval_expires_at) ?? "—"}`
-      : undefined,
     hitlEnabled,
   });
   // Collapsible meta tracks the latest meaningful event. For HITL-off
@@ -1069,7 +1043,7 @@ function LifecycleSection({ msg, hitlEnabled }: { msg: LoadedMessage; hitlEnable
   // directly instead of the misleading "resolved" fallback.
   const sentAt = d.reviewed_at ?? (!hitlEnabled ? d.created_at : null);
   const heldSummary = d.status === "pending_approval"
-    ? `held · ${formatExpiresIn(d.approval_expires_at) ?? "—"} left`
+    ? "held"
     : sentAt
       ? `${hitlEnabled ? "resolved" : "sent"} ${formatRelativeAge(sentAt)}`
       : "resolved";
