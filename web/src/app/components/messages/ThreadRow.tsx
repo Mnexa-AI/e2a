@@ -4,6 +4,7 @@
 // sender · subject — preview ……… [pending] [count] time. Unread threads
 // render bold. Clicking opens the conversation full-width.
 
+import { useState } from "react";
 import { CounterpartyAvatar } from "./CounterpartyAvatar";
 import { formatRelativeAge } from "../../../lib/relativeTime";
 import type { Thread } from "./threading";
@@ -25,6 +26,10 @@ export function ThreadRow({
   );
   const pending = thread.state === "pending";
   const fw = unread ? 600 : 400;
+  // Hover highlight via state, not a `hover:bg-*` class: the inline
+  // `background` below (active/unread tinting) would otherwise win over a
+  // Tailwind hover utility and the highlight would never show.
+  const [hovered, setHovered] = useState(false);
 
   return (
     <div
@@ -40,12 +45,19 @@ export function ThreadRow({
           onSelect(thread.key);
         }
       }}
-      className="flex items-center hover:bg-[var(--bg-elev)] transition"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="flex items-center transition"
       style={{
         gap: 12,
         padding: "10px 18px",
         borderBottom: "1px solid var(--border-sub)",
-        background: active ? "var(--bg-elev)" : unread ? "var(--bg-panel)" : "transparent",
+        background:
+          active || hovered
+            ? "var(--bg-elev)"
+            : unread
+              ? "var(--bg-panel)"
+              : "transparent",
         boxShadow: active ? "inset 2px 0 0 var(--accent)" : "none",
         cursor: "pointer",
       }}
