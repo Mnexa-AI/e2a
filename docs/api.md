@@ -44,7 +44,7 @@ The message surface is agent-scoped: every message endpoint hangs off `/agents/{
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/account/export` | Returns a JSON dump of the authenticated account's profile, agents, domains, API key metadata, messages, and usage events. Right-of-access export (GDPR Art. 15 / CCPA equivalent). |
+| `GET` | `/account/export` | Returns a JSON dump of the authenticated account's profile, agents, domains, API key metadata, messages, suppressions, protection events (screening audit log), and usage events. Right-of-access export (GDPR Art. 15 / CCPA equivalent). |
 | `DELETE` | `/account?confirm=DELETE` | Permanently deletes the authenticated account and all associated data in one Postgres transaction. Right-of-deletion (GDPR Art. 17 / CCPA "Do Not Sell or Share"). Requires `confirm=DELETE` query parameter as a guardrail; returns per-table row counts so the caller can audit the cascade. |
 
 Both endpoints require a valid API key or session. The export omits internal identifiers (Google subject, API key hashes, session tokens) — see [data-handling.md](data-handling.md) for the full data model.
