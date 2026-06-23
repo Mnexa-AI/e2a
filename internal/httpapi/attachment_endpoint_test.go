@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/ratelimit"
 )
 
 // attMultipart: text body + base64 PDF (index 0) + named inline png (index 1).
@@ -36,7 +37,7 @@ func attBig() []byte {
 		"--B--\r\n")
 }
 
-func attTestServer(t *testing.T) *httptest.Server {
+func attTestServer(t *testing.T, opts ...func(*Deps)) *httptest.Server {
 	t.Helper()
 	u := &identity.User{ID: "u_1", Email: "owner@acme.com"}
 	deps := Deps{
@@ -78,6 +79,9 @@ func attTestServer(t *testing.T) *httptest.Server {
 		},
 		AttachmentStore: NewNativeAttachmentStore("test-secret-test-secret", "http://att.test"),
 		Legacy:          http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) }),
+	}
+	for _, o := range opts {
+		o(&deps)
 	}
 	srv := httptest.NewServer(New(deps).Router)
 	t.Cleanup(srv.Close)
@@ -206,6 +210,57 @@ func TestAttachment_DownloadRoute(t *testing.T) {
 	r3.Body.Close()
 	if r3.StatusCode != http.StatusForbidden {
 		t.Errorf("index-mismatched token want 403, got %d", r3.StatusCode)
+	}
+}
+
+// TestAttachment_DownloadRateLimited: the raw download route (outside the Huma
+// rate-limit middleware) is throttled per-IP. The 3rd request over a cap of 2 is
+// a 429 carrying Retry-After + RateLimit-* headers and the e2a error envelope.
+func TestAttachment_DownloadRateLimited(t *testing.T) {
+	lim := ratelimit.New(time.Minute, 2) // 2 downloads per IP per minute
+	srv := attTestServer(t, func(d *Deps) { d.DownloadLimit = lim.AllowSnapshot })
+
+	_, meta := getJSONAtt(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_att/attachments/0", "acct")
+	dlPath := downloadPathFromURL(t, meta["download_url"].(string))
+
+	// First two downloads succeed.
+	for i := 0; i < 2; i++ {
+		r, err := http.Get(srv.URL + dlPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.ReadAll(r.Body)
+		r.Body.Close()
+		if r.StatusCode != http.StatusOK {
+			t.Fatalf("download %d: want 200, got %d", i, r.StatusCode)
+		}
+		if r.Header.Get("RateLimit-Limit") == "" {
+			t.Errorf("download %d: missing RateLimit-Limit header", i)
+		}
+	}
+
+	// Third is throttled.
+	r3, err := http.Get(srv.URL + dlPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r3.Body.Close()
+	if r3.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("3rd download: want 429, got %d", r3.StatusCode)
+	}
+	if r3.Header.Get("Retry-After") == "" {
+		t.Error("429 missing Retry-After header")
+	}
+	if ct := r3.Header.Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		t.Errorf("429 content-type = %q, want JSON envelope", ct)
+	}
+	var env map[string]any
+	if err := json.NewDecoder(r3.Body).Decode(&env); err != nil {
+		t.Fatalf("decode 429 body: %v", err)
+	}
+	e, _ := env["error"].(map[string]any)
+	if e == nil || e["code"] != "rate_limited" {
+		t.Errorf("429 body must be the e2a envelope with code=rate_limited, got %v", env)
 	}
 }
 

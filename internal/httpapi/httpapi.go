@@ -150,6 +150,10 @@ type Deps struct {
 	// Optional — nil disables that limiter on the /v1 surface.
 	PollLimit RateSnapshot
 	RegLimit  RateSnapshot
+	// DownloadLimit is the per-IP attachment-download limiter (key = client ip).
+	// The download route is a raw chi handler outside the Huma rate-limit
+	// middleware, so it consults this directly. Optional — nil disables it.
+	DownloadLimit RateSnapshot
 	// GetInboundMessage loads an inbound message for reply/forward.
 	GetInboundMessage func(ctx context.Context, messageID string) (*identity.Message, error)
 

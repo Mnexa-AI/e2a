@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -214,6 +215,28 @@ func (s *Server) handleGetAttachment(ctx context.Context, in *attachmentParam) (
 // keyed by agent id), so a valid token can only stream the exact attachment it
 // was minted for.
 func (s *Server) handleAttachmentDownload(w http.ResponseWriter, r *http.Request) {
+	// Per-IP rate limit FIRST. This raw capability-token route sits OUTSIDE the
+	// Huma rate-limit middleware, and each accepted hit runs GetAgent +
+	// GetMessage + a full MIME re-parse — so throttle before any of that work to
+	// bound token-replay and index/message probing. Keyed by client IP (no bearer
+	// here); shares the per-IP convention of the registration/feedback limiters.
+	if s.deps.DownloadLimit != nil {
+		ok, retryAfter, limit, remaining, reset := s.deps.DownloadLimit(clientIP(r))
+		w.Header().Set("RateLimit-Limit", strconv.Itoa(limit))
+		w.Header().Set("RateLimit-Remaining", strconv.Itoa(remaining))
+		w.Header().Set("RateLimit-Reset", strconv.Itoa(reset))
+		if !ok {
+			secs := int(retryAfter.Round(time.Second).Seconds())
+			if secs < 1 {
+				secs = 1
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(secs))
+			writeRawError(w, r, http.StatusTooManyRequests, "rate_limited", "rate limit exceeded",
+				map[string]any{"retry_after_seconds": secs})
+			return
+		}
+	}
+
 	email := identity.NormalizeEmail(chi.URLParam(r, "email"))
 	id := chi.URLParam(r, "id")
 	index, err := strconv.Atoi(chi.URLParam(r, "index"))
@@ -267,4 +290,18 @@ func (s *Server) handleAttachmentDownload(w http.ResponseWriter, r *http.Request
 		w.Header().Set("Content-Disposition", "attachment")
 	}
 	_, _ = w.Write(att.Data)
+}
+
+// writeRawError writes the e2a error envelope as JSON to a raw (non-Huma)
+// ResponseWriter, stamping the request id like the Huma handler path. Used by the
+// raw attachment-download route, which can't return through Huma.
+func writeRawError(w http.ResponseWriter, r *http.Request, status int, code, msg string, details map[string]any) {
+	env := NewError(status, code, msg)
+	if details != nil {
+		env = env.WithDetails(details)
+	}
+	env.Err.RequestID = RequestIDFromContext(r.Context())
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(env)
 }

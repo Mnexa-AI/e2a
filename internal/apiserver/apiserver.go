@@ -106,6 +106,7 @@ func BuildDeps(p Params) httpapi.Deps {
 		SendLimit:            p.API.SendLimitAllow,
 		PollLimit:            p.API.PollLimitAllow,
 		RegLimit:             p.API.RegLimitAllow,
+		DownloadLimit:        p.API.DownloadLimitAllow,
 		RejectPending:        p.API.RejectPendingCore,
 		GetReviewMessage:     p.Store.GetReviewMessage,
 		ApproveInboundReview: p.API.ApproveInboundReviewCore,

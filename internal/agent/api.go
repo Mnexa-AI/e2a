@@ -178,6 +178,7 @@ type API struct {
 	pollLimit         *ratelimit.Limiter
 	feedbackLimit     *ratelimit.Limiter
 	dcrLimit          *ratelimit.Limiter    // OAuth Dynamic Client Registration — anonymous endpoint, per-IP
+	downloadLimit     *ratelimit.Limiter    // attachment byte-download — capability-token route (no bearer), per-IP
 	approvalSigner    *approvaltoken.Signer // optional; if nil, magic-link endpoints return 404
 	notifier          *hitlnotify.Notifier  // optional; if nil, holdForApproval doesn't send notification email
 	oauthProvider     fosite.OAuth2Provider // optional; if nil, /oauth2/* endpoints return 404
@@ -474,6 +475,13 @@ func (a *API) RegLimitAllow(key string) (bool, time.Duration, int, int, int) {
 	return a.regLimit.AllowSnapshot(key)
 }
 
+// DownloadLimitAllow exposes the per-IP attachment-download limiter (key = client
+// ip). The download route is a raw capability-token endpoint outside the Huma
+// rate-limit middleware, so it calls this directly. Returns the IETF snapshot.
+func (a *API) DownloadLimitAllow(key string) (bool, time.Duration, int, int, int) {
+	return a.downloadLimit.AllowSnapshot(key)
+}
+
 // SetUsageStore wires in the usage store used by handleGetMyLimits to
 // surface the user's current counts (agents, domains, messages this
 // month, storage bytes) alongside the resolved caps. Separate from the
@@ -520,6 +528,7 @@ func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.
 		pollLimit:     ratelimit.New(1*time.Minute, 60), // 60 poll requests per user per minute
 		feedbackLimit: ratelimit.New(1*time.Hour, 10),   // 10 feedback submissions per IP per hour
 		dcrLimit:      ratelimit.New(1*time.Hour, 10),   // 10 OAuth client registrations per IP per hour
+		downloadLimit: ratelimit.New(1*time.Minute, 120), // 120 attachment downloads per IP per minute
 	}
 }
 
