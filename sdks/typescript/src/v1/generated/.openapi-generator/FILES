@@ -15,6 +15,7 @@ http/isomorphic-fetch.ts
 index.ts
 middleware.ts
 models/APIKeyExportEntry.ts
+models/APIKeyView.ts
 models/AccountUserView.ts
 models/AccountView.ts
 models/AgentIdentity.ts
@@ -27,6 +28,8 @@ models/AuthVerdict.ts
 models/CheckResult.ts
 models/ConversationDetailView.ts
 models/ConversationSummaryView.ts
+models/CreateAPIKeyRequest.ts
+models/CreateAPIKeyResponse.ts
 models/CreateAgentRequest.ts
 models/CreateWebhookRequest.ts
 models/CreateWebhookResponse.ts
@@ -50,6 +53,7 @@ models/MessageSummaryView.ts
 models/MessageView.ts
 models/OAuthConnectionEntry.ts
 models/ObjectSerializer.ts
+models/PageAPIKeyView.ts
 models/PageAgentView.ts
 models/PageConversationSummaryView.ts
 models/PageDomainView.ts

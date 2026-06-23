@@ -62,6 +62,38 @@ func testServer(t *testing.T) *httptest.Server {
 			}
 			return nil, errors.New("not found")
 		},
+		CreateScopedAPIKey: func(ctx context.Context, userID, name, scope, agentID string, expiresAt *time.Time) (*identity.APIKey, error) {
+			if userID != "u_1" {
+				return nil, errors.New("unexpected user")
+			}
+			var agentCol *string
+			if agentID != "" {
+				a := agentID
+				agentCol = &a
+			}
+			return &identity.APIKey{
+				ID: "apk_new", UserID: userID, Name: name,
+				KeyPrefix: "e2a_" + scope[:3] + "_abcd", PlaintextKey: "e2a_" + scope + "_secret",
+				Scope: scope, AgentID: agentCol,
+				CreatedAt: time.Unix(1700000400, 0).UTC(), ExpiresAt: expiresAt,
+			}, nil
+		},
+		ListAPIKeys: func(ctx context.Context, userID string) ([]identity.APIKey, error) {
+			if userID != "u_1" {
+				return nil, errors.New("unexpected user")
+			}
+			return []identity.APIKey{{
+				ID: "apk_1", UserID: userID, Name: "default",
+				KeyPrefix: "e2a_acct_abcd", Scope: "account",
+				CreatedAt: time.Unix(1700000100, 0).UTC(),
+			}}, nil
+		},
+		DeleteAPIKey: func(ctx context.Context, keyID, userID string) error {
+			if keyID == "apk_1" && userID == "u_1" {
+				return nil
+			}
+			return errors.New("not found")
+		},
 		ListMessages: func(ctx context.Context, f identity.MessageListFilter) ([]identity.Message, error) {
 			if f.AgentID != "support@acme.com" {
 				return nil, errors.New("unexpected agent")

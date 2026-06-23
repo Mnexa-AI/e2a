@@ -193,6 +193,13 @@ type Deps struct {
 	TestWebhookInsert func(ctx context.Context, webhookID, eventType string, envelope []byte) (string, error)
 	ListDeliveries    func(ctx context.Context, webhookID, status string, limit int) ([]webhook.SubscriberDelivery, error)
 
+	// API keys (account-scope management). CreateScopedAPIKey returns the
+	// minted key including its one-time plaintext; agentID is "" for account
+	// scope and a resolved agent id for agent scope.
+	CreateScopedAPIKey func(ctx context.Context, userID, name, scope, agentID string, expiresAt *time.Time) (*identity.APIKey, error)
+	ListAPIKeys        func(ctx context.Context, userID string) ([]identity.APIKey, error)
+	DeleteAPIKey       func(ctx context.Context, keyID, userID string) error
+
 	// domain verification
 	TouchDomainChecked func(ctx context.Context, domain, userID string) error
 	VerifyDomain       func(ctx context.Context, domain, userID string) error
@@ -333,6 +340,7 @@ func (s *Server) registerOperations() {
 	s.registerWebhooks()
 	s.registerEvents()
 	s.registerAccount()
+	s.registerAPIKeys()
 	s.registerOutbound()
 	s.registerHITL()
 }

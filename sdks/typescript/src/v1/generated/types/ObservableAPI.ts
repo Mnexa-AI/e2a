@@ -4,6 +4,7 @@ import type { Middleware } from '../middleware.js';
 import { Observable, of, from } from '../rxjsStub.js';
 import {mergeMap, map} from  '../rxjsStub.js';
 import { APIKeyExportEntry } from '../models/APIKeyExportEntry.js';
+import { APIKeyView } from '../models/APIKeyView.js';
 import { AccountUserView } from '../models/AccountUserView.js';
 import { AccountView } from '../models/AccountView.js';
 import { AgentIdentity } from '../models/AgentIdentity.js';
@@ -16,6 +17,8 @@ import { AuthVerdict } from '../models/AuthVerdict.js';
 import { CheckResult } from '../models/CheckResult.js';
 import { ConversationDetailView } from '../models/ConversationDetailView.js';
 import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
+import { CreateAPIKeyRequest } from '../models/CreateAPIKeyRequest.js';
+import { CreateAPIKeyResponse } from '../models/CreateAPIKeyResponse.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
@@ -38,6 +41,7 @@ import { MessageParsedView } from '../models/MessageParsedView.js';
 import { MessageSummaryView } from '../models/MessageSummaryView.js';
 import { MessageView } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
+import { PageAPIKeyView } from '../models/PageAPIKeyView.js';
 import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
 import { PageDomainView } from '../models/PageDomainView.js';
@@ -98,6 +102,40 @@ export class ObservableAccountApi {
     }
 
     /**
+     * Mint a new API key; the plaintext key is returned once. scope=account is workspace admin (agent/domain/key management); scope=agent binds the key to one inbox so it can act only as that agent. Account scope only.
+     * Create an API key
+     * @param createAPIKeyRequest
+     */
+    public createApiKeyWithHttpInfo(createAPIKeyRequest: CreateAPIKeyRequest, _options?: ConfigurationOptions): Observable<HttpInfo<CreateAPIKeyResponse>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.createApiKey(createAPIKeyRequest, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.createApiKeyWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Mint a new API key; the plaintext key is returned once. scope=account is workspace admin (agent/domain/key management); scope=agent binds the key to one inbox so it can act only as that agent. Account scope only.
+     * Create an API key
+     * @param createAPIKeyRequest
+     */
+    public createApiKey(createAPIKeyRequest: CreateAPIKeyRequest, _options?: ConfigurationOptions): Observable<CreateAPIKeyResponse> {
+        return this.createApiKeyWithHttpInfo(createAPIKeyRequest, _options).pipe(map((apiResponse: HttpInfo<CreateAPIKeyResponse>) => apiResponse.data));
+    }
+
+    /**
      * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
      * Delete your account + all data (irreversible)
      * @param [confirm] Must be DELETE — this is irreversible.
@@ -129,6 +167,40 @@ export class ObservableAccountApi {
      */
     public deleteAccount(confirm?: string, _options?: ConfigurationOptions): Observable<DeleteUserDataResult> {
         return this.deleteAccountWithHttpInfo(confirm, _options).pipe(map((apiResponse: HttpInfo<DeleteUserDataResult>) => apiResponse.data));
+    }
+
+    /**
+     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
+     * Revoke an API key
+     * @param id
+     */
+    public deleteApiKeyWithHttpInfo(id: string, _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.deleteApiKey(id, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.deleteApiKeyWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
+     * Revoke an API key
+     * @param id
+     */
+    public deleteApiKey(id: string, _options?: ConfigurationOptions): Observable<void> {
+        return this.deleteApiKeyWithHttpInfo(id, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
     }
 
     /**
@@ -227,6 +299,38 @@ export class ObservableAccountApi {
      */
     public getAccount(_options?: ConfigurationOptions): Observable<AccountView> {
         return this.getAccountWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<AccountView>) => apiResponse.data));
+    }
+
+    /**
+     * API keys for the account (metadata only — secrets are shown once, at creation). Account scope only: an agent-scoped credential cannot manage keys.
+     * List API keys
+     */
+    public listApiKeysWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageAPIKeyView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.listApiKeys(_config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.listApiKeysWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * API keys for the account (metadata only — secrets are shown once, at creation). Account scope only: an agent-scoped credential cannot manage keys.
+     * List API keys
+     */
+    public listApiKeys(_options?: ConfigurationOptions): Observable<PageAPIKeyView> {
+        return this.listApiKeysWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageAPIKeyView>) => apiResponse.data));
     }
 
     /**

@@ -14,6 +14,7 @@
 
 # import models into model package
 from e2a.v1.generated.models.api_key_export_entry import APIKeyExportEntry
+from e2a.v1.generated.models.api_key_view import APIKeyView
 from e2a.v1.generated.models.account_user_view import AccountUserView
 from e2a.v1.generated.models.account_view import AccountView
 from e2a.v1.generated.models.agent_identity import AgentIdentity
@@ -26,6 +27,8 @@ from e2a.v1.generated.models.auth_verdict import AuthVerdict
 from e2a.v1.generated.models.check_result import CheckResult
 from e2a.v1.generated.models.conversation_detail_view import ConversationDetailView
 from e2a.v1.generated.models.conversation_summary_view import ConversationSummaryView
+from e2a.v1.generated.models.create_api_key_request import CreateAPIKeyRequest
+from e2a.v1.generated.models.create_api_key_response import CreateAPIKeyResponse
 from e2a.v1.generated.models.create_agent_request import CreateAgentRequest
 from e2a.v1.generated.models.create_webhook_request import CreateWebhookRequest
 from e2a.v1.generated.models.create_webhook_response import CreateWebhookResponse
@@ -48,6 +51,7 @@ from e2a.v1.generated.models.message_parsed_view import MessageParsedView
 from e2a.v1.generated.models.message_summary_view import MessageSummaryView
 from e2a.v1.generated.models.message_view import MessageView
 from e2a.v1.generated.models.o_auth_connection_entry import OAuthConnectionEntry
+from e2a.v1.generated.models.page_api_key_view import PageAPIKeyView
 from e2a.v1.generated.models.page_agent_view import PageAgentView
 from e2a.v1.generated.models.page_conversation_summary_view import PageConversationSummaryView
 from e2a.v1.generated.models.page_domain_view import PageDomainView

@@ -1,4 +1,5 @@
 export * from '../models/APIKeyExportEntry.js';
+export * from '../models/APIKeyView.js';
 export * from '../models/AccountUserView.js';
 export * from '../models/AccountView.js';
 export * from '../models/AgentIdentity.js';
@@ -11,6 +12,8 @@ export * from '../models/AuthVerdict.js';
 export * from '../models/CheckResult.js';
 export * from '../models/ConversationDetailView.js';
 export * from '../models/ConversationSummaryView.js';
+export * from '../models/CreateAPIKeyRequest.js';
+export * from '../models/CreateAPIKeyResponse.js';
 export * from '../models/CreateAgentRequest.js';
 export * from '../models/CreateWebhookRequest.js';
 export * from '../models/CreateWebhookResponse.js';
@@ -33,6 +36,7 @@ export * from '../models/MessageParsedView.js';
 export * from '../models/MessageSummaryView.js';
 export * from '../models/MessageView.js';
 export * from '../models/OAuthConnectionEntry.js';
+export * from '../models/PageAPIKeyView.js';
 export * from '../models/PageAgentView.js';
 export * from '../models/PageConversationSummaryView.js';
 export * from '../models/PageDomainView.js';
@@ -77,6 +81,7 @@ export * from '../models/WebhookFiltersView.js';
 export * from '../models/WebhookView.js';
 
 import { APIKeyExportEntry } from '../models/APIKeyExportEntry.js';
+import { APIKeyView       , APIKeyViewScopeEnum   } from '../models/APIKeyView.js';
 import { AccountUserView } from '../models/AccountUserView.js';
 import { AccountView   , AccountViewScopeEnum      } from '../models/AccountView.js';
 import { AgentIdentity } from '../models/AgentIdentity.js';
@@ -89,6 +94,8 @@ import { AuthVerdict } from '../models/AuthVerdict.js';
 import { CheckResult } from '../models/CheckResult.js';
 import { ConversationDetailView } from '../models/ConversationDetailView.js';
 import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
+import { CreateAPIKeyRequest   , CreateAPIKeyRequestScopeEnum   } from '../models/CreateAPIKeyRequest.js';
+import { CreateAPIKeyResponse        , CreateAPIKeyResponseScopeEnum   } from '../models/CreateAPIKeyResponse.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
 import { CreateWebhookRequest , CreateWebhookRequestEventsEnum     } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse    , CreateWebhookResponseEventsEnum        } from '../models/CreateWebhookResponse.js';
@@ -111,6 +118,7 @@ import { MessageParsedView } from '../models/MessageParsedView.js';
 import { MessageSummaryView     , MessageSummaryViewDeliveryStatusEnum  , MessageSummaryViewDirectionEnum          , MessageSummaryViewReviewStatusEnum  , MessageSummaryViewSentAsEnum        } from '../models/MessageSummaryView.js';
 import { MessageView        , MessageViewDeliveryStatusEnum  , MessageViewDirectionEnum            , MessageViewReviewStatusEnum  , MessageViewSentAsEnum        } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
+import { PageAPIKeyView } from '../models/PageAPIKeyView.js';
 import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
 import { PageDomainView } from '../models/PageDomainView.js';
@@ -167,7 +175,10 @@ let primitives = [
                  ];
 
 let enumsMap: Set<string> = new Set<string>([
+    "APIKeyViewScopeEnum",
     "AccountViewScopeEnum",
+    "CreateAPIKeyRequestScopeEnum",
+    "CreateAPIKeyResponseScopeEnum",
     "CreateWebhookRequestEventsEnum",
     "CreateWebhookResponseEventsEnum",
     "DomainViewSendingStatusEnum",
@@ -199,6 +210,7 @@ let enumsMap: Set<string> = new Set<string>([
 
 let typeMap: {[index: string]: any} = {
     "APIKeyExportEntry": APIKeyExportEntry,
+    "APIKeyView": APIKeyView,
     "AccountUserView": AccountUserView,
     "AccountView": AccountView,
     "AgentIdentity": AgentIdentity,
@@ -211,6 +223,8 @@ let typeMap: {[index: string]: any} = {
     "CheckResult": CheckResult,
     "ConversationDetailView": ConversationDetailView,
     "ConversationSummaryView": ConversationSummaryView,
+    "CreateAPIKeyRequest": CreateAPIKeyRequest,
+    "CreateAPIKeyResponse": CreateAPIKeyResponse,
     "CreateAgentRequest": CreateAgentRequest,
     "CreateWebhookRequest": CreateWebhookRequest,
     "CreateWebhookResponse": CreateWebhookResponse,
@@ -233,6 +247,7 @@ let typeMap: {[index: string]: any} = {
     "MessageSummaryView": MessageSummaryView,
     "MessageView": MessageView,
     "OAuthConnectionEntry": OAuthConnectionEntry,
+    "PageAPIKeyView": PageAPIKeyView,
     "PageAgentView": PageAgentView,
     "PageConversationSummaryView": PageConversationSummaryView,
     "PageDomainView": PageDomainView,

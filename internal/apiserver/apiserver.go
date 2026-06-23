@@ -157,6 +157,10 @@ func BuildDeps(p Params) httpapi.Deps {
 		TestWebhookInsert: p.SubscriberStore.InsertPendingForTest,
 		ListDeliveries:    p.SubscriberStore.ListDeliveriesByWebhook,
 
+		CreateScopedAPIKey: p.Store.CreateScopedAPIKey,
+		ListAPIKeys:        p.Store.ListAPIKeys,
+		DeleteAPIKey:       p.Store.DeleteAPIKey,
+
 		TouchDomainChecked: p.Store.TouchDomainLastChecked,
 		VerifyDomain:       p.Store.VerifyDomain,
 		VerifyProbe: func(domain, token, dkimSel, dkimKey string) httpapi.DomainCheckResult {

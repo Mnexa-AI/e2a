@@ -24,6 +24,41 @@ components:
         - key_prefix
         - created_at
       type: object
+    APIKeyView:
+      additionalProperties: false
+      properties:
+        agent:
+          description: Bound inbox email for agent-scoped keys; omitted for account scope.
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+        id:
+          type: string
+        key_prefix:
+          description: Non-secret visible prefix (e.g. e2a_acct_… / e2a_agt_…).
+          type: string
+        last_used_at:
+          format: date-time
+          type: string
+        name:
+          type: string
+        scope:
+          description: account = workspace admin; agent = bound to one inbox.
+          enum:
+            - account
+            - agent
+          type: string
+      required:
+        - id
+        - name
+        - key_prefix
+        - scope
+        - created_at
+      type: object
     AccountUserView:
       additionalProperties: false
       properties:
@@ -395,6 +430,65 @@ components:
         - has_unread
         - latest_subject
         - latest_sender
+      type: object
+    CreateAPIKeyRequest:
+      additionalProperties: false
+      properties:
+        agent:
+          description: Inbox email to bind the key to; required when scope=agent.
+          type: string
+        expires_at:
+          description: Optional hard expiry (RFC 3339, must be in the future). Omit for a never-expiring key.
+          format: date-time
+          type: string
+        name:
+          description: Human label for the key.
+          type: string
+        scope:
+          description: account = workspace admin (default); agent = bound to a single inbox.
+          enum:
+            - account
+            - agent
+          type: string
+      type: object
+    CreateAPIKeyResponse:
+      additionalProperties: false
+      properties:
+        agent:
+          description: Bound inbox email for agent-scoped keys; omitted for account scope.
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+        id:
+          type: string
+        key:
+          description: The secret key. Shown once; store it now — it cannot be retrieved later.
+          type: string
+        key_prefix:
+          description: Non-secret visible prefix (e.g. e2a_acct_… / e2a_agt_…).
+          type: string
+        last_used_at:
+          format: date-time
+          type: string
+        name:
+          type: string
+        scope:
+          description: account = workspace admin; agent = bound to one inbox.
+          enum:
+            - account
+            - agent
+          type: string
+      required:
+        - key
+        - id
+        - name
+        - key_prefix
+        - scope
+        - created_at
       type: object
     CreateAgentRequest:
       additionalProperties: false
@@ -1212,6 +1306,21 @@ components:
         - agent_email
         - scope
         - issued_at
+      type: object
+    PageAPIKeyView:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/APIKeyView"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
       type: object
     PageAgentView:
       additionalProperties: false
@@ -2084,6 +2193,79 @@ paths:
       security:
         - bearer: []
       summary: "Get account: identity + plan limits + usage (whoami)"
+      tags:
+        - account
+  /v1/account/api-keys:
+    get:
+      description: "API keys for the account (metadata only — secrets are shown once, at creation). Account scope only: an agent-scoped credential cannot manage keys."
+      operationId: listApiKeys
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageAPIKeyView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: List API keys
+      tags:
+        - account
+    post:
+      description: Mint a new API key; the plaintext key is returned once. scope=account is workspace admin (agent/domain/key management); scope=agent binds the key to one inbox so it can act only as that agent. Account scope only.
+      operationId: createApiKey
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAPIKeyRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateAPIKeyResponse"
+          description: Created
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Create an API key
+      tags:
+        - account
+  /v1/account/api-keys/{id}:
+    delete:
+      description: Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
+      operationId: deleteApiKey
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Revoke an API key
       tags:
         - account
   /v1/account/export:

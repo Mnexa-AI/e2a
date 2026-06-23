@@ -36,6 +36,7 @@ __all__ = [
     "ApiAttributeError",
     "ApiException",
     "APIKeyExportEntry",
+    "APIKeyView",
     "AccountUserView",
     "AccountView",
     "AgentIdentity",
@@ -48,6 +49,8 @@ __all__ = [
     "CheckResult",
     "ConversationDetailView",
     "ConversationSummaryView",
+    "CreateAPIKeyRequest",
+    "CreateAPIKeyResponse",
     "CreateAgentRequest",
     "CreateWebhookRequest",
     "CreateWebhookResponse",
@@ -70,6 +73,7 @@ __all__ = [
     "MessageSummaryView",
     "MessageView",
     "OAuthConnectionEntry",
+    "PageAPIKeyView",
     "PageAgentView",
     "PageConversationSummaryView",
     "PageDomainView",
@@ -137,6 +141,7 @@ from e2a.v1.generated.exceptions import ApiException as ApiException
 
 # import models into sdk package
 from e2a.v1.generated.models.api_key_export_entry import APIKeyExportEntry as APIKeyExportEntry
+from e2a.v1.generated.models.api_key_view import APIKeyView as APIKeyView
 from e2a.v1.generated.models.account_user_view import AccountUserView as AccountUserView
 from e2a.v1.generated.models.account_view import AccountView as AccountView
 from e2a.v1.generated.models.agent_identity import AgentIdentity as AgentIdentity
@@ -149,6 +154,8 @@ from e2a.v1.generated.models.auth_verdict import AuthVerdict as AuthVerdict
 from e2a.v1.generated.models.check_result import CheckResult as CheckResult
 from e2a.v1.generated.models.conversation_detail_view import ConversationDetailView as ConversationDetailView
 from e2a.v1.generated.models.conversation_summary_view import ConversationSummaryView as ConversationSummaryView
+from e2a.v1.generated.models.create_api_key_request import CreateAPIKeyRequest as CreateAPIKeyRequest
+from e2a.v1.generated.models.create_api_key_response import CreateAPIKeyResponse as CreateAPIKeyResponse
 from e2a.v1.generated.models.create_agent_request import CreateAgentRequest as CreateAgentRequest
 from e2a.v1.generated.models.create_webhook_request import CreateWebhookRequest as CreateWebhookRequest
 from e2a.v1.generated.models.create_webhook_response import CreateWebhookResponse as CreateWebhookResponse
@@ -171,6 +178,7 @@ from e2a.v1.generated.models.message_parsed_view import MessageParsedView as Mes
 from e2a.v1.generated.models.message_summary_view import MessageSummaryView as MessageSummaryView
 from e2a.v1.generated.models.message_view import MessageView as MessageView
 from e2a.v1.generated.models.o_auth_connection_entry import OAuthConnectionEntry as OAuthConnectionEntry
+from e2a.v1.generated.models.page_api_key_view import PageAPIKeyView as PageAPIKeyView
 from e2a.v1.generated.models.page_agent_view import PageAgentView as PageAgentView
 from e2a.v1.generated.models.page_conversation_summary_view import PageConversationSummaryView as PageConversationSummaryView
 from e2a.v1.generated.models.page_domain_view import PageDomainView as PageDomainView

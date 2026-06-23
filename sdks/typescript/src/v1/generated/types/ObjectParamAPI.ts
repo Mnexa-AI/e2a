@@ -3,6 +3,7 @@ import { Configuration, ConfigurationOptions } from '../configuration.js'
 import type { Middleware } from '../middleware.js';
 
 import { APIKeyExportEntry } from '../models/APIKeyExportEntry.js';
+import { APIKeyView } from '../models/APIKeyView.js';
 import { AccountUserView } from '../models/AccountUserView.js';
 import { AccountView } from '../models/AccountView.js';
 import { AgentIdentity } from '../models/AgentIdentity.js';
@@ -15,6 +16,8 @@ import { AuthVerdict } from '../models/AuthVerdict.js';
 import { CheckResult } from '../models/CheckResult.js';
 import { ConversationDetailView } from '../models/ConversationDetailView.js';
 import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
+import { CreateAPIKeyRequest } from '../models/CreateAPIKeyRequest.js';
+import { CreateAPIKeyResponse } from '../models/CreateAPIKeyResponse.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
@@ -37,6 +40,7 @@ import { MessageParsedView } from '../models/MessageParsedView.js';
 import { MessageSummaryView } from '../models/MessageSummaryView.js';
 import { MessageView } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
+import { PageAPIKeyView } from '../models/PageAPIKeyView.js';
 import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
 import { PageDomainView } from '../models/PageDomainView.js';
@@ -83,6 +87,15 @@ import { WebhookView } from '../models/WebhookView.js';
 import { ObservableAccountApi } from "./ObservableAPI.js";
 import { AccountApiRequestFactory, AccountApiResponseProcessor} from "../apis/AccountApi.js";
 
+export interface AccountApiCreateApiKeyRequest {
+    /**
+     * 
+     * @type CreateAPIKeyRequest
+     * @memberof AccountApicreateApiKey
+     */
+    createAPIKeyRequest: CreateAPIKeyRequest
+}
+
 export interface AccountApiDeleteAccountRequest {
     /**
      * Must be DELETE — this is irreversible.
@@ -91,6 +104,16 @@ export interface AccountApiDeleteAccountRequest {
      * @memberof AccountApideleteAccount
      */
     confirm?: string
+}
+
+export interface AccountApiDeleteApiKeyRequest {
+    /**
+     * 
+     * Defaults to: undefined
+     * @type string
+     * @memberof AccountApideleteApiKey
+     */
+    id: string
 }
 
 export interface AccountApiDeleteSuppressionRequest {
@@ -107,6 +130,9 @@ export interface AccountApiExportAccountRequest {
 }
 
 export interface AccountApiGetAccountRequest {
+}
+
+export interface AccountApiListApiKeysRequest {
 }
 
 export interface AccountApiListSuppressionsRequest {
@@ -136,6 +162,24 @@ export class ObjectAccountApi {
     }
 
     /**
+     * Mint a new API key; the plaintext key is returned once. scope=account is workspace admin (agent/domain/key management); scope=agent binds the key to one inbox so it can act only as that agent. Account scope only.
+     * Create an API key
+     * @param param the request object
+     */
+    public createApiKeyWithHttpInfo(param: AccountApiCreateApiKeyRequest, options?: ConfigurationOptions): Promise<HttpInfo<CreateAPIKeyResponse>> {
+        return this.api.createApiKeyWithHttpInfo(param.createAPIKeyRequest,  options).toPromise();
+    }
+
+    /**
+     * Mint a new API key; the plaintext key is returned once. scope=account is workspace admin (agent/domain/key management); scope=agent binds the key to one inbox so it can act only as that agent. Account scope only.
+     * Create an API key
+     * @param param the request object
+     */
+    public createApiKey(param: AccountApiCreateApiKeyRequest, options?: ConfigurationOptions): Promise<CreateAPIKeyResponse> {
+        return this.api.createApiKey(param.createAPIKeyRequest,  options).toPromise();
+    }
+
+    /**
      * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
      * Delete your account + all data (irreversible)
      * @param param the request object
@@ -151,6 +195,24 @@ export class ObjectAccountApi {
      */
     public deleteAccount(param: AccountApiDeleteAccountRequest = {}, options?: ConfigurationOptions): Promise<DeleteUserDataResult> {
         return this.api.deleteAccount(param.confirm,  options).toPromise();
+    }
+
+    /**
+     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
+     * Revoke an API key
+     * @param param the request object
+     */
+    public deleteApiKeyWithHttpInfo(param: AccountApiDeleteApiKeyRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
+        return this.api.deleteApiKeyWithHttpInfo(param.id,  options).toPromise();
+    }
+
+    /**
+     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
+     * Revoke an API key
+     * @param param the request object
+     */
+    public deleteApiKey(param: AccountApiDeleteApiKeyRequest, options?: ConfigurationOptions): Promise<void> {
+        return this.api.deleteApiKey(param.id,  options).toPromise();
     }
 
     /**
@@ -205,6 +267,24 @@ export class ObjectAccountApi {
      */
     public getAccount(param: AccountApiGetAccountRequest = {}, options?: ConfigurationOptions): Promise<AccountView> {
         return this.api.getAccount( options).toPromise();
+    }
+
+    /**
+     * API keys for the account (metadata only — secrets are shown once, at creation). Account scope only: an agent-scoped credential cannot manage keys.
+     * List API keys
+     * @param param the request object
+     */
+    public listApiKeysWithHttpInfo(param: AccountApiListApiKeysRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<PageAPIKeyView>> {
+        return this.api.listApiKeysWithHttpInfo( options).toPromise();
+    }
+
+    /**
+     * API keys for the account (metadata only — secrets are shown once, at creation). Account scope only: an agent-scoped credential cannot manage keys.
+     * List API keys
+     * @param param the request object
+     */
+    public listApiKeys(param: AccountApiListApiKeysRequest = {}, options?: ConfigurationOptions): Promise<PageAPIKeyView> {
+        return this.api.listApiKeys( options).toPromise();
     }
 
     /**

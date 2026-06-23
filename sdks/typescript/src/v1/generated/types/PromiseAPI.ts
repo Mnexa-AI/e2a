@@ -3,6 +3,7 @@ import { Configuration, PromiseConfigurationOptions, wrapOptions } from '../conf
 import { PromiseMiddleware, Middleware, PromiseMiddlewareWrapper } from '../middleware.js';
 
 import { APIKeyExportEntry } from '../models/APIKeyExportEntry.js';
+import { APIKeyView } from '../models/APIKeyView.js';
 import { AccountUserView } from '../models/AccountUserView.js';
 import { AccountView } from '../models/AccountView.js';
 import { AgentIdentity } from '../models/AgentIdentity.js';
@@ -15,6 +16,8 @@ import { AuthVerdict } from '../models/AuthVerdict.js';
 import { CheckResult } from '../models/CheckResult.js';
 import { ConversationDetailView } from '../models/ConversationDetailView.js';
 import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
+import { CreateAPIKeyRequest } from '../models/CreateAPIKeyRequest.js';
+import { CreateAPIKeyResponse } from '../models/CreateAPIKeyResponse.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
@@ -37,6 +40,7 @@ import { MessageParsedView } from '../models/MessageParsedView.js';
 import { MessageSummaryView } from '../models/MessageSummaryView.js';
 import { MessageView } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
+import { PageAPIKeyView } from '../models/PageAPIKeyView.js';
 import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
 import { PageDomainView } from '../models/PageDomainView.js';
@@ -94,6 +98,28 @@ export class PromiseAccountApi {
     }
 
     /**
+     * Mint a new API key; the plaintext key is returned once. scope=account is workspace admin (agent/domain/key management); scope=agent binds the key to one inbox so it can act only as that agent. Account scope only.
+     * Create an API key
+     * @param createAPIKeyRequest
+     */
+    public createApiKeyWithHttpInfo(createAPIKeyRequest: CreateAPIKeyRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<CreateAPIKeyResponse>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.createApiKeyWithHttpInfo(createAPIKeyRequest, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Mint a new API key; the plaintext key is returned once. scope=account is workspace admin (agent/domain/key management); scope=agent binds the key to one inbox so it can act only as that agent. Account scope only.
+     * Create an API key
+     * @param createAPIKeyRequest
+     */
+    public createApiKey(createAPIKeyRequest: CreateAPIKeyRequest, _options?: PromiseConfigurationOptions): Promise<CreateAPIKeyResponse> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.createApiKey(createAPIKeyRequest, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
      * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
      * Delete your account + all data (irreversible)
      * @param [confirm] Must be DELETE — this is irreversible.
@@ -112,6 +138,28 @@ export class PromiseAccountApi {
     public deleteAccount(confirm?: string, _options?: PromiseConfigurationOptions): Promise<DeleteUserDataResult> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.deleteAccount(confirm, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
+     * Revoke an API key
+     * @param id
+     */
+    public deleteApiKeyWithHttpInfo(id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.deleteApiKeyWithHttpInfo(id, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
+     * Revoke an API key
+     * @param id
+     */
+    public deleteApiKey(id: string, _options?: PromiseConfigurationOptions): Promise<void> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.deleteApiKey(id, observableOptions);
         return result.toPromise();
     }
 
@@ -174,6 +222,26 @@ export class PromiseAccountApi {
     public getAccount(_options?: PromiseConfigurationOptions): Promise<AccountView> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.getAccount(observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * API keys for the account (metadata only — secrets are shown once, at creation). Account scope only: an agent-scoped credential cannot manage keys.
+     * List API keys
+     */
+    public listApiKeysWithHttpInfo(_options?: PromiseConfigurationOptions): Promise<HttpInfo<PageAPIKeyView>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.listApiKeysWithHttpInfo(observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * API keys for the account (metadata only — secrets are shown once, at creation). Account scope only: an agent-scoped credential cannot manage keys.
+     * List API keys
+     */
+    public listApiKeys(_options?: PromiseConfigurationOptions): Promise<PageAPIKeyView> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.listApiKeys(observableOptions);
         return result.toPromise();
     }
 
