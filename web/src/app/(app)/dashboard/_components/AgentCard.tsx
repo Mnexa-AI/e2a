@@ -3,26 +3,17 @@
 import { useState } from "react";
 import Link from "next/link";
 import type { DashboardAgent } from "../../../components/types";
-import { ConnectInstructions } from "./ConnectInstructions";
 import { Chip } from "../../../components/loft/Chip";
 import { Dot } from "../../../components/loft/Dot";
 import { sendAgentTestEmail } from "../../../components/onboarding/api";
-import { AGENTS_DOMAIN } from "../../../../lib/site";
-
-function isSharedDomain(email: string): boolean {
-  return AGENTS_DOMAIN !== "" && email.endsWith("@" + AGENTS_DOMAIN);
-}
 
 export function AgentCard({
   agent,
 }: {
   agent: DashboardAgent;
 }) {
-  const [showConnect, setShowConnect] = useState(false);
   const [testState, setTestState] = useState<"idle" | "sending" | "sent">("idle");
   const [testError, setTestError] = useState("");
-
-  const shared = isSharedDomain(agent.email);
 
   return (
     <div
@@ -76,9 +67,6 @@ export function AgentCard({
               <Dot tone={agent.domain_verified ? "success" : "warn"} />
               {agent.domain_verified ? "Verified" : "Unverified"}
             </Chip>
-            <Chip tone={shared ? "info" : "accent"}>
-              {shared ? "Shared" : "Custom"}
-            </Chip>
           </div>
 
           {/* Meta info */}
@@ -94,64 +82,51 @@ export function AgentCard({
 
         </div>
 
-        {/* Actions: Test + Connect. Edits (mode, webhook URL, HITL,
-            delete) live on the per-agent Settings page; the bottom
-            CTA bar wires that destination. */}
+        {/* Actions: Test only. Editing (review queue) + delete live on
+            the per-agent Settings page, reached via the bottom CTA bar.
+            Connection setup lives in onboarding / the e2a skill. */}
         <div className="flex gap-2 shrink-0 md:ml-4 flex-wrap">
           {agent.domain_verified && (
-            <>
-              <button
-                onClick={async () => {
-                  setTestError("");
-                  setTestState("sending");
-                  try {
-                    await sendAgentTestEmail(agent.email);
-                    setTestState("sent");
-                    setTimeout(() => setTestState("idle"), 3000);
-                  } catch (err) {
-                    setTestError(
-                      err instanceof Error ? err.message : "Network error",
-                    );
-                    setTestState("idle");
-                  }
-                }}
-                disabled={testState === "sending"}
-                className="text-[12px] px-3 py-1.5 transition disabled:cursor-not-allowed"
-                style={{
-                  background:
-                    testState === "sent"
-                      ? "var(--success)"
-                      : testState === "sending"
-                        ? "var(--bg-elev)"
-                        : "var(--bg-panel)",
-                  color:
-                    testState === "sent"
-                      ? "#fff"
-                      : testState === "sending"
-                        ? "var(--fg-muted)"
-                        : "var(--fg)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--r-md)",
-                }}
-              >
-                {testState === "sent"
-                  ? "Sent ✓"
-                  : testState === "sending"
-                    ? "Sending…"
-                    : "Test"}
-              </button>
-              <button
-                onClick={() => setShowConnect(!showConnect)}
-                className="text-[12px] px-3 py-1.5 transition"
-                style={{
-                  background: "var(--fg)",
-                  color: "var(--bg)",
-                  borderRadius: "var(--r-md)",
-                }}
-              >
-                {showConnect ? "Hide" : "Connect"}
-              </button>
-            </>
+            <button
+              onClick={async () => {
+                setTestError("");
+                setTestState("sending");
+                try {
+                  await sendAgentTestEmail(agent.email);
+                  setTestState("sent");
+                  setTimeout(() => setTestState("idle"), 3000);
+                } catch (err) {
+                  setTestError(
+                    err instanceof Error ? err.message : "Network error",
+                  );
+                  setTestState("idle");
+                }
+              }}
+              disabled={testState === "sending"}
+              className="text-[12px] px-3 py-1.5 transition disabled:cursor-not-allowed"
+              style={{
+                background:
+                  testState === "sent"
+                    ? "var(--success)"
+                    : testState === "sending"
+                      ? "var(--bg-elev)"
+                      : "var(--bg-panel)",
+                color:
+                  testState === "sent"
+                    ? "#fff"
+                    : testState === "sending"
+                      ? "var(--fg-muted)"
+                      : "var(--fg)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--r-md)",
+              }}
+            >
+              {testState === "sent"
+                ? "Sent ✓"
+                : testState === "sending"
+                  ? "Sending…"
+                  : "Test"}
+            </button>
           )}
         </div>
         {testError && (
@@ -163,14 +138,6 @@ export function AgentCard({
           </p>
         )}
       </div>
-
-      {/* Connect instructions — inline on the card because they're a
-          first-mile onboarding affordance, not ongoing config. */}
-      {showConnect && (
-        <div className="mt-3 border-t border-border pt-4">
-          <ConnectInstructions />
-        </div>
-      )}
 
       {/* Bottom CTA bar — the two canonical entry points into the
           per-agent surface. Name + email chip also link to "Open inbox →"

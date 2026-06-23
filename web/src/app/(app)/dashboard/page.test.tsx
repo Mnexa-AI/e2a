@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from "../../../test-utils/swr";
+import { render, screen, waitFor } from "../../../test-utils/swr";
 import DashboardPage from "./page";
 
 // ── Mocks ────────────────────────────────────────────────
@@ -114,7 +114,7 @@ describe("empty state", () => {
 // ── Local agent card ─────────────────────────────────────
 
 describe("local agent card", () => {
-  it("renders identity chips and shows connect action", async () => {
+  it("renders identity chips and the Test action", async () => {
     mockAgentList([localAgent]);
     render(<DashboardPage />);
 
@@ -122,12 +122,11 @@ describe("local agent card", () => {
       expect(screen.getByText("bot@agents.e2a.dev")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Shared")).toBeInTheDocument();
     expect(screen.getByText("Verified")).toBeInTheDocument();
-    expect(screen.getByText("Connect")).toBeInTheDocument();
-    // Mode switching used to live inline on the card via the
-    // "Switch to cloud" toggle; it now lives on /dashboard/agents/settings.
-    expect(screen.queryByText("Switch to cloud")).not.toBeInTheDocument();
+    expect(screen.getByText("Test")).toBeInTheDocument();
+    // The inline Connect button + instructions were removed — connection
+    // setup lives in onboarding / the e2a skill now.
+    expect(screen.queryByText("Connect")).not.toBeInTheDocument();
   });
 
   it("does not render the webhook editor or HITL editor inline", async () => {
@@ -144,21 +143,6 @@ describe("local agent card", () => {
     // HITLEditor's wording — match strings unique to the editor, not
     // the dashboard's "HITL on" filter chip (which is unrelated).
     expect(screen.queryByText(/Require human approval/i)).not.toBeInTheDocument();
-  });
-
-  it("shows connect instructions when Connect is clicked", async () => {
-    mockAgentList([localAgent]);
-    render(<DashboardPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Connect")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByText("Connect"));
-
-    await waitFor(() => {
-      expect(screen.getByText(/OpenClaw, Claude Code, Gemini CLI/)).toBeInTheDocument();
-    });
   });
 
   // The card's name, email chip, and "Open inbox →" link are the three
@@ -202,7 +186,7 @@ describe("local agent card", () => {
 // ── Cloud agent card ─────────────────────────────────────
 
 describe("cloud agent card", () => {
-  it("renders custom-domain chip and Connect action", async () => {
+  it("renders the Test action for a verified agent", async () => {
     mockAgentList([cloudAgent]);
     render(<DashboardPage />);
 
@@ -210,26 +194,10 @@ describe("cloud agent card", () => {
       expect(screen.getByText("support@mail.acme.com")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Custom")).toBeInTheDocument();
-    expect(screen.getByText("Connect")).toBeInTheDocument();
-    // Inline editors moved to /dashboard/agents/settings.
-    expect(screen.queryByText("Switch to local")).not.toBeInTheDocument();
+    expect(screen.getByText("Test")).toBeInTheDocument();
+    // The inline Connect affordance + editors were removed.
+    expect(screen.queryByText("Connect")).not.toBeInTheDocument();
     expect(screen.queryByText("Webhook:")).not.toBeInTheDocument();
-  });
-
-  it("shows connect instructions when Connect is clicked", async () => {
-    mockAgentList([cloudAgent]);
-    render(<DashboardPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Connect")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByText("Connect"));
-
-    await waitFor(() => {
-      expect(screen.getByText(/Install the e2a skill to connect your agent/)).toBeInTheDocument();
-    });
   });
 });
 
@@ -238,7 +206,7 @@ describe("cloud agent card", () => {
 // behaviors are exercised in
 // web/src/app/(app)/dashboard/agents/settings/page.test.tsx — this
 // suite focuses on what the *dashboard* surface still owns:
-// identity + chips + Test + Connect + the two CTAs.
+// identity + chips + Test + the two CTAs.
 
 // ── Settings CTA ─────────────────────────────────────────
 
@@ -262,7 +230,7 @@ describe("settings CTA", () => {
 // ── Unverified agent ─────────────────────────────────────
 
 describe("unverified agent", () => {
-  it("shows Unverified badge and no connect action", async () => {
+  it("shows Unverified badge and no action buttons", async () => {
     mockAgentList([unverifiedAgent]);
     render(<DashboardPage />);
 
@@ -271,6 +239,8 @@ describe("unverified agent", () => {
     });
 
     expect(screen.getByText("Unverified")).toBeInTheDocument();
+    // Unverified agents get no Test action (and the Connect button is gone).
+    expect(screen.queryByText("Test")).not.toBeInTheDocument();
     expect(screen.queryByText("Connect")).not.toBeInTheDocument();
   });
 });
