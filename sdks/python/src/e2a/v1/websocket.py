@@ -187,17 +187,14 @@ class WSStream:
 def _ws_connect(ws_url: str, api_key: str):
     """Open the WS handshake with the API key in the Authorization header.
 
-    The header kwarg was renamed ``extra_headers`` -> ``additional_headers`` in
-    websockets 14; we support ``websockets>=12``, so try the modern name and fall
-    back to the legacy one.
+    Uses ``additional_headers`` (websockets >= 14, the dependency floor). Note
+    websockets validates connect kwargs lazily — at ``__aenter__``, not at this
+    call — so version handling must be by capability, not a try/except here.
     """
     import websockets
 
     headers = {"Authorization": f"Bearer {api_key}"}
-    try:
-        return websockets.connect(ws_url, additional_headers=headers)
-    except TypeError:
-        return websockets.connect(ws_url, extra_headers=headers)
+    return websockets.connect(ws_url, additional_headers=headers)
 
 
 async def _connect_and_stream(
