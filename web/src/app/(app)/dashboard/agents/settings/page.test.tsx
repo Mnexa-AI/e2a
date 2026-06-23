@@ -100,7 +100,7 @@ describe("AgentSettingsPage", () => {
     expect(screen.getByText(/Missing \?email= query parameter/)).toBeInTheDocument();
   });
 
-  it("renders the review-queue section and danger zone for a verified agent", async () => {
+  it("renders the protection section and danger zone for a verified agent", async () => {
     setSearchParams({ email: baseAgent.email });
     mockAgent(baseAgent);
 
@@ -110,13 +110,17 @@ describe("AgentSettingsPage", () => {
       expect(screen.getByTestId("agent-settings")).toBeInTheDocument();
     });
 
-    // Review queue (beta) section + collapsed editor summary — gated on
+    // Protection (beta) section + its gate/scan/holds controls — gated on
     // the protection fetch, so wait for it to settle.
     await waitFor(() => {
-      expect(screen.getByText("Review queue")).toBeInTheDocument();
+      expect(screen.getByText("Protection")).toBeInTheDocument();
     });
     expect(screen.getByText("Beta")).toBeInTheDocument();
-    expect(screen.getByText(/Review window:/)).toBeInTheDocument();
+    // Gate + scan + holds controls are all exposed.
+    expect(screen.getByText("Who may send to this inbox")).toBeInTheDocument();
+    expect(screen.getByText("Who this inbox may send to")).toBeInTheDocument();
+    expect(screen.getAllByText("Content scan sensitivity").length).toBe(2);
+    expect(screen.getByText("Approval window")).toBeInTheDocument();
 
     // The retired Mode + per-agent Webhook sections must not render.
     expect(screen.queryByText(/Delivery mode/i)).not.toBeInTheDocument();
@@ -128,7 +132,7 @@ describe("AgentSettingsPage", () => {
     expect(screen.getByRole("button", { name: /Delete inbox/i })).toBeInTheDocument();
   });
 
-  it("editing the review-queue TTL PUTs the patched holds to the protection API", async () => {
+  it("saving the protection editor PUTs the full config (gates + scan + holds)", async () => {
     setSearchParams({ email: baseAgent.email });
     const protectionUrl = `/v1/agents/${encodeURIComponent(baseAgent.email)}/protection`;
     let putBody: string | null = null;
@@ -152,22 +156,23 @@ describe("AgentSettingsPage", () => {
 
     render(<AgentSettingsPage />);
     await waitFor(() => {
-      expect(screen.getByText(/Review window:/)).toBeInTheDocument();
+      expect(screen.getByText("Approval window")).toBeInTheDocument();
     });
 
-    // Open the editor, pick the "1 hour" preset, save.
-    fireEvent.click(screen.getByText("Edit"));
+    // The form is always editable: pick the "1 hour" window, then save.
     fireEvent.click(screen.getByText("1 hour"));
     fireEvent.click(screen.getByText("Save"));
 
     await waitFor(() => {
       expect(putBody).not.toBeNull();
     });
-    // Wholesale PUT: holds patched, inbound/outbound preserved.
+    // Wholesale PUT: holds reflect the picked window; gates + scan come
+    // through from the loaded config (open / flag / off).
     const body = JSON.parse(putBody!);
     expect(body.holds).toEqual({ ttl_seconds: 3600, on_expiry: "reject" });
-    expect(body.inbound).toEqual(PROTECTION.inbound);
-    expect(body.outbound).toEqual(PROTECTION.outbound);
+    expect(body.inbound.gate.policy).toBe("open");
+    expect(body.inbound.scan.sensitivity).toBe("off");
+    expect(body.outbound.gate.policy).toBe("open");
   });
 
   it("clicking 'Delete inbox' DELETEs and routes back to /dashboard", async () => {

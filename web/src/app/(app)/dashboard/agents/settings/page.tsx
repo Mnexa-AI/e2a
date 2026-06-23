@@ -16,7 +16,7 @@ import {
   invalidateProtection,
   protectionKey,
 } from "../../../../../lib/swrKeys";
-import { HITLEditor } from "../../_components/HITLEditor";
+import { ProtectionEditor } from "../../_components/ProtectionEditor";
 
 // Suspense-wrap so useSearchParams stays inside a Suspense boundary
 // per Next.js 16+ requirements. Inner content is keyed by email so
@@ -118,21 +118,21 @@ function AgentSettingsContent({ email }: { email: string }) {
         width: "100%",
       }}
     >
-      {/* Review queue — backed by the beta protection sub-resource.
-          Only when the domain is verified (the approve / reject pipeline
-          needs a real domain to deliver notifications) and once the
-          protection config has loaded. */}
+      {/* Protection — backed by the beta protection sub-resource: the
+          inbound/outbound trust gates + content scan that decide what gets
+          held, and the review queue that governs held messages. Gated on
+          domain verification (the approve/reject pipeline needs a real
+          domain) and on the protection config having loaded. */}
       {agent.domain_verified && protection && (
         <Section
-          title="Review queue"
+          title="Protection"
           beta
-          subtitle="When a message is held for review (by an inbound/outbound policy or content scan), it waits for an Approve or Reject — or auto-resolves at the TTL below."
+          subtitle="Control who may send to and from this inbox, how aggressively content is scanned, and what happens to messages held for review."
         >
-          <HITLEditor
+          <ProtectionEditor
             email={agent.email}
-            ttlSeconds={protection.holds.ttl_seconds ?? 604800}
-            expirationAction={protection.holds.on_expiry ?? "reject"}
-            onUpdated={onEditorSaved}
+            config={protection}
+            onSaved={onEditorSaved}
           />
         </Section>
       )}

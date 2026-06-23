@@ -366,25 +366,17 @@ export async function getProtection(email: string): Promise<ProtectionConfig> {
   );
 }
 
-// Update only the review-queue holds (TTL + on-expiry action). The
-// protection PUT is a wholesale replace (inbound/outbound/holds all
-// required), so we read the current config, patch `holds`, and write the
-// whole thing back — preserving the inbound/outbound sections we don't
-// touch here.
-export async function setProtectionHolds(
+// Replace the agent's full protection posture. The PUT is a wholesale
+// replace (inbound/outbound/holds all required), so callers send the
+// complete config — the ProtectionEditor edits every section in one form
+// and submits the whole thing, which matches this contract exactly.
+export async function setProtection(
   email: string,
-  holds: { ttlSeconds: number; onExpiry: "approve" | "reject" },
+  config: ProtectionConfig,
 ): Promise<void> {
-  const current = await getProtection(email);
   return request(
     "/v1/agents/" + encodeURIComponent(email) + "/protection",
-    {
-      method: "PUT",
-      body: JSON.stringify({
-        ...current,
-        holds: { ttl_seconds: holds.ttlSeconds, on_expiry: holds.onExpiry },
-      }),
-    },
+    { method: "PUT", body: JSON.stringify(config) },
   );
 }
 
