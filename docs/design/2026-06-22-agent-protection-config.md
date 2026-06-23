@@ -61,7 +61,9 @@ can evolve post-GA.
 - Raw-float threshold override for power users.
 - A public `/v1` surface for the `screening_events` audit log (audit #6 — separate).
 - Renaming internal packages or the `screening_events` table (mechanism stays
-  "screening"; only the public surface is "protection").
+  "screening"; only the public surface is "protection"). _Update: the table was
+  later renamed to `protection_events` (+ an agent FK) in the audit-fixes pass;
+  the screening process and Go packages keep their "screening" name._
 
 ## 3. Relevant context and constraints
 
