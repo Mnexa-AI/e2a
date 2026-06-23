@@ -22,10 +22,20 @@ type EventQuery struct {
 	Limit                         int
 }
 
-// eventsCursor is the opaque continuation: the last row's (created_at, id).
+// eventsCursor is the opaque continuation: the last row's (created_at, id) plus
+// a snapshot of the filters it was minted under. A keyset position is only
+// meaningful against the same filter set, so a continuation that carries
+// different filters is rejected (invalid_cursor) rather than silently returning a
+// wrong/incomplete page — mirrors the messagesCursor filter-binding.
 type eventsCursor struct {
-	C time.Time `json:"c"`
-	I string    `json:"i"`
+	C  time.Time `json:"c"`
+	I  string    `json:"i"`
+	Ty string    `json:"ty,omitempty"`
+	Ag string    `json:"ag,omitempty"`
+	Co string    `json:"co,omitempty"`
+	Ms string    `json:"ms,omitempty"`
+	Si string    `json:"si,omitempty"`
+	Un string    `json:"un,omitempty"`
 }
 
 // ListEventsInput — filters + the standardized cursor/limit (replacing the
@@ -169,6 +179,15 @@ func (s *Server) handleRedeliverEvent(ctx context.Context, in *RedeliverEventInp
 	return &redeliverOutput{Body: body}, nil
 }
 
+// rfc3339PtrOrEmpty renders an optional time filter as a stable string for the
+// cursor's filter snapshot (nil → "").
+func rfc3339PtrOrEmpty(p *time.Time) string {
+	if p == nil {
+		return ""
+	}
+	return rfc3339OrEmpty(*p)
+}
+
 func containsStr(ss []string, want string) bool {
 	for _, s := range ss {
 		if s == want {
@@ -203,19 +222,34 @@ func (s *Server) handleListEvents(ctx context.Context, in *ListEventsInput) (*li
 		if err := DecodeCursor(in.Cursor, &cur); err != nil {
 			return nil, NewError(http.StatusBadRequest, "invalid_cursor", "invalid pagination cursor")
 		}
+		if cur.Ty != in.Type || cur.Ag != in.AgentID || cur.Co != in.ConversationID ||
+			cur.Ms != in.MessageID || cur.Si != rfc3339PtrOrEmpty(since) || cur.Un != rfc3339PtrOrEmpty(until) {
+			return nil, NewError(http.StatusBadRequest, "invalid_cursor",
+				"cursor was created with different filters — start a new query without a cursor")
+		}
 	}
+	// Fetch limit+1 to detect a further page (avoids a spurious next_cursor on an
+	// exact-multiple final page).
 	events, err := s.deps.ListEvents(ctx, EventQuery{
 		UserID: user.ID, Type: in.Type, AgentID: in.AgentID, ConversationID: in.ConversationID,
 		MessageID: in.MessageID, Since: since, Until: until,
-		CursorCreatedAt: cur.C, CursorID: cur.I, Limit: limit,
+		CursorCreatedAt: cur.C, CursorID: cur.I, Limit: limit + 1,
 	})
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list events")
 	}
+	hasMore := len(events) > limit
+	if hasMore {
+		events = events[:limit]
+	}
 	var nextCursor string
-	if len(events) == limit {
+	if hasMore {
 		last := events[len(events)-1]
-		nextCursor, err = EncodeCursor(eventsCursor{C: last.CreatedAt, I: last.ID})
+		nextCursor, err = EncodeCursor(eventsCursor{
+			C: last.CreatedAt, I: last.ID,
+			Ty: in.Type, Ag: in.AgentID, Co: in.ConversationID, Ms: in.MessageID,
+			Si: rfc3339PtrOrEmpty(since), Un: rfc3339PtrOrEmpty(until),
+		})
 		if err != nil {
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to build pagination cursor")
 		}

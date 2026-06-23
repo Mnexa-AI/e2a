@@ -52,8 +52,8 @@ const (
 	EventEmailComplained        = "email.complained"
 	EventDomainSuppressionAdded = "domain.suppression_added"
 	// Inbound trust policy (decision 10 / Slice 7): an inbound message did not
-	// match the agent's ingestion policy (allowlist/domain/verified_only). It is
-	// delivered but flagged — operators get a signal, nothing is dropped.
+	// match the agent's ingestion policy (allowlist/domain). It is delivered but
+	// flagged — operators get a signal, nothing is dropped.
 	EventEmailFlagged = "email.flagged"
 	// EventEmailBlocked fires when a message is refused by screening — the applied
 	// action (gate ∨ scan) is `block`. Inbound: the message is accept-then-quarantined
@@ -61,7 +61,7 @@ const (
 	// also gets a synchronous 4xx). It is the disposition event for the `block` action,
 	// firing for BOTH directions; `reason_source` names the producer that drove it
 	// (sender_gate / recipient_gate / inbound_scan / outbound_scan), mirroring the
-	// screening_events audit vocabulary so a subscriber can correlate the two.
+	// protection_events audit vocabulary so a subscriber can correlate the two.
 	EventEmailBlocked = "email.blocked"
 	// EventEmailPendingReview fires when an inbound message is held for human review
 	// (applied action = review → status pending_review). It is the inbound twin of

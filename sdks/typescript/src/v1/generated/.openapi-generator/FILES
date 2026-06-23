@@ -60,6 +60,7 @@ models/PageWebhookDeliveryView.ts
 models/PageWebhookView.ts
 models/ProtectionConfigView.ts
 models/ProtectionDirectionView.ts
+models/ProtectionEventExportEntry.ts
 models/ProtectionGateView.ts
 models/ProtectionHoldsView.ts
 models/ProtectionScanView.ts
@@ -76,6 +77,7 @@ models/SendEmailRequest.ts
 models/SendResultView.ts
 models/SendingDNSRecordView.ts
 models/Suppression.ts
+models/SuppressionExportEntry.ts
 models/TestWebhookRequest.ts
 models/TestWebhookResponse.ts
 models/UpdateAgentRequest.ts

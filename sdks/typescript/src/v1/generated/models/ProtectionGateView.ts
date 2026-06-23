@@ -22,7 +22,7 @@ export class ProtectionGateView {
     */
     'allowlist'?: Array<string>;
     /**
-    * Trust gate: open (all), domain (listed domains), allowlist (listed addresses). A legacy \'verified_only\' may appear on read but cannot be set here.
+    * Trust gate: open (all), domain (listed domains), allowlist (listed addresses).
     */
     'policy'?: ProtectionGateViewPolicyEnum;
 

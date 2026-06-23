@@ -60,7 +60,7 @@ type Aggregate struct {
 	// for audit/metrics.
 	Truncated bool
 	// PerDetector retains every detector's raw Result (including timeouts/errors)
-	// for audit and for writing screening_events rows.
+	// for audit and for writing protection_events rows.
 	PerDetector []Result
 }
 

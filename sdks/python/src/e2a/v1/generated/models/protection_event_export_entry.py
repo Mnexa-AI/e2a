@@ -17,20 +17,28 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
-from typing import Any, ClassVar, Dict, List, Optional
-from typing_extensions import Annotated
+from datetime import datetime
+from pydantic import BaseModel, ConfigDict, StrictFloat, StrictInt, StrictStr
+from typing import Any, ClassVar, Dict, List, Optional, Union
 from typing import Optional, Set
 from typing_extensions import Self
 
-class ProtectionGateView(BaseModel):
+class ProtectionEventExportEntry(BaseModel):
     """
-    ProtectionGateView
+    ProtectionEventExportEntry
     """ # noqa: E501
-    action: Optional[StrictStr] = Field(default='flag', description="What a gate non-match does: flag (deliver + annotate), review (hold), block.")
-    allowlist: Optional[Annotated[List[StrictStr], Field(max_length=1000)]] = Field(default=None, description="Addresses (allowlist) or domains (domain) the gate trusts; ignored for open.")
-    policy: Optional[StrictStr] = Field(default='open', description="Trust gate: open (all), domain (listed domains), allowlist (listed addresses).")
-    __properties: ClassVar[List[str]] = ["action", "allowlist", "policy"]
+    action: StrictStr
+    agent_id: StrictStr
+    created_at: datetime
+    detector: Optional[StrictStr] = None
+    direction: StrictStr
+    id: StrictStr
+    message_id: StrictStr
+    reason: StrictStr
+    score: Optional[Union[StrictFloat, StrictInt]] = None
+    source: StrictStr
+    subject_addr: Optional[StrictStr] = None
+    __properties: ClassVar[List[str]] = ["action", "agent_id", "created_at", "detector", "direction", "id", "message_id", "reason", "score", "source", "subject_addr"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -50,7 +58,7 @@ class ProtectionGateView(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of ProtectionGateView from a JSON string"""
+        """Create an instance of ProtectionEventExportEntry from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -75,7 +83,7 @@ class ProtectionGateView(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of ProtectionGateView from a dict"""
+        """Create an instance of ProtectionEventExportEntry from a dict"""
         if obj is None:
             return None
 
@@ -83,9 +91,17 @@ class ProtectionGateView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "action": obj.get("action") if obj.get("action") is not None else 'flag',
-            "allowlist": obj.get("allowlist"),
-            "policy": obj.get("policy") if obj.get("policy") is not None else 'open'
+            "action": obj.get("action"),
+            "agent_id": obj.get("agent_id"),
+            "created_at": obj.get("created_at"),
+            "detector": obj.get("detector"),
+            "direction": obj.get("direction"),
+            "id": obj.get("id"),
+            "message_id": obj.get("message_id"),
+            "reason": obj.get("reason"),
+            "score": obj.get("score"),
+            "source": obj.get("source"),
+            "subject_addr": obj.get("subject_addr")
         })
         return _obj
 

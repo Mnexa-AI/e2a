@@ -281,6 +281,14 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 	}
 	req.CC = agent.StripAgentSelfAliases(req.CC, ag.EmailAddress())
 	req.BCC = agent.StripAgentSelfAliases(req.BCC, ag.EmailAddress())
+	// Re-count the FINAL, post-expansion recipient set. reply_all fans the
+	// thread's To+Cc into req.To/req.CC above, so the earlier b.CC/b.BCC check is
+	// not the real fan-out — without this, a reply_all to a large thread bypasses
+	// the cap that /send and /forward enforce (the downstream send path has no
+	// cap of its own).
+	if env := recipientCountError(req.To, req.CC, req.BCC); env != nil {
+		return nil, env
+	}
 	return s.deliver(ctx, user, ag, req, "reply", inbound.EmailMessageID, "/v1/reply/"+in.ID, in.IdempotencyKey, in.RawBody, inbound)
 }
 

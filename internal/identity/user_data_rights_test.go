@@ -71,6 +71,18 @@ func seedUserData(t *testing.T, store *identity.Store, ctx context.Context, labe
 		t.Fatalf("seed: CreateUserSession: %v", err)
 	}
 
+	// A suppression + a protection-event audit row, so the export covers both.
+	if _, err := store.AddSuppression(ctx, user.ID, "blocked@spam.com", "hard bounce", "bounce", ""); err != nil {
+		t.Fatalf("seed: AddSuppression: %v", err)
+	}
+	if err := store.CreateProtectionEvent(ctx, identity.ProtectionEvent{
+		MessageID: "msg_in_" + label, AgentID: customAgent.ID, Direction: "inbound",
+		Source: identity.ScreeningSourceGate, Reason: identity.ReviewReasonSenderGate,
+		Action: "flag", SubjectAddr: "alice@gmail.com",
+	}); err != nil {
+		t.Fatalf("seed: CreateProtectionEvent: %v", err)
+	}
+
 	return user
 }
 
@@ -105,6 +117,12 @@ func TestExportUserData(t *testing.T) {
 	}
 	if len(dump.Messages) != 2 {
 		t.Errorf("messages: got %d, want 2 (1 inbound + 1 outbound)", len(dump.Messages))
+	}
+	if len(dump.Suppressions) != 1 || dump.Suppressions[0].Address != "blocked@spam.com" {
+		t.Errorf("suppressions: got %+v, want 1 (blocked@spam.com)", dump.Suppressions)
+	}
+	if len(dump.ProtectionEvents) != 1 || dump.ProtectionEvents[0].SubjectAddr != "alice@gmail.com" {
+		t.Errorf("protection_events: got %+v, want 1 (subject alice@gmail.com)", dump.ProtectionEvents)
 	}
 
 	// Right-of-access requires every stored header field to round-trip

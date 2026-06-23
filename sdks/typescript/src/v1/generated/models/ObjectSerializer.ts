@@ -43,6 +43,7 @@ export * from '../models/PageWebhookDeliveryView.js';
 export * from '../models/PageWebhookView.js';
 export * from '../models/ProtectionConfigView.js';
 export * from '../models/ProtectionDirectionView.js';
+export * from '../models/ProtectionEventExportEntry.js';
 export * from '../models/ProtectionGateView.js';
 export * from '../models/ProtectionHoldsView.js';
 export * from '../models/ProtectionScanView.js';
@@ -59,6 +60,7 @@ export * from '../models/SendEmailRequest.js';
 export * from '../models/SendResultView.js';
 export * from '../models/SendingDNSRecordView.js';
 export * from '../models/Suppression.js';
+export * from '../models/SuppressionExportEntry.js';
 export * from '../models/TestWebhookRequest.js';
 export * from '../models/TestWebhookResponse.js';
 export * from '../models/UpdateAgentRequest.js';
@@ -119,6 +121,7 @@ import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
 import { ProtectionDirectionView } from '../models/ProtectionDirectionView.js';
+import { ProtectionEventExportEntry } from '../models/ProtectionEventExportEntry.js';
 import { ProtectionGateView, ProtectionGateViewActionEnum   , ProtectionGateViewPolicyEnum   } from '../models/ProtectionGateView.js';
 import { ProtectionHoldsView, ProtectionHoldsViewOnExpiryEnum    } from '../models/ProtectionHoldsView.js';
 import { ProtectionScanView, ProtectionScanViewSensitivityEnum   } from '../models/ProtectionScanView.js';
@@ -135,6 +138,7 @@ import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView   , SendResultViewMethodEnum   , SendResultViewSentAsEnum  , SendResultViewStatusEnum   } from '../models/SendResultView.js';
 import { SendingDNSRecordView } from '../models/SendingDNSRecordView.js';
 import { Suppression } from '../models/Suppression.js';
+import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
 import { TestWebhookRequest , TestWebhookRequestEventEnum   } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
@@ -239,6 +243,7 @@ let typeMap: {[index: string]: any} = {
     "PageWebhookView": PageWebhookView,
     "ProtectionConfigView": ProtectionConfigView,
     "ProtectionDirectionView": ProtectionDirectionView,
+    "ProtectionEventExportEntry": ProtectionEventExportEntry,
     "ProtectionGateView": ProtectionGateView,
     "ProtectionHoldsView": ProtectionHoldsView,
     "ProtectionScanView": ProtectionScanView,
@@ -255,6 +260,7 @@ let typeMap: {[index: string]: any} = {
     "SendResultView": SendResultView,
     "SendingDNSRecordView": SendingDNSRecordView,
     "Suppression": Suppression,
+    "SuppressionExportEntry": SuppressionExportEntry,
     "TestWebhookRequest": TestWebhookRequest,
     "TestWebhookResponse": TestWebhookResponse,
     "UpdateAgentRequest": UpdateAgentRequest,

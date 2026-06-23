@@ -142,7 +142,7 @@ func headerSafe(s string) string {
 // blockAuditID derives a STABLE soft-ref message id for a blocked send. A block
 // persists no message row, so the audit/event must anchor to a deterministic id
 // (not a fresh random one) — otherwise a retried block writes duplicate
-// screening_events rows + duplicate email.blocked events. Keyed on the
+// protection_events rows + duplicate email.blocked events. Keyed on the
 // request-stable inputs so retries collapse to one audit row.
 func blockAuditID(agentID string, req outbound.SendRequest) string {
 	h := sha256.New()
@@ -218,11 +218,11 @@ func (a *API) screenOutbound(ctx context.Context, agent *identity.AgentIdentity,
 // screeningEvents builds the append-only audit rows for this verdict, keyed to
 // messageID. Deterministic ids + ON CONFLICT DO NOTHING make a retried send
 // idempotent.
-func (v outboundVerdict) screeningEvents(messageID string, agent *identity.AgentIdentity) []identity.ScreeningEvent {
-	var evs []identity.ScreeningEvent
+func (v outboundVerdict) screeningEvents(messageID string, agent *identity.AgentIdentity) []identity.ProtectionEvent {
+	var evs []identity.ProtectionEvent
 	if v.gateFlagged {
-		evs = append(evs, identity.ScreeningEvent{
-			ID:          identity.DeterministicScreeningEventID(messageID, identity.ScreeningSourceGate, identity.ReviewReasonRecipientGate, ""),
+		evs = append(evs, identity.ProtectionEvent{
+			ID:          identity.DeterministicProtectionEventID(messageID, identity.ScreeningSourceGate, identity.ReviewReasonRecipientGate, ""),
 			MessageID:   messageID,
 			AgentID:     agent.ID,
 			Direction:   "outbound",
@@ -233,8 +233,8 @@ func (v outboundVerdict) screeningEvents(messageID string, agent *identity.Agent
 		})
 	}
 	if v.scanDetected {
-		evs = append(evs, identity.ScreeningEvent{
-			ID:         identity.DeterministicScreeningEventID(messageID, identity.ScreeningSourceScan, identity.ReviewReasonOutboundScan, "heuristics"),
+		evs = append(evs, identity.ProtectionEvent{
+			ID:         identity.DeterministicProtectionEventID(messageID, identity.ScreeningSourceScan, identity.ReviewReasonOutboundScan, "heuristics"),
 			MessageID:  messageID,
 			AgentID:    agent.ID,
 			Direction:  "outbound",
@@ -256,11 +256,11 @@ func scanReasonOutbound(agg piguard.Aggregate) string {
 	return "content scan: " + agg.Categories[0].Name
 }
 
-// writeScreeningEvents appends the audit rows best-effort (deterministic ids make
+// writeProtectionEvents appends the audit rows best-effort (deterministic ids make
 // it idempotent, so writing outside any message tx is safe).
-func (a *API) writeScreeningEvents(ctx context.Context, messageID string, events []identity.ScreeningEvent) {
+func (a *API) writeProtectionEvents(ctx context.Context, messageID string, events []identity.ProtectionEvent) {
 	for _, ev := range events {
-		if err := a.store.CreateScreeningEvent(ctx, ev); err != nil {
+		if err := a.store.CreateProtectionEvent(ctx, ev); err != nil {
 			log.Printf("[mail:%s] screening_event write failed (%s/%s): %v", messageID, ev.Source, ev.Reason, err)
 		}
 	}
@@ -273,7 +273,7 @@ func (a *API) annotateAndAudit(ctx context.Context, agent *identity.AgentIdentit
 	if err := a.store.SetMessageScreening(ctx, messageID, agent.ID, v.ReviewReason, v.ScanScore, string(v.Applied)); err != nil {
 		log.Printf("[mail:%s] set screening denorm failed: %v", messageID, err)
 	}
-	a.writeScreeningEvents(ctx, messageID, v.screeningEvents(messageID, agent))
+	a.writeProtectionEvents(ctx, messageID, v.screeningEvents(messageID, agent))
 }
 
 // auditRowless writes the audit rows WITHOUT denormalizing a message row — for
@@ -281,13 +281,13 @@ func (a *API) annotateAndAudit(ctx context.Context, agent *identity.AgentIdentit
 // flagged test send. Callers pass a stable soft-ref id (blockAuditID) so retries
 // stay idempotent.
 func (a *API) auditRowless(ctx context.Context, agent *identity.AgentIdentity, messageID string, req outbound.SendRequest, v outboundVerdict) {
-	a.writeScreeningEvents(ctx, messageID, v.screeningEvents(messageID, agent))
+	a.writeProtectionEvents(ctx, messageID, v.screeningEvents(messageID, agent))
 }
 
 // emitBlockedOutbound fires the fire-and-forget email.blocked event for an outbound
 // send refused by screening (applied action = block). messageID is the stable
 // soft-ref (blockAuditID) since no message row is persisted, so the deterministic id
-// keeps retries idempotent. reason_source mirrors the screening_events vocabulary
+// keeps retries idempotent. reason_source mirrors the protection_events vocabulary
 // (recipient_gate / outbound_scan).
 func (a *API) emitBlockedOutbound(agent *identity.AgentIdentity, messageID string, req outbound.SendRequest, v outboundVerdict) {
 	e := webhookpub.NewEvent(webhookpub.EventEmailBlocked, agent.UserID, map[string]interface{}{

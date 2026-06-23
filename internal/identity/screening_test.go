@@ -9,20 +9,38 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/testutil"
 )
 
-// TestScreeningEvents_CreateAndList covers the gate vs scan row shapes: a gate event
+// seedProtAgent creates a user + verified domain + agent so protection_events
+// inserts satisfy the agent_id FK (migration 046). Returns the agent id (= email).
+func seedProtAgent(t *testing.T, store *identity.Store, ctx context.Context, email, domain string) string {
+	t.Helper()
+	user, err := store.CreateOrGetUser(ctx, "o@"+domain, "O", "g-"+domain)
+	if err != nil {
+		t.Fatalf("CreateOrGetUser: %v", err)
+	}
+	if _, err := store.ClaimOrCreateDomain(ctx, domain, user.ID); err != nil {
+		t.Fatalf("ClaimOrCreateDomain: %v", err)
+	}
+	ag, err := store.CreateAgent(ctx, email, domain, "", "", "", user.ID)
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	return ag.ID
+}
+
+// TestProtectionEvents_CreateAndList covers the gate vs scan row shapes: a gate event
 // carries subject_addr and leaves the scan-only columns null; a scan event carries
-// detector/score/categories. Both round-trip through ListScreeningEventsByMessage.
-func TestScreeningEvents_CreateAndList(t *testing.T) {
+// detector/score/categories. Both round-trip through ListProtectionEventsByMessage.
+func TestProtectionEvents_CreateAndList(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
 	ctx := context.Background()
 
 	const msgID = "msg_screentest1"
-	const agentID = "agent@screen.example.com"
+	agentID := seedProtAgent(t, store, ctx, "agent@screen.example.com", "screen.example.com")
 	score := 0.87
 
-	gate := identity.ScreeningEvent{
-		ID:          identity.DeterministicScreeningEventID(msgID, identity.ScreeningSourceGate, identity.ReviewReasonSenderGate, ""),
+	gate := identity.ProtectionEvent{
+		ID:          identity.DeterministicProtectionEventID(msgID, identity.ScreeningSourceGate, identity.ReviewReasonSenderGate, ""),
 		MessageID:   msgID,
 		AgentID:     agentID,
 		Direction:   "inbound",
@@ -31,8 +49,8 @@ func TestScreeningEvents_CreateAndList(t *testing.T) {
 		Action:      "review",
 		SubjectAddr: "attacker@evil.com",
 	}
-	scan := identity.ScreeningEvent{
-		ID:         identity.DeterministicScreeningEventID(msgID, identity.ScreeningSourceScan, identity.ReviewReasonInboundScan, "heuristics"),
+	scan := identity.ProtectionEvent{
+		ID:         identity.DeterministicProtectionEventID(msgID, identity.ScreeningSourceScan, identity.ReviewReasonInboundScan, "heuristics"),
 		MessageID:  msgID,
 		AgentID:    agentID,
 		Direction:  "inbound",
@@ -43,15 +61,15 @@ func TestScreeningEvents_CreateAndList(t *testing.T) {
 		Score:      &score,
 		Categories: json.RawMessage(`[{"name":"prompt_injection_direct","score":0.87}]`),
 	}
-	for _, ev := range []identity.ScreeningEvent{gate, scan} {
-		if err := store.CreateScreeningEvent(ctx, ev); err != nil {
-			t.Fatalf("CreateScreeningEvent(%s): %v", ev.Source, err)
+	for _, ev := range []identity.ProtectionEvent{gate, scan} {
+		if err := store.CreateProtectionEvent(ctx, ev); err != nil {
+			t.Fatalf("CreateProtectionEvent(%s): %v", ev.Source, err)
 		}
 	}
 
-	got, err := store.ListScreeningEventsByMessage(ctx, msgID)
+	got, err := store.ListProtectionEventsByMessage(ctx, msgID)
 	if err != nil {
-		t.Fatalf("ListScreeningEventsByMessage: %v", err)
+		t.Fatalf("ListProtectionEventsByMessage: %v", err)
 	}
 	if len(got) != 2 {
 		t.Fatalf("want 2 events, got %d", len(got))
@@ -89,18 +107,19 @@ func TestScreeningEvents_CreateAndList(t *testing.T) {
 	}
 }
 
-// TestScreeningEvents_Idempotent proves a deterministic id makes re-screening (e.g.
+// TestProtectionEvents_Idempotent proves a deterministic id makes re-screening (e.g.
 // an MTA-retried inbound delivery) a no-op rather than a duplicate.
-func TestScreeningEvents_Idempotent(t *testing.T) {
+func TestProtectionEvents_Idempotent(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
 	ctx := context.Background()
 
 	const msgID = "msg_idemp1"
-	ev := identity.ScreeningEvent{
-		ID:        identity.DeterministicScreeningEventID(msgID, identity.ScreeningSourceScan, identity.ReviewReasonInboundScan, "heuristics"),
+	agentID := seedProtAgent(t, store, ctx, "agent@idem.example.com", "idem.example.com")
+	ev := identity.ProtectionEvent{
+		ID:        identity.DeterministicProtectionEventID(msgID, identity.ScreeningSourceScan, identity.ReviewReasonInboundScan, "heuristics"),
 		MessageID: msgID,
-		AgentID:   "a@x.com",
+		AgentID:   agentID,
 		Direction: "inbound",
 		Source:    identity.ScreeningSourceScan,
 		Reason:    identity.ReviewReasonInboundScan,
@@ -108,11 +127,11 @@ func TestScreeningEvents_Idempotent(t *testing.T) {
 		Detector:  "heuristics",
 	}
 	for i := 0; i < 3; i++ {
-		if err := store.CreateScreeningEvent(ctx, ev); err != nil {
+		if err := store.CreateProtectionEvent(ctx, ev); err != nil {
 			t.Fatalf("insert %d: %v", i, err)
 		}
 	}
-	got, err := store.ListScreeningEventsByMessage(ctx, msgID)
+	got, err := store.ListProtectionEventsByMessage(ctx, msgID)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -121,17 +140,17 @@ func TestScreeningEvents_Idempotent(t *testing.T) {
 	}
 }
 
-// TestScreeningEvents_SoftRefAndAgentList proves message_id is a soft reference
+// TestProtectionEvents_SoftRefAndAgentList proves message_id is a soft reference
 // (events insert and list with no corresponding messages row — so the audit trail
-// outlives the 30-day message TTL) and exercises ListScreeningEventsByAgent.
-func TestScreeningEvents_SoftRefAndAgentList(t *testing.T) {
+// outlives the 30-day message TTL) and exercises ListProtectionEventsByAgent.
+func TestProtectionEvents_SoftRefAndAgentList(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
 	ctx := context.Background()
 
-	const agentID = "agent@audit.example.com"
+	agentID := seedProtAgent(t, store, ctx, "agent@audit.example.com", "audit.example.com")
 	for i := 0; i < 3; i++ {
-		ev := identity.ScreeningEvent{
+		ev := identity.ProtectionEvent{
 			MessageID: "msg_ghost", // no such message row exists — soft ref
 			AgentID:   agentID,
 			Direction: "outbound",
@@ -140,15 +159,56 @@ func TestScreeningEvents_SoftRefAndAgentList(t *testing.T) {
 			Action:    "flag",
 			Detector:  "heuristics",
 		}
-		if err := store.CreateScreeningEvent(ctx, ev); err != nil {
+		if err := store.CreateProtectionEvent(ctx, ev); err != nil {
 			t.Fatalf("insert %d: %v", i, err)
 		}
 	}
-	got, err := store.ListScreeningEventsByAgent(ctx, agentID, 10)
+	got, err := store.ListProtectionEventsByAgent(ctx, agentID, 10)
 	if err != nil {
-		t.Fatalf("ListScreeningEventsByAgent: %v", err)
+		t.Fatalf("ListProtectionEventsByAgent: %v", err)
 	}
 	if len(got) != 3 {
 		t.Errorf("want 3 events for agent, got %d", len(got))
+	}
+}
+
+// TestProtectionEvents_CascadeOnAgentDelete proves the migration-046 FK: deleting
+// the agent removes its protection_events (and therefore so does account deletion,
+// since agent_identities cascades from users). This is the GDPR-erasure guarantee
+// the soft-ref table previously lacked.
+func TestProtectionEvents_CascadeOnAgentDelete(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, err := store.CreateOrGetUser(ctx, "o@casc.example.com", "O", "g-casc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ClaimOrCreateDomain(ctx, "casc.example.com", user.ID); err != nil {
+		t.Fatal(err)
+	}
+	ag, err := store.CreateAgent(ctx, "agent@casc.example.com", "casc.example.com", "", "", "", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateProtectionEvent(ctx, identity.ProtectionEvent{
+		MessageID: "msg_casc", AgentID: ag.ID, Direction: "inbound",
+		Source: identity.ScreeningSourceScan, Reason: identity.ReviewReasonInboundScan,
+		Action: "block", Detector: "heuristics", SubjectAddr: "attacker@evil.com",
+	}); err != nil {
+		t.Fatalf("CreateProtectionEvent: %v", err)
+	}
+
+	// Deleting the agent must cascade-delete its protection_events.
+	if _, err := pool.Exec(ctx, `DELETE FROM agent_identities WHERE id=$1`, ag.ID); err != nil {
+		t.Fatalf("delete agent: %v", err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM protection_events WHERE agent_id=$1`, ag.ID).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("protection_events survived agent deletion: %d rows (FK cascade not applied)", n)
 	}
 }

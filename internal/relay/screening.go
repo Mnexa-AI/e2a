@@ -18,7 +18,7 @@ import (
 // event carries.
 type inboundScreenResult struct {
 	Denorm        identity.InboundScreening
-	Events        []identity.ScreeningEvent
+	Events        []identity.ProtectionEvent
 	AppliedAction piguard.Action // most-severe of gate + scan
 	Hold          bool           // applied action is review|block → suppress delivery
 	Detected      bool           // a scan violation fired (used to attribute payload fields)
@@ -53,8 +53,8 @@ func (s *Server) screenInbound(ctx context.Context, agent *identity.AgentIdentit
 	gateAction := piguard.ActionAllow
 	if gate.Flagged {
 		gateAction = piguard.Action(agent.InboundPolicyAction)
-		res.Events = append(res.Events, identity.ScreeningEvent{
-			ID:          identity.DeterministicScreeningEventID(messageID, identity.ScreeningSourceGate, identity.ReviewReasonSenderGate, ""),
+		res.Events = append(res.Events, identity.ProtectionEvent{
+			ID:          identity.DeterministicProtectionEventID(messageID, identity.ScreeningSourceGate, identity.ReviewReasonSenderGate, ""),
 			MessageID:   messageID,
 			AgentID:     agent.ID,
 			Direction:   "inbound",
@@ -93,8 +93,8 @@ func (s *Server) screenInbound(ctx context.Context, agent *identity.AgentIdentit
 				res.Categories = append(res.Categories, c.Name)
 			}
 			catsJSON, _ := json.Marshal(agg.Categories)
-			res.Events = append(res.Events, identity.ScreeningEvent{
-				ID:         identity.DeterministicScreeningEventID(messageID, identity.ScreeningSourceScan, identity.ReviewReasonInboundScan, "heuristics"),
+			res.Events = append(res.Events, identity.ProtectionEvent{
+				ID:         identity.DeterministicProtectionEventID(messageID, identity.ScreeningSourceScan, identity.ReviewReasonInboundScan, "heuristics"),
 				MessageID:  messageID,
 				AgentID:    agent.ID,
 				Direction:  "inbound",
@@ -157,12 +157,12 @@ func scanReason(agg piguard.Aggregate) string {
 	return "content scan: " + agg.Categories[0].Name
 }
 
-// writeScreeningEvents appends the audit rows best-effort. Deterministic ids +
+// writeProtectionEvents appends the audit rows best-effort. Deterministic ids +
 // ON CONFLICT DO NOTHING make an MTA-retried re-screen idempotent, so writing
 // outside the message transaction is safe.
-func (s *Server) writeScreeningEvents(ctx context.Context, messageID string, events []identity.ScreeningEvent) {
+func (s *Server) writeProtectionEvents(ctx context.Context, messageID string, events []identity.ProtectionEvent) {
 	for _, ev := range events {
-		if err := s.store.CreateScreeningEvent(ctx, ev); err != nil {
+		if err := s.store.CreateProtectionEvent(ctx, ev); err != nil {
 			log.Printf("[mail:%s] screening_event write failed (%s/%s): %v", messageID, ev.Source, ev.Reason, err)
 		}
 	}

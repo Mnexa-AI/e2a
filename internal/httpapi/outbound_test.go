@@ -148,6 +148,28 @@ func TestReplySent(t *testing.T) {
 	}
 }
 
+// TestReplyAllRespectsRecipientCap: reply_all expands the thread's recipients
+// into the outbound set, so the cap must be enforced on the FINAL set — not just
+// the caller-supplied cc/bcc (which is empty here).
+func TestReplyAllRespectsRecipientCap(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_bigthread/reply", "good",
+		map[string]any{"body": "thanks", "reply_all": true})
+	if code != 400 || errCode(body) != "too_many_recipients" {
+		t.Fatalf("want 400 too_many_recipients for a reply_all over the cap, got %d %v", code, body)
+	}
+}
+
+// TestReplyAllUnderCapSends: a normal reply_all under the cap still sends.
+func TestReplyAllUnderCapSends(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/reply", "good",
+		map[string]any{"body": "thanks", "reply_all": true})
+	if code != 200 || body["status"] != "sent" {
+		t.Fatalf("want 200 sent for a small reply_all, got %d %v", code, body)
+	}
+}
+
 func TestReplyBodyRequired(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/reply", "good", map[string]any{"body": ""})

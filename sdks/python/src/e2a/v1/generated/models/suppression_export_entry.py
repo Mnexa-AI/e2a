@@ -17,20 +17,21 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
+from datetime import datetime
+from pydantic import BaseModel, ConfigDict, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
-from typing_extensions import Annotated
 from typing import Optional, Set
 from typing_extensions import Self
 
-class ProtectionGateView(BaseModel):
+class SuppressionExportEntry(BaseModel):
     """
-    ProtectionGateView
+    SuppressionExportEntry
     """ # noqa: E501
-    action: Optional[StrictStr] = Field(default='flag', description="What a gate non-match does: flag (deliver + annotate), review (hold), block.")
-    allowlist: Optional[Annotated[List[StrictStr], Field(max_length=1000)]] = Field(default=None, description="Addresses (allowlist) or domains (domain) the gate trusts; ignored for open.")
-    policy: Optional[StrictStr] = Field(default='open', description="Trust gate: open (all), domain (listed domains), allowlist (listed addresses).")
-    __properties: ClassVar[List[str]] = ["action", "allowlist", "policy"]
+    address: StrictStr
+    created_at: datetime
+    reason: Optional[StrictStr] = None
+    source: StrictStr
+    __properties: ClassVar[List[str]] = ["address", "created_at", "reason", "source"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -50,7 +51,7 @@ class ProtectionGateView(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of ProtectionGateView from a JSON string"""
+        """Create an instance of SuppressionExportEntry from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -75,7 +76,7 @@ class ProtectionGateView(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of ProtectionGateView from a dict"""
+        """Create an instance of SuppressionExportEntry from a dict"""
         if obj is None:
             return None
 
@@ -83,9 +84,10 @@ class ProtectionGateView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "action": obj.get("action") if obj.get("action") is not None else 'flag',
-            "allowlist": obj.get("allowlist"),
-            "policy": obj.get("policy") if obj.get("policy") is not None else 'open'
+            "address": obj.get("address"),
+            "created_at": obj.get("created_at"),
+            "reason": obj.get("reason"),
+            "source": obj.get("source")
         })
         return _obj
 

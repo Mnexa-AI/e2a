@@ -103,10 +103,10 @@ type AgentIdentity struct {
 	// yet — avoids painting fresh agents red.
 	WebhookHealthy bool `json:"webhook_healthy"`
 	// InboundPolicy is the per-agent inbound ingestion gate (migration 033 /
-	// Slice 7): one of inboundpolicy.{Open,Allowlist,Domain,VerifiedOnly}.
+	// Slice 7): one of inboundpolicy.{Open,Allowlist,Domain}.
 	// Defaults to 'open' (the column default). InboundAllowlist holds the
 	// exact addresses (allowlist policy) or domains (domain policy) the gate
-	// trusts; empty for open/verified_only.
+	// trusts; empty for open.
 	InboundPolicy    string   `json:"inbound_policy"`
 	InboundAllowlist []string `json:"inbound_allowlist,omitempty"`
 	// Screening config (migration 038 / Slice 3). The producer-policy actions
@@ -297,7 +297,7 @@ type Message struct {
 	// rendering. ReviewReason is one of sender_gate|recipient_gate|inbound_scan|
 	// outbound_scan|outbound_send; ScanAction is the applied action
 	// (flag|review|block); ScanScore is the aggregate 0..1 score (nil for gate-only
-	// holds). The full per-detector breakdown lives in screening_events.
+	// holds). The full per-detector breakdown lives in protection_events.
 	ReviewReason string   `json:"review_reason,omitempty"`
 	ScanScore    *float64 `json:"scan_score,omitempty"`
 	ScanAction   string   `json:"scan_action,omitempty"`

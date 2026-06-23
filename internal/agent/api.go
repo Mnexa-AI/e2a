@@ -1079,7 +1079,7 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 	verdict := a.screenOutbound(ctx, agent, req)
 	if verdict.Block() {
 		// Egress block: refuse to the caller. No message row is persisted; the
-		// audit lives in screening_events keyed to a STABLE soft-ref id so a
+		// audit lives in protection_events keyed to a STABLE soft-ref id so a
 		// retried block doesn't write duplicate audit rows / events.
 		a.auditRowless(ctx, agent, blockAuditID(agent.ID, req), req, verdict)
 		a.emitBlockedOutbound(agent, blockAuditID(agent.ID, req), req, verdict)
@@ -1143,7 +1143,7 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		if err := a.store.MarkMessageSent(ctx, outMsg.ID, result.SentAs, result.To, result.CC, result.BCC); err != nil {
 			log.Printf("[api] mark sent (delivery_status): %v", err)
 		}
-		// flag verdict: delivered + annotated (denorm + screening_events + event).
+		// flag verdict: delivered + annotated (denorm + protection_events + event).
 		if verdict.Annotate() {
 			a.annotateAndAudit(ctx, agent, outMsg.ID, req, verdict)
 		}

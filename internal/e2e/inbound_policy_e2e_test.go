@@ -180,10 +180,10 @@ func TestInboundPolicy_EvaluatesFromNotReplyTo(t *testing.T) {
 // contract that makes the verdict honest: when the display sender (Reply-To)
 // differs from the authenticated From, email.received carries BOTH —
 // `authenticated_from` is the gated/verified identity, `from` is the reply
-// target. A consumer of a verified_only/allowlist agent must trust
-// `authenticated_from`, not `from`. Without this, an allowlisted (or
-// DMARC-aligned) From + attacker Reply-To yields an unflagged message whose
-// displayed sender is attacker-chosen (review finding #1, the unflagged inverse).
+// target. A consumer of an allowlist/domain-gated agent must trust
+// `authenticated_from`, not `from`. Without this, an allowlisted From + attacker
+// Reply-To yields an unflagged message whose displayed sender is attacker-chosen
+// (review finding #1, the unflagged inverse).
 func TestInboundPolicy_ReceivedSurfacesAuthenticatedFrom(t *testing.T) {
 	ts, pool, agent, receiver := setupFlaggedAgent(t, "allowlist",
 		[]string{"friend@trusted.com"}, "agent@authfrom.example.com", "authfrom.example.com")

@@ -58,6 +58,7 @@ from e2a.v1.generated.models.page_webhook_delivery_view import PageWebhookDelive
 from e2a.v1.generated.models.page_webhook_view import PageWebhookView
 from e2a.v1.generated.models.protection_config_view import ProtectionConfigView
 from e2a.v1.generated.models.protection_direction_view import ProtectionDirectionView
+from e2a.v1.generated.models.protection_event_export_entry import ProtectionEventExportEntry
 from e2a.v1.generated.models.protection_gate_view import ProtectionGateView
 from e2a.v1.generated.models.protection_holds_view import ProtectionHoldsView
 from e2a.v1.generated.models.protection_scan_view import ProtectionScanView
@@ -74,6 +75,7 @@ from e2a.v1.generated.models.send_email_request import SendEmailRequest
 from e2a.v1.generated.models.send_result_view import SendResultView
 from e2a.v1.generated.models.sending_dns_record_view import SendingDNSRecordView
 from e2a.v1.generated.models.suppression import Suppression
+from e2a.v1.generated.models.suppression_export_entry import SuppressionExportEntry
 from e2a.v1.generated.models.test_webhook_request import TestWebhookRequest
 from e2a.v1.generated.models.test_webhook_response import TestWebhookResponse
 from e2a.v1.generated.models.update_agent_request import UpdateAgentRequest
