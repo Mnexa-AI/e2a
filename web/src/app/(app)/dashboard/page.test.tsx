@@ -123,7 +123,7 @@ describe("local agent card", () => {
     });
 
     expect(screen.getByText("Verified")).toBeInTheDocument();
-    expect(screen.getByText("Test")).toBeInTheDocument();
+    expect(screen.getByText("Send a test message")).toBeInTheDocument();
     // The inline Connect button + instructions were removed — connection
     // setup lives in onboarding / the e2a skill now.
     expect(screen.queryByText("Connect")).not.toBeInTheDocument();
@@ -194,7 +194,7 @@ describe("cloud agent card", () => {
       expect(screen.getByText("support@mail.acme.com")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Test")).toBeInTheDocument();
+    expect(screen.getByText("Send a test message")).toBeInTheDocument();
     // The inline Connect affordance + editors were removed.
     expect(screen.queryByText("Connect")).not.toBeInTheDocument();
     expect(screen.queryByText("Webhook:")).not.toBeInTheDocument();
@@ -240,7 +240,7 @@ describe("unverified agent", () => {
 
     expect(screen.getByText("Unverified")).toBeInTheDocument();
     // Unverified agents get no Test action (and the Connect button is gone).
-    expect(screen.queryByText("Test")).not.toBeInTheDocument();
+    expect(screen.queryByText("Send a test message")).not.toBeInTheDocument();
     expect(screen.queryByText("Connect")).not.toBeInTheDocument();
   });
 });

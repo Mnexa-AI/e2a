@@ -24,8 +24,9 @@ export function AgentCard({
         padding: "20px 22px",
       }}
     >
-      {/* Header row. Stacks on narrow viewports so the email + chip column
-          doesn't get squeezed by the action buttons. */}
+      {/* One compact row: inbox identity on the left, the action cluster
+          on the right (top-aligned with the inbox name). Stacks on narrow
+          viewports so the email + chip column isn't squeezed. */}
       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
         <div className="min-w-0 flex-1">
           {/* Email + badges. Email is a link to the per-agent Messages view
@@ -79,29 +80,13 @@ export function AgentCard({
           >
             created {new Date(agent.created_at).toLocaleDateString()}
           </p>
-
         </div>
-      </div>
 
-      {/* Bottom CTA bar — every action lives here on the RIGHT, grouped
-          into a single cluster: Open inbox + Settings (the two canonical
-          entry points into the per-agent surface) and the Test action.
-          Name + email chip also link to "Open inbox →" so there are
-          multiple discoverable paths to the same place. The test-error
-          message sits on its own row above so it never crowds the cluster. */}
-      <div
-        className="mt-3 pt-3"
-        style={{ borderTop: "1px solid var(--border-sub)" }}
-      >
-        {testError && (
-          <p
-            className="text-[12px] mb-2 text-right"
-            style={{ color: "var(--danger-strong)" }}
-          >
-            {testError}
-          </p>
-        )}
-        <div className="flex items-center justify-end gap-4 flex-wrap">
+        {/* Action cluster — Open inbox + Settings (the canonical entry
+            points into the per-agent surface) and the Test action, grouped
+            on the right. Editing (review queue) + delete live on the
+            per-agent Settings page. */}
+        <div className="flex items-center gap-4 flex-wrap shrink-0 md:justify-end">
           <Link
             href={`/dashboard/agents/messages?email=${encodeURIComponent(agent.email)}`}
             className="inline-flex items-center gap-1 text-[13px] font-medium hover:underline"
@@ -116,9 +101,6 @@ export function AgentCard({
           >
             Settings
           </Link>
-          {/* Test action. Editing (review queue) + delete live on the
-              per-agent Settings page; connection setup lives in
-              onboarding / the e2a skill. */}
           {agent.domain_verified && (
             <button
               onClick={async () => {
@@ -162,11 +144,22 @@ export function AgentCard({
                 ? "Sent ✓"
                 : testState === "sending"
                   ? "Sending…"
-                  : "Test"}
+                  : "Send a test message"}
             </button>
           )}
         </div>
       </div>
+
+      {/* Test error sits below the row, right-aligned, so it never crowds
+          the action cluster. */}
+      {testError && (
+        <p
+          className="text-[12px] mt-2 text-right"
+          style={{ color: "var(--danger-strong)" }}
+        >
+          {testError}
+        </p>
+      )}
     </div>
   );
 }
