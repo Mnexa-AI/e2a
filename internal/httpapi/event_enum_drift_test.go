@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
@@ -26,8 +27,12 @@ func TestWebhookEventEnumMatchesCatalog(t *testing.T) {
 
 	found := 0
 	walkEnums(doc, func(enum []string) {
-		if !enumContains(enum, webhookpub.EventEmailReceived) {
-			return // not an event enum
+		// An event enum is any enum that touches the event namespace — ANY value
+		// looking like email.* / domain.*. Membership-based (not a single marker
+		// value) so a copy that drops a value, adds a bogus one, or typos a value
+		// still trips the gate. Every such enum must equal the full catalog.
+		if !looksLikeEventEnum(enum) {
+			return
 		}
 		found++
 		got := append([]string(nil), enum...)
@@ -77,9 +82,13 @@ func walkEnums(node any, fn func([]string)) {
 	}
 }
 
-func enumContains(xs []string, want string) bool {
-	for _, x := range xs {
-		if x == want {
+// looksLikeEventEnum reports whether an enum touches the webhook event namespace
+// (any value prefixed email. / domain.). Used to identify event enums by
+// membership rather than a single marker value, so the gate can't be evaded by a
+// copy that omits one particular value.
+func looksLikeEventEnum(enum []string) bool {
+	for _, v := range enum {
+		if strings.HasPrefix(v, "email.") || strings.HasPrefix(v, "domain.") {
 			return true
 		}
 	}

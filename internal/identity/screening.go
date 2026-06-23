@@ -25,7 +25,8 @@ const (
 )
 
 // ProtectionEvent is one row of the durable, append-only screening audit log
-// (migration 037). It records a single producer's verdict on a message — a gate
+// (created in migration 040, renamed from screening_events in 046). It records a
+// single producer's verdict on a message — a gate
 // violation (source=gate; the scan-only columns are nil) or a scan detection
 // (source=scan; detector/score/categories/spans/raw populated). message_id is a soft
 // reference: the trail outlives the message's 30-day TTL.
