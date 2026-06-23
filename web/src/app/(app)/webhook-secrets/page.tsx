@@ -154,7 +154,7 @@ export default function WebhooksPage() {
         <>
           <span style={{ display: "block" }}>
             <strong style={{ color: "var(--fg)" }}>For webhook delivery.</strong>{" "}
-            When your agent receives mail via a webhook subscription, e2a
+            When your inbox receives mail via a webhook subscription, e2a
             HMAC-signs every payload it POSTs to the endpoint with that
             webhook&apos;s signing secret so your handler can confirm the
             request really came from e2a.
@@ -175,7 +175,7 @@ export default function WebhooksPage() {
               fontSize: 12,
             }}
           >
-            Local-mode agents pull messages via WebSocket and don&apos;t
+            Local-mode inboxes pull messages via WebSocket and don&apos;t
             need this — the WS auth handshake covers it.
           </span>
         </>

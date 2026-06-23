@@ -336,7 +336,7 @@ function DangerZone() {
           className="mb-4 max-w-2xl text-[13px] leading-[1.6]"
           style={{ color: "var(--fg-muted)" }}
         >
-          Permanently delete your account along with all your agents, domains,
+          Permanently delete your account along with all your inboxes, domains,
           messages, API keys, and sessions, in a single Postgres transaction.{" "}
           <strong style={{ color: "var(--fg)" }}>This is irreversible.</strong>{" "}
           Right of deletion — GDPR Article 17 / CCPA &quot;Do Not Sell or

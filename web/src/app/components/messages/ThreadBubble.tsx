@@ -86,7 +86,7 @@ export function ThreadBubble({
   }
   const showBody = body.trim() !== "";
 
-  const senderName = isInbound ? counterparty.name : "Agent";
+  const senderName = isInbound ? counterparty.name : "Inbox";
   const senderEmail = isInbound ? counterparty.email : agentEmail;
   const toList = (message.to ?? []).join(", ");
 

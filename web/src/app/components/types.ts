@@ -188,7 +188,7 @@ export type UpdateDomainRequest = {
   is_primary?: boolean;
 };
 
-// Request body for POST /api/keys. expires_at is an RFC 3339
+// Request body for POST /v1/account/api-keys. expires_at is an RFC 3339
 // timestamp; omit or null to issue a never-expiring key.
 export type CreateAPIKeyRequest = {
   name: string;

@@ -87,7 +87,7 @@ export function SharedAgentForm({
       <div className="mb-8 p-4 bg-blue-50/50 border border-accent/20 rounded-lg text-sm text-muted space-y-3">
         <p className="font-medium text-foreground mb-1">How it works</p>
         <p>
-          Your agent gets{" "}
+          Your inbox gets{" "}
           <code className="text-xs bg-white/60 px-1 py-0.5 rounded">
             {slug || "your-slug"}@{AGENTS_DOMAIN_DISPLAY}
           </code>
@@ -109,7 +109,7 @@ export function SharedAgentForm({
           placeholder="my-agent"
           value={slug}
           onChange={(v) => setSlug(v.toLowerCase())}
-          hint={`Your agent\u2019s email will be ${slug || "slug"}@${AGENTS_DOMAIN_DISPLAY}`}
+          hint={`Your inbox\u2019s email will be ${slug || "slug"}@${AGENTS_DOMAIN_DISPLAY}`}
         />
 
         {/* Display name */}

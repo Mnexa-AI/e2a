@@ -182,7 +182,7 @@ export default function APIKeysPage() {
       crumbs={["API keys"]}
       eyebrow="Workspace"
       title={<>API keys</>}
-      subtitle="API keys authenticate your agents when sending or replying to emails via the API. One key works across all your agents."
+      subtitle="API keys authenticate your inboxes when sending or replying to emails via the API. One key works across all your inboxes."
     >
       {createdKey && createdKey.key && (
         <div
@@ -457,7 +457,7 @@ export default function APIKeysPage() {
                   <td className="px-4 py-3">
                     {k.scope === "agent" ? (
                       <Chip tone="accent" mono>
-                        {k.agent || "agent"}
+                        {k.agent || "Inbox"}
                       </Chip>
                     ) : (
                       <span style={{ color: "var(--fg-muted)" }}>Account</span>

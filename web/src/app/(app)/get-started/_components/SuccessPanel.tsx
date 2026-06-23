@@ -48,7 +48,7 @@ export function SuccessPanel({
         }}
       >
         <span className="font-semibold">Inbox created!</span>{" "}
-        Your agent&apos;s email is{" "}
+        Your inbox&apos;s email is{" "}
         <code
           className="font-mono text-[12px] px-1.5 py-0.5"
           style={{
@@ -136,7 +136,7 @@ export function SuccessPanel({
         href="/dashboard"
         className="mt-8 block w-full text-center bg-foreground text-background py-3 rounded-lg text-sm font-medium hover:opacity-90 transition"
       >
-        Go to Agents
+        Go to Inboxes
       </a>
     </div>
   );

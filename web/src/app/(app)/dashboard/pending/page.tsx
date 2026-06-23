@@ -217,7 +217,7 @@ function PendingContent() {
   const subtitleLine =
     messages.length > 0
       ? `${messages.length} pending`
-      : "Outbound messages your agents want to send. Approve as-is, edit, or reject.";
+      : "Outbound messages your inboxes want to send. Approve as-is, edit, or reject.";
 
   return (
     <PageShell
@@ -226,8 +226,8 @@ function PendingContent() {
           ? ["Pending", selectedId.slice(0, 12) + "…"]
           : ["Pending"]
       }
-      eyebrow="Human-in-the-loop · Inbound review"
-      title={<>Pending approval</>}
+      eyebrow="Review · Outbound holds"
+      title={<>Pending review</>}
       subtitle={subtitleLine}
       maxWidth={1400}
     >
@@ -262,13 +262,13 @@ function PendingContent() {
           }}
         >
           <p className="text-[14px]" style={{ color: "var(--fg-muted)" }}>
-            No messages are waiting for approval.
+            No messages are waiting for review.
           </p>
           <p
             className="text-[12px] mt-1"
             style={{ color: "var(--fg-subtle)" }}
           >
-            Enable HITL on an agent to start reviewing its outbound messages
+            Turn on a review hold for an inbox to start reviewing its outbound messages
             here.
           </p>
         </div>

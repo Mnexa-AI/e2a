@@ -174,7 +174,7 @@ export function ThreadDetail({
 
         {pendingDraft && (
           <PendingCallout
-            draftedBy="agent"
+            draftedBy="inbox"
             onReview={() => onOpenMessage(pendingDraft)}
           />
         )}

@@ -292,7 +292,7 @@ export function PendingDetailPanel({
             className="px-6 py-5 space-y-4 border-b md:border-b-0 md:border-r"
             style={{ borderColor: "var(--border-sub)" }}
           >
-            <SectionEyebrow>Draft from agent</SectionEyebrow>
+            <SectionEyebrow>Draft from inbox</SectionEyebrow>
             <DraftField label="Subject">
               <input
                 type="text"

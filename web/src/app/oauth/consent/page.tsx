@@ -120,7 +120,7 @@ function ConsentInner() {
       .then(async (r) => {
         if (cancelled) return;
         if (!r.ok) {
-          setAgentsError(`Could not list your agents (HTTP ${r.status}).`);
+          setAgentsError(`Could not list your inboxes (HTTP ${r.status}).`);
           return;
         }
         const data: { items?: DashboardAgent[] | null } = await r.json();
@@ -210,7 +210,7 @@ function ConsentInner() {
   if (agentsError) {
     return (
       <ConsentShell>
-        <h1 className="text-xl font-semibold mb-3">Could not load your agents</h1>
+        <h1 className="text-xl font-semibold mb-3">Could not load your inboxes</h1>
         <p className="text-muted text-sm">{agentsError}</p>
       </ConsentShell>
     );

@@ -628,7 +628,7 @@ function BodyCard({
           ) : (
             bodyText || (
               <span style={{ color: "var(--fg-muted)", fontStyle: "italic" }}>
-                (body unavailable — backend parsed-body support for inbound is a tracked follow-up)
+                (message body not available)
               </span>
             )
           )}
@@ -669,10 +669,10 @@ function BodyCard({
               cancel edit
             </button>
             <span
-              title="Drafts are sent on Approve — there's no save-without-send endpoint yet"
+              title="Drafts are sent when you approve them."
               style={{ color: "var(--fg-subtle)", cursor: "help" }}
             >
-              save draft (n/a)
+              Save draft (unavailable)
             </span>
           </>
         ) : isOutbound && isPending ? (
