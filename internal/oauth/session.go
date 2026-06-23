@@ -25,6 +25,13 @@ type Session struct {
 	AgentEmail string                              `json:"agent_email,omitempty"`
 	Subject    string                              `json:"subject"`
 	Username   string                              `json:"username,omitempty"`
+	// WorkspaceID is the workspace pinned into the OAuth session at consent
+	// (§4.2.1). An account-scope ate2a_ token resolves its tenant from here;
+	// a pre-migration token whose session carries an empty WorkspaceID fails
+	// closed (forces re-consent) rather than falling back to a default. Agent
+	// scope derives its workspace from the bound agent, so this may be empty
+	// for agent-scope sessions.
+	WorkspaceID  string                            `json:"workspace_id,omitempty"`
 	ExpiresAtMap map[fosite.TokenType]time.Time    `json:"expires_at,omitempty"`
 }
 

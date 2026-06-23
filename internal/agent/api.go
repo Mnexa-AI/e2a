@@ -694,10 +694,52 @@ func (a *API) authenticatePrincipal(r *http.Request) (*identity.Principal, error
 	// Fall back to session cookie auth — the web dashboard owner, account scope.
 	if a.userAuth != nil {
 		if user := a.userAuth.AuthenticateRequest(r); user != nil {
-			return &identity.Principal{User: user, Scope: identity.ScopeAccount}, nil
+			return a.principalFromSession(r, user)
 		}
 	}
 	return nil, fmt.Errorf("authorization required")
+}
+
+// WorkspaceHeader is the request header a human session uses to select which
+// of the user's workspaces this request acts in (§4.2). On key/OAuth auth the
+// workspace is intrinsic, so the header is ignored (or 400 if it names a
+// different workspace) — it is a session-only selector.
+const WorkspaceHeader = "X-E2A-Workspace"
+
+// ErrWorkspaceForbidden is returned when an authenticated session names a
+// workspace (via WorkspaceHeader) it is not a live member of. It is distinct
+// from a plain auth failure so the v1 layer maps it to 403 (never a silent
+// fallback to the default workspace — §5 header-spoofing), not 401.
+var ErrWorkspaceForbidden = errors.New("not a member of the selected workspace")
+
+// principalFromSession resolves a human web/CLI session to a full principal:
+// account scope (a session is never agent-pinned) plus the active workspace
+// and the caller's live role in it (§4.2). The active workspace comes from the
+// X-E2A-Workspace header (membership-verified) → re-verified last_active →
+// the user's default workspace; the no-header path never 403s. A header naming
+// a workspace the user is not a member of → ErrWorkspaceForbidden (403).
+func (a *API) principalFromSession(r *http.Request, user *identity.User) (*identity.Principal, error) {
+	headerWS := strings.TrimSpace(r.Header.Get(WorkspaceHeader))
+	var sessionToken string
+	if c, err := r.Cookie(auth.SessionCookieName); err == nil {
+		sessionToken = c.Value
+	}
+	ws, role, err := a.store.ResolveActiveWorkspace(r.Context(), user.ID, headerWS, sessionToken)
+	if err != nil {
+		// A header naming a non-member workspace is an authorization failure
+		// (403), distinct from "no workspace at all" (which can't happen — the
+		// default always exists). Anything else is an internal resolution error.
+		if errors.Is(err, identity.ErrNotMember) {
+			return nil, ErrWorkspaceForbidden
+		}
+		return nil, err
+	}
+	return &identity.Principal{
+		User:      user,
+		Scope:     identity.ScopeAccount,
+		Workspace: ws,
+		Role:      role,
+	}, nil
 }
 
 // principalFromOAuthToken validates an ate2a_-prefixed bearer via fosite's
@@ -760,7 +802,24 @@ func (a *API) principalFromOAuthToken(r *http.Request, bearer string) (*identity
 	granted := ar.GetGrantedScopes()
 	switch {
 	case granted.Has(identity.ScopeAccount):
-		return &identity.Principal{User: u, Scope: identity.ScopeAccount}, nil
+		// account-scope OAuth resolves its tenant from the WorkspaceID pinned
+		// into the session at consent (§4.2.1). A pre-migration token whose
+		// session carries no WorkspaceID FAILS CLOSED (force re-consent) — it
+		// never falls back to a default workspace. (account-scope is in fact
+		// unreachable in v1 — DCR caps public clients to scope=agent — so this
+		// is primarily the fail-closed guard.)
+		if sess.WorkspaceID == "" {
+			return nil, fmt.Errorf("%w: account-scope token has no pinned workspace (re-consent required)", errOAuthBearerInvalid)
+		}
+		// B4: a user-consented token tracks the consenting user's LIVE
+		// membership of the resolved workspace — a removed member's token must
+		// stop acting as a team agent. This replaces the dropped
+		// ag.UserID==u.ID predicate.
+		ws, role, err := a.resolveTokenWorkspaceMembership(r.Context(), u.ID, sess.WorkspaceID)
+		if err != nil {
+			return nil, err
+		}
+		return &identity.Principal{User: u, Scope: identity.ScopeAccount, Workspace: ws, Role: role}, nil
 	case granted.Has(identity.ScopeAgent):
 		// Confine to the consent-bound agent. An agent-scoped token with no
 		// bound agent is malformed — reject rather than fall back to anything
@@ -772,17 +831,44 @@ func (a *API) principalFromOAuthToken(r *http.Request, bearer string) (*identity
 		if err != nil || ag == nil {
 			return nil, fmt.Errorf("%w: bound agent not found", errOAuthBearerInvalid)
 		}
-		// Ownership re-check: the bound agent must still belong to the token's
-		// user (defends against an agent reassigned/deleted-and-recreated under
-		// a different owner after consent).
-		if ag.UserID != u.ID {
-			return nil, fmt.Errorf("%w: bound agent not owned by token user", errOAuthBearerInvalid)
+		// B4: the bound agent's workspace is the token's tenant. In v1 an
+		// agent's workspace is its owner's deterministic default workspace
+		// (Slice 2 mints agents with DefaultWorkspaceID(user_id) and Migration
+		// A backfills the same). Re-verify the consenting user is still a LIVE
+		// member of that workspace on every request (replacing the dropped
+		// ag.UserID==u.ID check) — a removed member's token stops
+		// authenticating, even though a workspace service API key would survive
+		// (§4.2.1).
+		ws, role, err := a.resolveTokenWorkspaceMembership(r.Context(), u.ID, identity.DefaultWorkspaceID(ag.UserID))
+		if err != nil {
+			return nil, err
 		}
-		return &identity.Principal{User: u, Scope: identity.ScopeAgent, AgentID: ag.ID}, nil
+		return &identity.Principal{User: u, Scope: identity.ScopeAgent, AgentID: ag.ID, Workspace: ws, Role: role}, nil
 	default:
 		// Fail closed: a token that carries no recognized scope gets no access.
 		return nil, fmt.Errorf("%w: token carries no recognized scope (%v)", errOAuthBearerInvalid, []string(granted))
 	}
+}
+
+// resolveTokenWorkspaceMembership re-verifies, per request, that a
+// user-consented OAuth token's user is still a LIVE member of the workspace
+// the token resolves to (B4, §4.2.1). Tokens are member-capped regardless of
+// the user's live role, so Role is fixed to member. A non-member (the user was
+// removed from the workspace after consent) fails closed with the OAuth
+// challenge so the MCP client can re-consent. Returns the resolved workspace.
+func (a *API) resolveTokenWorkspaceMembership(ctx context.Context, userID, workspaceID string) (*identity.Workspace, string, error) {
+	if _, err := a.store.ResolveMembership(ctx, userID, workspaceID); err != nil {
+		if errors.Is(err, identity.ErrNotMember) {
+			return nil, "", fmt.Errorf("%w: user is no longer a member of the token's workspace", errOAuthBearerInvalid)
+		}
+		return nil, "", fmt.Errorf("%w: membership re-check failed: %v", errOAuthBearerInvalid, err)
+	}
+	ws, err := a.store.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, "", fmt.Errorf("%w: token workspace not found", errOAuthBearerInvalid)
+	}
+	// Tokens are member-capped regardless of the user's live role (§4.3.1).
+	return ws, identity.RoleMember, nil
 }
 
 // writeAuthError writes a 401 response with an RFC 6750 §3

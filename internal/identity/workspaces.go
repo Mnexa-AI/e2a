@@ -243,6 +243,99 @@ func (s *Store) ResolveMembership(ctx context.Context, userID, workspaceID strin
 	return role, nil
 }
 
+// ResolveActiveWorkspace implements the §4.2 active-workspace resolution for a
+// human session. Given the authenticated user, the (possibly empty)
+// X-E2A-Workspace header value, and the session cookie token, it returns the
+// resolved workspace and the caller's role in it:
+//
+//  1. Header present → the user MUST be a live member of it; a non-member id
+//     yields ErrNotMember (the handler maps that to 403 — never a silent
+//     fallback, §5 header-spoofing).
+//  2. Header absent → use the session's last_active_workspace_id, but ONLY
+//     after re-verifying live membership; if the user was removed from it (or
+//     it was torn down) fall through.
+//  3. Fallthrough → the user's deterministic default workspace, which always
+//     exists, so resolution never fails or 403s on the no-header path.
+//
+// On the no-header success path it advances last_active_workspace_id (advisory
+// only — never an authz input) conditionally, so steady-state requests do zero
+// extra writes (§4.2). sessionToken may be empty (e.g. CLI handoff without a
+// cookie); last_active is then simply not tracked.
+func (s *Store) ResolveActiveWorkspace(ctx context.Context, userID, headerWorkspaceID, sessionToken string) (*Workspace, string, error) {
+	// 1. Header present — membership-verified, never a silent fallback.
+	if headerWorkspaceID != "" {
+		role, err := s.ResolveMembership(ctx, userID, headerWorkspaceID)
+		if err != nil {
+			return nil, "", err // ErrNotMember → 403 at the handler
+		}
+		w, err := s.GetWorkspace(ctx, headerWorkspaceID)
+		if err != nil {
+			return nil, "", err
+		}
+		return w, role, nil
+	}
+
+	// 2. Header absent — try last_active, re-verifying live membership.
+	if sessionToken != "" {
+		if last, err := s.sessionLastActiveWorkspace(ctx, sessionToken); err == nil && last != "" {
+			if role, mErr := s.ResolveMembership(ctx, userID, last); mErr == nil {
+				w, wErr := s.GetWorkspace(ctx, last)
+				if wErr == nil {
+					return w, role, nil
+				}
+			}
+			// removed from last_active or it was torn down → fall through.
+		}
+	}
+
+	// 3. Fallthrough — the user's default workspace (always exists).
+	defaultID := DefaultWorkspaceID(userID)
+	role, err := s.ResolveMembership(ctx, userID, defaultID)
+	if err != nil {
+		return nil, "", err
+	}
+	w, err := s.GetWorkspace(ctx, defaultID)
+	if err != nil {
+		return nil, "", err
+	}
+	// Advance last_active (advisory only) conditionally, so steady-state
+	// requests do zero extra writes.
+	if sessionToken != "" {
+		_ = s.touchSessionLastActiveWorkspace(ctx, sessionToken, defaultID)
+	}
+	return w, role, nil
+}
+
+// sessionLastActiveWorkspace reads the advisory last_active_workspace_id off a
+// live (unexpired) session, or "" when unset / the session is gone.
+func (s *Store) sessionLastActiveWorkspace(ctx context.Context, token string) (string, error) {
+	var ws *string
+	err := s.pool.QueryRow(ctx,
+		`SELECT last_active_workspace_id FROM user_sessions
+		  WHERE token = $1 AND expires_at > now()`, token,
+	).Scan(&ws)
+	if err != nil {
+		return "", err
+	}
+	if ws == nil {
+		return "", nil
+	}
+	return *ws, nil
+}
+
+// touchSessionLastActiveWorkspace records the advisory active workspace on the
+// session, written conditionally (IS DISTINCT FROM) so a steady-state request
+// that re-resolves the same workspace does zero writes (§4.2). Advisory only —
+// never read as an authz input without a fresh membership re-verification.
+func (s *Store) touchSessionLastActiveWorkspace(ctx context.Context, token, workspaceID string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE user_sessions SET last_active_workspace_id = $2
+		  WHERE token = $1 AND last_active_workspace_id IS DISTINCT FROM $2`,
+		token, workspaceID,
+	)
+	return err
+}
+
 // ListMembers returns the workspace's members with their roles, joined to the
 // users table for email/name. Ordered admins-first, then by join time (§4.4).
 func (s *Store) ListMembers(ctx context.Context, workspaceID string) ([]WorkspaceMember, error) {

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -393,6 +394,14 @@ func (s *Server) requirePrincipal(ctx context.Context) (*identity.Principal, err
 	}
 	p, err := s.resolvePrincipal(r)
 	if err != nil {
+		// A session that named a workspace it is not a live member of is an
+		// authorization failure, not an authentication one (§4.2 / §5
+		// header-spoofing): the credential is valid, the selected workspace is
+		// forbidden. Map it to 403, never a silent fallback.
+		if errors.Is(err, agent.ErrWorkspaceForbidden) {
+			return nil, NewError(http.StatusForbidden, "forbidden",
+				"you are not a member of the selected workspace")
+		}
 		return nil, NewError(http.StatusUnauthorized, "unauthorized", "authentication required")
 	}
 	return p, nil

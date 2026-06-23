@@ -152,6 +152,43 @@ func TestBearer_OAuthToken_Revoked(t *testing.T) {
 	}
 }
 
+// TestBearer_OAuthToken_RemovedMemberRejected is the B4 workspace check: a
+// user-consented OAuth/MCP token is NOT a workspace service credential — its
+// authority tracks the consenting user's LIVE membership. After the user is
+// removed from the token's workspace, the SAME bearer that worked a moment ago
+// must be rejected on the very next request (401 + OAuth challenge), even
+// though a workspace service API key would survive. This replaces the dropped
+// ag.UserID==u.ID predicate with a live-membership re-check (§4.2.1).
+func TestBearer_OAuthToken_RemovedMemberRejected(t *testing.T) {
+	f := newConsentFixture(t)
+	access, _ := mintTokensForFixture(t, f)
+
+	// Sanity: the freshly-minted token authenticates while the user is a member.
+	if status, _ := callAPIWithBearer(t, f.server.URL, access); status != http.StatusOK {
+		t.Fatalf("token should authenticate while user is a live member: got %d", status)
+	}
+
+	// Remove the consenting user from the token's workspace (their default
+	// workspace — the agent's tenant). Delete the membership row directly so we
+	// don't trip the last-admin guard (the user is the sole admin of their own
+	// default workspace; a real involuntary-remove of a sole member only happens
+	// on workspace teardown — the point here is the token's live-membership
+	// re-check, not the guard).
+	wsID := identity.DefaultWorkspaceID(f.userID)
+	if _, err := f.pool.Exec(context.Background(),
+		`DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`, wsID, f.userID); err != nil {
+		t.Fatal(err)
+	}
+
+	status, wa := callAPIWithBearer(t, f.server.URL, access)
+	if status != http.StatusUnauthorized {
+		t.Fatalf("removed member's OAuth token should be rejected on the next request: got %d", status)
+	}
+	if !strings.Contains(wa, `error="invalid_token"`) {
+		t.Errorf(`removed-member rejection should carry the OAuth challenge: got %q`, wa)
+	}
+}
+
 // TestBearer_OAuthToken_Expired asserts that fosite's typed
 // ErrTokenExpired surfaces as error_description="...has expired".
 // Unlike revoked, "expired" is safe to distinguish — the signal
@@ -467,20 +504,29 @@ func mintAccessWithScope(t *testing.T, f *consentFixture, clientID, scope string
 	return body.AccessToken
 }
 
-// TestBearer_OAuth_AccountScope_AllowedOnAccountOp exercises the account branch
-// of the scope switch: a token granted `account` (console/confidential
-// issuance) resolves to ScopeAccount and CAN perform an account-admin op. The
-// counterpart to the agent-confinement regression — proves the fix grants
-// account power only to genuinely account-granted tokens.
-func TestBearer_OAuth_AccountScope_AllowedOnAccountOp(t *testing.T) {
+// TestBearer_OAuth_AccountScope_FailsClosedWithoutWorkspace is the workspaces
+// v1 account-scope guard (§4.2.1). An account-scope ate2a_ token must resolve
+// its tenant from a WorkspaceID pinned into the OAuth session at consent. The
+// consent flow does NOT yet pin one (the agent-less account-scope consent flow
+// ships with admin-over-MCP, which is deferred — §4.3.2), so an account-scope
+// token's session carries an empty WorkspaceID and MUST fail closed (401 /
+// force re-consent) rather than falling back to a default workspace. This is
+// the v1 requirement; account-scope is in fact unreachable via public DCR
+// anyway. (Pre-workspaces this token resolved to a bare ScopeAccount principal
+// and passed account ops — that path is now gated behind a pinned workspace.)
+func TestBearer_OAuth_AccountScope_FailsClosedWithoutWorkspace(t *testing.T) {
 	f := newConsentFixture(t)
 	seedOAuthClient(t, f, "acct_client", []string{"account"})
 	access := mintAccessWithScope(t, f, "acct_client", "account")
 
-	// GET /v1/agents is account-scope-gated (requireAccountScope).
-	status, body := getWithBearer(t, f.server.URL, "/v1/agents", access)
-	if status != http.StatusOK {
-		t.Fatalf("account-scoped OAuth token should pass an account op, got %d (body=%s)", status, body)
+	// GET /v1/account is the validity probe (any valid credential → 200). An
+	// account-scope token with no pinned workspace must be rejected outright.
+	status, wa := callAPIWithBearer(t, f.server.URL, access)
+	if status != http.StatusUnauthorized {
+		t.Fatalf("account-scope OAuth token with no pinned workspace must fail closed (401), got %d", status)
+	}
+	if !strings.Contains(wa, `error="invalid_token"`) {
+		t.Errorf(`fail-closed account token should carry the OAuth challenge: got %q`, wa)
 	}
 }
 
