@@ -1,9 +1,15 @@
 import { Fragment, type ReactNode } from "react";
+import Link from "next/link";
 
 const SEARCH_ENABLED = process.env.NEXT_PUBLIC_SEARCH_ENABLED === "true";
 
+// A crumb is either a plain label (non-clickable) or a label + href that
+// renders as a link. The trailing crumb is always plain (it's the current
+// page) even if an href is supplied.
+export type Crumb = string | { label: string; href?: string };
+
 export type TopbarProps = {
-  crumbs?: string[];
+  crumbs?: Crumb[];
   right?: ReactNode;
   className?: string;
 };
@@ -69,22 +75,30 @@ export function Topbar({ crumbs = [], right, className = "" }: TopbarProps) {
         className="flex items-center gap-2.5 text-[12px] min-w-0 overflow-hidden"
         style={{ color: "var(--fg-muted)" }}
       >
-        {crumbs.map((c, i) => (
-          <Fragment key={`${i}:${c}`}>
-            {i > 0 && <span aria-hidden className="shrink-0">/</span>}
-            <span
-              className="truncate"
-              style={{
-                color:
-                  i === crumbs.length - 1
-                    ? "var(--fg)"
-                    : "var(--fg-muted)",
-              }}
-            >
-              {c}
-            </span>
-          </Fragment>
-        ))}
+        {crumbs.map((c, i) => {
+          const label = typeof c === "string" ? c : c.label;
+          const href = typeof c === "string" ? undefined : c.href;
+          const isLast = i === crumbs.length - 1;
+          const color = isLast ? "var(--fg)" : "var(--fg-muted)";
+          return (
+            <Fragment key={`${i}:${label}`}>
+              {i > 0 && <span aria-hidden className="shrink-0">/</span>}
+              {href && !isLast ? (
+                <Link
+                  href={href}
+                  className="truncate hover:underline"
+                  style={{ color }}
+                >
+                  {label}
+                </Link>
+              ) : (
+                <span className="truncate" style={{ color }}>
+                  {label}
+                </span>
+              )}
+            </Fragment>
+          );
+        })}
       </div>
       <div className="flex items-center gap-2.5 shrink-0">{trailing}</div>
     </div>

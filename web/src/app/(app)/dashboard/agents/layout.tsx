@@ -37,7 +37,13 @@ export default function AgentLayout({
   // useState across a dependency boundary without setState-in-effect.
   return (
     <div className="flex flex-col" data-app-surface>
-      <Topbar crumbs={["Dashboard", "Agents", email || "—"]} />
+      <Topbar
+        crumbs={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Inboxes", href: "/dashboard" },
+          email || "—",
+        ]}
+      />
       <AgentLayoutContent key={email} email={email} tab={tab}>
         {children}
       </AgentLayoutContent>
