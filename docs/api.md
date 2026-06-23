@@ -22,7 +22,7 @@ For the machine-readable spec, see [`api/openapi.yaml`](../api/openapi.yaml).
 | `POST` | `/agents` | Register an agent. Body `{email, name?}`. The `email` must be on a domain you've verified, or on the deployment's configured `shared_domain` (see `/v1/info` → `slug_registration_enabled`). |
 | `GET` | `/agents` | List agents owned by the authenticated user |
 | `GET` | `/agents/{address}` | Get agent details |
-| `PATCH` | `/agents/{address}` | Update an agent's HITL settings |
+| `PATCH` | `/agents/{address}` | Update an agent's display name. Screening/protection config (trust gate, scan, holds) lives on `/agents/{address}/protection`. |
 | `DELETE` | `/agents/{address}` | Delete an agent |
 | `POST` | `/agents/{address}/test` | Send a test email to the agent's own address |
 
@@ -32,13 +32,13 @@ The message surface is agent-scoped: every message endpoint hangs off `/agents/{
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/agents/{address}/messages` | List the agent's messages. Filters: `direction` (`inbound` default \| `outbound` \| `all`), `read_status` (inbound only — `unread`\|`read`\|`all`), `sort`, `from`, `subject_contains`, `conversation_id`, `labels`, `since`, `until`, `cursor`, `limit` (max 100, default 50). Returns `{items, next_cursor}`. Held outbound drafts appear as `status=pending_approval`. |
-| `POST` | `/agents/{address}/messages` | Send a new email from the agent (a new thread). Body `{to, subject, body, html_body?, cc?, bcc?}` — no `from`. Held with `202 Accepted` if HITL is enabled on the agent. |
-| `GET` | `/agents/{address}/messages/{id}` | Fetch a single message (inbound or outbound). Side effect: any `unread` inbound row flips to `read` on read, regardless of agent mode. |
+| `GET` | `/agents/{address}/messages` | List the agent's messages. Filters: `direction` (`inbound` default \| `outbound` \| `all`), `read_status` (inbound only — `unread`\|`read`\|`all`), `sort`, `from`, `subject_contains`, `conversation_id`, `labels`, `since`, `until`, `cursor`, `limit` (max 100, default 50). Returns `{items, next_cursor}`. Held outbound drafts appear as `status=pending_review`. |
+| `POST` | `/agents/{address}/messages` | Send a new email from the agent (a new thread). Body `{to, subject, body, html_body?, cc?, bcc?}` — no `from`. Held with `202 Accepted` + `status=pending_review` when the agent's outbound policy or content scan holds it for review. |
+| `GET` | `/agents/{address}/messages/{id}` | Fetch a single message (inbound or outbound). Side effect: any `unread` inbound row flips to `read` on read. |
 | `POST` | `/agents/{address}/messages/{id}/reply` | Reply to an inbound message |
 | `POST` | `/agents/{address}/messages/{id}/forward` | Forward a message to new recipients |
-| `POST` | `/agents/{address}/messages/{id}/approve` | Approve a `pending_approval` message |
-| `POST` | `/agents/{address}/messages/{id}/reject` | Reject a `pending_approval` message |
+| `POST` | `/agents/{address}/messages/{id}/approve` | Approve a `pending_review` message. Branches on direction: outbound → sent; inbound → released to the inbox. Account scope only. |
+| `POST` | `/agents/{address}/messages/{id}/reject` | Reject a `pending_review` message (outbound → discarded; inbound → dropped). Account scope only. |
 
 ## Account (data rights)
 
