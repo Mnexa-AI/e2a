@@ -1,0 +1,59 @@
+-- 049_workspaces_migration_b.sql
+--
+-- Workspaces Migration B — DEFERRED / SCAFFOLD ONLY. See
+-- docs/design/2026-06-23-workspaces.md §4.8 "Migration B".
+--
+-- This file is intentionally a near-no-op placeholder. The destructive /
+-- finalizing steps below MUST NOT ship in the first workspace deploy — they
+-- run "later, after the code deploy is stable" so deploy-1 rollback stays
+-- safe (B1): if the user-cascade drop shipped in deploy 1 and we rolled back
+-- to the pre-workspace binary, its DELETE FROM users would silently stop
+-- cascading → orphans. Deferring the drop keeps deploy 1 rollback-safe;
+-- rolling back *past* Migration B is documented as unsupported.
+--
+-- Because the migration runner records this filename in schema_migrations the
+-- first time it runs, the real Migration B work must be edited INTO this file
+-- (or a new 050_* file) only when the code deploy is confirmed stable. Until
+-- then this file deliberately does nothing schema-changing.
+--
+-- TODO (Migration B, when promoting): each step below is sketched as a
+-- commented-out template. Before un-commenting any VALIDATE, gate it on a
+-- per-table  count(*) WHERE workspace_id IS NULL = 0  precondition so a stray
+-- rollout-window row triggers a re-backfill rather than wedging the rollout
+-- (§4.5 B3, §4.8).
+--
+-- Idempotent no-op today: a single harmless statement so the file is valid
+-- SQL and records cleanly. Replace with the real steps at promotion time.
+
+-- == Step B1: drop the workspace-owned tables' user_id ON DELETE CASCADE FKs ==
+-- The workspace_id FK (added in Migration A / here) becomes the cascade owner;
+-- user_id is retained for audit WITHOUT cascade. Identity-owned tables
+-- (user_sessions, oauth_*) KEEP their cascade. Template:
+--
+--   ALTER TABLE agent_identities DROP CONSTRAINT agent_identities_user_id_fkey;
+--   ALTER TABLE agent_identities ADD CONSTRAINT agent_identities_user_id_fkey
+--       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+--   -- …repeat for domains, api_keys, account_limits, account_usage,
+--   --   usage_summaries, suppressions, webhooks, webhook_events,
+--   --   webhook_signing_secrets, idempotency_keys.
+--
+-- == Step B2: make workspace_id NOT NULL without a blocking rewrite ==
+-- For each workspace-owned table (incl. the large usage_events / usage_summaries
+-- after the out-of-band bulk backfill has run + a final sweep):
+--
+--   -- precondition (fail loudly if a window row slipped through):
+--   DO $$ DECLARE n BIGINT; BEGIN
+--     SELECT count(*) INTO n FROM usage_events WHERE workspace_id IS NULL;
+--     IF n > 0 THEN RAISE EXCEPTION 'usage_events has % NULL workspace_id rows — re-run backfill before VALIDATE', n; END IF;
+--   END $$;
+--   ALTER TABLE usage_events ADD CONSTRAINT usage_events_workspace_id_not_null
+--       CHECK (workspace_id IS NOT NULL) NOT VALID;
+--   ALTER TABLE usage_events VALIDATE CONSTRAINT usage_events_workspace_id_not_null;
+--   -- then SET NOT NULL backed by the validated CHECK, and add the
+--   -- usage_events / usage_summaries workspace_id FKs (deferred from A).
+--
+-- Keep user_id columns for audit (now without cascade); drop only once
+-- nothing reads them.
+
+-- Harmless idempotent no-op so this file is valid + records once.
+SELECT 1 WHERE false;

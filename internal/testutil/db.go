@@ -110,13 +110,16 @@ func truncateAll(ctx context.Context, pool *pgxpool.Pool) error {
 		         send_attempts, protection_events, messages,
 		         idempotency_keys, api_keys, webhook_signing_secrets,
 		         agent_identities, domains,
+		         audit_log, workspace_invitations, workspace_members, workspaces,
 		         user_sessions, users CASCADE
 	`)
 	if err != nil {
 		return err
 	}
-	// Re-seed shared domain (migration seeds it but truncation removes it)
-	pool.Exec(ctx, `INSERT INTO domains (domain, user_id, verified, verified_at) VALUES ('agents.e2a.dev', NULL, true, now()) ON CONFLICT DO NOTHING`)
+	// Re-seed the protected system sentinel workspace + shared domain
+	// (the workspaces migration seeds both but truncation removes them).
+	pool.Exec(ctx, `INSERT INTO workspaces (id, name, created_by) VALUES ('ws_system', 'System', NULL) ON CONFLICT (id) DO NOTHING`)
+	pool.Exec(ctx, `INSERT INTO domains (domain, user_id, workspace_id, verified, verified_at) VALUES ('agents.e2a.dev', NULL, 'ws_system', true, now()) ON CONFLICT DO NOTHING`)
 	return nil
 }
 
