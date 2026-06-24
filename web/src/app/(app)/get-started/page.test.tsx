@@ -205,6 +205,39 @@ describe("Address type choice", () => {
       expect(screen.getByText("Choose a domain")).toBeInTheDocument();
     });
   });
+
+  it("shows the agentic MCP setup when With an agent is clicked", async () => {
+    mockFreshUser();
+    render(<GetStartedPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("With an agent")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText("With an agent"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Paste into your agent/i)).toBeInTheDocument();
+    });
+    // Both connect paths present, addressed at the hosted MCP endpoint.
+    expect(screen.getByText("Copy prompt")).toBeInTheDocument();
+    expect(screen.getByText("Copy command")).toBeInTheDocument();
+    expect(
+      screen.getByText(/claude mcp add --transport http e2a https:\/\/api\.e2a\.dev\/mcp/),
+    ).toBeInTheDocument();
+  });
+
+  it("copies the connect command to the clipboard", async () => {
+    mockFreshUser();
+    render(<GetStartedPage />);
+    await waitFor(() => expect(screen.getByText("With an agent")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("With an agent"));
+    await waitFor(() => expect(screen.getByText("Copy command")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText("Copy command"));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      expect.stringContaining("claude mcp add --transport http e2a https://api.e2a.dev/mcp"),
+    );
+  });
 });
 
 // ── Shared local flow ────────────────────────────────────

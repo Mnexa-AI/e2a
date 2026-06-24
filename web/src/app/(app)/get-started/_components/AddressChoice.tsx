@@ -13,7 +13,7 @@ export function AddressChoice({
 }) {
   return (
     <div>
-      <div className="grid gap-3.5 sm:grid-cols-2">
+      <div className="grid gap-3.5 sm:grid-cols-3">
         {/* Shared option */}
         <button
           type="button"
@@ -100,6 +100,49 @@ export function AddressChoice({
             <li>· Use your own domain (e.g. acme.io)</li>
             <li>· Add DNS records · verify in &lt;5min</li>
             <li>· Production-ready, brand-safe</li>
+          </ul>
+        </button>
+
+        {/* Agentic / MCP option — hand setup to the user's agent over MCP */}
+        <button
+          type="button"
+          aria-pressed={selected === "agent"}
+          onClick={() => onSelect("agent")}
+          className="relative text-left transition focus:outline-none"
+          style={{
+            background: "var(--bg-panel)",
+            border:
+              selected === "agent"
+                ? "2px solid var(--accent)"
+                : "1px solid var(--border)",
+            borderRadius: "var(--r-lg)",
+            padding: 18,
+          }}
+        >
+          <div className="flex items-center gap-2 mb-1">
+            <span
+              className="text-[14px] font-semibold"
+              style={{ color: "var(--fg)" }}
+            >
+              With an agent
+            </span>
+            <Chip tone="neutral" mono>
+              MCP
+            </Chip>
+          </div>
+          <div
+            className="font-mono text-[12px] mb-3"
+            style={{ color: "var(--fg-muted)" }}
+          >
+            headless · no forms
+          </div>
+          <ul
+            className="list-none m-0 p-0 text-[12px] leading-[1.7]"
+            style={{ color: "var(--fg-muted)" }}
+          >
+            <li>· Your agent connects over MCP</li>
+            <li>· OAuth sign-in — no API key</li>
+            <li>· Claude Code, Cursor, Desktop…</li>
           </ul>
         </button>
       </div>

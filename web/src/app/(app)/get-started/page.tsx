@@ -8,18 +8,20 @@ import { PageShell } from "../../components/loft/PageShell";
 import { AddressChoice } from "./_components/AddressChoice";
 import { SharedAgentForm } from "./_components/SharedAgentForm";
 import { CustomDomainChecklist } from "./_components/CustomDomainChecklist";
+import { AgentSetupCards } from "./_components/AgentSetupCards";
 import { SuccessPanel } from "./_components/SuccessPanel";
 import type { AddressType } from "../../components/onboarding/types";
 import type { DomainInfo } from "../../components/onboarding/types";
 import type { AgentData } from "../../components/types";
 
-type Step = "choose" | "shared_form" | "custom_checklist" | "success";
+type Step = "choose" | "shared_form" | "custom_checklist" | "agent_mcp" | "success";
 
 function isStep(value: string | null): value is Step {
   return (
     value === "choose" ||
     value === "shared_form" ||
     value === "custom_checklist" ||
+    value === "agent_mcp" ||
     value === "success"
   );
 }
@@ -131,11 +133,12 @@ export default function GetStartedPage() {
     setAddressType(type);
     setError("");
     track("address_type_selected", { type });
-    router.push(
-      type === "shared"
-        ? "/get-started?step=shared_form"
-        : "/get-started?step=custom_checklist",
-    );
+    const stepFor: Record<AddressType, Step> = {
+      shared: "shared_form",
+      custom: "custom_checklist",
+      agent: "agent_mcp",
+    };
+    router.push(`/get-started?step=${stepFor[type]}`);
   };
 
   const handleBackToChoose = () => {
@@ -213,6 +216,8 @@ export default function GetStartedPage() {
           }}
         />
       )}
+
+      {step === "agent_mcp" && <AgentSetupCards onBack={handleBackToChoose} />}
 
       {/* Success is the only step that needs an agent in local state.
           If a user lands on ?step=success without state (refresh, share,
