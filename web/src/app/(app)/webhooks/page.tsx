@@ -36,27 +36,31 @@ type WebhookView = {
   previous_secret_expires_at?: string;
 };
 
-// Event types a webhook can subscribe to. Must match the
-// CreateWebhookRequest.events enum in api/openapi.yaml exactly — the
-// server rejects unknown values (additionalProperties:false). The
-// review/screening events (pending_review, review_*, flagged, blocked)
-// are beta. Pre-v1 values (pending_approval/approved/rejected) were
-// dropped when holds unified on pending_review.
+// The curated set of common event types shown in the create picker. The
+// server's CreateWebhookRequest.events enum (api/openapi.yaml) accepts more
+// (bounced/complained/review_*/domain.*), but we surface only the ones most
+// subscribers want — covering the inbound, outbound-lifecycle, and review/
+// screening paths. The full set stays valid over the API for advanced callers.
 const EVENT_TYPES = [
   "email.received",
   "email.sent",
   "email.delivered",
-  "email.bounced",
-  "email.complained",
   "email.pending_review",
-  "email.review_approved",
-  "email.review_rejected",
   "email.flagged",
   "email.blocked",
-  "domain.sending_verified",
-  "domain.sending_failed",
-  "domain.suppression_added",
 ] as const;
+
+// One-line, user-facing descriptions for the event picker. Mirrors the
+// canonical catalog in internal/webhookpub/event.go — keep in sync when the
+// backend event set changes.
+const EVENT_DESCRIPTIONS: Record<(typeof EVENT_TYPES)[number], string> = {
+  "email.received": "An inbound email was delivered to the inbox.",
+  "email.sent": "An outbound message was accepted for delivery.",
+  "email.delivered": "The provider confirmed an outbound message reached the recipient.",
+  "email.pending_review": "A message is held for human review (inbound screening or an outbound HITL hold).",
+  "email.flagged": "An inbound message was delivered but didn't match the inbox's ingestion policy.",
+  "email.blocked": "A message was refused by screening (policy action: block).",
+};
 
 // A revealed secret (from a create or a rotate). `kind` drives the
 // banner copy; `webhookUrl` lets the reviewer confirm which endpoint
@@ -247,7 +251,7 @@ export default function WebhooksPage() {
               <span className="text-[13px]" style={{ color: "var(--fg)" }}>
                 Subscribed events
               </span>
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
+              <div className="mt-1.5 flex flex-col gap-1">
                 {EVENT_TYPES.map((ev) => {
                   const on = newEvents.includes(ev);
                   return (
@@ -255,15 +259,26 @@ export default function WebhooksPage() {
                       type="button"
                       key={ev}
                       onClick={() => toggleEvent(ev)}
-                      className="px-2 py-1 font-mono text-[11px] transition"
+                      aria-pressed={on}
+                      className="flex items-baseline gap-3 px-3 py-2 text-left transition"
                       style={{
                         background: on ? "var(--accent-fill)" : "var(--bg-panel)",
-                        color: on ? "var(--accent-fg)" : "var(--fg)",
                         border: `1px solid ${on ? "var(--accent-fill)" : "var(--border)"}`,
                         borderRadius: "var(--r-sm)",
                       }}
                     >
-                      {ev}
+                      <span
+                        className="font-mono text-[11px] shrink-0"
+                        style={{ color: on ? "var(--accent-fg)" : "var(--fg)", minWidth: 150 }}
+                      >
+                        {ev}
+                      </span>
+                      <span
+                        className="text-[11px]"
+                        style={{ color: on ? "var(--accent-fg)" : "var(--fg-muted)" }}
+                      >
+                        {EVENT_DESCRIPTIONS[ev]}
+                      </span>
                     </button>
                   );
                 })}
