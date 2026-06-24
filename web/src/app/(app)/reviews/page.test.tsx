@@ -15,7 +15,7 @@ import {
 } from "@testing-library/react";
 import { mutate } from "swr";
 import PendingPage from "./page";
-import { pendingMessagesKey } from "../../../../lib/swrKeys";
+import { pendingMessagesKey } from "../../../lib/swrKeys";
 
 jest.mock("next/navigation", () => ({
   useSearchParams: () => ({ get: () => null }),

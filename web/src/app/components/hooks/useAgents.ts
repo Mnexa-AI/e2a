@@ -4,9 +4,9 @@
 // (slim identity: id/domain/email/name/domain_verified/created_at).
 //
 // Called from three surfaces:
-//   • /dashboard           — the agent grid
-//   • /dashboard/agents/*  — the layout's AgentHeader lookup
-//   • /dashboard/agents/settings — the per-agent editor section
+//   • /inboxes           — the agent grid
+//   • /inboxes/*  — the layout's AgentHeader lookup
+//   • /inboxes/settings — the per-agent editor section
 //
 // Without SWR each of those would fire its own GET on every mount.
 // With SWR they share the cache (same `agentsKey`) and one

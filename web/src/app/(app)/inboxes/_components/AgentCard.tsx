@@ -30,7 +30,7 @@ export function AgentCard({
           <div className="flex items-center gap-2 mb-2 flex-wrap">
             {agent.name && (
               <Link
-                href={`/dashboard/agents/messages?email=${encodeURIComponent(agent.email)}`}
+                href={`/inboxes/messages?email=${encodeURIComponent(agent.email)}`}
                 className="text-[14px] font-semibold hover:underline"
                 style={{ color: "var(--fg)" }}
               >
@@ -38,7 +38,7 @@ export function AgentCard({
               </Link>
             )}
             <Link
-              href={`/dashboard/agents/messages?email=${encodeURIComponent(agent.email)}`}
+              href={`/inboxes/messages?email=${encodeURIComponent(agent.email)}`}
               className="hover:underline"
               style={{
                 textDecoration: "none",
@@ -82,14 +82,14 @@ export function AgentCard({
             Settings page. */}
         <div className="flex items-center gap-4 flex-wrap shrink-0 md:justify-end">
           <Link
-            href={`/dashboard/agents/messages?email=${encodeURIComponent(agent.email)}`}
+            href={`/inboxes/messages?email=${encodeURIComponent(agent.email)}`}
             className="inline-flex items-center gap-1 text-[13px] font-medium hover:underline"
             style={{ color: "var(--accent-strong)" }}
           >
             Open inbox <span aria-hidden>→</span>
           </Link>
           <Link
-            href={`/dashboard/agents/settings?email=${encodeURIComponent(agent.email)}`}
+            href={`/inboxes/settings?email=${encodeURIComponent(agent.email)}`}
             className="inline-flex items-center gap-1 text-[13px] hover:underline"
             style={{ color: "var(--fg-muted)" }}
           >
@@ -101,6 +101,6 @@ export function AgentCard({
   );
 }
 
-// Delete moved to /dashboard/agents/settings → Danger zone, and the test
+// Delete moved to /inboxes/settings → Danger zone, and the test
 // send moved into the inbox view header, so the agent card is now a pure
 // identity + navigation tile.

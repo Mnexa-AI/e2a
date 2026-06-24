@@ -1,5 +1,5 @@
 import { diffApproveEdits, joinCSV, parseCSV } from "./edits";
-import type { PendingMessageDetail } from "../../../../components/types";
+import type { PendingMessageDetail } from "../../../components/types";
 
 // makeMsg builds a minimal PendingMessageDetail fixture. Fields not
 // supplied default to the agent-authored "draft" values the form would

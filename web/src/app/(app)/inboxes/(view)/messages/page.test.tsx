@@ -165,7 +165,7 @@ describe("AgentInboxPage", () => {
     await user.click(screen.getByRole("button", { name: /Review →/ }));
 
     expect(mockRouterPush).toHaveBeenCalledWith(
-      expect.stringContaining("/dashboard/agents/messages/view"),
+      expect.stringContaining("/inboxes/messages/view"),
     );
     const url = mockRouterPush.mock.calls[0][0];
     expect(url).toContain("id=msg_pending");

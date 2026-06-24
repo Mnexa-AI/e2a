@@ -85,7 +85,7 @@ function mockFreshUser() {
     if (url === "/v1/domains") {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [] }) });
     }
-    if (url === "/api/dashboard/agents") {
+    if (url === "/api/inboxes") {
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ agents: [] }) });
     }
     return Promise.resolve({ ok: false, text: () => Promise.resolve("not found") });
@@ -106,7 +106,7 @@ function mockAgentCreation(email: string) {
     if (url === "/v1/domains") {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [] }) });
     }
-    if (url === "/api/dashboard/agents" && !init?.method) {
+    if (url === "/api/inboxes" && !init?.method) {
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ agents: [] }) });
     }
     if (url === "/v1/agents" && init?.method === "POST") {
@@ -125,7 +125,7 @@ function mockAgentCreationFailure(errorMessage: string) {
     if (url === "/v1/domains") {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [] }) });
     }
-    if (url === "/api/dashboard/agents" && !init?.method) {
+    if (url === "/api/inboxes" && !init?.method) {
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ agents: [] }) });
     }
     if (url === "/v1/agents" && init?.method === "POST") {
@@ -402,7 +402,7 @@ function mockCustomDomainFlow() {
   let domainVerified = false;
   mockFetch.mockImplementation((url: string, init?: RequestInit) => {
     // listAgents — empty for bootstrap
-    if (url === "/api/dashboard/agents" && !init?.method) {
+    if (url === "/api/inboxes" && !init?.method) {
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ agents: [] }) });
     }
     // listDomains — initially empty
@@ -577,7 +577,7 @@ describe("Custom-domain flow: existing unverified domain -> resume verify", () =
 describe("Custom-domain flow: verification retry", () => {
   it("shows error and allows retry on verification failure", async () => {
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/dashboard/agents" && !init?.method) {
+      if (url === "/api/inboxes" && !init?.method) {
         return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ agents: [] }) });
       }
       if (url === "/v1/domains" && (!init?.method || init.method === "GET")) {
@@ -636,7 +636,7 @@ describe("Plain /get-started always shows address choice", () => {
       if (url === "/v1/domains") {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [] }) });
       }
-      if (url === "/api/dashboard/agents" && !init?.method) {
+      if (url === "/api/inboxes" && !init?.method) {
         return Promise.resolve({
           ok: true,
           status: 200,
@@ -671,7 +671,7 @@ describe("Plain /get-started always shows address choice", () => {
       if (url === "/v1/domains") {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [unverified] }) });
       }
-      if (url === "/api/dashboard/agents" && !init?.method) {
+      if (url === "/api/inboxes" && !init?.method) {
         return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ agents: [] }) });
       }
       return Promise.resolve({ ok: false, text: () => Promise.resolve("not found") });
@@ -690,7 +690,7 @@ describe("Plain /get-started always shows address choice", () => {
       if (url === "/v1/domains") {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [verifiedDomain] }) });
       }
-      if (url === "/api/dashboard/agents" && !init?.method) {
+      if (url === "/api/inboxes" && !init?.method) {
         return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ agents: [] }) });
       }
       return Promise.resolve({ ok: false, text: () => Promise.resolve("not found") });

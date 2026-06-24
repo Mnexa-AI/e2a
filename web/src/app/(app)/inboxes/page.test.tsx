@@ -134,7 +134,7 @@ describe("local agent card", () => {
   });
 
   it("does not render the webhook editor or HITL editor inline", async () => {
-    // Editors moved to /dashboard/agents/settings. The card stays
+    // Editors moved to /inboxes/settings. The card stays
     // focused on identity + stats + the two CTAs (Open inbox + Settings).
     mockAgentList([localAgent]);
     render(<DashboardPage />);
@@ -162,7 +162,7 @@ describe("local agent card", () => {
       expect(screen.getByText("bot@agents.e2a.dev")).toBeInTheDocument();
     });
 
-    const expectedHref = `/dashboard/agents/messages?email=${encodeURIComponent(localAgent.email)}`;
+    const expectedHref = `/inboxes/messages?email=${encodeURIComponent(localAgent.email)}`;
     const openInbox = screen.getByText(/Open inbox/);
     expect(openInbox.closest("a")).toHaveAttribute("href", expectedHref);
 
@@ -208,16 +208,16 @@ describe("cloud agent card", () => {
 });
 
 // Mode switching, webhook editing, HITL editing, and delete moved
-// off the dashboard agent card to /dashboard/agents/settings. Those
+// off the dashboard agent card to /inboxes/settings. Those
 // behaviors are exercised in
-// web/src/app/(app)/dashboard/agents/settings/page.test.tsx — this
+// web/src/app/(app)/inboxes/settings/page.test.tsx — this
 // suite focuses on what the *dashboard* surface still owns:
 // identity + chips + Test + the two CTAs.
 
 // ── Settings CTA ─────────────────────────────────────────
 
 describe("settings CTA", () => {
-  it("agent card renders a Settings link to /dashboard/agents/settings?email=...", async () => {
+  it("agent card renders a Settings link to /inboxes/settings?email=...", async () => {
     mockAgentList([localAgent]);
     render(<DashboardPage />);
 
@@ -228,7 +228,7 @@ describe("settings CTA", () => {
     const settingsLink = screen.getByText("Settings").closest("a");
     expect(settingsLink).toHaveAttribute(
       "href",
-      `/dashboard/agents/settings?email=${encodeURIComponent(localAgent.email)}`,
+      `/inboxes/settings?email=${encodeURIComponent(localAgent.email)}`,
     );
   });
 });

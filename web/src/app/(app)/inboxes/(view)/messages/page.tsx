@@ -142,7 +142,7 @@ function AgentInboxContent() {
   const focusUrl = (m: MessageSummary, withHeaders: boolean) => {
     const pending = m.review_status === "pending_review" ? "&pending=1" : "";
     return (
-      `/dashboard/agents/messages/view?email=${encodeURIComponent(email)}` +
+      `/inboxes/messages/view?email=${encodeURIComponent(email)}` +
       `&id=${encodeURIComponent(m.message_id)}` +
       `&direction=${m.direction}${pending}` +
       (withHeaders ? "&headers=1" : "")

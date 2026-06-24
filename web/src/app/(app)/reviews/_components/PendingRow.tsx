@@ -15,18 +15,18 @@
 
 import { useEffect, useState } from "react";
 import useSWR from "swr";
-import { pendingMessageKey } from "../../../../../lib/swrKeys";
+import { pendingMessageKey } from "../../../../lib/swrKeys";
 import {
   approvePendingMessage,
   getPendingMessage,
   rejectPendingMessage,
-} from "../../../../components/onboarding/api";
+} from "../../../components/onboarding/api";
 import type {
   PendingMessageDetail,
   PendingMessageSummary,
-} from "../../../../components/types";
-import { Chip } from "../../../../components/loft/Chip";
-import { Dot } from "../../../../components/loft/Dot";
+} from "../../../components/types";
+import { Chip } from "../../../components/loft/Chip";
+import { Dot } from "../../../components/loft/Dot";
 import { diffApproveEdits, joinCSV } from "./edits";
 
 function formatQueuedAgo(iso: string): string {

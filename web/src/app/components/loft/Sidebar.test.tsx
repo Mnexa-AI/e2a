@@ -6,7 +6,7 @@ import { Sidebar } from "./Sidebar";
 // because `usePathname`, `useAuth`, and `usePendingCount` all assume
 // runtime context that doesn't exist in a unit test.
 
-let mockPathname = "/dashboard";
+let mockPathname = "/inboxes";
 jest.mock("next/navigation", () => ({
   usePathname: () => mockPathname,
 }));
@@ -49,7 +49,7 @@ jest.mock("../hooks/usePendingCount", () => ({
 }));
 
 beforeEach(() => {
-  mockPathname = "/dashboard";
+  mockPathname = "/inboxes";
   mockPendingCount = null;
 });
 
@@ -67,11 +67,11 @@ describe("Sidebar — nav entries", () => {
     // "Agents" partial-matches the brand link "e2a — Email for AI agents").
     const expected: Array<{ label: string; href: string }> = [
       { label: "Get started", href: "/get-started" },
-      { label: "Inboxes", href: "/dashboard" },
-      { label: "Pending", href: "/dashboard/pending" },
+      { label: "Inboxes", href: "/inboxes" },
+      { label: "Pending", href: "/reviews" },
       { label: "Domains", href: "/domains" },
       { label: "API keys", href: "/api-keys" },
-      { label: "Webhooks", href: "/webhook-secrets" },
+      { label: "Webhooks", href: "/webhooks" },
     ];
     for (const { label, href } of expected) {
       const link = document.querySelector(`a[href="${href}"]`);
@@ -88,53 +88,53 @@ describe("Sidebar — nav entries", () => {
     // Filter to the nav hrefs only (skip the logo + user-card links).
     const navHrefs = [
       "/get-started",
-      "/dashboard",
-      "/dashboard/pending",
+      "/inboxes",
+      "/reviews",
       "/domains",
       "/api-keys",
-      "/webhook-secrets",
+      "/webhooks",
     ];
     const orderInDOM = allLinks.filter((h) => h && navHrefs.includes(h));
     expect(orderInDOM).toEqual(navHrefs);
   });
 
   it("marks the matching nav item active by pathname", () => {
-    mockPathname = "/webhook-secrets";
+    mockPathname = "/webhooks";
     render(<Sidebar />);
-    const webhooks = document.querySelector(`a[href="/webhook-secrets"]`);
+    const webhooks = document.querySelector(`a[href="/webhooks"]`);
     expect(webhooks).toHaveAttribute("aria-current", "page");
     // Sanity: a sibling nav item is NOT active.
     const apiKeys = document.querySelector(`a[href="/api-keys"]`);
     expect(apiKeys).not.toHaveAttribute("aria-current", "page");
   });
 
-  it("marks /dashboard/pending/anything active under the Pending entry (matchPrefix)", () => {
+  it("marks /reviews/anything active under the Pending entry (matchPrefix)", () => {
     // Next's usePathname() strips the query string, so simulate a true
-    // subpath here (e.g. /dashboard/pending/review). The matchPrefix
+    // subpath here (e.g. /reviews/review). The matchPrefix
     // flag on the Pending nav item makes the prefix match active.
-    mockPathname = "/dashboard/pending/review";
+    mockPathname = "/reviews/review";
     render(<Sidebar />);
-    const pending = document.querySelector(`a[href="/dashboard/pending"]`);
+    const pending = document.querySelector(`a[href="/reviews"]`);
     expect(pending).toHaveAttribute("aria-current", "page");
   });
 
-  it("marks Agents active when the user is on a per-agent screen under /dashboard/agents/*", () => {
-    // The per-agent inbox lives at /dashboard/agents/messages. The
-    // Agents nav item (href=/dashboard) declares matchPrefixes:
-    // ["/dashboard/agents"] so it stays lit on those routes.
-    mockPathname = "/dashboard/agents/messages";
+  it("marks Agents active when the user is on a per-agent screen under /inboxes/*", () => {
+    // The per-agent inbox lives at /inboxes/messages. The
+    // Agents nav item (href=/inboxes) declares matchPrefixes:
+    // ["/inboxes"] so it stays lit on those routes.
+    mockPathname = "/inboxes/messages";
     render(<Sidebar />);
-    const agents = document.querySelector(`a[href="/dashboard"]`);
+    const agents = document.querySelector(`a[href="/inboxes"]`);
     expect(agents).toHaveAttribute("aria-current", "page");
     // Pending must NOT also light up — it's a sibling top-level feature.
-    const pending = document.querySelector(`a[href="/dashboard/pending"]`);
+    const pending = document.querySelector(`a[href="/reviews"]`);
     expect(pending).not.toHaveAttribute("aria-current", "page");
   });
 
-  it("does NOT mark Agents active on /dashboard/pending (matchPrefixes scoped to /dashboard/agents)", () => {
-    mockPathname = "/dashboard/pending";
+  it("does NOT mark Agents active on /reviews (matchPrefixes scoped to /inboxes)", () => {
+    mockPathname = "/reviews";
     render(<Sidebar />);
-    const agents = document.querySelector(`a[href="/dashboard"]`);
+    const agents = document.querySelector(`a[href="/inboxes"]`);
     expect(agents).not.toHaveAttribute("aria-current", "page");
   });
 
@@ -145,7 +145,7 @@ describe("Sidebar — nav entries", () => {
     // Re-render with a real count → badge appears in the Pending link.
     mockPendingCount = 3;
     rerender(<Sidebar />);
-    const pending = document.querySelector(`a[href="/dashboard/pending"]`);
+    const pending = document.querySelector(`a[href="/reviews"]`);
     expect(pending?.textContent).toContain("3");
   });
 });
@@ -177,7 +177,7 @@ describe("Sidebar — bottom-section active state", () => {
   });
 
   it("leaves both bottom links unmarked when pathname is elsewhere", () => {
-    mockPathname = "/dashboard";
+    mockPathname = "/inboxes";
     render(<Sidebar />);
     expect(document.querySelector(`a[href="/settings"]`))
       .not.toHaveAttribute("aria-current", "page");

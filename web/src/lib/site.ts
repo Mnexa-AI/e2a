@@ -1,4 +1,4 @@
-// Site-level config that the marketing/dashboard surface needs at build time.
+// Site-level config that the marketing/inboxes surface needs at build time.
 // All values resolve from public env vars so a fork or self-host can override
 // without touching source. Defaults are localhost-friendly so `next dev` and
 // the static build both work out of the box without any env setup.

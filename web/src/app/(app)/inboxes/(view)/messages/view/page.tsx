@@ -222,7 +222,7 @@ function FocusContent({
   // `direction`). Absent param → not pending → approve/reject hidden.
   const isPending = msg?.direction === "outbound" && threadedPending;
 
-  const inboxLink = `/dashboard/agents/messages?email=${encodeURIComponent(email)}`;
+  const inboxLink = `/inboxes/messages?email=${encodeURIComponent(email)}`;
   const convLink = msg?.direction === "outbound"
     ? `${inboxLink}#${msg.data.conversation_id ? `conv:${msg.data.conversation_id}` : `orphan:${msg.data.id}`}`
     : msg?.direction === "inbound"
@@ -236,7 +236,7 @@ function FocusContent({
   //                            status moves from pending_approval
   //                            to sent/rejected)
   //   • agentMessagesKey*   → the inbox view drops the pending callout
-  //   • agentsKey           → /dashboard agent cards show updated
+  //   • agentsKey           → /inboxes agent cards show updated
   //                            `pending_count` per agent
   // We `await Promise.all(...)` before navigating so the inbox
   // re-render happens against fresh data, not the previous payload.

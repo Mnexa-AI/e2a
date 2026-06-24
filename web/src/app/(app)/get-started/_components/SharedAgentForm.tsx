@@ -42,7 +42,7 @@ export function SharedAgentForm({
         ...(name ? { name } : {}),
       });
       track("agent_creation_succeeded", { shared_or_custom: "shared" });
-      // Refresh the SWR `agents` cache so /dashboard shows the new
+      // Refresh the SWR `agents` cache so /inboxes shows the new
       // row immediately (otherwise keepPreviousData renders the
       // pre-create list until the next focus revalidation).
       await invalidateAgents();

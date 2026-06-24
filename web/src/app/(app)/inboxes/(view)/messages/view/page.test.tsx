@@ -246,7 +246,7 @@ describe("AgentMessageFocusPage", () => {
       expect(countCalls()).toBe(1);
     });
     expect(mockRouterPush).toHaveBeenCalledWith(
-      expect.stringContaining("/dashboard/agents/messages?email=support%40acme.io"),
+      expect.stringContaining("/inboxes/messages?email=support%40acme.io"),
     );
   });
 
@@ -405,7 +405,7 @@ describe("AgentMessageFocusPage", () => {
     // tests, so these seeds are isolated to this test. The agents
     // cache is now read by LifecycleSection to decide whether to
     // render the HITL step — without seeding it the page would
-    // trigger a /api/dashboard/agents fetch and defeat the cache-
+    // trigger a /api/inboxes fetch and defeat the cache-
     // hit reproduction below.
     await mutate(
       pendingMessageKey("support@acme.io", "msg_pending"),
@@ -530,7 +530,7 @@ describe("AgentMessageFocusPage", () => {
     });
     expect(rejectBody).toContain('"reason":"off-topic"');
     expect(mockRouterPush).toHaveBeenCalledWith(
-      expect.stringContaining("/dashboard/agents/messages?email=support%40acme.io"),
+      expect.stringContaining("/inboxes/messages?email=support%40acme.io"),
     );
   });
 });

@@ -185,7 +185,7 @@ export function AgentHeader({
             marginBottom: -1,
             textDecoration: "none",
           } as const;
-          const href = `/dashboard/agents/${t.slug}?email=${emailQs}`;
+          const href = `/inboxes/${t.slug}?email=${emailQs}`;
           return (
             <Link
               key={t.key}

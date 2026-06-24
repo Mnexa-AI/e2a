@@ -1,14 +1,14 @@
 "use client";
 
-// The standalone /dashboard/pending/review route was folded into the
-// split-pane at /dashboard/pending. This page exists only to redirect
+// The standalone /reviews/review route was folded into the
+// split-pane at /reviews. This page exists only to redirect
 // callers that have the old URL bookmarked or follow it from a stale
 // notification. The destination preserves the ?id= query so context
 // isn't lost.
 
 import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { PageShell } from "../../../../components/loft/PageShell";
+import { PageShell } from "../../../components/loft/PageShell";
 
 function ReviewRedirect() {
   const router = useRouter();
@@ -16,7 +16,7 @@ function ReviewRedirect() {
   useEffect(() => {
     const id = params.get("id");
     router.replace(
-      id ? `/dashboard/pending?id=${encodeURIComponent(id)}` : "/dashboard/pending",
+      id ? `/reviews?id=${encodeURIComponent(id)}` : "/reviews",
     );
   }, [router, params]);
   return (

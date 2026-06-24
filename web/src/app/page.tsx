@@ -183,7 +183,7 @@ export default function Home() {
                 </span>
               ) : user ? (
                 <Link
-                  href="/dashboard"
+                  href="/inboxes"
                   className="px-3 py-1.5 rounded-md transition hover:bg-[var(--bg-elev)]"
                   style={{ color: "var(--fg-muted)" }}
                 >
@@ -640,7 +640,7 @@ export default function Home() {
                 <span className="font-mono">→</span>
               </Link>
               <Link
-                href="/dashboard"
+                href="/inboxes"
                 className="inline-flex items-center px-4 py-2.5 text-[14px] font-medium"
                 style={{
                   background: "var(--bg-panel)",

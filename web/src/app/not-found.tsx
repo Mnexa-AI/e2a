@@ -46,7 +46,7 @@ export default function NotFound() {
         {pathname || "/"}
       </p>
       <Link
-        href="/dashboard"
+        href="/inboxes"
         className="inline-flex items-center gap-2 px-4 py-2.5 text-[14px] font-medium"
         style={{
           background: "var(--accent-fill)",

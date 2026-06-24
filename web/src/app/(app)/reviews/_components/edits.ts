@@ -4,8 +4,8 @@
 
 import type {
   PendingMessageDetail,
-} from "../../../../components/types";
-import type { ApprovePayload } from "../../../../components/onboarding/api";
+} from "../../../components/types";
+import type { ApprovePayload } from "../../../components/onboarding/api";
 
 // parseCSV splits a comma-separated address string into a trimmed,
 // non-empty list. Mirrors how the textarea recipients fields are

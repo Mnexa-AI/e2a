@@ -133,7 +133,7 @@ export function SuccessPanel({
       <ApiKeyNote />
 
       <a
-        href="/dashboard"
+        href="/inboxes"
         className="mt-8 block w-full text-center bg-foreground text-background py-3 rounded-lg text-sm font-medium hover:opacity-90 transition"
       >
         Go to Inboxes

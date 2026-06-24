@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from "../../../../../test-utils/swr";
+import { render, screen, waitFor } from "../../../../test-utils/swr";
 import userEvent from "@testing-library/user-event";
 import { PendingRow } from "./PendingRow";
-import type { PendingMessageSummary } from "../../../../components/types";
+import type { PendingMessageSummary } from "../../../components/types";
 
 const AGENT = "support@acme.dev";
 const summary: PendingMessageSummary = {

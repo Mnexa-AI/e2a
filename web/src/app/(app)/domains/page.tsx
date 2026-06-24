@@ -18,7 +18,7 @@ import {
 export default function DomainsPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   // Share the cache with the dashboard's verified-domains stat
-  // (useSWR(domainsKey) on /dashboard) so any mutation here flows
+  // (useSWR(domainsKey) on /inboxes) so any mutation here flows
   // through to that surface in the same tick. Before this migration
   // the page kept its own useState copy and the dashboard's count
   // stayed stale until tab-focus revalidation eventually caught up.

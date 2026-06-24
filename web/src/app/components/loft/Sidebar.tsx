@@ -75,31 +75,31 @@ type NavItem = {
   matchPrefix?: boolean;
   /** Additional prefixes that should highlight this item — used when the
    *  feature lives under a different URL root (e.g. Agents is at
-   *  `/dashboard` but the per-agent screens are at `/dashboard/agents/*`). */
+   *  `/inboxes` but the per-agent screens are at `/inboxes/*`). */
   matchPrefixes?: string[];
 };
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/get-started", label: "Get started", icon: "plus" },
   {
-    href: "/dashboard",
+    href: "/inboxes",
     label: "Inboxes",
     icon: "grid",
     // Keep Inboxes lit when the user drills into a specific inbox's
     // screens (messages, focus page, etc.). Note: we don't use `matchPrefix:
     // true` here because that would also light up Inboxes on
-    // /dashboard/pending — Pending is a sibling top-level feature.
-    matchPrefixes: ["/dashboard/agents"],
+    // /reviews — Pending is a sibling top-level feature.
+    matchPrefixes: ["/inboxes"],
   },
   {
-    href: "/dashboard/pending",
+    href: "/reviews",
     label: "Pending",
     icon: "clock",
     matchPrefix: true,
   },
   { href: "/domains", label: "Domains", icon: "globe" },
   { href: "/api-keys", label: "API keys", icon: "key" },
-  { href: "/webhook-secrets", label: "Webhooks", icon: "shield" },
+  { href: "/webhooks", label: "Webhooks", icon: "shield" },
   { href: "/billing", label: "Billing", icon: "card" },
 ];
 
@@ -259,7 +259,7 @@ export function Sidebar({
         {NAV_ITEMS.map((item) => {
           const active = isActive(pathname, item);
           const showBadge =
-            item.href === "/dashboard/pending" &&
+            item.href === "/reviews" &&
             pendingCount !== null &&
             pendingCount > 0;
           return (

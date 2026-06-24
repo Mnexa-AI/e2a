@@ -2,9 +2,9 @@
 //
 // Covers: required-param error, agent fetch, the three section
 // editors (mode switch / webhook URL / HITL) wire up to PUT
-// /api/dashboard/agents/{email}, and the danger-zone delete confirm
+// /api/inboxes/{email}, and the danger-zone delete confirm
 // flow (DELETE /v1/agents/{email}?confirm=DELETE) routes back to
-// /dashboard on success.
+// /inboxes on success.
 
 import { render, screen, waitFor, fireEvent } from "../../../../../test-utils/swr";
 import AgentSettingsPage from "./page";
@@ -175,7 +175,7 @@ describe("AgentSettingsPage", () => {
     expect(body.outbound.gate.policy).toBe("open");
   });
 
-  it("clicking 'Delete inbox' DELETEs and routes back to /dashboard", async () => {
+  it("clicking 'Delete inbox' DELETEs and routes back to /inboxes", async () => {
     setSearchParams({ email: baseAgent.email });
     let deleted = false;
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
@@ -206,7 +206,7 @@ describe("AgentSettingsPage", () => {
     await waitFor(() => {
       expect(deleted).toBe(true);
     });
-    expect(mockRouterPush).toHaveBeenCalledWith("/dashboard");
+    expect(mockRouterPush).toHaveBeenCalledWith("/inboxes");
   });
 
   it("aborts deletion when the confirm prompt is cancelled", async () => {

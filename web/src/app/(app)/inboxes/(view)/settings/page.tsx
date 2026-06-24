@@ -78,7 +78,7 @@ function AgentSettingsContent({ email }: { email: string }) {
     try {
       await deleteAgent(agent.email);
       await invalidateAgents();
-      router.push("/dashboard");
+      router.push("/inboxes");
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : "Failed to delete inbox");
       setDeleting(false);

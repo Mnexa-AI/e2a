@@ -1,6 +1,6 @@
 "use client";
 
-// Shared chrome for every per-agent route under /dashboard/agents/.
+// Shared chrome for every per-agent route under /inboxes/.
 // Reads `?email=` from the URL — we use a query param instead of a
 // path segment because web/ is statically exported (next.config.ts:9)
 // and dynamic segments would require generateStaticParams() with the
@@ -12,10 +12,10 @@ import { AgentHeader, type AgentTab } from "../../../components/messages/AgentHe
 import { useAgents } from "../../../components/hooks/useAgents";
 
 function detectTab(pathname: string): AgentTab {
-  if (pathname.startsWith("/dashboard/agents/settings")) return "settings";
+  if (pathname.startsWith("/inboxes/settings")) return "settings";
   // Default to messages — the only other live tab today, and the
   // canonical landing destination from the dashboard's "Open inbox →"
-  // CTA. Any unknown sub-path under /dashboard/agents/ (404s aside)
+  // CTA. Any unknown sub-path under /inboxes/ (404s aside)
   // also lands here so the AgentHeader has a sensible active state.
   return "messages";
 }
@@ -39,9 +39,16 @@ export default function AgentLayout({
     <div className="flex flex-col" data-app-surface>
       <Topbar
         crumbs={[
-          { label: "Dashboard", href: "/dashboard" },
-          { label: "Inboxes", href: "/dashboard" },
-          email || "—",
+          { label: "Inboxes", href: "/inboxes" },
+          // The inbox crumb links back to THIS inbox's message list, so a
+          // detail/settings view's breadcrumb returns here — not the
+          // top-level list.
+          {
+            label: email || "—",
+            href: email
+              ? `/inboxes/messages?email=${encodeURIComponent(email)}`
+              : "/inboxes",
+          },
         ]}
       />
       <AgentLayoutContent key={email} email={email} tab={tab}>
