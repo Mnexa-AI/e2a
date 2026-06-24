@@ -120,7 +120,7 @@ def test_requires_api_key():
 
 def test_resources_exposed():
     c = _client()
-    for name in ("agents", "messages", "conversations", "domains", "events", "webhooks", "account"):
+    for name in ("agents", "messages", "conversations", "domains", "events", "webhooks", "account", "reviews"):
         assert getattr(c, name) is not None
     assert c.account.suppressions is not None
 
@@ -211,6 +211,30 @@ async def test_send_mints_idempotency_key(httpx_mock):
     assert req.method == "POST"
     assert "/v1/agents/bot%40test.dev/messages" in str(req.url)
     assert req.headers.get("Idempotency-Key")
+
+
+@pytest.mark.anyio
+async def test_reviews_approve_hits_reviews_path_no_email(httpx_mock):
+    # The review queue is account-scoped + id-addressed: approve(id) must hit
+    # /v1/reviews/{id}/approve, NOT the deprecated /v1/agents/{email}/... path.
+    httpx_mock.add_response(json={"message_id": "msg_r1", "status": "sent"})
+    async with _client() as c:
+        await c.reviews.approve("msg_r1")
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "POST"
+    assert "/v1/reviews/msg_r1/approve" in str(req.url)
+    assert "/agents/" not in str(req.url)
+    assert req.headers.get("Idempotency-Key")
+
+
+@pytest.mark.anyio
+async def test_reviews_reject_hits_reviews_path(httpx_mock):
+    httpx_mock.add_response(json={"message_id": "msg_r2", "status": "rejected"})
+    async with _client() as c:
+        await c.reviews.reject("msg_r2", {"reason": "spam"})
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "POST"
+    assert "/v1/reviews/msg_r2/reject" in str(req.url)
 
 
 @pytest.mark.anyio

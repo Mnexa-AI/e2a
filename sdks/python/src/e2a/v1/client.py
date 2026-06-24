@@ -23,6 +23,7 @@ from .generated.api.domains_api import DomainsApi
 from .generated.api.events_api import EventsApi
 from .generated.api.messages_api import MessagesApi
 from .generated.api.meta_api import MetaApi
+from .generated.api.reviews_api import ReviewsApi
 from .generated.api.webhooks_api import WebhooksApi
 from .generated.api_client import ApiClient
 from .generated.configuration import Configuration
@@ -50,6 +51,7 @@ from .generated.models import (
     RedeliverView,
     RegisterDomainRequest,
     RejectRequest,
+    ReviewView,
     RejectResultView,
     ReplyRequest,
     RotateSecretResponse,
@@ -146,6 +148,7 @@ class E2AClient:
         self.events = EventsResource(EventsApi(self._api_client), self)
         self.webhooks = WebhooksResource(WebhooksApi(self._api_client), self)
         self.account = AccountResource(AccountApi(self._api_client), self)
+        self.reviews = ReviewsResource(ReviewsApi(self._api_client), self)
         self._meta = MetaApi(self._api_client)
 
     # ── lifecycle ───────────────────────────────────────────────────
@@ -345,6 +348,9 @@ class MessagesResource:
         *,
         idempotency_key: Optional[str] = None,
     ) -> SendResultView:
+        """Deprecated: use ``client.reviews.approve(message_id, body)`` — the
+        review queue is account-scoped and id-addressed, so the inbox email is
+        no longer needed. This agent-path endpoint is deprecated."""
         req = _coerce(ApproveRequest, body)
         return await self._c._write_keyed(
             lambda h: self._api.approve_message(email, message_id, req, _headers=h),
@@ -354,6 +360,7 @@ class MessagesResource:
     async def reject(
         self, email: str, message_id: str, body: Optional[Body] = None
     ) -> RejectResultView:
+        """Deprecated: use ``client.reviews.reject(message_id, body)``."""
         req = _coerce(RejectRequest, body)
         return await self._c._write_unsafe(
             lambda h: self._api.reject_message(email, message_id, req, _headers=h)
@@ -365,6 +372,50 @@ class MessagesResource:
         req = _coerce(UpdateMessageRequest, body)
         return await self._c._write_idempotent(
             lambda h: self._api.update_message(email, message_id, req, _headers=h)
+        )
+
+
+class ReviewsResource:
+    """The account-scoped human-review queue: every message held in
+    pending_review (outbound drafts awaiting send approval + inbound messages
+    held by a screening gate). Supersedes the per-inbox messages.approve/reject
+    path — reviews are addressed by message id alone, no inbox email. Account-
+    scoped credentials only; an agent cannot see or resolve holds."""
+
+    def __init__(self, api: ReviewsApi, client: E2AClient) -> None:
+        self._api = api
+        self._c = client
+
+    def list(self) -> AutoPager[ReviewView]:
+        async def fetch(_cursor: Optional[str]) -> Page:
+            resp = await self._c._read(lambda h: self._api.list_reviews(_headers=h))
+            # No cursor param: single-page at GA — see AgentsResource.list.
+            return _page(resp.items)
+
+        return AutoPager(fetch)
+
+    async def get(self, message_id: str) -> MessageView:
+        return await self._c._read(lambda h: self._api.get_review(message_id, _headers=h))
+
+    async def approve(
+        self,
+        message_id: str,
+        body: Optional[Body] = None,
+        *,
+        idempotency_key: Optional[str] = None,
+    ) -> SendResultView:
+        req = _coerce(ApproveRequest, body)
+        return await self._c._write_keyed(
+            lambda h: self._api.approve_review(message_id, req, _headers=h),
+            idempotency_key,
+        )
+
+    async def reject(
+        self, message_id: str, body: Optional[Body] = None
+    ) -> RejectResultView:
+        req = _coerce(RejectRequest, body)
+        return await self._c._write_unsafe(
+            lambda h: self._api.reject_review(message_id, req, _headers=h)
         )
 
 
