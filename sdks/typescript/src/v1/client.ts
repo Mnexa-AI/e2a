@@ -18,6 +18,7 @@ import {
   PromiseEventsApi,
   PromiseWebhooksApi,
   PromiseAccountApi,
+  PromiseReviewsApi,
   PromiseMetaApi,
 } from "./generated/types/PromiseAPI.js";
 import type {
@@ -61,6 +62,7 @@ import type {
   CreateAPIKeyRequest,
   CreateAPIKeyResponse,
   DeploymentInfoView,
+  ReviewView,
 } from "./generated/index.js";
 import { RetryHttpLibrary, type RetryOptions } from "./retry.js";
 import { E2AError, fromApiException, connectionError } from "./errors.js";
@@ -113,6 +115,7 @@ export class E2AClient {
   readonly events: EventsResource;
   readonly webhooks: WebhooksResource;
   readonly account: AccountResource;
+  readonly reviews: ReviewsResource;
   private readonly meta: PromiseMetaApi;
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -147,6 +150,7 @@ export class E2AClient {
     this.events = new EventsResource(new PromiseEventsApi(config));
     this.webhooks = new WebhooksResource(new PromiseWebhooksApi(config));
     this.account = new AccountResource(new PromiseAccountApi(config));
+    this.reviews = new ReviewsResource(new PromiseReviewsApi(config));
     this.meta = new PromiseMetaApi(config);
   }
 
@@ -261,14 +265,45 @@ class MessagesResource {
   forward(email: string, id: string, body: ForwardRequest, opts: RequestOptions = {}): Promise<SendResultView> {
     return call(() => this.api.forwardMessage(email, id, body, opts.idempotencyKey));
   }
+  /** @deprecated Use `client.reviews.approve(id, body)` — the review queue is
+   *  account-scoped and id-addressed, so you no longer pass the inbox email.
+   *  This agent-path endpoint is deprecated and will be removed. */
   approve(email: string, id: string, body: ApproveRequest = {}, opts: RequestOptions = {}): Promise<SendResultView> {
     return call(() => this.api.approveMessage(email, id, body, opts.idempotencyKey));
   }
+  /** @deprecated Use `client.reviews.reject(id, body)`. See `approve` above. */
   reject(email: string, id: string, body: RejectRequest = {}): Promise<RejectResultView> {
     return call(() => this.api.rejectMessage(email, id, body));
   }
   updateLabels(email: string, id: string, body: UpdateMessageRequest): Promise<UpdateMessageResultView> {
     return call(() => this.api.updateMessage(email, id, body));
+  }
+}
+
+/** The account-scoped human-review queue: every message held in
+ *  pending_review (outbound drafts awaiting send approval + inbound messages
+ *  held by a screening gate). Supersedes the per-inbox messages.approve/reject
+ *  path — reviews are addressed by message id alone, no inbox email needed.
+ *  Account-scoped credentials only; an agent cannot see or resolve holds. */
+class ReviewsResource {
+  constructor(private readonly api: PromiseReviewsApi) {}
+  /** List every held message across the account's inboxes. */
+  list(): AutoPager<ReviewView> {
+    // No cursor param: single-page at GA — see AgentsResource.list / domains.
+    return new AutoPager(async () => ({ items: (await call(() => this.api.listReviews())).items ?? [] }));
+  }
+  /** Full detail of one held message (body + recipients + screening context). */
+  get(id: string): Promise<MessageView> {
+    return call(() => this.api.getReview(id));
+  }
+  /** Approve a hold: send the outbound draft (honoring Idempotency-Key +
+   *  optional reviewer overrides) or release the inbound hold to the inbox. */
+  approve(id: string, body: ApproveRequest = {}, opts: RequestOptions = {}): Promise<SendResultView> {
+    return call(() => this.api.approveReview(id, body, opts.idempotencyKey));
+  }
+  /** Reject a hold: discard the outbound draft / drop the inbound hold. */
+  reject(id: string, body: RejectRequest = {}): Promise<RejectResultView> {
+    return call(() => this.api.rejectReview(id, body));
   }
 }
 

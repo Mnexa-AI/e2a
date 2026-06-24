@@ -293,9 +293,11 @@ export class McpClient {
     return out;
   }
 
-  // Resolve the agent that owns a pending message by scanning the pending
-  // queue. The approve/reject endpoints are agent-scoped, so we need the
-  // owning address; for a pinned-default session this is one list call.
+  // Resolve the owning agent of a pending OUTBOUND draft by scanning the queue.
+  // get_pending_message is a RUNTIME-tier tool (agent-visible), so it must hit
+  // the agent-reachable GET /v1/agents/{email}/messages/{id} — NOT the account-
+  // only /v1/reviews/{id}, which 403s an agent-scoped credential. For a pinned
+  // session this is one list call.
   private async ownerOfPending(messageId: string): Promise<string> {
     const addresses = this.agentEmail
       ? [this.agentEmail]
@@ -312,6 +314,8 @@ export class McpClient {
   }
 
   async getPendingMessage(messageId: string): Promise<MessageView> {
+    // Runtime-tier (agent-visible): use the agent-reachable messages path, not
+    // the account-only /v1/reviews/{id}. Resolve the owning inbox first.
     const address = await this.ownerOfPending(messageId);
     return this.sdk.messages.get(address, messageId);
   }
@@ -329,16 +333,13 @@ export class McpClient {
     },
     opts?: SendOpts,
   ): Promise<SendResultView> {
-    const address = await this.ownerOfPending(messageId);
     return opts
-      ? this.sdk.messages.approve(address, messageId, overrides, opts)
-      : this.sdk.messages.approve(address, messageId, overrides);
+      ? this.sdk.reviews.approve(messageId, overrides, opts)
+      : this.sdk.reviews.approve(messageId, overrides);
   }
 
   async rejectMessage(messageId: string, reason?: string): Promise<RejectResultView> {
-    const address = await this.ownerOfPending(messageId);
-    return this.sdk.messages.reject(
-      address,
+    return this.sdk.reviews.reject(
       messageId,
       reason !== undefined ? { reason } : {},
     );
