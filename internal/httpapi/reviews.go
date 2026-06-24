@@ -1,0 +1,188 @@
+package httpapi
+
+import (
+	"context"
+	"net/http"
+	"time"
+
+	"github.com/Mnexa-AI/e2a/internal/agent"
+	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/danielgtaylor/huma/v2"
+)
+
+// The review queue (/v1/reviews) is the human/operator surface for messages
+// held in pending_review — BOTH directions: outbound drafts awaiting send
+// approval, and inbound messages held by a screening gate. It is a first-class,
+// ACCOUNT-SCOPED resource (an agent credential has no reviews endpoint at all —
+// the screening gate is structural, not a flag on a shared query). The agent's
+// /messages surface never returns holds.
+
+// ReviewView is one item in the review queue — non-secret summary of a held
+// message of either direction.
+type ReviewView struct {
+	ID    string `json:"id"`
+	Agent string `json:"agent" doc:"The inbox (agent address) the held message belongs to."`
+	// Direction: outbound = a draft awaiting send approval; inbound = a screened
+	// incoming message awaiting release.
+	Direction string `json:"direction" enum:"inbound,outbound"`
+	// From/To: for outbound, From is the inbox and To the recipients; for inbound,
+	// From is the external sender and To the inbox.
+	From           string    `json:"from"`
+	To             []string  `json:"to" nullable:"false"`
+	Subject        string    `json:"subject"`
+	ConversationID string    `json:"conversation_id,omitempty"`
+	ReviewStatus   string    `json:"review_status" enum:"pending_review"`
+	Flagged        bool      `json:"flagged,omitempty"`
+	FlagReason     string    `json:"flag_reason,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+func reviewView(it identity.ReviewListItem) ReviewView {
+	return ReviewView{
+		ID:             it.ID,
+		Agent:          it.AgentID,
+		Direction:      it.Direction,
+		From:           it.Sender,
+		To:             orEmptyStrings(it.To),
+		Subject:        it.Subject,
+		ConversationID: it.ConversationID,
+		ReviewStatus:   it.Status,
+		Flagged:        it.Flagged,
+		FlagReason:     it.FlagReason,
+		CreatedAt:      it.CreatedAt,
+	}
+}
+
+type listReviewsOutput struct{ Body Page[ReviewView] }
+type reviewDetailOutput struct{ Body MessageView }
+
+type getReviewInput struct {
+	ID string `path:"id"`
+}
+
+type approveReviewInput struct {
+	ID             string `path:"id"`
+	RawBody        []byte
+	IdempotencyKey string `header:"Idempotency-Key"`
+	Body           agent.ApproveOverrides
+}
+
+type rejectReviewInput struct {
+	ID   string `path:"id"`
+	Body RejectRequest
+}
+
+func (s *Server) registerReviews() {
+	huma.Register(s.API, huma.Operation{
+		OperationID: "listReviews", Method: http.MethodGet, Path: "/v1/reviews",
+		Summary: "List messages awaiting review", Tags: []string{"reviews"},
+		Description: "The review queue: every message held in pending_review across the account's inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds.",
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleListReviews)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "getReview", Method: http.MethodGet, Path: "/v1/reviews/{id}",
+		Summary: "Get a held message (full detail)", Tags: []string{"reviews"},
+		Description: "Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.",
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleGetReview)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "approveReview", Method: http.MethodPost, Path: "/v1/reviews/{id}/approve",
+		Summary: "Approve a held message", Tags: []string{"reviews"},
+		Description: "Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.",
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleApproveReview)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "rejectReview", Method: http.MethodPost, Path: "/v1/reviews/{id}/reject",
+		Summary: "Reject a held message", Tags: []string{"reviews"},
+		Description: "Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.",
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleRejectReview)
+}
+
+func (s *Server) handleListReviews(ctx context.Context, _ *struct{}) (*listReviewsOutput, error) {
+	p, err := s.requireAccountScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.deps.ListReviews == nil {
+		return nil, NewError(http.StatusNotImplemented, "not_implemented", "reviews are not available on this deployment")
+	}
+	items, err := s.deps.ListReviews(ctx, p.User.ID)
+	if err != nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list reviews")
+	}
+	views := make([]ReviewView, 0, len(items))
+	for _, it := range items {
+		views = append(views, reviewView(it))
+	}
+	return &listReviewsOutput{Body: NewPage(views, "")}, nil
+}
+
+// requireOwnedReview resolves a held message by id, scoped to the account, and
+// returns it (404 if it isn't a hold the account owns). The ownership check is
+// the tenant guard for the id-only review routes.
+func (s *Server) requireOwnedReview(ctx context.Context, userID, id string) (*identity.Message, error) {
+	if s.deps.GetReviewWithContent == nil {
+		return nil, NewError(http.StatusNotImplemented, "not_implemented", "reviews are not available on this deployment")
+	}
+	msg, err := s.deps.GetReviewWithContent(ctx, userID, id)
+	if err != nil || msg == nil {
+		return nil, NewError(http.StatusNotFound, "not_found", "review not found")
+	}
+	return msg, nil
+}
+
+func (s *Server) handleGetReview(ctx context.Context, in *getReviewInput) (*reviewDetailOutput, error) {
+	p, err := s.requireAccountScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	msg, err := s.requireOwnedReview(ctx, p.User.ID, in.ID)
+	if err != nil {
+		return nil, err
+	}
+	view := messageViewFromIdentity(msg)
+	// messageViewFromIdentity only exposes review_status for outbound (the
+	// agent /messages contract never surfaced inbound holds). A /reviews item
+	// is always a held message of EITHER direction, and its review lifecycle
+	// lives in m.Status — surface it so clients see pending_review on inbound
+	// holds too.
+	view.HITLStatus = msg.Status
+	return &reviewDetailOutput{Body: view}, nil
+}
+
+func (s *Server) handleApproveReview(ctx context.Context, in *approveReviewInput) (*approveOutput, error) {
+	p, err := s.requireAccountScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Ownership + held-state guard; gives us the owning agent (== inbox address).
+	msg, err := s.requireOwnedReview(ctx, p.User.ID, in.ID)
+	if err != nil {
+		return nil, err
+	}
+	view, err := s.approveHeld(ctx, p.User.ID, in.ID, msg.AgentID, in.Body, in.IdempotencyKey, in.RawBody)
+	if err != nil {
+		return nil, err
+	}
+	return &approveOutput{Body: view}, nil
+}
+
+func (s *Server) handleRejectReview(ctx context.Context, in *rejectReviewInput) (*rejectOutput, error) {
+	p, err := s.requireAccountScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	msg, err := s.requireOwnedReview(ctx, p.User.ID, in.ID)
+	if err != nil {
+		return nil, err
+	}
+	view, err := s.rejectHeld(ctx, p.User.ID, in.ID, msg.AgentID, in.Body.Reason)
+	if err != nil {
+		return nil, err
+	}
+	return &rejectOutput{Body: view}, nil
+}

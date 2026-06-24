@@ -57,6 +57,7 @@ from e2a.v1.generated.models.page_conversation_summary_view import PageConversat
 from e2a.v1.generated.models.page_domain_view import PageDomainView
 from e2a.v1.generated.models.page_event_json import PageEventJSON
 from e2a.v1.generated.models.page_message_summary_view import PageMessageSummaryView
+from e2a.v1.generated.models.page_review_view import PageReviewView
 from e2a.v1.generated.models.page_suppression import PageSuppression
 from e2a.v1.generated.models.page_webhook_delivery_view import PageWebhookDeliveryView
 from e2a.v1.generated.models.page_webhook_view import PageWebhookView
@@ -74,6 +75,7 @@ from e2a.v1.generated.models.reject_request import RejectRequest
 from e2a.v1.generated.models.reject_result_view import RejectResultView
 from e2a.v1.generated.models.reply_request import ReplyRequest
 from e2a.v1.generated.models.result import Result
+from e2a.v1.generated.models.review_view import ReviewView
 from e2a.v1.generated.models.rotate_secret_response import RotateSecretResponse
 from e2a.v1.generated.models.send_email_request import SendEmailRequest
 from e2a.v1.generated.models.send_result_view import SendResultView

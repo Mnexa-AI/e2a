@@ -32,7 +32,12 @@ export type PendingMessageSummary = {
   // reject are addressed (the path's {address}). Displayed in the queue
   // row's "from" line.
   agent_email: string;
-  direction: "outbound";
+  // A hold can be an outbound draft (send/reply awaiting approval) or an
+  // inbound message held by a screening gate. Drives the row's direction
+  // annotation + which addresses are shown.
+  direction: "inbound" | "outbound";
+  // Sender — shown for inbound holds (sender → inbox). Empty on outbound.
+  from?: string;
   subject: string;
   type?: string;
   conversation_id?: string;

@@ -5,6 +5,7 @@ apis/DomainsApi.ts
 apis/EventsApi.ts
 apis/MessagesApi.ts
 apis/MetaApi.ts
+apis/ReviewsApi.ts
 apis/WebhooksApi.ts
 apis/baseapi.ts
 apis/exception.ts
@@ -59,6 +60,7 @@ models/PageConversationSummaryView.ts
 models/PageDomainView.ts
 models/PageEventJSON.ts
 models/PageMessageSummaryView.ts
+models/PageReviewView.ts
 models/PageSuppression.ts
 models/PageWebhookDeliveryView.ts
 models/PageWebhookView.ts
@@ -76,6 +78,7 @@ models/RejectRequest.ts
 models/RejectResultView.ts
 models/ReplyRequest.ts
 models/Result.ts
+models/ReviewView.ts
 models/RotateSecretResponse.ts
 models/SendEmailRequest.ts
 models/SendResultView.ts

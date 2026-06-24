@@ -141,6 +141,13 @@ type Deps struct {
 	GetReviewMessage     func(ctx context.Context, messageID, agentID string) (*identity.ReviewMessageMeta, error)
 	ApproveInboundReview func(ctx context.Context, userID string, msg *identity.ReviewMessageMeta) *agent.OutboundError
 	RejectInboundReview  func(ctx context.Context, userID, reason string, msg *identity.ReviewMessageMeta) *agent.OutboundError
+
+	// Review queue (account-scoped /v1/reviews). ListReviews returns all holds
+	// (both directions) across the user's agents; GetReviewWithContent loads one
+	// held message (ownership-scoped) for the detail view + approve/reject
+	// resolution. Both intentionally include held inbound — operator surface only.
+	ListReviews          func(ctx context.Context, userID string) ([]identity.ReviewListItem, error)
+	GetReviewWithContent func(ctx context.Context, userID, messageID string) (*identity.Message, error)
 	// SendLimit is the per-agent outbound rate limiter (mirrors
 	// sendLimit.AllowWithRetryAfter; key = agent id). Optional.
 	SendLimit func(key string) (ok bool, retryAfter time.Duration)
@@ -343,6 +350,7 @@ func (s *Server) registerOperations() {
 	s.registerAPIKeys()
 	s.registerOutbound()
 	s.registerHITL()
+	s.registerReviews()
 }
 
 // reqCtxKey carries the raw *http.Request through to Huma handlers so they

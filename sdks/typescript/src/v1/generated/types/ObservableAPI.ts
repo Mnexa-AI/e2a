@@ -47,6 +47,7 @@ import { PageConversationSummaryView } from '../models/PageConversationSummaryVi
 import { PageDomainView } from '../models/PageDomainView.js';
 import { PageEventJSON } from '../models/PageEventJSON.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
+import { PageReviewView } from '../models/PageReviewView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
@@ -64,6 +65,7 @@ import { RejectRequest } from '../models/RejectRequest.js';
 import { RejectResultView } from '../models/RejectResultView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
+import { ReviewView } from '../models/ReviewView.js';
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
@@ -1539,6 +1541,164 @@ export class ObservableMetaApi {
      */
     public getInfo(_options?: ConfigurationOptions): Observable<DeploymentInfoView> {
         return this.getInfoWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<DeploymentInfoView>) => apiResponse.data));
+    }
+
+}
+
+import { ReviewsApiRequestFactory, ReviewsApiResponseProcessor} from "../apis/ReviewsApi.js";
+export class ObservableReviewsApi {
+    private requestFactory: ReviewsApiRequestFactory;
+    private responseProcessor: ReviewsApiResponseProcessor;
+    private configuration: Configuration;
+
+    public constructor(
+        configuration: Configuration,
+        requestFactory?: ReviewsApiRequestFactory,
+        responseProcessor?: ReviewsApiResponseProcessor
+    ) {
+        this.configuration = configuration;
+        this.requestFactory = requestFactory || new ReviewsApiRequestFactory(configuration);
+        this.responseProcessor = responseProcessor || new ReviewsApiResponseProcessor();
+    }
+
+    /**
+     * Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.
+     * Approve a held message
+     * @param id
+     * @param approveRequest
+     * @param [idempotencyKey]
+     */
+    public approveReviewWithHttpInfo(id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.approveReview(id, approveRequest, idempotencyKey, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.approveReviewWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.
+     * Approve a held message
+     * @param id
+     * @param approveRequest
+     * @param [idempotencyKey]
+     */
+    public approveReview(id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
+        return this.approveReviewWithHttpInfo(id, approveRequest, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
+    }
+
+    /**
+     * Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.
+     * Get a held message (full detail)
+     * @param id
+     */
+    public getReviewWithHttpInfo(id: string, _options?: ConfigurationOptions): Observable<HttpInfo<MessageView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.getReview(id, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.getReviewWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.
+     * Get a held message (full detail)
+     * @param id
+     */
+    public getReview(id: string, _options?: ConfigurationOptions): Observable<MessageView> {
+        return this.getReviewWithHttpInfo(id, _options).pipe(map((apiResponse: HttpInfo<MessageView>) => apiResponse.data));
+    }
+
+    /**
+     * The review queue: every message held in pending_review across the account\'s inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds.
+     * List messages awaiting review
+     */
+    public listReviewsWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageReviewView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.listReviews(_config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.listReviewsWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * The review queue: every message held in pending_review across the account\'s inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds.
+     * List messages awaiting review
+     */
+    public listReviews(_options?: ConfigurationOptions): Observable<PageReviewView> {
+        return this.listReviewsWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageReviewView>) => apiResponse.data));
+    }
+
+    /**
+     * Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.
+     * Reject a held message
+     * @param id
+     * @param rejectRequest
+     */
+    public rejectReviewWithHttpInfo(id: string, rejectRequest: RejectRequest, _options?: ConfigurationOptions): Observable<HttpInfo<RejectResultView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.rejectReview(id, rejectRequest, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.rejectReviewWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.
+     * Reject a held message
+     * @param id
+     * @param rejectRequest
+     */
+    public rejectReview(id: string, rejectRequest: RejectRequest, _options?: ConfigurationOptions): Observable<RejectResultView> {
+        return this.rejectReviewWithHttpInfo(id, rejectRequest, _options).pipe(map((apiResponse: HttpInfo<RejectResultView>) => apiResponse.data));
     }
 
 }

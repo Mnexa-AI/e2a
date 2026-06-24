@@ -42,6 +42,7 @@ export * from '../models/PageConversationSummaryView.js';
 export * from '../models/PageDomainView.js';
 export * from '../models/PageEventJSON.js';
 export * from '../models/PageMessageSummaryView.js';
+export * from '../models/PageReviewView.js';
 export * from '../models/PageSuppression.js';
 export * from '../models/PageWebhookDeliveryView.js';
 export * from '../models/PageWebhookView.js';
@@ -59,6 +60,7 @@ export * from '../models/RejectRequest.js';
 export * from '../models/RejectResultView.js';
 export * from '../models/ReplyRequest.js';
 export * from '../models/Result.js';
+export * from '../models/ReviewView.js';
 export * from '../models/RotateSecretResponse.js';
 export * from '../models/SendEmailRequest.js';
 export * from '../models/SendResultView.js';
@@ -124,6 +126,7 @@ import { PageConversationSummaryView } from '../models/PageConversationSummaryVi
 import { PageDomainView } from '../models/PageDomainView.js';
 import { PageEventJSON } from '../models/PageEventJSON.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
+import { PageReviewView } from '../models/PageReviewView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
@@ -141,6 +144,7 @@ import { RejectRequest } from '../models/RejectRequest.js';
 import { RejectResultView } from '../models/RejectResultView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
+import { ReviewView   , ReviewViewDirectionEnum      , ReviewViewReviewStatusEnum     } from '../models/ReviewView.js';
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView   , SendResultViewMethodEnum   , SendResultViewSentAsEnum  , SendResultViewStatusEnum   } from '../models/SendResultView.js';
@@ -198,6 +202,8 @@ let enumsMap: Set<string> = new Set<string>([
     "ProtectionScanViewSensitivityEnum",
     "RedeliverDeliveryStatusEnum",
     "RedeliverViewStatusEnum",
+    "ReviewViewDirectionEnum",
+    "ReviewViewReviewStatusEnum",
     "SendResultViewMethodEnum",
     "SendResultViewSentAsEnum",
     "SendResultViewStatusEnum",
@@ -253,6 +259,7 @@ let typeMap: {[index: string]: any} = {
     "PageDomainView": PageDomainView,
     "PageEventJSON": PageEventJSON,
     "PageMessageSummaryView": PageMessageSummaryView,
+    "PageReviewView": PageReviewView,
     "PageSuppression": PageSuppression,
     "PageWebhookDeliveryView": PageWebhookDeliveryView,
     "PageWebhookView": PageWebhookView,
@@ -270,6 +277,7 @@ let typeMap: {[index: string]: any} = {
     "RejectResultView": RejectResultView,
     "ReplyRequest": ReplyRequest,
     "Result": Result,
+    "ReviewView": ReviewView,
     "RotateSecretResponse": RotateSecretResponse,
     "SendEmailRequest": SendEmailRequest,
     "SendResultView": SendResultView,
