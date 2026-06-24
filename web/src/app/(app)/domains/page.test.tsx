@@ -269,8 +269,7 @@ describe("Domains page — verify domain", () => {
 
     await waitFor(() => {
       // After verify succeeds, the chip on the card becomes "Verified".
-      // The stats-strip label also says "Verified" — both should be present.
-      expect(screen.getAllByText("Verified").length).toBeGreaterThan(1);
+      expect(screen.getByText("Verified")).toBeInTheDocument();
     });
   });
 

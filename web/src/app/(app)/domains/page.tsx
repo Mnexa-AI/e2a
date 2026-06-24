@@ -15,56 +15,6 @@ import {
   invalidateDomains,
 } from "../../../lib/swrKeys";
 
-// Domains stats strip — Total / Verified / Pending are computed
-// client-side from the domain list; Agents · 7d renders `—` until a
-// workspace-level aggregate exists.
-function DomainsStatsStrip({ domains }: { domains: DomainInfo[] }) {
-  const verified = domains.filter((d) => d.verified).length;
-  const unverified = domains.length - verified;
-  return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-      {[
-        { label: "Total domains", value: String(domains.length) },
-        { label: "Verified", value: String(verified) },
-        { label: "Pending", value: String(unverified) },
-        { label: "Inboxes · 7d", value: "—" },
-      ].map((s) => (
-        <div
-          key={s.label}
-          className="px-4 py-3.5"
-          style={{
-            background: "var(--bg-panel)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--r-lg)",
-          }}
-        >
-          <div
-            className="font-mono text-[11px] font-semibold uppercase mb-1.5"
-            style={{
-              color: "var(--fg-subtle)",
-              letterSpacing: "0.08em",
-            }}
-          >
-            {s.label}
-          </div>
-          <div
-            className="text-[24px]"
-            style={{
-              fontFamily: "var(--f-ui)",
-              fontWeight: 600,
-              color: "var(--fg)",
-              letterSpacing: "-0.01em",
-              lineHeight: 1.1,
-            }}
-          >
-            {s.value}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export default function DomainsPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   // Share the cache with the dashboard's verified-domains stat
@@ -188,8 +138,6 @@ export default function DomainsPage() {
         </button>
       }
     >
-      <DomainsStatsStrip domains={domains} />
-
       {error && (
         <div
           className="mb-6 p-3 text-[13px]"
