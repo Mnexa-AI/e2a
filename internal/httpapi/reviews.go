@@ -144,7 +144,14 @@ func (s *Server) handleGetReview(ctx context.Context, in *getReviewInput) (*revi
 	if err != nil {
 		return nil, err
 	}
-	return &reviewDetailOutput{Body: messageViewFromIdentity(msg)}, nil
+	view := messageViewFromIdentity(msg)
+	// messageViewFromIdentity only exposes review_status for outbound (the
+	// agent /messages contract never surfaced inbound holds). A /reviews item
+	// is always a held message of EITHER direction, and its review lifecycle
+	// lives in m.Status — surface it so clients see pending_review on inbound
+	// holds too.
+	view.HITLStatus = msg.Status
+	return &reviewDetailOutput{Body: view}, nil
 }
 
 func (s *Server) handleApproveReview(ctx context.Context, in *approveReviewInput) (*approveOutput, error) {
