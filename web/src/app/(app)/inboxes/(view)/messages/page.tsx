@@ -117,7 +117,10 @@ function AgentInboxContent() {
 
   const selectThread = (key: string) => {
     if (typeof window !== "undefined") {
-      window.history.replaceState(null, "", `#${key}`);
+      // pushState (not replace) so opening a conversation adds a history
+      // entry — the browser Back button then returns to the thread list
+      // instead of skipping it and jumping to the top-level inbox list.
+      window.history.pushState(null, "", `#${key}`);
       window.dispatchEvent(new HashChangeEvent("hashchange"));
     }
   };
