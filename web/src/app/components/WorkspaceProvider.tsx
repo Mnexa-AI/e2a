@@ -55,6 +55,12 @@ type WorkspaceContextType = {
   role: WorkspaceRole | null;
   loading: boolean;
   switchWorkspace: (id: string) => void;
+  // Enter a workspace the cached list may not know about yet — used right
+  // after accepting an invitation, where the joined workspace is brand new.
+  // Applies the active id immediately (so the next /v1 fetch rides the right
+  // tenant), refetches the list so the switcher shows the new row, and seeds
+  // the role from the freshly fetched list. Resolves once the list is in.
+  enterWorkspace: (id: string, role?: WorkspaceRole) => Promise<void>;
   // Refetch the workspace list (after a rename / leave / accept). The
   // members/invitations sub-resources own their own SWR keys.
   refresh: () => Promise<void>;
@@ -66,6 +72,7 @@ const WorkspaceContext = createContext<WorkspaceContextType>({
   role: null,
   loading: true,
   switchWorkspace: () => {},
+  enterWorkspace: async () => {},
   refresh: async () => {},
 });
 
@@ -198,6 +205,27 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     [activeId, workspaces, applyActive],
   );
 
+  // Enter a freshly-joined workspace (post-accept). Unlike switchWorkspace,
+  // the target may not be in the cached list yet, so we apply the active id
+  // up front (the API header slot + localStorage), drop the previous tenant's
+  // cached data, then refetch the list so the switcher row + role resolve.
+  const enterWorkspace = useCallback(
+    async (id: string, nextRole?: WorkspaceRole) => {
+      applyActive(id);
+      if (nextRole) setRole(nextRole);
+      void invalidateTenantScopedData();
+      const list = await listWorkspaces().catch(() => null);
+      if (list) {
+        setWorkspaces(list);
+        if (!nextRole) {
+          const row = list.find((w) => w.id === id);
+          setRole(row?.role ?? null);
+        }
+      }
+    },
+    [applyActive],
+  );
+
   const activeWorkspace = useMemo(
     () => workspaces.find((w) => w.id === activeId) ?? null,
     [workspaces, activeId],
@@ -210,9 +238,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       role,
       loading,
       switchWorkspace,
+      enterWorkspace,
       refresh,
     }),
-    [workspaces, activeWorkspace, role, loading, switchWorkspace, refresh],
+    [workspaces, activeWorkspace, role, loading, switchWorkspace, enterWorkspace, refresh],
   );
 
   return (

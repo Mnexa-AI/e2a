@@ -122,19 +122,43 @@ describe("Settings — Danger zone (delete account)", () => {
     resolveFetch({ ok: true, status: 200, text: async () => "{}", json: async () => ({ user_deleted: true }) });
   });
 
-  it("shows an error message when the server rejects the delete", async () => {
+  it("surfaces the server's error message inline when the delete is rejected", async () => {
     global.fetch = jest.fn(async () => ({ ok: false, status: 400, text: async () => "nope" })) as unknown as typeof fetch;
     render(<SettingsPage />);
     fireEvent.click(screen.getByRole("button", { name: /delete account/i }));
     fireEvent.change(screen.getByPlaceholderText("DELETE"), { target: { value: "DELETE" } });
     fireEvent.click(screen.getByRole("button", { name: /delete my account/i }));
 
-    // The error paragraph renders as "Failed: nope" in a single <p>.
-    // Match by the full string rather than splitting between Failed/nope
-    // since text-matching by sub-substring of a single text node only
-    // matches once.
+    // The raw server message is surfaced verbatim (no hardcoded "Failed:"
+    // prefix), so a plain-text body shows as-is.
     await waitFor(() => {
-      expect(screen.getByText(/Failed:\s*nope/)).toBeInTheDocument();
+      expect(screen.getByText("nope")).toBeInTheDocument();
     });
+  });
+
+  it("surfaces the sole-admin block message + actionable guidance", async () => {
+    const body = JSON.stringify({
+      error: {
+        code: "sole_admin_workspace",
+        message:
+          "cannot delete account: you are the sole admin of a workspace with other members; promote another member to admin first",
+      },
+    });
+    global.fetch = jest.fn(async () => ({
+      ok: false,
+      status: 409,
+      text: async () => body,
+    })) as unknown as typeof fetch;
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByRole("button", { name: /delete account/i }));
+    fireEvent.change(screen.getByPlaceholderText("DELETE"), { target: { value: "DELETE" } });
+    fireEvent.click(screen.getByRole("button", { name: /delete my account/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/sole admin of a workspace/i)).toBeInTheDocument();
+    });
+    // The guidance points the user to the workspace to promote/remove first.
+    expect(screen.getByText(/promote another member to admin or remove/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /workspace/i })).toHaveAttribute("href", "/workspace");
   });
 });
