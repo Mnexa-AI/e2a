@@ -11,6 +11,7 @@
  */
 
 import { AccountUserView } from '../models/AccountUserView.js';
+import { AccountWorkspaceView } from '../models/AccountWorkspaceView.js';
 import { LimitsCapsView } from '../models/LimitsCapsView.js';
 import { LimitsUsageView } from '../models/LimitsUsageView.js';
 import { HttpFile } from '../http/http.js';
@@ -19,10 +20,12 @@ export class AccountView {
     'agentAddress'?: string;
     'limits': LimitsCapsView;
     'planCode': string;
+    'role'?: AccountViewRoleEnum;
     'scope': AccountViewScopeEnum;
     'upgradeUrl': string;
     'usage': LimitsUsageView;
     'user': AccountUserView;
+    'workspace'?: AccountWorkspaceView;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -48,6 +51,12 @@ export class AccountView {
             "format": ""
         },
         {
+            "name": "role",
+            "baseName": "role",
+            "type": "AccountViewRoleEnum",
+            "format": ""
+        },
+        {
             "name": "scope",
             "baseName": "scope",
             "type": "AccountViewScopeEnum",
@@ -70,6 +79,12 @@ export class AccountView {
             "baseName": "user",
             "type": "AccountUserView",
             "format": ""
+        },
+        {
+            "name": "workspace",
+            "baseName": "workspace",
+            "type": "AccountWorkspaceView",
+            "format": ""
         }    ];
 
     static getAttributeTypeMap() {
@@ -80,6 +95,10 @@ export class AccountView {
     }
 }
 
+export enum AccountViewRoleEnum {
+    Admin = 'admin',
+    Member = 'member'
+}
 export enum AccountViewScopeEnum {
     Account = 'account',
     Agent = 'agent'

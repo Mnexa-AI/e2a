@@ -7,6 +7,7 @@ import { APIKeyExportEntry } from '../models/APIKeyExportEntry.js';
 import { APIKeyView } from '../models/APIKeyView.js';
 import { AccountUserView } from '../models/AccountUserView.js';
 import { AccountView } from '../models/AccountView.js';
+import { AccountWorkspaceView } from '../models/AccountWorkspaceView.js';
 import { AgentIdentity } from '../models/AgentIdentity.js';
 import { AgentView } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
@@ -20,6 +21,8 @@ import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAPIKeyRequest } from '../models/CreateAPIKeyRequest.js';
 import { CreateAPIKeyResponse } from '../models/CreateAPIKeyResponse.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
+import { CreateInvitationInputBody } from '../models/CreateInvitationInputBody.js';
+import { CreateInvitationResponse } from '../models/CreateInvitationResponse.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
 import { DNSRecordView } from '../models/DNSRecordView.js';
@@ -33,8 +36,10 @@ import { ErrorBody } from '../models/ErrorBody.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { EventJSON } from '../models/EventJSON.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
+import { InvitationView } from '../models/InvitationView.js';
 import { LimitsCapsView } from '../models/LimitsCapsView.js';
 import { LimitsUsageView } from '../models/LimitsUsageView.js';
+import { MemberView } from '../models/MemberView.js';
 import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
@@ -46,10 +51,13 @@ import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
 import { PageDomainView } from '../models/PageDomainView.js';
 import { PageEventJSON } from '../models/PageEventJSON.js';
+import { PageInvitationView } from '../models/PageInvitationView.js';
+import { PageMemberView } from '../models/PageMemberView.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
+import { PageWorkspaceView } from '../models/PageWorkspaceView.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
 import { ProtectionDirectionView } from '../models/ProtectionDirectionView.js';
 import { ProtectionEventExportEntry } from '../models/ProtectionEventExportEntry.js';
@@ -62,12 +70,14 @@ import { RedeliverView } from '../models/RedeliverView.js';
 import { RegisterDomainRequest } from '../models/RegisterDomainRequest.js';
 import { RejectRequest } from '../models/RejectRequest.js';
 import { RejectResultView } from '../models/RejectResultView.js';
+import { RenameWorkspaceInputBody } from '../models/RenameWorkspaceInputBody.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
 import { SendingDNSRecordView } from '../models/SendingDNSRecordView.js';
+import { SetMemberRoleInputBody } from '../models/SetMemberRoleInputBody.js';
 import { Suppression } from '../models/Suppression.js';
 import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
@@ -84,6 +94,7 @@ import { VerifyDomainView } from '../models/VerifyDomainView.js';
 import { WebhookDeliveryView } from '../models/WebhookDeliveryView.js';
 import { WebhookFiltersView } from '../models/WebhookFiltersView.js';
 import { WebhookView } from '../models/WebhookView.js';
+import { WorkspaceView } from '../models/WorkspaceView.js';
 
 import { AccountApiRequestFactory, AccountApiResponseProcessor} from "../apis/AccountApi.js";
 export class ObservableAccountApi {
@@ -1829,6 +1840,390 @@ export class ObservableWebhooksApi {
      */
     public updateWebhook(id: string, updateWebhookRequest: UpdateWebhookRequest, _options?: ConfigurationOptions): Observable<WebhookView> {
         return this.updateWebhookWithHttpInfo(id, updateWebhookRequest, _options).pipe(map((apiResponse: HttpInfo<WebhookView>) => apiResponse.data));
+    }
+
+}
+
+import { WorkspacesApiRequestFactory, WorkspacesApiResponseProcessor} from "../apis/WorkspacesApi.js";
+export class ObservableWorkspacesApi {
+    private requestFactory: WorkspacesApiRequestFactory;
+    private responseProcessor: WorkspacesApiResponseProcessor;
+    private configuration: Configuration;
+
+    public constructor(
+        configuration: Configuration,
+        requestFactory?: WorkspacesApiRequestFactory,
+        responseProcessor?: WorkspacesApiResponseProcessor
+    ) {
+        this.configuration = configuration;
+        this.requestFactory = requestFactory || new WorkspacesApiRequestFactory(configuration);
+        this.responseProcessor = responseProcessor || new WorkspacesApiResponseProcessor();
+    }
+
+    /**
+     * Accept an invitation. Requires the signed-in user\'s email to match the invited email. Idempotent (a second accept by the already-joined user returns 200). A revoked/expired/torn-down invitation returns 410.
+     * Accept an invitation
+     * @param token
+     */
+    public acceptInvitationWithHttpInfo(token: string, _options?: ConfigurationOptions): Observable<HttpInfo<WorkspaceView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.acceptInvitation(token, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.acceptInvitationWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Accept an invitation. Requires the signed-in user\'s email to match the invited email. Idempotent (a second accept by the already-joined user returns 200). A revoked/expired/torn-down invitation returns 410.
+     * Accept an invitation
+     * @param token
+     */
+    public acceptInvitation(token: string, _options?: ConfigurationOptions): Observable<WorkspaceView> {
+        return this.acceptInvitationWithHttpInfo(token, _options).pipe(map((apiResponse: HttpInfo<WorkspaceView>) => apiResponse.data));
+    }
+
+    /**
+     * Invite an email to join with a role. Sends an accept link. Inviting an existing member returns 409 already_member (use PATCH …/members to change a role). Rate-limited. Admin only.
+     * Invite a member
+     * @param id
+     * @param createInvitationInputBody
+     * @param [xE2AWorkspace] Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     */
+    public createInvitationWithHttpInfo(id: string, createInvitationInputBody: CreateInvitationInputBody, xE2AWorkspace?: string, _options?: ConfigurationOptions): Observable<HttpInfo<CreateInvitationResponse>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.createInvitation(id, createInvitationInputBody, xE2AWorkspace, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.createInvitationWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Invite an email to join with a role. Sends an accept link. Inviting an existing member returns 409 already_member (use PATCH …/members to change a role). Rate-limited. Admin only.
+     * Invite a member
+     * @param id
+     * @param createInvitationInputBody
+     * @param [xE2AWorkspace] Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     */
+    public createInvitation(id: string, createInvitationInputBody: CreateInvitationInputBody, xE2AWorkspace?: string, _options?: ConfigurationOptions): Observable<CreateInvitationResponse> {
+        return this.createInvitationWithHttpInfo(id, createInvitationInputBody, xE2AWorkspace, _options).pipe(map((apiResponse: HttpInfo<CreateInvitationResponse>) => apiResponse.data));
+    }
+
+    /**
+     * A workspace by id, with your role. Any live member.
+     * Get a workspace
+     * @param id
+     * @param [xE2AWorkspace] Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     */
+    public getWorkspaceWithHttpInfo(id: string, xE2AWorkspace?: string, _options?: ConfigurationOptions): Observable<HttpInfo<WorkspaceView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.getWorkspace(id, xE2AWorkspace, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.getWorkspaceWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * A workspace by id, with your role. Any live member.
+     * Get a workspace
+     * @param id
+     * @param [xE2AWorkspace] Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     */
+    public getWorkspace(id: string, xE2AWorkspace?: string, _options?: ConfigurationOptions): Observable<WorkspaceView> {
+        return this.getWorkspaceWithHttpInfo(id, xE2AWorkspace, _options).pipe(map((apiResponse: HttpInfo<WorkspaceView>) => apiResponse.data));
+    }
+
+    /**
+     * Pending invitations for the workspace. Admin only.
+     * List pending invitations
+     * @param id
+     * @param [xE2AWorkspace] Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     */
+    public listInvitationsWithHttpInfo(id: string, xE2AWorkspace?: string, _options?: ConfigurationOptions): Observable<HttpInfo<PageInvitationView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.listInvitations(id, xE2AWorkspace, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.listInvitationsWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Pending invitations for the workspace. Admin only.
+     * List pending invitations
+     * @param id
+     * @param [xE2AWorkspace] Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     */
+    public listInvitations(id: string, xE2AWorkspace?: string, _options?: ConfigurationOptions): Observable<PageInvitationView> {
+        return this.listInvitationsWithHttpInfo(id, xE2AWorkspace, _options).pipe(map((apiResponse: HttpInfo<PageInvitationView>) => apiResponse.data));
+    }
+
+    /**
+     * Members and their roles. Any live member.
+     * List workspace members
+     * @param id
+     * @param [xE2AWorkspace] Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     */
+    public listMembersWithHttpInfo(id: string, xE2AWorkspace?: string, _options?: ConfigurationOptions): Observable<HttpInfo<PageMemberView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.listMembers(id, xE2AWorkspace, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.listMembersWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Members and their roles. Any live member.
+     * List workspace members
+     * @param id
+     * @param [xE2AWorkspace] Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     */
+    public listMembers(id: string, xE2AWorkspace?: string, _options?: ConfigurationOptions): Observable<PageMemberView> {
+        return this.listMembersWithHttpInfo(id, xE2AWorkspace, _options).pipe(map((apiResponse: HttpInfo<PageMemberView>) => apiResponse.data));
+    }
+
+    /**
+     * Every workspace you are a live member of, each annotated with your role. Your personal (default) workspace sorts first.
+     * List my workspaces
+     */
+    public listWorkspacesWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageWorkspaceView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.listWorkspaces(_config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.listWorkspacesWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Every workspace you are a live member of, each annotated with your role. Your personal (default) workspace sorts first.
+     * List my workspaces
+     */
+    public listWorkspaces(_options?: ConfigurationOptions): Observable<PageWorkspaceView> {
+        return this.listWorkspacesWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageWorkspaceView>) => apiResponse.data));
+    }
+
+    /**
+     * Remove a member, or leave the workspace by targeting yourself. Cannot remove the last admin. Admin (or self for a leave).
+     * Remove a member (or leave)
+     * @param id
+     * @param userId
+     * @param [xE2AWorkspace] Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     */
+    public removeMemberWithHttpInfo(id: string, userId: string, xE2AWorkspace?: string, _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.removeMember(id, userId, xE2AWorkspace, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.removeMemberWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Remove a member, or leave the workspace by targeting yourself. Cannot remove the last admin. Admin (or self for a leave).
+     * Remove a member (or leave)
+     * @param id
+     * @param userId
+     * @param [xE2AWorkspace] Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     */
+    public removeMember(id: string, userId: string, xE2AWorkspace?: string, _options?: ConfigurationOptions): Observable<void> {
+        return this.removeMemberWithHttpInfo(id, userId, xE2AWorkspace, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
+    }
+
+    /**
+     * Change a workspace\'s display name (e.g. \"Josh\'s Workspace\" → \"Acme\"). Admin only; reachable only through a human session.
+     * Rename a workspace
+     * @param id
+     * @param renameWorkspaceInputBody
+     * @param [xE2AWorkspace] Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     */
+    public renameWorkspaceWithHttpInfo(id: string, renameWorkspaceInputBody: RenameWorkspaceInputBody, xE2AWorkspace?: string, _options?: ConfigurationOptions): Observable<HttpInfo<WorkspaceView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.renameWorkspace(id, renameWorkspaceInputBody, xE2AWorkspace, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.renameWorkspaceWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Change a workspace\'s display name (e.g. \"Josh\'s Workspace\" → \"Acme\"). Admin only; reachable only through a human session.
+     * Rename a workspace
+     * @param id
+     * @param renameWorkspaceInputBody
+     * @param [xE2AWorkspace] Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     */
+    public renameWorkspace(id: string, renameWorkspaceInputBody: RenameWorkspaceInputBody, xE2AWorkspace?: string, _options?: ConfigurationOptions): Observable<WorkspaceView> {
+        return this.renameWorkspaceWithHttpInfo(id, renameWorkspaceInputBody, xE2AWorkspace, _options).pipe(map((apiResponse: HttpInfo<WorkspaceView>) => apiResponse.data));
+    }
+
+    /**
+     * Revoke a pending invitation; its accept link stops working. Admin only.
+     * Revoke a pending invitation
+     * @param id
+     * @param invitationId
+     * @param [xE2AWorkspace] Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     */
+    public revokeInvitationWithHttpInfo(id: string, invitationId: string, xE2AWorkspace?: string, _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.revokeInvitation(id, invitationId, xE2AWorkspace, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.revokeInvitationWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Revoke a pending invitation; its accept link stops working. Admin only.
+     * Revoke a pending invitation
+     * @param id
+     * @param invitationId
+     * @param [xE2AWorkspace] Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     */
+    public revokeInvitation(id: string, invitationId: string, xE2AWorkspace?: string, _options?: ConfigurationOptions): Observable<void> {
+        return this.revokeInvitationWithHttpInfo(id, invitationId, xE2AWorkspace, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
+    }
+
+    /**
+     * Promote to admin or demote to member. Promotion is the transfer-admin mechanism (admins are peers). Cannot demote the last admin. Admin only.
+     * Set a member\'s role
+     * @param id
+     * @param userId
+     * @param setMemberRoleInputBody
+     * @param [xE2AWorkspace] Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     */
+    public setMemberRoleWithHttpInfo(id: string, userId: string, setMemberRoleInputBody: SetMemberRoleInputBody, xE2AWorkspace?: string, _options?: ConfigurationOptions): Observable<HttpInfo<MemberView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.setMemberRole(id, userId, setMemberRoleInputBody, xE2AWorkspace, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.setMemberRoleWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Promote to admin or demote to member. Promotion is the transfer-admin mechanism (admins are peers). Cannot demote the last admin. Admin only.
+     * Set a member\'s role
+     * @param id
+     * @param userId
+     * @param setMemberRoleInputBody
+     * @param [xE2AWorkspace] Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential.
+     */
+    public setMemberRole(id: string, userId: string, setMemberRoleInputBody: SetMemberRoleInputBody, xE2AWorkspace?: string, _options?: ConfigurationOptions): Observable<MemberView> {
+        return this.setMemberRoleWithHttpInfo(id, userId, setMemberRoleInputBody, xE2AWorkspace, _options).pipe(map((apiResponse: HttpInfo<MemberView>) => apiResponse.data));
     }
 
 }

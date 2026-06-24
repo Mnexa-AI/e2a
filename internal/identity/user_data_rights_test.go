@@ -3,6 +3,7 @@ package identity_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -329,3 +330,195 @@ func containsBytes(haystack, needle []byte) bool {
 
 // silence unused-import lint when the time package isn't otherwise used.
 var _ = time.Time{}
+
+// TestDeleteUserData_MultiMemberWorkspaceLeavesResourcesIntact verifies the
+// §5 B1/B2 contract: deleting a user who is a *member* of a workspace that
+// still has other members detaches them (re-homes their owned rows to a
+// surviving admin) rather than nuking the shared agents/domains/keys.
+func TestDeleteUserData_MultiMemberWorkspaceLeavesResourcesIntact(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	// Founder owns a team workspace with a domain + agent + key; a colleague
+	// joins as a second admin (so the founder is not the sole admin).
+	founder := seedUserData(t, store, ctx, "founder")
+	colleague, err := store.CreateOrGetUser(ctx, "colleague@example.com", "Colleague", "google-colleague")
+	if err != nil {
+		t.Fatalf("CreateOrGetUser colleague: %v", err)
+	}
+	teamWS := identity.DefaultWorkspaceID(founder.ID)
+	if err := store.AddMember(ctx, teamWS, colleague.ID, identity.RoleAdmin, founder.ID); err != nil {
+		t.Fatalf("AddMember colleague: %v", err)
+	}
+
+	// Delete the colleague (a member of the multi-member team workspace, and
+	// sole admin of nothing but their own solo default workspace).
+	if _, err := store.DeleteUserData(ctx, colleague.ID); err != nil {
+		t.Fatalf("DeleteUserData colleague: %v", err)
+	}
+
+	// The team workspace + the founder's shared resources must be intact.
+	if _, err := store.GetWorkspace(ctx, teamWS); err != nil {
+		t.Fatalf("team workspace gone after member delete: %v", err)
+	}
+	dump, err := store.ExportUserData(ctx, founder.ID)
+	if err != nil {
+		t.Fatalf("founder export: %v", err)
+	}
+	if len(dump.Agents) != 1 {
+		t.Errorf("founder agents: got %d, want 1 — member delete leaked the shared agent", len(dump.Agents))
+	}
+	if len(dump.Domains) != 1 {
+		t.Errorf("founder domains: got %d, want 1 — member delete leaked the shared domain", len(dump.Domains))
+	}
+	if len(dump.APIKeys) != 2 {
+		t.Errorf("founder api keys: got %d, want 2 — member delete leaked the shared keys", len(dump.APIKeys))
+	}
+
+	// The colleague is gone from the membership and their own solo workspace
+	// is torn down.
+	members, err := store.ListMembers(ctx, teamWS)
+	if err != nil {
+		t.Fatalf("ListMembers: %v", err)
+	}
+	for _, m := range members {
+		if m.UserID == colleague.ID {
+			t.Error("colleague membership survived their account deletion")
+		}
+	}
+	if _, err := store.GetWorkspace(ctx, identity.DefaultWorkspaceID(colleague.ID)); err == nil {
+		t.Error("colleague's solo default workspace should be torn down on account delete")
+	}
+}
+
+// TestDeleteUserData_SoleAdminOfMultiMemberFailsClosed verifies §5: a user who
+// is the ONLY admin of a workspace with other members cannot delete their
+// account (it would leave the workspace adminless) — fail closed.
+func TestDeleteUserData_SoleAdminOfMultiMemberFailsClosed(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	founder := seedUserData(t, store, ctx, "soleadmin")
+	member, err := store.CreateOrGetUser(ctx, "plainmember@example.com", "Member", "google-plainmember")
+	if err != nil {
+		t.Fatalf("CreateOrGetUser member: %v", err)
+	}
+	teamWS := identity.DefaultWorkspaceID(founder.ID)
+	// Member joins as a plain member, so the founder is the sole admin.
+	if err := store.AddMember(ctx, teamWS, member.ID, identity.RoleMember, founder.ID); err != nil {
+		t.Fatalf("AddMember member: %v", err)
+	}
+
+	_, err = store.DeleteUserData(ctx, founder.ID)
+	if !errors.Is(err, identity.ErrSoleAdminWorkspace) {
+		t.Fatalf("want ErrSoleAdminWorkspace, got %v", err)
+	}
+
+	// Nothing was deleted — the founder + workspace survive (fail closed).
+	if _, err := store.GetWorkspace(ctx, teamWS); err != nil {
+		t.Errorf("workspace should be untouched on a fail-closed delete: %v", err)
+	}
+	var exists bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)`, founder.ID).Scan(&exists); err != nil {
+		t.Fatalf("post-failed-delete user exists: %v", err)
+	}
+	if !exists {
+		t.Error("founder must not be deleted on a fail-closed sole-admin delete")
+	}
+}
+
+// TestDeleteUserData_RevokesOAuthTokens verifies the §5/B2 GDPR-security
+// requirement: deleting a user revokes their live OAuth/MCP tokens (the
+// oauth_* tables still ON DELETE CASCADE from users), leaving no orphaned
+// bearer that would keep working until TTL.
+func TestDeleteUserData_RevokesOAuthTokens(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user := seedUserData(t, store, ctx, "oauthholder")
+
+	// Seed a client + a live access + refresh token for the user.
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO oauth_clients (client_id, client_name, redirect_uris, grant_types, response_types, scopes, created_via)
+		 VALUES ('cli_test', 'Test', '{https://x/cb}', '{authorization_code}', '{code}', '{agent}', 'dcr')`,
+	); err != nil {
+		t.Fatalf("seed oauth client: %v", err)
+	}
+	for _, tbl := range []string{"oauth_access_tokens", "oauth_refresh_tokens"} {
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO `+tbl+` (signature, request_id, client_id, user_id, request, requested_at, expires_at)
+			 VALUES ($1, $2, 'cli_test', $3, '{}'::jsonb, now(), now() + interval '1 hour')`,
+			tbl+"_sig", tbl+"_req", user.ID,
+		); err != nil {
+			t.Fatalf("seed %s: %v", tbl, err)
+		}
+	}
+
+	if _, err := store.DeleteUserData(ctx, user.ID); err != nil {
+		t.Fatalf("DeleteUserData: %v", err)
+	}
+
+	for _, tbl := range []string{"oauth_access_tokens", "oauth_refresh_tokens", "oauth_auth_codes"} {
+		var n int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM `+tbl+` WHERE user_id = $1`, user.ID).Scan(&n); err != nil {
+			t.Fatalf("count %s: %v", tbl, err)
+		}
+		if n != 0 {
+			t.Errorf("orphaned %s rows after user delete: %d — a deleted human keeps a working token", tbl, n)
+		}
+	}
+}
+
+// TestDeleteUserData_RemovedMemberSurvivingKeyStillAuthenticates is the §4.3.1
+// conscious decision: an API key minted by a member who LEAVES a multi-member
+// workspace survives by default (CI must not break when someone quits) and
+// keeps authenticating — its workspace is intrinsic and its authority is
+// member-capped. (Removed deletes the user; the key was re-homed to a
+// surviving admin so the user-cascade leaves it.)
+func TestDeleteUserData_RemovedMemberSurvivingKeyStillAuthenticates(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	founder := seedUserData(t, store, ctx, "keyfounder")
+	leaver, err := store.CreateOrGetUser(ctx, "leaver@example.com", "Leaver", "google-leaver")
+	if err != nil {
+		t.Fatalf("CreateOrGetUser leaver: %v", err)
+	}
+	teamWS := identity.DefaultWorkspaceID(founder.ID)
+	if err := store.AddMember(ctx, teamWS, leaver.ID, identity.RoleMember, founder.ID); err != nil {
+		t.Fatalf("AddMember leaver: %v", err)
+	}
+	// The leaver mints a key. Per CreateScopedAPIKey it lands in the leaver's
+	// own default workspace; re-home it to the team workspace so it is a
+	// team service credential whose minter is about to be deleted.
+	key, err := store.CreateScopedAPIKey(ctx, leaver.ID, "ci", identity.ScopeAccount, "", nil)
+	if err != nil {
+		t.Fatalf("CreateScopedAPIKey: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE api_keys SET workspace_id = $1 WHERE id = $2`, teamWS, key.ID); err != nil {
+		t.Fatalf("re-home key to team workspace: %v", err)
+	}
+
+	// Delete the leaver. They are a plain member of the team (founder is admin)
+	// and sole member of their own default workspace.
+	if _, err := store.DeleteUserData(ctx, leaver.ID); err != nil {
+		t.Fatalf("DeleteUserData leaver: %v", err)
+	}
+
+	// The surviving team key still authenticates; created_by was SET NULL (the
+	// minter is gone) but the credential is intact and member-capped.
+	p, err := store.GetPrincipalByAPIKey(ctx, key.PlaintextKey)
+	if err != nil {
+		t.Fatalf("surviving key should still authenticate: %v", err)
+	}
+	if p.Role != identity.RoleMember {
+		t.Errorf("surviving key role = %q, want member (member-capped)", p.Role)
+	}
+	if p.Workspace == nil || p.Workspace.ID != teamWS {
+		t.Errorf("surviving key workspace = %v, want %s (intrinsic)", p.Workspace, teamWS)
+	}
+}

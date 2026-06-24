@@ -136,13 +136,18 @@ func TestAPIKeysUnauthorized(t *testing.T) {
 // live key was already revoked. Regression guard for the error-mapping split.
 func TestDeleteAPIKeyInternalErrorNotMaskedAs404(t *testing.T) {
 	srv := httptest.NewServer(New(Deps{
-		Authenticator: func(r *http.Request) (*identity.User, error) {
+		PrincipalAuthenticator: func(r *http.Request) (*identity.Principal, error) {
 			if r.Header.Get("Authorization") == "Bearer good" {
-				return &identity.User{ID: "u_1", Email: "owner@acme.com"}, nil
+				return &identity.Principal{
+					User:      &identity.User{ID: "u_1", Email: "owner@acme.com"},
+					Scope:     identity.ScopeAccount,
+					Workspace: &identity.Workspace{ID: "ws_1", Name: "Acme"},
+					Role:      identity.RoleAdmin,
+				}, nil
 			}
 			return nil, errors.New("unauthorized")
 		},
-		DeleteAPIKey: func(ctx context.Context, keyID, userID string) error {
+		RevokeAPIKeyInWorkspace: func(ctx context.Context, keyID, workspaceID, actorUserID string, actorIsAdmin bool) error {
 			return errors.New("db connection lost")
 		},
 	}))

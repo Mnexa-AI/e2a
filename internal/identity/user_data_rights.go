@@ -251,28 +251,50 @@ type DeleteUserDataResult struct {
 	UserDeleted               bool  `json:"user_deleted"`
 } // @name DeleteUserDataResult
 
-// DeleteUserData wipes everything tied to a user in a single transaction.
-//
-// Schema cascades cover most of it (user_sessions, domains, agent_identities,
-// api_keys, usage_summaries all `ON DELETE CASCADE` from users; messages
-// cascade through agent_identities; webhook_deliveries cascade through
-// messages). The one row that doesn't is usage_events: its FK is `ON
-// DELETE SET NULL` so analytics survives, which we explicitly override
-// here for full deletion.
-//
-// Per-table counts are returned to the caller so an operator can attest
-// to what was removed in audit / compliance contexts.
+// DeleteUserData wipes a user's identity and tears down only the workspaces
+// they solely own — see DeleteUserDataTx for the full workspace-aware contract.
 func (s *Store) DeleteUserData(ctx context.Context, userID string) (*DeleteUserDataResult, error) {
 	return s.DeleteUserDataTx(ctx, userID, nil)
 }
 
-// DeleteUserDataTx is DeleteUserData with an optional per-domain in-tx hook
-// run for every domain the user owns, BEFORE the cascade deletes them. It is
-// how sender-identity teardown is enqueued for an account delete (decision 4):
-// each owned domain's SES deprovision job commits atomically with the user
-// delete. A nil hook is a plain account delete (dev / no SES). The DB FK
-// cascade still removes the domain rows; the hook only schedules the remote
-// SES cleanup that the cascade cannot do.
+// DeleteUserDataTx deletes a user's identity in a single Serializable
+// transaction, made workspace-aware for the multi-user model (§5, blockers
+// B1/B2). It is NOT a blanket cascade through users any more — a user no
+// longer owns workspace resources directly, so deleting them must not nuke a
+// teammate's shared agents/domains/keys.
+//
+// The flow (§5):
+//
+//  1. Identity-owned credentials die with the human: user_sessions and the
+//     oauth_* tables still ON DELETE CASCADE from users, so the final
+//     DELETE FROM users revokes the user's live OAuth/MCP tokens (the
+//     GDPR/security requirement — a deleted human keeps no working bearer).
+//
+//  2. For every workspace the user belongs to that STILL has other members,
+//     detach rather than delete: re-attribute the user's workspace-owned rows
+//     to a surviving admin (so the user-cascade, still live pre-Migration B,
+//     leaves them) and remove the user's membership. Shared resources of a
+//     multi-member workspace are never deleted.
+//     Fails closed (ErrSoleAdminWorkspace) if the user is the sole admin of
+//     such a workspace — promote another member first.
+//
+//  3. The user's solo workspaces (every member count == 1, including their
+//     deterministic default) are torn down: the per-domain SES deprovision
+//     hook runs for their domains, then the user-cascade removes the
+//     workspace-owned rows and the now-orphaned workspace rows are deleted
+//     (their memberships/invitations/audit_log cascade via workspace_id).
+//
+//  4. usage_events is ON DELETE SET NULL (analytics survives a user delete by
+//     default), so its rows are not auto-removed; we delete only the rows that
+//     belong to a torn-down (solo) workspace — shared usage of a surviving
+//     multi-member workspace is left intact (tenant-aware, §5).
+//
+// perDomainInTx is the optional SES deprovision hook; it runs ONLY for domains
+// of torn-down (solo) workspaces (§5) — never for a surviving multi-member
+// workspace's domains, which a bare FK cascade would have wrongly orphaned.
+// A nil hook is a plain delete (dev / no SES).
+//
+// Per-table counts are returned for audit/compliance attestation.
 func (s *Store) DeleteUserDataTx(ctx context.Context, userID string, perDomainInTx func(ctx context.Context, tx pgx.Tx, domain string) error) (*DeleteUserDataResult, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
@@ -282,9 +304,61 @@ func (s *Store) DeleteUserDataTx(ctx context.Context, userID string, perDomainIn
 
 	res := &DeleteUserDataResult{}
 
-	// Count first so the result is informative even when CASCADE handles
-	// the actual delete. We do a single SELECT per table — much cheaper
-	// than counting after-the-fact.
+	// Classify every workspace the user belongs to: solo (only member → tear
+	// down) vs multi-member (detach). Lock each workspace row FOR UPDATE so the
+	// member-count read is write-skew-safe against a concurrent leave/remove
+	// (the same shared-row lock the membership mutators take, §5 B1). Reading
+	// the user's own membership role in the same pass gives the sole-admin guard.
+	rows, err := tx.Query(ctx,
+		`SELECT w.id, m.role,
+		        (SELECT count(*) FROM workspace_members wm WHERE wm.workspace_id = w.id) AS member_count,
+		        (SELECT count(*) FROM workspace_members wm WHERE wm.workspace_id = w.id AND wm.role = 'admin') AS admin_count
+		   FROM workspace_members m
+		   JOIN workspaces w ON w.id = m.workspace_id
+		  WHERE m.user_id = $1
+		  ORDER BY w.id
+		  FOR UPDATE OF w`,
+		userID)
+	if err != nil {
+		return nil, fmt.Errorf("delete: classify workspaces: %w", err)
+	}
+	type wsClass struct {
+		id   string
+		solo bool
+	}
+	var workspaces []wsClass
+	for rows.Next() {
+		var (
+			id          string
+			role        string
+			memberCount int
+			adminCount  int
+		)
+		if err := rows.Scan(&id, &role, &memberCount, &adminCount); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("delete: scan workspace class: %w", err)
+		}
+		// ws_system is a protected sentinel — never torn down (§5). A user
+		// should never be a member of it, but guard defensively.
+		if id == SystemWorkspaceID {
+			continue
+		}
+		solo := memberCount <= 1
+		if !solo && role == RoleAdmin && adminCount <= 1 {
+			rows.Close()
+			return nil, ErrSoleAdminWorkspace
+		}
+		workspaces = append(workspaces, wsClass{id: id, solo: solo})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("delete: classify workspaces: %w", err)
+	}
+	rows.Close()
+
+	// Count first so the result is informative even when CASCADE handles the
+	// actual delete. Scoped to the user (audit attestation of what this human
+	// owned/operated), not to the surviving workspaces.
 	queries := []struct {
 		dst   *int64
 		query string
@@ -294,7 +368,6 @@ func (s *Store) DeleteUserDataTx(ctx context.Context, userID string, perDomainIn
 		{&res.AgentsDeleted, `SELECT count(*) FROM agent_identities WHERE user_id = $1`},
 		{&res.APIKeysDeleted, `SELECT count(*) FROM api_keys WHERE user_id = $1`},
 		{&res.MessagesDeleted, `SELECT count(*) FROM messages m JOIN agent_identities a ON a.id = m.agent_id WHERE a.user_id = $1`},
-		{&res.UsageEventsDeleted, `SELECT count(*) FROM usage_events WHERE user_id = $1`},
 		{&res.UsageSummariesDeleted, `SELECT count(*) FROM usage_summaries WHERE user_id = $1`},
 	}
 	for _, q := range queries {
@@ -303,40 +376,201 @@ func (s *Store) DeleteUserDataTx(ctx context.Context, userID string, perDomainIn
 		}
 	}
 
-	// Override the SET NULL behavior on usage_events for a complete wipe.
-	if _, err := tx.Exec(ctx, `DELETE FROM usage_events WHERE user_id = $1`, userID); err != nil {
-		return nil, fmt.Errorf("delete: usage_events: %w", err)
+	// (2) Multi-member workspaces: detach. Re-attribute the user's
+	// workspace-owned rows to a surviving admin so the still-live user-cascade
+	// (Migration B deferred) leaves the shared resources intact, then drop the
+	// user's membership. NULL-ing user_id would violate the (still NOT NULL)
+	// FKs on several owned tables in deploy-1, so we re-home to a real surviving
+	// member rather than detach to NULL.
+	for _, w := range workspaces {
+		if w.solo {
+			continue
+		}
+		var heir string
+		err := tx.QueryRow(ctx,
+			`SELECT user_id FROM workspace_members
+			  WHERE workspace_id = $1 AND user_id <> $2
+			  ORDER BY (role = 'admin') DESC, created_at ASC, user_id ASC
+			  LIMIT 1`,
+			w.id, userID,
+		).Scan(&heir)
+		if err != nil {
+			return nil, fmt.Errorf("delete: pick heir for %s: %w", w.id, err)
+		}
+		if err := reattributeWorkspaceRows(ctx, tx, w.id, userID, heir); err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`,
+			w.id, userID,
+		); err != nil {
+			return nil, fmt.Errorf("delete: remove membership in %s: %w", w.id, err)
+		}
 	}
 
-	// Sender-identity teardown: enqueue an SES deprovision job for every
-	// owned domain in this same tx, before the cascade removes the domain
-	// rows. The orphan reaper is the backstop, but doing it transactionally
-	// here means a normal account delete never leaves a dangling SES identity.
+	// (3) Solo workspaces: run the SES deprovision hook for their domains
+	// BEFORE the cascade removes the domain rows. Hook runs only here — never
+	// for a surviving multi-member workspace's shared domains (§5).
 	if perDomainInTx != nil {
-		domains, derr := scanDomainsForUser(ctx, tx, userID)
-		if derr != nil {
-			return nil, fmt.Errorf("delete: load domains for teardown: %w", derr)
-		}
-		for _, d := range domains {
-			if err := perDomainInTx(ctx, tx, d.Domain); err != nil {
-				return nil, fmt.Errorf("delete: enqueue sender teardown for %s: %w", d.Domain, err)
+		for _, w := range workspaces {
+			if !w.solo {
+				continue
+			}
+			domains, derr := scanDomainsForWorkspace(ctx, tx, w.id)
+			if derr != nil {
+				return nil, fmt.Errorf("delete: load domains for teardown of %s: %w", w.id, derr)
+			}
+			for _, d := range domains {
+				if err := perDomainInTx(ctx, tx, d); err != nil {
+					return nil, fmt.Errorf("delete: enqueue sender teardown for %s: %w", d, err)
+				}
 			}
 		}
 	}
 
-	// Cascade does the rest: user_sessions, domains, agent_identities
-	// (and through them, messages → webhook_deliveries), api_keys,
-	// usage_summaries.
+	// (3 cont.) Tear down the solo workspaces by workspace_id — the cascade
+	// owner in the new model (§4.1). We do NOT rely on the user-cascade here:
+	// the account_usage storage trigger writes rows keyed by workspace_id with
+	// a NULL user_id, so a user-cascade alone would leave them and the
+	// workspace-delete would hit the workspace_id FK. Deleting by workspace_id
+	// removes every owned row regardless of its (possibly NULL) user_id.
+	// usage_events for these workspaces is also removed here (§5 (4)): it is
+	// ON DELETE SET NULL so it would otherwise survive — shared usage of a
+	// surviving multi-member workspace is left untouched.
+	soloIDs := make([]string, 0, len(workspaces))
+	for _, w := range workspaces {
+		if !w.solo {
+			continue
+		}
+		soloIDs = append(soloIDs, w.id)
+		ue, err := teardownWorkspaceRows(ctx, tx, w.id)
+		if err != nil {
+			return nil, err
+		}
+		res.UsageEventsDeleted += ue
+	}
+	_ = soloIDs
+
+	// (1) Delete the user. user_sessions + oauth_* still cascade from users
+	// (identity-owned → the user's live OAuth/MCP tokens are revoked, the
+	// GDPR/security requirement). The user's solo workspace-owned rows are
+	// already gone (torn down above); the multi-member workspaces' rows were
+	// re-homed to a surviving member and survive the user-cascade.
 	tag, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("delete: users: %w", err)
 	}
 	res.UserDeleted = tag.RowsAffected() == 1
 
+	// (3 cont.) Remove the now-emptied solo workspace rows (membership,
+	// invitations, audit_log cascade via workspace_id ON DELETE CASCADE).
+	for _, w := range workspaces {
+		if !w.solo {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM workspaces WHERE id = $1`, w.id); err != nil {
+			return nil, fmt.Errorf("delete: tear down workspace %s: %w", w.id, err)
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("delete: commit: %w", err)
 	}
 	return res, nil
+}
+
+// teardownWorkspaceRows deletes every workspace-owned row for a torn-down
+// (solo) workspace, by workspace_id — the cascade owner in the new model.
+// Order respects the FKs: api_keys (agent_id → agent_identities) and
+// agent_identities (cascades messages / send_attempts / protection_events)
+// before domains (agent_identities.domain → domains ON DELETE NO ACTION).
+// Returns the usage_events row count removed (for the audit result). The
+// workspace row itself is deleted by the caller after the user delete so its
+// membership/invitation/audit_log rows cascade cleanly.
+func teardownWorkspaceRows(ctx context.Context, tx pgx.Tx, workspaceID string) (usageEventsDeleted int64, err error) {
+	// usage_events is ON DELETE SET NULL (no cascade) — delete explicitly and
+	// report the count.
+	tag, err := tx.Exec(ctx, `DELETE FROM usage_events WHERE workspace_id = $1`, workspaceID)
+	if err != nil {
+		return 0, fmt.Errorf("teardown %s: usage_events: %w", workspaceID, err)
+	}
+	usageEventsDeleted = tag.RowsAffected()
+
+	// Ordered deletes. api_keys before agent_identities (FK), agent_identities
+	// before domains (NO ACTION FK from agent_identities.domain).
+	for _, q := range []string{
+		`DELETE FROM api_keys                WHERE workspace_id = $1`,
+		`DELETE FROM agent_identities        WHERE workspace_id = $1`,
+		`DELETE FROM domains                 WHERE workspace_id = $1`,
+		`DELETE FROM suppressions            WHERE workspace_id = $1`,
+		`DELETE FROM webhook_events          WHERE workspace_id = $1`,
+		`DELETE FROM webhooks                WHERE workspace_id = $1`,
+		`DELETE FROM webhook_signing_secrets WHERE workspace_id = $1`,
+		`DELETE FROM idempotency_keys        WHERE workspace_id = $1`,
+		`DELETE FROM usage_summaries         WHERE workspace_id = $1`,
+		`DELETE FROM account_usage           WHERE workspace_id = $1`,
+		`DELETE FROM account_limits          WHERE workspace_id = $1`,
+	} {
+		if _, err := tx.Exec(ctx, q, workspaceID); err != nil {
+			return usageEventsDeleted, fmt.Errorf("teardown %s: %w", workspaceID, err)
+		}
+	}
+	return usageEventsDeleted, nil
+}
+
+// reattributeWorkspaceRows re-homes every workspace-owned row currently
+// attributed to fromUser within workspaceID to toUser, so that deleting
+// fromUser (whose user_id ON DELETE CASCADE is still live pre-Migration B)
+// does not take a surviving multi-member workspace's shared resources (§5,
+// B1/B2). It touches exactly the workspace-owned tables that carry a user_id
+// audit column; identity-owned tables (sessions, oauth_*) are untouched.
+func reattributeWorkspaceRows(ctx context.Context, tx pgx.Tx, workspaceID, fromUser, toUser string) error {
+	// Each statement is scoped to the workspace AND the leaving user so it
+	// never touches another tenant's rows. account_limits / account_usage are
+	// one-per-workspace (PK flipped to workspace_id) so re-attribution is just
+	// an audit-column update.
+	stmts := []string{
+		`UPDATE domains                 SET user_id = $3 WHERE workspace_id = $1 AND user_id = $2`,
+		`UPDATE agent_identities        SET user_id = $3 WHERE workspace_id = $1 AND user_id = $2`,
+		`UPDATE api_keys                SET user_id = $3 WHERE workspace_id = $1 AND user_id = $2`,
+		`UPDATE suppressions            SET user_id = $3 WHERE workspace_id = $1 AND user_id = $2`,
+		`UPDATE webhooks                SET user_id = $3 WHERE workspace_id = $1 AND user_id = $2`,
+		`UPDATE webhook_events          SET user_id = $3 WHERE workspace_id = $1 AND user_id = $2`,
+		`UPDATE webhook_signing_secrets SET user_id = $3 WHERE workspace_id = $1 AND user_id = $2`,
+		`UPDATE account_limits          SET user_id = $3 WHERE workspace_id = $1 AND user_id = $2`,
+		`UPDATE account_usage           SET user_id = $3 WHERE workspace_id = $1 AND user_id = $2`,
+		`UPDATE usage_summaries         SET user_id = $3 WHERE workspace_id = $1 AND user_id = $2`,
+		`UPDATE usage_events            SET user_id = $3 WHERE workspace_id = $1 AND user_id = $2`,
+		// idempotency_keys PK was flipped to (workspace_id, key); re-attribute
+		// its audit user_id too so the cascade leaves the workspace's dedup rows.
+		`UPDATE idempotency_keys        SET user_id = $3 WHERE workspace_id = $1 AND user_id = $2`,
+	}
+	for _, q := range stmts {
+		if _, err := tx.Exec(ctx, q, workspaceID, fromUser, toUser); err != nil {
+			return fmt.Errorf("delete: reattribute rows in %s: %w", workspaceID, err)
+		}
+	}
+	return nil
+}
+
+// scanDomainsForWorkspace returns the domain names owned by a workspace, used
+// to run the SES deprovision hook for a torn-down (solo) workspace (§5).
+func scanDomainsForWorkspace(ctx context.Context, tx pgx.Tx, workspaceID string) ([]string, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT domain FROM domains WHERE workspace_id = $1 ORDER BY domain`, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
 }
 
 // --- internal scan helpers; private since they're only used by the

@@ -345,11 +345,15 @@ func (s *Store) EnsureSharedDomain(ctx context.Context, domain string) error {
 		return nil
 	}
 	domain = normalizeDomain(domain)
+	// The shared domain has no real user (user_id NULL); it is owned by the
+	// protected ws_system sentinel so it is never left with a NULL
+	// workspace_id (blocker B3 — this runs on every boot, so a NULL here would
+	// reach Migration B's VALIDATE and abort the rollout). §4.5/§4.8.
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO domains (domain, user_id, verified, verified_at)
-		 VALUES ($1, NULL, true, now())
+		`INSERT INTO domains (domain, user_id, workspace_id, verified, verified_at)
+		 VALUES ($1, NULL, $2, true, now())
 		 ON CONFLICT (domain) DO NOTHING`,
-		domain,
+		domain, SystemWorkspaceID,
 	)
 	if err != nil {
 		return fmt.Errorf("ensure shared domain %q: %w", domain, err)
@@ -401,15 +405,24 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 	// through to the SELECT below and returns "domain not available",
 	// preventing squatting on an unverified row whose TXT record the
 	// original owner may have already published.
+	// The squat/claim conflict logic now keys on workspace_id, not user_id, so
+	// a *different member of the same workspace* can re-claim an unverified row
+	// (today's user_id predicate would 403 them); a different workspace still
+	// cannot take over an unverified row (§4.1, §5). Domains stay globally
+	// unique (the PK forbids per-workspace namespacing). For v1 the workspace
+	// is the user's deterministic default workspace; behavior is identical for
+	// the single-member case. user_id is still stamped for audit.
+	wsID := DefaultWorkspaceID(userID)
+
 	d := &Domain{}
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO domains (domain, user_id, verified, verification_token, dkim_selector, dkim_public_key, dkim_private_key)
-		 VALUES ($1, $2, false, $3, $4, $5, $6)
+		`INSERT INTO domains (domain, user_id, workspace_id, verified, verification_token, dkim_selector, dkim_public_key, dkim_private_key)
+		 VALUES ($1, $2, $3, false, $4, $5, $6, $7)
 		 ON CONFLICT (domain) DO UPDATE
-		 SET user_id = domains.user_id
-		 WHERE domains.verified = false AND domains.user_id = $2
+		 SET workspace_id = domains.workspace_id
+		 WHERE domains.verified = false AND domains.workspace_id = $3
 		 RETURNING domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at`,
-		domain, userID, verificationToken, nullIfEmpty(dkimSelector), nullIfEmpty(dkimPubKey), nullIfEmptyBytes(dkimPrivKey),
+		domain, userID, wsID, verificationToken, nullIfEmpty(dkimSelector), nullIfEmpty(dkimPubKey), nullIfEmptyBytes(dkimPrivKey),
 	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.SendingStatus, &d.SendingError, &d.SendingDNSRecordsJSON, &d.SendingLastCheckedAt)
 
 	if err == nil {
@@ -417,20 +430,21 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 	}
 
 	// No row returned — the row exists but the conflict UPDATE was
-	// skipped because either it's already verified or a different user
-	// owns it. Re-read to decide between "verified + same user → return
-	// it" and "different user → not available".
+	// skipped because either it's already verified or a different workspace
+	// owns it. Re-read to decide between "verified + same workspace → return
+	// it" and "different workspace → not available".
 	existing := &Domain{}
+	var existingWS *string
 	err = s.pool.QueryRow(ctx,
-		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at
+		`SELECT domain, user_id, workspace_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at
 		 FROM domains WHERE domain = $1`, domain,
-	).Scan(&existing.Domain, &existing.UserID, &existing.Verified, &existing.VerificationToken, &existing.CreatedAt, &existing.VerifiedAt, &existing.IsPrimary, &existing.LastCheckedAt, &existing.DKIMSelector, &existing.DKIMPublicKey, &existing.SendingStatus, &existing.SendingError, &existing.SendingDNSRecordsJSON, &existing.SendingLastCheckedAt)
+	).Scan(&existing.Domain, &existing.UserID, &existingWS, &existing.Verified, &existing.VerificationToken, &existing.CreatedAt, &existing.VerifiedAt, &existing.IsPrimary, &existing.LastCheckedAt, &existing.DKIMSelector, &existing.DKIMPublicKey, &existing.SendingStatus, &existing.SendingError, &existing.SendingDNSRecordsJSON, &existing.SendingLastCheckedAt)
 	if err != nil {
 		return nil, fmt.Errorf("domain lookup failed: %w", err)
 	}
 
-	if existing.UserID != nil && *existing.UserID == userID {
-		return existing, nil // verified + same user
+	if existingWS != nil && *existingWS == wsID {
+		return existing, nil // verified + same workspace
 	}
 
 	return nil, ErrDomainTaken
@@ -666,14 +680,19 @@ func (s *Store) SetDomainPrimary(ctx context.Context, domain, userID string) err
 		}
 	}()
 
+	// Primary-per-tenant is now per-workspace (the partial unique index flipped
+	// user_id → workspace_id in Migration A, else two members each set a
+	// primary). Clear the workspace's existing primary, then mark this one.
+	// For v1 the workspace is the user's deterministic default workspace.
+	wsID := DefaultWorkspaceID(userID)
 	if _, err := tx.Exec(ctx,
-		`UPDATE domains SET is_primary = false WHERE user_id = $1 AND is_primary = true`,
-		userID); err != nil {
+		`UPDATE domains SET is_primary = false WHERE workspace_id = $1 AND is_primary = true`,
+		wsID); err != nil {
 		return err
 	}
 	tag, err := tx.Exec(ctx,
-		`UPDATE domains SET is_primary = true WHERE domain = $1 AND user_id = $2`,
-		domain, userID)
+		`UPDATE domains SET is_primary = true WHERE domain = $1 AND workspace_id = $2`,
+		domain, wsID)
 	if err != nil {
 		return err
 	}
@@ -853,10 +872,14 @@ func createAgent(ctx context.Context, exec agentExecutor, agentEmail, domain, na
 		HITLTTLSeconds:       HITLDefaultTTLSeconds,
 		HITLExpirationAction: HITLDefaultExpirationAct,
 	}
+	// Stamp workspace_id so no owned-row INSERT path mints a NULL row in the
+	// rollout window (blocker B3, §4.5/§4.8). For v1 the agent's workspace is
+	// the owner's deterministic default workspace; agent_identities is the
+	// source of every message's workspace (§4.1).
 	_, err := exec.Exec(ctx,
-		`INSERT INTO agent_identities (id, domain, user_id, name, public, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		a.ID, a.Domain, a.UserID, a.Name, a.Public, a.CreatedAt,
+		`INSERT INTO agent_identities (id, domain, user_id, workspace_id, name, public, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		a.ID, a.Domain, a.UserID, DefaultWorkspaceID(userID), a.Name, a.Public, a.CreatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -2947,23 +2970,66 @@ func (s *Store) GetConversationByID(ctx context.Context, agentID, conversationID
 
 // --- User management ---
 
+// CreateOrGetUser upserts a user by google_subject and provisions everything a
+// user must always have — a personal workspace (admin membership) and at least
+// one signing secret — in the SAME transaction as the user insert (§4.5). Thin
+// wrapper over CreateOrGetUserWithStatus that drops the new-vs-returning
+// discriminant for the many callers that don't need it.
 func (s *Store) CreateOrGetUser(ctx context.Context, email, name, googleSub string) (*User, error) {
+	u, _, err := s.CreateOrGetUserWithStatus(ctx, email, name, googleSub)
+	return u, err
+}
+
+// CreateOrGetUserWithStatus is CreateOrGetUser plus a new-vs-returning
+// discriminant: the returned bool is true iff this call inserted a fresh user
+// (xmax=0 on the ON CONFLICT DO UPDATE RETURNING), so a returning login does
+// not pointlessly re-do provisioning — though every step is idempotent
+// (ON CONFLICT DO NOTHING) regardless. The personal workspace + signing secret
+// are provisioned in the same tx as the user insert, through the shared
+// ensurePersonalWorkspace helper so no creation path can bypass it (B3).
+func (s *Store) CreateOrGetUserWithStatus(ctx context.Context, email, name, googleSub string) (*User, bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	defer tx.Rollback(ctx)
+
 	u := &User{}
-	err := s.pool.QueryRow(ctx,
+	var isNew bool
+	// xmax=0 on the returned row iff this transaction inserted it (no prior
+	// version existed); a non-zero xmax means the ON CONFLICT DO UPDATE path
+	// fired — i.e. a returning login. (cf. §4.5)
+	err = tx.QueryRow(ctx,
 		`INSERT INTO users (id, email, name, google_subject)
 		 VALUES ($1, $2, $3, $4)
 		 ON CONFLICT (google_subject) DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name
-		 RETURNING id, email, name, google_subject, created_at`,
+		 RETURNING id, email, name, google_subject, created_at, (xmax = 0)`,
 		generateID(), email, name, googleSub,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.GoogleSubject, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.Name, &u.GoogleSubject, &u.CreatedAt, &isNew)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	// Idempotent: existing users return early in EnsureUserHasSigningSecret.
-	if err := s.EnsureUserHasSigningSecret(ctx, u.ID); err != nil {
-		return nil, fmt.Errorf("ensure signing secret: %w", err)
+	if err := provisionUserTx(ctx, tx, u); err != nil {
+		return nil, false, err
 	}
-	return u, nil
+	if err := tx.Commit(ctx); err != nil {
+		return nil, false, err
+	}
+	return u, isNew, nil
+}
+
+// provisionUserTx provisions the personal workspace + signing secret for a
+// freshly upserted user inside the caller's tx. Idempotent — safe on a
+// returning login. The single choke point both creation paths
+// (CreateOrGetUser, BootstrapUser) funnel through (blocker B3, §4.5).
+func provisionUserTx(ctx context.Context, tx pgx.Tx, u *User) error {
+	if _, err := ensurePersonalWorkspace(ctx, tx, u.ID, u.Name, u.Email); err != nil {
+		return err
+	}
+	if err := ensureUserHasSigningSecretTx(ctx, tx, u.ID); err != nil {
+		return fmt.Errorf("ensure signing secret: %w", err)
+	}
+	return nil
 }
 
 // SetAccountClass sets a user's account_class (standard|internal|system|demo).
@@ -2980,20 +3046,33 @@ func (s *Store) SetAccountClass(ctx context.Context, userID, class string) error
 // google_subject if none exists. Used by the -bootstrap-email CLI flag
 // for self-host first-run, where there's no Google OAuth flow yet.
 func (s *Store) BootstrapUser(ctx context.Context, email string) (*User, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
 	u := &User{}
-	err := s.pool.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`SELECT id, email, name, google_subject, created_at FROM users WHERE email = $1`, email,
 	).Scan(&u.ID, &u.Email, &u.Name, &u.GoogleSubject, &u.CreatedAt)
 	if err == nil {
-		// Existing user — make sure they still have at least one secret
-		// (covers the case where the migration backfill didn't run yet).
-		if err := s.EnsureUserHasSigningSecret(ctx, u.ID); err != nil {
-			return nil, fmt.Errorf("ensure signing secret: %w", err)
+		// Existing user — provision idempotently in the same tx so a
+		// pre-workspaces user (or a backfill that hasn't run) still ends up
+		// with a personal workspace + signing secret (blocker B3, §4.5).
+		if err := provisionUserTx(ctx, tx, u); err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
 		}
 		return u, nil
 	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
 	id := generateID()
-	err = s.pool.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`INSERT INTO users (id, email, name, google_subject)
 		 VALUES ($1, $2, 'bootstrap', $3)
 		 RETURNING id, email, name, google_subject, created_at`,
@@ -3002,8 +3081,11 @@ func (s *Store) BootstrapUser(ctx context.Context, email string) (*User, error) 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.EnsureUserHasSigningSecret(ctx, u.ID); err != nil {
-		return nil, fmt.Errorf("ensure signing secret: %w", err)
+	if err := provisionUserTx(ctx, tx, u); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
 	}
 	return u, nil
 }
@@ -3271,6 +3353,17 @@ type Principal struct {
 	User    *User
 	Scope   string // ScopeAccount | ScopeAgent
 	AgentID string // non-empty only when Scope == ScopeAgent
+	// Workspace is the resolved active workspace for this request (§4.2).
+	// For key auth it is intrinsic (api_keys.workspace_id); for session/OAuth
+	// auth the choke point resolves it (header → last-active → default) before
+	// looking up Role. May be nil on auth paths that have not resolved it yet.
+	Workspace *Workspace
+	// Role is the caller's membership role in Workspace (RoleAdmin |
+	// RoleMember). Scope (credential blast radius) and role compose — the
+	// effective permission is the intersection (§4.3). API keys and OAuth/MCP
+	// tokens are member-capped regardless of the minter (§4.3.1), so key auth
+	// fixes Role to RoleMember.
+	Role string
 }
 
 type APIKey struct {
@@ -3285,6 +3378,12 @@ type APIKey struct {
 	Scope string `json:"scope"`
 	// AgentID is the bound agent for ScopeAgent keys; nil for account keys.
 	AgentID *string `json:"agent_id,omitempty"`
+	// WorkspaceID is the tenant the key acts in (intrinsic, pinned at mint;
+	// §4.3.1). Resolves the active workspace for key-auth with no header.
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	// CreatedBy is the minting user, for audit + revoke-scoping (§4.3.1). NULL
+	// (→ "") when the minter has since been deleted (ON DELETE SET NULL).
+	CreatedBy *string `json:"created_by,omitempty"`
 	// LastUsedAt is updated by GetUserByAPIKey on every successful
 	// AuthenticateRequest. NULL on keys that have never been used.
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
@@ -3347,6 +3446,8 @@ func (s *Store) CreateScopedAPIKey(ctx context.Context, userID, name, scope, age
 	if scope == ScopeAgent {
 		agentCol = &agentID
 	}
+	wsID := DefaultWorkspaceID(userID)
+	creator := userID
 	ak := &APIKey{
 		ID:           id,
 		UserID:       userID,
@@ -3356,12 +3457,18 @@ func (s *Store) CreateScopedAPIKey(ctx context.Context, userID, name, scope, age
 		CreatedAt:    now,
 		Scope:        scope,
 		AgentID:      agentCol,
+		WorkspaceID:  wsID,
+		CreatedBy:    &creator,
 		ExpiresAt:    expiresAt,
 	}
+	// Stamp workspace_id (intrinsic — resolves the active workspace for
+	// key-auth with no header) and created_by (audit/revoke-scoping). For v1
+	// the key's workspace is the minter's deterministic default workspace
+	// (blocker B3, §4.3.1).
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, scope, agent_id, created_at, expires_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		ak.ID, ak.UserID, ak.Name, ak.KeyPrefix, keyHash, ak.Scope, agentCol, ak.CreatedAt, ak.ExpiresAt,
+		`INSERT INTO api_keys (id, user_id, workspace_id, created_by, name, key_prefix, key_hash, scope, agent_id, created_at, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		ak.ID, ak.UserID, wsID, creator, ak.Name, ak.KeyPrefix, keyHash, ak.Scope, agentCol, ak.CreatedAt, ak.ExpiresAt,
 	)
 	if err != nil {
 		return nil, err
@@ -3381,19 +3488,44 @@ func (s *Store) userOwnsAgent(ctx context.Context, agentID, userID string) (bool
 
 func (s *Store) ListAPIKeys(ctx context.Context, userID string) ([]APIKey, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, user_id, name, key_prefix, COALESCE(scope, 'account'), agent_id, created_at, last_used_at, expires_at
+		`SELECT id, user_id, workspace_id, created_by, name, key_prefix, COALESCE(scope, 'account'), agent_id, created_at, last_used_at, expires_at
 		   FROM api_keys WHERE user_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC`,
 		userID,
 	)
 	if err != nil {
 		return nil, err
 	}
+	return scanAPIKeyRows(rows)
+}
+
+// ListAPIKeysForWorkspace lists every live key minted inside a workspace
+// (§4.3.1): keys are workspace service credentials, so any member sees the
+// whole workspace's key set, and created_by makes ownership legible (the
+// revoke path is creator-own / admin-any). Ordered newest-first.
+func (s *Store) ListAPIKeysForWorkspace(ctx context.Context, workspaceID string) ([]APIKey, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, user_id, workspace_id, created_by, name, key_prefix, COALESCE(scope, 'account'), agent_id, created_at, last_used_at, expires_at
+		   FROM api_keys WHERE workspace_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC`,
+		workspaceID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return scanAPIKeyRows(rows)
+}
+
+// scanAPIKeyRows drains a *pgx.Rows of the shared api_keys metadata projection.
+func scanAPIKeyRows(rows pgx.Rows) ([]APIKey, error) {
 	defer rows.Close()
 	var keys []APIKey
 	for rows.Next() {
 		var k APIKey
-		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.KeyPrefix, &k.Scope, &k.AgentID, &k.CreatedAt, &k.LastUsedAt, &k.ExpiresAt); err != nil {
+		var workspaceID *string
+		if err := rows.Scan(&k.ID, &k.UserID, &workspaceID, &k.CreatedBy, &k.Name, &k.KeyPrefix, &k.Scope, &k.AgentID, &k.CreatedAt, &k.LastUsedAt, &k.ExpiresAt); err != nil {
 			return nil, err
+		}
+		if workspaceID != nil {
+			k.WorkspaceID = *workspaceID
 		}
 		keys = append(keys, k)
 	}
@@ -3418,6 +3550,55 @@ func (s *Store) DeleteAPIKey(ctx context.Context, keyID, userID string) error {
 		return ErrAPIKeyNotFound
 	}
 	return nil
+}
+
+// ErrAPIKeyForbidden is returned by RevokeAPIKeyInWorkspace when the key exists
+// in the workspace but the actor is neither its creator nor a workspace admin
+// (§4.3.1 / §5: a member revoking another member's key → 403; admin may revoke
+// any). Distinct from ErrAPIKeyNotFound so the HTTP layer maps it to 403, not
+// 404.
+var ErrAPIKeyForbidden = errors.New("api key not owned by caller")
+
+// RevokeAPIKeyInWorkspace revokes a key by id within a workspace under the
+// §4.3.1 revoke authority rules: the creator may revoke keys they created; an
+// admin may revoke ANY key in the workspace. Returns ErrAPIKeyNotFound when no
+// live key with that id exists in the workspace (idempotent: an already-revoked
+// or missing key is a not-found), and ErrAPIKeyForbidden when the key exists
+// but the actor is a non-admin who did not create it.
+func (s *Store) RevokeAPIKeyInWorkspace(ctx context.Context, keyID, workspaceID, actorUserID string, actorIsAdmin bool) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var createdBy *string
+	err = tx.QueryRow(ctx,
+		`SELECT created_by FROM api_keys
+		  WHERE id = $1 AND workspace_id = $2 AND revoked_at IS NULL`,
+		keyID, workspaceID,
+	).Scan(&createdBy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrAPIKeyNotFound
+	}
+	if err != nil {
+		return err
+	}
+	// Authority: admins may revoke any key; a non-admin may revoke only keys
+	// they created. A key whose creator was deleted (created_by NULL) is
+	// admin-only to revoke.
+	if !actorIsAdmin {
+		if createdBy == nil || *createdBy != actorUserID {
+			return ErrAPIKeyForbidden
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND workspace_id = $2`,
+		keyID, workspaceID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // GetUserByAPIKey authenticates a bearer token and returns the owning
@@ -3447,23 +3628,32 @@ func (s *Store) GetPrincipalByAPIKey(ctx context.Context, apiKey string) (*Princ
 	u := &User{}
 	var scope string
 	var agentID *string
+	var workspaceID *string
 	err := s.pool.QueryRow(ctx,
 		`WITH touched AS (
 		   UPDATE api_keys SET last_used_at = now()
 		   WHERE key_hash = $1
 		     AND revoked_at IS NULL
 		     AND (expires_at IS NULL OR expires_at > now())
-		   RETURNING user_id, COALESCE(scope, 'account') AS scope, agent_id
+		   RETURNING user_id, COALESCE(scope, 'account') AS scope, agent_id, workspace_id
 		 )
-		 SELECT u.id, u.email, u.name, u.google_subject, u.created_at, t.scope, t.agent_id
+		 SELECT u.id, u.email, u.name, u.google_subject, u.created_at, t.scope, t.agent_id, t.workspace_id
 		 FROM touched t JOIN users u ON u.id = t.user_id`, keyHash,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.GoogleSubject, &u.CreatedAt, &scope, &agentID)
+	).Scan(&u.ID, &u.Email, &u.Name, &u.GoogleSubject, &u.CreatedAt, &scope, &agentID, &workspaceID)
 	if err != nil {
 		return nil, err
 	}
-	p := &Principal{User: u, Scope: scope}
+	// A key is workspace-intrinsic (pinned at mint) and member-capped
+	// regardless of who minted it (§4.2.1, §4.3.1): Role is fixed to member,
+	// the workspace is resolved from api_keys.workspace_id (no header needed).
+	p := &Principal{User: u, Scope: scope, Role: RoleMember}
 	if agentID != nil {
 		p.AgentID = *agentID
+	}
+	if workspaceID != nil && *workspaceID != "" {
+		if w, wErr := s.GetWorkspace(ctx, *workspaceID); wErr == nil {
+			p.Workspace = w
+		}
 	}
 	return p, nil
 }
@@ -3593,22 +3783,35 @@ func (s *Store) withUserSecretsLock(ctx context.Context, userID string, fn func(
 // can't accidentally insert two "default" rows.
 func (s *Store) EnsureUserHasSigningSecret(ctx context.Context, userID string) error {
 	return s.withUserSecretsLock(ctx, userID, func(tx pgx.Tx) error {
-		var count int
-		if err := tx.QueryRow(ctx,
-			`SELECT COUNT(*) FROM webhook_signing_secrets WHERE user_id = $1`, userID,
-		).Scan(&count); err != nil {
-			return err
-		}
-		if count > 0 {
-			return nil
-		}
-		_, err := tx.Exec(ctx,
-			`INSERT INTO webhook_signing_secrets (id, user_id, secret, name, created_at)
-			 VALUES ($1, $2, $3, $4, NOW())`,
-			"wsec_"+generateID(), userID, generateSigningSecret(), "default",
-		)
-		return err
+		return ensureUserHasSigningSecretTx(ctx, tx, userID)
 	})
+}
+
+// ensureUserHasSigningSecretTx is the tx-accepting variant of
+// EnsureUserHasSigningSecret (blocker B3): signup/bootstrap thread a single tx
+// through user-insert + workspace-provision + signing-secret so no path mints
+// a NULL row. The signing-secret is stamped with the user's default workspace
+// (webhook_signing_secrets re-keyed to workspace_id in Migration A) — agents
+// in a workspace verify X-E2A-Auth-* against that workspace's secret set
+// (§4.1), and stamping it here is what keeps EnsureUserHasSigningSecret from
+// minting a NULL-workspace row on every login (B3). The caller must already
+// hold the per-user lock (withUserSecretsLock) or the same provisioning tx.
+func ensureUserHasSigningSecretTx(ctx context.Context, tx pgx.Tx, userID string) error {
+	var count int
+	if err := tx.QueryRow(ctx,
+		`SELECT COUNT(*) FROM webhook_signing_secrets WHERE user_id = $1`, userID,
+	).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	_, err := tx.Exec(ctx,
+		`INSERT INTO webhook_signing_secrets (id, user_id, workspace_id, secret, name, created_at)
+		 VALUES ($1, $2, $3, $4, $5, NOW())`,
+		"wsec_"+generateID(), userID, DefaultWorkspaceID(userID), generateSigningSecret(), "default",
+	)
+	return err
 }
 
 // CreateSigningSecret mints a new secret for the user. The plaintext
@@ -3640,9 +3843,9 @@ func (s *Store) CreateSigningSecret(ctx context.Context, userID, name string) (*
 			return ErrSigningSecretCapReached
 		}
 		_, err := tx.Exec(ctx,
-			`INSERT INTO webhook_signing_secrets (id, user_id, secret, name, created_at)
-			 VALUES ($1, $2, $3, $4, $5)`,
-			id, userID, plaintext, name, now,
+			`INSERT INTO webhook_signing_secrets (id, user_id, workspace_id, secret, name, created_at)
+			 VALUES ($1, $2, $3, $4, $5, $6)`,
+			id, userID, DefaultWorkspaceID(userID), plaintext, name, now,
 		)
 		return err
 	})

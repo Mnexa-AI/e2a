@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useAuth } from "../../components/AuthProvider";
+import { workspaceHeaders } from "../../components/onboarding/api";
 import { PageShell } from "../../components/loft/PageShell";
 
 export default function SettingsPage() {
@@ -79,7 +80,7 @@ function ProfileSection({
     try {
       const res = await fetch("/api/auth/me", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: workspaceHeaders(),
         credentials: "include",
         body: JSON.stringify({ name: draft }),
       });
@@ -285,11 +286,44 @@ function ExportSection() {
 
 type DeleteState = "idle" | "deleting" | "error";
 
+// Pulls the human message + machine code out of the e2a error envelope
+// ({"error":{"code":…,"message":…}}); falls back to the raw text when the
+// body isn't JSON. The account-delete flow can now fail with a sole-admin
+// block (§4.6: the user is the only admin of a workspace that still has other
+// members) — we surface the server's message verbatim and key off the code /
+// wording to add the actionable next step inline.
+function parseDeleteError(text: string, status: number): {
+  message: string;
+  isSoleAdmin: boolean;
+} {
+  let message = text.trim() || `HTTP ${status}`;
+  let code = "";
+  try {
+    const parsed = JSON.parse(text) as {
+      error?: { code?: string; message?: string };
+      message?: string;
+      detail?: string;
+    };
+    if (parsed.error?.message) message = parsed.error.message;
+    else if (parsed.message) message = parsed.message;
+    else if (parsed.detail) message = parsed.detail;
+    if (parsed.error?.code) code = parsed.error.code;
+  } catch {
+    // not JSON — keep the raw text
+  }
+  const isSoleAdmin =
+    code === "sole_admin" ||
+    code === "sole_admin_workspace" ||
+    /sole admin/i.test(message);
+  return { message, isSoleAdmin };
+}
+
 function DangerZone() {
   const [open, setOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [state, setState] = useState<DeleteState>("idle");
   const [errorMessage, setErrorMessage] = useState("");
+  const [errorIsSoleAdmin, setErrorIsSoleAdmin] = useState(false);
 
   const ready = confirmText === "DELETE";
 
@@ -297,6 +331,7 @@ function DangerZone() {
     if (!ready) return;
     setState("deleting");
     setErrorMessage("");
+    setErrorIsSoleAdmin(false);
     try {
       const res = await fetch("/v1/account?confirm=DELETE", {
         method: "DELETE",
@@ -304,8 +339,10 @@ function DangerZone() {
       });
       if (!res.ok) {
         const text = await res.text().catch(() => `HTTP ${res.status}`);
+        const { message, isSoleAdmin } = parseDeleteError(text, res.status);
         setState("error");
-        setErrorMessage(text.trim());
+        setErrorMessage(message);
+        setErrorIsSoleAdmin(isSoleAdmin);
         return;
       }
       window.location.href = "/?account_deleted=1";
@@ -389,12 +426,31 @@ function DangerZone() {
               />
             </label>
             {state === "error" && (
-              <p
-                className="text-[13px]"
-                style={{ color: "var(--danger-strong)" }}
+              <div
+                className="p-3 text-[13px] leading-[1.5]"
+                style={{
+                  background: "var(--danger-bg)",
+                  color: "var(--danger-strong)",
+                  border: "1px solid var(--danger-bg)",
+                  borderRadius: "var(--r-md)",
+                }}
               >
-                Failed: {errorMessage || "unknown error"}
-              </p>
+                <p>{errorMessage || "Couldn't delete your account."}</p>
+                {errorIsSoleAdmin && (
+                  <p className="mt-1.5">
+                    Open your{" "}
+                    <a
+                      href="/workspace"
+                      className="underline"
+                      style={{ color: "var(--danger-strong)" }}
+                    >
+                      workspace
+                    </a>{" "}
+                    and either promote another member to admin or remove the
+                    other members first, then try again.
+                  </p>
+                )}
+              </div>
             )}
             <div className="flex gap-2">
               <button

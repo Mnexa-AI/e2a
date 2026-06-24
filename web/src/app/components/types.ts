@@ -11,6 +11,65 @@ export type UserInfo = {
   created_at: string;
 };
 
+// ── Workspaces (§4.2/§4.4/§4.6) ──────────────────────────
+
+// A member's role in a workspace. Admin authority is reachable only
+// through a human web session (§4.3.1) — keys/tokens are member-capped.
+export type WorkspaceRole = "admin" | "member";
+
+// WorkspaceView (GET /v1/workspaces, GET /v1/workspaces/{id}). `role` is
+// the *caller's* role in this workspace; omitted on reads where the role
+// is not resolved.
+export type Workspace = {
+  id: string;
+  name: string;
+  role?: WorkspaceRole;
+  created_at: string;
+};
+
+// MemberView (GET /v1/workspaces/{id}/members). One workspace member with
+// their role + identity. `name` is optional (may be absent until the user
+// has set a display name).
+export type WorkspaceMember = {
+  user_id: string;
+  email: string;
+  name?: string;
+  role: WorkspaceRole;
+  created_at: string;
+};
+
+// InvitationView (GET /v1/workspaces/{id}/invitations). A pending
+// invitation's non-secret metadata. The one-time bearer token is returned
+// only at creation (see CreateInvitationResponse), never on reads.
+export type Invitation = {
+  id: string;
+  email: string;
+  role: WorkspaceRole;
+  // The backend's invitationView never sets invited_by today, but the
+  // field is reserved in the design (§4.4) — optional so a future
+  // additive change lands without a type break.
+  invited_by?: string;
+  status: string;
+  expires_at?: string;
+  created_at: string;
+};
+
+// CreateInvitationResponse (POST /v1/workspaces/{id}/invitations) — the
+// pending-invite metadata plus the one-time bearer token used to build the
+// accept link. The token is shown ONCE.
+export type CreateInvitationResponse = Invitation & {
+  token: string;
+};
+
+// Active workspace + caller's role, as surfaced by whoami
+// (GET /v1/account → AccountView). Additive whoami fields (§4.4): the
+// active workspace this request resolved to. Both omitted on auth paths
+// that resolved no workspace.
+export type WhoamiWorkspace = {
+  id: string;
+  name: string;
+};
+
 export type DashboardAgent = {
   id: string;
   domain: string;
@@ -202,4 +261,11 @@ export type CreateAPIKeyRequest = {
 // other identity fields come from the OAuth provider.
 export type UpdateMeRequest = {
   name: string;
+};
+
+// Request body for POST /v1/workspaces/{id}/invitations. `role` defaults
+// to "member" server-side when omitted.
+export type CreateInvitationRequest = {
+  email: string;
+  role?: WorkspaceRole;
 };

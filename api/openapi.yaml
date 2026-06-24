@@ -33,6 +33,9 @@ components:
         created_at:
           format: date-time
           type: string
+        created_by:
+          description: User id that minted the key (audit / revoke-scoping). Empty when the minter has since been deleted.
+          type: string
         expires_at:
           format: date-time
           type: string
@@ -47,7 +50,7 @@ components:
         name:
           type: string
         scope:
-          description: account = workspace admin; agent = bound to one inbox.
+          description: account = workspace-wide (member floor); agent = bound to one inbox.
           enum:
             - account
             - agent
@@ -79,6 +82,11 @@ components:
           $ref: "#/components/schemas/LimitsCapsView"
         plan_code:
           type: string
+        role:
+          enum:
+            - admin
+            - member
+          type: string
         scope:
           enum:
             - account
@@ -90,6 +98,8 @@ components:
           $ref: "#/components/schemas/LimitsUsageView"
         user:
           $ref: "#/components/schemas/AccountUserView"
+        workspace:
+          $ref: "#/components/schemas/AccountWorkspaceView"
       required:
         - user
         - scope
@@ -97,6 +107,17 @@ components:
         - limits
         - usage
         - upgrade_url
+      type: object
+    AccountWorkspaceView:
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+      required:
+        - id
+        - name
       type: object
     AgentIdentity:
       additionalProperties: false
@@ -460,6 +481,9 @@ components:
         created_at:
           format: date-time
           type: string
+        created_by:
+          description: User id that minted the key (audit / revoke-scoping). Empty when the minter has since been deleted.
+          type: string
         expires_at:
           format: date-time
           type: string
@@ -477,7 +501,7 @@ components:
         name:
           type: string
         scope:
-          description: account = workspace admin; agent = bound to one inbox.
+          description: account = workspace-wide (member floor); agent = bound to one inbox.
           enum:
             - account
             - agent
@@ -499,6 +523,53 @@ components:
           type: string
       required:
         - email
+      type: object
+    CreateInvitationInputBody:
+      additionalProperties: false
+      properties:
+        email:
+          description: Email address to invite.
+          format: email
+          type: string
+        role:
+          description: Role to grant on accept (default member).
+          enum:
+            - admin
+            - member
+          type: string
+      required:
+        - email
+      type: object
+    CreateInvitationResponse:
+      additionalProperties: false
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        email:
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+        id:
+          type: string
+        role:
+          enum:
+            - admin
+            - member
+          type: string
+        status:
+          type: string
+        token:
+          description: One-time invitation bearer token (e2a_inv_…). Shown once; used to build the accept link.
+          type: string
+      required:
+        - token
+        - id
+        - email
+        - role
+        - status
+        - created_at
       type: object
     CreateWebhookRequest:
       additionalProperties: false
@@ -893,6 +964,33 @@ components:
         - to
         - body
       type: object
+    InvitationView:
+      additionalProperties: false
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        email:
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+        id:
+          type: string
+        role:
+          enum:
+            - admin
+            - member
+          type: string
+        status:
+          type: string
+      required:
+        - id
+        - email
+        - role
+        - status
+        - created_at
+      type: object
     LimitsCapsView:
       additionalProperties: false
       properties:
@@ -934,6 +1032,29 @@ components:
         - domains
         - messages_month
         - storage_bytes
+      type: object
+    MemberView:
+      additionalProperties: false
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        role:
+          enum:
+            - admin
+            - member
+          type: string
+        user_id:
+          type: string
+      required:
+        - user_id
+        - email
+        - role
+        - created_at
       type: object
     Message:
       additionalProperties: false
@@ -1382,6 +1503,36 @@ components:
         - items
         - next_cursor
       type: object
+    PageInvitationView:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/InvitationView"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
+    PageMemberView:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/MemberView"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
     PageMessageSummaryView:
       additionalProperties: false
       properties:
@@ -1433,6 +1584,21 @@ components:
         items:
           items:
             $ref: "#/components/schemas/WebhookView"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
+    PageWorkspaceView:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/WorkspaceView"
           type: array
         next_cursor:
           type:
@@ -1633,6 +1799,17 @@ components:
         - status
         - message_id
       type: object
+    RenameWorkspaceInputBody:
+      additionalProperties: false
+      properties:
+        name:
+          description: New workspace display name.
+          maxLength: 100
+          minLength: 1
+          type: string
+      required:
+        - name
+      type: object
     ReplyRequest:
       additionalProperties: false
       properties:
@@ -1762,6 +1939,18 @@ components:
         - type
         - name
         - value
+      type: object
+    SetMemberRoleInputBody:
+      additionalProperties: false
+      properties:
+        role:
+          description: The member's new role.
+          enum:
+            - admin
+            - member
+          type: string
+      required:
+        - role
       type: object
     Suppression:
       additionalProperties: false
@@ -2131,6 +2320,27 @@ components:
         - events
         - filters
         - enabled
+        - created_at
+      type: object
+    WorkspaceView:
+      additionalProperties: false
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        role:
+          description: The caller's role in this workspace. Omitted on reads where the role is not resolved.
+          enum:
+            - admin
+            - member
+          type: string
+      required:
+        - id
+        - name
         - created_at
       type: object
   securitySchemes:
@@ -3503,6 +3713,34 @@ paths:
       summary: Deployment info
       tags:
         - meta
+  /v1/invitations/{token}/accept:
+    post:
+      description: Accept an invitation. Requires the signed-in user's email to match the invited email. Idempotent (a second accept by the already-joined user returns 200). A revoked/expired/torn-down invitation returns 410.
+      operationId: acceptInvitation
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Accept an invitation
+      tags:
+        - workspaces
   /v1/webhooks:
     get:
       operationId: listWebhooks
@@ -3744,6 +3982,322 @@ paths:
       summary: Fire a synthetic event
       tags:
         - webhooks
+  /v1/workspaces:
+    get:
+      description: Every workspace you are a live member of, each annotated with your role. Your personal (default) workspace sorts first.
+      operationId: listWorkspaces
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageWorkspaceView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: List my workspaces
+      tags:
+        - workspaces
+  /v1/workspaces/{id}:
+    get:
+      description: A workspace by id, with your role. Any live member.
+      operationId: getWorkspace
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: "Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential."
+          in: header
+          name: X-E2A-Workspace
+          schema:
+            description: "Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential."
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Get a workspace
+      tags:
+        - workspaces
+    patch:
+      description: Change a workspace's display name (e.g. "Josh's Workspace" → "Acme"). Admin only; reachable only through a human session.
+      operationId: renameWorkspace
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: "Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential."
+          in: header
+          name: X-E2A-Workspace
+          schema:
+            description: "Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential."
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameWorkspaceInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Rename a workspace
+      tags:
+        - workspaces
+  /v1/workspaces/{id}/invitations:
+    get:
+      description: Pending invitations for the workspace. Admin only.
+      operationId: listInvitations
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: "Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential."
+          in: header
+          name: X-E2A-Workspace
+          schema:
+            description: "Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential."
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageInvitationView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: List pending invitations
+      tags:
+        - workspaces
+    post:
+      description: Invite an email to join with a role. Sends an accept link. Inviting an existing member returns 409 already_member (use PATCH …/members to change a role). Rate-limited. Admin only.
+      operationId: createInvitation
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: "Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential."
+          in: header
+          name: X-E2A-Workspace
+          schema:
+            description: "Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential."
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInvitationInputBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateInvitationResponse"
+          description: Created
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Invite a member
+      tags:
+        - workspaces
+  /v1/workspaces/{id}/invitations/{invitation_id}:
+    delete:
+      description: Revoke a pending invitation; its accept link stops working. Admin only.
+      operationId: revokeInvitation
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: invitation_id
+          required: true
+          schema:
+            type: string
+        - description: "Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential."
+          in: header
+          name: X-E2A-Workspace
+          schema:
+            description: "Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential."
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Revoke a pending invitation
+      tags:
+        - workspaces
+  /v1/workspaces/{id}/members:
+    get:
+      description: Members and their roles. Any live member.
+      operationId: listMembers
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: "Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential."
+          in: header
+          name: X-E2A-Workspace
+          schema:
+            description: "Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential."
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageMemberView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: List workspace members
+      tags:
+        - workspaces
+  /v1/workspaces/{id}/members/{user_id}:
+    delete:
+      description: Remove a member, or leave the workspace by targeting yourself. Cannot remove the last admin. Admin (or self for a leave).
+      operationId: removeMember
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+        - description: "Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential."
+          in: header
+          name: X-E2A-Workspace
+          schema:
+            description: "Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential."
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Remove a member (or leave)
+      tags:
+        - workspaces
+    patch:
+      description: Promote to admin or demote to member. Promotion is the transfer-admin mechanism (admins are peers). Cannot demote the last admin. Admin only.
+      operationId: setMemberRole
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+        - description: "Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential."
+          in: header
+          name: X-E2A-Workspace
+          schema:
+            description: "Active workspace id (ws_…). Session-only selector: chooses which of your workspaces this request acts in. Ignored for API-key / OAuth credentials, where the workspace is intrinsic to the credential."
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetMemberRoleInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Set a member's role
+      tags:
+        - workspaces
 servers:
   - description: Production
     url: https://api.e2a.dev

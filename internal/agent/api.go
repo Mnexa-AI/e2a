@@ -179,6 +179,7 @@ type API struct {
 	feedbackLimit     *ratelimit.Limiter
 	dcrLimit          *ratelimit.Limiter    // OAuth Dynamic Client Registration — anonymous endpoint, per-IP
 	downloadLimit     *ratelimit.Limiter    // attachment byte-download — capability-token route (no bearer), per-IP
+	inviteLimit       *ratelimit.Limiter    // workspace-invitation send — per-workspace (§4.6 spam-cannon guard)
 	approvalSigner    *approvaltoken.Signer // optional; if nil, magic-link endpoints return 404
 	notifier          *hitlnotify.Notifier  // optional; if nil, holdForApproval doesn't send notification email
 	oauthProvider     fosite.OAuth2Provider // optional; if nil, /oauth2/* endpoints return 404
@@ -482,6 +483,13 @@ func (a *API) DownloadLimitAllow(key string) (bool, time.Duration, int, int, int
 	return a.downloadLimit.AllowSnapshot(key)
 }
 
+// InviteLimitAllow exposes the per-workspace invitation limiter (key =
+// workspace id), returning the IETF RateLimit snapshot so the v1 httpapi layer
+// can map an exceeded limit to a 429 with Retry-After (§4.6).
+func (a *API) InviteLimitAllow(key string) (bool, time.Duration, int, int, int) {
+	return a.inviteLimit.AllowSnapshot(key)
+}
+
 // SetUsageStore wires in the usage store used by handleGetMyLimits to
 // surface the user's current counts (agents, domains, messages this
 // month, storage bytes) alongside the resolved caps. Separate from the
@@ -523,12 +531,13 @@ func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.
 		sharedDomain:  sharedDomain,
 		publicURL:     publicURL,
 		production:    production,
-		sendLimit:     ratelimit.New(1*time.Minute, 60), // 60 sends per agent per minute
-		regLimit:      ratelimit.New(1*time.Hour, 200),  // 200 registrations per IP per hour
-		pollLimit:     ratelimit.New(1*time.Minute, 60), // 60 poll requests per user per minute
-		feedbackLimit: ratelimit.New(1*time.Hour, 10),   // 10 feedback submissions per IP per hour
-		dcrLimit:      ratelimit.New(1*time.Hour, 10),   // 10 OAuth client registrations per IP per hour
+		sendLimit:     ratelimit.New(1*time.Minute, 60),  // 60 sends per agent per minute
+		regLimit:      ratelimit.New(1*time.Hour, 200),   // 200 registrations per IP per hour
+		pollLimit:     ratelimit.New(1*time.Minute, 60),  // 60 poll requests per user per minute
+		feedbackLimit: ratelimit.New(1*time.Hour, 10),    // 10 feedback submissions per IP per hour
+		dcrLimit:      ratelimit.New(1*time.Hour, 10),    // 10 OAuth client registrations per IP per hour
 		downloadLimit: ratelimit.New(1*time.Minute, 120), // 120 attachment downloads per IP per minute
+		inviteLimit:   ratelimit.New(1*time.Hour, 50),    // 50 workspace invitations per workspace per hour
 	}
 }
 
@@ -694,10 +703,52 @@ func (a *API) authenticatePrincipal(r *http.Request) (*identity.Principal, error
 	// Fall back to session cookie auth — the web dashboard owner, account scope.
 	if a.userAuth != nil {
 		if user := a.userAuth.AuthenticateRequest(r); user != nil {
-			return &identity.Principal{User: user, Scope: identity.ScopeAccount}, nil
+			return a.principalFromSession(r, user)
 		}
 	}
 	return nil, fmt.Errorf("authorization required")
+}
+
+// WorkspaceHeader is the request header a human session uses to select which
+// of the user's workspaces this request acts in (§4.2). On key/OAuth auth the
+// workspace is intrinsic, so the header is ignored (or 400 if it names a
+// different workspace) — it is a session-only selector.
+const WorkspaceHeader = "X-E2A-Workspace"
+
+// ErrWorkspaceForbidden is returned when an authenticated session names a
+// workspace (via WorkspaceHeader) it is not a live member of. It is distinct
+// from a plain auth failure so the v1 layer maps it to 403 (never a silent
+// fallback to the default workspace — §5 header-spoofing), not 401.
+var ErrWorkspaceForbidden = errors.New("not a member of the selected workspace")
+
+// principalFromSession resolves a human web/CLI session to a full principal:
+// account scope (a session is never agent-pinned) plus the active workspace
+// and the caller's live role in it (§4.2). The active workspace comes from the
+// X-E2A-Workspace header (membership-verified) → re-verified last_active →
+// the user's default workspace; the no-header path never 403s. A header naming
+// a workspace the user is not a member of → ErrWorkspaceForbidden (403).
+func (a *API) principalFromSession(r *http.Request, user *identity.User) (*identity.Principal, error) {
+	headerWS := strings.TrimSpace(r.Header.Get(WorkspaceHeader))
+	var sessionToken string
+	if c, err := r.Cookie(auth.SessionCookieName); err == nil {
+		sessionToken = c.Value
+	}
+	ws, role, err := a.store.ResolveActiveWorkspace(r.Context(), user.ID, headerWS, sessionToken)
+	if err != nil {
+		// A header naming a non-member workspace is an authorization failure
+		// (403), distinct from "no workspace at all" (which can't happen — the
+		// default always exists). Anything else is an internal resolution error.
+		if errors.Is(err, identity.ErrNotMember) {
+			return nil, ErrWorkspaceForbidden
+		}
+		return nil, err
+	}
+	return &identity.Principal{
+		User:      user,
+		Scope:     identity.ScopeAccount,
+		Workspace: ws,
+		Role:      role,
+	}, nil
 }
 
 // principalFromOAuthToken validates an ate2a_-prefixed bearer via fosite's
@@ -760,7 +811,24 @@ func (a *API) principalFromOAuthToken(r *http.Request, bearer string) (*identity
 	granted := ar.GetGrantedScopes()
 	switch {
 	case granted.Has(identity.ScopeAccount):
-		return &identity.Principal{User: u, Scope: identity.ScopeAccount}, nil
+		// account-scope OAuth resolves its tenant from the WorkspaceID pinned
+		// into the session at consent (§4.2.1). A pre-migration token whose
+		// session carries no WorkspaceID FAILS CLOSED (force re-consent) — it
+		// never falls back to a default workspace. (account-scope is in fact
+		// unreachable in v1 — DCR caps public clients to scope=agent — so this
+		// is primarily the fail-closed guard.)
+		if sess.WorkspaceID == "" {
+			return nil, fmt.Errorf("%w: account-scope token has no pinned workspace (re-consent required)", errOAuthBearerInvalid)
+		}
+		// B4: a user-consented token tracks the consenting user's LIVE
+		// membership of the resolved workspace — a removed member's token must
+		// stop acting as a team agent. This replaces the dropped
+		// ag.UserID==u.ID predicate.
+		ws, role, err := a.resolveTokenWorkspaceMembership(r.Context(), u.ID, sess.WorkspaceID)
+		if err != nil {
+			return nil, err
+		}
+		return &identity.Principal{User: u, Scope: identity.ScopeAccount, Workspace: ws, Role: role}, nil
 	case granted.Has(identity.ScopeAgent):
 		// Confine to the consent-bound agent. An agent-scoped token with no
 		// bound agent is malformed — reject rather than fall back to anything
@@ -772,17 +840,44 @@ func (a *API) principalFromOAuthToken(r *http.Request, bearer string) (*identity
 		if err != nil || ag == nil {
 			return nil, fmt.Errorf("%w: bound agent not found", errOAuthBearerInvalid)
 		}
-		// Ownership re-check: the bound agent must still belong to the token's
-		// user (defends against an agent reassigned/deleted-and-recreated under
-		// a different owner after consent).
-		if ag.UserID != u.ID {
-			return nil, fmt.Errorf("%w: bound agent not owned by token user", errOAuthBearerInvalid)
+		// B4: the bound agent's workspace is the token's tenant. In v1 an
+		// agent's workspace is its owner's deterministic default workspace
+		// (Slice 2 mints agents with DefaultWorkspaceID(user_id) and Migration
+		// A backfills the same). Re-verify the consenting user is still a LIVE
+		// member of that workspace on every request (replacing the dropped
+		// ag.UserID==u.ID check) — a removed member's token stops
+		// authenticating, even though a workspace service API key would survive
+		// (§4.2.1).
+		ws, role, err := a.resolveTokenWorkspaceMembership(r.Context(), u.ID, identity.DefaultWorkspaceID(ag.UserID))
+		if err != nil {
+			return nil, err
 		}
-		return &identity.Principal{User: u, Scope: identity.ScopeAgent, AgentID: ag.ID}, nil
+		return &identity.Principal{User: u, Scope: identity.ScopeAgent, AgentID: ag.ID, Workspace: ws, Role: role}, nil
 	default:
 		// Fail closed: a token that carries no recognized scope gets no access.
 		return nil, fmt.Errorf("%w: token carries no recognized scope (%v)", errOAuthBearerInvalid, []string(granted))
 	}
+}
+
+// resolveTokenWorkspaceMembership re-verifies, per request, that a
+// user-consented OAuth token's user is still a LIVE member of the workspace
+// the token resolves to (B4, §4.2.1). Tokens are member-capped regardless of
+// the user's live role, so Role is fixed to member. A non-member (the user was
+// removed from the workspace after consent) fails closed with the OAuth
+// challenge so the MCP client can re-consent. Returns the resolved workspace.
+func (a *API) resolveTokenWorkspaceMembership(ctx context.Context, userID, workspaceID string) (*identity.Workspace, string, error) {
+	if _, err := a.store.ResolveMembership(ctx, userID, workspaceID); err != nil {
+		if errors.Is(err, identity.ErrNotMember) {
+			return nil, "", fmt.Errorf("%w: user is no longer a member of the token's workspace", errOAuthBearerInvalid)
+		}
+		return nil, "", fmt.Errorf("%w: membership re-check failed: %v", errOAuthBearerInvalid, err)
+	}
+	ws, err := a.store.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, "", fmt.Errorf("%w: token workspace not found", errOAuthBearerInvalid)
+	}
+	// Tokens are member-capped regardless of the user's live role (§4.3.1).
+	return ws, identity.RoleMember, nil
 }
 
 // writeAuthError writes a 401 response with an RFC 6750 §3
@@ -1171,6 +1266,39 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		SentAs:            result.SentAs,
 		Method:            result.Method,
 	}, nil
+}
+
+// SendInvitationCore emails a workspace-invitation accept link via the
+// system-mail noreply path (design 2026-06-23 §4.6 step 2). It deliberately
+// uses the platform noreply@{fromDomain} sender + the SMTP relay directly —
+// NOT the agent-keyed outbound.Sender (which requires a verified-domain agent)
+// and NOT hitl-noreply@. Best-effort: the caller treats a send error as
+// non-fatal (the admin can re-invite, rotating the token). Returns an error
+// only so the caller can log it.
+func (a *API) SendInvitationCore(ctx context.Context, email, workspaceID, token string) error {
+	if a.smtpRelay == nil || a.fromDomain == "" {
+		return fmt.Errorf("system mail not configured")
+	}
+	envelopeFrom := fmt.Sprintf("noreply@%s", a.fromDomain)
+	headerFrom := fmt.Sprintf("%q <%s>", "e2a", envelopeFrom)
+	to := []string{email}
+	subject := "You've been invited to a workspace on e2a"
+	acceptURL := token
+	if a.publicURL != "" {
+		acceptURL = fmt.Sprintf("%s/invite/accept?token=%s", strings.TrimRight(a.publicURL, "/"), token)
+	}
+	body := fmt.Sprintf(
+		"You've been invited to join a workspace on e2a.\n\nAccept the invitation:\n%s\n\nIf you weren't expecting this, you can ignore this email.",
+		acceptURL,
+	)
+	message, err := outbound.ComposeMessage(headerFrom, to, nil, subject, body, "text/plain", "", nil, a.fromDomain, "", "")
+	if err != nil {
+		return fmt.Errorf("compose invitation email: %w", err)
+	}
+	if _, err := a.smtpRelay.Send(envelopeFrom, to, message); err != nil {
+		return fmt.Errorf("send invitation email: %w", err)
+	}
+	return nil
 }
 
 // SendTestCore composes and sends (or HITL-holds) a platform test email to

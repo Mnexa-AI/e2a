@@ -136,10 +136,13 @@ func (s *Store) CreateWebhook(ctx context.Context, userID, url, description stri
 		Enabled:       true,
 		CreatedAt:     time.Now(),
 	}
+	// Stamp workspace_id so the re-keyed (now per-workspace) inbound-routing
+	// fan-out never sees a NULL row (B3, §4.1). For v1 the webhook's workspace
+	// is the owner's default workspace; user_id stays for audit.
 	if _, err := s.pool.Exec(ctx,
-		`INSERT INTO webhooks (id, user_id, url, description, events, filters, signing_secret, enabled, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		w.ID, w.UserID, w.URL, w.Description, w.Events, filtersJSON, w.SigningSecret, w.Enabled, w.CreatedAt,
+		`INSERT INTO webhooks (id, user_id, workspace_id, url, description, events, filters, signing_secret, enabled, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		w.ID, w.UserID, DefaultWorkspaceID(userID), w.URL, w.Description, w.Events, filtersJSON, w.SigningSecret, w.Enabled, w.CreatedAt,
 	); err != nil {
 		return nil, fmt.Errorf("insert webhook: %w", err)
 	}

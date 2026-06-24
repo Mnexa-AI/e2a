@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -45,11 +46,16 @@ func (s *Store) Get(ctx context.Context, userID string) (Limits, bool, error) {
 // minimal "set limits" API for the sidecar without that code reaching
 // into the table directly.
 func (s *Store) Upsert(ctx context.Context, userID string, l Limits) error {
+	// account_limits PK flipped user_id → workspace_id in Migration A (the
+	// workspace is the limit/usage tenant, §4.7). Upsert keys on workspace_id;
+	// for v1 it is the user's deterministic default workspace. user_id stays
+	// populated for audit/back-compat reads. (The external billing sidecar
+	// re-keys its writer to workspace_id too — §8 #5.)
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO account_limits
-		    (user_id, plan_code, max_agents, max_domains, max_messages_month, max_storage_bytes, upgrade_url, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, now())
-		 ON CONFLICT (user_id) DO UPDATE SET
+		    (user_id, workspace_id, plan_code, max_agents, max_domains, max_messages_month, max_storage_bytes, upgrade_url, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+		 ON CONFLICT (workspace_id) DO UPDATE SET
 		    plan_code          = EXCLUDED.plan_code,
 		    max_agents         = EXCLUDED.max_agents,
 		    max_domains        = EXCLUDED.max_domains,
@@ -57,7 +63,7 @@ func (s *Store) Upsert(ctx context.Context, userID string, l Limits) error {
 		    max_storage_bytes  = EXCLUDED.max_storage_bytes,
 		    upgrade_url        = EXCLUDED.upgrade_url,
 		    updated_at         = now()`,
-		userID, l.PlanCode, l.MaxAgents, l.MaxDomains, l.MaxMessagesMonth, l.MaxStorageBytes, l.UpgradeURL,
+		userID, identity.DefaultWorkspaceID(userID), l.PlanCode, l.MaxAgents, l.MaxDomains, l.MaxMessagesMonth, l.MaxStorageBytes, l.UpgradeURL,
 	)
 	return err
 }

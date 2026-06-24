@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -48,10 +49,13 @@ func (s *Store) RecordUsageEvent(ctx context.Context, event *UsageEvent) error {
 	if event.EventType == "" {
 		event.EventType = "message"
 	}
+	// Stamp workspace_id (the limit/usage tenant, §4.7) so no usage_events row
+	// is minted NULL in the rollout window (B3). For v1 it is the user's
+	// default workspace; user_id stays (ON DELETE SET NULL) for audit.
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO usage_events (id, user_id, agent_id, domain, direction, event_type, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		event.ID, event.UserID, event.AgentID, event.Domain, event.Direction, event.EventType, event.CreatedAt,
+		`INSERT INTO usage_events (id, user_id, workspace_id, agent_id, domain, direction, event_type, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		event.ID, event.UserID, identity.DefaultWorkspaceID(event.UserID), event.AgentID, event.Domain, event.Direction, event.EventType, event.CreatedAt,
 	)
 	return err
 }
@@ -77,14 +81,18 @@ func (s *Store) IncrementUsageSummary(ctx context.Context, userID, bucketDate, d
 	} else {
 		outbound = 1
 	}
+	// usage_summaries PK flipped to (workspace_id, bucket_date) in Migration A
+	// (the per-month message-cap counter is per-workspace, §4.7). Key the
+	// upsert on workspace_id; for v1 it is the user's default workspace.
+	// user_id stays for audit.
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO usage_summaries (user_id, bucket_date, inbound_count, outbound_count, total_count)
-		 VALUES ($1, $2, $3, $4, $5)
-		 ON CONFLICT (user_id, bucket_date) DO UPDATE SET
-		   inbound_count = usage_summaries.inbound_count + $3,
-		   outbound_count = usage_summaries.outbound_count + $4,
-		   total_count = usage_summaries.total_count + $5`,
-		userID, bucketDate, inbound, outbound, inbound+outbound,
+		`INSERT INTO usage_summaries (user_id, workspace_id, bucket_date, inbound_count, outbound_count, total_count)
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 ON CONFLICT (workspace_id, bucket_date) DO UPDATE SET
+		   inbound_count = usage_summaries.inbound_count + $4,
+		   outbound_count = usage_summaries.outbound_count + $5,
+		   total_count = usage_summaries.total_count + $6`,
+		userID, identity.DefaultWorkspaceID(userID), bucketDate, inbound, outbound, inbound+outbound,
 	)
 	return err
 }
@@ -147,14 +155,19 @@ func (s *Store) MessagesThisMonth(ctx context.Context, userID string) (int, erro
 	return count, err
 }
 
-// GetStorageBytes returns the user's current materialized storage bytes
-// from account_usage. Returns 0 with no error if the user has no row
-// yet — the trigger in migration 016 lazily creates the row on first
-// message insert, so a pre-message user legitimately has 0 storage.
+// GetStorageBytes returns the workspace's current materialized storage bytes
+// from account_usage. Returns 0 with no error if there is no row yet — the
+// storage-delta trigger lazily creates the row on first message insert, so a
+// pre-message tenant legitimately has 0 storage.
+//
+// account_usage re-keyed to workspace_id in Migration A and the storage
+// trigger now upserts by workspace_id (the workspace is the usage tenant,
+// §4.7), so this read keys on workspace_id. For v1 it resolves the user's
+// default workspace; the userID argument is kept for call-site stability.
 func (s *Store) GetStorageBytes(ctx context.Context, userID string) (int64, error) {
 	var bytes int64
 	err := s.pool.QueryRow(ctx,
-		`SELECT storage_bytes FROM account_usage WHERE user_id = $1`, userID,
+		`SELECT storage_bytes FROM account_usage WHERE workspace_id = $1`, identity.DefaultWorkspaceID(userID),
 	).Scan(&bytes)
 	if err != nil {
 		// No row yet → 0 bytes. The trigger creates rows lazily on

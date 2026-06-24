@@ -111,9 +111,12 @@ func TestOutboundRetention_MetersStorage(t *testing.T) {
 	ctx := context.Background()
 	userID, agentID := seedRetentionAgent(t, store, ctx, "retmeter.example.com")
 
+	// account_usage re-keyed to workspace_id (Migration A) and the storage
+	// trigger upserts by workspace_id, so read by the user's default workspace.
 	storageBytes := func() int64 {
 		var n int64
-		_ = pool.QueryRow(ctx, `SELECT COALESCE(storage_bytes, 0) FROM account_usage WHERE user_id=$1`, userID).Scan(&n)
+		_ = pool.QueryRow(ctx, `SELECT COALESCE(storage_bytes, 0) FROM account_usage WHERE workspace_id=$1`,
+			identity.DefaultWorkspaceID(userID)).Scan(&n)
 		return n
 	}
 

@@ -17,8 +17,9 @@ type APIKeyView struct {
 	ID         string     `json:"id"`
 	Name       string     `json:"name"`
 	KeyPrefix  string     `json:"key_prefix" doc:"Non-secret visible prefix (e.g. e2a_acct_… / e2a_agt_…)."`
-	Scope      string     `json:"scope" enum:"account,agent" doc:"account = workspace admin; agent = bound to one inbox."`
+	Scope      string     `json:"scope" enum:"account,agent" doc:"account = workspace-wide (member floor); agent = bound to one inbox."`
 	Agent      string     `json:"agent,omitempty" doc:"Bound inbox email for agent-scoped keys; omitted for account scope."`
+	CreatedBy  string     `json:"created_by,omitempty" doc:"User id that minted the key (audit / revoke-scoping). Empty when the minter has since been deleted."`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
@@ -36,12 +37,17 @@ func apiKeyView(k identity.APIKey) APIKeyView {
 	if k.AgentID != nil {
 		agent = *k.AgentID
 	}
+	createdBy := ""
+	if k.CreatedBy != nil {
+		createdBy = *k.CreatedBy
+	}
 	return APIKeyView{
 		ID:         k.ID,
 		Name:       k.Name,
 		KeyPrefix:  k.KeyPrefix,
 		Scope:      k.Scope,
 		Agent:      agent,
+		CreatedBy:  createdBy,
 		CreatedAt:  k.CreatedAt,
 		LastUsedAt: k.LastUsedAt,
 		ExpiresAt:  k.ExpiresAt,
@@ -91,14 +97,20 @@ func (s *Server) registerAPIKeys() {
 }
 
 func (s *Server) handleListAPIKeys(ctx context.Context, _ *struct{}) (*listAPIKeysOutput, error) {
-	user, err := s.requireAccountUser(ctx)
+	// Keys are workspace service credentials (§4.3.1): account-scope ceiling
+	// (an agent-scoped credential cannot manage keys) AND a resolved active
+	// workspace so the list is the whole workspace's key set, created_by shown.
+	p, err := s.requireAccountScope(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if s.deps.ListAPIKeys == nil {
+	if s.deps.ListAPIKeysForWorkspace == nil {
 		return nil, NewError(http.StatusNotImplemented, "not_implemented", "API keys are not available on this deployment")
 	}
-	keys, err := s.deps.ListAPIKeys(ctx, user.ID)
+	if p.Workspace == nil {
+		return nil, NewError(http.StatusForbidden, "forbidden", "no active workspace resolved for this credential")
+	}
+	keys, err := s.deps.ListAPIKeysForWorkspace(ctx, p.Workspace.ID)
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list API keys")
 	}
@@ -165,16 +177,26 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, in *createAPIKeyInput) 
 }
 
 func (s *Server) handleDeleteAPIKey(ctx context.Context, in *deleteAPIKeyInput) (*deleteAPIKeyOutput, error) {
-	user, err := s.requireAccountUser(ctx)
+	// Revoke authority is creator-own / admin-any within the active workspace
+	// (§4.3.1 / §5): account-scope ceiling, then a resolved workspace + the
+	// caller's role decide whether the revoke is permitted.
+	p, err := s.requireAccountScope(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if s.deps.DeleteAPIKey == nil {
+	if s.deps.RevokeAPIKeyInWorkspace == nil {
 		return nil, NewError(http.StatusNotImplemented, "not_implemented", "API keys are not available on this deployment")
 	}
-	if err := s.deps.DeleteAPIKey(ctx, in.ID, user.ID); err != nil {
+	if p.Workspace == nil {
+		return nil, NewError(http.StatusForbidden, "forbidden", "no active workspace resolved for this credential")
+	}
+	isAdmin := p.Role == identity.RoleAdmin
+	if err := s.deps.RevokeAPIKeyInWorkspace(ctx, in.ID, p.Workspace.ID, p.User.ID, isAdmin); err != nil {
 		if errors.Is(err, identity.ErrAPIKeyNotFound) {
 			return nil, NewError(http.StatusNotFound, "not_found", "API key not found")
+		}
+		if errors.Is(err, identity.ErrAPIKeyForbidden) {
+			return nil, NewError(http.StatusForbidden, "forbidden", "only the key's creator or a workspace admin may revoke this key")
 		}
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to revoke API key")
 	}

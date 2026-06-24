@@ -7,6 +7,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -214,13 +215,17 @@ func writeOutboxRow(ctx context.Context, exec outboxExecutor, e Event) error {
 	// created_at and expires_at use the column DEFAULTs so the
 	// timestamps come from the Postgres server clock (one clock per
 	// primary writer; no application-side skew).
+	// Stamp workspace_id so the shared per-workspace event log / outbox never
+	// fragments on a NULL row in the rollout window (B3, §4.1). For v1 the
+	// event's workspace is the owning user's default workspace; user_id is
+	// retained for audit / back-compat reads.
 	_, err = exec.Exec(ctx,
 		`INSERT INTO webhook_events
-		    (id, user_id, type, aud, envelope, schema_version,
+		    (id, user_id, workspace_id, type, aud, envelope, schema_version,
 		     agent_id, conversation_id, message_id, status)
-		 VALUES ($1, $2, $3, 'webhook', $4, 1, $5, $6, $7, 'pending')
+		 VALUES ($1, $2, $3, $4, 'webhook', $5, 1, $6, $7, $8, 'pending')
 		 ON CONFLICT (id) DO NOTHING`,
-		e.ID, e.UserID, e.Type, envelopeJSON,
+		e.ID, e.UserID, identity.DefaultWorkspaceID(e.UserID), e.Type, envelopeJSON,
 		agentID, conversationID, messageID,
 	)
 	if err != nil {

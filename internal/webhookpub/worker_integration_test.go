@@ -29,6 +29,7 @@ func seedWebhookFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, s
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
+	seedWorkspaceFor(t, ctx, pool, userID)
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO domains (domain, user_id, verified, verification_token, created_at)
 		 VALUES ($1, $2, true, 'tkn', now())
@@ -127,6 +128,7 @@ func TestOutboxWorker_Integration_NoMatchTransition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
+	seedWorkspaceFor(t, ctx, pool, userID)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM webhook_events WHERE user_id = $1`, userID)
 		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)

@@ -20,6 +20,7 @@ import json
 from pydantic import BaseModel, ConfigDict, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.account_user_view import AccountUserView
+from e2a.v1.generated.models.account_workspace_view import AccountWorkspaceView
 from e2a.v1.generated.models.limits_caps_view import LimitsCapsView
 from e2a.v1.generated.models.limits_usage_view import LimitsUsageView
 from typing import Optional, Set
@@ -32,11 +33,13 @@ class AccountView(BaseModel):
     agent_address: Optional[StrictStr] = None
     limits: LimitsCapsView
     plan_code: StrictStr
+    role: Optional[StrictStr] = None
     scope: StrictStr
     upgrade_url: StrictStr
     usage: LimitsUsageView
     user: AccountUserView
-    __properties: ClassVar[List[str]] = ["agent_address", "limits", "plan_code", "scope", "upgrade_url", "usage", "user"]
+    workspace: Optional[AccountWorkspaceView] = None
+    __properties: ClassVar[List[str]] = ["agent_address", "limits", "plan_code", "role", "scope", "upgrade_url", "usage", "user", "workspace"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -86,6 +89,9 @@ class AccountView(BaseModel):
         # override the default output from pydantic by calling `to_dict()` of user
         if self.user:
             _dict['user'] = self.user.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of workspace
+        if self.workspace:
+            _dict['workspace'] = self.workspace.to_dict()
         return _dict
 
     @classmethod
@@ -101,10 +107,12 @@ class AccountView(BaseModel):
             "agent_address": obj.get("agent_address"),
             "limits": LimitsCapsView.from_dict(obj["limits"]) if obj.get("limits") is not None else None,
             "plan_code": obj.get("plan_code"),
+            "role": obj.get("role"),
             "scope": obj.get("scope"),
             "upgrade_url": obj.get("upgrade_url"),
             "usage": LimitsUsageView.from_dict(obj["usage"]) if obj.get("usage") is not None else None,
-            "user": AccountUserView.from_dict(obj["user"]) if obj.get("user") is not None else None
+            "user": AccountUserView.from_dict(obj["user"]) if obj.get("user") is not None else None,
+            "workspace": AccountWorkspaceView.from_dict(obj["workspace"]) if obj.get("workspace") is not None else None
         })
         return _obj
 

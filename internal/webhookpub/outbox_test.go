@@ -224,17 +224,17 @@ func TestWriteOutboxRow_NilsEmptyOptionals(t *testing.T) {
 	if err := writeOutboxRow(context.Background(), fe, e); err != nil {
 		t.Fatalf("writeOutboxRow err: %v", err)
 	}
-	if len(fe.args) < 1 || len(fe.args[0]) < 7 {
+	if len(fe.args) < 1 || len(fe.args[0]) < 8 {
 		t.Fatalf("not enough args captured: %v", fe.args)
 	}
-	// args order in writeOutboxRow: id, userID, type, envelopeJSON, agentID, conversationID, messageID
-	// indices            0,    1,      2,     3,            4,        5,              6
-	// args[4..6] are *string for agent_id, conversation_id, message_id.
+	// args order in writeOutboxRow: id, userID, workspaceID, type, envelopeJSON, agentID, conversationID, messageID
+	// indices            0,    1,      2,           3,    4,            5,        6,              7
+	// args[5..7] are *string for agent_id, conversation_id, message_id.
 	// Empty event fields should become typed-nil pointers so pgx
 	// passes SQL NULL to the column. Use reflect to dereference the
 	// interface and check the underlying pointer is nil.
 	for i, name := range []string{"agent_id", "conversation_id", "message_id"} {
-		v := reflect.ValueOf(fe.args[0][4+i])
+		v := reflect.ValueOf(fe.args[0][5+i])
 		if v.Kind() != reflect.Ptr {
 			t.Errorf("%s arg should be *string, got %s", name, v.Kind())
 			continue

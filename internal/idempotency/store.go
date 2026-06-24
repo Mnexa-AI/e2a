@@ -28,6 +28,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -162,6 +163,13 @@ func (s *Store) Claim(ctx context.Context, userID, key, path, bodyHash string) (
 
 	staleSecs := int(StaleClaimWindow.Seconds())
 
+	// Dedup widens to the workspace (§4.1): idempotency_keys PK flipped to
+	// (workspace_id, key) in Migration A, so the claim keys on workspace_id —
+	// two members in one workspace replaying the same key now collide (a
+	// deliberate, documented choice). For v1 the workspace is the user's
+	// default workspace; user_id is retained for audit.
+	wsID := identity.DefaultWorkspaceID(userID)
+
 	// Atomic claim path. Returns a row iff we own the slot — either as
 	// a fresh INSERT, or as a stale-takeover where the DO UPDATE's
 	// WHERE clause is true. Returns no rows when an existing row
@@ -170,12 +178,12 @@ func (s *Store) Claim(ctx context.Context, userID, key, path, bodyHash string) (
 	var owned int
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO idempotency_keys (
-		     user_id, key, request_path, request_body_hash,
+		     user_id, workspace_id, key, request_path, request_body_hash,
 		     response_status, response_content_type, response_body,
 		     status, created_at, completed_at
 		 )
-		 VALUES ($1, $2, $3, $4, 0, '', ''::bytea, 'in_progress', now(), NULL)
-		 ON CONFLICT (user_id, key) DO UPDATE
+		 VALUES ($1, $2, $3, $4, $5, 0, '', ''::bytea, 'in_progress', now(), NULL)
+		 ON CONFLICT (workspace_id, key) DO UPDATE
 		    SET request_path          = EXCLUDED.request_path,
 		        request_body_hash     = EXCLUDED.request_body_hash,
 		        response_status       = 0,
@@ -185,9 +193,9 @@ func (s *Store) Claim(ctx context.Context, userID, key, path, bodyHash string) (
 		        created_at            = now(),
 		        completed_at          = NULL
 		  WHERE idempotency_keys.status = 'in_progress'
-		    AND idempotency_keys.created_at < now() - make_interval(secs => $5)
+		    AND idempotency_keys.created_at < now() - make_interval(secs => $6)
 		 RETURNING 1`,
-		userID, key, path, bodyHash, staleSecs,
+		userID, wsID, key, path, bodyHash, staleSecs,
 	).Scan(&owned)
 	if err == nil {
 		return ClaimResult{Outcome: OutcomeAcquired}, nil
@@ -208,8 +216,8 @@ func (s *Store) Claim(ctx context.Context, userID, key, path, bodyHash string) (
 		`SELECT status, request_body_hash, response_status,
 		        response_content_type, response_body
 		   FROM idempotency_keys
-		  WHERE user_id = $1 AND key = $2`,
-		userID, key,
+		  WHERE workspace_id = $1 AND key = $2`,
+		wsID, key,
 	).Scan(&gotStatus, &gotHash, &gotCode, &gotCT, &gotBody)
 	if err != nil {
 		// The row has to exist — we just lost a conflict against it.
@@ -252,8 +260,8 @@ func (s *Store) Complete(ctx context.Context, userID, key string, resp CachedRes
 		        response_content_type = $4,
 		        response_body         = $5,
 		        completed_at          = now()
-		  WHERE user_id = $1 AND key = $2 AND status = 'in_progress'`,
-		userID, key, resp.StatusCode, resp.ContentType, resp.Body,
+		  WHERE workspace_id = $1 AND key = $2 AND status = 'in_progress'`,
+		identity.DefaultWorkspaceID(userID), key, resp.StatusCode, resp.ContentType, resp.Body,
 	)
 	return err
 }
@@ -269,8 +277,8 @@ func (s *Store) Complete(ctx context.Context, userID, key string, resp CachedRes
 func (s *Store) Release(ctx context.Context, userID, key string) error {
 	_, err := s.pool.Exec(ctx,
 		`DELETE FROM idempotency_keys
-		  WHERE user_id = $1 AND key = $2 AND status = 'in_progress'`,
-		userID, key,
+		  WHERE workspace_id = $1 AND key = $2 AND status = 'in_progress'`,
+		identity.DefaultWorkspaceID(userID), key,
 	)
 	return err
 }

@@ -26,10 +26,25 @@ type AccountView struct {
 	User         AccountUserView `json:"user"`
 	Scope        string          `json:"scope" enum:"account,agent"`
 	AgentAddress string          `json:"agent_address,omitempty"`
-	PlanCode     string          `json:"plan_code"`
-	Limits       LimitsCapsView  `json:"limits"`
-	Usage        LimitsUsageView `json:"usage"`
-	UpgradeURL   string          `json:"upgrade_url"`
+	// Workspace is the active workspace this request resolved to (§4.4): for key
+	// auth it is intrinsic to the credential; for a human session it is the one
+	// selected via X-E2A-Workspace (or the default). Role is the caller's role
+	// in it. Additive fields — Limits/Usage now reflect this active workspace's
+	// tenancy rather than the user. Omitted on auth paths that resolved no
+	// workspace (e.g. a pre-migration account-scope OAuth token).
+	Workspace  *AccountWorkspaceView `json:"workspace,omitempty"`
+	Role       string                `json:"role,omitempty" enum:"admin,member"`
+	PlanCode   string                `json:"plan_code"`
+	Limits     LimitsCapsView        `json:"limits"`
+	Usage      LimitsUsageView       `json:"usage"`
+	UpgradeURL string                `json:"upgrade_url"`
+}
+
+// AccountWorkspaceView is the active workspace identity embedded in the whoami
+// response (§4.4 — id + name).
+type AccountWorkspaceView struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type LimitsCapsView struct {
@@ -254,10 +269,19 @@ func (s *Server) handleGetMyLimits(ctx context.Context, _ *struct{}) (*accountOu
 	if p.Scope == identity.ScopeAgent {
 		agentAddress = p.AgentID
 	}
+	// Active workspace + role (§4.4): additive whoami fields. Omitted when the
+	// credential resolved no workspace (e.g. a pre-migration account-scope OAuth
+	// token that fails closed elsewhere).
+	var wsView *AccountWorkspaceView
+	if p.Workspace != nil {
+		wsView = &AccountWorkspaceView{ID: p.Workspace.ID, Name: p.Workspace.Name}
+	}
 	return &accountOutput{Body: AccountView{
 		User:         AccountUserView{ID: user.ID, Email: user.Email},
 		Scope:        p.Scope,
 		AgentAddress: agentAddress,
+		Workspace:    wsView,
+		Role:         p.Role,
 		PlanCode:     caps.PlanCode,
 		Limits: LimitsCapsView{
 			MaxAgents:        caps.MaxAgents,

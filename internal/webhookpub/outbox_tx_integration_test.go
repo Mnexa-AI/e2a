@@ -38,6 +38,7 @@ func TestOutbox_Integration_RelayTxShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
+	seedWorkspaceFor(t, ctx, pool, userID)
 	_, err = pool.Exec(ctx,
 		`INSERT INTO domains (domain, user_id, verified, verification_token, created_at)
 		 VALUES ($1, $2, true, 'tkn', now())

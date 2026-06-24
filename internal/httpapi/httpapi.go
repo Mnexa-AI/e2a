@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -195,10 +196,37 @@ type Deps struct {
 
 	// API keys (account-scope management). CreateScopedAPIKey returns the
 	// minted key including its one-time plaintext; agentID is "" for account
-	// scope and a resolved agent id for agent scope.
-	CreateScopedAPIKey func(ctx context.Context, userID, name, scope, agentID string, expiresAt *time.Time) (*identity.APIKey, error)
-	ListAPIKeys        func(ctx context.Context, userID string) ([]identity.APIKey, error)
-	DeleteAPIKey       func(ctx context.Context, keyID, userID string) error
+	// scope and a resolved agent id for agent scope. Keys are workspace service
+	// credentials (§4.3.1): list is per-workspace and shows created_by, revoke
+	// is creator-own / admin-any.
+	CreateScopedAPIKey      func(ctx context.Context, userID, name, scope, agentID string, expiresAt *time.Time) (*identity.APIKey, error)
+	ListAPIKeysForWorkspace func(ctx context.Context, workspaceID string) ([]identity.APIKey, error)
+	RevokeAPIKeyInWorkspace func(ctx context.Context, keyID, workspaceID, actorUserID string, actorIsAdmin bool) error
+
+	// Workspaces (design 2026-06-23 §4.4–§4.6). The closures bind the
+	// identity.Store workspace methods; nil leaves the /v1/workspaces surface
+	// returning 501. ResolveMembership is the per-request authz lookup used by
+	// the workspace handlers to re-verify membership of the path workspace id.
+	ListWorkspacesForUser  func(ctx context.Context, userID string) ([]identity.Workspace, []string, error)
+	GetWorkspace           func(ctx context.Context, id string) (*identity.Workspace, error)
+	RenameWorkspace        func(ctx context.Context, workspaceID, name, actorUserID string) error
+	ResolveMembership      func(ctx context.Context, userID, workspaceID string) (string, error)
+	ListMembers            func(ctx context.Context, workspaceID string) ([]identity.WorkspaceMember, error)
+	SetMemberRole          func(ctx context.Context, workspaceID, userID, newRole, actorUserID string) error
+	RemoveMember           func(ctx context.Context, workspaceID, userID, actorUserID string) error
+	IsMemberByEmail        func(ctx context.Context, workspaceID, email string) (bool, error)
+	CreateInvitation       func(ctx context.Context, workspaceID, email, role, invitedBy string) (*identity.WorkspaceInvitation, error)
+	ListPendingInvitations func(ctx context.Context, workspaceID string) ([]identity.WorkspaceInvitation, error)
+	RevokeInvitation       func(ctx context.Context, workspaceID, invitationID, actorUserID string) error
+	AcceptInvitation       func(ctx context.Context, token, userID, userEmail string) (*identity.WorkspaceMember, error)
+	// SendInvitationEmail delivers the accept link via the system-mail noreply
+	// path (§4.6 step 2 — not the agent-keyed sender). workspaceID + token build
+	// the link. Best-effort: a send failure does not roll back the invite.
+	SendInvitationEmail func(ctx context.Context, email, workspaceID, token string) error
+	// InviteLimit is the per-workspace invitation rate limiter (key = workspace
+	// id) so a compromised admin session can't spam-cannon invites (§4.6).
+	// Optional — nil disables the limit.
+	InviteLimit RateSnapshot
 
 	// domain verification
 	TouchDomainChecked func(ctx context.Context, domain, userID string) error
@@ -341,6 +369,7 @@ func (s *Server) registerOperations() {
 	s.registerEvents()
 	s.registerAccount()
 	s.registerAPIKeys()
+	s.registerWorkspaces()
 	s.registerOutbound()
 	s.registerHITL()
 }
@@ -393,6 +422,14 @@ func (s *Server) requirePrincipal(ctx context.Context) (*identity.Principal, err
 	}
 	p, err := s.resolvePrincipal(r)
 	if err != nil {
+		// A session that named a workspace it is not a live member of is an
+		// authorization failure, not an authentication one (§4.2 / §5
+		// header-spoofing): the credential is valid, the selected workspace is
+		// forbidden. Map it to 403, never a silent fallback.
+		if errors.Is(err, agent.ErrWorkspaceForbidden) {
+			return nil, NewError(http.StatusForbidden, "forbidden",
+				"you are not a member of the selected workspace")
+		}
 		return nil, NewError(http.StatusUnauthorized, "unauthorized", "authentication required")
 	}
 	return p, nil
