@@ -662,3 +662,82 @@ func summarize(c []testutil.SubscriberCaptured) string {
 	}
 	return strings.Join(parts, " ")
 }
+
+// ----------------------------------------------------------------------
+// P6 — conversation_id is agent-owned and maintained across the thread
+// ----------------------------------------------------------------------
+
+// TestWebhooksE2E_ConversationThreadedFromAgentReply proves the
+// agent-owned conversation model end to end: first-contact inbound has no
+// thread context (conversation_id=""), but once the agent has replied with
+// its OWN id (stored on the outbound with that reply's Message-ID in
+// provider_message_id), an external follow-up that References the reply is
+// threaded back to the agent's id — and the email.received webhook echoes
+// that id so the agent re-maps to its internal conversation.
+//
+// The agent's reply is recorded via the store rather than POSTed: replying
+// to an external recipient needs an upstream SMTP relay the CI harness
+// doesn't wire (the skipped TestOutbound* tests), and Mailpit's
+// 250-response provider_message_id is not a real Message-ID, so it makes a
+// poor References anchor. The row written here is the shape the reply
+// handler persists, with the clean Message-ID an SES send would yield. The
+// threading itself — the behavior under test — runs through the real relay
+// + resolveConversationID.
+func TestWebhooksE2E_ConversationThreadedFromAgentReply(t *testing.T) {
+	pool := testutil.TestDB(t)
+	receiver := testutil.SubscriberReceiver(t)
+	ts := testutil.TestServer(t, pool)
+	ctx := context.Background()
+
+	user, _, agent := setupDomainAndAgent(t, ts, "agent@conv.example.com", "conv.example.com", "", "")
+	registerWebhook(t, ts, user.ID, receiver.Server.URL+"/received",
+		[]string{"email.received"}, identity.WebhookFilters{})
+
+	// (1) First-contact inbound — no References, no prior thread → "".
+	msg1 := "From: alice@gmail.com\r\nTo: agent@conv.example.com\r\n" +
+		"Subject: Project kickoff\r\nMessage-ID: <kick-1@gmail.com>\r\n\r\nLet's start."
+	if err := smtp.SendMail(ts.SMTPAddr, nil, "alice@gmail.com", []string{"agent@conv.example.com"}, []byte(msg1)); err != nil {
+		t.Fatalf("SendMail #1: %v", err)
+	}
+	tick(t, ts)
+	got := receiver.WaitFor(t, 5*time.Second, func(c []testutil.SubscriberCaptured) bool { return len(c) >= 1 })
+	if len(got) != 1 {
+		t.Fatalf("first inbound: got %d captures, want 1", len(got))
+	}
+	d1, _ := got[0].Envelope["data"].(map[string]any)
+	if cv := fmt.Sprint(d1["conversation_id"]); cv != "" {
+		t.Errorf("first-contact conversation_id = %q, want \"\" (no thread context yet)", cv)
+	}
+
+	// (2) The agent replies, stamping its own conversation id. Recorded
+	// directly (see doc comment) with the reply's Message-ID in
+	// provider_message_id — exactly what an external client will reference.
+	const agentConvID = "conv_agent_thread_1"
+	const replyMsgID = "<agent-reply-1@conv.example.com>"
+	if _, err := ts.Store.CreateOutboundMessage(ctx, agent.ID,
+		[]string{"alice@gmail.com"}, nil, nil, "Re: Project kickoff",
+		"reply", "smtp", replyMsgID, agentConvID, nil); err != nil {
+		t.Fatalf("record agent reply: %v", err)
+	}
+
+	// (3) Alice replies to the agent's reply (References it, Gmail-style).
+	// The relay must resolve the agent's conversation_id and the webhook
+	// must carry it back.
+	receiver.Reset()
+	msg2 := "From: alice@gmail.com\r\nTo: agent@conv.example.com\r\n" +
+		"Subject: Re: Project kickoff\r\nMessage-ID: <kick-2@gmail.com>\r\n" +
+		"In-Reply-To: " + replyMsgID + "\r\n" +
+		"References: <kick-1@gmail.com> " + replyMsgID + "\r\n\r\nFollowing up."
+	if err := smtp.SendMail(ts.SMTPAddr, nil, "alice@gmail.com", []string{"agent@conv.example.com"}, []byte(msg2)); err != nil {
+		t.Fatalf("SendMail #2: %v", err)
+	}
+	tick(t, ts)
+	got2 := receiver.WaitFor(t, 5*time.Second, func(c []testutil.SubscriberCaptured) bool { return len(c) >= 1 })
+	if len(got2) != 1 {
+		t.Fatalf("follow-up inbound: got %d captures, want 1", len(got2))
+	}
+	d2, _ := got2[0].Envelope["data"].(map[string]any)
+	if cv := fmt.Sprint(d2["conversation_id"]); cv != agentConvID {
+		t.Errorf("follow-up conversation_id = %q, want %q (threaded back to the agent's id)", cv, agentConvID)
+	}
+}
