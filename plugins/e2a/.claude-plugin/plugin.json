@@ -1,7 +1,7 @@
 {
   "name": "e2a",
   "version": "0.3.2",
-  "description": "Authenticated email gateway for AI agents — per-agent inboxes, HITL approval, SPF/DKIM verification, and audit-grade send/receive. 18 MCP tools over hosted streamable HTTP with OAuth.",
+  "description": "Authenticated email gateway for AI agents — per-agent inboxes, HITL approval, SPF/DKIM verification, and a queryable, replayable event log. 37 MCP tools over hosted streamable HTTP with OAuth.",
   "author": {
     "name": "Mnexa AI",
     "url": "https://e2a.dev"

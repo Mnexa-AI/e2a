@@ -135,7 +135,7 @@ async for n in client.listen("bot@agents.e2a.dev"):
 ## Raw REST (without an SDK)
 
 No SDK for your language? Call the API directly. Base URL
-`https://e2a.dev/v1/...`, JSON in/out, bearer auth on every request:
+`https://api.e2a.dev/v1/...`, JSON in/out, bearer auth on every request:
 
 ```
 Authorization: Bearer <e2a_acct_… | e2a_agt_… | OAuth access token>

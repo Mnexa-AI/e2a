@@ -151,7 +151,7 @@ Run a single Go test against the local DB:
 
 ```bash
 E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" \
-  go test ./internal/agent/ -run TestApprovePendingMessage_AgentScopedPath_Succeeds -v
+  go test ./internal/identity/ -run TestApproveAndSendHappyPath -v
 ```
 
 Other surfaces:
@@ -283,7 +283,7 @@ flake hits you, re-run the job rather than disabling the test.
 - **Security issues** — see [SECURITY.md](./SECURITY.md). Don't open a
   public issue for security reports.
 
-A good bug report includes: e2a version (`./bin/e2a -version` or the
-git SHA), the exact command, the relevant log lines, and what you
+A good bug report includes: the e2a version (the git SHA or release
+tag), the exact command, the relevant log lines, and what you
 expected vs. what happened. For SMTP / inbound issues, the
 `[mail:<id>]` log line is the most useful thing to paste.

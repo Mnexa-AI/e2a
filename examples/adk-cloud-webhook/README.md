@@ -1,7 +1,7 @@
 # ADK + e2a: an email inbox for a Google ADK agent
 
 A minimal end-to-end example: a Google [Agent Development Kit](https://adk.dev/)
-agent receives email through an [e2a](https://e2a.dev) cloud-mode webhook,
+agent receives email through an [e2a](https://e2a.dev) webhook subscription,
 runs a turn, and replies — keeping a per-thread conversation memory by
 mapping e2a's `conversation_id` to ADK's `session_id`.
 
@@ -26,12 +26,13 @@ e2a relay -> SMTP -> human
 ## Prerequisites
 
 - Python 3.10+
-- An e2a account with a registered **cloud-mode** agent. Sign up at
-  [e2a.dev](https://e2a.dev), create an agent, set its mode to `cloud`.
-  You'll need its **API key**, an **HMAC signing secret** (create one
-  on the dashboard's **Webhook secrets** page — copy it the moment it's
-  shown, it's not retrievable later), and a public webhook URL (see
-  "Exposing the webhook" below).
+- An e2a account with a registered agent. Sign up at
+  [e2a.dev](https://e2a.dev) and create an agent. You'll need its
+  **API key** and a public webhook URL (see "Exposing the webhook"
+  below). The webhook's **HMAC signing secret** is returned once when you
+  create the subscription (`POST /v1/webhooks` — copy it the moment it's
+  shown, it's not retrievable later; rotate via
+  `POST /v1/webhooks/{id}/rotate-secret`).
 - A Google AI Studio API key for Gemini —
   [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
 
@@ -74,7 +75,7 @@ resource (`/v1/webhooks`) — pass the agent's address as a filter (replace
 `<YOUR_AGENT_EMAIL>` and `<YOUR_API_KEY>`):
 
 ```bash
-curl -X POST https://e2a.dev/v1/webhooks \
+curl -X POST https://api.e2a.dev/v1/webhooks \
   -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -134,7 +135,8 @@ field on the parsed payload.
   ignores it. ADK's `Content` supports inline data parts if you want to
   feed attachments to a vision model.
 - **HITL.** The agent replies immediately. If you want human approval
-  before the reply goes out, enable HITL on the agent
-  ([docs](https://github.com/Mnexa-AI/e2a/blob/main/README.md)) and the
-  `client.messages.reply(...)` call returns `status: "pending_approval"`
+  before the reply goes out, enable review holds on the agent's
+  protection config (`PUT /v1/agents/{address}/protection`,
+  [docs](https://github.com/Mnexa-AI/e2a/blob/main/README.md)) and the
+  `client.messages.reply(...)` call returns `status: "pending_review"`
   with the reply held for review.

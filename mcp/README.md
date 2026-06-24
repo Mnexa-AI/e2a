@@ -114,13 +114,13 @@ Hosts that support OAuth connectors can instead add `https://api.e2a.dev/mcp` as
 
 ## Tools
 
-The server exposes up to **35** tools spanning agents, messages, human-in-the-loop
+The server exposes up to **37** tools spanning agents, messages, human-in-the-loop
 approval, attachments, domains, events, and webhooks. **The visible set depends on
 your credential's scope (§6a):** an **agent**-scoped credential sees the 14
 runtime/inbox tools (read, send, reply, and view its pending queue); an
-**account**-scoped credential also sees the admin/setup tools (agent/domain/
+**account**-scoped credential also sees the 23 admin/setup tools (agent/domain/
 webhook/event management — **and HITL approve/reject, which is an account-owner
-action, never agent self-approval**) — all 35.
+action, never agent self-approval**) — all 37.
 Every tool carries MCP annotations (`readOnlyHint`/`destructiveHint`/
 `idempotentHint`) so hosts can auto-approve reads and flag destructive actions.
 The tables below highlight the most commonly used ones — your MCP host's tool list
@@ -132,6 +132,7 @@ shows the set your scope allows, with per-tool descriptions.
 | --- | --- |
 | `whoami` | Get the authenticated account's identity — user, scope, plan/limits; for an agent-scoped credential, also the bound agent address. |
 | `list_agents` | List every agent inbox owned by the authenticated user. |
+| `get_agent` | Get one agent inbox by its full email address. |
 | `create_agent` | Register a new agent by its full email address — on a verified domain you own, or the deployment's shared domain. No delivery "mode": inbound is always available via `list_messages` (poll) or a `create_webhook` subscription. (Admin/account-scoped.) |
 
 > **Webhook deliveries are signed — verify them.** Push delivery is a top-level
@@ -147,11 +148,12 @@ shows the set your scope allows, with per-tool descriptions.
 
 | Tool | Description |
 | --- | --- |
-| `send_email` | Send a new email. When the agent's outbound policy or content scan holds it for review, the message is held and returns `status: pending_review` instead of `sent`. |
+| `send_message` | Send a new email. When the agent's outbound policy or content scan holds it for review, the message is held and returns `status: pending_review` instead of `sent`. |
 | `reply_to_message` | Reply to an inbound message. Preserves In-Reply-To / References for thread continuity. |
 | `list_messages` | List inbound mail. Filter by `read_status` (unread / read / all); cursor-paginated (`cursor` + `limit` in, `next_cursor` out). |
 | `get_message` | Fetch full body, headers, and attachment metadata for one message. |
 | `get_attachment` | Get one attachment's metadata + a short-lived `download_url` (fetch the bytes out of band); `inline: true` returns base64 `data` for small files (≤256 KB). |
+| `update_message_labels` | Add or remove labels on a message. |
 
 ### Human-in-the-loop approval
 
@@ -159,8 +161,14 @@ shows the set your scope allows, with per-tool descriptions.
 | --- | --- |
 | `list_pending_messages` | List outbound mail awaiting human approval, soonest-expiring first. |
 | `get_pending_message` | Get the full draft (subject, recipients, body) of a pending message. |
-| `approve_pending_message` | Send a held message, optionally with reviewer edits (subject / body / recipients). |
-| `reject_pending_message` | Discard a held message; the optional `reason` is stored for audit. |
+| `approve_message` | Send a held message, optionally with reviewer edits (subject / body / recipients). Account-scoped — never agent self-approval. |
+| `reject_message` | Discard a held message; the optional `reason` is stored for audit. Account-scoped. |
+
+### Domains
+
+| Tool | Description |
+| --- | --- |
+| `register_domain` | Register a custom sending domain; returns the MX + TXT DNS records to publish. (Admin/account-scoped.) |
 
 ## Links
 

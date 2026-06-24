@@ -11,9 +11,9 @@
 Authenticated email gateway for AI agents. Receive emails as webhooks or via WebSocket, send emails through an HTTP API, and verify the identity of every sender — humans and other agents alike.
 
 - **Authenticated transport** — SPF/DKIM verified on inbound; HMAC-signed `X-E2A-Auth-*` headers on every delivery
-- **Two delivery modes** — webhook (cloud agents) or WebSocket (local agents, no public URL needed)
+- **Two delivery channels** — webhook (cloud agents) or WebSocket (local agents, no public URL needed)
 - **Outbound API** — agents send to other agents (SMTP relay) or humans (upstream SMTP, e.g. SES, Resend)
-- **Human in the loop** — opt-in approval gate that holds outbound mail until a reviewer approves via dashboard, magic-link email, or CLI
+- **Human in the loop** — opt-in approval gate that holds outbound mail until a reviewer approves via dashboard, magic-link email, the MCP tools, or the API
 - **CLI + SDKs** — TypeScript and Python SDKs, plus a `e2a` CLI for everyday agent ops
 
 <video src="https://github.com/user-attachments/assets/b55a8f18-6470-44e3-a053-97dfb787228c" controls autoplay muted loop width="800"></video>
@@ -148,7 +148,7 @@ The MAC binds to **both** `message_id` and a SHA-256 of the raw message body. Su
 
 #### Verifying the signature
 
-The `X-E2A-Auth-Verified` field is the *server's claim* — anyone who can reach your webhook URL can set it. To make a security decision, **verify the signature** with your webhook's signing secret (manage per-webhook secrets in the dashboard's **Webhook secrets** page, or rotate via `POST /v1/webhooks/{id}/rotate-secret`).
+The `X-E2A-Auth-Verified` field is the *server's claim* — anyone who can reach your webhook URL can set it. To make a security decision, **verify the signature** with your webhook's signing secret. The secret (a `whsec_…` value) is returned **once** when you create the subscription (`POST /v1/webhooks`); store it then. Rotate via `POST /v1/webhooks/{id}/rotate-secret` (24h grace window where the old secret still verifies).
 
 The one-call shortcut parses **and** verifies a delivery, returning a typed event — use it instead of trusting any field on an unverified payload:
 
@@ -185,14 +185,14 @@ First contact from a human arrives with `conversation_id: null` — the agent sh
 
 ### Human in the loop (HITL)
 
-When an agent's protection config holds an outbound message for review, `send` and `reply` calls do **not** dispatch immediately. The message is stored with status `pending_review` and the API returns HTTP `202 Accepted`. A reviewer must approve it before delivery; otherwise, after a configurable TTL, the agent's `hitl_expiration_action` decides the terminal: auto-send (the message just goes out, terminal status `sent` — for outbound, approving *is* sending) or discard (`review_expired_rejected`). (Inbound messages can be held for review too — there, the auto-approve terminal is `review_expired_approved`, releasing the message to the inbox.)
+When an agent's protection config holds an outbound message for review, `send` and `reply` calls do **not** dispatch immediately. The message is stored with status `pending_review` and the API returns HTTP `202 Accepted`. A reviewer must approve it before delivery; otherwise, after a configurable TTL, the protection config's `holds.on_expiry` decides the terminal: `approve` (the message just goes out, terminal status `sent` — for outbound, approving *is* sending) or `reject` (discard, `review_expired_rejected`). (Inbound messages can be held for review too — there, the auto-approve terminal is `review_expired_approved`, releasing the message to the inbox.)
 
 Reviewers can approve or reject via:
 
-- **Dashboard / API** — `POST /v1/agents/{address}/messages/{id}/approve` or `/reject`
+- **Dashboard / API** — the account-scoped review queue `POST /v1/reviews/{id}/approve` or `/reject` (id-addressed, no inbox email needed; lists held items across all the account's inboxes via `GET /v1/reviews`). This is the primary path. The agent-path `POST /v1/agents/{address}/messages/{id}/approve|reject` is **deprecated** but still works identically for back-compat.
 - **Magic-link email** — sent automatically when a hold fires; one-click `GET /v1/approve?t=…` and `/v1/reject?t=…` URLs (requires `E2A_PUBLIC_URL` and outbound SMTP configured)
 
-Enable review holds on an agent via `PUT /v1/agents/{address}/protection`: set the outbound gate action to `review` (or turn on the content scan), plus the hold TTL and `hitl_expiration_action`. (The old `hitl_enabled`/`hitl_mode` flags were retired in the screening cutover.)
+Enable review holds on an agent via `PUT /v1/agents/{address}/protection`: set the outbound gate action to `review` (or turn on the content scan), plus the hold TTL (`holds.ttl_seconds`) and its expiry behavior (`holds.on_expiry` = `approve` or `reject`). (The old per-agent `hitl_enabled` / `hitl_mode` flags were retired in the screening cutover — posture now lives entirely on the protection sub-resource.)
 
 ## API
 
@@ -209,21 +209,16 @@ npm install -g @e2a/cli
 e2a login
 ```
 
+The CLI is a thin developer convenience — it covers only what the other surfaces
+don't do ergonomically. Drive agents (read/send/reply/list/labels) over the **MCP
+tools** or the **SDKs**; manage domains/agents/webhooks/keys/HITL in the **web
+dashboard**.
+
 | Command | Description |
 |---------|-------------|
-| `e2a agents register <slug>` | Register `<slug>@<shared-domain>`. The deployment's shared domain is auto-discovered after `e2a login` and cached in `~/.e2a/config.json`. |
-| `e2a agents list` | List your agents |
-| `e2a agents update <email>` | Update an agent (webhook URL, mode, HITL) |
-| `e2a agents delete <email>` | Delete an agent |
-| `e2a listen` | Listen for emails over WebSocket (real-time) |
-| `e2a listen --json` | Output one full message JSON per line |
-| `e2a listen --forward <url>` | Forward each message as HTTP POST to a local URL |
-| `e2a inbox` | List recent messages |
-| `e2a read <id>` | Read a message |
-| `e2a reply <id> --body …` | Reply to a message |
-| `e2a send --to … --subject … --body …` | Send an email |
-| `e2a pending` | List HITL messages awaiting approval |
-| `e2a config` | View or update CLI config |
+| `e2a login` | Open a browser login and save your API key + default agent to `~/.e2a/config.json` |
+| `e2a listen --agent <email>` | Stream inbound email for an agent over WebSocket (real-time; `--json` for raw, `--forward <url>` to bridge to a local HTTP handler) |
+| `e2a config [list\|get\|set]` | View or update the local config |
 
 The `listen --forward` mode also supports OpenAI Responses API forwarding via `--forward-token`, which formats each inbound email as a Responses payload and auto-replies with the model's output:
 
@@ -318,7 +313,7 @@ Four things that aren't possible to bolt on without significant rework:
 
 3. **Slug provisioning on a shared domain.** Operators set `shared_domain: agents.e2a.dev` and users `POST {"slug": "my-agent"}` to immediately get `my-agent@agents.e2a.dev` with no DNS configuration. Possible because e2a *is* the SMTP relay claiming the domain — Resend / SendGrid are providers, not platforms, and can't multi-tenant a shared address space without you running the relay yourself.
 
-4. **Built-in review hold + auto-expiration.** A per-agent protection policy (outbound gate action `review`, or the content scan) holds mail in `pending_review` state. Reviewers approve via dashboard, magic-link email, or CLI; a background worker auto-acts on expired holds based on `hitl_expiration_action` config. Magic-link tokens are HMAC-encoded — stateless, no session backend. With Resend / SendGrid you'd hold the message in your own DB, build the timer, the approval UI, and the stateless review tokens.
+4. **Built-in review hold + auto-expiration.** A per-agent protection policy (outbound gate action `review`, or the content scan) holds mail in `pending_review` state. Reviewers approve via dashboard, magic-link email, the MCP tools, or the API; a background worker auto-acts on expired holds based on the `holds.on_expiry` config. Magic-link tokens are HMAC-encoded — stateless, no session backend. With Resend / SendGrid you'd hold the message in your own DB, build the timer, the approval UI, and the stateless review tokens.
 
 You can absolutely use SES / Resend / SendGrid as e2a's *outbound* SMTP for delivery to humans — that's what `outbound_smtp` in `config.yaml` is for. They complement e2a; they don't replace the inbound receiver, agent abstraction, or any of the layers above transport.
 

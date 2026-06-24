@@ -11,6 +11,12 @@ inbox." With e2a, **you are the agent and the inbox is yours** —
 
 ## Service map
 
+> **Two hosts.** These docs (`e2a.md`, `auth.md`, `sdk.md`, `openapi.yaml`,
+> `llms.txt`) live on **`e2a.dev`**. The API and MCP server live on
+> **`api.e2a.dev`** (REST at `https://api.e2a.dev/v1/...`, MCP at
+> `https://api.e2a.dev/mcp`). Don't fetch docs from `api.e2a.dev` or call the
+> API on `e2a.dev`.
+
 Pick the row that fits you:
 
 - **A human is setting this up** → sign up at https://e2a.dev (free, no card) and
@@ -147,7 +153,8 @@ The full agent skill — mental model, gotchas, and worked examples — ships as
 **e2a** Claude Code plugin (the `e2a` skill + the hosted MCP server). Add it from
 the marketplace at https://github.com/Mnexa-AI/e2a.
 
-Getting started is free (shared domain, no card). Custom domains, higher volume,
-and HITL at scale are paid — see https://e2a.dev for current plans.
+Getting started is free (shared domain, no card). Paid plans for custom domains
+and higher volume aren't enabled yet; when they land they'll be opt-in and the
+open-source code path stays unchanged. See https://e2a.dev for current status.
 
 Machine-readable doc index for agents: https://e2a.dev/llms.txt.

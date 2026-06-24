@@ -13,15 +13,15 @@ This guide is for customers who:
 ```bash
 # List the most recent events for your account.
 curl -H "Authorization: Bearer $E2A_API_KEY" \
-  https://e2a.dev/v1/events
+  https://api.e2a.dev/v1/events
 
 # Filter by event type and time window.
 curl -H "Authorization: Bearer $E2A_API_KEY" \
-  "https://e2a.dev/v1/events?type=email.received&since=2026-06-01T00:00:00Z"
+  "https://api.e2a.dev/v1/events?type=email.received&since=2026-06-01T00:00:00Z"
 
 # Fetch one event in detail (includes delivery_status).
 curl -H "Authorization: Bearer $E2A_API_KEY" \
-  https://e2a.dev/v1/events/evt_abc123
+  https://api.e2a.dev/v1/events/evt_abc123
 ```
 
 In TypeScript:
@@ -74,13 +74,13 @@ The review-hold + screening events (`email.flagged`, `email.blocked`, `email.pen
 ```bash
 # Get the first page.
 RESP=$(curl -s -H "Authorization: Bearer $E2A_API_KEY" \
-  "https://e2a.dev/v1/events?limit=50")
+  "https://api.e2a.dev/v1/events?limit=50")
 CURSOR=$(echo "$RESP" | jq -r '.next_cursor')
 
 # Walk forward.
 while [ "$CURSOR" != "null" ] && [ -n "$CURSOR" ]; do
   RESP=$(curl -s -H "Authorization: Bearer $E2A_API_KEY" \
-    "https://e2a.dev/v1/events?limit=50&cursor=$CURSOR")
+    "https://api.e2a.dev/v1/events?limit=50&cursor=$CURSOR")
   # process events…
   CURSOR=$(echo "$RESP" | jq -r '.next_cursor')
 done
@@ -114,26 +114,23 @@ for e in client.events.list(since=outage_start, until=outage_end):
 curl -X POST -H "Authorization: Bearer $E2A_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"webhook_id": "wh_aaa"}' \
-  https://e2a.dev/v1/events/evt_abc123/redeliver
+  https://api.e2a.dev/v1/events/evt_abc123/redeliver
 
 # Empty body = replay to every webhook that originally matched.
 curl -X POST -H "Authorization: Bearer $E2A_API_KEY" \
-  https://e2a.dev/v1/events/evt_abc123/redeliver
+  https://api.e2a.dev/v1/events/evt_abc123/redeliver
 ```
 
 The replay reuses the original event id (`evt_abc123`). Customer-side receivers that dedupe on event id will discard the replay if they've already processed it — by design. **Replay is recovery, not re-delivery.** If you want your handler to run twice for real, you need to call the underlying API again, not replay.
 
 To reconcile a whole window after an outage, walk `GET /v1/events?since=…&until=…` and redeliver each missing event id individually (see the reconciliation flow above).
 
-## CLI
+## Listing, fetching, and replaying events
 
-```bash
-e2a events list --type email.received --since 2026-06-01T00:00:00Z --limit 100
-e2a events get evt_abc123
-e2a events redeliver evt_abc123 --webhook wh_aaa
-```
-
-The CLI uses the same Bearer-token auth as the API.
+The event log is driven over the REST API (`GET /v1/events`,
+`GET /v1/events/{id}`, `POST /v1/events/{id}/redeliver`) or the MCP tools
+(`list_events`, `get_event`, `redeliver_event`) — there is no CLI for events.
+The TypeScript / Python SDKs wrap the same endpoints (`client.events.*`).
 
 ## Retention and expiry
 

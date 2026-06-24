@@ -4,14 +4,14 @@ You are an agent that wants to use e2a — the authenticated email gateway for A
 
 Two hosts are relevant:
 
-- **API** — `https://e2a.dev` — the resource server you will call (`/v1/...`).
-- **Dashboard** — `https://e2a.dev` — where the user manages agents, domains, API keys, and billing.
+- **API** — `https://api.e2a.dev` — the resource server you will call (`/v1/...`, MCP at `/mcp`).
+- **Dashboard & docs** — `https://e2a.dev` — where the user manages agents, domains, API keys, and billing, and where these `.md` docs live.
 
 ## Current state
 
-e2a already implements the OAuth 2.0 surface that MCP clients depend on: RFC 8414 authorization-server metadata at [`/.well-known/oauth-authorization-server`](https://e2a.dev/.well-known/oauth-authorization-server), RFC 7591 Dynamic Client Registration at `/oauth2/register` (rate-limited per IP), `authorization_code` + `refresh_token` grants with PKCE S256, RFC 7009 revocation, and RFC 6750 Bearer challenges on 401s. MCP clients can register and onboard without any human-supplied secret — the user only sees a browser consent screen.
+e2a already implements the OAuth 2.1 surface that MCP clients depend on: RFC 8414 authorization-server metadata at [`/.well-known/oauth-authorization-server`](https://api.e2a.dev/.well-known/oauth-authorization-server), RFC 7591 Dynamic Client Registration at `/oauth2/register` (rate-limited per IP), `authorization_code` + `refresh_token` grants with PKCE S256, RFC 7009 revocation, and RFC 6750 Bearer challenges on 401s. MCP clients can register and onboard without any human-supplied secret — the user only sees a browser consent screen.
 
-What e2a does **not** yet implement is the WorkOS [auth.md](https://github.com/workos/auth.md) flow specifically: there is no `/agent/auth` endpoint, no `agent_auth` block in the AS metadata, no RFC 9728 protected-resource metadata document, no ID-JAG verification, and no email-OTP claim ceremony. See [Agent identity](#agent-identity) for where we're heading — e2a's product (agent email addresses verified end-to-end) is unusually well-positioned to act as an identity provider in this protocol, and that's the direction we're building.
+What e2a does **not** yet implement is the WorkOS [auth.md](https://github.com/workos/auth.md) flow specifically: there is no `/agent/auth` endpoint, no `agent_auth` block in the AS metadata, no RFC 9728 protected-resource metadata document, no ID-JAG verification, and no email-OTP claim ceremony. See [Agent identity](#agent-identity) for where we're heading — because every e2a agent has an end-to-end-verified email address, e2a is positioned to act as an identity provider in this protocol, and that's the direction we're building.
 
 ## Use the existing tooling first
 
@@ -27,8 +27,8 @@ If any of these is already configured, use it and stop. Do not ask the user for 
 
 e2a accepts two credential shapes at every `/v1/...` endpoint, dispatched by token prefix:
 
-- **OAuth access token** (`ate2a_…`) — issued by the e2a OAuth server to a registered client after the user consents in a browser. Use this if you are an MCP client.
-- **API key** (`e2a_…`) — issued by the user directly from the dashboard, supplied to your environment out of band. Use this if you are a CLI, script, server-side integration, or direct API consumer.
+- **OAuth access token** (`ate2a_…`, refresh `rte2a_…`) — issued by the e2a OAuth server to a registered client after the user consents in a browser. Use this if you are an MCP client.
+- **API key** (`e2a_acct_…` for account scope, `e2a_agt_…` for a single-agent scope) — issued by the user directly from the dashboard, supplied to your environment out of band. Use this if you are a CLI, script, server-side integration, or direct API consumer.
 
 Both are presented as `Authorization: Bearer <credential>`.
 
@@ -36,9 +36,9 @@ Both are presented as `Authorization: Bearer <credential>`.
 
 If you are an MCP client, you do not need an API key. Run the standard discovery + DCR + authorization-code flow:
 
-1. **Discover** — `GET https://e2a.dev/.well-known/oauth-authorization-server`. Read `registration_endpoint`, `authorization_endpoint`, `token_endpoint`. Scope to request: `mcp`.
+1. **Discover** — `GET https://api.e2a.dev/.well-known/oauth-authorization-server`. Read `registration_endpoint`, `authorization_endpoint`, `token_endpoint`. Scope to request: `mcp`.
 2. **Register** — `POST` your client metadata to `registration_endpoint` (RFC 7591). You'll receive a `client_id`. Token endpoint auth method is `none` — you are a public client.
-3. **Authorize** — redirect the user to `authorization_endpoint` with `response_type=code`, your `client_id`, `redirect_uri`, `scope=agent`, and PKCE S256 (`code_challenge`, `code_challenge_method=S256`). The user logs in to e2a and consents.
+3. **Authorize** — redirect the user to `authorization_endpoint` with `response_type=code`, your `client_id`, `redirect_uri`, `scope=mcp`, and PKCE S256 (`code_challenge`, `code_challenge_method=S256`). The user logs in to e2a and consents.
 4. **Token exchange** — `POST` `code` + `code_verifier` to `token_endpoint`. You receive `access_token` (prefix `ate2a_…`) and `refresh_token`.
 5. **Use** — present the access token as a bearer; refresh with the refresh token before `expires_in`.
 
@@ -74,7 +74,7 @@ Whether `access_token` or `api_key`, present it as a bearer token. The message s
 
 ```http
 POST /v1/agents/bot%40agents.e2a.dev/messages HTTP/1.1
-Host: e2a.dev
+Host: api.e2a.dev
 Authorization: Bearer $CREDENTIAL
 Content-Type: application/json
 Idempotency-Key: <UUIDv4>
@@ -93,19 +93,19 @@ Read the credential from the environment at the moment of the call. Do not copy 
 
 Set an `Idempotency-Key` (UUIDv4 recommended) per logical operation on side-effectful calls (sends, replies, HITL approve). Reuse the **same** key on transport retries (network failures, timeouts) — the server replays the original response. Same key with a different body returns `422`; a genuinely new operation needs a fresh key.
 
-### HITL: handling 202 pending_approval
+### HITL: handling 202 pending_review
 
-If the agent owner has enabled human-in-the-loop review, a send (and `reply`/`forward`) will return **`202 Accepted`** with `status: "pending_approval"` instead of dispatching the message:
+If the agent's protection config holds outbound mail for review, a send (and `reply`/`forward`) will return **`202 Accepted`** with `status: "pending_review"` instead of dispatching the message:
 
 ```json
 {
   "message_id": "msg_abc123",
-  "status": "pending_approval",
+  "status": "pending_review",
   "approval_expires_at": "2026-05-28T13:00:00Z"
 }
 ```
 
-The message is held until a human approves it via the dashboard, CLI, or magic link, or until `approval_expires_at` fires the configured expiration action. Do not retry the send — that would queue a duplicate. To learn the outcome, poll `GET /v1/agents/{address}/messages/{id}` (status transitions to `sent`, `rejected`, or `expired`), or surface the situation to the calling user and stop.
+The message is held until a human approves it via the dashboard, CLI, or magic link, or until `approval_expires_at` fires the configured expiration action. Do not retry the send — that would queue a duplicate. To learn the outcome, poll `GET /v1/agents/{address}/messages/{id}`: an approved outbound send becomes `sent`; a rejection becomes `review_rejected`; on TTL expiry it becomes `review_expired_approved` (auto-sent) or `review_expired_rejected` (discarded), per the hold's `on_expiry` action. Or surface the situation to the calling user and stop.
 
 ### Errors
 
@@ -131,17 +131,17 @@ We are building two pieces on top of this:
 
 ### e2a as an identity provider (planned)
 
-e2a already operates as an OAuth issuer at `https://e2a.dev` (see AS metadata above). The remaining work is publishing a JSON Web Key Set at `https://e2a.dev/.well-known/jwks.json` and issuing audience-bound [ID-JAG](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/) assertions (`urn:ietf:params:oauth:token-type:id-jag`) with:
+e2a already operates as an OAuth issuer at `https://api.e2a.dev` (see AS metadata above). The remaining work is publishing a JSON Web Key Set at `https://api.e2a.dev/.well-known/jwks.json` and issuing audience-bound [ID-JAG](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/) assertions (`urn:ietf:params:oauth:token-type:id-jag`) with:
 
-- `iss` = `https://e2a.dev`
+- `iss` = `https://api.e2a.dev`
 - `sub` = the agent's verified email
 - `email` / `email_verified: true`
 - `aud` = the third-party service the agent is registering with
 - Short `exp` (≤5 minutes), fresh `jti`
 
-Any auth.md-implementing service that adds e2a to its trust list will be able to onboard an e2a agent without an OTP ceremony — the agent's e2a identity vouches for it. This is the same trust shape OpenAI / Anthropic / Cursor get today; e2a adds an identity rooted in a verifiable email address, which is stable across agent runtimes.
+Any auth.md-implementing service that adds e2a to its trust list will be able to onboard an e2a agent without an OTP ceremony — the agent's e2a identity vouches for it. e2a's contribution is an identity rooted in a verifiable email address, stable across agent runtimes.
 
-If you operate an agent service and want to accept e2a-issued assertions, watch for `iss: https://e2a.dev` to land in the WorkOS reference trust list, or open an issue at `https://github.com/Mnexa-AI/e2a/issues` to pre-register.
+If you operate an agent service and want to accept e2a-issued assertions, watch for `iss: https://api.e2a.dev` to land in the WorkOS reference trust list, or open an issue at `https://github.com/Mnexa-AI/e2a/issues` to pre-register.
 
 ### Email-loop claim completion (proposed)
 
@@ -158,7 +158,7 @@ No code reading, no copy-paste, no transcript leakage. This is uniquely possible
 
 What e2a publishes today:
 
-- **RFC 8414 authorization-server metadata** at [`https://e2a.dev/.well-known/oauth-authorization-server`](https://e2a.dev/.well-known/oauth-authorization-server) — advertises `authorization_endpoint`, `token_endpoint`, `registration_endpoint`, `revocation_endpoint`, supported grants (`authorization_code`, `refresh_token`), PKCE (`S256`), scopes (`agent`, `account`), and the RFC 9207 `iss` parameter.
+- **RFC 8414 authorization-server metadata** at [`https://api.e2a.dev/.well-known/oauth-authorization-server`](https://api.e2a.dev/.well-known/oauth-authorization-server) — advertises `authorization_endpoint`, `token_endpoint`, `registration_endpoint`, `revocation_endpoint`, supported grants (`authorization_code`, `refresh_token`), PKCE (`S256`), and the RFC 9207 `iss` parameter. Request the `mcp` scope.
 - **RFC 6750 Bearer challenges** on every 401 from `/v1/...` — `WWW-Authenticate: Bearer realm="e2a"` for unknown/missing credentials, plus RFC 6750 §3.1 error params for OAuth-bearer failures.
 
 What's missing for full auth.md compliance:
@@ -178,4 +178,4 @@ The user revokes API keys in the e2a dashboard. OAuth access tokens are revoked 
 
 - WorkOS [auth.md protocol](https://workos.com/auth-md) — the open spec this document follows
 - [github.com/workos/auth.md](https://github.com/workos/auth.md) — reference implementation
-- e2a [API docs](https://e2a.dev/docs) — full reference for the endpoints above
+- e2a [OpenAPI contract](https://e2a.dev/openapi.yaml) — full reference for the endpoints above
