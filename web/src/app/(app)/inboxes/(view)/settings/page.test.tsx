@@ -11,10 +11,11 @@ import AgentSettingsPage from "./page";
 
 const mockUseSearchParams = jest.fn();
 const mockRouterPush = jest.fn();
+const mockRouterReplace = jest.fn();
 
 jest.mock("next/navigation", () => ({
   useSearchParams: () => mockUseSearchParams(),
-  useRouter: () => ({ push: mockRouterPush }),
+  useRouter: () => ({ push: mockRouterPush, replace: mockRouterReplace }),
 }));
 
 jest.mock("next/link", () => {
@@ -86,6 +87,7 @@ function mockAgent(agent: typeof baseAgent) {
 beforeEach(() => {
   mockFetch.mockReset();
   mockRouterPush.mockReset();
+  mockRouterReplace.mockReset();
   jest.spyOn(window, "confirm").mockReturnValue(true);
 });
 
@@ -206,7 +208,7 @@ describe("AgentSettingsPage", () => {
     await waitFor(() => {
       expect(deleted).toBe(true);
     });
-    expect(mockRouterPush).toHaveBeenCalledWith("/inboxes");
+    expect(mockRouterReplace).toHaveBeenCalledWith("/inboxes");
   });
 
   it("aborts deletion when the confirm prompt is cancelled", async () => {
@@ -240,6 +242,6 @@ describe("AgentSettingsPage", () => {
     // the negative assertion deterministic).
     await new Promise((r) => setTimeout(r, 10));
     expect(deleted).toBe(false);
-    expect(mockRouterPush).not.toHaveBeenCalled();
+    expect(mockRouterReplace).not.toHaveBeenCalled();
   });
 });

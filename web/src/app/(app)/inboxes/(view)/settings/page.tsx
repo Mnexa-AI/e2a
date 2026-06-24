@@ -78,7 +78,9 @@ function AgentSettingsContent({ email }: { email: string }) {
     try {
       await deleteAgent(agent.email);
       await invalidateAgents();
-      router.push("/inboxes");
+      // replace, not push: the inbox is gone, so Back must not return to
+      // this now-dead settings page.
+      router.replace("/inboxes");
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : "Failed to delete inbox");
       setDeleting(false);
