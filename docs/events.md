@@ -143,5 +143,5 @@ Replay requires the source event to still exist. If you need a longer reconcilia
 
 ## See also
 
-- [API reference — Webhooks](api.md#webhook-signing-secrets) — subscriber model, signing, retry policy.
+- [API reference — Webhooks](api.md#webhooks-v1webhooks) — subscriber model, signing, retry policy.
 - [Design: Stripe-tier webhooks](design/2026-06-01-stripe-tier-webhooks.md) — full rationale for the outbox + event log architecture.

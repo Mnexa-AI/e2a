@@ -1,82 +1,194 @@
 # API Reference
 
-All endpoints are under `/v1` unless noted. Auth is `Authorization: Bearer <api_key>` except where called out. Path parameters containing `@` (agent emails) must be URL-encoded.
+This is a human-readable **overview** of the e2a `/v1` REST surface, organized by
+resource. It is intentionally not an exhaustive endpoint-by-endpoint table — that
+would rot. The canonical, always-current contract is the generated OpenAPI 3.1
+spec:
 
-> **Note:** the canonical, authoritative `/v1` surface is the generated OpenAPI spec at [`api/openapi.yaml`](../api/openapi.yaml). This hand-written overview is a convenience summary; if anything here disagrees with the spec, the spec wins.
+> **Source of truth:** [`api/openapi.yaml`](../api/openapi.yaml). It is emitted
+> directly from the typed Huma handlers in `internal/httpapi/` and CI fails if the
+> committed copy drifts from the live server. Every path, query parameter,
+> request body, and response shape is defined there. If anything here disagrees
+> with the spec, **the spec wins.**
 
-For the machine-readable spec, see [`api/openapi.yaml`](../api/openapi.yaml).
+For **usage** (ergonomic clients, pagination helpers, webhook verification, the
+MCP tool surface), see:
 
-## Domains
+- TypeScript SDK — [`sdks/typescript/README.md`](../sdks/typescript/README.md) (`@e2a/sdk`)
+- Python SDK — [`sdks/python/README.md`](../sdks/python/README.md) (`e2a`)
+- MCP server — [`mcp/README.md`](../mcp/README.md) (`@e2a/mcp-server`)
+- Webhook events & replay — [`events.md`](events.md)
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/domains` | Register a custom domain. Returns required MX and TXT records. |
-| `GET` | `/domains` | List domains owned by the authenticated user |
-| `POST` | `/domains/{domain}/verify` | Verify ownership via TXT record |
-| `DELETE` | `/domains/{domain}` | Delete (must delete all agents on the domain first) |
+## Conventions
 
-## Agents
+- **Base path.** Every endpoint below is under `/v1` unless explicitly noted
+  (`/api/health`, `/api/feedback`, and the WebSocket channel are the exceptions).
+- **Auth.** `Authorization: Bearer <api_key>`. Keys are **scoped**:
+  - `scope=account` — workspace admin: manage agents, domains, API keys,
+    webhooks, and resolve reviews.
+  - `scope=agent` — bound to a single inbox; can act only as that one agent and
+    cannot manage account-level resources or approve its own held messages.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/agents` | Register an agent. Body `{email, name?}`. The `email` must be on a domain you've verified, or on the deployment's configured `shared_domain` (see `/v1/info` → `slug_registration_enabled`). |
-| `GET` | `/agents` | List agents owned by the authenticated user |
-| `GET` | `/agents/{address}` | Get agent details |
-| `PATCH` | `/agents/{address}` | Update an agent's display name. Screening/protection config (trust gate, scan, holds) lives on `/agents/{address}/protection`. |
-| `DELETE` | `/agents/{address}` | Delete an agent |
-| `POST` | `/agents/{address}/test` | Send a test email to the agent's own address |
+  The unauthenticated exceptions are `GET /api/health`, `GET /v1/info`,
+  `POST /api/feedback`, and the HITL magic-link routes (which carry a signed `t`
+  token instead).
+- **Path parameters with `@`.** Agent paths are addressed by full email
+  (`/v1/agents/{email}/…`); the `@` must be URL-encoded.
+- **Pagination.** List endpoints return `{ items, next_cursor }`; pass
+  `next_cursor` back as `?cursor=…` to page forward. The SDKs auto-page.
+- **Idempotency.** Mutating send/approve/rotate operations honor an
+  `Idempotency-Key` header. See the spec for which operations accept it.
+- **Errors.** Non-2xx responses use a single `ErrorEnvelope` shape; branch on
+  `error.code`.
 
-## Messages (per-agent)
+## Resources
 
-The message surface is agent-scoped: every message endpoint hangs off `/agents/{address}/messages`. Sending is `POST` to the collection (the agent in the path is the sender — there is no `from` field); `reply`, `forward`, `approve`, and `reject` are sub-resources of a single message.
+The surface is **agent-first**: messages, conversations, and the real-time
+channel all hang off an agent (inbox). Reviews, events, webhooks, domains, and
+account/key management are account-level.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/agents/{address}/messages` | List the agent's messages. Filters: `direction` (`inbound` default \| `outbound` \| `all`), `read_status` (inbound only — `unread`\|`read`\|`all`), `sort`, `from`, `subject_contains`, `conversation_id`, `labels`, `since`, `until`, `cursor`, `limit` (max 100, default 50). Returns `{items, next_cursor}`. Held outbound drafts appear as `status=pending_review`. |
-| `POST` | `/agents/{address}/messages` | Send a new email from the agent (a new thread). Body `{to, subject, body, html_body?, cc?, bcc?}` — no `from`. Held with `202 Accepted` + `status=pending_review` when the agent's outbound policy or content scan holds it for review. |
-| `GET` | `/agents/{address}/messages/{id}` | Fetch a single message (inbound or outbound). Side effect: any `unread` inbound row flips to `read` on read. |
-| `POST` | `/agents/{address}/messages/{id}/reply` | Reply to an inbound message |
-| `POST` | `/agents/{address}/messages/{id}/forward` | Forward a message to new recipients |
-| `POST` | `/agents/{address}/messages/{id}/approve` | Approve a `pending_review` message. Branches on direction: outbound → sent; inbound → released to the inbox. Account scope only. |
-| `POST` | `/agents/{address}/messages/{id}/reject` | Reject a `pending_review` message (outbound → discarded; inbound → dropped). Account scope only. |
+### Account (`/v1/account`)
 
-## Account (data rights)
+Workspace identity, plan limits, keys, suppressions, and data rights.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/account/export` | Returns a JSON dump of the authenticated account's profile, agents, domains, API key metadata, messages, suppressions, protection events (screening audit log), and usage events. Right-of-access export (GDPR Art. 15 / CCPA equivalent). |
-| `DELETE` | `/account?confirm=DELETE` | Permanently deletes the authenticated account and all associated data in one Postgres transaction. Right-of-deletion (GDPR Art. 17 / CCPA "Do Not Sell or Share"). Requires `confirm=DELETE` query parameter as a guardrail; returns per-table row counts so the caller can audit the cascade. |
+- `GET /v1/account` — whoami: the authenticated principal (user + scope, plus
+  `agent_address` for agent-scoped keys), plan caps, and current usage. Works for
+  both scopes. (Public *deployment* discovery is the separate `GET /v1/info`.)
+- `DELETE /v1/account?confirm=DELETE` — permanently delete the account and cascade
+  all owned data; returns per-table row counts (GDPR Art. 17). Irreversible.
+- `GET /v1/account/export` — JSON dump of every record the account owns (GDPR
+  Art. 15). Omits internal identifiers; see [data-handling.md](data-handling.md).
+- `GET/POST /v1/account/api-keys`, `DELETE /v1/account/api-keys/{id}` — mint
+  (plaintext shown once), list (metadata only), and revoke API keys. Account
+  scope only.
+- `GET /v1/account/suppressions`, `DELETE /v1/account/suppressions/{address}` —
+  the recipient suppression list (auto-added on hard bounce/complaint; sends to a
+  suppressed address fail with `recipient_suppressed`). Delete to un-suppress.
 
-Both endpoints require a valid API key or session. The export omits internal identifiers (Google subject, API key hashes, session tokens) — see [data-handling.md](data-handling.md) for the full data model.
+### Domains (`/v1/domains`)
 
-### Webhook signing secrets
+Custom sending/receiving domains and their DNS verification.
 
-A per-user HMAC secret signs inbound webhook payloads; one is auto-provisioned at
-signup, and the relay falls back to the deployment-wide signer if a user has none.
-The standalone per-user management API (`/users/me/signing-secrets`) was retired in
-the v1 cutover — webhooks-as-a-resource now carry their own per-webhook secret,
-rotatable via `POST /v1/webhooks/{id}/rotate-secret`.
+- `GET /v1/domains`, `POST /v1/domains` — list / register (returns required MX +
+  TXT records and the DKIM selector/key).
+- `GET/DELETE /v1/domains/{domain}` — fetch / delete.
+- `POST /v1/domains/{domain}/verify` — verify ownership via the TXT record.
 
-Pass your webhook's signing secret to the SDK helper — `construct_event(body, header, secret)` / `constructEvent(body, header, secret)` does parse + verify in one call. See [sdks/python/README.md](../sdks/python/README.md#quick-start) and [sdks/typescript/README.md](../sdks/typescript/README.md#webhook-cloud-agents).
+### Agents (`/v1/agents`)
 
-## HITL magic links
+An agent is an addressable inbox. Its email must be on a verified domain you own,
+or on the deployment's shared domain (see `GET /v1/info`).
 
-These endpoints accept a signed `t` query parameter (from notification emails) instead of an API key, so reviewers can approve from any mail client without auth.
+- `GET /v1/agents`, `POST /v1/agents` — list / register (body `{ email, name? }`).
+- `GET/PATCH/DELETE /v1/agents/{email}` — fetch / rename / delete. `PATCH` updates
+  the display name only; screening/protection config lives on the sub-resource
+  below. `DELETE` requires `?confirm=DELETE`.
+- `GET/PUT /v1/agents/{email}/protection` — **(beta)** read / wholesale-replace the
+  agent's protection posture: inbound/outbound trust gate, content-scan
+  sensitivity, and the hold-queue mechanism (TTL + expiration action). Setting the
+  outbound gate to `review` (or enabling the scan) is what turns on HITL holds.
+  Account scope only. Beta — shape may change before it is declared stable.
+- `POST /v1/agents/{email}/test` — send a platform test email to the agent's own
+  address to confirm inbound delivery.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET`/`POST` | `/v1/approve?t=…` | Approve a pending message via signed token |
-| `GET`/`POST` | `/v1/reject?t=…` | Reject a pending message via signed token |
+### Messages (`/v1/agents/{email}/messages`)
 
-These moved under the `/v1` prefix in the cutover (previously root-level `/approve`·`/reject`); the paths are shown in full here because they are the literal links embedded in notification emails.
+The message surface is agent-scoped: the agent in the path is the sender (there is
+no `from` field). `reply`, `forward`, and `attachments` are sub-resources of a
+single message.
 
-## Real-time delivery
+- `GET …/messages` — list inbound + outbound with filters (`direction`,
+  `read_status`, `sort`, `from`, `subject_contains`, `conversation_id`, `labels`,
+  `since`, `until`) and cursor pagination. Held outbound drafts appear with
+  `status=pending_review`.
+- `POST …/messages` — send a new email (a new thread). `202` + `pending_review`
+  when the agent's protection policy holds it for review.
+- `GET …/messages/{id}` — fetch one message (inbound or outbound), including the
+  raw message and inbound auth headers. Reading an unread inbound message flips it
+  to `read`.
+- `PATCH …/messages/{id}` — apply a labels delta (`add_labels` / `remove_labels`).
+- `POST …/messages/{id}/reply`, `POST …/messages/{id}/forward` — reply to /
+  forward a message; `202` when held for review.
+- `GET …/messages/{id}/attachments/{index}` — attachment metadata + a short-lived
+  `download_url` (so binary bytes never stream through an agent's context);
+  `?inline=true` returns base64 `data` for small attachments.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/agents/{address}/ws` | WebSocket for real-time inbound. Auth via the `Authorization: Bearer <api_key>` handshake header (the credential never appears in the URL). |
+> **Note:** the older per-message
+> `POST …/messages/{id}/approve` and `…/reject` endpoints still exist for
+> back-compat but are **deprecated** — use the account-scoped **Reviews** queue
+> below, which addresses holds by id with no inbox email needed.
 
-The server pushes lightweight JSON notifications (metadata only):
+### Conversations (`/v1/agents/{email}/conversations`)
+
+Threads derived from `messages.conversation_id`.
+
+- `GET …/conversations` — list threads (`since`/`until`, cursor).
+- `GET …/conversations/{id}` — one thread with participants, labels, and member
+  messages.
+
+### Reviews (`/v1/reviews`)
+
+The unified review queue: every message held in `pending_review` across the
+account's inboxes — outbound drafts awaiting send approval **and** inbound
+messages held by a screening gate. **Account-scoped credentials only**; an agent
+cannot see or resolve its own holds (self-approval would defeat the gate).
+
+- `GET /v1/reviews`, `GET /v1/reviews/{id}` — list the queue / full detail of one
+  held message.
+- `POST /v1/reviews/{id}/approve` — branches on direction: an outbound draft is
+  sent via SES (honors `Idempotency-Key` + optional reviewer overrides); an
+  inbound hold is released to the inbox.
+- `POST /v1/reviews/{id}/reject` — outbound draft discarded (never sent); inbound
+  hold dropped (never reaches the agent; payload retained, hidden, for forensics).
+
+### Webhooks (`/v1/webhooks`)
+
+Webhook subscribers (the delivery side of the event log). Each webhook carries its
+own **per-webhook signing secret** that signs the payloads sent to it.
+
+- `GET /v1/webhooks`, `POST /v1/webhooks` — list / create (the secret is returned
+  once, at creation).
+- `GET/PATCH/DELETE /v1/webhooks/{id}` — fetch / partial-update
+  (`url`/`events`/`filters` are full-replace when present) / delete.
+- `POST /v1/webhooks/{id}/rotate-secret` — mint a new secret; the previous one
+  stays valid for a 24h grace window.
+- `GET /v1/webhooks/{id}/deliveries` — the per-webhook delivery log (debug view).
+- `POST /v1/webhooks/{id}/test` — fire a one-off synthetic delivery.
+
+To verify an inbound webhook payload, pass the webhook's signing secret to the SDK
+helper — `construct_event(body, header, secret)` /
+`constructEvent(body, header, secret)` does parse + verify in one call. See the
+[Python](../sdks/python/README.md#quick-start) and
+[TypeScript](../sdks/typescript/README.md#webhook-cloud-agents) SDK READMEs.
+
+<a id="webhook-signing-secrets"></a>
+> **History.** There is no longer a per-user / account-wide signing secret or a
+> standalone `/users/me/signing-secrets` API — both were retired in the v1
+> cutover. Signing is now per-webhook, rotatable via the `rotate-secret` route
+> above.
+
+### Events (`/v1/events`)
+
+The durable, queryable log of every event e2a emits to webhook subscribers
+(30-day retention), and the source of truth for replay. See
+[events.md](events.md) for the event taxonomy, reconciliation pattern, and replay
+semantics.
+
+- `GET /v1/events` — filter by `type`/`agent_id`/`conversation_id`/`message_id`
+  and time range; cursor pagination.
+- `GET /v1/events/{id}` — one event (returns `410 Gone` past retention).
+- `POST /v1/events/{id}/redeliver` — re-enqueue delivery for an event (to one
+  webhook or all originally-matched). Receivers must dedup on event id.
+
+## Real-time delivery (WebSocket)
+
+`GET /v1/agents/{email}/ws` — WebSocket for real-time inbound. Authenticated by
+the `Authorization: Bearer <api_key>` handshake header (the credential never
+appears in the URL). Not part of the OpenAPI document (it is not an HTTP
+request/response operation).
+
+The server pushes lightweight JSON notifications (metadata only); fetch full
+content via `GET /v1/agents/{email}/messages/{id}`:
 
 ```json
 {
@@ -89,12 +201,25 @@ The server pushes lightweight JSON notifications (metadata only):
 }
 ```
 
-Fetch full content via `GET /agents/{address}/messages/{id}`. The full payload includes the parsed `to` (list), `cc` (list), and `reply_to` (list) headers from the original message; the lightweight notification omits them since the agent fetches the body anyway. `reply_to` is the addresses the sender wants replies sent to — useful when `from` is a no-reply notifications mailbox; empty list when the header was absent (the server never silently falls back to `from`). On connect, all unread messages are drained as notifications automatically.
+On connect, all unread messages are drained as notifications automatically. The
+full message payload (fetched separately) includes the parsed `to`, `cc`, and
+`reply_to` header lists; the lightweight notification omits them since the agent
+fetches the body anyway.
 
-## Other
+## HITL magic links
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `GET` | `/api/health` | none | Health check |
-| `GET` | `/v1/info` | none | Deployment discovery — returns `shared_domain`, `slug_registration_enabled`, and `public_url`. CLIs/SDKs hit this to self-configure from a single base URL. |
-| `POST` | `/api/feedback` | none | Submit feedback (rate-limited per-IP) |
+These accept a signed `t` query parameter (from notification emails) instead of an
+API key, so a reviewer can approve/reject from any mail client without auth. They
+live under `/v1` because the paths are the literal links embedded in notification
+emails (not part of the OpenAPI document):
+
+- `GET`/`POST` `/v1/approve?t=…` — approve a held message via signed token.
+- `GET`/`POST` `/v1/reject?t=…` — reject a held message via signed token.
+
+## Meta / unauthenticated
+
+- `GET /v1/info` — public deployment discovery: `shared_domain`,
+  `slug_registration_enabled`, `public_url`, `version`. CLIs/SDKs hit this to
+  self-configure from a single base URL.
+- `GET /api/health` — health check.
+- `POST /api/feedback` — submit feedback (rate-limited per-IP).
