@@ -598,7 +598,7 @@ func valuesEqual(jsonVal, yamlVal interface{}) bool {
 // extractEmailFromWSPath extracts the agent email from a WS path like
 // /v1/agents/bot@ws.test.dev/ws
 func extractEmailFromWSPath(path string) string {
-	// Path format: /v1/agents/{email}/ws (legacy /api/v1/... also parses).
+	// Path format: /v1/agents/{email}/ws (the legacy /api/v1 surface is gone).
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	for i, p := range parts {
 		if p == "agents" && i+1 < len(parts) {
