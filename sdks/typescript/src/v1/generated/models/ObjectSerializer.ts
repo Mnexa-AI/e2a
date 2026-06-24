@@ -70,7 +70,6 @@ export * from '../models/SuppressionExportEntry.js';
 export * from '../models/TestWebhookRequest.js';
 export * from '../models/TestWebhookResponse.js';
 export * from '../models/UpdateAgentRequest.js';
-export * from '../models/UpdateDomainRequest.js';
 export * from '../models/UpdateMessageRequest.js';
 export * from '../models/UpdateMessageResultView.js';
 export * from '../models/UpdateWebhookRequest.js';
@@ -107,7 +106,7 @@ import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
 import { DeliveryStatusJSON } from '../models/DeliveryStatusJSON.js';
 import { DeploymentInfoView } from '../models/DeploymentInfoView.js';
 import { Domain } from '../models/Domain.js';
-import { DomainView         , DomainViewSendingStatusEnum      } from '../models/DomainView.js';
+import { DomainView        , DomainViewSendingStatusEnum      } from '../models/DomainView.js';
 import { ErrorBody } from '../models/ErrorBody.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { EventJSON        , EventJSONStatusEnum  , EventJSONTypeEnum   } from '../models/EventJSON.js';
@@ -154,7 +153,6 @@ import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
 import { TestWebhookRequest , TestWebhookRequestEventEnum   } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
-import { UpdateDomainRequest } from '../models/UpdateDomainRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
 import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
 import { UpdateWebhookRequest  , UpdateWebhookRequestEventsEnum     } from '../models/UpdateWebhookRequest.js';
@@ -287,7 +285,6 @@ let typeMap: {[index: string]: any} = {
     "TestWebhookRequest": TestWebhookRequest,
     "TestWebhookResponse": TestWebhookResponse,
     "UpdateAgentRequest": UpdateAgentRequest,
-    "UpdateDomainRequest": UpdateDomainRequest,
     "UpdateMessageRequest": UpdateMessageRequest,
     "UpdateMessageResultView": UpdateMessageResultView,
     "UpdateWebhookRequest": UpdateWebhookRequest,

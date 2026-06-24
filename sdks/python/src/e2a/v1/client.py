@@ -60,7 +60,6 @@ from .generated.models import (
     TestWebhookRequest,
     ProtectionConfigView,
     UpdateAgentRequest,
-    UpdateDomainRequest,
     UpdateMessageRequest,
     UpdateMessageResultView,
     UpdateWebhookRequest,
@@ -419,12 +418,6 @@ class DomainsResource:
     async def create(self, body: Body) -> DomainView:
         req = _coerce(RegisterDomainRequest, body)
         return await self._c._write_unsafe(lambda h: self._api.register_domain(req, _headers=h))
-
-    async def update(self, domain: str, patch: Body) -> DomainView:
-        req = _coerce(UpdateDomainRequest, patch)
-        return await self._c._write_idempotent(
-            lambda h: self._api.update_domain(domain, req, _headers=h)
-        )
 
     async def delete(self, domain: str) -> None:
         await self._c._write_idempotent(lambda h: self._api.delete_domain(domain, confirm="DELETE", _headers=h))

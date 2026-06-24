@@ -112,7 +112,6 @@ type Deps struct {
 	ListDomains         func(ctx context.Context, userID string) ([]identity.Domain, error)
 	ClaimDomain         func(ctx context.Context, domain, userID string) (*identity.Domain, error)
 	EnforceDomainCreate func(ctx context.Context, userID string) error
-	SetDomainPrimary    func(ctx context.Context, domain, userID string) error
 	DeleteDomain        func(ctx context.Context, domain, userID string) error
 	HasAgentsOnDomain   func(ctx context.Context, domain, userID string) (bool, error)
 

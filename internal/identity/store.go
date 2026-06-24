@@ -644,49 +644,6 @@ func (s *Store) ListDomainsByUser(ctx context.Context, userID string) ([]Domain,
 	return domains, rows.Err()
 }
 
-// SetDomainPrimary marks a domain as the user's primary in a single
-// transaction: first clear any other primary belonging to the user, then
-// set the requested domain. The partial unique index in migration 013
-// makes the clear-first step necessary — otherwise the two writes would
-// race and one would fail with a unique violation.
-//
-// Returns ErrDomainNotFound when the domain doesn't exist or isn't owned
-// by the user.
-func (s *Store) SetDomainPrimary(ctx context.Context, domain, userID string) error {
-	domain = normalizeDomain(domain)
-
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback(ctx)
-		}
-	}()
-
-	if _, err := tx.Exec(ctx,
-		`UPDATE domains SET is_primary = false WHERE user_id = $1 AND is_primary = true`,
-		userID); err != nil {
-		return err
-	}
-	tag, err := tx.Exec(ctx,
-		`UPDATE domains SET is_primary = true WHERE domain = $1 AND user_id = $2`,
-		domain, userID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrDomainNotFound
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	committed = true
-	return nil
-}
-
 // TouchDomainLastChecked records that the verification probe ran. Call
 // this from POST /v1/domains/{domain}/verify whether the probe
 // succeeded or not — the LastCheckedAt column is "when did we last try",

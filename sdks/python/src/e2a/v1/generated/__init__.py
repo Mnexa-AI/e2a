@@ -108,7 +108,6 @@ __all__ = [
     "TestWebhookRequest",
     "TestWebhookResponse",
     "UpdateAgentRequest",
-    "UpdateDomainRequest",
     "UpdateMessageRequest",
     "UpdateMessageResultView",
     "UpdateWebhookRequest",
@@ -216,7 +215,6 @@ from e2a.v1.generated.models.suppression_export_entry import SuppressionExportEn
 from e2a.v1.generated.models.test_webhook_request import TestWebhookRequest as TestWebhookRequest
 from e2a.v1.generated.models.test_webhook_response import TestWebhookResponse as TestWebhookResponse
 from e2a.v1.generated.models.update_agent_request import UpdateAgentRequest as UpdateAgentRequest
-from e2a.v1.generated.models.update_domain_request import UpdateDomainRequest as UpdateDomainRequest
 from e2a.v1.generated.models.update_message_request import UpdateMessageRequest as UpdateMessageRequest
 from e2a.v1.generated.models.update_message_result_view import UpdateMessageResultView as UpdateMessageResultView
 from e2a.v1.generated.models.update_webhook_request import UpdateWebhookRequest as UpdateWebhookRequest

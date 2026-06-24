@@ -78,38 +78,6 @@ func TestRegisterDomainOverCap(t *testing.T) {
 	}
 }
 
-func TestUpdateDomainSetPrimary(t *testing.T) {
-	srv := testServer(t)
-	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/domains/acme.com", "good", map[string]any{"is_primary": true})
-	if code != 200 || body["domain"] != "acme.com" {
-		t.Fatalf("want 200, got %d %v", code, body)
-	}
-}
-
-func TestUpdateDomainDemoteRejected(t *testing.T) {
-	srv := testServer(t)
-	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/domains/acme.com", "good", map[string]any{"is_primary": false})
-	if code != 400 || errCode(body) != "invalid_request" {
-		t.Fatalf("want 400, got %d %v", code, body)
-	}
-}
-
-func TestUpdateDomainNoFields(t *testing.T) {
-	srv := testServer(t)
-	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/domains/acme.com", "good", map[string]any{})
-	if code != 400 || errCode(body) != "invalid_request" {
-		t.Fatalf("want 400, got %d %v", code, body)
-	}
-}
-
-func TestUpdateDomainNotFound(t *testing.T) {
-	srv := testServer(t)
-	code, _ := sendJSON(t, "PATCH", srv.URL+"/v1/domains/missing.com", "good", map[string]any{"is_primary": true})
-	if code != 404 {
-		t.Fatalf("want 404, got %d", code)
-	}
-}
-
 func TestDeleteDomain(t *testing.T) {
 	srv := testServer(t)
 	req, _ := http.NewRequest("DELETE", srv.URL+"/v1/domains/acme.com?confirm=DELETE", nil)

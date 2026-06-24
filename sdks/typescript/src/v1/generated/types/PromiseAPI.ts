@@ -74,7 +74,6 @@ import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
-import { UpdateDomainRequest } from '../models/UpdateDomainRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
 import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
 import { UpdateWebhookRequest } from '../models/UpdateWebhookRequest.js';
@@ -639,28 +638,6 @@ export class PromiseDomainsApi {
     public registerDomain(registerDomainRequest: RegisterDomainRequest, _options?: PromiseConfigurationOptions): Promise<DomainView> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.registerDomain(registerDomainRequest, observableOptions);
-        return result.toPromise();
-    }
-
-    /**
-     * Update a domain (set primary)
-     * @param domain
-     * @param updateDomainRequest
-     */
-    public updateDomainWithHttpInfo(domain: string, updateDomainRequest: UpdateDomainRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<DomainView>> {
-        const observableOptions = wrapOptions(_options);
-        const result = this.api.updateDomainWithHttpInfo(domain, updateDomainRequest, observableOptions);
-        return result.toPromise();
-    }
-
-    /**
-     * Update a domain (set primary)
-     * @param domain
-     * @param updateDomainRequest
-     */
-    public updateDomain(domain: string, updateDomainRequest: UpdateDomainRequest, _options?: PromiseConfigurationOptions): Promise<DomainView> {
-        const observableOptions = wrapOptions(_options);
-        const result = this.api.updateDomain(domain, updateDomainRequest, observableOptions);
         return result.toPromise();
     }
 
