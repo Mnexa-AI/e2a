@@ -785,8 +785,8 @@ describe("e2a MCP server", () => {
   });
 
   // Regression: when idempotency_key is omitted, the MCP layer must
-  // call approveMessage with exactly THREE args (agentEmail, id,
-  // overrides) — not four with `{ idempotencyKey: undefined }`.
+  // call approveMessage with exactly TWO args (id, overrides) — not
+  // three with `{ idempotencyKey: undefined }`.
   // Passing the undefined object sneaks past TypeScript but a callsite
   // that defaults the key (e.g. an auto-mint helper inside the SDK)
   // would receive `{ idempotencyKey: undefined }` as "user explicitly

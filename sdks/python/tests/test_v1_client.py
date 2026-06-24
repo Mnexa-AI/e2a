@@ -23,6 +23,7 @@ from e2a.v1.generated.models import (
     DomainView,
     EventJSON,
     MessageSummaryView,
+    ReviewView,
     Suppression,
     WebhookDeliveryView,
     WebhookView,
@@ -235,6 +236,19 @@ async def test_reviews_reject_hits_reviews_path(httpx_mock):
     req = httpx_mock.get_requests()[-1]
     assert req.method == "POST"
     assert "/v1/reviews/msg_r2/reject" in str(req.url)
+
+
+@pytest.mark.anyio
+async def test_reviews_list_reads_reviews_endpoint(httpx_mock):
+    httpx_mock.add_response(
+        json={"items": [_valid(ReviewView, id="msg_r1")], "next_cursor": None}
+    )
+    async with _client() as c:
+        items = await c.reviews.list().to_list(limit=50)
+    assert [r.id for r in items] == ["msg_r1"]
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "GET"
+    assert "/v1/reviews" in str(req.url)
 
 
 @pytest.mark.anyio

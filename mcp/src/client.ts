@@ -293,10 +293,31 @@ export class McpClient {
     return out;
   }
 
+  // Resolve the owning agent of a pending OUTBOUND draft by scanning the queue.
+  // get_pending_message is a RUNTIME-tier tool (agent-visible), so it must hit
+  // the agent-reachable GET /v1/agents/{email}/messages/{id} — NOT the account-
+  // only /v1/reviews/{id}, which 403s an agent-scoped credential. For a pinned
+  // session this is one list call.
+  private async ownerOfPending(messageId: string): Promise<string> {
+    const addresses = this.agentEmail
+      ? [this.agentEmail]
+      : (await this.listAgents()).map((a) => a.email);
+    for (const address of addresses) {
+      const rows = await this.sdk.messages
+        .list(address, { direction: "outbound" })
+        .toArray({ limit: DEFAULT_LIST_LIMIT });
+      if (rows.some((r) => r.messageId === messageId)) return address;
+    }
+    throw new Error(
+      `pending message ${messageId} not found on any owned agent (it may have already been approved, rejected, or expired).`,
+    );
+  }
+
   async getPendingMessage(messageId: string): Promise<MessageView> {
-    // Account-scoped, id-addressed: /v1/reviews/{id} resolves the hold across
-    // every owned inbox — no need to know (or scan for) the owning agent.
-    return this.sdk.reviews.get(messageId);
+    // Runtime-tier (agent-visible): use the agent-reachable messages path, not
+    // the account-only /v1/reviews/{id}. Resolve the owning inbox first.
+    const address = await this.ownerOfPending(messageId);
+    return this.sdk.messages.get(address, messageId);
   }
 
   async approveMessage(
