@@ -236,3 +236,33 @@ body {
     min-height: 44px;
   }
 }
+
+/* Every button reacts like a button. Two parts:
+ *  1. cursor: pointer on interactive controls — a bare <button> inherits the
+ *     text/arrow cursor in several UAs, which doesn't read as clickable.
+ *  2. a uniform hover/active affordance via filter: brightness(). filter is
+ *     used deliberately: most app buttons set background/border via INLINE
+ *     styles, which override Tailwind `hover:` utilities — but inline styles
+ *     don't touch `filter`, so this gives a consistent press/hover signal to
+ *     ALL buttons (including ones with no per-component hover state) without
+ *     editing each call site. Disabled controls opt out.
+ * Scoped to the authenticated app surface; marketing/docs keep their own. */
+[data-app-surface] button:not(:disabled),
+[data-app-surface] a[role="button"],
+[data-app-surface] [role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+[data-app-surface] button:not(:disabled):hover,
+[data-app-surface] a[role="button"]:hover,
+[data-app-surface] [role="button"]:not([aria-disabled="true"]):hover {
+  filter: brightness(0.96);
+}
+[data-app-surface] button:not(:disabled):active,
+[data-app-surface] a[role="button"]:active,
+[data-app-surface] [role="button"]:not([aria-disabled="true"]):active {
+  filter: brightness(0.92);
+}
+[data-app-surface] button:disabled {
+  cursor: not-allowed;
+}

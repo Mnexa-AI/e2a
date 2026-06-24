@@ -9,24 +9,23 @@ import { useState } from "react";
 import type { SetupMethod } from "../../../components/onboarding/types";
 import { Chip } from "../../../components/loft/Chip";
 
-// One selectable card. The recommended card carries a standing accent border;
-// hover (or selection) adds the accent + an elevated background as interactive
-// feedback. Inline `background`/`border` win over Tailwind `hover:` utilities,
-// so the hover state is driven from React state, not a `hover:` class. Border
-// width is a constant 2px in both states so hovering never shifts layout.
+// One selectable card. Neutral border by default (the "Recommended" chip, not
+// a standing accent border, marks the suggested option); hover or selection
+// adds the accent + an elevated background as interactive feedback. Inline
+// `background`/`border` win over Tailwind `hover:` utilities, so the hover
+// state is driven from React state, not a `hover:` class. Border width is a
+// constant 2px in both states so hovering never shifts layout.
 function MethodCard({
-  recommended = false,
   active,
   onClick,
   children,
 }: {
-  recommended?: boolean;
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
 }) {
   const [hovered, setHovered] = useState(false);
-  const accent = recommended || active || hovered;
+  const accent = active || hovered;
   return (
     <button
       type="button"
@@ -57,7 +56,7 @@ export function SetupMethodChoice({
 }) {
   return (
     <div className="grid gap-3.5 sm:grid-cols-2">
-      <MethodCard recommended active={selected === "agent"} onClick={() => onSelect("agent")}>
+      <MethodCard active={selected === "agent"} onClick={() => onSelect("agent")}>
         <div className="flex items-center gap-2 mb-1 flex-wrap">
           <span className="text-[14px] font-semibold" style={{ color: "var(--fg)" }}>
             With an agent
