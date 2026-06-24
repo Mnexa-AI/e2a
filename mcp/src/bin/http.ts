@@ -9,6 +9,7 @@ interface BinConfig {
   maxSessions: number;
   publicUrl?: string;
   authorizationServerUrl?: string;
+  trustProxy: boolean | number | string;
 }
 
 class ConfigError extends Error {}
@@ -50,6 +51,21 @@ function parsePort(name: string, raw: string, def: number): number {
     throw new ConfigError(`${name} must be 0..65535; got ${JSON.stringify(raw)}`);
   }
   return n;
+}
+
+// parseTrustProxy maps E2A_TRUST_PROXY to the value Express's `trust
+// proxy` setting expects. Default "loopback": only a same-host proxy (the
+// prod Caddy front, forwarding over localhost) is trusted for
+// X-Forwarded-* headers. "true"/"false" become booleans; a bare integer
+// is a hop count (Express reads a numeric *string* as a subnet, so it must
+// be converted); anything else passes through as a preset name
+// ("loopback"/"uniquelocal"/...) or a CSV of IPs/subnets.
+function parseTrustProxy(raw: string): boolean | number | string {
+  if (raw === "") return "loopback";
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  if (/^\d+$/.test(raw)) return Number(raw);
+  return raw;
 }
 
 function parseHostList(raw: string, def: string): string[] {
@@ -94,6 +110,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BinConfig {
     maxSessions: parsePositiveInt("MCP_MAX_SESSIONS", env.MCP_MAX_SESSIONS ?? "", 500),
     publicUrl: env.MCP_PUBLIC_URL || undefined,
     authorizationServerUrl: env.MCP_AUTHORIZATION_SERVER_URL || undefined,
+    trustProxy: parseTrustProxy(env.E2A_TRUST_PROXY ?? ""),
   };
 }
 
@@ -118,6 +135,7 @@ async function main(): Promise<void> {
     maxSessions: cfg.maxSessions,
     publicUrl: cfg.publicUrl,
     authorizationServerUrl: cfg.authorizationServerUrl,
+    trustProxy: cfg.trustProxy,
   });
   logJson("INFO", "listening", `e2a-mcp-http listening on :${bound}`, {
     port: bound,

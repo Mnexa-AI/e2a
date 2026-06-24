@@ -10,6 +10,7 @@ describe("bin/http loadConfig", () => {
       allowedHosts: ["api.e2a.dev"],
       sessionIdleMs: 5 * 60_000,
       maxSessions: 500,
+      trustProxy: "loopback",
     });
   });
 
@@ -27,6 +28,7 @@ describe("bin/http loadConfig", () => {
       allowedHosts: ["api.e2a.dev", "mcp-staging.e2a.dev"],
       sessionIdleMs: 60_000,
       maxSessions: 100,
+      trustProxy: "loopback",
     });
   });
 
@@ -91,6 +93,26 @@ describe("bin/http loadConfig", () => {
   it("allows port 0 (OS-assigned)", () => {
     const cfg = loadConfig({ PORT: "0" });
     expect(cfg.port).toBe(0);
+  });
+
+  it("defaults E2A_TRUST_PROXY to loopback", () => {
+    expect(loadConfig({}).trustProxy).toBe("loopback");
+  });
+
+  it("parses E2A_TRUST_PROXY booleans", () => {
+    expect(loadConfig({ E2A_TRUST_PROXY: "true" }).trustProxy).toBe(true);
+    expect(loadConfig({ E2A_TRUST_PROXY: "false" }).trustProxy).toBe(false);
+  });
+
+  it("parses a bare integer E2A_TRUST_PROXY as a hop count", () => {
+    // Express reads a numeric *string* as a subnet, so it must become a
+    // real number to mean "trust N hops".
+    expect(loadConfig({ E2A_TRUST_PROXY: "1" }).trustProxy).toBe(1);
+  });
+
+  it("passes through a preset / subnet E2A_TRUST_PROXY verbatim", () => {
+    expect(loadConfig({ E2A_TRUST_PROXY: "uniquelocal" }).trustProxy).toBe("uniquelocal");
+    expect(loadConfig({ E2A_TRUST_PROXY: "10.0.0.0/8" }).trustProxy).toBe("10.0.0.0/8");
   });
 });
 

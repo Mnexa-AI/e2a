@@ -59,6 +59,28 @@ describe("Sessions", () => {
     expect(sessions.get("c")).toBeDefined();
   });
 
+  it("LRU eviction tolerates a close() that rejects", async () => {
+    let t = 0;
+    const sessions = new Sessions({ idleTimeoutMs: 60_000, maxSessions: 1, now: () => t });
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    const bad = {
+      transport: { close: vi.fn(async () => { throw new Error("boom"); }) },
+      server: {},
+      lastSeen: 0,
+    } as unknown as SessionEntry;
+    sessions.put("bad", bad);
+    t = 10;
+    // Evicting "bad" fire-and-forgets a delete() whose close() rejects; this
+    // must not surface as an unhandled rejection, and the entry is still gone.
+    sessions.put("good", fakeEntry(10));
+    await new Promise((r) => setImmediate(r));
+    expect(bad.transport.close).toHaveBeenCalledOnce();
+    expect(sessions.get("bad")).toBeUndefined();
+    expect(sessions.get("good")).toBeDefined();
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining("session evict close error: boom"));
+    stderr.mockRestore();
+  });
+
   it("re-putting an existing id does not trigger eviction", () => {
     const sessions = new Sessions({ idleTimeoutMs: 60_000, maxSessions: 1 });
     const a1 = fakeEntry();

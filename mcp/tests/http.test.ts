@@ -244,6 +244,48 @@ describe("HTTP MCP server", () => {
     expect(body.bearer_methods_supported).toEqual(["header"]);
   });
 
+  it("discovery scheme falls back to the connection scheme without X-Forwarded-Proto", async () => {
+    const origin = url.replace("/mcp", "");
+    const res = await fetch(`${origin}/.well-known/oauth-protected-resource`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // No forwarded header: advertise the real (plaintext loopback) scheme.
+    expect(body.resource).toBe(origin);
+  });
+
+  it("honors X-Forwarded-Proto from a trusted (loopback) proxy", async () => {
+    // The default server trusts "loopback"; the test client connects over
+    // 127.0.0.1, so its X-Forwarded-Proto is honored — mirroring the prod
+    // Caddy front that terminates TLS and forwards over localhost.
+    const origin = url.replace("/mcp", "");
+    const res = await fetch(`${origin}/.well-known/oauth-protected-resource`, {
+      headers: { "X-Forwarded-Proto": "https" },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.resource).toBe(origin.replace(/^http:/, "https:"));
+  });
+
+  it("ignores X-Forwarded-Proto when the proxy is not trusted", async () => {
+    // trustProxy:false simulates an untrusted hop (e.g. a header spoofed
+    // over the public network rather than set by the loopback front proxy).
+    // The forwarded scheme must be dropped, not reflected into the resource.
+    await close();
+    const { close: c, port } = await startHttpServer(0, {
+      baseUrl: "http://e2a.local",
+      allowedHosts: ["127.0.0.1", "localhost"],
+      trustProxy: false,
+      clientFactory: () => stub,
+    });
+    close = c;
+    const res = await fetch(`http://127.0.0.1:${port}/.well-known/oauth-protected-resource`, {
+      headers: { "X-Forwarded-Proto": "https" },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.resource).toBe(`http://127.0.0.1:${port}`);
+  });
+
   it("lists every registered tool after initialize", async () => {
     const { client, transport } = await connect();
     const { tools } = await client.listTools();
