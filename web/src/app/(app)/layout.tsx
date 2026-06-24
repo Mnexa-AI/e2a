@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../components/AuthProvider";
+import { WorkspaceProvider } from "../components/WorkspaceProvider";
 import { SWRProvider } from "../components/swr/SWRProvider";
 import { SignInLink } from "../components/SignInLink";
 import { Sidebar } from "../components/loft/Sidebar";
@@ -117,6 +118,7 @@ export default function AppLayout({
 
   return (
     <SWRProvider>
+    <WorkspaceProvider>
     <div
       className="flex min-h-screen"
       style={{ background: "var(--bg)" }}
@@ -229,6 +231,7 @@ export default function AppLayout({
         <div className="flex-1 overflow-auto">{children}</div>
       </main>
     </div>
+    </WorkspaceProvider>
     </SWRProvider>
   );
 }

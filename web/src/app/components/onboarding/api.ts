@@ -13,6 +13,11 @@ import type {
   PendingMessageSummary,
   PendingMessageDetail,
   PendingAttachment,
+  Workspace,
+  WorkspaceMember,
+  WorkspaceRole,
+  Invitation,
+  CreateInvitationResponse,
 } from "../types";
 
 /** Thrown by `request` on any non-2xx HTTP response. Carries the raw
@@ -28,11 +33,55 @@ export class ApiError extends Error {
   }
 }
 
+// ── Active-workspace header (§4.4) ───────────────────────
+//
+// A human web session may span several workspaces; the active one is
+// selected per request via the `X-E2A-Workspace` header (an id). We hold
+// it in a module-level slot rather than threading it through every call
+// site so the central `request<T>` can stamp it on automatically. The
+// WorkspaceProvider owns the value: it calls `setActiveWorkspaceId` on
+// mount (seeded from whoami) and on every `switchWorkspace`. Header
+// precedence is enforced server-side — it's ignored for key/OAuth auth
+// (where the workspace is intrinsic) and only honored for the session
+// cookie. Empty/undefined → no header (server falls back to last-active
+// or the default workspace).
+let activeWorkspaceId: string | null = null;
+
+export function setActiveWorkspaceId(id: string | null): void {
+  activeWorkspaceId = id;
+}
+
+export function getActiveWorkspaceId(): string | null {
+  return activeWorkspaceId;
+}
+
+// Builds the per-request header set: the JSON content type, the active
+// workspace selector (when set), then any caller overrides last so an
+// explicit header always wins. Exported so the settings page's direct
+// /api/auth/me fetch can stamp the same selector.
+export function workspaceHeaders(
+  extra?: HeadersInit,
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (activeWorkspaceId) {
+    headers["X-E2A-Workspace"] = activeWorkspaceId;
+  }
+  if (extra) {
+    // Normalize the various HeadersInit shapes into our plain record.
+    new Headers(extra).forEach((value, key) => {
+      headers[key] = value;
+    });
+  }
+  return headers;
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     credentials: "include",
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: workspaceHeaders(init?.headers),
   });
   if (!res.ok) {
     const text = await res.text();
@@ -476,5 +525,137 @@ export async function rejectPendingMessage(
       method: "POST",
       body: JSON.stringify({ reason }),
     },
+  );
+}
+
+// ── Workspaces (§4.4) ────────────────────────────────────
+//
+// Every workspace call rides through `request<T>`, so the active-workspace
+// header (set by WorkspaceProvider) is stamped automatically — but note
+// the *path* id is what authorizes these ops server-side (it re-resolves
+// membership of the path id, not the header), so the switcher's active id
+// and the id passed here are independent.
+
+// GET /v1/workspaces → Page<WorkspaceView>. Every workspace I'm a live
+// member of, each annotated with my role. The default workspace sorts
+// first.
+export async function listWorkspaces(): Promise<Workspace[]> {
+  const data = await request<{ items?: Workspace[] | null }>("/v1/workspaces");
+  return data.items ?? [];
+}
+
+// GET /v1/workspaces/{id} — any live member.
+export async function getWorkspace(id: string): Promise<Workspace> {
+  return request<Workspace>("/v1/workspaces/" + encodeURIComponent(id));
+}
+
+// PATCH /v1/workspaces/{id} — rename. Admin only. Returns the updated view.
+export async function renameWorkspace(
+  id: string,
+  name: string,
+): Promise<Workspace> {
+  return request<Workspace>("/v1/workspaces/" + encodeURIComponent(id), {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+}
+
+// GET /v1/workspaces/{id}/members → Page<MemberView>. Any live member.
+export async function listMembers(id: string): Promise<WorkspaceMember[]> {
+  const data = await request<{ items?: WorkspaceMember[] | null }>(
+    "/v1/workspaces/" + encodeURIComponent(id) + "/members",
+  );
+  return data.items ?? [];
+}
+
+// PATCH /v1/workspaces/{id}/members/{user_id} — promote/demote. Admin only.
+// Promotion is the transfer-admin mechanism (admins are peers); the server
+// refuses to demote the last admin (409 last_admin).
+export async function setMemberRole(
+  id: string,
+  userId: string,
+  role: WorkspaceRole,
+): Promise<WorkspaceMember> {
+  return request<WorkspaceMember>(
+    "/v1/workspaces/" +
+      encodeURIComponent(id) +
+      "/members/" +
+      encodeURIComponent(userId),
+    {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
+    },
+  );
+}
+
+// DELETE /v1/workspaces/{id}/members/{user_id} — remove a member, or leave
+// by targeting yourself. Admin (or self for a leave). The server refuses to
+// remove the last admin (409 last_admin). 204 → undefined.
+export async function removeMember(
+  id: string,
+  userId: string,
+): Promise<void> {
+  return request(
+    "/v1/workspaces/" +
+      encodeURIComponent(id) +
+      "/members/" +
+      encodeURIComponent(userId),
+    { method: "DELETE" },
+  );
+}
+
+// GET /v1/workspaces/{id}/invitations → Page<InvitationView>. Pending
+// invitations. Admin only.
+export async function listInvitations(id: string): Promise<Invitation[]> {
+  const data = await request<{ items?: Invitation[] | null }>(
+    "/v1/workspaces/" + encodeURIComponent(id) + "/invitations",
+  );
+  return data.items ?? [];
+}
+
+// POST /v1/workspaces/{id}/invitations — invite an email with a role.
+// Admin only. Returns the pending-invite metadata plus the one-time token
+// (shown once). Inviting an existing member → 409 already_member (use
+// setMemberRole to change a role instead).
+export async function createInvitation(
+  id: string,
+  email: string,
+  role?: WorkspaceRole,
+): Promise<CreateInvitationResponse> {
+  const body: { email: string; role?: WorkspaceRole } = { email };
+  if (role) body.role = role;
+  return request<CreateInvitationResponse>(
+    "/v1/workspaces/" + encodeURIComponent(id) + "/invitations",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+// DELETE /v1/workspaces/{id}/invitations/{invitation_id} — revoke a pending
+// invitation; its accept link stops working. Admin only. 204 → undefined.
+export async function revokeInvitation(
+  id: string,
+  invitationId: string,
+): Promise<void> {
+  return request(
+    "/v1/workspaces/" +
+      encodeURIComponent(id) +
+      "/invitations/" +
+      encodeURIComponent(invitationId),
+    { method: "DELETE" },
+  );
+}
+
+// POST /v1/invitations/{token}/accept — accept an invitation. Requires the
+// signed-in user's email to match the invited email (403
+// invitation_email_mismatch otherwise). Idempotent (200 on a re-accept by
+// the already-joined user). A revoked/expired/torn-down invite → 410.
+// Returns the joined workspace (with the caller's new role).
+export async function acceptInvitation(token: string): Promise<Workspace> {
+  return request<Workspace>(
+    "/v1/invitations/" + encodeURIComponent(token) + "/accept",
+    { method: "POST" },
   );
 }

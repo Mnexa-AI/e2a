@@ -18,6 +18,19 @@ export const agentsKey = "agents";
 export const domainsKey = "domains";
 export const pendingMessagesKey = "pending-messages";
 
+// ── Workspaces (§4.4) ────────────────────────────────────
+
+// The user's workspace list (GET /v1/workspaces). Not tenant-scoped — it
+// spans every workspace the user belongs to — so it's a bare string and is
+// NOT cleared by the tenant-switch invalidator below.
+export const workspacesKey = "workspaces";
+
+// Per-workspace members + invitations, keyed by workspace id so two open
+// workspaces don't poison each other's cache.
+export const membersKey = (id: string) => ["members", id] as const;
+export const invitationsKey = (id: string) =>
+  ["invitations", id] as const;
+
 // Per-agent protection config (GET /v1/agents/{address}/protection),
 // keyed by the owning agent's email. The inbox-settings Review-queue
 // editor reads + writes the `holds` section through this key.
@@ -107,4 +120,57 @@ export function invalidateDomains() {
 // reflects the change.
 export function invalidateProtection(email: string) {
   return mutate(protectionKey(email));
+}
+
+// ── Workspace invalidation (§4.4) ────────────────────────
+
+// After a rename / leave / accept the workspace list (which carries the
+// active name + role per row) needs to refetch.
+export function invalidateWorkspaces() {
+  return mutate(workspacesKey);
+}
+
+// After invite/revoke/role-change/remove, the per-workspace members list
+// needs to refetch.
+export function invalidateMembers(id: string) {
+  return mutate(membersKey(id));
+}
+
+// After create/revoke/accept, the per-workspace pending-invitations list
+// needs to refetch.
+export function invalidateInvitations(id: string) {
+  return mutate(invitationsKey(id));
+}
+
+// Switching the active workspace changes the tenant every top-level
+// `/v1/*` fetch resolves against (agents, domains, messages, pending,
+// protection are now scoped to the active workspace — §4.7). The cached
+// data for the *previous* tenant is stale, so clear it so SWR refetches
+// under the new X-E2A-Workspace header. The workspace *list* itself
+// (`workspaces`) and the user identity are user-scoped, not tenant-scoped,
+// so we deliberately leave them. `undefined` data + revalidate so the UI
+// shows a loading state rather than the old tenant's rows.
+export function invalidateTenantScopedData() {
+  return mutate(
+    (key) => {
+      // Bare-string tenant-scoped keys.
+      if (key === agentsKey || key === domainsKey || key === pendingMessagesKey) {
+        return true;
+      }
+      // Tuple keys for per-agent/per-workspace tenant data.
+      if (Array.isArray(key)) {
+        const head = key[0];
+        return (
+          head === "agent-messages" ||
+          head === "pending-message" ||
+          head === "protection" ||
+          head === "members" ||
+          head === "invitations"
+        );
+      }
+      return false;
+    },
+    undefined,
+    { revalidate: true },
+  );
 }

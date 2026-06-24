@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useAuth } from "../../components/AuthProvider";
+import { workspaceHeaders } from "../../components/onboarding/api";
 import { PageShell } from "../../components/loft/PageShell";
 
 export default function SettingsPage() {
@@ -79,7 +80,7 @@ function ProfileSection({
     try {
       const res = await fetch("/api/auth/me", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: workspaceHeaders(),
         credentials: "include",
         body: JSON.stringify({ name: draft }),
       });
