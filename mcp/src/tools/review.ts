@@ -89,11 +89,11 @@ export function registerReviewTools(server: McpServer, client: McpClient): void 
     },
     async (args) => {
       const { message_id, idempotency_key, ...overrides } = args;
-      // The approve endpoint is account-scoped and branches on direction
-      // server-side: an outbound hold is sent, an inbound screening hold is
-      // released to the agent's inbox (overrides ignored). The client resolves
-      // the owning agent before calling, keeping the tool surface minimal
-      // (caller passes only message_id).
+      // The approve endpoint is account-scoped and id-addressed
+      // (/v1/reviews/{id}/approve): it branches on direction server-side — an
+      // outbound hold is sent, an inbound screening hold is released to the
+      // agent's inbox (overrides ignored). Caller passes only message_id; no
+      // owning-agent lookup needed.
       const mapped = mapOverrides(overrides);
       return runTool(() =>
         idempotency_key !== undefined

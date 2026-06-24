@@ -293,27 +293,10 @@ export class McpClient {
     return out;
   }
 
-  // Resolve the agent that owns a pending message by scanning the pending
-  // queue. The approve/reject endpoints are agent-scoped, so we need the
-  // owning address; for a pinned-default session this is one list call.
-  private async ownerOfPending(messageId: string): Promise<string> {
-    const addresses = this.agentEmail
-      ? [this.agentEmail]
-      : (await this.listAgents()).map((a) => a.email);
-    for (const address of addresses) {
-      const rows = await this.sdk.messages
-        .list(address, { direction: "outbound" })
-        .toArray({ limit: DEFAULT_LIST_LIMIT });
-      if (rows.some((r) => r.messageId === messageId)) return address;
-    }
-    throw new Error(
-      `pending message ${messageId} not found on any owned agent (it may have already been approved, rejected, or expired).`,
-    );
-  }
-
   async getPendingMessage(messageId: string): Promise<MessageView> {
-    const address = await this.ownerOfPending(messageId);
-    return this.sdk.messages.get(address, messageId);
+    // Account-scoped, id-addressed: /v1/reviews/{id} resolves the hold across
+    // every owned inbox — no need to know (or scan for) the owning agent.
+    return this.sdk.reviews.get(messageId);
   }
 
   async approveMessage(
@@ -329,16 +312,13 @@ export class McpClient {
     },
     opts?: SendOpts,
   ): Promise<SendResultView> {
-    const address = await this.ownerOfPending(messageId);
     return opts
-      ? this.sdk.messages.approve(address, messageId, overrides, opts)
-      : this.sdk.messages.approve(address, messageId, overrides);
+      ? this.sdk.reviews.approve(messageId, overrides, opts)
+      : this.sdk.reviews.approve(messageId, overrides);
   }
 
   async rejectMessage(messageId: string, reason?: string): Promise<RejectResultView> {
-    const address = await this.ownerOfPending(messageId);
-    return this.sdk.messages.reject(
-      address,
+    return this.sdk.reviews.reject(
       messageId,
       reason !== undefined ? { reason } : {},
     );
