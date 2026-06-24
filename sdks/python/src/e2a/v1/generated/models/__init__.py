@@ -76,6 +76,7 @@ from e2a.v1.generated.models.reject_result_view import RejectResultView
 from e2a.v1.generated.models.reply_request import ReplyRequest
 from e2a.v1.generated.models.result import Result
 from e2a.v1.generated.models.review_view import ReviewView
+from e2a.v1.generated.models.rotate_account_signing_secret_response import RotateAccountSigningSecretResponse
 from e2a.v1.generated.models.rotate_secret_response import RotateSecretResponse
 from e2a.v1.generated.models.send_email_request import SendEmailRequest
 from e2a.v1.generated.models.send_result_view import SendResultView

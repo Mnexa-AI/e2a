@@ -61,6 +61,7 @@ export * from '../models/RejectResultView.js';
 export * from '../models/ReplyRequest.js';
 export * from '../models/Result.js';
 export * from '../models/ReviewView.js';
+export * from '../models/RotateAccountSigningSecretResponse.js';
 export * from '../models/RotateSecretResponse.js';
 export * from '../models/SendEmailRequest.js';
 export * from '../models/SendResultView.js';
@@ -144,6 +145,7 @@ import { RejectResultView } from '../models/RejectResultView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
 import { ReviewView   , ReviewViewDirectionEnum      , ReviewViewReviewStatusEnum     } from '../models/ReviewView.js';
+import { RotateAccountSigningSecretResponse } from '../models/RotateAccountSigningSecretResponse.js';
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView   , SendResultViewMethodEnum   , SendResultViewSentAsEnum  , SendResultViewStatusEnum   } from '../models/SendResultView.js';
@@ -276,6 +278,7 @@ let typeMap: {[index: string]: any} = {
     "ReplyRequest": ReplyRequest,
     "Result": Result,
     "ReviewView": ReviewView,
+    "RotateAccountSigningSecretResponse": RotateAccountSigningSecretResponse,
     "RotateSecretResponse": RotateSecretResponse,
     "SendEmailRequest": SendEmailRequest,
     "SendResultView": SendResultView,

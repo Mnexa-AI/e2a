@@ -3714,3 +3714,56 @@ func (s *Store) TouchSigningSecretLastSigned(ctx context.Context, secretID strin
 	)
 	return err
 }
+
+// RotateUserSigningSecret atomically replaces ALL of a user's relay
+// signing secrets with a single freshly-minted one and returns its
+// plaintext value (shown once). It is the self-serve answer to a
+// suspected compromise of the per-user relay signing secret — the legacy
+// signing path the SMTP relay (GetUserSigningSecrets[0]) and hitlnotify
+// use, distinct from the per-webhook whsec_ key.
+//
+// Cutover semantics (deliberate, security-driven): this is a HARD
+// rotation, not a grace-window rollover. Every prior secret is deleted in
+// the same transaction as the insert, so the compromised secret stops
+// signing AND stops verifying immediately. The trade-off is that any
+// webhook delivery already in flight that was signed with an old secret
+// fails signature verification on the recipient side — which is the
+// intended effect when you believe the key is leaked. (The per-webhook
+// /v1/webhooks/{id}/rotate-secret op keeps a 24h grace window for the
+// non-disruptive case; this account control is purpose-built for the
+// disruptive one.)
+//
+// Atomic + race-free under concurrent callers via the per-user row lock
+// (the same lock that serializes Create/Delete/Ensure), so a delete-then-
+// insert can never leave the user with zero secrets or two rotations
+// racing to a partial state.
+func (s *Store) RotateUserSigningSecret(ctx context.Context, userID string) (*SigningSecret, error) {
+	id := "wsec_" + generateID()
+	plaintext := generateSigningSecret()
+	now := time.Now()
+
+	err := s.withUserSecretsLock(ctx, userID, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM webhook_signing_secrets WHERE user_id = $1`, userID,
+		); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx,
+			`INSERT INTO webhook_signing_secrets (id, user_id, secret, name, created_at)
+			 VALUES ($1, $2, $3, $4, $5)`,
+			id, userID, plaintext, "rotated", now,
+		)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &SigningSecret{
+		ID:           id,
+		UserID:       userID,
+		Name:         "rotated",
+		Secret:       plaintext,
+		SecretPrefix: plaintext[:12],
+		CreatedAt:    now,
+	}, nil
+}

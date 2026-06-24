@@ -65,6 +65,7 @@ import { RejectResultView } from '../models/RejectResultView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
 import { ReviewView } from '../models/ReviewView.js';
+import { RotateAccountSigningSecretResponse } from '../models/RotateAccountSigningSecretResponse.js';
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
@@ -153,6 +154,16 @@ export interface AccountApiListSuppressionsRequest {
      * @memberof AccountApilistSuppressions
      */
     limit?: number
+}
+
+export interface AccountApiRotateAccountSigningSecretRequest {
+    /**
+     * 
+     * Defaults to: undefined
+     * @type string
+     * @memberof AccountApirotateAccountSigningSecret
+     */
+    idempotencyKey?: string
 }
 
 export class ObjectAccountApi {
@@ -304,6 +315,24 @@ export class ObjectAccountApi {
      */
     public listSuppressions(param: AccountApiListSuppressionsRequest = {}, options?: ConfigurationOptions): Promise<PageSuppression> {
         return this.api.listSuppressions(param.cursor, param.limit,  options).toPromise();
+    }
+
+    /**
+     * Hard-rotate the per-user relay signing secret used to sign inbound webhook deliveries (the X-E2A-Auth-* HMAC) and HITL approval magic-links. Use when you suspect that secret is compromised. This is a HARD rotation, not a grace-window rollover: the old secret stops signing AND verifying immediately, so deliveries already in flight that were signed with it will fail verification — that is the intended effect of compromise recovery. New deliveries use the new secret at once. This is a DIFFERENT key from the per-webhook whsec_ secret (POST /v1/webhooks/{id}/rotate-secret), which keeps a 24h grace window. Returns the new secret once. Account scope only (agent-scoped credentials get 403). Honors Idempotency-Key so a retried call replays the same secret instead of rotating twice.
+     * Rotate the account relay signing secret
+     * @param param the request object
+     */
+    public rotateAccountSigningSecretWithHttpInfo(param: AccountApiRotateAccountSigningSecretRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<RotateAccountSigningSecretResponse>> {
+        return this.api.rotateAccountSigningSecretWithHttpInfo(param.idempotencyKey,  options).toPromise();
+    }
+
+    /**
+     * Hard-rotate the per-user relay signing secret used to sign inbound webhook deliveries (the X-E2A-Auth-* HMAC) and HITL approval magic-links. Use when you suspect that secret is compromised. This is a HARD rotation, not a grace-window rollover: the old secret stops signing AND verifying immediately, so deliveries already in flight that were signed with it will fail verification — that is the intended effect of compromise recovery. New deliveries use the new secret at once. This is a DIFFERENT key from the per-webhook whsec_ secret (POST /v1/webhooks/{id}/rotate-secret), which keeps a 24h grace window. Returns the new secret once. Account scope only (agent-scoped credentials get 403). Honors Idempotency-Key so a retried call replays the same secret instead of rotating twice.
+     * Rotate the account relay signing secret
+     * @param param the request object
+     */
+    public rotateAccountSigningSecret(param: AccountApiRotateAccountSigningSecretRequest = {}, options?: ConfigurationOptions): Promise<RotateAccountSigningSecretResponse> {
+        return this.api.rotateAccountSigningSecret(param.idempotencyKey,  options).toPromise();
     }
 
 }

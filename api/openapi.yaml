@@ -1729,6 +1729,21 @@ components:
         - review_status
         - created_at
       type: object
+    RotateAccountSigningSecretResponse:
+      additionalProperties: false
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        secret_prefix:
+          type: string
+        signing_secret:
+          type: string
+      required:
+        - signing_secret
+        - secret_prefix
+        - created_at
+      type: object
     RotateSecretResponse:
       additionalProperties: false
       properties:
@@ -2342,6 +2357,33 @@ paths:
       security:
         - bearer: []
       summary: Export your data (GDPR right-of-access)
+      tags:
+        - account
+  /v1/account/signing-secret/rotate:
+    post:
+      description: "Hard-rotate the per-user relay signing secret used to sign inbound webhook deliveries (the X-E2A-Auth-* HMAC) and HITL approval magic-links. Use when you suspect that secret is compromised. This is a HARD rotation, not a grace-window rollover: the old secret stops signing AND verifying immediately, so deliveries already in flight that were signed with it will fail verification — that is the intended effect of compromise recovery. New deliveries use the new secret at once. This is a DIFFERENT key from the per-webhook whsec_ secret (POST /v1/webhooks/{id}/rotate-secret), which keeps a 24h grace window. Returns the new secret once. Account scope only (agent-scoped credentials get 403). Honors Idempotency-Key so a retried call replays the same secret instead of rotating twice."
+      operationId: rotateAccountSigningSecret
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RotateAccountSigningSecretResponse"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Rotate the account relay signing secret
       tags:
         - account
   /v1/account/suppressions:

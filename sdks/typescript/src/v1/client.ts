@@ -51,6 +51,7 @@ import type {
   CreateWebhookRequest,
   UpdateWebhookRequest,
   RotateSecretResponse,
+  RotateAccountSigningSecretResponse,
   TestWebhookRequest,
   TestWebhookResponse,
   WebhookDeliveryView,
@@ -454,5 +455,12 @@ class AccountResource {
     // Irreversible. The typed .delete() call is the confirmation; the SDK
     // supplies the ?confirm=DELETE guard the raw API requires.
     return call(() => this.api.deleteAccount("DELETE"));
+  }
+  // Hard-rotate the per-user relay signing secret (the X-E2A-Auth-* HMAC key
+  // for inbound deliveries + HITL magic-links) for compromise recovery. The
+  // old secret stops signing AND verifying immediately. The returned
+  // `signing_secret` is shown once — store it now.
+  rotateSigningSecret(): Promise<RotateAccountSigningSecretResponse> {
+    return call(() => this.api.rotateAccountSigningSecret());
   }
 }

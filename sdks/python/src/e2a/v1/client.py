@@ -54,6 +54,7 @@ from .generated.models import (
     RejectResultView,
     ReplyRequest,
     ReviewView,
+    RotateAccountSigningSecretResponse,
     RotateSecretResponse,
     SendEmailRequest,
     SendResultView,
@@ -641,4 +642,15 @@ class AccountResource:
         # confirmation; the SDK supplies the ?confirm=DELETE guard.
         return await self._c._write_unsafe(
             lambda h: self._api.delete_account(confirm="DELETE", _headers=h)
+        )
+
+    async def rotate_signing_secret(self) -> RotateAccountSigningSecretResponse:
+        # Hard-rotate the per-user relay signing secret (the X-E2A-Auth-* HMAC key
+        # for inbound deliveries + HITL magic-links) for compromise recovery. The
+        # old secret stops signing AND verifying immediately. The returned
+        # signing_secret is shown once — store it now. Server-deduped via
+        # Idempotency-Key so a retry replays the same secret instead of rotating
+        # twice (parity with rotate_secret).
+        return await self._c._write_idempotent(
+            lambda h: self._api.rotate_account_signing_secret(_headers=h)
         )

@@ -84,6 +84,61 @@ func (s *Server) registerAccount() {
 		Description: "Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed).",
 		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
 	}, s.handleDeleteSuppression)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "rotateAccountSigningSecret", Method: http.MethodPost, Path: "/v1/account/signing-secret/rotate",
+		Summary: "Rotate the account relay signing secret", Tags: []string{"account"},
+		Description: "Hard-rotate the per-user relay signing secret used to sign inbound webhook deliveries (the X-E2A-Auth-* HMAC) and HITL approval magic-links. Use when you suspect that secret is compromised. This is a HARD rotation, not a grace-window rollover: the old secret stops signing AND verifying immediately, so deliveries already in flight that were signed with it will fail verification — that is the intended effect of compromise recovery. New deliveries use the new secret at once. This is a DIFFERENT key from the per-webhook whsec_ secret (POST /v1/webhooks/{id}/rotate-secret), which keeps a 24h grace window. Returns the new secret once. Account scope only (agent-scoped credentials get 403). Honors Idempotency-Key so a retried call replays the same secret instead of rotating twice.",
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleRotateAccountSigningSecret)
+}
+
+// rotateAccountSigningSecretResponse carries the freshly-minted relay
+// signing secret. Shown once — persist it on receipt (rotate again to
+// mint another).
+type rotateAccountSigningSecretResponse struct {
+	SigningSecret string `json:"signing_secret"`
+	SecretPrefix  string `json:"secret_prefix"`
+	CreatedAt     string `json:"created_at" format:"date-time"`
+}
+
+type rotateAccountSigningSecretOutput struct {
+	Body rotateAccountSigningSecretResponse
+}
+
+// rotateAccountSigningSecretInput carries an optional Idempotency-Key so a
+// retried rotate replays the first secret instead of hard-rotating twice
+// (which would discard the secret the caller already stored). The op has
+// no request body; the idempotency dedup hashes the route alone.
+type rotateAccountSigningSecretInput struct {
+	IdempotencyKey string `header:"Idempotency-Key"`
+}
+
+func (s *Server) handleRotateAccountSigningSecret(ctx context.Context, in *rotateAccountSigningSecretInput) (*rotateAccountSigningSecretOutput, error) {
+	user, err := s.requireAccountUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.deps.RotateRelaySigningSecret == nil {
+		return nil, NewError(http.StatusNotImplemented, "not_implemented", "relay signing-secret rotation is not available on this deployment")
+	}
+	_, body, err := runIdempotent(s, ctx, user.ID, in.IdempotencyKey,
+		"/v1/account/signing-secret/rotate", nil,
+		func() (int, rotateAccountSigningSecretResponse, error) {
+			sec, rerr := s.deps.RotateRelaySigningSecret(ctx, user.ID)
+			if rerr != nil {
+				return 0, rotateAccountSigningSecretResponse{}, NewError(http.StatusInternalServerError, "internal_error", "failed to rotate signing secret")
+			}
+			return http.StatusOK, rotateAccountSigningSecretResponse{
+				SigningSecret: sec.Secret,
+				SecretPrefix:  sec.SecretPrefix,
+				CreatedAt:     sec.CreatedAt.UTC().Format(time.RFC3339),
+			}, nil
+		})
+	if err != nil {
+		return nil, err
+	}
+	return &rotateAccountSigningSecretOutput{Body: body}, nil
 }
 
 // suppressionsOutput uses the shared Page[T] envelope (items + next_cursor);

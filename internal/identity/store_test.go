@@ -882,6 +882,69 @@ func TestCreateSigningSecret_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestRotateUserSigningSecret_HardReplace verifies the compromise-recovery
+// semantics: rotation deletes ALL prior secrets and leaves exactly one new
+// secret, which becomes the relay's signing key (GetUserSigningSecrets[0]).
+// The old secret no longer verifies (it's gone), and the new plaintext is
+// returned exactly once.
+func TestRotateUserSigningSecret_HardReplace(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	user, _ := store.CreateOrGetUser(ctx, "rotate-relay@example.com", "RR", "google-rotate-relay")
+
+	// Add a couple more secrets so we prove rotation clears more than the default.
+	if _, err := store.CreateSigningSecret(ctx, user.ID, "extra-1"); err != nil {
+		t.Fatalf("CreateSigningSecret extra-1: %v", err)
+	}
+	if _, err := store.CreateSigningSecret(ctx, user.ID, "extra-2"); err != nil {
+		t.Fatalf("CreateSigningSecret extra-2: %v", err)
+	}
+	before, _ := store.GetUserSigningSecrets(ctx, user.ID)
+	if len(before) != 3 {
+		t.Fatalf("setup: want 3 secrets, got %d", len(before))
+	}
+	oldValues := map[string]bool{}
+	for _, s := range before {
+		oldValues[s.Secret] = true
+	}
+
+	rotated, err := store.RotateUserSigningSecret(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("RotateUserSigningSecret: %v", err)
+	}
+	if !strings.HasPrefix(rotated.ID, "wsec_") {
+		t.Errorf("rotated ID should start with wsec_, got %q", rotated.ID)
+	}
+	if len(rotated.Secret) != 64 {
+		t.Errorf("rotated Secret should be 64 hex chars, got len=%d", len(rotated.Secret))
+	}
+	if rotated.Secret[:12] != rotated.SecretPrefix {
+		t.Errorf("rotated prefix mismatch: %q vs %q", rotated.Secret[:12], rotated.SecretPrefix)
+	}
+	if oldValues[rotated.Secret] {
+		t.Error("rotated secret must differ from every prior secret")
+	}
+
+	// After rotation: exactly ONE secret, and it's the new one (relay signs [0]).
+	after, err := store.GetUserSigningSecrets(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserSigningSecrets after rotate: %v", err)
+	}
+	if len(after) != 1 {
+		t.Fatalf("after rotate: want exactly 1 secret (hard replace), got %d", len(after))
+	}
+	if after[0].ID != rotated.ID || after[0].Secret != rotated.Secret {
+		t.Errorf("after rotate: stored secret = (%q,…), want the rotated one (%q,…)", after[0].ID, rotated.ID)
+	}
+	// Every old secret value is now gone (no longer verifies).
+	for v := range oldValues {
+		if v == after[0].Secret {
+			t.Error("an old secret value survived rotation")
+		}
+	}
+}
+
 func TestCreateSigningSecret_HardCap(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)

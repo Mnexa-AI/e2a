@@ -29,6 +29,35 @@ func TestGetMyLimitsUnauthorized(t *testing.T) {
 	}
 }
 
+// TestRotateAccountSigningSecret exercises the happy path: an account-scoped
+// caller rotates the per-user relay signing secret and gets the new value back
+// exactly once (with prefix + created_at).
+func TestRotateAccountSigningSecret(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/account/signing-secret/rotate", "good", nil)
+	if code != 200 {
+		t.Fatalf("status %d body %v", code, body)
+	}
+	if body["signing_secret"] != "deadbeefcafef00d" {
+		t.Fatalf("want reveal-once signing_secret, got %v", body["signing_secret"])
+	}
+	if body["secret_prefix"] != "deadbeefcafe" {
+		t.Fatalf("want secret_prefix, got %v", body["secret_prefix"])
+	}
+	if body["created_at"] == nil || body["created_at"] == "" {
+		t.Fatalf("want created_at, got %v", body["created_at"])
+	}
+}
+
+// TestRotateAccountSigningSecretUnauthorized: no bearer → 401.
+func TestRotateAccountSigningSecretUnauthorized(t *testing.T) {
+	srv := testServer(t)
+	code, _ := postJSON(t, srv.URL+"/v1/account/signing-secret/rotate", "", nil)
+	if code != 401 {
+		t.Fatalf("want 401, got %d", code)
+	}
+}
+
 // TestListSuppressionsPagination exercises the A-5 cursor round-trip: page 1
 // returns `limit` items + a next_cursor, and replaying that cursor returns the
 // remaining page with a null cursor.

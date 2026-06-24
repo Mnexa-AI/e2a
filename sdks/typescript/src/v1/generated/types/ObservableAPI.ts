@@ -66,6 +66,7 @@ import { RejectResultView } from '../models/RejectResultView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
 import { ReviewView } from '../models/ReviewView.js';
+import { RotateAccountSigningSecretResponse } from '../models/RotateAccountSigningSecretResponse.js';
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
@@ -368,6 +369,40 @@ export class ObservableAccountApi {
      */
     public listSuppressions(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageSuppression> {
         return this.listSuppressionsWithHttpInfo(cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageSuppression>) => apiResponse.data));
+    }
+
+    /**
+     * Hard-rotate the per-user relay signing secret used to sign inbound webhook deliveries (the X-E2A-Auth-* HMAC) and HITL approval magic-links. Use when you suspect that secret is compromised. This is a HARD rotation, not a grace-window rollover: the old secret stops signing AND verifying immediately, so deliveries already in flight that were signed with it will fail verification — that is the intended effect of compromise recovery. New deliveries use the new secret at once. This is a DIFFERENT key from the per-webhook whsec_ secret (POST /v1/webhooks/{id}/rotate-secret), which keeps a 24h grace window. Returns the new secret once. Account scope only (agent-scoped credentials get 403). Honors Idempotency-Key so a retried call replays the same secret instead of rotating twice.
+     * Rotate the account relay signing secret
+     * @param [idempotencyKey]
+     */
+    public rotateAccountSigningSecretWithHttpInfo(idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<RotateAccountSigningSecretResponse>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.rotateAccountSigningSecret(idempotencyKey, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.rotateAccountSigningSecretWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Hard-rotate the per-user relay signing secret used to sign inbound webhook deliveries (the X-E2A-Auth-* HMAC) and HITL approval magic-links. Use when you suspect that secret is compromised. This is a HARD rotation, not a grace-window rollover: the old secret stops signing AND verifying immediately, so deliveries already in flight that were signed with it will fail verification — that is the intended effect of compromise recovery. New deliveries use the new secret at once. This is a DIFFERENT key from the per-webhook whsec_ secret (POST /v1/webhooks/{id}/rotate-secret), which keeps a 24h grace window. Returns the new secret once. Account scope only (agent-scoped credentials get 403). Honors Idempotency-Key so a retried call replays the same secret instead of rotating twice.
+     * Rotate the account relay signing secret
+     * @param [idempotencyKey]
+     */
+    public rotateAccountSigningSecret(idempotencyKey?: string, _options?: ConfigurationOptions): Observable<RotateAccountSigningSecretResponse> {
+        return this.rotateAccountSigningSecretWithHttpInfo(idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<RotateAccountSigningSecretResponse>) => apiResponse.data));
     }
 
 }

@@ -87,6 +87,11 @@ func TestScope_AccountOnlyRoutesRejectAgentKeys(t *testing.T) {
 		{"reviews-get/agent-403", "GET", "/v1/reviews/msg_1", "agtSupport", 403},
 		{"reviews-approve/agent-403", "POST", "/v1/reviews/msg_1/approve", "agtSupport", 403},
 		{"reviews-reject/agent-403", "POST", "/v1/reviews/msg_1/reject", "agtSupport", 403},
+		// Rotating the per-user relay signing secret is account-admin: an
+		// agent-scoped credential must not rotate (or expose) the secret used
+		// to sign its own inbound deliveries. 403 fires at the scope gate
+		// before any dep, so this holds with the dep unwired.
+		{"signing-secret-rotate/agent-403", "POST", "/v1/account/signing-secret/rotate", "agtSupport", 403},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -178,6 +178,13 @@ type Deps struct {
 	RemoveSuppression func(ctx context.Context, userID, address string) (bool, error)
 	DeleteUserData    func(ctx context.Context, user *identity.User) (*identity.DeleteUserDataResult, error)
 
+	// RotateRelaySigningSecret hard-rotates the caller's per-user relay
+	// signing secret (the legacy GetUserSigningSecrets[0] path the SMTP
+	// relay + hitlnotify sign with), returning the new plaintext once.
+	// Account-scoped self-serve compromise recovery. Optional — nil
+	// deployments return 501.
+	RotateRelaySigningSecret func(ctx context.Context, userID string) (*identity.SigningSecret, error)
+
 	// events (delivery log). EventQuery carries the filters + cursor
 	// position; the closures bind the events pool in main.
 	ListEvents func(ctx context.Context, q EventQuery) ([]agent.EventJSON, error)

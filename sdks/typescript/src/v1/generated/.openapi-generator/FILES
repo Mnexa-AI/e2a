@@ -79,6 +79,7 @@ models/RejectResultView.ts
 models/ReplyRequest.ts
 models/Result.ts
 models/ReviewView.ts
+models/RotateAccountSigningSecretResponse.ts
 models/RotateSecretResponse.ts
 models/SendEmailRequest.ts
 models/SendResultView.ts

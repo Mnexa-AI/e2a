@@ -99,6 +99,7 @@ __all__ = [
     "ReplyRequest",
     "Result",
     "ReviewView",
+    "RotateAccountSigningSecretResponse",
     "RotateSecretResponse",
     "SendEmailRequest",
     "SendResultView",
@@ -206,6 +207,7 @@ from e2a.v1.generated.models.reject_result_view import RejectResultView as Rejec
 from e2a.v1.generated.models.reply_request import ReplyRequest as ReplyRequest
 from e2a.v1.generated.models.result import Result as Result
 from e2a.v1.generated.models.review_view import ReviewView as ReviewView
+from e2a.v1.generated.models.rotate_account_signing_secret_response import RotateAccountSigningSecretResponse as RotateAccountSigningSecretResponse
 from e2a.v1.generated.models.rotate_secret_response import RotateSecretResponse as RotateSecretResponse
 from e2a.v1.generated.models.send_email_request import SendEmailRequest as SendEmailRequest
 from e2a.v1.generated.models.send_result_view import SendResultView as SendResultView

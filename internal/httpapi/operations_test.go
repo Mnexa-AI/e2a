@@ -152,6 +152,19 @@ func testServer(t *testing.T) *httptest.Server {
 			}
 			return rest, nil
 		},
+		RotateRelaySigningSecret: func(ctx context.Context, userID string) (*identity.SigningSecret, error) {
+			if userID != "u_1" {
+				return nil, errors.New("unexpected user")
+			}
+			return &identity.SigningSecret{
+				ID:           "wsec_new",
+				UserID:       userID,
+				Name:         "rotated",
+				Secret:       "deadbeefcafef00d",
+				SecretPrefix: "deadbeefcafe",
+				CreatedAt:    time.Unix(1700000400, 0).UTC(),
+			}, nil
+		},
 		GetConversation: func(ctx context.Context, agentID, convoID string) (*identity.ConversationDetail, error) {
 			if agentID == "support@acme.com" && convoID == "conv_1" {
 				return &identity.ConversationDetail{
