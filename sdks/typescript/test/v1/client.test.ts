@@ -197,6 +197,35 @@ describe("E2AClient", () => {
     expect(att.sizeBytes).toBe(14);
   });
 
+  // ── Reviews: account-scoped, id-addressed (no inbox email) ──────
+  it("reviews.approve hits POST /v1/reviews/{id}/approve (no inbox email) + mints Idempotency-Key", async () => {
+    globalThis.fetch = mockFetch(200, { message_id: "msg_r1", status: "sent" });
+    await client.reviews.approve("msg_r1");
+    const { url, init, headers } = lastCall();
+    expect(init.method).toBe("POST");
+    expect(url).toContain("/v1/reviews/msg_r1/approve");
+    expect(url).not.toContain("/agents/");
+    expect(headers["Idempotency-Key"]).toBeTruthy();
+  });
+
+  it("reviews.reject hits POST /v1/reviews/{id}/reject", async () => {
+    globalThis.fetch = mockFetch(200, { message_id: "msg_r2", status: "rejected" });
+    await client.reviews.reject("msg_r2", { reason: "spam" } as never);
+    const { url, init } = lastCall();
+    expect(init.method).toBe("POST");
+    expect(url).toContain("/v1/reviews/msg_r2/reject");
+  });
+
+  it("reviews.list reads GET /v1/reviews (single page)", async () => {
+    globalThis.fetch = mockFetch(200, {
+      items: [{ id: "msg_r1", agent: "bot@test.dev", direction: "outbound" }],
+      next_cursor: null,
+    });
+    const items = await client.reviews.list().toArray({ limit: 50 });
+    expect(items.map((r) => r.id)).toEqual(["msg_r1"]);
+    expect(lastCall().url).toContain("/v1/reviews");
+  });
+
   // ── Pagination: cursor-walking endpoints ────────────────────────
   // conversations/events/suppressions take a `cursor` query param; the pager
   // must replay next_cursor until null, threading the cursor each follow-up.
