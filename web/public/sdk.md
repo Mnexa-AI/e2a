@@ -7,8 +7,9 @@ MCP. Two SDKs, same surface.
 - **TypeScript** — `@e2a/sdk` (npm) · [README](https://github.com/Mnexa-AI/e2a/blob/main/sdks/typescript/README.md)
 - **Python** — `e2a` (PyPI) · [README](https://github.com/Mnexa-AI/e2a/blob/main/sdks/python/README.md)
 
-The REST shapes they wrap are in https://e2a.dev/api.md; the exhaustive contract
-is https://e2a.dev/openapi.yaml. Auth (API key vs OAuth) is in
+Prefer a typed client; if you're calling the REST API raw, see
+[Raw REST](#raw-rest-without-an-sdk) below. The exhaustive contract is
+https://e2a.dev/openapi.yaml, and the auth model (API key vs OAuth) is in
 https://e2a.dev/auth.md.
 
 ## Install
@@ -130,3 +131,29 @@ for await (const n of client.listen("bot@agents.e2a.dev")) {
 async for n in client.listen("bot@agents.e2a.dev"):
     msg = await client.messages.get(n.recipient, n.message_id)
 ```
+
+## Raw REST (without an SDK)
+
+No SDK for your language? Call the API directly. Base URL
+`https://e2a.dev/v1/...`, JSON in/out, bearer auth on every request:
+
+```
+Authorization: Bearer <e2a_acct_… | e2a_agt_… | OAuth access token>
+```
+
+Conventions:
+
+- **Pagination** — list endpoints take `?cursor=` and return `next_cursor`
+  (null when exhausted).
+- **Errors** — non-2xx bodies are `{"error": {"code", "message", "request_id"}}`;
+  branch on the machine `code`.
+- **Idempotency** — sends (`send`/`reply`/`forward`/approve) accept an
+  `Idempotency-Key` header; a retried call replays instead of double-sending.
+- **Scopes** — account keys manage agents/domains/keys/reviews; agent keys are
+  pinned to one inbox.
+
+The endpoint map, exact request/response bodies, enums, and error codes are all
+in the OpenAPI 3.1 contract — generated from the live handlers, so it never
+lags: **https://e2a.dev/openapi.yaml**. The core resources are `agents`
+(inboxes), `messages` (send/reply/forward/get/list/attachments), `reviews`
+(HITL), `domains`, `webhooks`, `events`, and `account`.

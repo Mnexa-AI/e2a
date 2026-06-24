@@ -15,8 +15,7 @@
 
 ## API & SDKs
 
-- [api.md](https://e2a.dev/api.md): REST API orientation for non-MCP callers — base URL, auth, pagination/errors/idempotency conventions, and the per-resource endpoint map.
-- [sdk.md](https://e2a.dev/sdk.md): TypeScript (`@e2a/sdk`) and Python (`e2a`) quick-start with code examples — send, receive (webhook → fetch → reply), HITL, and real-time streaming.
+- [sdk.md](https://e2a.dev/sdk.md): TypeScript (`@e2a/sdk`) and Python (`e2a`) quick-start with code examples — send, receive (webhook → fetch → reply), HITL, real-time streaming — plus a Raw-REST section (base URL, auth, conventions) for other languages.
 - [openapi.yaml](https://e2a.dev/openapi.yaml): The full OpenAPI 3.1 contract — every endpoint, field, enum, and error, generated from the live handlers. Authoritative for exact signatures.
 
 ## MCP & plugin

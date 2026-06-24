@@ -31,8 +31,8 @@ Pick the row that fits you:
   secret.
 - **You're not on MCP** → call the REST API via the TypeScript or Python SDK
   (`@e2a/sdk` / `e2a`): see https://e2a.dev/sdk.md for quick-start + code
-  examples and https://e2a.dev/api.md for REST conventions. The exhaustive
-  contract is https://e2a.dev/openapi.yaml.
+  examples (and a Raw-REST section for other languages). The exhaustive contract
+  is https://e2a.dev/openapi.yaml.
 
 ## Connecting other MCP clients
 
