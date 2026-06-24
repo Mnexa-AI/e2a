@@ -31,10 +31,8 @@ export type DomainInfo = {
   };
   created_at: string;
   verified_at: string | null;
-  // Enrichment fields. is_primary is true on at most one domain per
-  // user; last_checked_at moves on every verification probe (success
-  // or failure); agent_count is computed at read time.
-  is_primary?: boolean;
+  // Enrichment fields. last_checked_at moves on every verification probe
+  // (success or failure); agent_count is computed at read time.
   last_checked_at?: string | null;
   agent_count?: number;
 };

@@ -75,7 +75,6 @@ import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
-import { UpdateDomainRequest } from '../models/UpdateDomainRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
 import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
 import { UpdateWebhookRequest } from '../models/UpdateWebhookRequest.js';
@@ -905,40 +904,6 @@ export class ObservableDomainsApi {
      */
     public registerDomain(registerDomainRequest: RegisterDomainRequest, _options?: ConfigurationOptions): Observable<DomainView> {
         return this.registerDomainWithHttpInfo(registerDomainRequest, _options).pipe(map((apiResponse: HttpInfo<DomainView>) => apiResponse.data));
-    }
-
-    /**
-     * Update a domain (set primary)
-     * @param domain
-     * @param updateDomainRequest
-     */
-    public updateDomainWithHttpInfo(domain: string, updateDomainRequest: UpdateDomainRequest, _options?: ConfigurationOptions): Observable<HttpInfo<DomainView>> {
-        const _config = mergeConfiguration(this.configuration, _options);
-
-        const requestContextPromise = this.requestFactory.updateDomain(domain, updateDomainRequest, _config);
-        // build promise chain
-        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
-        for (const middleware of _config.middleware) {
-            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
-        }
-
-        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
-            pipe(mergeMap((response: ResponseContext) => {
-                let middlewarePostObservable = of(response);
-                for (const middleware of _config.middleware.reverse()) {
-                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
-                }
-                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.updateDomainWithHttpInfo(rsp)));
-            }));
-    }
-
-    /**
-     * Update a domain (set primary)
-     * @param domain
-     * @param updateDomainRequest
-     */
-    public updateDomain(domain: string, updateDomainRequest: UpdateDomainRequest, _options?: ConfigurationOptions): Observable<DomainView> {
-        return this.updateDomainWithHttpInfo(domain, updateDomainRequest, _options).pipe(map((apiResponse: HttpInfo<DomainView>) => apiResponse.data));
     }
 
     /**

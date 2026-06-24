@@ -95,7 +95,6 @@ func BuildDeps(p Params) httpapi.Deps {
 		ListDomains:         p.Store.ListDomainsByUser,
 		ClaimDomain:         p.Store.ClaimOrCreateDomain,
 		EnforceDomainCreate: p.Enforcer.CheckDomainCreate,
-		SetDomainPrimary:    p.Store.SetDomainPrimary,
 		DeleteDomain:        deleteDomainFunc(p),
 		HasAgentsOnDomain:   p.Store.HasAgentsOnDomain,
 		SMTPDomain:          p.SMTPDomain,

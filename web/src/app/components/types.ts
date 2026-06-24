@@ -167,9 +167,8 @@ export type APIKeyData = {
   expires_at?: string | null;
 };
 
-// Domain enrichment fields — chips on the Domains page. is_primary is
-// at most true on one row per user; last_checked_at moves on every
-// verification probe (success or failure).
+// Domain enrichment fields — chips on the Domains page. last_checked_at
+// moves on every verification probe (success or failure).
 export type DomainInfo = {
   domain: string;
   verified: boolean;
@@ -183,17 +182,8 @@ export type DomainInfo = {
   };
   created_at: string;
   verified_at?: string | null;
-  is_primary: boolean;
   last_checked_at?: string | null;
   agent_count: number;
-};
-
-// Request body for PATCH /v1/domains/{domain}. is_primary=true
-// promotes the domain (atomically demoting any prior primary).
-// is_primary=false is rejected — switch primary by promoting a
-// different domain.
-export type UpdateDomainRequest = {
-  is_primary?: boolean;
 };
 
 // Request body for POST /v1/account/api-keys. expires_at is an RFC 3339

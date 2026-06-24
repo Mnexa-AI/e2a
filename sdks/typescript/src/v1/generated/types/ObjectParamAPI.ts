@@ -74,7 +74,6 @@ import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
-import { UpdateDomainRequest } from '../models/UpdateDomainRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
 import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
 import { UpdateWebhookRequest } from '../models/UpdateWebhookRequest.js';
@@ -703,22 +702,6 @@ export interface DomainsApiRegisterDomainRequest {
     registerDomainRequest: RegisterDomainRequest
 }
 
-export interface DomainsApiUpdateDomainRequest {
-    /**
-     * 
-     * Defaults to: undefined
-     * @type string
-     * @memberof DomainsApiupdateDomain
-     */
-    domain: string
-    /**
-     * 
-     * @type UpdateDomainRequest
-     * @memberof DomainsApiupdateDomain
-     */
-    updateDomainRequest: UpdateDomainRequest
-}
-
 export interface DomainsApiVerifyDomainRequest {
     /**
      * 
@@ -798,22 +781,6 @@ export class ObjectDomainsApi {
      */
     public registerDomain(param: DomainsApiRegisterDomainRequest, options?: ConfigurationOptions): Promise<DomainView> {
         return this.api.registerDomain(param.registerDomainRequest,  options).toPromise();
-    }
-
-    /**
-     * Update a domain (set primary)
-     * @param param the request object
-     */
-    public updateDomainWithHttpInfo(param: DomainsApiUpdateDomainRequest, options?: ConfigurationOptions): Promise<HttpInfo<DomainView>> {
-        return this.api.updateDomainWithHttpInfo(param.domain, param.updateDomainRequest,  options).toPromise();
-    }
-
-    /**
-     * Update a domain (set primary)
-     * @param param the request object
-     */
-    public updateDomain(param: DomainsApiUpdateDomainRequest, options?: ConfigurationOptions): Promise<DomainView> {
-        return this.api.updateDomain(param.domain, param.updateDomainRequest,  options).toPromise();
     }
 
     /**

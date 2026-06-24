@@ -20,7 +20,6 @@ export default function SettingsPage() {
       <div className="space-y-12">
         <ProfileSection user={user} />
         <ExportSection />
-        <NotificationsSection />
         <DangerZone />
       </div>
     </PageShell>
@@ -197,50 +196,6 @@ function ProfileSection({
           <dt style={{ color: "var(--fg-muted)" }}>Member since</dt>
           <dd style={{ color: "var(--fg)" }}>{formatDate(user.created_at)}</dd>
         </dl>
-      </div>
-    </section>
-  );
-}
-
-function NotificationsSection() {
-  // Coming soon — tracked in GitHub issue #133 (notification_prefs
-  // table + dispatch worker).
-  return (
-    <section>
-      <SectionHeading
-        title="Notifications"
-        subtitle="Choose when e2a emails you. Coming soon."
-      />
-      <div
-        className="p-5 space-y-3"
-        style={{
-          background: "var(--bg-panel)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--r-lg)",
-        }}
-      >
-        {[
-          "Email me when a message lands in pending review",
-          "Email me when a domain finishes verifying",
-          "Weekly delivery digest",
-        ].map((label) => (
-          <label
-            key={label}
-            className="flex items-center justify-between text-[13px] gap-3"
-            style={{ color: "var(--fg-muted)" }}
-          >
-            <span className="min-w-0 flex-1">{label}</span>
-            <span
-              className="font-mono text-[10px] uppercase"
-              style={{
-                color: "var(--fg-subtle)",
-                letterSpacing: "0.08em",
-              }}
-            >
-              Coming soon
-            </span>
-          </label>
-        ))}
       </div>
     </section>
   );

@@ -7,7 +7,6 @@ import { Dot } from "../../../components/loft/Dot";
 import {
   verifyDomain,
   deleteDomain,
-  setDomainPrimary,
 } from "../../../components/onboarding/api";
 import type {
   DomainInfo,
@@ -58,27 +57,10 @@ export function DomainCard({
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState("");
   const [deleting, setDeleting] = useState(false);
-  const [promoting, setPromoting] = useState(false);
   // Cached per-record diagnostic from the most recent verify probe. Until
   // the user clicks "View DNS records" + retries, this is null and the
   // chips render as "—" placeholders.
   const [probe, setProbe] = useState<VerifyDomainResponse | null>(null);
-
-  const handleSetPrimary = async () => {
-    setPromoting(true);
-    try {
-      await setDomainPrimary(domain.domain);
-      onVerified(); // reuse the parent's refresh — refetches the list
-    } catch (err) {
-      alert(
-        err instanceof Error
-          ? err.message
-          : "Failed to set primary domain",
-      );
-    } finally {
-      setPromoting(false);
-    }
-  };
 
   const handleVerify = async () => {
     setVerifyError("");
@@ -141,14 +123,6 @@ export function DomainCard({
               <Dot tone={domain.verified ? "success" : "warn"} />
               {domain.verified ? "Verified" : "Unverified"}
             </Chip>
-            {domain.is_primary && (
-              <span
-                title="Your default domain. New inboxes are created here by default and onboarding flows surface it first."
-                style={{ cursor: "help" }}
-              >
-                <Chip tone="neutral">Primary</Chip>
-              </span>
-            )}
           </div>
           <p
             className="text-[12px]"
@@ -183,25 +157,6 @@ export function DomainCard({
           </p>
         </div>
         <div className="flex gap-2 shrink-0 flex-wrap">
-          {/* Make-primary action: only shown for verified, non-primary
-              domains. PATCH /v1/domains/{domain} atomically swaps
-              the primary flag on the server side. */}
-          {domain.verified && !domain.is_primary && (
-            <button
-              onClick={handleSetPrimary}
-              disabled={promoting}
-              title="Mark this domain as your default. New inboxes will be created under it by default, and onboarding flows surface it first. You can have one primary domain at a time."
-              className="text-[12px] px-3 py-1.5 transition disabled:opacity-50"
-              style={{
-                background: "var(--bg-panel)",
-                color: "var(--fg)",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--r-md)",
-              }}
-            >
-              {promoting ? "Setting…" : "Make primary"}
-            </button>
-          )}
           {domain.verified ? (
             <a
               href={`/get-started?domain=${encodeURIComponent(domain.domain)}`}

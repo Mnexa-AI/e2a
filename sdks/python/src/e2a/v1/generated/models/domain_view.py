@@ -33,7 +33,6 @@ class DomainView(BaseModel):
     created_at: datetime
     dns_records: DNSRecordsView
     domain: StrictStr
-    is_primary: StrictBool
     last_checked_at: Optional[datetime] = None
     sending_dns_records: Optional[List[SendingDNSRecordView]] = None
     sending_error: Optional[StrictStr] = None
@@ -42,7 +41,7 @@ class DomainView(BaseModel):
     verification_token: StrictStr
     verified: StrictBool
     verified_at: Optional[datetime] = None
-    __properties: ClassVar[List[str]] = ["agent_count", "created_at", "dns_records", "domain", "is_primary", "last_checked_at", "sending_dns_records", "sending_error", "sending_last_checked_at", "sending_status", "verification_token", "verified", "verified_at"]
+    __properties: ClassVar[List[str]] = ["agent_count", "created_at", "dns_records", "domain", "last_checked_at", "sending_dns_records", "sending_error", "sending_last_checked_at", "sending_status", "verification_token", "verified", "verified_at"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -109,7 +108,6 @@ class DomainView(BaseModel):
             "created_at": obj.get("created_at"),
             "dns_records": DNSRecordsView.from_dict(obj["dns_records"]) if obj.get("dns_records") is not None else None,
             "domain": obj.get("domain"),
-            "is_primary": obj.get("is_primary"),
             "last_checked_at": obj.get("last_checked_at"),
             "sending_dns_records": [SendingDNSRecordView.from_dict(_item) for _item in obj["sending_dns_records"]] if obj.get("sending_dns_records") is not None else None,
             "sending_error": obj.get("sending_error"),

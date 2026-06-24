@@ -19,7 +19,6 @@ export class DomainView {
     'createdAt': Date;
     'dnsRecords': DNSRecordsView;
     'domain': string;
-    'isPrimary': boolean;
     'lastCheckedAt'?: Date;
     'sendingDnsRecords'?: Array<SendingDNSRecordView>;
     'sendingError'?: string;
@@ -56,12 +55,6 @@ export class DomainView {
             "name": "domain",
             "baseName": "domain",
             "type": "string",
-            "format": ""
-        },
-        {
-            "name": "isPrimary",
-            "baseName": "is_primary",
-            "type": "boolean",
             "format": ""
         },
         {

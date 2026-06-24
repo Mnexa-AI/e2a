@@ -88,7 +88,6 @@ models/SuppressionExportEntry.ts
 models/TestWebhookRequest.ts
 models/TestWebhookResponse.ts
 models/UpdateAgentRequest.ts
-models/UpdateDomainRequest.ts
 models/UpdateMessageRequest.ts
 models/UpdateMessageResultView.ts
 models/UpdateWebhookRequest.ts

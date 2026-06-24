@@ -41,7 +41,6 @@ import type {
   ConversationDetailView,
   DomainView,
   RegisterDomainRequest,
-  UpdateDomainRequest,
   VerifyDomainView,
   EventJSON,
   RedeliverEventRequest,
@@ -299,9 +298,6 @@ class DomainsResource {
   }
   create(body: RegisterDomainRequest): Promise<DomainView> {
     return call(() => this.api.registerDomain(body));
-  }
-  update(domain: string, patch: UpdateDomainRequest): Promise<DomainView> {
-    return call(() => this.api.updateDomain(domain, patch));
   }
   async delete(domain: string): Promise<void> {
     await call(() => this.api.deleteDomain(domain, "DELETE"));

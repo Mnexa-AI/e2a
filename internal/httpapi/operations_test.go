@@ -217,12 +217,6 @@ func testServer(t *testing.T) *httptest.Server {
 			}
 			return nil
 		},
-		SetDomainPrimary: func(ctx context.Context, domain, userID string) error {
-			if domain == "missing.com" {
-				return identity.ErrDomainNotFound
-			}
-			return nil
-		},
 		DeleteDomain:      func(ctx context.Context, domain, userID string) error { return nil },
 		HasAgentsOnDomain: func(ctx context.Context, domain, userID string) (bool, error) { return domain == "busy.com", nil },
 		SMTPDomain:        "mx.e2a.dev",

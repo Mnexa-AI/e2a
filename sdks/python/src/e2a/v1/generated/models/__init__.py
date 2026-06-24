@@ -85,7 +85,6 @@ from e2a.v1.generated.models.suppression_export_entry import SuppressionExportEn
 from e2a.v1.generated.models.test_webhook_request import TestWebhookRequest
 from e2a.v1.generated.models.test_webhook_response import TestWebhookResponse
 from e2a.v1.generated.models.update_agent_request import UpdateAgentRequest
-from e2a.v1.generated.models.update_domain_request import UpdateDomainRequest
 from e2a.v1.generated.models.update_message_request import UpdateMessageRequest
 from e2a.v1.generated.models.update_message_result_view import UpdateMessageResultView
 from e2a.v1.generated.models.update_webhook_request import UpdateWebhookRequest

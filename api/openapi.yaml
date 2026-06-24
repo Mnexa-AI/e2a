@@ -752,8 +752,6 @@ components:
           $ref: "#/components/schemas/DNSRecordsView"
         domain:
           type: string
-        is_primary:
-          type: boolean
         last_checked_at:
           format: date-time
           type: string
@@ -786,7 +784,6 @@ components:
         - verification_token
         - dns_records
         - created_at
-        - is_primary
         - agent_count
         - sending_status
       type: object
@@ -1896,12 +1893,6 @@ components:
           description: New display name for the agent (a UI label; the agent's identity is its email).
           maxLength: 200
           type: string
-      type: object
-    UpdateDomainRequest:
-      additionalProperties: false
-      properties:
-        is_primary:
-          type: boolean
       type: object
     UpdateMessageRequest:
       additionalProperties: false
@@ -3342,38 +3333,6 @@ paths:
       security:
         - bearer: []
       summary: Get a domain
-      tags:
-        - domains
-    patch:
-      operationId: updateDomain
-      parameters:
-        - in: path
-          name: domain
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateDomainRequest"
-        required: true
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DomainView"
-          description: OK
-        default:
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
-      security:
-        - bearer: []
-      summary: Update a domain (set primary)
       tags:
         - domains
   /v1/domains/{domain}/verify:

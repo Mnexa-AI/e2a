@@ -12,7 +12,6 @@ import { DomainView } from '../models/DomainView.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { PageDomainView } from '../models/PageDomainView.js';
 import { RegisterDomainRequest } from '../models/RegisterDomainRequest.js';
-import { UpdateDomainRequest } from '../models/UpdateDomainRequest.js';
 import { VerifyDomainView } from '../models/VerifyDomainView.js';
 
 /**
@@ -158,61 +157,6 @@ export class DomainsApiRequestFactory extends BaseAPIRequestFactory {
         requestContext.setHeaderParam("Content-Type", contentType);
         const serializedBody = ObjectSerializer.stringify(
             ObjectSerializer.serialize(registerDomainRequest, "RegisterDomainRequest", ""),
-            contentType
-        );
-        requestContext.setBody(serializedBody);
-
-        let authMethod: SecurityAuthentication | undefined;
-        // Apply auth methods
-        authMethod = _config.authMethods["bearer"]
-        if (authMethod?.applySecurityAuthentication) {
-            await authMethod?.applySecurityAuthentication(requestContext);
-        }
-        
-        const defaultAuth: SecurityAuthentication | undefined = _config?.authMethods?.default
-        if (defaultAuth?.applySecurityAuthentication) {
-            await defaultAuth?.applySecurityAuthentication(requestContext);
-        }
-
-        return requestContext;
-    }
-
-    /**
-     * Update a domain (set primary)
-     * @param domain 
-     * @param updateDomainRequest 
-     */
-    public async updateDomain(domain: string, updateDomainRequest: UpdateDomainRequest, _options?: Configuration): Promise<RequestContext> {
-        let _config = _options || this.configuration;
-
-        // verify required parameter 'domain' is not null or undefined
-        if (domain === null || domain === undefined) {
-            throw new RequiredError("DomainsApi", "updateDomain", "domain");
-        }
-
-
-        // verify required parameter 'updateDomainRequest' is not null or undefined
-        if (updateDomainRequest === null || updateDomainRequest === undefined) {
-            throw new RequiredError("DomainsApi", "updateDomain", "updateDomainRequest");
-        }
-
-
-        // Path Params
-        const localVarPath = '/v1/domains/{domain}'
-            .replace('{' + 'domain' + '}', encodeURIComponent(String(domain)));
-
-        // Make Request Context
-        const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.PATCH);
-        requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
-
-
-        // Body Params
-        const contentType = ObjectSerializer.getPreferredMediaType([
-            "application/json"
-        ]);
-        requestContext.setHeaderParam("Content-Type", contentType);
-        const serializedBody = ObjectSerializer.stringify(
-            ObjectSerializer.serialize(updateDomainRequest, "UpdateDomainRequest", ""),
             contentType
         );
         requestContext.setBody(serializedBody);
@@ -407,42 +351,6 @@ export class DomainsApiResponseProcessor {
                 "ErrorEnvelope", ""
             ) as ErrorEnvelope;
             throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error — the standard envelope; branch on error.code.", body, response.headers);
-        }
-
-        // Work around for missing responses in specification, e.g. for petstore.yaml
-        if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: DomainView = ObjectSerializer.deserialize(
-                ObjectSerializer.parse(await response.body.text(), contentType),
-                "DomainView", ""
-            ) as DomainView;
-            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
-        }
-
-        throw new ApiException<string | Blob | undefined>(response.httpStatusCode, "Unknown API Status Code!", await response.getBodyAsAny(), response.headers);
-    }
-
-    /**
-     * Unwraps the actual response sent by the server from the response context and deserializes the response content
-     * to the expected objects
-     *
-     * @params response Response returned by the server for a request to updateDomain
-     * @throws ApiException if the response code was not in [200, 299]
-     */
-     public async updateDomainWithHttpInfo(response: ResponseContext): Promise<HttpInfo<DomainView >> {
-        const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
-        if (isCodeInRange("200", response.httpStatusCode)) {
-            const body: DomainView = ObjectSerializer.deserialize(
-                ObjectSerializer.parse(await response.body.text(), contentType),
-                "DomainView", ""
-            ) as DomainView;
-            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
-        }
-        if (isCodeInRange("0", response.httpStatusCode)) {
-            const body: ErrorEnvelope = ObjectSerializer.deserialize(
-                ObjectSerializer.parse(await response.body.text(), contentType),
-                "ErrorEnvelope", ""
-            ) as ErrorEnvelope;
-            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error", body, response.headers);
         }
 
         // Work around for missing responses in specification, e.g. for petstore.yaml

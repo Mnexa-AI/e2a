@@ -36,7 +36,6 @@ type DomainView struct {
 	DNSRecords        DNSRecordsView `json:"dns_records"`
 	CreatedAt         time.Time      `json:"created_at"`
 	VerifiedAt        *time.Time     `json:"verified_at,omitempty"`
-	IsPrimary         bool           `json:"is_primary"`
 	LastCheckedAt     *time.Time     `json:"last_checked_at,omitempty"`
 	AgentCount        int            `json:"agent_count"`
 	// Sender identity (decision 4 / Slice 4). Independent of `verified`
@@ -86,7 +85,6 @@ func (s *Server) domainView(d *identity.Domain) DomainView {
 		DNSRecords:           records,
 		CreatedAt:            d.CreatedAt,
 		VerifiedAt:           d.VerifiedAt,
-		IsPrimary:            d.IsPrimary,
 		LastCheckedAt:        d.LastCheckedAt,
 		AgentCount:           d.AgentCount,
 		SendingStatus:        sendingStatus,
@@ -160,12 +158,6 @@ func (s *Server) registerDomains() {
 			"default": s.errorEnvelopeResponse(),
 		},
 	}, s.handleRegisterDomain)
-
-	huma.Register(s.API, huma.Operation{
-		OperationID: "updateDomain", Method: http.MethodPatch, Path: "/v1/domains/{domain}",
-		Summary: "Update a domain (set primary)", Tags: []string{"domains"},
-		Security: []map[string][]string{{"bearer": {}}},
-	}, s.handleUpdateDomain)
 
 	huma.Register(s.API, huma.Operation{
 		OperationID: "deleteDomain", Method: http.MethodDelete, Path: "/v1/domains/{domain}",
@@ -315,40 +307,6 @@ func (s *Server) handleRegisterDomain(ctx context.Context, in *registerDomainInp
 		return nil, NewError(http.StatusBadRequest, "domain_unavailable", "failed to register domain")
 	}
 	return &domainCreateOutput{Body: s.domainView(d)}, nil
-}
-
-// UpdateDomainRequest mirrors the legacy body: only `is_primary` is updatable,
-// and only promotion (true) — demotion is a no-op (switch by promoting another).
-type UpdateDomainRequest struct {
-	IsPrimary *bool `json:"is_primary,omitempty"`
-}
-type updateDomainInput struct {
-	Domain string `path:"domain"`
-	Body   UpdateDomainRequest
-}
-
-func (s *Server) handleUpdateDomain(ctx context.Context, in *updateDomainInput) (*domainOutput, error) {
-	user, err := s.requireAccountUser(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if in.Body.IsPrimary == nil {
-		return nil, NewError(http.StatusBadRequest, "invalid_request", "no updatable fields provided")
-	}
-	if !*in.Body.IsPrimary {
-		return nil, NewError(http.StatusBadRequest, "invalid_request", "to switch primary, PATCH the new primary domain instead")
-	}
-	if err := s.deps.SetDomainPrimary(ctx, in.Domain, user.ID); err != nil {
-		if errors.Is(err, identity.ErrDomainNotFound) {
-			return nil, NewError(http.StatusNotFound, "not_found", "domain not found")
-		}
-		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to update domain")
-	}
-	d, err := s.deps.LookupDomain(ctx, in.Domain, user.ID)
-	if err != nil || d == nil {
-		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to read back domain")
-	}
-	return &domainOutput{Body: s.domainView(d)}, nil
 }
 
 type deleteDomainOutput struct{}
