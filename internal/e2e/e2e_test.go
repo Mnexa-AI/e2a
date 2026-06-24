@@ -49,24 +49,14 @@ func setupDomainAndAgent(t *testing.T, ts *testutil.E2ATestServer, email, domain
 	return user, apiKey, agent
 }
 
-// authHeaderSecrets returns the secrets the relay would use to sign a
-// user's inbound auth headers. The relay signs with the owner's
-// per-user webhook signing secret whenever one exists — and one always
-// does, since CreateOrGetUser auto-provisions a "default" secret. So
-// tests must verify auth-header signatures against these, not the
-// deployment-wide ts.Signer (that signer is only a fallback for
-// secret-less/legacy agents, which owned test agents never are).
+// authHeaderSecrets returns the secret the relay uses to sign inbound
+// auth headers. The relay signs with the deployment HMAC secret
+// (cfg.Signing.HMACSecret, TestHMACSecret in tests) — the sole signer.
 func authHeaderSecrets(t *testing.T, ts *testutil.E2ATestServer, userID string) []string {
 	t.Helper()
-	secs, err := ts.Store.GetUserSigningSecrets(context.Background(), userID)
-	if err != nil {
-		t.Fatalf("GetUserSigningSecrets: %v", err)
-	}
-	out := make([]string, len(secs))
-	for i, s := range secs {
-		out[i] = s.Secret
-	}
-	return out
+	_ = ts
+	_ = userID
+	return []string{testutil.TestHMACSecret}
 }
 
 // receivedAuthHeaders pulls the auth_headers map out of an email.received

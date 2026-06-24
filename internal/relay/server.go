@@ -276,24 +276,8 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// The body hash is bound into the canonical so a captured (headers, MAC) pair
 	// cannot be replayed under a modified body within the replay window.
 	//
-	// Signing secret is per-agent-owner: we use the user's most recently
-	// created webhook signing secret. Older secrets remain valid for
-	// recipient-side verification (multi-secret rotation) but the relay
-	// always picks the freshest one for new signatures. Falls back to
-	// the deployment-wide signer only if the user lookup fails — that
-	// way an unowned/legacy agent still gets signed delivery.
-	signingSecret := ""
-	signingSecretID := ""
-	if agent.UserID != "" {
-		secrets, err := s.relay.store.GetUserSigningSecrets(ctx, agent.UserID)
-		if err != nil {
-			log.Printf("[%s] failed to load signing secrets for user %s: %v — falling back to deployment secret", s.id, agent.UserID, err)
-		} else if len(secrets) > 0 {
-			signingSecret = secrets[0].Secret
-			signingSecretID = secrets[0].ID
-		}
-	}
-	var authHeaders headers.AuthHeaders
+	// Signed with the deployment HMAC secret (cfg.Signing.HMACSecret) — the
+	// sole signer for X-E2A-Auth-* headers.
 	authPayload := headers.AuthPayload{
 		Verified:    domainAuth.DomainAuthenticated(),
 		Sender:      senderEmail,
@@ -302,23 +286,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 		MessageID:   messageID,
 		BodyHash:    headers.HashBody(body),
 	}
-	if signingSecret != "" {
-		authHeaders = headers.Sign(signingSecret, authPayload)
-		// Record last_signed_at off the hot path. Best-effort: a failed
-		// touch never blocks delivery — it only loses the dashboard
-		// "last used" hint for this signature.
-		go func(id string) {
-			if err := s.relay.store.TouchSigningSecretLastSigned(context.Background(), id); err != nil {
-				log.Printf("[mail:%s] touch last_signed_at failed: id=%s err=%v", messageID, id, err)
-			}
-		}(signingSecretID)
-	} else {
-		// Last-resort fallback for unowned agents or transient DB errors.
-		// Production deployments should never hit this path after the
-		// per-user-secrets backfill runs; if they do, the deployment
-		// secret remains a working signer.
-		authHeaders = s.relay.signer.Sign(authPayload)
-	}
+	authHeaders := s.relay.signer.Sign(authPayload)
 
 	// Display sender for webhook / stored message prefers the first Reply-To
 	// when set, so recipients reply to the intended mailbox (matches how
