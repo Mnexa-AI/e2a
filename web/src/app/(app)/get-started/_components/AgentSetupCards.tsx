@@ -13,12 +13,12 @@ import { useState } from "react";
 // Hosted, account-scoped MCP endpoint (mcp/README.md). OAuth 2.1 → the
 // `mcp add` command opens a browser consent flow; no key to copy.
 const MCP_URL = "https://api.e2a.dev/mcp";
-// Agent-facing setup doc — the same skill the landing page points to. The
-// pasted agent fetches it to learn how to connect + drive e2a.
-const SKILL_URL =
-  "https://raw.githubusercontent.com/Mnexa-AI/e2a/main/skills/using-e2a/SKILL.md";
+// Hosted agent-facing setup doc (web/public/e2a.md). The pasted agent fetches
+// it to learn how to connect over MCP + drive e2a — it carries the connect
+// instructions, so the prompt just points the agent at it.
+const DOC_URL = "https://e2a.dev/e2a.md";
 
-const PASTE_PROMPT = `Give yourself an email inbox with e2a. Read ${SKILL_URL}, connect to the e2a MCP server at ${MCP_URL}, then create my inbox and walk me through it.`;
+const PASTE_PROMPT = `Give yourself an email inbox with e2a. Read ${DOC_URL} and follow it to connect over MCP (${MCP_URL}) and set up my inbox, then walk me through it.`;
 
 const CONNECT_COMMAND = `claude mcp add --transport http e2a ${MCP_URL}`;
 

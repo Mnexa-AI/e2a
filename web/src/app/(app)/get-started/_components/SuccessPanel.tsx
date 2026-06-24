@@ -121,7 +121,7 @@ export function SuccessPanel({
       <div className="space-y-4">
         <CodeBlock
           title="Install the e2a skill"
-          code={`mkdir -p .claude/skills/e2a\ncurl -o .claude/skills/e2a/SKILL.md \\\n  https://raw.githubusercontent.com/Mnexa-AI/e2a/main/skills/using-e2a/SKILL.md`}
+          code={`mkdir -p .claude/skills/e2a\ncurl -o .claude/skills/e2a/SKILL.md \\\n  https://raw.githubusercontent.com/Mnexa-AI/e2a/main/plugins/e2a/skills/e2a/SKILL.md`}
         />
         <p className="text-sm text-muted">
           Then use{" "}

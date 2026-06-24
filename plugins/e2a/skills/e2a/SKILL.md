@@ -32,7 +32,7 @@ fi
 if [ "$_E2A_SKIP" -eq 0 ]; then
   mkdir -p "$_E2A_STATE"
   echo "$_E2A_NOW" > "$_E2A_CHECK"
-  _E2A_REMOTE=$(curl -sf https://raw.githubusercontent.com/Mnexa-AI/e2a/main/skills/using-e2a/SKILL.md | sed -n 's/.*version: \([0-9]*\).*/\1/p' | head -1)
+  _E2A_REMOTE=$(curl -sf https://raw.githubusercontent.com/Mnexa-AI/e2a/main/plugins/e2a/skills/e2a/SKILL.md | sed -n 's/.*version: \([0-9]*\).*/\1/p' | head -1)
   if [ -n "$_E2A_REMOTE" ] && [ "$_E2A_REMOTE" -gt "$_E2A_LOCAL" ] 2>/dev/null; then
     echo "E2A_SKILL_UPDATE_AVAILABLE $_E2A_LOCAL $_E2A_REMOTE"
   fi
@@ -42,7 +42,7 @@ fi
 If output contains `E2A_SKILL_UPDATE_AVAILABLE`: tell the user a new version of the e2a skill is available and ask if they'd like to update. If yes, run:
 
 ```bash
-curl -sf -o ~/.claude/skills/e2a/SKILL.md https://raw.githubusercontent.com/Mnexa-AI/e2a/main/skills/using-e2a/SKILL.md
+curl -sf -o ~/.claude/skills/e2a/SKILL.md https://raw.githubusercontent.com/Mnexa-AI/e2a/main/plugins/e2a/skills/e2a/SKILL.md
 ```
 
 Then re-read the updated file and follow its instructions instead.

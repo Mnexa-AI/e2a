@@ -25,7 +25,7 @@ const NAV_LINKS: { label: string; href: string; external?: boolean }[] = [
 
 const DOCS_LINKS: { label: string; href: string; external?: boolean }[] = [
   { label: "API Reference", href: "/api-docs" },
-  { label: "Claude Code skill", href: "https://github.com/Mnexa-AI/e2a/blob/main/skills/using-e2a/SKILL.md", external: true },
+  { label: "Claude Code skill", href: "https://github.com/Mnexa-AI/e2a/blob/main/plugins/e2a/skills/e2a/SKILL.md", external: true },
   { label: "Python SDK", href: "https://pypi.org/project/e2a/", external: true },
   { label: "TypeScript SDK", href: "https://www.npmjs.com/package/@e2a/sdk", external: true },
   { label: "CLI", href: "https://www.npmjs.com/package/@e2a/cli", external: true },
@@ -47,7 +47,7 @@ const FOOTER_LINKS: { label: string; href: string; external?: boolean }[] = [
   { label: "Python SDK", href: "https://pypi.org/project/e2a/", external: true },
   { label: "TypeScript SDK", href: "https://www.npmjs.com/package/@e2a/sdk", external: true },
   { label: "CLI", href: "https://www.npmjs.com/package/@e2a/cli", external: true },
-  { label: "Claude Skill", href: "https://github.com/Mnexa-AI/e2a/blob/main/skills/using-e2a/SKILL.md", external: true },
+  { label: "Claude Skill", href: "https://github.com/Mnexa-AI/e2a/blob/main/plugins/e2a/skills/e2a/SKILL.md", external: true },
   { label: "Feedback", href: "/feedback" },
 ];
 
@@ -544,7 +544,7 @@ export default function Home() {
                 <Line c="comment"># drop the e2a skill into your Claude Code project</Line>
                 <Line>mkdir -p .claude/skills/e2a</Line>
                 <Line>curl -o .claude/skills/e2a/SKILL.md \</Line>
-                <Line>&nbsp;&nbsp;https://raw.githubusercontent.com/Mnexa-AI/e2a/main/skills/using-e2a/SKILL.md</Line>
+                <Line>&nbsp;&nbsp;https://raw.githubusercontent.com/Mnexa-AI/e2a/main/plugins/e2a/skills/e2a/SKILL.md</Line>
                 <Line>&nbsp;</Line>
                 <Line c="comment"># then tell Claude Code:</Line>
                 <Line>/e2a register my-agent</Line>

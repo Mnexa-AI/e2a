@@ -1,0 +1,29 @@
+# e2a
+
+> e2a is an authenticated email gateway for AI agents: it gives an agent its own
+> verified email inbox to send, receive, reply, and forward, with SPF/DKIM
+> verification and optional human-in-the-loop approval of outbound mail. Connect
+> over a hosted MCP server (OAuth, no API key), the REST API, or the SDKs.
+
+## Start here
+
+- [e2a.md](https://e2a.dev/e2a.md): What e2a is, how an agent connects (one MCP command), and what it can do. Read this first.
+
+## Connecting & auth
+
+- [auth.md](https://e2a.dev/auth.md): Authentication — OAuth 2.1 + Dynamic Client Registration (RFC 8414/7591, PKCE) so an agent can self-register with no human-supplied secret. Bearer API keys (account vs agent scope) also covered.
+
+## API & SDKs
+
+- [api.md](https://e2a.dev/api.md): REST API orientation for non-MCP callers — base URL, auth, pagination/errors/idempotency conventions, and the per-resource endpoint map.
+- [sdk.md](https://e2a.dev/sdk.md): TypeScript (`@e2a/sdk`) and Python (`e2a`) quick-start with code examples — send, receive (webhook → fetch → reply), HITL, and real-time streaming.
+- [openapi.yaml](https://e2a.dev/openapi.yaml): The full OpenAPI 3.1 contract — every endpoint, field, enum, and error, generated from the live handlers. Authoritative for exact signatures.
+
+## MCP & plugin
+
+- [Claude Code plugin + skill](https://github.com/Mnexa-AI/e2a/tree/main/plugins/e2a): The `e2a` plugin bundles the hosted MCP server config and the `e2a` skill (mental model, gotchas, worked examples).
+- MCP endpoint: `https://api.e2a.dev/mcp` (Streamable HTTP, OAuth 2.1). Add with `claude mcp add --transport http e2a https://api.e2a.dev/mcp`.
+
+## Source
+
+- [GitHub: Mnexa-AI/e2a](https://github.com/Mnexa-AI/e2a): Open-source core — Go backend, TS/Python SDKs, CLI, MCP server, Next.js dashboard.
