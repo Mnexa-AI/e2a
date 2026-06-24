@@ -109,10 +109,11 @@ func NewProvider(storage *Storage, issuerURL string, hmacSecret []byte) (fosite.
 		EnforcePKCEForPublicClients:    true,
 		EnablePKCEPlainChallengeMethod: false,
 
-		// Scope matching: e2a's single scope is "mcp"; ExactScope means
-		// the requested scope must literally equal a registered scope.
-		// HierarchicScope (the alternative) would let "mcp:inbox" match
-		// "mcp" as a parent — we don't want that drift today.
+		// Scope matching: e2a's scopes are "agent" (runtime/inbox tier, the
+		// DCR-public default) and "account" (admin). ExactScope means a
+		// requested scope must literally equal one the client registered;
+		// HierarchicScope (the alternative) would let "agent:inbox" match
+		// "agent" as a parent — we don't want that drift today.
 		ScopeStrategy:            fosite.ExactScopeStrategy,
 		AudienceMatchingStrategy: fosite.DefaultAudienceMatchingStrategy,
 

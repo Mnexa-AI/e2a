@@ -28,7 +28,7 @@ func seedClient(t *testing.T, pool *pgxpool.Pool, clientID string) {
 		     response_types, scopes, audiences, token_endpoint_auth_method,
 		     public, created_via)
 		VALUES ($1, $2, ARRAY['http://localhost/cb'], ARRAY['authorization_code','refresh_token'],
-		        ARRAY['code'], ARRAY['mcp'], ARRAY[]::TEXT[], 'none',
+		        ARRAY['code'], ARRAY['agent'], ARRAY[]::TEXT[], 'none',
 		        TRUE, 'dcr')
 	`, clientID, "test client")
 	if err != nil {
@@ -55,8 +55,8 @@ func newRequester(id, clientID, userID string, now time.Time) fosite.Requester {
 		ID:             id,
 		RequestedAt:    now,
 		Client:         c,
-		RequestedScope: fosite.Arguments{"mcp"},
-		GrantedScope:   fosite.Arguments{"mcp"},
+		RequestedScope: fosite.Arguments{"agent"},
+		GrantedScope:   fosite.Arguments{"agent"},
 		Form:           map[string][]string{},
 		Session: &oauth.Session{
 			UserID:     userID,

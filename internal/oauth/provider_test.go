@@ -49,7 +49,7 @@ func newProviderFixture(t *testing.T) (fosite.OAuth2Provider, *oauth.Storage, *p
 		        ARRAY['http://localhost:8765/callback'],
 		        ARRAY['authorization_code','refresh_token'],
 		        ARRAY['code'],
-		        ARRAY['mcp'],
+		        ARRAY['agent'],
 		        ARRAY[]::TEXT[],
 		        'none', TRUE, 'dcr')
 		ON CONFLICT (client_id) DO NOTHING
@@ -115,7 +115,7 @@ func TestProvider_AuthCode_RoundTrip(t *testing.T) {
 	q.Set("response_type", "code")
 	q.Set("client_id", clientID)
 	q.Set("redirect_uri", redirectURI)
-	q.Set("scope", "mcp")
+	q.Set("scope", "agent")
 	q.Set("state", "abc123abc123abc123")
 	q.Set("code_challenge", challenge)
 	q.Set("code_challenge_method", "S256")
@@ -141,7 +141,7 @@ func TestProvider_AuthCode_RoundTrip(t *testing.T) {
 	ar.SetSession(sess)
 	// Grant the requested scope. Without this fosite would drop the
 	// scope between authorize and the issued tokens.
-	ar.GrantScope("mcp")
+	ar.GrantScope("agent")
 
 	// Have fosite write the response — this is what materializes the
 	// authorize code (and stores it via our Storage). We use a
@@ -268,7 +268,7 @@ func TestProvider_AuthCode_BadPKCE(t *testing.T) {
 	q.Set("response_type", "code")
 	q.Set("client_id", clientID)
 	q.Set("redirect_uri", redirectURI)
-	q.Set("scope", "mcp")
+	q.Set("scope", "agent")
 	q.Set("state", "abc123abc123abc123")
 	q.Set("code_challenge", challenge)
 	q.Set("code_challenge_method", "S256")
@@ -278,7 +278,7 @@ func TestProvider_AuthCode_BadPKCE(t *testing.T) {
 		t.Fatalf("NewAuthorizeRequest: %v", err)
 	}
 	ar.SetSession(&oauth.Session{UserID: userID, AgentEmail: "a@b.c", Subject: userID})
-	ar.GrantScope("mcp")
+	ar.GrantScope("agent")
 	resp, err := provider.NewAuthorizeResponse(ctx, ar, ar.GetSession())
 	if err != nil {
 		t.Fatalf("NewAuthorizeResponse: %v", err)
@@ -319,7 +319,7 @@ func TestProvider_PKCEPlainRejected(t *testing.T) {
 	q.Set("response_type", "code")
 	q.Set("client_id", clientID)
 	q.Set("redirect_uri", redirectURI)
-	q.Set("scope", "mcp")
+	q.Set("scope", "agent")
 	q.Set("state", "abc123abc123abc123")
 	q.Set("code_challenge", challenge)
 	q.Set("code_challenge_method", "plain")
@@ -330,7 +330,7 @@ func TestProvider_PKCEPlainRejected(t *testing.T) {
 		t.Fatalf("NewAuthorizeRequest unexpectedly rejected the request before PKCE check: %v", err)
 	}
 	ar.SetSession(&oauth.Session{UserID: userID, AgentEmail: "a@b.c", Subject: userID})
-	ar.GrantScope("mcp")
+	ar.GrantScope("agent")
 
 	_, err = provider.NewAuthorizeResponse(ctx, ar, ar.GetSession())
 	if err == nil {

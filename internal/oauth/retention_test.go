@@ -144,16 +144,16 @@ func TestCleanupExpired_PrunesAbandonedDCRClients(t *testing.T) {
 		     public, created_via, created_at)
 		VALUES
 		    ('mcp_old_abandoned', 'old abandoned', ARRAY['http://localhost/cb'],
-		     ARRAY['authorization_code'], ARRAY['code'], ARRAY['mcp'], ARRAY[]::TEXT[],
+		     ARRAY['authorization_code'], ARRAY['code'], ARRAY['agent'], ARRAY[]::TEXT[],
 		     'none', TRUE, 'dcr', $1),
 		    ('mcp_old_with_token', 'old still in use', ARRAY['http://localhost/cb'],
-		     ARRAY['authorization_code'], ARRAY['code'], ARRAY['mcp'], ARRAY[]::TEXT[],
+		     ARRAY['authorization_code'], ARRAY['code'], ARRAY['agent'], ARRAY[]::TEXT[],
 		     'none', TRUE, 'dcr', $1),
 		    ('mcp_young_abandoned', 'young abandoned', ARRAY['http://localhost/cb'],
-		     ARRAY['authorization_code'], ARRAY['code'], ARRAY['mcp'], ARRAY[]::TEXT[],
+		     ARRAY['authorization_code'], ARRAY['code'], ARRAY['agent'], ARRAY[]::TEXT[],
 		     'none', TRUE, 'dcr', $2),
 		    ('mcp_admin_old', 'operator curated', ARRAY['http://localhost/cb'],
-		     ARRAY['authorization_code'], ARRAY['code'], ARRAY['mcp'], ARRAY[]::TEXT[],
+		     ARRAY['authorization_code'], ARRAY['code'], ARRAY['agent'], ARRAY[]::TEXT[],
 		     'none', TRUE, 'admin', $1)
 	`, old, young)
 
@@ -253,9 +253,9 @@ func TestExportConnectionsForUser(t *testing.T) {
 		t.Fatalf("want 3 consents for userA (a/b/c@e.dev), got %d: %+v", len(got), got)
 	}
 	byEmail := map[string]ConnectionEntryFields{
-		"a@e.dev": {wantRevoked: false, wantClientID: clientID, wantClientName: "test client", wantScope: "mcp"},
-		"b@e.dev": {wantRevoked: true, wantClientID: clientID, wantClientName: "test client", wantScope: "mcp"},
-		"c@e.dev": {wantRevoked: false, wantClientID: clientID, wantClientName: "test client", wantScope: "mcp"},
+		"a@e.dev": {wantRevoked: false, wantClientID: clientID, wantClientName: "test client", wantScope: "agent"},
+		"b@e.dev": {wantRevoked: true, wantClientID: clientID, wantClientName: "test client", wantScope: "agent"},
+		"c@e.dev": {wantRevoked: false, wantClientID: clientID, wantClientName: "test client", wantScope: "agent"},
 	}
 	for _, c := range got {
 		want, ok := byEmail[c.AgentEmail]
