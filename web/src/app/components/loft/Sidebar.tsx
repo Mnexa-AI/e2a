@@ -5,8 +5,19 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { useAuth } from "../AuthProvider";
 import { usePendingCount } from "../hooks/usePendingCount";
+import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 
-type IconKey = "plus" | "grid" | "clock" | "globe" | "key" | "settings" | "msg" | "shield" | "card";
+type IconKey =
+  | "plus"
+  | "grid"
+  | "clock"
+  | "globe"
+  | "key"
+  | "settings"
+  | "msg"
+  | "shield"
+  | "card"
+  | "users";
 
 const ICONS: Record<IconKey, ReactNode> = {
   plus: (
@@ -63,6 +74,15 @@ const ICONS: Record<IconKey, ReactNode> = {
     <>
       <path d="M12 3l8 3v6c0 4.5-3.5 8-8 9-4.5-1-8-4.5-8-9V6l8-3z" />
       <path d="M9 12l2 2 4-4" />
+    </>
+  ),
+  // Two figures — the Workspace (members/invitations) screen.
+  users: (
+    <>
+      <path d="M16 19v-1.5a3.5 3.5 0 00-3.5-3.5h-5A3.5 3.5 0 004 17.5V19" />
+      <circle cx="10" cy="8" r="3.5" />
+      <path d="M20 19v-1.5a3.5 3.5 0 00-2.6-3.4" />
+      <path d="M15.5 4.6a3.5 3.5 0 010 6.8" />
     </>
   ),
 };
@@ -247,12 +267,9 @@ export function Sidebar({
         </div>
       </Link>
 
-      {/*
-        Workspace/org switcher intentionally omitted until multi-tenant
-        orgs land (tracked in GitHub issue #130). Until then the
-        bottom-of-sidebar user card is the canonical identity
-        affordance — a second card here would just duplicate it.
-      */}
+      {/* Active-workspace switcher — collapses to a static label when the
+          user belongs to a single workspace (§4.2). */}
+      <WorkspaceSwitcher />
 
       {/* Nav */}
       <nav className="flex-1 px-3 pt-3 pb-1.5">
@@ -302,6 +319,12 @@ export function Sidebar({
         className="px-3 pt-2.5 pb-3.5"
         style={{ borderTop: "1px solid var(--border)" }}
       >
+        <BottomNavLink
+          href="/workspace"
+          icon="users"
+          label="Workspace"
+          pathname={pathname}
+        />
         <BottomNavLink
           href="/settings"
           icon="settings"
