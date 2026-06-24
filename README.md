@@ -120,7 +120,7 @@ Inbound mail reaches you two complementary ways — chosen per integration, not 
 | **Webhooks** | Account-level subscriptions (`POST /v1/webhooks`) — HTTPS POST per event, filterable by agent / conversation / event type | Yes |
 | **WebSocket** | Per-agent real-time notification stream (`/v1/agents/{address}/ws`) + REST fetch | No |
 
-A disconnected WebSocket client accumulates "unread" messages; on reconnect, the server drains them as notifications. Either channel can also poll messages via the REST API. (The old per-agent `agent_mode` / `webhook_url` fields were removed — webhooks are their own resource now.)
+A disconnected WebSocket client accumulates "unread" messages; on reconnect, the server drains them as notifications. Either channel can also poll messages via the REST API. Webhooks are their own resource (`/v1/webhooks`), chosen per integration rather than set on the agent.
 
 ### Auth headers
 
@@ -192,7 +192,7 @@ Reviewers can approve or reject via:
 - **Dashboard / API** — the account-scoped review queue `POST /v1/reviews/{id}/approve` or `/reject` (id-addressed, no inbox email needed; lists held items across all the account's inboxes via `GET /v1/reviews`). This is the primary path. The agent-path `POST /v1/agents/{address}/messages/{id}/approve|reject` is **deprecated** but still works identically for back-compat.
 - **Magic-link email** — sent automatically when a hold fires; one-click `GET /v1/approve?t=…` and `/v1/reject?t=…` URLs (requires `E2A_PUBLIC_URL` and outbound SMTP configured)
 
-Enable review holds on an agent via `PUT /v1/agents/{address}/protection`: set the outbound gate action to `review` (or turn on the content scan), plus the hold TTL (`holds.ttl_seconds`) and its expiry behavior (`holds.on_expiry` = `approve` or `reject`). (The old per-agent `hitl_enabled` / `hitl_mode` flags were retired in the screening cutover — posture now lives entirely on the protection sub-resource.)
+Enable review holds on an agent via `PUT /v1/agents/{address}/protection`: set the outbound gate action to `review` (or turn on the content scan), plus the hold TTL (`holds.ttl_seconds`) and its expiry behavior (`holds.on_expiry` = `approve` or `reject`). Posture lives entirely on the protection sub-resource.
 
 ## API
 

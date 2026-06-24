@@ -34,7 +34,7 @@ Six load-bearing facts. Internalize these before you start calling tools.
 
 5. **Custom domains are a two-step async dance.** `register_domain` returns DNS records (MX + TXT) to publish — it does NOT make the domain live. The user (or a DNS-provider MCP, if one is loaded) must add those records out-of-band, wait for DNS propagation (minutes to hours), then `verify_domain`. Verification is idempotent and safe to retry. Until verification succeeds, the domain cannot send or receive mail. Don't promise the user their domain works the moment registration returns.
 
-6. **HITL lives in the protection config, not a per-agent flag.** A new agent has no review hold by default. To turn one on, set the agent's protection posture (see below) — there is no `hitl_enabled` toggle on the agent itself anymore.
+6. **HITL lives in the protection config.** A new agent has no review hold by default. To turn one on, set the agent's protection posture (see below).
 
 ## Common workflows
 

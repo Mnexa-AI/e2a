@@ -162,12 +162,10 @@ helper — `construct_event(body, header, secret)` /
 [TypeScript](../sdks/typescript/README.md#webhook-cloud-agents) SDK READMEs.
 
 <a id="webhook-signing-secrets"></a>
-> **History.** There is no longer a per-user / account-wide signing secret or a
-> standalone `/users/me/signing-secrets` API — both were retired in the v1
-> cutover. Webhook-delivery signing is now per-webhook, rotatable via the
-> `rotate-secret` route above. The relay's `X-E2A-Auth-*` headers and the HITL
-> approval / magic-link tokens are signed by the deployment-wide HMAC secret
-> (`E2A_HMAC_SECRET`), which is their sole signer.
+> **Signing.** Webhook deliveries are signed per-webhook with the `whsec_`
+> secret (rotatable via the `rotate-secret` route above). The relay's
+> `X-E2A-Auth-*` headers and the HITL approval / magic-link tokens are signed by
+> the deployment-wide HMAC secret (`E2A_HMAC_SECRET`), its sole signer.
 
 ### Events (`/v1/events`)
 
