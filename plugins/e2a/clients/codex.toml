@@ -1,0 +1,11 @@
+# e2a MCP for OpenAI Codex CLI — add to ~/.codex/config.toml
+# Codex speaks stdio MCP, so we bridge to the hosted HTTP server with mcp-remote
+# (it runs the OAuth browser flow on first use — no API key to paste).
+[mcp_servers.e2a]
+command = "npx"
+args = ["-y", "mcp-remote", "https://api.e2a.dev/mcp"]
+
+# Alternative (headless / CI, no browser): use an account API key instead of OAuth.
+# [mcp_servers.e2a]
+# command = "npx"
+# args = ["-y", "mcp-remote", "https://api.e2a.dev/mcp", "--header", "Authorization: Bearer ${E2A_API_KEY}"]

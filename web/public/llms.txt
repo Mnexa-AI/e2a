@@ -22,6 +22,7 @@
 ## MCP & plugin
 
 - [Claude Code plugin + skill](https://github.com/Mnexa-AI/e2a/tree/main/plugins/e2a): The `e2a` plugin bundles the hosted MCP server config and the `e2a` skill (mental model, gotchas, worked examples).
+- [clients.md](https://e2a.dev/clients.md): How to connect any MCP client/editor — Claude Code/Desktop, Cursor, VS Code, Codex CLI, Windsurf, Zed, Goose — plus headless API-key auth.
 - MCP endpoint: `https://api.e2a.dev/mcp` (Streamable HTTP, OAuth 2.1). Add with `claude mcp add --transport http e2a https://api.e2a.dev/mcp`.
 
 ## Source
