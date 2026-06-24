@@ -30,16 +30,14 @@ export function AddressChoice({
             padding: 18,
           }}
         >
-          <div className="absolute top-3.5 right-3.5">
-            <Chip tone="accent">Recommended</Chip>
-          </div>
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span
               className="text-[14px] font-semibold"
               style={{ color: "var(--fg)" }}
             >
               Shared e2a domain
             </span>
+            <Chip tone="accent">Recommended</Chip>
             <Chip tone="success" mono>
               1 min
             </Chip>
