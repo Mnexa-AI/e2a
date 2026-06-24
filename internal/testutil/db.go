@@ -108,7 +108,7 @@ func truncateAll(ctx context.Context, pool *pgxpool.Pool) error {
 		         oauth_auth_codes, oauth_clients,
 		         usage_summaries, usage_events, webhook_deliveries,
 		         send_attempts, protection_events, messages,
-		         idempotency_keys, api_keys, webhook_signing_secrets,
+		         idempotency_keys, api_keys,
 		         agent_identities, domains,
 		         user_sessions, users CASCADE
 	`)

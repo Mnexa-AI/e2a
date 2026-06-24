@@ -135,7 +135,7 @@ func TestNotifierSendsEmailToOwner(t *testing.T) {
 }
 
 func TestNotifierMagicLinksAreVerifiable(t *testing.T) {
-	n, store, signer, smtpDone := newNotifier(t)
+	n, store, _, smtpDone := newNotifier(t)
 	agent, msg := setupPendingMessage(t, store, "tok-verify")
 
 	if err := n.NotifyPendingApproval(context.Background(), msg, agent); err != nil {
@@ -146,23 +146,10 @@ func TestNotifierMagicLinksAreVerifiable(t *testing.T) {
 	approveTok := extractToken(t, data, "/v1/approve?t=")
 	rejectTok := extractToken(t, data, "/v1/reject?t=")
 
-	// Tokens are signed with the agent owner's per-account secret (most
-	// recently created). Pull those from the store, plus include the
-	// deployment secret in the verify list so the test exercises both
-	// the per-user path and the legacy fallback path.
-	userSecrets, err := store.GetUserSigningSecrets(context.Background(), agent.UserID)
-	if err != nil {
-		t.Fatalf("get user signing secrets: %v", err)
-	}
-	verifySecrets := make([]string, len(userSecrets))
-	for i, s := range userSecrets {
-		verifySecrets[i] = s.Secret
-	}
-	// signer holds the deployment-wide secret as a private field; we
-	// can't read it directly, so we use the legacy Verify path which
-	// internally tries that secret. The per-user-first behavior is
-	// exercised by approvaltoken.Verify(userSecrets, ...) below.
-	_ = signer
+	// Tokens are signed with the deployment HMAC secret (the only signer
+	// — the notifier uses n.signer, built from notifySecret). Verify
+	// against that secret.
+	verifySecrets := []string{notifySecret}
 
 	approveClaims, err := approvaltoken.Verify(verifySecrets, approveTok)
 	if err != nil {
