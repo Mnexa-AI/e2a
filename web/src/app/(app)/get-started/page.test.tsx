@@ -66,6 +66,16 @@ function setSearchParams(params: Record<string, string | undefined> = {}) {
   });
 }
 
+// Fresh users land on the top-level method choice (SetupMethodChoice:
+// "With an agent" / "Set up in the web UI"). The shared/custom address
+// chooser now lives one level deeper, behind "Set up in the web UI".
+// Tests that exercise the address chooser navigate through it first.
+async function chooseWebUI() {
+  await waitFor(() => expect(screen.getByText("With an agent")).toBeInTheDocument());
+  fireEvent.click(screen.getByText("Set up in the web UI"));
+  await waitFor(() => expect(screen.getByText("Shared e2a domain")).toBeInTheDocument());
+}
+
 
 const verifiedDomain = {
   domain: "verified.example.com",
@@ -145,9 +155,7 @@ describe("Address type choice", () => {
   it("renders Shared e2a domain and Custom domain options for fresh user", async () => {
     mockFreshUser();
     render(<GetStartedPage />);
-    await waitFor(() => {
-      expect(screen.getByText("Shared e2a domain")).toBeInTheDocument();
-    });
+    await chooseWebUI();
     expect(screen.getByText("Custom domain")).toBeInTheDocument();
   });
 
@@ -155,12 +163,11 @@ describe("Address type choice", () => {
     mockFreshUser();
     render(<GetStartedPage />);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Shared e2a domain/i })).toHaveAttribute(
-        "aria-pressed",
-        "false",
-      );
-    });
+    await chooseWebUI();
+    expect(screen.getByRole("button", { name: /Shared e2a domain/i })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
     expect(screen.getByRole("button", { name: /Custom domain/i })).toHaveAttribute(
       "aria-pressed",
       "false",
@@ -170,9 +177,7 @@ describe("Address type choice", () => {
   it("does NOT show Cloud Agents or Local Agents labels", async () => {
     mockFreshUser();
     render(<GetStartedPage />);
-    await waitFor(() => {
-      expect(screen.getByText("Shared e2a domain")).toBeInTheDocument();
-    });
+    await chooseWebUI();
     expect(screen.queryByText("Cloud Agents")).not.toBeInTheDocument();
     expect(screen.queryByText("Local Agents")).not.toBeInTheDocument();
   });
@@ -181,9 +186,7 @@ describe("Address type choice", () => {
     mockFreshUser();
     render(<GetStartedPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Shared e2a domain")).toBeInTheDocument();
-    });
+    await chooseWebUI();
     fireEvent.click(screen.getByText("Shared e2a domain"));
 
     await waitFor(() => {
@@ -196,14 +199,45 @@ describe("Address type choice", () => {
     mockFreshUser();
     render(<GetStartedPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Custom domain")).toBeInTheDocument();
-    });
+    await chooseWebUI();
     fireEvent.click(screen.getByText("Custom domain"));
 
     await waitFor(() => {
       expect(screen.getByText("Choose a domain")).toBeInTheDocument();
     });
+  });
+
+  it("shows the agentic MCP setup when With an agent is clicked", async () => {
+    mockFreshUser();
+    render(<GetStartedPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("With an agent")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText("With an agent"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Paste into your agent/i)).toBeInTheDocument();
+    });
+    // Both connect paths present, addressed at the hosted MCP endpoint.
+    expect(screen.getByText("Copy prompt")).toBeInTheDocument();
+    expect(screen.getByText("Copy command")).toBeInTheDocument();
+    expect(
+      screen.getByText(/claude mcp add --transport http e2a https:\/\/api\.e2a\.dev\/mcp/),
+    ).toBeInTheDocument();
+  });
+
+  it("copies the connect command to the clipboard", async () => {
+    mockFreshUser();
+    render(<GetStartedPage />);
+    await waitFor(() => expect(screen.getByText("With an agent")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("With an agent"));
+    await waitFor(() => expect(screen.getByText("Copy command")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText("Copy command"));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      expect.stringContaining("claude mcp add --transport http e2a https://api.e2a.dev/mcp"),
+    );
   });
 });
 
@@ -214,8 +248,8 @@ describe("Shared local flow", () => {
     mockAgentCreation("my-bot@agents.e2a.dev");
     render(<GetStartedPage />);
 
-    // Wait for bootstrap then choose shared
-    await waitFor(() => { expect(screen.getByText("Shared e2a domain")).toBeInTheDocument(); });
+    // Wait for bootstrap then choose web UI -> shared
+    await chooseWebUI();
     fireEvent.click(screen.getByText("Shared e2a domain"));
     await waitFor(() => {
       expect(screen.getByPlaceholderText("my-agent")).toBeInTheDocument();
@@ -254,7 +288,7 @@ describe("Shared form validation", () => {
     mockFreshUser();
     render(<GetStartedPage />);
 
-    await waitFor(() => { expect(screen.getByText("Shared e2a domain")).toBeInTheDocument(); });
+    await chooseWebUI();
     fireEvent.click(screen.getByText("Shared e2a domain"));
     await waitFor(() => {
       expect(screen.getByPlaceholderText("my-agent")).toBeInTheDocument();
@@ -278,7 +312,7 @@ describe("Slug/server error handling", () => {
     mockAgentCreationFailure('slug "my-bot" is already taken');
     render(<GetStartedPage />);
 
-    await waitFor(() => { expect(screen.getByText("Shared e2a domain")).toBeInTheDocument(); });
+    await chooseWebUI();
     fireEvent.click(screen.getByText("Shared e2a domain"));
     await waitFor(() => {
       expect(screen.getByPlaceholderText("my-agent")).toBeInTheDocument();
@@ -351,8 +385,10 @@ describe("Query param support", () => {
         screen.getByText("Domain missing.example.com not found in your account"),
       ).toBeInTheDocument();
     });
-    // Should show address choice, not register step
-    expect(screen.getByText("Shared e2a domain")).toBeInTheDocument();
+    // Should fall back to the top-level method choice (router.replace to
+    // /get-started → step=choose), not the register step.
+    expect(screen.getByText("With an agent")).toBeInTheDocument();
+    expect(screen.getByText("Set up in the web UI")).toBeInTheDocument();
   });
 
   it("?domain= for unverified domain resumes at DNS+verify step", async () => {
@@ -450,8 +486,8 @@ describe("Custom-domain flow: new domain -> DNS -> verify -> local agent", () =>
     mockCustomDomainFlow();
     render(<GetStartedPage />);
 
-    // Wait for bootstrap then choose custom domain
-    await waitFor(() => { expect(screen.getByText("Custom domain")).toBeInTheDocument(); });
+    // Wait for bootstrap then choose web UI -> custom domain
+    await chooseWebUI();
     fireEvent.click(screen.getByText("Custom domain"));
 
     // Wait for domain selector to load
@@ -604,8 +640,8 @@ describe("Custom-domain flow: verification retry", () => {
 
     render(<GetStartedPage />);
 
-    // Wait for bootstrap, then custom -> register -> DNS+verify shown together
-    await waitFor(() => { expect(screen.getByText("Custom domain")).toBeInTheDocument(); });
+    // Wait for bootstrap, then web UI -> custom -> register -> DNS+verify shown together
+    await chooseWebUI();
     fireEvent.click(screen.getByText("Custom domain"));
     await waitFor(() => { expect(screen.getByText("Choose a domain")).toBeInTheDocument(); });
     await userEvent.type(screen.getByPlaceholderText("mail.yourcompany.com"), "mail.newco.com");
@@ -654,10 +690,8 @@ describe("Plain /get-started always shows address choice", () => {
 
     render(<GetStartedPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Shared e2a domain")).toBeInTheDocument();
-      expect(screen.getByText("Custom domain")).toBeInTheDocument();
-    });
+    await chooseWebUI();
+    expect(screen.getByText("Custom domain")).toBeInTheDocument();
   });
 
   it("shows address choice even with unverified domains", async () => {
@@ -679,10 +713,8 @@ describe("Plain /get-started always shows address choice", () => {
 
     render(<GetStartedPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Shared e2a domain")).toBeInTheDocument();
-      expect(screen.getByText("Custom domain")).toBeInTheDocument();
-    });
+    await chooseWebUI();
+    expect(screen.getByText("Custom domain")).toBeInTheDocument();
   });
 
   it("shows address choice even with verified domain and no agents", async () => {
@@ -698,10 +730,8 @@ describe("Plain /get-started always shows address choice", () => {
 
     render(<GetStartedPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Shared e2a domain")).toBeInTheDocument();
-      expect(screen.getByText("Custom domain")).toBeInTheDocument();
-    });
+    await chooseWebUI();
+    expect(screen.getByText("Custom domain")).toBeInTheDocument();
   });
 });
 
@@ -714,7 +744,7 @@ describe("URL-driven step navigation", () => {
   it("clicking 'Shared e2a domain' pushes ?step=shared_form", async () => {
     mockFreshUser();
     render(<GetStartedPage />);
-    await screen.findByText("Shared e2a domain");
+    await chooseWebUI();
 
     fireEvent.click(screen.getByText("Shared e2a domain"));
 
@@ -728,7 +758,7 @@ describe("URL-driven step navigation", () => {
   it("clicking 'Custom domain' pushes ?step=custom_checklist", async () => {
     mockFreshUser();
     render(<GetStartedPage />);
-    await screen.findByText("Custom domain");
+    await chooseWebUI();
 
     fireEvent.click(screen.getByText("Custom domain"));
 
@@ -831,8 +861,10 @@ describe("URL-driven step navigation", () => {
     setSearchParams({ step: "success" });
     mockFreshUser();
     render(<GetStartedPage />);
-    // No SuccessPanel — chooser instead, because there's no agent in
-    // local state (typical on refresh / direct URL hit).
-    expect(screen.getByText("Shared e2a domain")).toBeInTheDocument();
+    // No SuccessPanel — the top-level method choice instead, because
+    // there's no agent in local state (typical on refresh / direct URL
+    // hit). The success fallback renders SetupMethodChoice.
+    expect(screen.getByText("With an agent")).toBeInTheDocument();
+    expect(screen.getByText("Set up in the web UI")).toBeInTheDocument();
   });
 });
