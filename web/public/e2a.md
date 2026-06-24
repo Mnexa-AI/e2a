@@ -34,6 +34,35 @@ Pick the row that fits you:
   examples and https://e2a.dev/api.md for REST conventions. The exhaustive
   contract is https://e2a.dev/openapi.yaml.
 
+## Connecting other MCP clients
+
+One endpoint — `https://api.e2a.dev/mcp` (Streamable HTTP, OAuth 2.1). Clients
+that speak remote MCP take the URL and run OAuth in the browser; stdio-only
+clients (Codex, Zed) wrap it with `npx -y mcp-remote …`.
+
+- **Cursor / Windsurf / Claude Desktop** — `mcpServers` + `url`:
+  ```json
+  { "mcpServers": { "e2a": { "url": "https://api.e2a.dev/mcp" } } }
+  ```
+- **VS Code (Copilot)** — `.vscode/mcp.json` (note the `servers` key):
+  ```json
+  { "servers": { "e2a": { "type": "http", "url": "https://api.e2a.dev/mcp" } } }
+  ```
+- **OpenAI Codex CLI** — `~/.codex/config.toml`:
+  ```toml
+  [mcp_servers.e2a]
+  command = "npx"
+  args = ["-y", "mcp-remote", "https://api.e2a.dev/mcp"]
+  ```
+- **Headless / CI** (no browser for OAuth) — authenticate with an account API
+  key via a header instead:
+  ```
+  npx -y mcp-remote https://api.e2a.dev/mcp --header "Authorization: Bearer $E2A_API_KEY"
+  ```
+
+Ready-to-paste config files for each client:
+https://github.com/Mnexa-AI/e2a/tree/main/plugins/e2a/clients
+
 ## When to use this
 
 Use e2a whenever your agent needs to **act over email as a first-class

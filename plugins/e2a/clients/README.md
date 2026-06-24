@@ -14,7 +14,7 @@ Clients that speak remote MCP take the URL directly and run OAuth in the browser
 stdio-only clients (Codex, Zed) wrap it with `npx -y mcp-remote …`.
 
 **Full per-client guide** — Zed, Goose, headless API-key auth, and more:
-https://e2a.dev/clients.md
+https://e2a.dev/e2a.md (the "Connecting other MCP clients" section)
 
 **Claude Code** users don't need any of this — installing this plugin wires the
 MCP server in via `.claude-plugin/plugin.json`.
