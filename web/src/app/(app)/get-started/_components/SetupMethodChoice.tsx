@@ -5,47 +5,9 @@
 // path is recommended because it provisions the inbox end-to-end with no forms
 // and no API key; the web path is the click-through fallback.
 
-import { useState } from "react";
 import type { SetupMethod } from "../../../components/onboarding/types";
 import { Chip } from "../../../components/loft/Chip";
-
-// One selectable card. Neutral border by default (the "Recommended" chip, not
-// a standing accent border, marks the suggested option); hover or selection
-// adds the accent + an elevated background as interactive feedback. Inline
-// `background`/`border` win over Tailwind `hover:` utilities, so the hover
-// state is driven from React state, not a `hover:` class. Border width is a
-// constant 2px in both states so hovering never shifts layout.
-function MethodCard({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  const [hovered, setHovered] = useState(false);
-  const accent = active || hovered;
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      className="relative text-left transition focus:outline-none"
-      style={{
-        background: hovered ? "var(--bg-elev)" : "var(--bg-panel)",
-        border: accent ? "2px solid var(--accent)" : "2px solid var(--border)",
-        borderRadius: "var(--r-lg)",
-        padding: 18,
-        cursor: "pointer",
-      }}
-    >
-      {children}
-    </button>
-  );
-}
+import { SelectableCard } from "./SelectableCard";
 
 export function SetupMethodChoice({
   selected,
@@ -56,7 +18,7 @@ export function SetupMethodChoice({
 }) {
   return (
     <div className="grid gap-3.5 sm:grid-cols-2">
-      <MethodCard active={selected === "agent"} onClick={() => onSelect("agent")}>
+      <SelectableCard active={selected === "agent"} onClick={() => onSelect("agent")}>
         <div className="flex items-center gap-2 mb-1 flex-wrap">
           <span className="text-[14px] font-semibold" style={{ color: "var(--fg)" }}>
             With an agent
@@ -80,9 +42,9 @@ export function SetupMethodChoice({
           <li>· OAuth sign-in — no API key to copy</li>
           <li>· Claude Code, Cursor, Claude Desktop…</li>
         </ul>
-      </MethodCard>
+      </SelectableCard>
 
-      <MethodCard active={selected === "web"} onClick={() => onSelect("web")}>
+      <SelectableCard active={selected === "web"} onClick={() => onSelect("web")}>
         <div className="flex items-center gap-2 mb-1">
           <span className="text-[14px] font-semibold" style={{ color: "var(--fg)" }}>
             Set up in the web UI
@@ -102,7 +64,7 @@ export function SetupMethodChoice({
           <li>· Fill a short form, verify in the browser</li>
           <li>· No agent required</li>
         </ul>
-      </MethodCard>
+      </SelectableCard>
     </div>
   );
 }

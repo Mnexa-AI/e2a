@@ -237,20 +237,32 @@ body {
   }
 }
 
-/* Every button reacts like a button. Two parts:
- *  1. cursor: pointer on interactive controls — a bare <button> inherits the
- *     text/arrow cursor in several UAs, which doesn't read as clickable.
- *  2. a uniform hover/active affordance via filter: brightness(). filter is
- *     used deliberately: most app buttons set background/border via INLINE
- *     styles, which override Tailwind `hover:` utilities — but inline styles
- *     don't touch `filter`, so this gives a consistent press/hover signal to
- *     ALL buttons (including ones with no per-component hover state) without
- *     editing each call site. Disabled controls opt out.
- * Scoped to the authenticated app surface; marketing/docs keep their own. */
+/* Every button reacts like a button.
+ *
+ * Part 1 — cursor: pointer, GLOBAL (not scoped). A bare <button> inherits the
+ * text/arrow cursor in several UAs, which doesn't read as clickable. This is
+ * deliberately unscoped so it also covers controls that render OUTSIDE the
+ * [data-app-surface] subtree — modals/dialogs portaled to <body>, and the
+ * auth/landing/error/oauth pages. Disabled controls opt out. */
+button:not(:disabled),
+a[role="button"],
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+button:disabled,
+[role="button"][aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+/* Part 2 — a uniform hover/active affordance via filter: brightness(), scoped
+ * to the authenticated app surface (marketing/docs keep their own hovers).
+ * filter is used deliberately: most app buttons set background/border via
+ * INLINE styles, which override Tailwind `hover:` utilities — but inline styles
+ * don't touch `filter`, so this lands a consistent press/hover signal on ALL
+ * app buttons (even ones with no per-component hover state). */
 [data-app-surface] button:not(:disabled),
 [data-app-surface] a[role="button"],
 [data-app-surface] [role="button"]:not([aria-disabled="true"]) {
-  cursor: pointer;
   transition: filter 0.12s ease;
 }
 [data-app-surface] button:not(:disabled):hover,
@@ -262,7 +274,4 @@ body {
 [data-app-surface] a[role="button"]:active,
 [data-app-surface] [role="button"]:not([aria-disabled="true"]):active {
   filter: brightness(0.92);
-}
-[data-app-surface] button:disabled {
-  cursor: not-allowed;
 }
