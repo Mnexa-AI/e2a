@@ -24,6 +24,41 @@ components:
         - key_prefix
         - created_at
       type: object
+    APIKeyView:
+      additionalProperties: false
+      properties:
+        agent:
+          description: Bound inbox email for agent-scoped keys; omitted for account scope.
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+        id:
+          type: string
+        key_prefix:
+          description: Non-secret visible prefix (e.g. e2a_acct_… / e2a_agt_…).
+          type: string
+        last_used_at:
+          format: date-time
+          type: string
+        name:
+          type: string
+        scope:
+          description: account = workspace admin; agent = bound to one inbox.
+          enum:
+            - account
+            - agent
+          type: string
+      required:
+        - id
+        - name
+        - key_prefix
+        - scope
+        - created_at
+      type: object
     AccountUserView:
       additionalProperties: false
       properties:
@@ -75,15 +110,6 @@ components:
           type: boolean
         email:
           type: string
-        hitl_enabled:
-          type: boolean
-        hitl_expiration_action:
-          type: string
-        hitl_mode:
-          type: string
-        hitl_ttl_seconds:
-          format: int64
-          type: integer
         id:
           type: string
         inbound_7d:
@@ -97,6 +123,18 @@ components:
             - "null"
         inbound_policy:
           type: string
+        inbound_policy_action:
+          type: string
+        inbound_scan:
+          type: string
+        inbound_scan_block_threshold:
+          format: double
+          type: number
+        inbound_scan_review_threshold:
+          format: double
+          type: number
+        inbound_scan_sensitivity:
+          type: string
         last_delivery_at:
           format: date-time
           type: string
@@ -105,11 +143,36 @@ components:
         outbound_7d:
           format: int64
           type: integer
+        outbound_allowlist:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        outbound_policy:
+          type: string
+        outbound_policy_action:
+          type: string
+        outbound_scan:
+          type: string
+        outbound_scan_block_threshold:
+          format: double
+          type: number
+        outbound_scan_review_threshold:
+          format: double
+          type: number
+        outbound_scan_sensitivity:
+          type: string
         pending_count:
           format: int64
           type: integer
         public:
           type: boolean
+        review_expiration_action:
+          type: string
+        review_ttl_seconds:
+          format: int64
+          type: integer
         user_id:
           type: string
         webhook_healthy:
@@ -123,15 +186,24 @@ components:
         - public
         - created_at
         - user_id
-        - hitl_enabled
-        - hitl_ttl_seconds
-        - hitl_expiration_action
-        - hitl_mode
+        - review_ttl_seconds
+        - review_expiration_action
         - inbound_7d
         - outbound_7d
         - pending_count
         - webhook_healthy
         - inbound_policy
+        - inbound_policy_action
+        - outbound_policy
+        - outbound_policy_action
+        - inbound_scan
+        - inbound_scan_review_threshold
+        - inbound_scan_block_threshold
+        - outbound_scan
+        - outbound_scan_review_threshold
+        - outbound_scan_block_threshold
+        - inbound_scan_sensitivity
+        - outbound_scan_sensitivity
       type: object
     AgentView:
       additionalProperties: false
@@ -145,33 +217,7 @@ components:
           type: boolean
         email:
           type: string
-        hitl_enabled:
-          type: boolean
-        hitl_expiration_action:
-          enum:
-            - approve
-            - reject
-          type: string
-        hitl_mode:
-          enum:
-            - all
-            - high_impact
-          type: string
-        hitl_ttl_seconds:
-          format: int64
-          type: integer
         id:
-          type: string
-        inbound_allowlist:
-          items:
-            type: string
-          type: array
-        inbound_policy:
-          enum:
-            - open
-            - allowlist
-            - domain
-            - verified_only
           type: string
         name:
           type: string
@@ -182,11 +228,6 @@ components:
         - name
         - domain_verified
         - created_at
-        - hitl_enabled
-        - hitl_ttl_seconds
-        - hitl_expiration_action
-        - hitl_mode
-        - inbound_policy
       type: object
     ApproveRequest:
       additionalProperties: false
@@ -233,6 +274,49 @@ components:
         - filename
         - content_type
         - data
+      type: object
+    AttachmentMetaView:
+      additionalProperties: false
+      properties:
+        content_type:
+          type: string
+        filename:
+          type: string
+        index:
+          format: int64
+          type: integer
+        size_bytes:
+          format: int64
+          type: integer
+      required:
+        - index
+        - size_bytes
+      type: object
+    AttachmentView:
+      additionalProperties: false
+      properties:
+        content_type:
+          type: string
+        data:
+          type: string
+        download_url:
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+        filename:
+          type: string
+        index:
+          format: int64
+          type: integer
+        size_bytes:
+          format: int64
+          type: integer
+      required:
+        - index
+        - size_bytes
+        - download_url
+        - expires_at
       type: object
     AuthVerdict:
       additionalProperties: false
@@ -347,6 +431,65 @@ components:
         - latest_subject
         - latest_sender
       type: object
+    CreateAPIKeyRequest:
+      additionalProperties: false
+      properties:
+        agent:
+          description: Inbox email to bind the key to; required when scope=agent.
+          type: string
+        expires_at:
+          description: Optional hard expiry (RFC 3339, must be in the future). Omit for a never-expiring key.
+          format: date-time
+          type: string
+        name:
+          description: Human label for the key.
+          type: string
+        scope:
+          description: account = workspace admin (default); agent = bound to a single inbox.
+          enum:
+            - account
+            - agent
+          type: string
+      type: object
+    CreateAPIKeyResponse:
+      additionalProperties: false
+      properties:
+        agent:
+          description: Bound inbox email for agent-scoped keys; omitted for account scope.
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+        id:
+          type: string
+        key:
+          description: The secret key. Shown once; store it now — it cannot be retrieved later.
+          type: string
+        key_prefix:
+          description: Non-secret visible prefix (e.g. e2a_acct_… / e2a_agt_…).
+          type: string
+        last_used_at:
+          format: date-time
+          type: string
+        name:
+          type: string
+        scope:
+          description: account = workspace admin; agent = bound to one inbox.
+          enum:
+            - account
+            - agent
+          type: string
+      required:
+        - key
+        - id
+        - name
+        - key_prefix
+        - scope
+        - created_at
+      type: object
     CreateAgentRequest:
       additionalProperties: false
       properties:
@@ -363,13 +506,13 @@ components:
         description:
           type: string
         events:
+          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
               - email.sent
-              - email.pending_approval
-              - email.approval_accepted
-              - email.approval_rejected
+              - email.review_approved
+              - email.review_rejected
               - domain.sending_verified
               - domain.sending_failed
               - email.delivered
@@ -377,6 +520,8 @@ components:
               - email.complained
               - domain.suppression_added
               - email.flagged
+              - email.blocked
+              - email.pending_review
             type: string
           type: array
         filters:
@@ -401,13 +546,13 @@ components:
         enabled:
           type: boolean
         events:
+          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
               - email.sent
-              - email.pending_approval
-              - email.approval_accepted
-              - email.approval_rejected
+              - email.review_approved
+              - email.review_rejected
               - domain.sending_verified
               - domain.sending_failed
               - email.delivered
@@ -415,6 +560,8 @@ components:
               - email.complained
               - domain.suppression_added
               - email.flagged
+              - email.blocked
+              - email.pending_review
             type: string
           type: array
         filters:
@@ -605,8 +752,6 @@ components:
           $ref: "#/components/schemas/DNSRecordsView"
         domain:
           type: string
-        is_primary:
-          type: boolean
         last_checked_at:
           format: date-time
           type: string
@@ -639,7 +784,6 @@ components:
         - verification_token
         - dns_records
         - created_at
-        - is_primary
         - agent_count
         - sending_status
       type: object
@@ -697,9 +841,8 @@ components:
           enum:
             - email.received
             - email.sent
-            - email.pending_approval
-            - email.approval_accepted
-            - email.approval_rejected
+            - email.review_approved
+            - email.review_rejected
             - domain.sending_verified
             - domain.sending_failed
             - email.delivered
@@ -707,6 +850,8 @@ components:
             - email.complained
             - domain.suppression_added
             - email.flagged
+            - email.blocked
+            - email.pending_review
           type: string
       required:
         - id
@@ -867,6 +1012,8 @@ components:
           type:
             - array
             - "null"
+        review_reason:
+          type: string
         reviewed_at:
           format: date-time
           type: string
@@ -874,6 +1021,11 @@ components:
           type: string
         reviewed_by_user_id:
           type: string
+        scan_action:
+          type: string
+        scan_score:
+          format: double
+          type: number
         sender:
           type: string
         sent_as:
@@ -966,14 +1118,6 @@ components:
           type: boolean
         from:
           type: string
-        hitl_status:
-          enum:
-            - pending_approval
-            - sent
-            - rejected
-            - expired_approved
-            - expired_rejected
-          type: string
         labels:
           items:
             type: string
@@ -988,6 +1132,14 @@ components:
           items:
             type: string
           type: array
+        review_status:
+          enum:
+            - pending_review
+            - sent
+            - review_rejected
+            - review_expired_approved
+            - review_expired_rejected
+          type: string
         sent_as:
           enum:
             - own_address
@@ -1020,6 +1172,10 @@ components:
     MessageView:
       additionalProperties: false
       properties:
+        attachments:
+          items:
+            $ref: "#/components/schemas/AttachmentMetaView"
+          type: array
         auth:
           $ref: "#/components/schemas/AuthVerdict"
         auth_headers:
@@ -1060,14 +1216,6 @@ components:
           type: boolean
         from:
           type: string
-        hitl_status:
-          enum:
-            - pending_approval
-            - sent
-            - rejected
-            - expired_approved
-            - expired_rejected
-          type: string
         labels:
           items:
             type: string
@@ -1087,6 +1235,14 @@ components:
           items:
             type: string
           type: array
+        review_status:
+          enum:
+            - pending_review
+            - sent
+            - review_rejected
+            - review_expired_approved
+            - review_expired_rejected
+          type: string
         sent_as:
           enum:
             - own_address
@@ -1119,6 +1275,7 @@ components:
         - labels
         - created_at
         - raw_message
+        - attachments
       type: object
     OAuthConnectionEntry:
       additionalProperties: false
@@ -1146,6 +1303,21 @@ components:
         - agent_email
         - scope
         - issued_at
+      type: object
+    PageAPIKeyView:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/APIKeyView"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
       type: object
     PageAgentView:
       additionalProperties: false
@@ -1222,6 +1394,21 @@ components:
         - items
         - next_cursor
       type: object
+    PageReviewView:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/ReviewView"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
     PageSuppression:
       additionalProperties: false
       properties:
@@ -1266,6 +1453,124 @@ components:
       required:
         - items
         - next_cursor
+      type: object
+    ProtectionConfigView:
+      additionalProperties: false
+      properties:
+        holds:
+          $ref: "#/components/schemas/ProtectionHoldsView"
+        inbound:
+          $ref: "#/components/schemas/ProtectionDirectionView"
+        outbound:
+          $ref: "#/components/schemas/ProtectionDirectionView"
+      required:
+        - inbound
+        - outbound
+        - holds
+      type: object
+    ProtectionDirectionView:
+      additionalProperties: false
+      properties:
+        gate:
+          $ref: "#/components/schemas/ProtectionGateView"
+        scan:
+          $ref: "#/components/schemas/ProtectionScanView"
+      required:
+        - gate
+        - scan
+      type: object
+    ProtectionEventExportEntry:
+      additionalProperties: false
+      properties:
+        action:
+          type: string
+        agent_id:
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        detector:
+          type: string
+        direction:
+          type: string
+        id:
+          type: string
+        message_id:
+          type: string
+        reason:
+          type: string
+        score:
+          format: double
+          type: number
+        source:
+          type: string
+        subject_addr:
+          type: string
+      required:
+        - id
+        - message_id
+        - agent_id
+        - direction
+        - source
+        - reason
+        - action
+        - created_at
+      type: object
+    ProtectionGateView:
+      additionalProperties: false
+      properties:
+        action:
+          default: flag
+          description: "What a gate non-match does: flag (deliver + annotate), review (hold), block."
+          enum:
+            - flag
+            - review
+            - block
+          type: string
+        allowlist:
+          description: Addresses (allowlist) or domains (domain) the gate trusts; ignored for open.
+          items:
+            type: string
+          maxItems: 1000
+          type: array
+        policy:
+          default: open
+          description: "Trust gate: open (all), domain (listed domains), allowlist (listed addresses)."
+          enum:
+            - open
+            - allowlist
+            - domain
+          type: string
+      type: object
+    ProtectionHoldsView:
+      additionalProperties: false
+      properties:
+        on_expiry:
+          default: reject
+          description: What happens to a held item when its TTL expires.
+          enum:
+            - approve
+            - reject
+          type: string
+        ttl_seconds:
+          default: 604800
+          description: How long a held item waits before its on_expiry action fires.
+          format: int64
+          minimum: 0
+          type: integer
+      type: object
+    ProtectionScanView:
+      additionalProperties: false
+      properties:
+        sensitivity:
+          default: "off"
+          description: "Content-scan sensitivity: off disables; low|medium|high increase aggressiveness."
+          enum:
+            - "off"
+            - low
+            - medium
+            - high
+          type: string
       type: object
     RedeliverDelivery:
       additionalProperties: false
@@ -1380,6 +1685,50 @@ components:
         - dkim
         - dmarc
       type: object
+    ReviewView:
+      additionalProperties: false
+      properties:
+        agent:
+          description: The inbox (agent address) the held message belongs to.
+          type: string
+        conversation_id:
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        direction:
+          enum:
+            - inbound
+            - outbound
+          type: string
+        flag_reason:
+          type: string
+        flagged:
+          type: boolean
+        from:
+          type: string
+        id:
+          type: string
+        review_status:
+          enum:
+            - pending_review
+          type: string
+        subject:
+          type: string
+        to:
+          items:
+            type: string
+          type: array
+      required:
+        - id
+        - agent
+        - direction
+        - from
+        - to
+        - subject
+        - review_status
+        - created_at
+      type: object
     RotateSecretResponse:
       additionalProperties: false
       properties:
@@ -1449,7 +1798,8 @@ components:
         status:
           enum:
             - sent
-            - pending_approval
+            - pending_review
+            - review_approved
           type: string
       required:
         - status
@@ -1488,6 +1838,23 @@ components:
         - source
         - created_at
       type: object
+    SuppressionExportEntry:
+      additionalProperties: false
+      properties:
+        address:
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        reason:
+          type: string
+        source:
+          type: string
+      required:
+        - address
+        - source
+        - created_at
+      type: object
     TestWebhookRequest:
       additionalProperties: false
       properties:
@@ -1498,9 +1865,8 @@ components:
           enum:
             - email.received
             - email.sent
-            - email.pending_approval
-            - email.approval_accepted
-            - email.approval_rejected
+            - email.review_approved
+            - email.review_rejected
             - domain.sending_verified
             - domain.sending_failed
             - email.delivered
@@ -1508,6 +1874,8 @@ components:
             - email.complained
             - domain.suppression_added
             - email.flagged
+            - email.blocked
+            - email.pending_review
           type: string
       type: object
     TestWebhookResponse:
@@ -1521,38 +1889,10 @@ components:
     UpdateAgentRequest:
       additionalProperties: false
       properties:
-        hitl_enabled:
-          type: boolean
-        hitl_expiration_action:
-          enum:
-            - approve
-            - reject
+        name:
+          description: New display name for the agent (a UI label; the agent's identity is its email).
+          maxLength: 200
           type: string
-        hitl_mode:
-          enum:
-            - all
-            - high_impact
-          type: string
-        hitl_ttl_seconds:
-          format: int64
-          type: integer
-        inbound_allowlist:
-          items:
-            type: string
-          type: array
-        inbound_policy:
-          enum:
-            - open
-            - allowlist
-            - domain
-            - verified_only
-          type: string
-      type: object
-    UpdateDomainRequest:
-      additionalProperties: false
-      properties:
-        is_primary:
-          type: boolean
       type: object
     UpdateMessageRequest:
       additionalProperties: false
@@ -1587,13 +1927,13 @@ components:
         enabled:
           type: boolean
         events:
+          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
               - email.sent
-              - email.pending_approval
-              - email.approval_accepted
-              - email.approval_rejected
+              - email.review_approved
+              - email.review_rejected
               - domain.sending_verified
               - domain.sending_failed
               - email.delivered
@@ -1601,6 +1941,8 @@ components:
               - email.complained
               - domain.suppression_added
               - email.flagged
+              - email.blocked
+              - email.pending_review
             type: string
           type: array
         filters:
@@ -1658,8 +2000,16 @@ components:
           items:
             $ref: "#/components/schemas/OAuthConnectionEntry"
           type: array
+        protection_events:
+          items:
+            $ref: "#/components/schemas/ProtectionEventExportEntry"
+          type: array
         schema_version:
           type: string
+        suppressions:
+          items:
+            $ref: "#/components/schemas/SuppressionExportEntry"
+          type: array
         usage_events:
           items:
             $ref: "#/components/schemas/UsageEventEntry"
@@ -1674,6 +2024,8 @@ components:
         - agents
         - api_keys
         - messages
+        - suppressions
+        - protection_events
       type: object
     UserExportUser:
       additionalProperties: false
@@ -1726,9 +2078,8 @@ components:
           enum:
             - email.received
             - email.sent
-            - email.pending_approval
-            - email.approval_accepted
-            - email.approval_rejected
+            - email.review_approved
+            - email.review_rejected
             - domain.sending_verified
             - domain.sending_failed
             - email.delivered
@@ -1736,6 +2087,8 @@ components:
             - email.complained
             - domain.suppression_added
             - email.flagged
+            - email.blocked
+            - email.pending_review
           type: string
         id:
           type: string
@@ -1794,13 +2147,13 @@ components:
         enabled:
           type: boolean
         events:
+          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
               - email.sent
-              - email.pending_approval
-              - email.approval_accepted
-              - email.approval_rejected
+              - email.review_approved
+              - email.review_rejected
               - domain.sending_verified
               - domain.sending_failed
               - email.delivered
@@ -1808,6 +2161,8 @@ components:
               - email.complained
               - domain.suppression_added
               - email.flagged
+              - email.blocked
+              - email.pending_review
             type: string
           type: array
         filters:
@@ -1888,6 +2243,79 @@ paths:
       security:
         - bearer: []
       summary: "Get account: identity + plan limits + usage (whoami)"
+      tags:
+        - account
+  /v1/account/api-keys:
+    get:
+      description: "API keys for the account (metadata only — secrets are shown once, at creation). Account scope only: an agent-scoped credential cannot manage keys."
+      operationId: listApiKeys
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageAPIKeyView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: List API keys
+      tags:
+        - account
+    post:
+      description: Mint a new API key; the plaintext key is returned once. scope=account is workspace admin (agent/domain/key management); scope=agent binds the key to one inbox so it can act only as that agent. Account scope only.
+      operationId: createApiKey
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAPIKeyRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateAPIKeyResponse"
+          description: Created
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Create an API key
+      tags:
+        - account
+  /v1/account/api-keys/{id}:
+    delete:
+      description: Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
+      operationId: deleteApiKey
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Revoke an API key
       tags:
         - account
   /v1/account/export:
@@ -2091,7 +2519,7 @@ paths:
       tags:
         - agents
     patch:
-      description: Patch an agent's HITL settings. Returns the post-update agent.
+      description: Update an agent's display name. The screening/protection config lives on the /v1/agents/{email}/protection sub-resource. Returns the post-update agent.
       operationId: updateAgent
       parameters:
         - in: path
@@ -2216,7 +2644,7 @@ paths:
         - conversations
   /v1/agents/{email}/messages:
     get:
-      description: List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_approval.
+      description: List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.
       operationId: listMessages
       parameters:
         - in: path
@@ -2333,7 +2761,7 @@ paths:
       tags:
         - messages
     post:
-      description: Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_approval when the agent has HITL enabled. Honors Idempotency-Key.
+      description: Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key.
       operationId: sendMessage
       parameters:
         - in: path
@@ -2368,7 +2796,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
-          description: Accepted — held for human approval (status=pending_approval).
+          description: Accepted — held for human approval (status=pending_review).
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error — the standard envelope; branch on error.code.
       security:
         - bearer: []
       summary: Send a new email
@@ -2451,7 +2885,8 @@ paths:
         - messages
   /v1/agents/{email}/messages/{id}/approve:
     post:
-      description: Approve a pending_approval draft (with optional reviewer overrides) and send it. Honors Idempotency-Key (the approve triggers an SES send).
+      deprecated: true
+      description: "**Deprecated — use `POST /v1/reviews/{id}/approve`** (the account-scoped, id-addressed review queue; no inbox email needed). This agent-path endpoint remains for back-compat and behaves identically. Approve a message held in pending_review. The action branches on the message's direction: an **outbound** hold is sent via SES (honoring Idempotency-Key and optional reviewer overrides; the response carries the send result), and an **inbound** hold is released to the agent's inbox (it becomes readable; the response status is review_approved). Account-scoped credentials only — an agent-scoped credential cannot release its own hold (self-approval would defeat the review gate)."
       operationId: approveMessage
       parameters:
         - in: path
@@ -2494,7 +2929,54 @@ paths:
           description: Error
       security:
         - bearer: []
-      summary: Approve a held message
+      summary: Approve a held message (deprecated)
+      tags:
+        - messages
+  /v1/agents/{email}/messages/{id}/attachments/{index}:
+    get:
+      description: Returns one attachment's metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent's context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected. `index` is the 0-based attachment index from the message's `attachments[]`.
+      operationId: getAttachment
+      parameters:
+        - in: path
+          name: email
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: index
+          required: true
+          schema:
+            format: int64
+            minimum: 0
+            type: integer
+        - description: When true, also include the bytes as base64 in 'data' — ONLY for attachments <= 256 KB; larger inline requests are rejected (413). Default false (use download_url).
+          explode: false
+          in: query
+          name: inline
+          schema:
+            description: When true, also include the bytes as base64 in 'data' — ONLY for attachments <= 256 KB; larger inline requests are rejected (413). Default false (use download_url).
+            type: boolean
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Get an attachment (metadata + short-lived download URL)
       tags:
         - messages
   /v1/agents/{email}/messages/{id}/forward:
@@ -2539,7 +3021,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
-          description: Accepted — held for human approval (status=pending_approval).
+          description: Accepted — held for human approval (status=pending_review).
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error — the standard envelope; branch on error.code.
       security:
         - bearer: []
       summary: Forward a message
@@ -2547,7 +3035,8 @@ paths:
         - messages
   /v1/agents/{email}/messages/{id}/reject:
     post:
-      description: Reject a pending_approval draft so it is never sent.
+      deprecated: true
+      description: "**Deprecated — use `POST /v1/reviews/{id}/reject`** (the account-scoped, id-addressed review queue; no inbox email needed). This agent-path endpoint remains for back-compat and behaves identically. Reject a message held in pending_review. An **outbound** hold is discarded so it is never sent; an **inbound** hold is dropped so it never reaches the agent (its raw payload is retained, hidden, for forensics). Account-scoped credentials only."
       operationId: rejectMessage
       parameters:
         - in: path
@@ -2581,7 +3070,7 @@ paths:
           description: Error
       security:
         - bearer: []
-      summary: Reject a held message
+      summary: Reject a held message (deprecated)
       tags:
         - messages
   /v1/agents/{email}/messages/{id}/reply:
@@ -2626,12 +3115,83 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
-          description: Accepted — held for human approval (status=pending_approval).
+          description: Accepted — held for human approval (status=pending_review).
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error — the standard envelope; branch on error.code.
       security:
         - bearer: []
       summary: Reply to a message
       tags:
         - messages
+  /v1/agents/{email}/protection:
+    get:
+      description: "Read the agent's protection posture — inbound/outbound trust gate, content-scan sensitivity, and hold-queue mechanism. Account scope only: an agent-scoped credential cannot read its own protection config. Beta: the agent protection config is unstable — its shape may change before it is declared stable."
+      operationId: getAgentProtection
+      parameters:
+        - description: The agent's full email address.
+          in: path
+          name: email
+          required: true
+          schema:
+            description: The agent's full email address.
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProtectionConfigView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Get an agent's protection config (beta)
+      tags:
+        - agents
+    put:
+      description: "Replace the agent's protection posture wholesale. The three top-level keys (inbound, outbound, holds) are required; leaves default. Account scope only. Beta: the agent protection config is unstable — its shape may change before it is declared stable."
+      operationId: putAgentProtection
+      parameters:
+        - description: The agent's full email address.
+          in: path
+          name: email
+          required: true
+          schema:
+            description: The agent's full email address.
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProtectionConfigView"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProtectionConfigView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Replace an agent's protection config (beta)
+      tags:
+        - agents
   /v1/agents/{email}/test:
     post:
       description: Send a platform test email to the agent's own address to confirm inbound delivery. 202 when held for HITL.
@@ -2656,7 +3216,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
-          description: Accepted — held for human approval (status=pending_approval).
+          description: Accepted — held for human approval (status=pending_review).
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error — the standard envelope; branch on error.code.
       security:
         - bearer: []
       summary: Send a test email to the agent's own address
@@ -2704,6 +3270,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Conflict — the domain is already claimed by another account (code domain_taken).
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error — the standard envelope; branch on error.code.
       security:
         - bearer: []
       summary: Register a domain
@@ -2765,38 +3337,6 @@ paths:
       summary: Get a domain
       tags:
         - domains
-    patch:
-      operationId: updateDomain
-      parameters:
-        - in: path
-          name: domain
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateDomainRequest"
-        required: true
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DomainView"
-          description: OK
-        default:
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
-      security:
-        - bearer: []
-      summary: Update a domain (set primary)
-      tags:
-        - domains
   /v1/domains/{domain}/verify:
     post:
       description: Probe the domain's published DNS and, when the verification TXT is present, mark it verified. Returns the per-record diagnostic; a missing TXT yields 412.
@@ -2820,6 +3360,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/VerifyDomainView"
           description: Precondition Failed — the verification TXT record is not yet published.
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error — the standard envelope; branch on error.code.
       security:
         - bearer: []
       summary: Verify a domain
@@ -2977,6 +3523,133 @@ paths:
       summary: Deployment info
       tags:
         - meta
+  /v1/reviews:
+    get:
+      description: "The review queue: every message held in pending_review across the account's inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds."
+      operationId: listReviews
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageReviewView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: List messages awaiting review
+      tags:
+        - reviews
+  /v1/reviews/{id}:
+    get:
+      description: Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.
+      operationId: getReview
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Get a held message (full detail)
+      tags:
+        - reviews
+  /v1/reviews/{id}/approve:
+    post:
+      description: "Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold."
+      operationId: approveReview
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: Idempotency-Key
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveRequest"
+          application/octet-stream:
+            schema:
+              contentMediaType: application/octet-stream
+              format: binary
+              type: string
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResultView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Approve a held message
+      tags:
+        - reviews
+  /v1/reviews/{id}/reject:
+    post:
+      description: Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.
+      operationId: rejectReview
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RejectResultView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Reject a held message
+      tags:
+        - reviews
   /v1/webhooks:
     get:
       operationId: listWebhooks
