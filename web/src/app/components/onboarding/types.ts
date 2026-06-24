@@ -1,8 +1,11 @@
 // Onboarding domain model types.
 // These map to the backend API shapes but are owned by the UI layer.
 
-/** Setup path — shared e2a slug, custom domain, or hand off to an agent (MCP). */
-export type AddressType = "shared" | "custom" | "agent";
+/** Web-UI address path — shared e2a slug vs custom domain (under SetupMethod=web). */
+export type AddressType = "shared" | "custom";
+
+/** Top-level setup method — hand off to an agent over MCP, or use the web UI. */
+export type SetupMethod = "agent" | "web";
 
 /** Domain verification status for the checklist model. */
 export type DomainStatus = "unverified" | "verified";

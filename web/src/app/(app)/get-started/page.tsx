@@ -5,20 +5,30 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { listDomains } from "../../components/onboarding/api";
 import { track } from "../../components/onboarding/analytics";
 import { PageShell } from "../../components/loft/PageShell";
+import { SetupMethodChoice } from "./_components/SetupMethodChoice";
 import { AddressChoice } from "./_components/AddressChoice";
 import { SharedAgentForm } from "./_components/SharedAgentForm";
 import { CustomDomainChecklist } from "./_components/CustomDomainChecklist";
 import { AgentSetupCards } from "./_components/AgentSetupCards";
 import { SuccessPanel } from "./_components/SuccessPanel";
-import type { AddressType } from "../../components/onboarding/types";
+import type { AddressType, SetupMethod } from "../../components/onboarding/types";
 import type { DomainInfo } from "../../components/onboarding/types";
 import type { AgentData } from "../../components/types";
 
-type Step = "choose" | "shared_form" | "custom_checklist" | "agent_mcp" | "success";
+// "choose" = top-level method (agent vs web); "address" = the web sub-chooser
+// (shared vs custom). The agent path jumps straight from choose → agent_mcp.
+type Step =
+  | "choose"
+  | "address"
+  | "shared_form"
+  | "custom_checklist"
+  | "agent_mcp"
+  | "success";
 
 function isStep(value: string | null): value is Step {
   return (
     value === "choose" ||
+    value === "address" ||
     value === "shared_form" ||
     value === "custom_checklist" ||
     value === "agent_mcp" ||
@@ -50,6 +60,7 @@ export default function GetStartedPage() {
   const initialMode = searchParams.get("mode") === "shared" ? "shared" : null;
   const initialDomain = searchParams.get("domain");
 
+  const [method, setMethod] = useState<SetupMethod | null>(null);
   const [addressType, setAddressType] = useState<AddressType | null>(null);
   const [agent, setAgent] = useState<AgentData | null>(null);
   const [domainData, setDomainData] = useState<DomainInfo | null>(null);
@@ -129,16 +140,22 @@ export default function GetStartedPage() {
     }
   }, [step, agent, bootstrapping, router]);
 
+  // Top-level fork: agent (MCP) jumps straight to the headless cards; web opens
+  // the shared/custom address chooser.
+  const handleMethodChoice = (m: SetupMethod) => {
+    setMethod(m);
+    setError("");
+    track("setup_method_selected", { method: m });
+    router.push(`/get-started?step=${m === "agent" ? "agent_mcp" : "address"}`);
+  };
+
   const handleAddressChoice = (type: AddressType) => {
     setAddressType(type);
     setError("");
     track("address_type_selected", { type });
-    const stepFor: Record<AddressType, Step> = {
-      shared: "shared_form",
-      custom: "custom_checklist",
-      agent: "agent_mcp",
-    };
-    router.push(`/get-started?step=${stepFor[type]}`);
+    router.push(
+      `/get-started?step=${type === "shared" ? "shared_form" : "custom_checklist"}`,
+    );
   };
 
   const handleBackToChoose = () => {
@@ -176,10 +193,7 @@ export default function GetStartedPage() {
     >
       {step === "choose" && (
         <>
-          <AddressChoice
-            selected={addressType}
-            onSelect={handleAddressChoice}
-          />
+          <SetupMethodChoice selected={method} onSelect={handleMethodChoice} />
           {error && (
             <div
               className="mt-6 p-3 text-[13px]"
@@ -193,6 +207,20 @@ export default function GetStartedPage() {
               {error}
             </div>
           )}
+        </>
+      )}
+
+      {step === "address" && (
+        <>
+          <button
+            type="button"
+            onClick={handleBackToChoose}
+            className="text-[12px] mb-4 inline-flex items-center gap-1 transition"
+            style={{ color: "var(--fg-muted)" }}
+          >
+            ← Back
+          </button>
+          <AddressChoice selected={addressType} onSelect={handleAddressChoice} />
         </>
       )}
 
@@ -225,7 +253,7 @@ export default function GetStartedPage() {
           than rendering an empty success panel. */}
       {step === "success" && agent && <SuccessPanel agent={agent} />}
       {step === "success" && !agent && (
-        <AddressChoice selected={null} onSelect={handleAddressChoice} />
+        <SetupMethodChoice selected={null} onSelect={handleMethodChoice} />
       )}
     </PageShell>
   );

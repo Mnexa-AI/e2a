@@ -10,6 +10,7 @@ export type OnboardingEvent =
   | "domain_verify_failed"
   | "agent_creation_started"
   | "agent_creation_succeeded"
+  | "setup_method_selected"
   | "address_type_selected"
   | "onboarding_resume_shown"
   | "onboarding_resume_selected";
