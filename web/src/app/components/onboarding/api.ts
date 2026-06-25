@@ -320,6 +320,7 @@ export async function getMessageDetail(
       status: w.delivery_status ?? "",
       created_at: w.created_at,
       auth_headers: w.auth_headers ?? {},
+      parsed: w.parsed,
       body: w.body,
       raw_message: w.raw_message ?? "",
     },

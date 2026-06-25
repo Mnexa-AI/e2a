@@ -572,7 +572,9 @@ function BodyCard({
 }) {
   const bodyText = useMemo(() => {
     if (msg.direction === "outbound") return msg.data.body_text ?? "";
-    return decodeInboundBody(msg.data.raw_message);
+    // Prefer the backend-parsed text (QP/base64 decoded, HTML→text); the raw
+    // decode is a last-resort fallback that shows MIME framing.
+    return msg.data.parsed?.text || decodeInboundBody(msg.data.raw_message);
   }, [msg]);
 
   const isOutbound = msg.direction === "outbound";

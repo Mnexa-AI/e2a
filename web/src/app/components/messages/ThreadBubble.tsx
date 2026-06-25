@@ -13,7 +13,6 @@ import { Chip } from "../loft/Chip";
 import { Dot } from "../loft/Dot";
 import { CounterpartyAvatar } from "./CounterpartyAvatar";
 import { getMessageDetail } from "../onboarding/api";
-import { formatRelativeAge } from "../../../lib/relativeTime";
 import type { MessageSummary } from "../types";
 import type { Counterparty } from "./threading";
 
@@ -81,7 +80,13 @@ export function ThreadBubble({
     if (detail.direction === "outbound") {
       body = detail.data.body_text ?? "";
     } else {
-      body = detail.data.body?.text || decodeRawBody(detail.data.raw_message) || "";
+      // Prefer the backend-parsed text (text/plain, else HTML→text, QP/base64
+      // decoded). Fall back to the raw decode only if it's somehow absent.
+      body =
+        detail.data.parsed?.text ||
+        detail.data.body?.text ||
+        decodeRawBody(detail.data.raw_message) ||
+        "";
     }
   }
   const showBody = body.trim() !== "";

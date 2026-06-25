@@ -141,10 +141,14 @@ export type InboundMessageDetail = {
   status: string;
   created_at: string;
   auth_headers: Record<string, string>;
-  // Parsed body, when the backend could extract a text/plain part.
+  // Backend-parsed body (preferred): the text/plain part, else the HTML
+  // rendered to text, with quoted-printable/base64 decoded and quoted reply
+  // chains stripped. Render this rather than the raw bytes.
+  parsed?: { text?: string };
+  // Held-draft body shape (outbound). Inbound rows carry `parsed` instead.
   body?: { text?: string; html?: string };
-  // Raw RFC-5322 bytes, base64-encoded by the JSON layer. The focus page
-  // decodes this as a fallback when `body.text` is absent.
+  // Raw RFC-5322 bytes, base64-encoded by the JSON layer. Decoded only as a
+  // last-resort fallback when neither `parsed.text` nor `body.text` is present.
   raw_message: string;
 };
 
