@@ -136,10 +136,11 @@ export function buildApp(opts: HttpServerOptions): BuiltApp {
       resource,
       authorization_servers: [opts.authorizationServerUrl ?? opts.baseUrl],
       // Scope vocabulary tracks the AS (Slice 5b): the lone "mcp" scope is
-      // retired. MCP clients connect as public DCR clients, which are capped at
-      // scope="agent" by the authorization server, so advertise that here so the
-      // protected-resource and AS metadata agree.
-      scopes_supported: ["agent"],
+      // retired. MCP clients connect as public DCR clients; the consent screen
+      // grants "agent" (single inbox) by default and "account" (workspace admin)
+      // when the user explicitly opts in on a loopback client — so both are
+      // advertised here so the protected-resource and AS metadata agree.
+      scopes_supported: ["agent", "account"],
       bearer_methods_supported: ["header"],
     });
   });

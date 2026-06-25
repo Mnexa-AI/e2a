@@ -25,6 +25,11 @@ type ClientMeta = {
   redirect_uris: string[];
   scopes: string[];
   client_id_issued_at: number;
+  // True iff every registered redirect_uri is loopback — i.e. the consent
+  // screen may offer account (workspace-admin) scope. The backend re-checks
+  // at grant time, so this only drives whether the Account option is
+  // selectable in the UI.
+  account_eligible: boolean;
 };
 
 // Slug rules mirror validateSlug in internal/agent/api.go (length
@@ -251,6 +256,12 @@ function ConsentForm({
   const defaultSlug = useMemo(() => deriveDefaultSlug(client.client_name), [client.client_name]);
   const [slug, setSlug] = useState<string>(defaultSlug);
 
+  // Scope the user is granting. Default to the least-privilege "agent". The
+  // backend re-validates the loopback gate on "account", so this is UX.
+  const [scopeChoice, setScopeChoice] = useState<"agent" | "account">("agent");
+  const accountEligible = client.account_eligible;
+  const pickingAccount = scopeChoice === "account";
+
   const creating = agentChoice === "create_new";
   const slugValid = !creating || SLUG_PATTERN.test(slug);
   // Verify the inbound redirect_uri matches one of the values the
@@ -265,7 +276,8 @@ function ConsentForm({
     inboundRedirect !== "" &&
     client.redirect_uris.length > 0 &&
     !client.redirect_uris.includes(inboundRedirect);
-  const submitDisabled = !slugValid || redirectMismatch;
+  // Account scope binds to no inbox, so the slug is irrelevant then.
+  const submitDisabled = redirectMismatch || (!pickingAccount && !slugValid);
 
   // The hidden inputs re-emit every OAuth param we received. We use
   // params (the readback of useSearchParams) rather than re-deriving
@@ -306,6 +318,86 @@ function ConsentForm({
           <input key={k} type="hidden" name={k} value={v} />
         ))}
 
+        <fieldset className="border border-border rounded-md p-4">
+          <legend className="text-sm font-medium px-2">Access level</legend>
+
+          <label className="flex items-start gap-2 py-1 cursor-pointer">
+            <input
+              type="radio"
+              name="scope_choice"
+              value="agent"
+              checked={!pickingAccount}
+              onChange={() => setScopeChoice("agent")}
+              className="mt-1"
+            />
+            <span className="text-sm">
+              <span className="font-medium">Agent — act as one inbox</span>
+              <span className="block text-xs text-muted">
+                Send &amp; receive email as the inbox you pick below. Cannot
+                manage other inboxes, domains, webhooks, or API keys.
+              </span>
+            </span>
+          </label>
+
+          <label
+            className={`flex items-start gap-2 py-1 ${
+              accountEligible ? "cursor-pointer" : "opacity-60 cursor-not-allowed"
+            }`}
+          >
+            <input
+              type="radio"
+              name="scope_choice"
+              value="account"
+              checked={pickingAccount}
+              disabled={!accountEligible}
+              onChange={() => setScopeChoice("account")}
+              className="mt-1"
+            />
+            <span className="text-sm">
+              <span
+                className="font-medium"
+                style={pickingAccount ? { color: "var(--danger-strong)" } : undefined}
+              >
+                Account — full workspace admin ⚠
+              </span>
+              <span className="block text-xs text-muted">
+                Everything Agent can do, plus: create/delete inboxes, manage
+                domains &amp; webhooks, mint API keys, resolve reviews, and
+                account settings. Grant only to tools you run yourself.
+              </span>
+              {!accountEligible && (
+                <span className="block text-xs mt-0.5" style={{ color: "var(--danger-strong)" }}>
+                  Unavailable: account scope is only offered to local tools whose
+                  redirect URL is loopback (http://localhost).
+                  {inboundRedirect !== "" && (
+                    <>
+                      {" "}This client&apos;s redirect is{" "}
+                      <span className="font-mono break-all">{inboundRedirect}</span>.
+                    </>
+                  )}
+                </span>
+              )}
+            </span>
+          </label>
+        </fieldset>
+
+        {pickingAccount && (
+          <div
+            role="alert"
+            className="p-3 text-xs border rounded"
+            style={{
+              background: "var(--danger-bg)",
+              color: "var(--danger-strong)",
+              borderColor: "var(--danger-bg)",
+            }}
+          >
+            <strong>{client.client_name}</strong> will be able to administer your
+            entire e2a workspace. Only continue if you started this from a tool
+            you run and trust.
+          </div>
+        )}
+
+        {!pickingAccount && (
         <fieldset className="border border-border rounded-md p-4">
           <legend className="text-sm font-medium px-2">Choose an inbox</legend>
 
@@ -356,10 +448,11 @@ function ConsentForm({
             </div>
           )}
         </fieldset>
+        )}
 
         <div className="text-xs text-muted">
           <strong>Scope:</strong>{" "}
-          {client.scopes.length > 0 ? client.scopes.join(" ") : "(none)"}
+          <span className="font-mono">{pickingAccount ? "account" : "agent"}</span>
           <br />
           <strong>Redirect:</strong>{" "}
           <span className="font-mono break-all">{params["redirect_uri"]}</span>
