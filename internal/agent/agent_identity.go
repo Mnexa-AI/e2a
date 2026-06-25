@@ -30,9 +30,12 @@ import (
 // falling through to fosite's authorization_code/refresh_token handling.
 const jwtBearerGrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 
-// agentAuthIssuer is the iss/aud bound into every minted token — the AS public
-// URL, trailing slash trimmed so it's byte-stable with the discovery doc.
-func (a *API) agentAuthIssuer() string { return strings.TrimRight(a.publicURL, "/") }
+// agentAuthIssuer is the iss/aud bound into every minted token — the API base
+// URL (apiURL, which defaults to publicURL), trailing slash trimmed so it's
+// byte-stable with the discovery doc's issuer. It signs AND verifies, so a
+// deployment that changes api_url re-keys its token audience: tokens minted
+// under the old issuer stop validating and clients must re-auth.
+func (a *API) agentAuthIssuer() string { return strings.TrimRight(a.apiURL, "/") }
 
 // agentAuthReady reports whether the agent-identity surface is usable: a signing
 // key AND a public URL (needed for iss/aud) must both be configured.

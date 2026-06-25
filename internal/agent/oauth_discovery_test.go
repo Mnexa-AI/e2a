@@ -90,6 +90,68 @@ func TestHTTP_Discovery_Happy(t *testing.T) {
 	}
 }
 
+// TestHTTP_Discovery_SplitAPIURL pins the api_url split: when the API/MCP host
+// differs from the web app host, the issuer + token/register/revoke/jwks live
+// on api_url, while authorization_endpoint stays on public_url (the browser
+// login/consent UI + session cookie live there). This is the agentdrive shape
+// — issuer with the API, login page on the web domain.
+func TestHTTP_Discovery_SplitAPIURL(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	smtpRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{})
+	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
+
+	const webURL = "https://e2a.dev"
+	const apiURL = "https://api.e2a.dev"
+	api := agent.NewAPI(store, sender, smtpRelay, nil, usage.NewNoopUsageTracker(),
+		"e2a.dev", "test.e2a.dev", "agents.e2a.dev", webURL, false)
+	api.SetAPIURL(apiURL)
+
+	storage := oauth.NewStorage(pool)
+	provider, err := oauth.NewProvider(storage, apiURL, []byte("test-secret-test-secret-test-sec"))
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	api.SetOAuthProvider(provider)
+	api.SetOAuthStorage(storage)
+
+	router := mux.NewRouter()
+	api.RegisterRoutes(router)
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/.well-known/oauth-authorization-server")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var meta agent.OAuthMetadata
+	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
+		t.Fatal(err)
+	}
+
+	// issuer + programmatic endpoints live on the API host (api_url).
+	if meta.Issuer != apiURL {
+		t.Errorf("issuer = %q, want %q (api_url)", meta.Issuer, apiURL)
+	}
+	for name, got := range map[string]string{
+		"token_endpoint":        meta.TokenEndpoint,
+		"registration_endpoint": meta.RegistrationEndpoint,
+		"revocation_endpoint":   meta.RevocationEndpoint,
+		"jwks_uri":              meta.JWKSURI,
+	} {
+		if !strings.HasPrefix(got, apiURL+"/") {
+			t.Errorf("%s = %q, want it on api_url %q", name, got, apiURL)
+		}
+	}
+	// the browser-facing authorize endpoint stays on the web app host — it
+	// needs the e2a.dev session cookie + login/consent UI, which don't travel
+	// cross-origin to api.e2a.dev.
+	if meta.AuthorizationEndpoint != webURL+"/oauth2/authorize" {
+		t.Errorf("authorization_endpoint = %q, want it on public_url %q", meta.AuthorizationEndpoint, webURL)
+	}
+}
+
 // TestHTTP_Discovery_TrailingSlashStripped: a publicURL configured
 // with a trailing slash must NOT produce double-slashed endpoint
 // URLs. RFC 8414 §2 requires issuer be byte-for-byte stable.

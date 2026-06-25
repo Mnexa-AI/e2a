@@ -553,13 +553,19 @@ func (a *API) handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	base := strings.TrimRight(a.publicURL, "/")
+	// apiBase is the issuer + programmatic endpoints (token/register/revoke/
+	// jwks/identity) — they live with the API host (apiURL). webBase is the
+	// browser-facing authorization_endpoint — it stays on the web app
+	// (publicURL) where the login/consent UI lives. When api_url is unset
+	// the two are identical (single-host), preserving historical behaviour.
+	apiBase := strings.TrimRight(a.apiURL, "/")
+	webBase := strings.TrimRight(a.publicURL, "/")
 	meta := OAuthMetadata{
-		Issuer:                 base,
-		AuthorizationEndpoint:  base + "/oauth2/authorize",
-		TokenEndpoint:          base + "/oauth2/token",
-		RegistrationEndpoint:   base + "/oauth2/register",
-		RevocationEndpoint:     base + "/oauth2/revoke",
+		Issuer:                 apiBase,
+		AuthorizationEndpoint:  webBase + "/oauth2/authorize",
+		TokenEndpoint:          apiBase + "/oauth2/token",
+		RegistrationEndpoint:   apiBase + "/oauth2/register",
+		RevocationEndpoint:     apiBase + "/oauth2/revoke",
 		ResponseTypesSupported: []string{"code"},
 		// response_mode=query is the only mode we emit at the redirect
 		// URI; explicit so strict MCP clients don't try "fragment".
@@ -572,7 +578,7 @@ func (a *API) handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
 		// inbox, the DCR-public default) and account (admin). The lone legacy
 		// "mcp" scope is retired.
 		ScopesSupported: []string{"agent", "account"},
-		JWKSURI:         base + "/.well-known/jwks.json",
+		JWKSURI:         apiBase + "/.well-known/jwks.json",
 		AuthorizationResponseIssParameterSupported: true,
 	}
 	// auth.md agent-identity surface (Slice 5b-2) — advertised only when a
@@ -580,7 +586,7 @@ func (a *API) handleOAuthDiscovery(w http.ResponseWriter, r *http.Request) {
 	if a.agentAuthReady() {
 		meta.GrantTypesSupported = append(meta.GrantTypesSupported, jwtBearerGrantType)
 		meta.AgentAuth = &agentAuthMetadata{
-			IdentityEndpoint:       base + "/agent/identity",
+			IdentityEndpoint:       apiBase + "/agent/identity",
 			IdentityTypesSupported: []string{"identity_assertion"},
 			// AssertionTypesSupported left empty until 5b-4 intakes ID-JAG.
 		}
@@ -939,8 +945,8 @@ func (a *API) writeAuthorizeRedirect(w http.ResponseWriter, r *http.Request, ar 
 		}
 	}
 	// RFC 9207 §2 — tell mix-up-aware clients which AS produced this
-	// response. publicURL is what discovery advertises as `issuer`.
-	q.Set("iss", strings.TrimRight(a.publicURL, "/"))
+	// response. Must byte-match the `issuer` discovery advertises (apiURL).
+	q.Set("iss", strings.TrimRight(a.apiURL, "/"))
 	redirect.RawQuery = q.Encode()
 	http.Redirect(w, r, redirect.String(), http.StatusSeeOther)
 }

@@ -66,11 +66,21 @@ type SMTPConfig struct {
 
 type HTTPConfig struct {
 	ListenAddr string `yaml:"listen_addr"`
-	// PublicURL is the externally visible base URL of the API, used to
-	// build absolute links in notification emails (e.g. HITL magic-link
-	// approve/reject). Example: "https://e2a.example.com". If empty,
-	// features that need absolute URLs gracefully degrade.
+	// PublicURL is the externally visible base URL of the *web app* — the
+	// domain that serves the dashboard, HITL magic-link pages, and the
+	// OAuth login/consent UI. Absolute links in notification emails and the
+	// OAuth authorization_endpoint are built from it. Example:
+	// "https://e2a.example.com". If empty, features that need absolute URLs
+	// gracefully degrade.
 	PublicURL string `yaml:"public_url"`
+	// APIURL is the externally visible base URL of the *programmatic API* —
+	// the host the SDKs/MCP target (e.g. "https://api.e2a.dev"). It is the
+	// OAuth issuer identity and the base for the token/registration/
+	// revocation/jwks endpoints, so it should match the host the MCP
+	// resource is served from (RFC 9728: clients expect the issuer to live
+	// with the API). Defaults to PublicURL when unset, so single-host
+	// deployments and self-hosters need not set it.
+	APIURL string `yaml:"api_url"`
 }
 
 type DatabaseConfig struct {
@@ -254,6 +264,9 @@ func Load(path string) (*Config, error) {
 	if v := os.Getenv("E2A_PUBLIC_URL"); v != "" {
 		cfg.HTTP.PublicURL = v
 	}
+	if v := os.Getenv("E2A_API_URL"); v != "" {
+		cfg.HTTP.APIURL = v
+	}
 	if v := os.Getenv("E2A_SHARED_DOMAIN"); v != "" {
 		cfg.SharedDomain = v
 	}
@@ -274,6 +287,14 @@ func Load(path string) (*Config, error) {
 	if cfg.OutboundSMTP.RequireTLS == nil {
 		v := cfg.IsProduction()
 		cfg.OutboundSMTP.RequireTLS = &v
+	}
+
+	// Default the API URL (OAuth issuer + token/jwks host) to the web
+	// PublicURL when unset, so single-host deployments and self-hosters get
+	// the historical behaviour (issuer == public_url) with no new config.
+	// Split deployments (web on one host, API/MCP on another) set api_url.
+	if cfg.HTTP.APIURL == "" {
+		cfg.HTTP.APIURL = cfg.HTTP.PublicURL
 	}
 
 	if err := cfg.Validate(); err != nil {

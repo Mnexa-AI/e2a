@@ -277,6 +277,11 @@ func main() {
 	// HTTP API
 	router := mux.NewRouter()
 	api := agent.NewAPI(store, sender, smtpRelay, userAuth, usageTracker, cfg.SMTP.Domain, cfg.OutboundSMTP.FromDomain, cfg.SharedDomain, cfg.HTTP.PublicURL, cfg.IsProduction())
+	// The programmatic API host (OAuth issuer + token/jwks). Defaults to
+	// public_url; set api_url to serve the API/MCP on a different host than
+	// the web app (the authorization_endpoint + login/consent stay on
+	// public_url because they need the web app's session cookie).
+	api.SetAPIURL(cfg.HTTP.APIURL)
 	// HITL magic-link token signer reuses the shared HMAC secret so operators
 	// don't have to configure a second key.
 	approvalSigner := approvaltoken.NewSigner(cfg.Signing.HMACSecret)
@@ -319,7 +324,10 @@ func main() {
 		log.Printf("[oauth] provider disabled: http.public_url is not set (required for issuer identity)")
 	} else {
 		oauthStorage = oauth.NewStorage(pool)
-		oauthProvider, err := oauth.NewProvider(oauthStorage, cfg.HTTP.PublicURL, []byte(cfg.Signing.HMACSecret))
+		// Issuer = api_url (defaults to public_url). fosite stamps it into
+		// token `iss` and the RFC 9207 response, so it must match what
+		// discovery advertises and what agentAuthIssuer signs/verifies.
+		oauthProvider, err := oauth.NewProvider(oauthStorage, cfg.HTTP.APIURL, []byte(cfg.Signing.HMACSecret))
 		if err != nil {
 			log.Fatalf("[oauth] provider wiring failed: %v", err)
 		}
@@ -327,7 +335,7 @@ func main() {
 		// Consent handler also needs the storage pool for the cross-
 		// package transaction (agent insert + auth-code insert atomic).
 		api.SetOAuthStorage(oauthStorage)
-		log.Printf("[oauth] provider enabled: issuer=%s", cfg.HTTP.PublicURL)
+		log.Printf("[oauth] provider enabled: issuer=%s", cfg.HTTP.APIURL)
 	}
 
 	// Idempotency-Key support on POST /v1/agents/{email}/messages (send) and .../reply.
