@@ -423,14 +423,18 @@ func seedOAuthClient(t *testing.T, f *consentFixture, clientID string, scopes []
 }
 
 // mintAccessWithScope runs the authorize→consent→token flow for an explicit
-// client + scope (vs. mintTokensForFixture, which is hardwired to the fixture's
-// agent-scoped client). Returns the issued access token.
+// client + consent-grantable scope (agent|account). The consent screen is the
+// scope authority, so it drives the grant via scope_choice (not the requested
+// `scope` param). Returns the issued access token. To mint a token carrying a
+// scope the consent screen does NOT offer (a retired/unknown scope), use
+// mintAuthCode + a token exchange, which bypasses the consent gate.
 func mintAccessWithScope(t *testing.T, f *consentFixture, clientID, scope string) string {
 	t.Helper()
 	verifier, challenge := newPKCE(t)
 
 	form := authorizeParams(challenge, clientID, "s2s2s2s2s2s2s2s2")
 	form.Set("scope", scope) // override the fixture's default "agent"
+	form.Set("scope_choice", scope)
 	form.Set("action", "allow")
 	form.Set("agent_choice", "create_new")
 	form.Set("new_agent_slug", "scoped-"+randHex8(t))
@@ -491,7 +495,34 @@ func TestBearer_OAuth_AccountScope_AllowedOnAccountOp(t *testing.T) {
 func TestBearer_OAuth_UnknownScope_Rejected(t *testing.T) {
 	f := newConsentFixture(t)
 	seedOAuthClient(t, f, "legacy_mcp_client", []string{"mcp"})
-	access := mintAccessWithScope(t, f, "legacy_mcp_client", "mcp")
+	// The consent screen no longer grants anything but agent/account, so mint
+	// the unrecognized-scope token the only way one could still exist: directly
+	// via the provider (mintAuthCode grants "mcp"), bypassing the consent gate.
+	// This isolates the principal resolver's fail-closed default — a legacy or
+	// out-of-band token carrying a retired scope must still be rejected.
+	redirectURI := "http://localhost:8765/callback"
+	verifier, challenge := newPKCE(t)
+	code := mintAuthCode(t, f.provider, "legacy_mcp_client", f.userID, redirectURI, challenge)
+	tokForm := url.Values{}
+	tokForm.Set("grant_type", "authorization_code")
+	tokForm.Set("code", code)
+	tokForm.Set("client_id", "legacy_mcp_client")
+	tokForm.Set("redirect_uri", redirectURI)
+	tokForm.Set("code_verifier", verifier)
+	tokResp, err := http.Post(f.server.URL+"/oauth2/token", "application/x-www-form-urlencoded", strings.NewReader(tokForm.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tokResp.Body.Close()
+	if tokResp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(tokResp.Body)
+		t.Fatalf("mint mcp token: /token status=%d body=%s", tokResp.StatusCode, b)
+	}
+	var tb struct {
+		AccessToken string `json:"access_token"`
+	}
+	json.NewDecoder(tokResp.Body).Decode(&tb)
+	access := tb.AccessToken
 
 	status, wa := callAPIWithBearer(t, f.server.URL, access) // GET /v1/account
 	if status != http.StatusUnauthorized {
