@@ -172,6 +172,13 @@ type API struct {
 	// links without each user configuring it. Empty when the operator
 	// hasn't set http.public_url.
 	publicURL         string
+	// apiURL is the externally visible base URL of the programmatic API —
+	// the OAuth issuer identity and the base for the token/registration/
+	// revocation/jwks endpoints. Defaults to publicURL; SetAPIURL overrides
+	// it when the deployment serves the API on a different host than the web
+	// app (e.g. api.e2a.dev vs e2a.dev). The OAuth authorization_endpoint
+	// and login/consent pages stay on publicURL (the browser-facing web app).
+	apiURL            string
 	production        bool
 	sendLimit         *ratelimit.Limiter
 	regLimit          *ratelimit.Limiter
@@ -522,6 +529,9 @@ func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.
 		fromDomain:    fromDomain,
 		sharedDomain:  sharedDomain,
 		publicURL:     publicURL,
+		// Default the API/issuer URL to the web URL; SetAPIURL overrides it
+		// for split web/API-host deployments.
+		apiURL:        publicURL,
 		production:    production,
 		sendLimit:     ratelimit.New(1*time.Minute, 60), // 60 sends per agent per minute
 		regLimit:      ratelimit.New(1*time.Hour, 200),  // 200 registrations per IP per hour
@@ -529,6 +539,18 @@ func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.
 		feedbackLimit: ratelimit.New(1*time.Hour, 10),   // 10 feedback submissions per IP per hour
 		dcrLimit:      ratelimit.New(1*time.Hour, 10),   // 10 OAuth client registrations per IP per hour
 		downloadLimit: ratelimit.New(1*time.Minute, 120), // 120 attachment downloads per IP per minute
+	}
+}
+
+// SetAPIURL overrides the API/issuer base URL (default: publicURL). Set it
+// when the programmatic API + MCP are served on a different host than the web
+// app — that host becomes the OAuth issuer and the base for the token/
+// registration/revocation/jwks endpoints, while authorization_endpoint and
+// the login/consent pages stay on publicURL. A no-op for the empty string so
+// callers can pass an unset config value safely.
+func (a *API) SetAPIURL(u string) {
+	if u != "" {
+		a.apiURL = u
 	}
 }
 
