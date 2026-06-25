@@ -181,6 +181,12 @@ func dcrSourceIP(r *http.Request) string {
 // (127.0.0.0/8, ::1). Used both by validateRedirectURI (which loopback http
 // hosts are allowed) and by the account-scope gate (account may only be
 // granted to a native app that receives its callback on loopback).
+//
+// Deliberately NARROWER than fosite's IsLocalhost: it does NOT accept the
+// ".localhost" suffix (e.g. app.localhost). The cost is only that account
+// scope is unavailable to a tool using such a redirect (fail-closed, a
+// conservative UX edge); it is never a security gap. Keep it strict — a
+// suffix rule is where loopback look-alike bypasses tend to creep in.
 func isLoopbackHost(host string) bool {
 	if host == "localhost" {
 		return true
@@ -967,11 +973,16 @@ func (a *API) issueOAuthCode(ctx context.Context, w http.ResponseWriter, r *http
 // consented to on the consent screen — not the scope the client requested.
 // The consent screen is e2a's scope authority (it already picks the agent),
 // so a user who chooses "account" on a loopback client gets account even
-// though the public DCR client could only request "agent". fosite drops scope
-// between authorize and the issued tokens unless explicitly granted; we also
-// add it to the requested set so granted ⊆ requested holds for any fosite
-// handler that checks it (the client-scope ExactScopeStrategy already ran at
-// /authorize and is not re-run here).
+// though the public DCR client only requested "agent".
+//
+// AppendRequestedScope is LOAD-BEARING, not cosmetic: fosite's
+// AuthorizeExplicitGrantHandler re-validates every *requested* scope against
+// client.GetScopes() (ExactScopeStrategy) inside NewAuthorizeResponse — which
+// runs AFTER this. So appending the consented scope to the requested set is
+// what subjects it to that check, and that check is precisely what enforces
+// granted ⊆ client.scopes: account is granted only if the client row carries
+// it (which DCR writes only for all-loopback clients). Remove the append and
+// account-scope containment silently breaks — keep it.
 func grantConsentedScope(ar fosite.AuthorizeRequester, scope string) {
 	if !ar.GetRequestedScopes().Has(scope) {
 		ar.AppendRequestedScope(scope)

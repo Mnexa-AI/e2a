@@ -135,6 +135,47 @@ func TestHTTP_Consent_Account_NonLoopback_Rejected(t *testing.T) {
 	}
 }
 
+// TestHTTP_Consent_Account_MixedRedirect_RejectedByScopeCeiling proves the
+// second defense layer: a client with BOTH a loopback and an https redirect is
+// NOT account-eligible (DCR writes only [agent]), so even when the inbound
+// redirect is the loopback one — passing the consent handler's own loopback
+// gate — fosite's ExactScopeStrategy rejects the account grant because account
+// is not on the client row. This is the enforcement path the DCR-ceiling
+// deviation rests on; the handler gate alone is insufficient here.
+func TestHTTP_Consent_Account_MixedRedirect_RejectedByScopeCeiling(t *testing.T) {
+	f := newConsentFixture(t)
+	ctx := context.Background()
+	mixedClient := "mcp_mixed_test"
+	loopbackRedirect := "http://localhost:8765/callback"
+	if _, err := f.pool.Exec(ctx, `
+		INSERT INTO oauth_clients
+		    (client_id, client_name, redirect_uris, grant_types, response_types,
+		     scopes, audiences, token_endpoint_auth_method, public, created_via)
+		VALUES ($1, 'mixed redirect client', ARRAY[$2,$3],
+		        ARRAY['authorization_code','refresh_token'], ARRAY['code'],
+		        ARRAY['agent'], ARRAY[]::TEXT[], 'none', TRUE, 'dcr')
+		ON CONFLICT (client_id) DO NOTHING`,
+		mixedClient, loopbackRedirect, "https://app.example.com/callback"); err != nil {
+		t.Fatalf("seed mixed client: %v", err)
+	}
+
+	_, challenge := newPKCE(t)
+	form := authorizeParams(challenge, mixedClient, "s1s1s1s1s1s1s1s1")
+	form.Set("redirect_uri", loopbackRedirect) // inbound redirect IS loopback → passes the handler gate
+	form.Set("action", "allow")
+	form.Set("scope_choice", "account")
+
+	resp := f.consentPOST(t, form)
+	defer resp.Body.Close()
+	loc, _ := url.Parse(resp.Header.Get("Location"))
+	if loc.Query().Get("code") != "" {
+		t.Fatalf("mixed-redirect client must not get account even on the loopback redirect")
+	}
+	if e := loc.Query().Get("error"); e != "invalid_scope" {
+		t.Errorf("error = %q, want invalid_scope (fosite scope-ceiling rejection)", e)
+	}
+}
+
 // TestHTTP_Consent_DefaultScope_IsAgent — a consent POST that omits scope_choice
 // defaults to agent (the safe default) and binds to the chosen inbox.
 func TestHTTP_Consent_DefaultScope_IsAgent(t *testing.T) {

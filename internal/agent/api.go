@@ -732,8 +732,9 @@ func (a *API) authenticatePrincipal(r *http.Request) (*identity.Principal, error
 // ScopeAccount, which defeated the public-DCR `scope=agent` cap
 // (oauth_handlers.go) and silently handed agent-tier MCP tokens full
 // account-wide admin.) Resolution:
-//   - granted `account` → account-wide admin. Only reachable via a
-//     console-issued / confidential client; public DCR can never obtain it.
+//   - granted `account` → account-wide admin. Reachable only when the user
+//     explicitly picks account on the consent screen for an all-loopback
+//     client (the scope-picker); never autonomously by a client.
 //   - granted `agent`   → confined to the consent-bound agent
 //     (session.AgentEmail), with ownership re-checked, mirroring the REST
 //     resolveOwnedAgent pin and the JWT resolveAgentAccessToken path.

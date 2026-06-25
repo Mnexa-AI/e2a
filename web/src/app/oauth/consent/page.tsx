@@ -368,9 +368,13 @@ function ConsentForm({
               {!accountEligible && (
                 <span className="block text-xs mt-0.5" style={{ color: "var(--danger-strong)" }}>
                   Unavailable: account scope is only offered to local tools whose
-                  redirect URL is loopback (http://localhost). This client&apos;s
-                  redirect is{" "}
-                  <span className="font-mono break-all">{inboundRedirect}</span>.
+                  redirect URL is loopback (http://localhost).
+                  {inboundRedirect !== "" && (
+                    <>
+                      {" "}This client&apos;s redirect is{" "}
+                      <span className="font-mono break-all">{inboundRedirect}</span>.
+                    </>
+                  )}
                 </span>
               )}
             </span>
