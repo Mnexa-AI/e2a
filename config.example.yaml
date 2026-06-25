@@ -79,7 +79,7 @@ sender_identity:
 # Outbound delivery feedback (decision 9 / Slice 4b). When ses_configuration_set
 # is set, outbound mail is tagged with X-SES-CONFIGURATION-SET so SES publishes
 # delivery/bounce/complaint events to an SNS topic; e2a's public endpoint
-# POST /api/internal/ses/notifications consumes them (SNS signature verified,
+# POST /webhooks/ses consumes them (SNS signature verified,
 # fail-closed) to drive messages.delivery_status, fire
 # email.delivered/bounced/complained, and auto-suppress hard-bounced/complained
 # recipients. sns_topic_arns is the allow-list of SNS topics that endpoint

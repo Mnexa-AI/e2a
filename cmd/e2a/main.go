@@ -406,7 +406,11 @@ func main() {
 	// rejected, so this is inert until ops wires the topic).
 	deliveryConsumer := delivery.NewConsumer(store, deliveryEventFirer(webhookPublisher))
 	deliveryVerifier := delivery.NewVerifier(cfg.DeliveryFeedback.SNSTopicARNs, delivery.HTTPCertFetcher)
-	router.HandleFunc("/api/internal/ses/notifications", delivery.Handler(deliveryVerifier, deliveryConsumer)).Methods(http.MethodPost)
+	// Public webhook receiver for AWS SNS (SES delivery/bounce/complaint). Named
+	// /webhooks/<provider> — it's an inbound third-party callback, not an internal
+	// RPC, and must be internet-reachable for SNS to POST to it. Protected by the
+	// SNS signature + TopicArn allow-list above, not by network isolation.
+	router.HandleFunc("/webhooks/ses", delivery.Handler(deliveryVerifier, deliveryConsumer)).Methods(http.MethodPost)
 
 	// WebSocket live-tail transport. Registered as a first-class /v1 route
 	// on the chi root via WSHandle below (see apiserver.Params); the hub +

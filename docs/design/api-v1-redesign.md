@@ -1345,7 +1345,7 @@ Break the current `/api/v1` surface directly and move it to
     pending the live-SES validation above. **ARC sealing** remains deferred.
 * **Slice 4b — Delivery feedback (decision 9).** *(Delivery-feedback core
   shipped; the rest split into follow-ups.)* `internal/delivery`: an SES-over-SNS
-  consumer at `POST /api/internal/ses/notifications` (fail-closed SNS signature
+  consumer at `POST /webhooks/ses` (fail-closed SNS signature
   verification — host-allow-listed `SigningCertURL`, TopicArn allow-list, SHA1/256
   PKCS1v15, auto-confirm `SubscriptionConfirmation`) drives the
   `messages.delivery_status` lifecycle (`{queued,sent,delivered,bounced,
