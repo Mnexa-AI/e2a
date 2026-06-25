@@ -369,15 +369,36 @@ func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 			`only token_endpoint_auth_method="none" (public clients with PKCE) is supported`)
 		return
 	}
-	// Scope cap (Slice 5b / design §5): dynamically-registered clients are
-	// public (token_endpoint_auth_method=none), so they may request ONLY
-	// scope="agent" (runtime/inbox tier). scope="account" (admin) requires a
-	// pre-registered confidential client or console issuance — never via public
-	// DCR, so a leaked DCR client can't escalate to account-wide admin.
-	if req.Scope != "agent" {
+	// Scope ceiling (Slice 5b / design §5 + scope-picker). A public DCR
+	// client's REGISTERED scopes are the maximum a user can later approve on
+	// the consent screen — not what the client gets autonomously (consent is
+	// mandatory and grants nothing on its own). "account" (workspace admin) is
+	// offered only to clients whose redirect_uris are ALL loopback: a native
+	// app whose callback lands on the user's own machine. A hosted/remote
+	// client (https redirect) can't receive a localhost callback, so it stays
+	// agent-only and can never be socially-engineered into an account grant.
+	// fosite's ExactScopeStrategy enforces granted ⊆ registered, so account
+	// must be on the client row for the consent screen to grant it.
+	accountEligible := true
+	for _, ru := range req.RedirectURIs {
+		if !isLoopbackRedirect(ru) {
+			accountEligible = false
+			break
+		}
+	}
+	for _, sc := range strings.Fields(req.Scope) {
+		if sc == identity.ScopeAgent || (sc == identity.ScopeAccount && accountEligible) {
+			continue
+		}
 		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata",
-			`dynamically-registered public clients may request only scope="agent"; scope="account" requires console issuance`)
+			`unsupported scope `+strconv.Quote(sc)+`; public clients may request "agent" (and "account" only when all redirect_uris are loopback)`)
 		return
+	}
+	// Persist the full eligible ceiling, not just what was requested, so the
+	// consent screen can offer account on loopback clients without a re-register.
+	scopeCeiling := []string{identity.ScopeAgent}
+	if accountEligible {
+		scopeCeiling = append(scopeCeiling, identity.ScopeAccount)
 	}
 
 	// Generate the client_id and persist. The DB CHECK constraints
@@ -394,7 +415,7 @@ func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 		     public, created_via)
 		VALUES ($1, $2, $3, $4, $5, $6, ARRAY[]::TEXT[], $7, TRUE, 'dcr')
 	`, clientID, req.ClientName, req.RedirectURIs, req.GrantTypes,
-		req.ResponseTypes, []string{req.Scope}, req.TokenEndpointAuthMethod); err != nil {
+		req.ResponseTypes, scopeCeiling, req.TokenEndpointAuthMethod); err != nil {
 		log.Printf("[oauth] DCR insert failed: %v", err)
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to register client")
 		return
@@ -426,6 +447,12 @@ type OAuthClientPublicMetadata struct {
 	RedirectURIs     []string `json:"redirect_uris"`
 	Scopes           []string `json:"scopes"`
 	ClientIDIssuedAt int64    `json:"client_id_issued_at"`
+	// AccountEligible reports whether the consent screen may offer account
+	// (workspace-admin) scope for this client: true iff EVERY registered
+	// redirect_uri is loopback. Drives the consent UI (the Account option is
+	// disabled otherwise); the consent handler re-checks the specific inbound
+	// redirect at grant time, so this is UX, not the security boundary.
+	AccountEligible bool `json:"account_eligible"`
 }
 
 // handleOAuthGetClient is the public read endpoint the consent UI
@@ -487,12 +514,20 @@ func (a *API) handleOAuthGetClient(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=60")
+	accountEligible := len(redirects) > 0
+	for _, ru := range redirects {
+		if !isLoopbackRedirect(ru) {
+			accountEligible = false
+			break
+		}
+	}
 	_ = json.NewEncoder(w).Encode(OAuthClientPublicMetadata{
 		ClientID:         clientID,
 		ClientName:       name,
 		RedirectURIs:     redirects,
 		Scopes:           scopes,
 		ClientIDIssuedAt: createdAt.Unix(),
+		AccountEligible:  accountEligible,
 	})
 }
 
@@ -821,8 +856,42 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve which agent the OAuth grant pins to. Either an existing
-	// inbox the user already owns, or a freshly auto-created one on
+	// Scope the user consented to. The consent screen is e2a's scope
+	// authority: "agent" (default) binds the grant to one inbox; "account"
+	// is full workspace admin. account is gated to LOOPBACK redirect_uris —
+	// a local tool whose callback lands on the user's own machine — so a
+	// hosted/remote client (which can't receive a localhost callback) can't
+	// be socially-engineered into an account grant. The gate is enforced
+	// here, server-side and fail-closed, independent of the page's UI.
+	scopeChoice := r.PostFormValue("scope_choice")
+	if scopeChoice == "" {
+		scopeChoice = identity.ScopeAgent
+	}
+	switch scopeChoice {
+	case identity.ScopeAccount:
+		if !isLoopbackRedirect(ar.GetRedirectURI().String()) {
+			a.oauthProvider.WriteAuthorizeError(ctx, w, ar,
+				fosite.ErrInvalidScope.WithHint(
+					"account scope may only be granted to a client with a loopback (http://localhost) redirect_uri"))
+			return
+		}
+		// account is not inbox-bound: empty AgentEmail, account scope. The
+		// principal resolver maps (account, no agent) to an account principal,
+		// exactly like an e2a_acct_ key; any agent_choice is ignored.
+		if err := a.issueOAuthCode(ctx, w, r, ar, user.ID, "", identity.ScopeAccount); err != nil {
+			log.Printf("[oauth] /consent issue (account) failed: %v", err)
+			a.oauthProvider.WriteAuthorizeError(ctx, w, ar, err)
+		}
+		return
+	case identity.ScopeAgent:
+		// fall through to the inbox-binding logic below
+	default:
+		http.Error(w, `scope_choice must be "agent" or "account"`, http.StatusBadRequest)
+		return
+	}
+
+	// Resolve which agent the (agent-scoped) OAuth grant pins to. Either an
+	// existing inbox the user already owns, or a freshly auto-created one on
 	// the shared domain.
 	agentChoice := r.PostFormValue("agent_choice")
 	switch {
@@ -839,7 +908,7 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 		}
 		// No agent creation needed — drop straight into the code-
 		// issue path with the resolved email on the session.
-		if err := a.issueOAuthCode(ctx, w, r, ar, user.ID, email); err != nil {
+		if err := a.issueOAuthCode(ctx, w, r, ar, user.ID, email, identity.ScopeAgent); err != nil {
 			log.Printf("[oauth] /consent issue (existing agent) failed: %v", err)
 			a.oauthProvider.WriteAuthorizeError(ctx, w, ar, err)
 		}
@@ -858,7 +927,7 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		agentEmail := slug + "@" + a.sharedDomain
-		if err := a.issueOAuthCodeWithNewAgent(ctx, w, r, ar, user.ID, agentEmail); err != nil {
+		if err := a.issueOAuthCodeWithNewAgent(ctx, w, r, ar, user.ID, agentEmail, identity.ScopeAgent); err != nil {
 			log.Printf("[oauth] /consent issue (new agent) failed: %v", err)
 			a.oauthProvider.WriteAuthorizeError(ctx, w, ar, err)
 		}
@@ -872,18 +941,14 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 // our Storage on the pool (no cross-package tx needed). After fosite's
 // NewAuthorizeResponse we write the redirect ourselves so we can
 // append the RFC 9207 iss parameter — fosite v0.49.0 doesn't emit it.
-func (a *API) issueOAuthCode(ctx context.Context, w http.ResponseWriter, r *http.Request, ar fosite.AuthorizeRequester, userID, agentEmail string) error {
+func (a *API) issueOAuthCode(ctx context.Context, w http.ResponseWriter, r *http.Request, ar fosite.AuthorizeRequester, userID, agentEmail, scope string) error {
 	sess := &oauth.Session{
 		UserID:     userID,
 		AgentEmail: agentEmail,
 		Subject:    userID,
 	}
 	ar.SetSession(sess)
-	// fosite drops the requested scope between authorize and the
-	// issued tokens unless we explicitly grant it.
-	for _, sc := range ar.GetRequestedScopes() {
-		ar.GrantScope(sc)
-	}
+	grantConsentedScope(ar, scope)
 
 	resp, err := a.oauthProvider.NewAuthorizeResponse(ctx, ar, sess)
 	if err != nil {
@@ -898,7 +963,23 @@ func (a *API) issueOAuthCode(ctx context.Context, w http.ResponseWriter, r *http
 // shared Storage pool; both writes join it via the oauth.WithTx
 // context helper. A partial failure rolls back so we never leak an
 // agent without the matching code (or vice versa).
-func (a *API) issueOAuthCodeWithNewAgent(ctx context.Context, w http.ResponseWriter, r *http.Request, ar fosite.AuthorizeRequester, userID, agentEmail string) error {
+// grantConsentedScope sets the access grant to EXACTLY the scope the user
+// consented to on the consent screen — not the scope the client requested.
+// The consent screen is e2a's scope authority (it already picks the agent),
+// so a user who chooses "account" on a loopback client gets account even
+// though the public DCR client could only request "agent". fosite drops scope
+// between authorize and the issued tokens unless explicitly granted; we also
+// add it to the requested set so granted ⊆ requested holds for any fosite
+// handler that checks it (the client-scope ExactScopeStrategy already ran at
+// /authorize and is not re-run here).
+func grantConsentedScope(ar fosite.AuthorizeRequester, scope string) {
+	if !ar.GetRequestedScopes().Has(scope) {
+		ar.AppendRequestedScope(scope)
+	}
+	ar.GrantScope(scope)
+}
+
+func (a *API) issueOAuthCodeWithNewAgent(ctx context.Context, w http.ResponseWriter, r *http.Request, ar fosite.AuthorizeRequester, userID, agentEmail, scope string) error {
 	pool := a.oauthStorage.Pool()
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -926,9 +1007,7 @@ func (a *API) issueOAuthCodeWithNewAgent(ctx context.Context, w http.ResponseWri
 		Subject:    userID,
 	}
 	ar.SetSession(sess)
-	for _, sc := range ar.GetRequestedScopes() {
-		ar.GrantScope(sc)
-	}
+	grantConsentedScope(ar, scope)
 	resp, err := a.oauthProvider.NewAuthorizeResponse(txCtx, ar, sess)
 	if err != nil {
 		return err

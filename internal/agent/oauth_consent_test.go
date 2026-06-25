@@ -130,7 +130,7 @@ func newConsentFixture(t *testing.T) *consentFixture {
 		        ARRAY['http://localhost:8765/callback'],
 		        ARRAY['authorization_code','refresh_token'],
 		        ARRAY['code'],
-		        ARRAY['agent'],
+		        ARRAY['agent','account'],
 		        ARRAY[]::TEXT[],
 		        'none', TRUE, 'dcr')
 		ON CONFLICT (client_id) DO NOTHING
