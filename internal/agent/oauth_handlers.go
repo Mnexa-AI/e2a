@@ -176,6 +176,34 @@ func dcrSourceIP(r *http.Request) string {
 //   - single-label custom schemes (myapp:) — RFC 7595 §3.8 reserves
 //     these for future IANA registration, and they bypass the OS-level
 //     scheme registry collision protections RFC 8252 §7.1 relies on
+// isLoopbackHost reports whether a redirect_uri hostname is a loopback
+// target: the literal "localhost" or any IP that net considers loopback
+// (127.0.0.0/8, ::1). Used both by validateRedirectURI (which loopback http
+// hosts are allowed) and by the account-scope gate (account may only be
+// granted to a native app that receives its callback on loopback).
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// isLoopbackRedirect reports whether a full redirect_uri is an http loopback
+// URL (http://localhost[:port]/…, http://127.0.0.1[:port]/…, http://[::1]…).
+// https URLs return false even though they're valid redirect targets — the
+// point of this gate is "the callback lands on the user's own machine", which
+// only http-loopback guarantees. This is the structural control that lets the
+// consent screen offer account scope to local tools (Claude Code, Cursor) while
+// a hosted/remote client — which can't receive a localhost callback — can't.
+func isLoopbackRedirect(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "http" {
+		return false
+	}
+	return isLoopbackHost(u.Hostname())
+}
+
 func validateRedirectURI(raw string) error {
 	if raw == "" {
 		return errors.New("redirect_uri cannot be empty")
@@ -199,12 +227,7 @@ func validateRedirectURI(raw string) error {
 		}
 		return nil
 	case "http":
-		host := u.Hostname()
-		if host == "localhost" {
-			return nil
-		}
-		ip := net.ParseIP(host)
-		if ip != nil && ip.IsLoopback() {
+		if isLoopbackHost(u.Hostname()) {
 			return nil
 		}
 		return errors.New("http redirect_uri must use a loopback host (localhost, 127.0.0.1, or ::1)")
