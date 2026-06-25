@@ -67,14 +67,19 @@ function mockClientAndAgents(opts: {
   clientStatus?: number;
   clientBody?: object;
   agents?: object[];
+  accountEligible?: boolean;
 }) {
   const clientStatus = opts.clientStatus ?? 200;
+  const accountEligible = opts.accountEligible ?? true;
   const clientBody = opts.clientBody ?? {
     client_id: "mcp_abc123",
     client_name: "Test MCP Client",
-    redirect_uris: ["http://localhost:8765/cb"],
-    scopes: ["agent"],
+    redirect_uris: accountEligible
+      ? ["http://localhost:8765/cb"]
+      : ["https://app.example.com/cb"],
+    scopes: accountEligible ? ["agent", "account"] : ["agent"],
     client_id_issued_at: 1700000000,
+    account_eligible: accountEligible,
   };
   const agents = opts.agents ?? [];
   mockFetch.mockImplementation((url: string) => {
@@ -311,5 +316,61 @@ describe("ConsentPage", () => {
     const resource = form.querySelector('input[name="resource"]') as HTMLInputElement;
     expect(resource).toBeTruthy();
     expect(resource.value).toBe("https://api.e2a.dev");
+  });
+
+  test("scope picker offers Agent (default) + Account; Account selectable on a loopback (account_eligible) client", async () => {
+    __setSearchParams(VALID_QS);
+    mockClientAndAgents({ agents: [], accountEligible: true });
+    render(<ConsentPage />);
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /Authorize Test MCP Client/i })).toBeInTheDocument();
+    });
+    const agentRadio = screen.getByRole("radio", { name: /act as one inbox/i }) as HTMLInputElement;
+    const accountRadio = screen.getByRole("radio", { name: /full workspace admin/i }) as HTMLInputElement;
+    expect(agentRadio.checked).toBe(true); // least-privilege default
+    expect(agentRadio.name).toBe("scope_choice");
+    expect(accountRadio.disabled).toBe(false);
+    expect(accountRadio.value).toBe("account");
+    expect(accountRadio.name).toBe("scope_choice");
+  });
+
+  test("Account scope is disabled (with a loopback reason) when account_eligible is false", async () => {
+    __setSearchParams(VALID_QS);
+    mockClientAndAgents({
+      agents: [],
+      // matching loopback redirect to avoid the mismatch banner; the server
+      // still reports the client ineligible (the field is what the UI honors).
+      clientBody: {
+        client_id: "mcp_abc123",
+        client_name: "Test MCP Client",
+        redirect_uris: ["http://localhost:8765/cb"],
+        scopes: ["agent"],
+        client_id_issued_at: 1700000000,
+        account_eligible: false,
+      },
+    });
+    render(<ConsentPage />);
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /Authorize Test MCP Client/i })).toBeInTheDocument();
+    });
+    const accountRadio = screen.getByRole("radio", { name: /full workspace admin/i }) as HTMLInputElement;
+    expect(accountRadio.disabled).toBe(true);
+    expect(screen.getByText(/only offered to local tools/i)).toBeInTheDocument();
+  });
+
+  test("selecting Account hides the inbox picker (scope_choice=account is what submits)", async () => {
+    __setSearchParams(VALID_QS);
+    mockClientAndAgents({ agents: [], accountEligible: true });
+    render(<ConsentPage />);
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /Authorize Test MCP Client/i })).toBeInTheDocument();
+    });
+    // Agent default → inbox picker present.
+    expect(screen.getByText(/Choose an inbox/i)).toBeInTheDocument();
+    const accountRadio = screen.getByRole("radio", { name: /full workspace admin/i }) as HTMLInputElement;
+    await userEvent.click(accountRadio);
+    expect(accountRadio.checked).toBe(true);
+    // Account → inbox picker gone (account isn't inbox-bound).
+    expect(screen.queryByText(/Choose an inbox/i)).not.toBeInTheDocument();
   });
 });
