@@ -229,6 +229,11 @@ describe("Domains page — outbound sending records", () => {
     expect(
       screen.getByText("feedback-smtp.us-east-1.amazonses.com"),
     ).toBeInTheDocument();
+    // The MX priority is split into its own field — the backend's combined
+    // "10 feedback-smtp…" value is never shown as one string.
+    expect(
+      screen.queryByText("10 feedback-smtp.us-east-1.amazonses.com"),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByText("v=spf1 include:amazonses.com ~all"),
     ).toBeInTheDocument();
@@ -269,6 +274,22 @@ describe("Domains page — outbound sending records", () => {
     await userEvent.click(screen.getByText("View DNS records"));
     expect(screen.getByText("Failed")).toBeInTheDocument();
     expect(screen.getByText("MAIL FROM MX not found")).toBeInTheDocument();
+  });
+
+  it("degrades to the neutral 'Verifying…' chip for an unknown sending_status", async () => {
+    // Open set — a future status the UI doesn't know must not read "Not set up"
+    // next to a populated record list.
+    mockDomainsAndAgents(
+      [{ ...sendingDomain, sending_status: "provisioning" }],
+      [],
+    );
+    render(<DomainsPage />);
+    await waitFor(() => {
+      expect(screen.getByText("sending.example.com")).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText("View DNS records"));
+    expect(screen.getByText("Outbound sending")).toBeInTheDocument();
+    expect(screen.getByText("Verifying…")).toBeInTheDocument();
   });
 
   it("renders no sending section when the feature is off (no sending records)", async () => {

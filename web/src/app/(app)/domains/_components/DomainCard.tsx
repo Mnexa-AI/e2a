@@ -59,7 +59,6 @@ function SendingStatusChip({
         Sending enabled
       </Chip>
     );
-  if (status === "pending") return <Chip tone="info">Verifying…</Chip>;
   if (status === "failed")
     return (
       <Chip tone="danger">
@@ -67,14 +66,19 @@ function SendingStatusChip({
         Failed
       </Chip>
     );
-  return <Chip tone="neutral">Not set up</Chip>;
+  // pending OR any unknown/future value: the chip only renders when records
+  // exist (provisioned), so a neutral in-progress label reads truer than
+  // "Not set up". "verified"/"failed" are handled above.
+  return <Chip tone="info">Verifying…</Chip>;
 }
 
 // splitMX parses the backend's combined "10 host.example.com" MX value into the
-// (priority, host) pair most DNS providers ask for as separate fields.
-function splitMX(value: string): { priority: string; host: string } {
+// (priority, host) pair most DNS providers ask for as separate fields. Returns
+// null if the value isn't "<priority> <host>" so the caller can fall back to a
+// single Content field rather than fabricating a priority.
+function splitMX(value: string): { priority: string; host: string } | null {
   const m = value.match(/^\s*(\d+)\s+(.+?)\.?\s*$/);
-  return m ? { priority: m[1], host: m[2] } : { priority: "10", host: value };
+  return m ? { priority: m[1], host: m[2] } : null;
 }
 
 export function DomainCard({
