@@ -53,6 +53,26 @@ const verifiedDomain = {
   verified_at: "2026-01-15T00:00:00Z",
 };
 
+// A verified domain whose SES sending identity has been provisioned (the
+// feature is on). Carries the 2 custom MAIL FROM records the backend serves.
+const sendingDomain = {
+  ...verifiedDomain,
+  domain: "sending.example.com",
+  sending_status: "pending",
+  sending_dns_records: [
+    {
+      type: "MX",
+      name: "bounce.sending.example.com",
+      value: "10 feedback-smtp.us-east-1.amazonses.com",
+    },
+    {
+      type: "TXT",
+      name: "bounce.sending.example.com",
+      value: "v=spf1 include:amazonses.com ~all",
+    },
+  ],
+};
+
 const sampleAgent = {
   id: "ag_123",
   domain: "verified.example.com",
@@ -188,6 +208,77 @@ describe("Domains page — with domains", () => {
     expect(
       screen.getByText(/Prove domain ownership/),
     ).toBeInTheDocument();
+  });
+});
+
+describe("Domains page — outbound sending records", () => {
+  it("renders the MAIL FROM records + a 'Verifying…' chip for a pending sending identity", async () => {
+    mockDomainsAndAgents([sendingDomain], []);
+    render(<DomainsPage />);
+    await waitFor(() => {
+      expect(screen.getByText("sending.example.com")).toBeInTheDocument();
+    });
+
+    // Hidden until the DNS section is expanded.
+    expect(screen.queryByText("Outbound sending")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText("View DNS records"));
+
+    expect(screen.getByText("Outbound sending")).toBeInTheDocument();
+    expect(screen.getByText("Verifying…")).toBeInTheDocument();
+    // The 2 MAIL FROM records: MX host (priority split out) + SPF TXT value.
+    expect(
+      screen.getByText("feedback-smtp.us-east-1.amazonses.com"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("v=spf1 include:amazonses.com ~all"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Return path for bounces (MAIL FROM)"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Authorize sending (SPF)")).toBeInTheDocument();
+  });
+
+  it("shows 'Sending enabled' when the sending identity is verified", async () => {
+    mockDomainsAndAgents(
+      [{ ...sendingDomain, sending_status: "verified" }],
+      [],
+    );
+    render(<DomainsPage />);
+    await waitFor(() => {
+      expect(screen.getByText("sending.example.com")).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText("View DNS records"));
+    expect(screen.getByText("Sending enabled")).toBeInTheDocument();
+  });
+
+  it("surfaces sending_error when verification failed", async () => {
+    mockDomainsAndAgents(
+      [
+        {
+          ...sendingDomain,
+          sending_status: "failed",
+          sending_error: "MAIL FROM MX not found",
+        },
+      ],
+      [],
+    );
+    render(<DomainsPage />);
+    await waitFor(() => {
+      expect(screen.getByText("sending.example.com")).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText("View DNS records"));
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+    expect(screen.getByText("MAIL FROM MX not found")).toBeInTheDocument();
+  });
+
+  it("renders no sending section when the feature is off (no sending records)", async () => {
+    mockDomainsAndAgents([verifiedDomain], []);
+    render(<DomainsPage />);
+    await waitFor(() => {
+      expect(screen.getByText("verified.example.com")).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText("View DNS records"));
+    expect(screen.queryByText("Outbound sending")).not.toBeInTheDocument();
   });
 });
 

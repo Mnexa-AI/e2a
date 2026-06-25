@@ -10,6 +10,7 @@ import {
 } from "../../../components/onboarding/api";
 import type {
   DomainInfo,
+  DomainSendingStatus,
   VerifyDomainResponse,
 } from "../../../components/onboarding/types";
 import { track } from "../../../components/onboarding/analytics";
@@ -40,6 +41,40 @@ function RecordStatusChip({
       Missing
     </Chip>
   );
+}
+
+// SendingStatusChip reflects the async SES sending-identity verification for
+// the WHOLE domain (all-or-nothing: DKIM + custom MAIL FROM together), not a
+// single record — so it lives in the section header, not per-row. Mirrors the
+// `sending_status` column. Unknown values fall through to neutral (open set).
+function SendingStatusChip({
+  status,
+}: {
+  status: DomainSendingStatus | undefined;
+}) {
+  if (status === "verified")
+    return (
+      <Chip tone="success">
+        <Dot tone="success" />
+        Sending enabled
+      </Chip>
+    );
+  if (status === "pending") return <Chip tone="info">Verifying…</Chip>;
+  if (status === "failed")
+    return (
+      <Chip tone="danger">
+        <Dot tone="danger" />
+        Failed
+      </Chip>
+    );
+  return <Chip tone="neutral">Not set up</Chip>;
+}
+
+// splitMX parses the backend's combined "10 host.example.com" MX value into the
+// (priority, host) pair most DNS providers ask for as separate fields.
+function splitMX(value: string): { priority: string; host: string } {
+  const m = value.match(/^\s*(\d+)\s+(.+?)\.?\s*$/);
+  return m ? { priority: m[1], host: m[2] } : { priority: "10", host: value };
 }
 
 export function DomainCard({
@@ -377,6 +412,100 @@ export function DomainCard({
                   { label: "Content", value: domain.dns_records.dkim.value },
                 ]}
               />
+            </div>
+          )}
+
+          {/* Outbound sending (decision 4 / Slice 4). Rendered only when the
+              backend has provisioned a sending identity (sending_dns_records
+              present) — so when the feature is gated off (ses_region unset),
+              this whole block is absent and the card is unchanged. These are
+              the custom MAIL FROM subdomain's MX + SPF; the DKIM record above
+              is reused via BYODKIM. SES verifies them as a unit, surfaced by
+              the single status chip (no per-record probe). */}
+          {(domain.sending_dns_records?.length ?? 0) > 0 && (
+            <div
+              className="space-y-3 pt-4"
+              style={{ borderTop: "1px solid var(--border)" }}
+            >
+              <div className="flex items-center gap-2 flex-wrap">
+                <p
+                  className="font-mono text-[10px] uppercase font-semibold"
+                  style={{
+                    color: "var(--fg-subtle)",
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  Outbound sending
+                </p>
+                <SendingStatusChip status={domain.sending_status} />
+              </div>
+              <p className="text-[12px]" style={{ color: "var(--fg-muted)" }}>
+                Publish these so mail sends as{" "}
+                <code className="font-mono">@{domain.domain}</code> with no
+                “via e2a”. The DKIM record above is also required.
+              </p>
+
+              {domain.sending_status === "failed" && domain.sending_error && (
+                <div
+                  className="p-3 text-[12px]"
+                  style={{
+                    background: "var(--danger-bg)",
+                    color: "var(--danger-strong)",
+                    border: "1px solid var(--danger-bg)",
+                    borderRadius: "var(--r-md)",
+                  }}
+                >
+                  {domain.sending_error}
+                </div>
+              )}
+
+              {domain.sending_dns_records!.map((rec, i) => {
+                const isMX = rec.type.toUpperCase() === "MX";
+                const mx = isMX ? splitMX(rec.value) : null;
+                return (
+                  <div key={`${rec.type}-${rec.name}-${i}`} className="space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span
+                        className="font-mono text-[11px] px-2 py-0.5"
+                        style={{
+                          background: "var(--bg-elev)",
+                          border: "1px solid var(--border-sub)",
+                          borderRadius: "var(--r-sm)",
+                          color: "var(--fg)",
+                          minWidth: 36,
+                          textAlign: "center",
+                        }}
+                      >
+                        {rec.type}
+                      </span>
+                      <span
+                        className="text-[12px]"
+                        style={{ color: "var(--fg-muted)" }}
+                      >
+                        {isMX
+                          ? "Return path for bounces (MAIL FROM)"
+                          : "Authorize sending (SPF)"}
+                      </span>
+                    </div>
+                    <DNSRecord
+                      type=""
+                      label=""
+                      fields={
+                        mx
+                          ? [
+                              { label: "Name", value: rec.name },
+                              { label: "Mail server", value: mx.host },
+                              { label: "Priority", value: mx.priority },
+                            ]
+                          : [
+                              { label: "Name", value: rec.name },
+                              { label: "Content", value: rec.value },
+                            ]
+                      }
+                    />
+                  </div>
+                );
+              })}
             </div>
           )}
 

@@ -20,6 +20,24 @@ export type ChecklistStep =
   | "domain_verified"
   | "agent_created";
 
+/** Async SES sending-identity state (decision 4 / Slice 4), independent of
+ *  inbound `verified`. Drives the "send as your own address" onboarding:
+ *  none → not provisioned (feature off, or pre-verify); pending → registered,
+ *  awaiting SES; verified → own-address From is live (no "via e2a"); failed →
+ *  verification failed or timed out (see `sending_error`). Open set — tolerate
+ *  unknown values. */
+export type DomainSendingStatus = "none" | "pending" | "verified" | "failed";
+
+/** A DNS record the customer publishes to enable own-domain sending. Mirrors
+ *  the backend `sending_dns_records[]` (senderidentity.DNSRecord): the custom
+ *  MAIL FROM subdomain's MX + SPF. The DKIM record is the existing per-domain
+ *  one, reused via BYODKIM, so it is NOT repeated here. */
+export type SendingDNSRecord = {
+  type: string; // "MX" | "TXT"
+  name: string;
+  value: string;
+};
+
 /** Domain as returned by GET /v1/domains. */
 export type DomainInfo = {
   domain: string;
@@ -38,6 +56,13 @@ export type DomainInfo = {
   // (success or failure); agent_count is computed at read time.
   last_checked_at?: string | null;
   agent_count?: number;
+  // Sender identity (decision 4 / Slice 4), independent of `verified`.
+  // Absent/none + empty sending_dns_records when the feature is off
+  // (ses_region unset) — the UI renders no sending section in that case.
+  sending_status?: DomainSendingStatus;
+  sending_error?: string;
+  sending_dns_records?: SendingDNSRecord[];
+  sending_last_checked_at?: string | null;
 };
 
 /** Response from POST /v1/domains/{domain}/verify — per-record
