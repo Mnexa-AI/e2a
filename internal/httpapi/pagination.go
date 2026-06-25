@@ -1,9 +1,12 @@
 package httpapi
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strings"
 )
 
 // Page is the one list-response shape across every v1 collection
@@ -46,26 +49,71 @@ type PageParams struct {
 var ErrInvalidCursor = errors.New("invalid pagination cursor")
 
 // EncodeCursor serializes an arbitrary cursor payload (the position +
-// filter snapshot a resource needs to resume) into the opaque, URL-safe
-// string clients echo back. The payload shape is private to each resource;
-// clients must treat the cursor as opaque.
-func EncodeCursor(payload any) (string, error) {
+// filter snapshot a resource needs to resume) into the opaque, URL-safe,
+// tamper-evident string clients echo back.
+//
+// The cursor is HMAC-signed (issue #144, finding M2): a client can no
+// longer decode the base64, edit a field, and re-encode it — any such edit
+// breaks the signature and DecodeCursor rejects it. The cursor remains
+// opaque to clients; the payload shape stays private to each resource.
+//
+// Format:
+//
+//	base64url(json_payload) + "." + base64url(hmac_sha256(secret, base64url(json_payload)))
+//
+// The MAC is computed over the LITERAL emitted base64url(json) segment (not
+// a re-marshaled struct) so encode and verify are byte-canonical and cannot
+// drift. secret is the deployment HMAC secret (config.Signing.HMACSecret) —
+// the same key approvaltoken and the X-E2A-Auth-* email headers already use,
+// so there is no new key to manage.
+func EncodeCursor(secret string, payload any) (string, error) {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
 	}
-	return base64.RawURLEncoding.EncodeToString(raw), nil
+	encoded := base64.RawURLEncoding.EncodeToString(raw)
+	sig := cursorMAC([]byte(secret), []byte(encoded))
+	return encoded + "." + base64.RawURLEncoding.EncodeToString(sig), nil
 }
 
-// DecodeCursor reverses EncodeCursor into dst. A malformed cursor yields
-// ErrInvalidCursor rather than a generic JSON error so callers branch on a
-// stable sentinel. An empty cursor is treated as "start from the
-// beginning" — dst is left untouched and nil is returned.
-func DecodeCursor(cursor string, dst any) error {
+// DecodeCursor verifies a cursor's HMAC and reverses it into dst. A
+// malformed, tampered, or wrong-secret cursor yields ErrInvalidCursor
+// rather than a generic error so callers branch on a stable sentinel. An
+// empty cursor is treated as "start from the beginning" — dst is left
+// untouched and nil is returned.
+//
+// secrets is tried in order and the signature is compared in constant time
+// (hmac.Equal, mirroring approvaltoken.Verify). Accepting a slice supports
+// HMAC-secret rotation: a cursor signed under an old secret keeps verifying
+// until that secret is retired. Today callers pass a single-element slice.
+//
+// Old unsigned cursors (plain base64url(json) with no "." signature segment,
+// as emitted before issue #144 M2) no longer verify and are hard-rejected
+// with ErrInvalidCursor. Cursors are ephemeral, so a client mid-pagination
+// simply restarts the query.
+func DecodeCursor(secrets []string, cursor string, dst any) error {
 	if cursor == "" {
 		return nil
 	}
-	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	parts := strings.SplitN(cursor, ".", 2)
+	if len(parts) != 2 {
+		return ErrInvalidCursor
+	}
+	providedSig, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ErrInvalidCursor
+	}
+	matched := false
+	for _, secret := range secrets {
+		if hmac.Equal(providedSig, cursorMAC([]byte(secret), []byte(parts[0]))) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return ErrInvalidCursor
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
 		return ErrInvalidCursor
 	}
@@ -73,4 +121,12 @@ func DecodeCursor(cursor string, dst any) error {
 		return ErrInvalidCursor
 	}
 	return nil
+}
+
+// cursorMAC computes HMAC-SHA256 of payload under secret. Mirrors
+// approvaltoken.signMAC so the two signing paths stay convention-identical.
+func cursorMAC(secret, payload []byte) []byte {
+	mac := hmac.New(sha256.New, secret)
+	mac.Write(payload)
+	return mac.Sum(nil)
 }

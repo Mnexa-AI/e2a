@@ -117,7 +117,7 @@ func (s *Server) handleListSuppressions(ctx context.Context, in *listSuppression
 	var afterAddress string
 	if in.Cursor != "" {
 		var cur suppressionsCursor
-		if err := DecodeCursor(in.Cursor, &cur); err != nil {
+		if err := DecodeCursor([]string{s.deps.CursorSecret}, in.Cursor, &cur); err != nil {
 			return nil, NewError(http.StatusBadRequest, "invalid_cursor", "invalid pagination cursor")
 		}
 		afterCreatedAt = cur.CreatedAt
@@ -139,7 +139,7 @@ func (s *Server) handleListSuppressions(ctx context.Context, in *listSuppression
 	var nextCursor string
 	if hasMore {
 		last := list[len(list)-1]
-		nextCursor, err = EncodeCursor(suppressionsCursor{CreatedAt: last.CreatedAt, Address: last.Address})
+		nextCursor, err = EncodeCursor(s.deps.CursorSecret, suppressionsCursor{CreatedAt: last.CreatedAt, Address: last.Address})
 		if err != nil {
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to build pagination cursor")
 		}

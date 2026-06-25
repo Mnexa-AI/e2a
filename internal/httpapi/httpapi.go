@@ -119,6 +119,15 @@ type Deps struct {
 	// domain must publish (config smtp.domain).
 	SMTPDomain string
 
+	// CursorSecret is the deployment HMAC secret (config.Signing.HMACSecret)
+	// used to sign/verify pagination cursors so they are tamper-evident
+	// (issue #144 M2). The same key approvaltoken and the X-E2A-Auth-* email
+	// headers use — no new key. Handlers pass it to EncodeCursor and wrap it
+	// in a 1-element slice for DecodeCursor (whose verify loop supports N for
+	// a future secret rotation). Empty in minimal test setups, which is fine:
+	// encode and verify stay consistent under the same (empty) key.
+	CursorSecret string
+
 	// Idempotency is the retry-safety store for unsafe writes (send/reply/
 	// forward/redeliver). Optional — nil disables the Idempotency-Key path.
 	Idempotency IdemStore

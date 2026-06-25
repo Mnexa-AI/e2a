@@ -98,6 +98,7 @@ func BuildDeps(p Params) httpapi.Deps {
 		DeleteDomain:        deleteDomainFunc(p),
 		HasAgentsOnDomain:   p.Store.HasAgentsOnDomain,
 		SMTPDomain:          p.SMTPDomain,
+		CursorSecret:        p.SigningSecret,
 		Idempotency:         p.Idempotency,
 		DeliverOutbound:     p.API.DeliverOutbound,
 		SendTest:            p.API.SendTestCore,
