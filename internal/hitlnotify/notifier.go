@@ -224,49 +224,71 @@ func renderText(msg *identity.Message, agent *identity.AgentIdentity, approveURL
 	return b.String()
 }
 
+// renderHTML builds the approval email in the dashboard's "Loft" palette so the
+// notification reads as the same product as the web app: a warm cream shell, a
+// white card, the Geist UI type stack, ember links, and the web app's semantic
+// success/danger button shades. Colors are hardcoded (no CSS vars or @media) and
+// the layout is table-based so it survives mail clients. Token values mirror
+// web/src/app/globals.css; keep them in sync if the brand palette moves.
 func renderHTML(msg *identity.Message, agent *identity.AgentIdentity, approveURL, rejectURL, dashboardURL string) string {
+	const (
+		fontStack = `"Geist",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif`
+		bg        = "#FAF7F2" // --bg (cream shell)
+		panel     = "#FFFFFF" // --bg-panel (card)
+		border    = "#E5DED3" // --border
+		fg        = "#1A1714" // --fg-strong
+		muted     = "#6E665B" // --fg-muted
+		subtle    = "#9A9082" // --fg-subtle
+		link      = "#A84218" // --accent-strong (ember)
+		success   = "#0F7A4D" // --success (approve)
+		danger    = "#CC2E2E" // --danger (reject)
+		onAccent  = "#FFFFFF" // --accent-fg
+	)
 	var b strings.Builder
-	b.WriteString(`<!doctype html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#111;max-width:560px;margin:0 auto;padding:24px;line-height:1.5">`)
-	fmt.Fprintf(&b, `<p>Your agent <strong>%s</strong> wants to send a message.</p>`,
+	fmt.Fprintf(&b, `<!doctype html><html><body style="margin:0;padding:24px 16px;background:%s;font-family:%s;color:%s;line-height:1.5">`, bg, fontStack, fg)
+	fmt.Fprintf(&b, `<div style="max-width:560px;margin:0 auto;background:%s;border:1px solid %s;border-radius:10px;padding:28px">`, panel, border)
+
+	fmt.Fprintf(&b, `<p style="margin:0 0 4px;font-size:15px">Your agent <strong>%s</strong> wants to send a message.</p>`,
 		html.EscapeString(agent.EmailAddress()))
 
-	b.WriteString(`<table style="font-size:14px;color:#333;border-collapse:collapse;margin:16px 0" cellpadding="4">`)
+	fmt.Fprintf(&b, `<table style="font-size:14px;color:%s;border-collapse:collapse;margin:16px 0" cellpadding="4">`, fg)
 	if len(msg.ToRecipients) > 0 {
-		fmt.Fprintf(&b, `<tr><td style="color:#888">To</td><td>%s</td></tr>`,
-			html.EscapeString(strings.Join(msg.ToRecipients, ", ")))
+		fmt.Fprintf(&b, `<tr><td style="color:%s">To</td><td>%s</td></tr>`,
+			subtle, html.EscapeString(strings.Join(msg.ToRecipients, ", ")))
 	}
 	if len(msg.CC) > 0 {
-		fmt.Fprintf(&b, `<tr><td style="color:#888">Cc</td><td>%s</td></tr>`,
-			html.EscapeString(strings.Join(msg.CC, ", ")))
+		fmt.Fprintf(&b, `<tr><td style="color:%s">Cc</td><td>%s</td></tr>`,
+			subtle, html.EscapeString(strings.Join(msg.CC, ", ")))
 	}
 	if len(msg.BCC) > 0 {
-		fmt.Fprintf(&b, `<tr><td style="color:#888">Bcc</td><td>%s</td></tr>`,
-			html.EscapeString(strings.Join(msg.BCC, ", ")))
+		fmt.Fprintf(&b, `<tr><td style="color:%s">Bcc</td><td>%s</td></tr>`,
+			subtle, html.EscapeString(strings.Join(msg.BCC, ", ")))
 	}
-	fmt.Fprintf(&b, `<tr><td style="color:#888">Subject</td><td><strong>%s</strong></td></tr>`,
-		html.EscapeString(msg.Subject))
+	fmt.Fprintf(&b, `<tr><td style="color:%s">Subject</td><td><strong>%s</strong></td></tr>`,
+		subtle, html.EscapeString(msg.Subject))
 	if msg.ApprovalExpiresAt != nil {
-		fmt.Fprintf(&b, `<tr><td style="color:#888">Expires</td><td>%s</td></tr>`,
-			html.EscapeString(msg.ApprovalExpiresAt.UTC().Format(time.RFC1123)))
+		fmt.Fprintf(&b, `<tr><td style="color:%s">Expires</td><td>%s</td></tr>`,
+			subtle, html.EscapeString(msg.ApprovalExpiresAt.UTC().Format(time.RFC1123)))
 	}
 	b.WriteString(`</table>`)
 
-	b.WriteString(`<p style="font-size:13px;color:#555">The message body is not included in this email. Click a button below to review it before deciding.</p>`)
+	fmt.Fprintf(&b, `<p style="font-size:13px;color:%s">The message body is not included in this email. Click a button below to review it before deciding.</p>`, muted)
 
 	// Action buttons point at the token-gated confirm pages (GET). The
 	// actual approve/reject side effect only fires when the reviewer
 	// submits the form on that page — this is what keeps mail-client URL
 	// scanners from approving on the reviewer's behalf.
 	fmt.Fprintf(&b,
-		`<p style="margin-top:16px"><a href="%s" style="background:#0a7b3f;color:#fff;padding:10px 18px;text-decoration:none;border-radius:6px;margin-right:12px">Review &amp; approve</a>`+
-			`<a href="%s" style="background:#b53030;color:#fff;padding:10px 18px;text-decoration:none;border-radius:6px">Review &amp; reject</a></p>`,
-		html.EscapeString(approveURL), html.EscapeString(rejectURL))
+		`<p style="margin-top:16px"><a href="%s" style="background:%s;color:%s;font-weight:500;padding:10px 18px;text-decoration:none;border-radius:6px;margin-right:12px">Review &amp; approve</a>`+
+			`<a href="%s" style="background:%s;color:%s;font-weight:500;padding:10px 18px;text-decoration:none;border-radius:6px">Review &amp; reject</a></p>`,
+		html.EscapeString(approveURL), success, onAccent,
+		html.EscapeString(rejectURL), danger, onAccent)
 
 	fmt.Fprintf(&b,
-		`<p style="margin-top:16px;font-size:13px;color:#555">Need to edit before approving? <a href="%s">Review in the dashboard</a>.</p>`,
-		html.EscapeString(dashboardURL))
+		`<p style="margin-top:16px;font-size:13px;color:%s">Need to edit before approving? <a href="%s" style="color:%s">Review in the dashboard</a>.</p>`,
+		muted, html.EscapeString(dashboardURL), link)
 
-	b.WriteString(`<p style="margin-top:24px;font-size:12px;color:#888">If no action is taken before the expiration time, the message will be finalized according to the agent's configured auto-expiration policy.</p>`)
-	b.WriteString(`</body></html>`)
+	fmt.Fprintf(&b, `<p style="margin-top:24px;font-size:12px;color:%s">If no action is taken before the expiration time, the message will be finalized according to the agent's configured auto-expiration policy.</p>`, subtle)
+	b.WriteString(`</div></body></html>`)
 	return b.String()
 }
