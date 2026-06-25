@@ -667,7 +667,7 @@ describe("HTTP MCP server", () => {
     expect(disc.status).toBe(200);
     const meta = await disc.json();
     expect(meta.resource).toBe("http://localhost:8765");
-    expect(meta.scopes_supported).toEqual(["agent"]);
+    expect(meta.scopes_supported).toEqual(["agent", "account"]);
 
     // 401 on /mcp without bearer: WWW-Authenticate's resource_metadata
     // URL must use publicUrl, not "https://127.0.0.1:port".
