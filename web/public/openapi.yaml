@@ -546,22 +546,8 @@ components:
         enabled:
           type: boolean
         events:
-          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
+          description: "The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."
           items:
-            enum:
-              - email.received
-              - email.sent
-              - email.review_approved
-              - email.review_rejected
-              - domain.sending_verified
-              - domain.sending_failed
-              - email.delivered
-              - email.bounced
-              - email.complained
-              - domain.suppression_added
-              - email.flagged
-              - email.blocked
-              - email.pending_review
             type: string
           type: array
         filters:
@@ -765,11 +751,7 @@ components:
           format: date-time
           type: string
         sending_status:
-          enum:
-            - none
-            - pending
-            - verified
-            - failed
+          description: "Async SES sending-identity state. Open set; tolerate unknown values. Known values: none, pending, verified, failed."
           type: string
         verification_token:
           type: string
@@ -832,26 +814,10 @@ components:
           format: int64
           type: integer
         status:
-          enum:
-            - pending
-            - processed
-            - no_match
+          description: "Event processing state. Open set; tolerate unknown values. Known values: pending, processed, no_match."
           type: string
         type:
-          enum:
-            - email.received
-            - email.sent
-            - email.review_approved
-            - email.review_rejected
-            - domain.sending_verified
-            - domain.sending_failed
-            - email.delivered
-            - email.bounced
-            - email.complained
-            - domain.suppression_added
-            - email.flagged
-            - email.blocked
-            - email.pending_review
+          description: "Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added."
           type: string
       required:
         - id
@@ -1098,14 +1064,7 @@ components:
         delivery_detail:
           type: string
         delivery_status:
-          enum:
-            - queued
-            - sent
-            - delivered
-            - bounced
-            - complained
-            - deferred
-            - failed
+          description: "Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: queued, sent, delivered, bounced, complained, deferred, failed."
           type: string
         direction:
           enum:
@@ -1133,17 +1092,10 @@ components:
             type: string
           type: array
         review_status:
-          enum:
-            - pending_review
-            - sent
-            - review_rejected
-            - review_expired_approved
-            - review_expired_rejected
+          description: "Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected."
           type: string
         sent_as:
-          enum:
-            - own_address
-            - relay
+          description: "From identity used at relay accept time (outbound only). Open set; tolerate unknown values. Known values: own_address, relay."
           type: string
         size_bytes:
           format: int64
@@ -1196,14 +1148,7 @@ components:
         delivery_detail:
           type: string
         delivery_status:
-          enum:
-            - queued
-            - sent
-            - delivered
-            - bounced
-            - complained
-            - deferred
-            - failed
+          description: "Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: queued, sent, delivered, bounced, complained, deferred, failed."
           type: string
         direction:
           enum:
@@ -1236,17 +1181,10 @@ components:
             type: string
           type: array
         review_status:
-          enum:
-            - pending_review
-            - sent
-            - review_rejected
-            - review_expired_approved
-            - review_expired_rejected
+          description: "Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected."
           type: string
         sent_as:
-          enum:
-            - own_address
-            - relay
+          description: "From identity used at relay accept time (outbound only). Open set; tolerate unknown values. Known values: own_address, relay."
           type: string
         size_bytes:
           format: int64
@@ -1580,9 +1518,7 @@ components:
         reason:
           type: string
         status:
-          enum:
-            - pending
-            - skipped
+          description: "Open set; tolerate unknown values. Known values: pending (replay scheduled), skipped (could not enqueue — see reason)."
           type: string
         webhook_id:
           type: string
@@ -1608,9 +1544,7 @@ components:
         event_id:
           type: string
         status:
-          enum:
-            - pending
-            - scheduled
+          description: "Open set; tolerate unknown values. Known values: pending (single-webhook replay), scheduled (bulk fan-out)."
           type: string
         webhook_id:
           type: string
@@ -1710,8 +1644,7 @@ components:
         id:
           type: string
         review_status:
-          enum:
-            - pending_review
+          description: Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items).
           type: string
         subject:
           type: string
@@ -1784,22 +1717,15 @@ components:
         message_id:
           type: string
         method:
-          enum:
-            - smtp
-            - loopback
+          description: "Send transport. Open set; tolerate unknown values. Known values: smtp, loopback."
           type: string
         provider_message_id:
           type: string
         sent_as:
-          enum:
-            - own_address
-            - relay
+          description: "From identity used. Open set; tolerate unknown values. Known values: own_address, relay."
           type: string
         status:
-          enum:
-            - sent
-            - pending_review
-            - review_approved
+          description: "Outcome. Open set; tolerate unknown values. Known values: sent, pending_review, review_approved."
           type: string
       required:
         - status
@@ -2075,20 +2001,7 @@ components:
           format: date-time
           type: string
         event_type:
-          enum:
-            - email.received
-            - email.sent
-            - email.review_approved
-            - email.review_rejected
-            - domain.sending_verified
-            - domain.sending_failed
-            - email.delivered
-            - email.bounced
-            - email.complained
-            - domain.suppression_added
-            - email.flagged
-            - email.blocked
-            - email.pending_review
+          description: "The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.delivered, …, domain.*)."
           type: string
         id:
           type: string
@@ -2104,10 +2017,7 @@ components:
           format: date-time
           type: string
         status:
-          enum:
-            - pending
-            - delivered
-            - failed
+          description: "Delivery state. Open set; tolerate unknown values. Known values: pending, delivered, failed."
           type: string
       required:
         - id
@@ -2147,22 +2057,8 @@ components:
         enabled:
           type: boolean
         events:
-          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
+          description: "The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."
           items:
-            enum:
-              - email.received
-              - email.sent
-              - email.review_approved
-              - email.review_rejected
-              - domain.sending_verified
-              - domain.sending_failed
-              - email.delivered
-              - email.bounced
-              - email.complained
-              - domain.suppression_added
-              - email.flagged
-              - email.blocked
-              - email.pending_review
             type: string
           type: array
         filters:
