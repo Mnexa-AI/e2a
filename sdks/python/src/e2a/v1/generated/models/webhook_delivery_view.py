@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictInt, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
@@ -29,13 +29,13 @@ class WebhookDeliveryView(BaseModel):
     """ # noqa: E501
     attempts: StrictInt
     created_at: datetime
-    event_type: StrictStr
+    event_type: StrictStr = Field(description="The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.delivered, …, domain.*).")
     id: StrictStr
     last_attempt_at: Optional[datetime] = None
     last_error: Optional[StrictStr] = None
     last_status_code: Optional[StrictInt] = None
     next_retry_at: datetime
-    status: StrictStr
+    status: StrictStr = Field(description="Delivery state. Open set; tolerate unknown values. Known values: pending, delivered, failed.")
     __properties: ClassVar[List[str]] = ["attempts", "created_at", "event_type", "id", "last_attempt_at", "last_error", "last_status_code", "next_retry_at", "status"]
 
     model_config = ConfigDict(

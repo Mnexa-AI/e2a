@@ -24,7 +24,10 @@ export class ReviewView {
     'flagged'?: boolean;
     '_from': string;
     'id': string;
-    'reviewStatus': ReviewViewReviewStatusEnum;
+    /**
+    * Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items).
+    */
+    'reviewStatus': string;
     'subject': string;
     'to': Array<string>;
 
@@ -84,7 +87,7 @@ export class ReviewView {
         {
             "name": "reviewStatus",
             "baseName": "review_status",
-            "type": "ReviewViewReviewStatusEnum",
+            "type": "string",
             "format": ""
         },
         {
@@ -111,8 +114,5 @@ export class ReviewView {
 export enum ReviewViewDirectionEnum {
     Inbound = 'inbound',
     Outbound = 'outbound'
-}
-export enum ReviewViewReviewStatusEnum {
-    PendingReview = 'pending_review'
 }
 

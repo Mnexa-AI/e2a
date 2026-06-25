@@ -99,25 +99,25 @@ import { CreateAPIKeyRequest   , CreateAPIKeyRequestScopeEnum   } from '../model
 import { CreateAPIKeyResponse        , CreateAPIKeyResponseScopeEnum   } from '../models/CreateAPIKeyResponse.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
 import { CreateWebhookRequest , CreateWebhookRequestEventsEnum     } from '../models/CreateWebhookRequest.js';
-import { CreateWebhookResponse    , CreateWebhookResponseEventsEnum        } from '../models/CreateWebhookResponse.js';
+import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
 import { DNSRecordView } from '../models/DNSRecordView.js';
 import { DNSRecordsView } from '../models/DNSRecordsView.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
 import { DeliveryStatusJSON } from '../models/DeliveryStatusJSON.js';
 import { DeploymentInfoView } from '../models/DeploymentInfoView.js';
 import { Domain } from '../models/Domain.js';
-import { DomainView        , DomainViewSendingStatusEnum      } from '../models/DomainView.js';
+import { DomainView } from '../models/DomainView.js';
 import { ErrorBody } from '../models/ErrorBody.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
-import { EventJSON        , EventJSONStatusEnum  , EventJSONTypeEnum   } from '../models/EventJSON.js';
+import { EventJSON } from '../models/EventJSON.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
 import { LimitsCapsView } from '../models/LimitsCapsView.js';
 import { LimitsUsageView } from '../models/LimitsUsageView.js';
 import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
-import { MessageSummaryView     , MessageSummaryViewDeliveryStatusEnum  , MessageSummaryViewDirectionEnum          , MessageSummaryViewReviewStatusEnum  , MessageSummaryViewSentAsEnum        } from '../models/MessageSummaryView.js';
-import { MessageView        , MessageViewDeliveryStatusEnum  , MessageViewDirectionEnum            , MessageViewReviewStatusEnum  , MessageViewSentAsEnum        } from '../models/MessageView.js';
+import { MessageSummaryView      , MessageSummaryViewDirectionEnum                  } from '../models/MessageSummaryView.js';
+import { MessageView         , MessageViewDirectionEnum                    } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
 import { PageAPIKeyView } from '../models/PageAPIKeyView.js';
 import { PageAgentView } from '../models/PageAgentView.js';
@@ -135,18 +135,18 @@ import { ProtectionEventExportEntry } from '../models/ProtectionEventExportEntry
 import { ProtectionGateView, ProtectionGateViewActionEnum   , ProtectionGateViewPolicyEnum   } from '../models/ProtectionGateView.js';
 import { ProtectionHoldsView, ProtectionHoldsViewOnExpiryEnum    } from '../models/ProtectionHoldsView.js';
 import { ProtectionScanView, ProtectionScanViewSensitivityEnum   } from '../models/ProtectionScanView.js';
-import { RedeliverDelivery  , RedeliverDeliveryStatusEnum    } from '../models/RedeliverDelivery.js';
+import { RedeliverDelivery } from '../models/RedeliverDelivery.js';
 import { RedeliverEventRequest } from '../models/RedeliverEventRequest.js';
-import { RedeliverView   , RedeliverViewStatusEnum    } from '../models/RedeliverView.js';
+import { RedeliverView } from '../models/RedeliverView.js';
 import { RegisterDomainRequest } from '../models/RegisterDomainRequest.js';
 import { RejectRequest } from '../models/RejectRequest.js';
 import { RejectResultView } from '../models/RejectResultView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
-import { ReviewView   , ReviewViewDirectionEnum      , ReviewViewReviewStatusEnum     } from '../models/ReviewView.js';
+import { ReviewView   , ReviewViewDirectionEnum          } from '../models/ReviewView.js';
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
-import { SendResultView   , SendResultViewMethodEnum   , SendResultViewSentAsEnum  , SendResultViewStatusEnum   } from '../models/SendResultView.js';
+import { SendResultView } from '../models/SendResultView.js';
 import { SendingDNSRecordView } from '../models/SendingDNSRecordView.js';
 import { Suppression } from '../models/Suppression.js';
 import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
@@ -160,9 +160,9 @@ import { UsageEventEntry } from '../models/UsageEventEntry.js';
 import { UserExport } from '../models/UserExport.js';
 import { UserExportUser } from '../models/UserExportUser.js';
 import { VerifyDomainView } from '../models/VerifyDomainView.js';
-import { WebhookDeliveryView  , WebhookDeliveryViewEventTypeEnum       , WebhookDeliveryViewStatusEnum   } from '../models/WebhookDeliveryView.js';
+import { WebhookDeliveryView } from '../models/WebhookDeliveryView.js';
 import { WebhookFiltersView } from '../models/WebhookFiltersView.js';
-import { WebhookView    , WebhookViewEventsEnum       } from '../models/WebhookView.js';
+import { WebhookView } from '../models/WebhookView.js';
 
 /* tslint:disable:no-unused-variable */
 let primitives = [
@@ -182,34 +182,15 @@ let enumsMap: Set<string> = new Set<string>([
     "CreateAPIKeyRequestScopeEnum",
     "CreateAPIKeyResponseScopeEnum",
     "CreateWebhookRequestEventsEnum",
-    "CreateWebhookResponseEventsEnum",
-    "DomainViewSendingStatusEnum",
-    "EventJSONStatusEnum",
-    "EventJSONTypeEnum",
-    "MessageSummaryViewDeliveryStatusEnum",
     "MessageSummaryViewDirectionEnum",
-    "MessageSummaryViewReviewStatusEnum",
-    "MessageSummaryViewSentAsEnum",
-    "MessageViewDeliveryStatusEnum",
     "MessageViewDirectionEnum",
-    "MessageViewReviewStatusEnum",
-    "MessageViewSentAsEnum",
     "ProtectionGateViewActionEnum",
     "ProtectionGateViewPolicyEnum",
     "ProtectionHoldsViewOnExpiryEnum",
     "ProtectionScanViewSensitivityEnum",
-    "RedeliverDeliveryStatusEnum",
-    "RedeliverViewStatusEnum",
     "ReviewViewDirectionEnum",
-    "ReviewViewReviewStatusEnum",
-    "SendResultViewMethodEnum",
-    "SendResultViewSentAsEnum",
-    "SendResultViewStatusEnum",
     "TestWebhookRequestEventEnum",
     "UpdateWebhookRequestEventsEnum",
-    "WebhookDeliveryViewEventTypeEnum",
-    "WebhookDeliveryViewStatusEnum",
-    "WebhookViewEventsEnum",
 ]);
 
 let typeMap: {[index: string]: any} = {

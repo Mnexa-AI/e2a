@@ -143,29 +143,63 @@ func TestSpecRegisterDomain409Declared(t *testing.T) {
 	}
 }
 
-// MED-5 — status-ish fields must carry enums matching the values the server emits.
+// MED-5 — response enum policy for GA (see docs/api.md "Versioning & stability"):
+//   - A field whose value set is genuinely closed forever (direction: a message is
+//     inbound or outbound, period) carries a closed enum.
+//   - A field whose value set the server may grow (delivery/review/send/event
+//     status, sending_status, sent_as, method, event types) is an OPEN string with
+//     no enum, so adding a value later doesn't break strict spec-generated clients.
+// This test pins both halves so neither regresses: an open field must not silently
+// re-acquire a closed enum, and direction must not lose its enum.
 func TestSpecStatusEnums(t *testing.T) {
 	doc := renderSpec(t)
 
-	cases := []struct {
+	// Closed-forever enums (must carry the exact enum).
+	closed := []struct {
 		schema string
 		field  string
 		want   []string
 	}{
 		{"MessageView", "direction", []string{"inbound", "outbound"}},
 		{"MessageSummaryView", "direction", []string{"inbound", "outbound"}},
-		{"MessageView", "review_status", []string{"pending_review", "sent", "review_rejected", "review_expired_approved", "review_expired_rejected"}},
-		{"MessageSummaryView", "review_status", []string{"pending_review", "sent", "review_rejected", "review_expired_approved", "review_expired_rejected"}},
-		{"SendResultView", "status", []string{"sent", "pending_review", "review_approved"}},
-		{"EventJSON", "status", []string{"pending", "processed", "no_match"}},
-		{"RedeliverView", "status", []string{"pending", "scheduled"}},
-		{"WebhookDeliveryView", "status", []string{"pending", "delivered", "failed"}},
 	}
-	for _, c := range cases {
+	for _, c := range closed {
 		props := schemaProps(t, doc, c.schema)
 		got := enumOf(props, c.field)
 		if !setEqual(got, c.want...) {
-			t.Errorf("%s.%s enum = %v, want %v", c.schema, c.field, got, c.want)
+			t.Errorf("%s.%s enum = %v, want closed enum %v", c.schema, c.field, got, c.want)
+		}
+	}
+
+	// Open (growable) response fields — must be plain strings with NO enum, so a
+	// new server value doesn't break a frozen strict client. Re-closing any of
+	// these is a breaking change for the GA contract.
+	open := []struct {
+		schema string
+		field  string
+	}{
+		{"MessageView", "review_status"},
+		{"MessageSummaryView", "review_status"},
+		{"MessageView", "delivery_status"},
+		{"MessageSummaryView", "delivery_status"},
+		{"MessageView", "sent_as"},
+		{"MessageSummaryView", "sent_as"},
+		{"SendResultView", "status"},
+		{"SendResultView", "sent_as"},
+		{"SendResultView", "method"},
+		{"EventJSON", "status"},
+		{"EventJSON", "type"},
+		{"RedeliverView", "status"},
+		{"RedeliverDelivery", "status"},
+		{"WebhookDeliveryView", "status"},
+		{"WebhookDeliveryView", "event_type"},
+		{"DomainView", "sending_status"},
+		{"ReviewView", "review_status"},
+	}
+	for _, c := range open {
+		props := schemaProps(t, doc, c.schema)
+		if got := enumOf(props, c.field); len(got) != 0 {
+			t.Errorf("%s.%s must be an OPEN string (no enum) for GA forward-compat, but has enum %v", c.schema, c.field, got)
 		}
 	}
 }

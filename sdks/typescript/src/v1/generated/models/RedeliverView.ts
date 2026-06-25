@@ -17,7 +17,10 @@ export class RedeliverView {
     'deliveries'?: Array<RedeliverDelivery>;
     'deliveryId'?: string;
     'eventId': string;
-    'status': RedeliverViewStatusEnum;
+    /**
+    * Open set; tolerate unknown values. Known values: pending (single-webhook replay), scheduled (bulk fan-out).
+    */
+    'status': string;
     'webhookId'?: string;
 
     static readonly discriminator: string | undefined = undefined;
@@ -46,7 +49,7 @@ export class RedeliverView {
         {
             "name": "status",
             "baseName": "status",
-            "type": "RedeliverViewStatusEnum",
+            "type": "string",
             "format": ""
         },
         {
@@ -63,9 +66,3 @@ export class RedeliverView {
     public constructor() {
     }
 }
-
-export enum RedeliverViewStatusEnum {
-    Pending = 'pending',
-    Scheduled = 'scheduled'
-}
-

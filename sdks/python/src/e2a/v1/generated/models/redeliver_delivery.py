@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
@@ -28,7 +28,7 @@ class RedeliverDelivery(BaseModel):
     """ # noqa: E501
     delivery_id: Optional[StrictStr] = None
     reason: Optional[StrictStr] = None
-    status: StrictStr
+    status: StrictStr = Field(description="Open set; tolerate unknown values. Known values: pending (replay scheduled), skipped (could not enqueue — see reason).")
     webhook_id: StrictStr
     __properties: ClassVar[List[str]] = ["delivery_id", "reason", "status", "webhook_id"]
 

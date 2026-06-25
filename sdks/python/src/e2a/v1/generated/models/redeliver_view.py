@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.redeliver_delivery import RedeliverDelivery
 from typing import Optional, Set
@@ -30,7 +30,7 @@ class RedeliverView(BaseModel):
     deliveries: Optional[List[RedeliverDelivery]] = None
     delivery_id: Optional[StrictStr] = None
     event_id: StrictStr
-    status: StrictStr
+    status: StrictStr = Field(description="Open set; tolerate unknown values. Known values: pending (single-webhook replay), scheduled (bulk fan-out).")
     webhook_id: Optional[StrictStr] = None
     __properties: ClassVar[List[str]] = ["deliveries", "delivery_id", "event_id", "status", "webhook_id"]
 

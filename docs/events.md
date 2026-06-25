@@ -62,6 +62,12 @@ for e in client.events.list(type="email.received", limit=20):
 | `email.review_approved` | Review approved (outbound: sent; inbound: released to the inbox) | Best-effort |
 | `email.review_rejected` | Review rejected (outbound: discarded; inbound: dropped) | **At-least-once** |
 | `email.blocked` | Message refused by screening (inbound accept-then-quarantine / outbound 403) | **At-least-once** |
+| `email.delivered` | Outbound message accepted for delivery by the recipient's server (per-recipient async outcome) | Best-effort |
+| `email.bounced` | Outbound message bounced for a recipient (hard/soft delivery failure) | Best-effort |
+| `email.complained` | Recipient marked an outbound message as spam (feedback-loop complaint) | Best-effort |
+| `domain.suppression_added` | An address was auto-suppressed after a bounce/complaint (account-scoped despite the `domain.` prefix) | Best-effort |
+| `domain.sending_verified` | A domain's async SES sending identity reached the verified terminal state | Best-effort |
+| `domain.sending_failed` | A domain's async SES sending identity reached a failed terminal state | Best-effort |
 
 The review-hold + screening events (`email.flagged`, `email.blocked`, `email.pending_review`, `email.review_approved`, `email.review_rejected`) are **beta** — their payloads may change before they are declared stable.
 

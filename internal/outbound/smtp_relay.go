@@ -82,15 +82,30 @@ func (r *SMTPRelay) sendOnce(envelopeFrom string, recipients []string, message [
 	}
 	defer c.Close()
 
-	// STARTTLS — only if the server advertises it
+	// STARTTLS. Negotiate whenever the server advertises it; track
+	// whether the connection actually became encrypted so we can fail
+	// closed below. A network attacker can strip the STARTTLS capability
+	// from the EHLO response to force a cleartext relay — RequireTLS
+	// turns that into a hard error instead of a silent downgrade.
+	tlsActive := false
 	if ok, _ := c.Extension("STARTTLS"); ok {
 		if err := c.StartTLS(&tls.Config{ServerName: r.cfg.Host}); err != nil {
 			return "", fmt.Errorf("starttls: %w", err)
 		}
+		tlsActive = true
+	}
+	if r.cfg.RequireTLS != nil && *r.cfg.RequireTLS && !tlsActive {
+		return "", fmt.Errorf("outbound smtp: server did not offer STARTTLS and require_tls is set; refusing to relay in cleartext")
 	}
 
-	// Auth
+	// Auth. Never send PLAIN credentials over an unencrypted connection,
+	// regardless of RequireTLS — that would leak the relay username and
+	// password to anyone on the path. This is a hard floor below the
+	// RequireTLS policy.
 	if r.cfg.Username != "" {
+		if !tlsActive {
+			return "", fmt.Errorf("outbound smtp: refusing to send PLAIN auth over an unencrypted connection")
+		}
 		auth := smtp.PlainAuth("", r.cfg.Username, r.cfg.Password, r.cfg.Host)
 		if err := c.Auth(auth); err != nil {
 			return "", fmt.Errorf("auth: %w", err)

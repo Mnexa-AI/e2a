@@ -88,7 +88,7 @@ type RedeliverView struct {
 	WebhookID  string `json:"webhook_id,omitempty"`
 	// Status is "pending" for a single-webhook replay (one scheduled delivery)
 	// or "scheduled" for a bulk fan-out (see Deliveries for per-subscriber state).
-	Status     string              `json:"status" enum:"pending,scheduled"`
+	Status     string              `json:"status" doc:"Open set; tolerate unknown values. Known values: pending (single-webhook replay), scheduled (bulk fan-out)."`
 	Deliveries []RedeliverDelivery `json:"deliveries,omitempty" nullable:"false"`
 }
 
@@ -97,7 +97,7 @@ type RedeliverDelivery struct {
 	DeliveryID string `json:"delivery_id,omitempty"`
 	// Status is "pending" when the replay was scheduled, or "skipped" when this
 	// subscriber's delivery could not be enqueued (see Reason).
-	Status string `json:"status" enum:"pending,skipped"`
+	Status string `json:"status" doc:"Open set; tolerate unknown values. Known values: pending (replay scheduled), skipped (could not enqueue — see reason)."`
 	Reason string `json:"reason,omitempty"`
 }
 

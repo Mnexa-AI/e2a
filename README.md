@@ -354,7 +354,7 @@ Two reasons:
 1. **Auditability.** Identity infrastructure for your agents should be readable code, not a vendor black box. You can verify the cosign signature on `ghcr.io/mnexa-ai/e2a`, reproduce the build, and confirm what's actually running.
 2. **Self-host as a real option.** The hosted instance at e2a.dev runs the same `ghcr.io/mnexa-ai/e2a` image you can pull right now. Convenience features on the hosted side (the shared `agents.e2a.dev` domain, managed deliverability) are config + DNS, not closed-source extras.
 
-Pricing for the hosted version isn't enabled yet. When it lands, it'll be opt-in via env var and the OSS code path stays unchanged.
+The hosted version at [e2a.dev](https://e2a.dev) has paid tiers (a free tier plus paid plans); billing is opt-in via env var on the hosted side and the OSS code path stays unchanged — self-hosting has no quotas or billing.
 
 ## Development
 

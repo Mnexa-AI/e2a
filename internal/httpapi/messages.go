@@ -40,7 +40,7 @@ type MessageView struct {
 	// only, mirroring MessageSummaryView. Exposed as `review_status` (the holds
 	// vocabulary unified on `review` in migration 044). Distinct from read_status,
 	// delivery_status, and webhook_status (each a separate axis).
-	HITLStatus string `json:"review_status,omitempty" enum:"pending_review,sent,review_rejected,review_expired_approved,review_expired_rejected"`
+	HITLStatus string `json:"review_status,omitempty" doc:"Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected."`
 	// WebhookStatus / WebhookError mirror MessageSummaryView so the detail view
 	// is a strict superset of the list item (a client fetching one message keeps
 	// the webhook delivery context). Apply to both directions; omitempty hides
@@ -52,13 +52,13 @@ type MessageView struct {
 	// DeliveryStatus is the outbound delivery rollup (migration 031:
 	// 'sent', 'delivered', 'bounced', …) — the worst recipient status by
 	// precedence. Outbound-only; omitted on inbound messages.
-	DeliveryStatus string `json:"delivery_status,omitempty" enum:"queued,sent,delivered,bounced,complained,deferred,failed"`
+	DeliveryStatus string `json:"delivery_status,omitempty" doc:"Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: queued, sent, delivered, bounced, complained, deferred, failed."`
 	// DeliveryDetail is the human-readable diagnostic for the delivery
 	// rollup (e.g. bounce sub-type / SMTP response). Outbound-only.
 	DeliveryDetail string `json:"delivery_detail,omitempty"`
 	// SentAs is the From identity actually used at relay accept time.
 	// Outbound-only; omitted on inbound messages.
-	SentAs string `json:"sent_as,omitempty" enum:"own_address,relay"`
+	SentAs string `json:"sent_as,omitempty" doc:"From identity used at relay accept time (outbound only). Open set; tolerate unknown values. Known values: own_address, relay."`
 	// Flagged + FlagReason carry the inbound ingestion verdict (migration 033 /
 	// Slice 7): true when the agent's inbound_policy gate flagged this message
 	// on arrival (still delivered). Inbound-relevant; omitted on unflagged rows.
@@ -215,14 +215,14 @@ type MessageSummaryView struct {
 	ConversationID string   `json:"conversation_id,omitempty"`
 	// Status is the inbox read-state, exposed as `read_status` (MSG-1).
 	Status string `json:"read_status"`
-	HITLStatus     string   `json:"review_status,omitempty" enum:"pending_review,sent,review_rejected,review_expired_approved,review_expired_rejected"`
+	HITLStatus     string   `json:"review_status,omitempty" doc:"Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected."`
 	WebhookStatus  string   `json:"webhook_status,omitempty"`
 	WebhookError   string   `json:"webhook_error,omitempty"`
 	// DeliveryStatus / DeliveryDetail / SentAs are the outbound delivery
 	// rollup (migration 031). Outbound-only; omitted on inbound rows.
-	DeliveryStatus string `json:"delivery_status,omitempty" enum:"queued,sent,delivered,bounced,complained,deferred,failed"`
+	DeliveryStatus string `json:"delivery_status,omitempty" doc:"Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: queued, sent, delivered, bounced, complained, deferred, failed."`
 	DeliveryDetail string `json:"delivery_detail,omitempty"`
-	SentAs         string `json:"sent_as,omitempty" enum:"own_address,relay"`
+	SentAs         string `json:"sent_as,omitempty" doc:"From identity used at relay accept time (outbound only). Open set; tolerate unknown values. Known values: own_address, relay."`
 	// Flagged + FlagReason are the inbound ingestion verdict (migration 033 /
 	// Slice 7). Surfaced in list views so flagged mail is visible without a
 	// per-message drill-down. Inbound-relevant; omitted on unflagged rows.

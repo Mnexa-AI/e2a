@@ -42,7 +42,7 @@ type DomainView struct {
 	// (inbound ownership): the async SES sending identity that lets agents
 	// on this domain send as their own address. Poll GET /domains/{domain}
 	// to watch SendingStatus go pending → verified|failed.
-	SendingStatus        string                 `json:"sending_status" enum:"none,pending,verified,failed"`
+	SendingStatus        string                 `json:"sending_status" doc:"Async SES sending-identity state. Open set; tolerate unknown values. Known values: none, pending, verified, failed."`
 	SendingError         string                 `json:"sending_error,omitempty"`
 	SendingDNSRecords    []SendingDNSRecordView `json:"sending_dns_records,omitempty" nullable:"false"`
 	SendingLastCheckedAt *time.Time             `json:"sending_last_checked_at,omitempty"`

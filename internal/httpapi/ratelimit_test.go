@@ -203,3 +203,40 @@ func TestSendRateLimited(t *testing.T) {
 		t.Fatalf("expected retry_after_seconds=7 in details, got %v", body)
 	}
 }
+
+// TestClientIPIgnoresXForwardedFor locks in the per-IP-limiter security
+// contract: the caller key comes from CF-Connecting-IP (edge-set, not
+// client-controllable), never from a forgeable X-Forwarded-For. A
+// regression here re-opens the rate-limit bypass where an attacker
+// rotates XFF to get unlimited budget on the registration / attachment /
+// feedback limiters.
+func TestClientIPIgnoresXForwardedFor(t *testing.T) {
+	cases := []struct {
+		name string
+		cf   string
+		xff  string
+		addr string
+		want string
+	}{
+		{"xff is ignored entirely", "", "1.2.3.4", "10.0.0.1:5555", "10.0.0.1"},
+		{"forged xff cannot override cf", "9.9.9.9", "1.2.3.4, 9.9.9.9", "10.0.0.1:5555", "9.9.9.9"},
+		{"cf preferred over remoteaddr", "9.9.9.9", "", "10.0.0.1:5555", "9.9.9.9"},
+		{"remoteaddr fallback when no cf", "", "", "10.0.0.1:5555", "10.0.0.1"},
+		{"bracketed ipv6 remoteaddr", "", "", "[::1]:5555", "::1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.RemoteAddr = tc.addr
+			if tc.cf != "" {
+				r.Header.Set("CF-Connecting-IP", tc.cf)
+			}
+			if tc.xff != "" {
+				r.Header.Set("X-Forwarded-For", tc.xff)
+			}
+			if got := clientIP(r); got != tc.want {
+				t.Fatalf("clientIP = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

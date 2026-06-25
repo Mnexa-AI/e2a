@@ -23,7 +23,10 @@ export class DomainView {
     'sendingDnsRecords'?: Array<SendingDNSRecordView>;
     'sendingError'?: string;
     'sendingLastCheckedAt'?: Date;
-    'sendingStatus': DomainViewSendingStatusEnum;
+    /**
+    * Async SES sending-identity state. Open set; tolerate unknown values. Known values: none, pending, verified, failed.
+    */
+    'sendingStatus': string;
     'verificationToken': string;
     'verified': boolean;
     'verifiedAt'?: Date;
@@ -84,7 +87,7 @@ export class DomainView {
         {
             "name": "sendingStatus",
             "baseName": "sending_status",
-            "type": "DomainViewSendingStatusEnum",
+            "type": "string",
             "format": ""
         },
         {
@@ -113,11 +116,3 @@ export class DomainView {
     public constructor() {
     }
 }
-
-export enum DomainViewSendingStatusEnum {
-    None = 'none',
-    Pending = 'pending',
-    Verified = 'verified',
-    Failed = 'failed'
-}
-

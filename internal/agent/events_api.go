@@ -33,13 +33,13 @@ func (a *API) SetPoolForEvents(p *pgxpool.Pool) { a.eventsPool = p }
 // GET /events/{id}. Mirrors design §4.6.
 type eventJSON struct {
 	ID             string                 `json:"id"`
-	Type           string                 `json:"type" enum:"email.received,email.sent,email.review_approved,email.review_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked,email.pending_review"`
+	Type           string                 `json:"type" doc:"Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added."`
 	SchemaVersion  int                    `json:"schema_version"`
 	CreatedAt      time.Time              `json:"created_at"`
 	AgentID        *string                `json:"agent_id,omitempty"`
 	ConversationID *string                `json:"conversation_id,omitempty"`
 	MessageID      *string                `json:"message_id,omitempty"`
-	Status         string                 `json:"status" enum:"pending,processed,no_match"`
+	Status         string                 `json:"status" doc:"Event processing state. Open set; tolerate unknown values. Known values: pending, processed, no_match."`
 	Data           map[string]interface{} `json:"data"`
 	DeliveryStatus *deliveryStatusJSON    `json:"delivery_status,omitempty"`
 }

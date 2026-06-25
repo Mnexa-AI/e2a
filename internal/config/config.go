@@ -103,6 +103,13 @@ type OutboundSMTPConfig struct {
 	Username   string `yaml:"username"`
 	Password   string `yaml:"password"`
 	FromDomain string `yaml:"from_domain"`
+	// RequireTLS fails the send if STARTTLS can't be negotiated, instead
+	// of silently relaying in cleartext (a network attacker can strip the
+	// STARTTLS capability from the server's EHLO to force this). Pointer
+	// so an unset value can default to true in production while staying
+	// off for dev relays (e.g. Mailpit on :1025 with no TLS). Regardless
+	// of this flag, PLAIN auth is never sent over a cleartext connection.
+	RequireTLS *bool `yaml:"require_tls"`
 }
 
 // DeliveryFeedbackConfig controls outbound delivery feedback (decision 9 /
@@ -239,6 +246,11 @@ func Load(path string) (*Config, error) {
 	if v := os.Getenv("E2A_OUTBOUND_SMTP_FROM_DOMAIN"); v != "" {
 		cfg.OutboundSMTP.FromDomain = v
 	}
+	if v := os.Getenv("E2A_OUTBOUND_SMTP_REQUIRE_TLS"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.OutboundSMTP.RequireTLS = &b
+		}
+	}
 	if v := os.Getenv("E2A_PUBLIC_URL"); v != "" {
 		cfg.HTTP.PublicURL = v
 	}
@@ -253,6 +265,15 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("E2A_DELIVERY_SNS_TOPIC_ARNS"); v != "" {
 		cfg.DeliveryFeedback.SNSTopicARNs = splitAndTrim(v)
+	}
+
+	// Default outbound TLS enforcement to on in production when not set
+	// explicitly. SES on :587/:465 always advertises STARTTLS, so this is
+	// a no-op for the real prod path and only fails closed if the TLS
+	// capability disappears (misconfig or active stripping attack).
+	if cfg.OutboundSMTP.RequireTLS == nil {
+		v := cfg.IsProduction()
+		cfg.OutboundSMTP.RequireTLS = &v
 	}
 
 	if err := cfg.Validate(); err != nil {

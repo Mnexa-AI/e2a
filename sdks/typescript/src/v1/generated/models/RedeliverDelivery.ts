@@ -15,7 +15,10 @@ import { HttpFile } from '../http/http.js';
 export class RedeliverDelivery {
     'deliveryId'?: string;
     'reason'?: string;
-    'status': RedeliverDeliveryStatusEnum;
+    /**
+    * Open set; tolerate unknown values. Known values: pending (replay scheduled), skipped (could not enqueue — see reason).
+    */
+    'status': string;
     'webhookId': string;
 
     static readonly discriminator: string | undefined = undefined;
@@ -38,7 +41,7 @@ export class RedeliverDelivery {
         {
             "name": "status",
             "baseName": "status",
-            "type": "RedeliverDeliveryStatusEnum",
+            "type": "string",
             "format": ""
         },
         {
@@ -55,9 +58,3 @@ export class RedeliverDelivery {
     public constructor() {
     }
 }
-
-export enum RedeliverDeliveryStatusEnum {
-    Pending = 'pending',
-    Skipped = 'skipped'
-}
-

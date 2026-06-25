@@ -8,6 +8,9 @@ TypeScript/Node.js SDK for [e2a](https://e2a.dev) — email for AI agents.
 npm install @e2a/sdk
 ```
 
+The SDK major version tracks the SDK package's own breaking changes and is
+independent of the API version path (`/v1`): SDK 3.x targets the e2a v1 API.
+
 ## Upgrading from 2.x to 3.0
 
 3.0 is a breaking redesign. The SDK now wraps a generated `/v1` client behind a

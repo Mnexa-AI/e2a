@@ -9,17 +9,25 @@ import (
 )
 
 // TestWebhookEventEnumMatchesCatalog is the drift gate for the webhook event
-// vocabulary. The subscribable event-type enum is hand-copied into several Huma
-// struct tags (CreateWebhookRequest.events, UpdateWebhookRequest.events, the
-// test-webhook event, WebhookDeliveryView.event_type, EventJSON.type, …) with
-// nothing keeping them in sync with the canonical webhookpub.AllEventTypes. A new
-// event added to the catalog but forgotten in one tag would be silently
-// unsubscribable / unfilterable on that surface — the #7 GA-blocker class, which
-// TestSpecGoldenNoDrift cannot catch (handler and golden drift together).
+// vocabulary. The subscribable event-type enum is hand-copied into the REQUEST
+// Huma struct tags (CreateWebhookRequest.events, UpdateWebhookRequest.events, the
+// test-webhook event) with nothing keeping them in sync with the canonical
+// webhookpub.AllEventTypes. A new event added to the catalog but forgotten in one
+// tag would be silently unsubscribable / unfilterable on that surface — the #7
+// GA-blocker class, which TestSpecGoldenNoDrift cannot catch (handler and golden
+// drift together).
+//
+// RESPONSE-side event fields (WebhookView.events, WebhookDeliveryView.event_type,
+// EventJSON.type) are deliberately NOT closed enums — they are open strings so the
+// server can emit a newly-added event type without breaking strict spec-generated
+// clients (the GA stability contract; see docs/api.md "Versioning & stability").
+// So this gate governs only the REQUEST-side copies, where a closed enum is
+// correct: we validate and reject an unknown event type a client tries to
+// subscribe to or test with.
 //
 // This renders the live spec, finds EVERY enum that is an event enum (one that
 // contains email.received), and asserts it equals AllEventTypes exactly — so any
-// drift fails CI regardless of which copy fell out of sync.
+// drift in a request-side copy fails CI regardless of which copy fell out of sync.
 func TestWebhookEventEnumMatchesCatalog(t *testing.T) {
 	doc := renderSpec(t)
 	want := append([]string(nil), webhookpub.AllEventTypes...)
@@ -44,11 +52,15 @@ func TestWebhookEventEnumMatchesCatalog(t *testing.T) {
 	if found == 0 {
 		t.Fatal("found no event enums in the spec — the spec walk or the marker is wrong")
 	}
-	// The known copies are EventJSON.type plus the webhook request/response tags.
-	// A copy that lost its enum tag (degrading to a free-form string) would drop
-	// the count — catch that too.
-	if found < 5 {
-		t.Errorf("expected at least 5 event-enum copies in the spec, found %d — a copy may have lost its enum tag", found)
+	// The remaining closed copies are the 3 REQUEST-side tags:
+	// CreateWebhookRequest.events, UpdateWebhookRequest.events, and the
+	// test-webhook event. A request-side copy that lost its enum tag (degrading
+	// to a free-form string that no longer validates subscriptions) would drop
+	// the count — catch that too. (Response-side copies are intentionally open and
+	// must NOT be counted here; if you add a new request surface that subscribes
+	// to / filters by event type, bump this.)
+	if found < 3 {
+		t.Errorf("expected at least 3 request-side event-enum copies in the spec, found %d — a request copy may have lost its enum tag", found)
 	}
 }
 

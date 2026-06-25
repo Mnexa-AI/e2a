@@ -25,7 +25,10 @@ export class MessageView {
     'conversationId': string;
     'createdAt': Date;
     'deliveryDetail'?: string;
-    'deliveryStatus'?: MessageViewDeliveryStatusEnum;
+    /**
+    * Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: queued, sent, delivered, bounced, complained, deferred, failed.
+    */
+    'deliveryStatus'?: string;
     'direction': MessageViewDirectionEnum;
     'flagReason'?: string;
     'flagged'?: boolean;
@@ -37,8 +40,14 @@ export class MessageView {
     'readStatus': string;
     'recipient': string;
     'replyTo': Array<string>;
-    'reviewStatus'?: MessageViewReviewStatusEnum;
-    'sentAs'?: MessageViewSentAsEnum;
+    /**
+    * Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected.
+    */
+    'reviewStatus'?: string;
+    /**
+    * From identity used at relay accept time (outbound only). Open set; tolerate unknown values. Known values: own_address, relay.
+    */
+    'sentAs'?: string;
     'sizeBytes'?: number;
     'subject': string;
     'to': Array<string>;
@@ -101,7 +110,7 @@ export class MessageView {
         {
             "name": "deliveryStatus",
             "baseName": "delivery_status",
-            "type": "MessageViewDeliveryStatusEnum",
+            "type": "string",
             "format": ""
         },
         {
@@ -173,13 +182,13 @@ export class MessageView {
         {
             "name": "reviewStatus",
             "baseName": "review_status",
-            "type": "MessageViewReviewStatusEnum",
+            "type": "string",
             "format": ""
         },
         {
             "name": "sentAs",
             "baseName": "sent_as",
-            "type": "MessageViewSentAsEnum",
+            "type": "string",
             "format": ""
         },
         {
@@ -221,28 +230,8 @@ export class MessageView {
     }
 }
 
-export enum MessageViewDeliveryStatusEnum {
-    Queued = 'queued',
-    Sent = 'sent',
-    Delivered = 'delivered',
-    Bounced = 'bounced',
-    Complained = 'complained',
-    Deferred = 'deferred',
-    Failed = 'failed'
-}
 export enum MessageViewDirectionEnum {
     Inbound = 'inbound',
     Outbound = 'outbound'
-}
-export enum MessageViewReviewStatusEnum {
-    PendingReview = 'pending_review',
-    Sent = 'sent',
-    ReviewRejected = 'review_rejected',
-    ReviewExpiredApproved = 'review_expired_approved',
-    ReviewExpiredRejected = 'review_expired_rejected'
-}
-export enum MessageViewSentAsEnum {
-    OwnAddress = 'own_address',
-    Relay = 'relay'
 }
 

@@ -39,7 +39,7 @@ class MessageView(BaseModel):
     conversation_id: StrictStr
     created_at: datetime
     delivery_detail: Optional[StrictStr] = None
-    delivery_status: Optional[StrictStr] = None
+    delivery_status: Optional[StrictStr] = Field(default=None, description="Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: queued, sent, delivered, bounced, complained, deferred, failed.")
     direction: StrictStr
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
@@ -51,8 +51,8 @@ class MessageView(BaseModel):
     read_status: StrictStr
     recipient: StrictStr
     reply_to: List[StrictStr]
-    review_status: Optional[StrictStr] = None
-    sent_as: Optional[StrictStr] = None
+    review_status: Optional[StrictStr] = Field(default=None, description="Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected.")
+    sent_as: Optional[StrictStr] = Field(default=None, description="From identity used at relay accept time (outbound only). Open set; tolerate unknown values. Known values: own_address, relay.")
     size_bytes: Optional[StrictInt] = None
     subject: StrictStr
     to: List[StrictStr]

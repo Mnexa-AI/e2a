@@ -132,16 +132,24 @@ func userFromContext(ctx context.Context) *identity.User {
 	return nil
 }
 
-// clientIP extracts the caller IP for per-IP limiting, honoring a single
-// X-Forwarded-For hop (mirrors agent.clientIP so both surfaces key the
-// registration limiter identically).
+// clientIP extracts the caller IP for per-IP limiting. It trusts only
+// CF-Connecting-IP (set by Cloudflare and stripped from inbound requests
+// at the edge), NOT X-Forwarded-For: an attacker can prepend an arbitrary
+// XFF entry and Cloudflare appends the real client IP rather than
+// replacing it, so the leftmost XFF value — which this used to key on —
+// is fully client-controlled and lets one attacker mint unlimited per-IP
+// budget on every limiter (agent registration, attachment-token
+// throttle, feedback). CF-Connecting-IP is spoofable only by someone who
+// can reach the origin directly, so the origin must be firewalled to
+// Cloudflare's ranges. Falls back to RemoteAddr (dev / non-CF) but never
+// to XFF. Mirrors agent.clientIP and oauth dcrSourceIP so every per-IP
+// limiter keys identically.
 func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if ip, _, ok := strings.Cut(xff, ","); ok {
-			return strings.TrimSpace(ip)
-		}
-		return strings.TrimSpace(xff)
+	if ip := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); ip != "" {
+		return ip
 	}
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
-	return host
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
 }

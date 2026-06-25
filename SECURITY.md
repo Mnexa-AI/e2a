@@ -37,12 +37,13 @@ anonymous. We don't currently run a paid bounty program.
 
 | Version | Status |
 |---------|--------|
-| Latest tagged release on `main` | ✅ Receives security fixes |
-| Older minor versions | ❌ Please upgrade to the latest |
+| `1.x` (current GA line) | ✅ Receives security fixes |
+| `0.x` (pre-GA) | ❌ Please upgrade to the latest 1.x release |
 
-The project is pre-1.0; we maintain only the most recent release line.
-Self-hosters running pinned versions should plan to upgrade promptly
-when an advisory is published.
+e2a is 1.0 GA: the `1.x` release line receives security fixes, delivered
+in the latest `1.x` release (we don't backport to older `1.x` patch
+versions). Self-hosters running pinned versions should plan to upgrade
+promptly when an advisory is published.
 
 ## Scope
 

@@ -16,10 +16,19 @@ export class SendResultView {
     'approvalExpiresAt'?: Date;
     'edited'?: boolean;
     'messageId': string;
-    'method'?: SendResultViewMethodEnum;
+    /**
+    * Send transport. Open set; tolerate unknown values. Known values: smtp, loopback.
+    */
+    'method'?: string;
     'providerMessageId'?: string;
-    'sentAs'?: SendResultViewSentAsEnum;
-    'status': SendResultViewStatusEnum;
+    /**
+    * From identity used. Open set; tolerate unknown values. Known values: own_address, relay.
+    */
+    'sentAs'?: string;
+    /**
+    * Outcome. Open set; tolerate unknown values. Known values: sent, pending_review, review_approved.
+    */
+    'status': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -47,7 +56,7 @@ export class SendResultView {
         {
             "name": "method",
             "baseName": "method",
-            "type": "SendResultViewMethodEnum",
+            "type": "string",
             "format": ""
         },
         {
@@ -59,13 +68,13 @@ export class SendResultView {
         {
             "name": "sentAs",
             "baseName": "sent_as",
-            "type": "SendResultViewSentAsEnum",
+            "type": "string",
             "format": ""
         },
         {
             "name": "status",
             "baseName": "status",
-            "type": "SendResultViewStatusEnum",
+            "type": "string",
             "format": ""
         }    ];
 
@@ -76,18 +85,3 @@ export class SendResultView {
     public constructor() {
     }
 }
-
-export enum SendResultViewMethodEnum {
-    Smtp = 'smtp',
-    Loopback = 'loopback'
-}
-export enum SendResultViewSentAsEnum {
-    OwnAddress = 'own_address',
-    Relay = 'relay'
-}
-export enum SendResultViewStatusEnum {
-    Sent = 'sent',
-    PendingReview = 'pending_review',
-    ReviewApproved = 'review_approved'
-}
-

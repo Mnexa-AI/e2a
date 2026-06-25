@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.dns_records_view import DNSRecordsView
 from e2a.v1.generated.models.sending_dns_record_view import SendingDNSRecordView
@@ -37,7 +37,7 @@ class DomainView(BaseModel):
     sending_dns_records: Optional[List[SendingDNSRecordView]] = None
     sending_error: Optional[StrictStr] = None
     sending_last_checked_at: Optional[datetime] = None
-    sending_status: StrictStr
+    sending_status: StrictStr = Field(description="Async SES sending-identity state. Open set; tolerate unknown values. Known values: none, pending, verified, failed.")
     verification_token: StrictStr
     verified: StrictBool
     verified_at: Optional[datetime] = None

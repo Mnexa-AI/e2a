@@ -22,8 +22,14 @@ export class EventJSON {
     'id': string;
     'messageId'?: string;
     'schemaVersion': number;
-    'status': EventJSONStatusEnum;
-    'type': EventJSONTypeEnum;
+    /**
+    * Event processing state. Open set; tolerate unknown values. Known values: pending, processed, no_match.
+    */
+    'status': string;
+    /**
+    * Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added.
+    */
+    'type': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -81,13 +87,13 @@ export class EventJSON {
         {
             "name": "status",
             "baseName": "status",
-            "type": "EventJSONStatusEnum",
+            "type": "string",
             "format": ""
         },
         {
             "name": "type",
             "baseName": "type",
-            "type": "EventJSONTypeEnum",
+            "type": "string",
             "format": ""
         }    ];
 
@@ -98,25 +104,3 @@ export class EventJSON {
     public constructor() {
     }
 }
-
-export enum EventJSONStatusEnum {
-    Pending = 'pending',
-    Processed = 'processed',
-    NoMatch = 'no_match'
-}
-export enum EventJSONTypeEnum {
-    EmailReceived = 'email.received',
-    EmailSent = 'email.sent',
-    EmailReviewApproved = 'email.review_approved',
-    EmailReviewRejected = 'email.review_rejected',
-    DomainSendingVerified = 'domain.sending_verified',
-    DomainSendingFailed = 'domain.sending_failed',
-    EmailDelivered = 'email.delivered',
-    EmailBounced = 'email.bounced',
-    EmailComplained = 'email.complained',
-    DomainSuppressionAdded = 'domain.suppression_added',
-    EmailFlagged = 'email.flagged',
-    EmailBlocked = 'email.blocked',
-    EmailPendingReview = 'email.pending_review'
-}
-

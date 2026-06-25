@@ -15,13 +15,19 @@ import { HttpFile } from '../http/http.js';
 export class WebhookDeliveryView {
     'attempts': number;
     'createdAt': Date;
-    'eventType': WebhookDeliveryViewEventTypeEnum;
+    /**
+    * The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.delivered, …, domain.*).
+    */
+    'eventType': string;
     'id': string;
     'lastAttemptAt'?: Date;
     'lastError'?: string;
     'lastStatusCode'?: number;
     'nextRetryAt': Date;
-    'status': WebhookDeliveryViewStatusEnum;
+    /**
+    * Delivery state. Open set; tolerate unknown values. Known values: pending, delivered, failed.
+    */
+    'status': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -43,7 +49,7 @@ export class WebhookDeliveryView {
         {
             "name": "eventType",
             "baseName": "event_type",
-            "type": "WebhookDeliveryViewEventTypeEnum",
+            "type": "string",
             "format": ""
         },
         {
@@ -79,7 +85,7 @@ export class WebhookDeliveryView {
         {
             "name": "status",
             "baseName": "status",
-            "type": "WebhookDeliveryViewStatusEnum",
+            "type": "string",
             "format": ""
         }    ];
 
@@ -90,25 +96,3 @@ export class WebhookDeliveryView {
     public constructor() {
     }
 }
-
-export enum WebhookDeliveryViewEventTypeEnum {
-    EmailReceived = 'email.received',
-    EmailSent = 'email.sent',
-    EmailReviewApproved = 'email.review_approved',
-    EmailReviewRejected = 'email.review_rejected',
-    DomainSendingVerified = 'domain.sending_verified',
-    DomainSendingFailed = 'domain.sending_failed',
-    EmailDelivered = 'email.delivered',
-    EmailBounced = 'email.bounced',
-    EmailComplained = 'email.complained',
-    DomainSuppressionAdded = 'domain.suppression_added',
-    EmailFlagged = 'email.flagged',
-    EmailBlocked = 'email.blocked',
-    EmailPendingReview = 'email.pending_review'
-}
-export enum WebhookDeliveryViewStatusEnum {
-    Pending = 'pending',
-    Delivered = 'delivered',
-    Failed = 'failed'
-}
-

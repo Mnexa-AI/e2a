@@ -19,9 +19,9 @@ export class WebhookView {
     'description': string;
     'enabled': boolean;
     /**
-    * Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable.
+    * The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable.
     */
-    'events': Array<WebhookViewEventsEnum>;
+    'events': Array<string>;
     'filters': WebhookFiltersView;
     'id': string;
     'lastDeliveredAt'?: Date;
@@ -59,7 +59,7 @@ export class WebhookView {
         {
             "name": "events",
             "baseName": "events",
-            "type": "Array<WebhookViewEventsEnum>",
+            "type": "Array<string>",
             "format": ""
         },
         {
@@ -94,20 +94,3 @@ export class WebhookView {
     public constructor() {
     }
 }
-
-export enum WebhookViewEventsEnum {
-    EmailReceived = 'email.received',
-    EmailSent = 'email.sent',
-    EmailReviewApproved = 'email.review_approved',
-    EmailReviewRejected = 'email.review_rejected',
-    DomainSendingVerified = 'domain.sending_verified',
-    DomainSendingFailed = 'domain.sending_failed',
-    EmailDelivered = 'email.delivered',
-    EmailBounced = 'email.bounced',
-    EmailComplained = 'email.complained',
-    DomainSuppressionAdded = 'domain.suppression_added',
-    EmailFlagged = 'email.flagged',
-    EmailBlocked = 'email.blocked',
-    EmailPendingReview = 'email.pending_review'
-}
-

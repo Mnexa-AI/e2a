@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
@@ -30,10 +30,10 @@ class SendResultView(BaseModel):
     approval_expires_at: Optional[datetime] = None
     edited: Optional[StrictBool] = None
     message_id: StrictStr
-    method: Optional[StrictStr] = None
+    method: Optional[StrictStr] = Field(default=None, description="Send transport. Open set; tolerate unknown values. Known values: smtp, loopback.")
     provider_message_id: Optional[StrictStr] = None
-    sent_as: Optional[StrictStr] = None
-    status: StrictStr
+    sent_as: Optional[StrictStr] = Field(default=None, description="From identity used. Open set; tolerate unknown values. Known values: own_address, relay.")
+    status: StrictStr = Field(description="Outcome. Open set; tolerate unknown values. Known values: sent, pending_review, review_approved.")
     __properties: ClassVar[List[str]] = ["approval_expires_at", "edited", "message_id", "method", "provider_message_id", "sent_as", "status"]
 
     model_config = ConfigDict(

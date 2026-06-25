@@ -31,7 +31,7 @@ type ReviewView struct {
 	To             []string  `json:"to" nullable:"false"`
 	Subject        string    `json:"subject"`
 	ConversationID string    `json:"conversation_id,omitempty"`
-	ReviewStatus   string    `json:"review_status" enum:"pending_review"`
+	ReviewStatus   string    `json:"review_status" doc:"Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items)."`
 	Flagged        bool      `json:"flagged,omitempty"`
 	FlagReason     string    `json:"flag_reason,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`

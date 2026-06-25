@@ -12,7 +12,7 @@ requires-python = ">=3.9"
 authors = [{ name = "Mnexa AI", email = "josh@mnexa.ai" }]
 keywords = ["email", "agent", "authentication", "e2a", "webhook"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
@@ -33,6 +33,12 @@ dependencies = [
     "urllib3>=1.25",
     "typing-extensions>=4.7",
 ]
+
+[tool.hatch.build.targets.wheel]
+# src layout: ship the e2a package (incl. PEP 561 py.typed markers at every
+# hand-written level, not just the generated sub-package).
+packages = ["src/e2a"]
+artifacts = ["src/e2a/py.typed", "src/e2a/v1/py.typed", "src/e2a/v1/generated/py.typed"]
 
 [project.urls]
 Homepage = "https://e2a.dev"

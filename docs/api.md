@@ -32,14 +32,48 @@ MCP tool surface), see:
   The unauthenticated exceptions are `GET /api/health`, `GET /v1/info`,
   `POST /api/feedback`, and the HITL magic-link routes (which carry a signed `t`
   token instead).
-- **Path parameters with `@`.** Agent paths are addressed by full email
-  (`/v1/agents/{email}/…`); the `@` must be URL-encoded.
+- **Path parameters with `@`/`+`.** Agent (and suppression/domain) paths are
+  addressed by a full email/host (`/v1/agents/{email}/…`). **Percent-encode the
+  segment**: `@` → `%40` and — importantly — `+` → `%2B`. A bare `+` in a path is
+  often decoded to a space by clients/proxies, which silently corrupts
+  plus-tagged addresses (`a+tag@x.com`). The official SDKs encode this for you;
+  hand-rolled clients must do it themselves.
 - **Pagination.** List endpoints return `{ items, next_cursor }`; pass
   `next_cursor` back as `?cursor=…` to page forward. The SDKs auto-page.
 - **Idempotency.** Mutating send/approve/rotate operations honor an
   `Idempotency-Key` header. See the spec for which operations accept it.
 - **Errors.** Non-2xx responses use a single `ErrorEnvelope` shape; branch on
   `error.code`.
+
+## Versioning & stability
+
+The `/v1` surface is the **stable, generally-available contract** as of e2a 1.0.
+Our commitment, and what you can rely on:
+
+- **No breaking changes within `/v1`.** We will not remove an endpoint, remove a
+  response field, rename anything, tighten a type, or change documented semantics
+  under `/v1`. A breaking change means a new major version path (`/v2`), and the
+  two would run side by side during a published migration window.
+- **Additive changes can happen anytime** and are *not* breaking: new endpoints,
+  new optional request fields, and **new response fields**. Clients must ignore
+  fields they don't recognize.
+- **Enums in responses are open.** Treat any `type` / `*_status` / `event_type`
+  value as an open string set: we may introduce new values (e.g. a new event
+  type or delivery state) without a major bump, so a client **must not crash on
+  an unknown value** — handle it as a default/passthrough case. (The official
+  SDKs already do this.) Enum values you *send* in requests are validated and
+  rejected if unknown — that's intentional and not a stability concern.
+- **Version discovery.** `GET /v1/info` reports the running API version (and
+  deployment flags such as whether shared-domain slug registration is enabled),
+  so clients can adapt instead of hard-coding assumptions.
+- **Deprecation & sunset.** If we ever need to wind something down, it stays
+  functional and is marked `deprecated` in the OpenAPI spec; we will not remove
+  it within `/v1`. Endpoints currently marked deprecated (the agent-path
+  `…/messages/{id}/approve|reject`, superseded by `/v1/reviews/{id}/approve|reject`)
+  keep working for the life of `/v1`.
+
+The canonical machine-readable contract is always
+[`api/openapi.yaml`](../api/openapi.yaml); CI fails if it drifts from the server.
 
 ## Resources
 

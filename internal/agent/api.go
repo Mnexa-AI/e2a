@@ -1530,13 +1530,11 @@ func validateDomain(domain string) (string, error) {
 	return ascii, nil
 }
 
+// clientIP keys the per-IP limiters on the same trusted source as the
+// DCR limiter: CF-Connecting-IP only, never the client-controlled
+// X-Forwarded-For (see dcrSourceIP for the full rationale and the
+// origin-firewall caveat). Delegating keeps every per-IP surface
+// identical and impossible to drift apart.
 func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if ip, _, ok := strings.Cut(xff, ","); ok {
-			return strings.TrimSpace(ip)
-		}
-		return strings.TrimSpace(xff)
-	}
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
-	return host
+	return dcrSourceIP(r)
 }

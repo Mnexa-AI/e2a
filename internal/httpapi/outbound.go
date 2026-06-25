@@ -53,11 +53,11 @@ type SendResultView struct {
 	// review_approved is the inbound-release outcome of POST .../approve (an
 	// inbound hold released to the agent's inbox — no send). sent/pending_review
 	// are the send/outbound-approve outcomes.
-	Status            string     `json:"status" enum:"sent,pending_review,review_approved"`
+	Status            string     `json:"status" doc:"Outcome. Open set; tolerate unknown values. Known values: sent, pending_review, review_approved."`
 	MessageID         string     `json:"message_id"`
 	ProviderMessageID string     `json:"provider_message_id,omitempty"`
-	SentAs            string     `json:"sent_as,omitempty" enum:"own_address,relay"`
-	Method            string     `json:"method,omitempty" enum:"smtp,loopback"`
+	SentAs            string     `json:"sent_as,omitempty" doc:"From identity used. Open set; tolerate unknown values. Known values: own_address, relay."`
+	Method            string     `json:"method,omitempty" doc:"Send transport. Open set; tolerate unknown values. Known values: smtp, loopback."`
 	ApprovalExpiresAt *time.Time `json:"approval_expires_at,omitempty"`
 	// Edited is set only by approve (true/false = did the reviewer edit the
 	// draft before sending); omitted on the plain send path.
