@@ -9,6 +9,8 @@ import (
 	"mime/quotedprintable"
 	"net/mail"
 	"strings"
+
+	"github.com/Mnexa-AI/e2a/internal/mailparse"
 )
 
 // ForwardContext captures the header + body fields from an inbound message
@@ -151,6 +153,28 @@ func decodeTransferEncoding(data []byte, encoding string) []byte {
 	default:
 		return data
 	}
+}
+
+// ForwardAttachments extracts the stored attachment parts of the message being
+// forwarded and converts them to the outbound Attachment shape (base64-encoded
+// data) so a forward carries the original files by default, the way mail
+// clients do — the server already holds the bytes, so no client round-trip is
+// needed. Order matches the source message's authoritative attachment index.
+// Returns nil when the source has no attachments.
+func ForwardAttachments(rawMessage []byte) []Attachment {
+	parts := mailparse.Attachments(rawMessage)
+	if len(parts) == 0 {
+		return nil
+	}
+	out := make([]Attachment, 0, len(parts))
+	for _, p := range parts {
+		out = append(out, Attachment{
+			Filename:    p.Filename,
+			ContentType: p.ContentType,
+			Data:        base64.StdEncoding.EncodeToString(p.Data),
+		})
+	}
+	return out
 }
 
 // BuildForwardSubject prefixes "Fwd: " unless the subject already starts

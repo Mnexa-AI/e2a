@@ -14,6 +14,9 @@ import { Attachment } from '../models/Attachment.js';
 import { HttpFile } from '../http/http.js';
 
 export class ForwardRequest {
+    /**
+    * Additional attachments to include alongside the forwarded message\'s original attachments, which are carried over automatically.
+    */
     'attachments'?: Array<Attachment>;
     'bcc'?: Array<string>;
     'body': string;

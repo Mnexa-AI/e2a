@@ -808,7 +808,7 @@ export class PromiseMessagesApi {
     }
 
     /**
-     * Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.
+     * Forward an inbound message to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.
      * Forward a message
      * @param email
      * @param id
@@ -822,7 +822,7 @@ export class PromiseMessagesApi {
     }
 
     /**
-     * Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.
+     * Forward an inbound message to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.
      * Forward a message
      * @param email
      * @param id

@@ -1,6 +1,7 @@
 package outbound
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 )
@@ -120,6 +121,52 @@ func TestExtractForwardContext_MultipartMixedWrappingAlternative(t *testing.T) {
 	}
 	if !strings.Contains(ctx.HTML, "inner html") {
 		t.Errorf("HTML = %q, want contains 'inner html'", ctx.HTML)
+	}
+}
+
+func TestForwardAttachments_CarriesOriginalParts(t *testing.T) {
+	pdf := []byte("PDF-DATA-BYTES")
+	raw := []byte("From: alice@example.com\r\n" +
+		"Subject: Invoice\r\n" +
+		"Content-Type: multipart/mixed; boundary=\"B\"\r\n" +
+		"\r\n" +
+		"--B\r\n" +
+		"Content-Type: text/plain; charset=utf-8\r\n" +
+		"\r\n" +
+		"see attached\r\n" +
+		"--B\r\n" +
+		"Content-Type: application/pdf\r\n" +
+		"Content-Disposition: attachment; filename=\"invoice.pdf\"\r\n" +
+		"Content-Transfer-Encoding: base64\r\n" +
+		"\r\n" +
+		base64.StdEncoding.EncodeToString(pdf) + "\r\n" +
+		"--B--\r\n")
+
+	atts := ForwardAttachments(raw)
+	if len(atts) != 1 {
+		t.Fatalf("ForwardAttachments returned %d parts, want 1", len(atts))
+	}
+	if atts[0].Filename != "invoice.pdf" {
+		t.Errorf("Filename = %q, want invoice.pdf", atts[0].Filename)
+	}
+	if atts[0].ContentType != "application/pdf" {
+		t.Errorf("ContentType = %q, want application/pdf", atts[0].ContentType)
+	}
+	// Data must be base64 of the decoded original bytes (re-encoded for the
+	// outbound Attachment shape).
+	if got, want := atts[0].Data, base64.StdEncoding.EncodeToString(pdf); got != want {
+		t.Errorf("Data = %q, want %q", got, want)
+	}
+}
+
+func TestForwardAttachments_NoneReturnsNil(t *testing.T) {
+	raw := []byte("From: alice@example.com\r\n" +
+		"Subject: Plain\r\n" +
+		"Content-Type: text/plain; charset=utf-8\r\n" +
+		"\r\n" +
+		"no attachments here\r\n")
+	if atts := ForwardAttachments(raw); atts != nil {
+		t.Errorf("ForwardAttachments = %+v, want nil", atts)
 	}
 }
 
