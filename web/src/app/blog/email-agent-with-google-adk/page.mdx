@@ -180,10 +180,10 @@ try:
 except E2AWebhookSignatureError:
     raise HTTPException(status_code=401, detail="bad signature")
 
-msg = event.data  # the verified inbound message payload
+msg = event.data  # verified metadata (ids, sender, subject); fetch the body via client.messages.get
 ```
 
-This isn't optional. Anyone on the internet can POST to your public webhook URL — the HMAC signature is what proves the payload came from your e2a relay and not from someone trying to inject a fake email into your agent's session. If you skip the verify, every claim on the payload (sender, recipient, message id, body) becomes attacker-controlled. `construct_event` checks the HMAC over `{timestamp}.{raw_body}`, rejects replays older than 5 minutes, and parses the verified envelope — all in one call. Pass the raw bytes; re-serializing parsed JSON changes the whitespace and the signature won't match.
+This isn't optional. Anyone on the internet can POST to your public webhook URL — the HMAC signature is what proves the payload came from your e2a relay and not from someone trying to inject a fake email into your agent's session. If you skip the verify, every claim on the payload (sender, recipient, message id, subject) becomes attacker-controlled — and since the agent fetches the body using the payload's `message_id`, a forged id could even point it at a different message. `construct_event` checks the HMAC over `{timestamp}.{raw_body}`, rejects replays older than 5 minutes, and parses the verified envelope — all in one call. Pass the raw bytes; re-serializing parsed JSON changes the whitespace and the signature won't match.
 
 ## What this example deliberately doesn't show
 

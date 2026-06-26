@@ -73,7 +73,7 @@ from e2a.v1 import E2AClient, construct_event
 async def inbox(request):
     raw = await request.body()
     event = construct_event(raw, request.headers["X-E2A-Signature"], WEBHOOK_SECRET)
-    msg = event.data
+    msg = event.data  # metadata only (ids, sender, subject) — fetch the body via messages.get if you need it
     print(f"{msg['from']}: {msg['subject']}")
     async with E2AClient(api_key="e2a_...") as client:
         await client.messages.reply(
