@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.0.0
+
+Breaking: the domain DNS-records shape changed (server #304).
+
+### Changed
+- **`DomainView.dns_records` is now a single purpose-tagged array
+  (`list[DNSRecord]`).** Each record carries `type`, `name`, `value`,
+  `priority`, `purpose`, and `status`. Replaces the old
+  `dns_records.{ mx, txt, dkim }` object and the separate `sending_dns_records`
+  list. Address records by `purpose` (`ownership`, `inbound_mx`, `dkim`,
+  `mail_from_mx`, `mail_from_spf`) rather than `dns_records.mx`/`.txt`/`.dkim`.
+  The MAIL FROM records live in the same list (returned at registration when the
+  sending feature is enabled), and each record now has a per-record `status`
+  (`verified`/`pending`/`missing`/`failed`). `purpose` and `status` are open
+  sets — tolerate unknown values.
+
 ## 3.0.0
 
 Breaking redesign. The SDK is now a namespaced, **async-only** `E2AClient`
