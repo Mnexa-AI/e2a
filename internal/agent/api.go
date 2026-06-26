@@ -882,8 +882,10 @@ func (a *API) resolveAgentForUser(r *http.Request, email string, user *identity.
 
 // dnsRecordCheck holds the per-record probe results for the verify
 // endpoint. Values are "found" / "missing" — DKIM additionally supports
-// "deferred" when per-domain DKIM hasn't been provisioned for the
-// domain yet (legacy rows pre-migration 014).
+// "deferred" (per-domain DKIM not provisioned yet, legacy rows
+// pre-migration 014) and "mismatch" (a DKIM record is published at the
+// selector but doesn't match the issued key — almost always a truncated
+// or mis-copied TXT).
 type dnsRecordCheck struct {
 	TXTFound bool
 	MX       string
@@ -903,8 +905,10 @@ type dnsRecordCheck struct {
 //     as a substring — operators commonly use either form.
 //   - DKIM: when dkimSelector + dkimPublicKey are present, looks up
 //     "{selector}._domainkey.{domain}" and matches the stored public
-//     key. Domains without a stored keypair report "deferred" — these
-//     are pre-migration rows that the next claim would key.
+//     key — "found" on a match, "mismatch" when a key is published but
+//     doesn't match (see classifyDKIM), "missing" when none is present.
+//     Domains without a stored keypair report "deferred" — these are
+//     pre-migration rows that the next claim would key.
 //
 // DNSRecordCheck is the exported diagnostic from CheckDomainRecords.
 type DNSRecordCheck struct {
@@ -962,24 +966,47 @@ func checkDomainRecords(domain, smtpDomain, verificationToken, dkimSelector, dki
 
 	// DKIM: only probe if we have a stored keypair for the domain. The
 	// expected DNS name is "{selector}._domainkey.{domain}" with a
-	// "v=DKIM1; k=rsa; p=<base64>" value. We treat the record as
-	// "found" if any TXT at that name contains a "p=" payload matching
-	// the stored public key — operators sometimes paste extra tags
-	// (s=, t=, etc.) which we tolerate.
+	// "v=DKIM1; k=rsa; p=<base64>" value. classifyDKIM matches the stored
+	// public key, tolerating extra tags (s=, t=, etc.) operators paste.
 	if dkimSelector != "" && dkimPublicKey != "" {
 		check.DKIM = "missing"
 		dkimName := fmt.Sprintf("%s._domainkey.%s", dkimSelector, domain)
 		if txts, err := net.LookupTXT(dkimName); err == nil {
-			for _, txt := range txts {
-				if got := dkim.ExtractPublicKeyFromTXT(txt); got != "" && got == dkimPublicKey {
-					check.DKIM = "found"
-					break
-				}
-			}
+			check.DKIM = classifyDKIM(txts, dkimPublicKey)
 		}
 	}
 
 	return check
+}
+
+// classifyDKIM maps the TXT records found at a domain's DKIM selector name
+// to a probe state, given the public key we issued:
+//
+//   - "found"    — some record's p= payload equals the issued key.
+//   - "mismatch" — a p= is published at the selector but none match. This is
+//     almost always a TRUNCATED or mis-copied record: the DKIM TXT is ~400
+//     chars and is frequently clipped on publish (split wrong, pasted short,
+//     or transcribed from a UI). Reporting it distinctly is what lets verify
+//     tell the user to re-publish the FULL value, instead of the misleading
+//     "missing → pending forever" that a silent truncation otherwise looks
+//     like.
+//   - "missing"  — no p= payload present at the selector name at all.
+//
+// A match wins over a mismatch (a domain may briefly serve both an old and a
+// new key during rotation).
+func classifyDKIM(txts []string, expectedPublicKey string) string {
+	state := "missing"
+	for _, txt := range txts {
+		got := dkim.ExtractPublicKeyFromTXT(txt)
+		if got == "" {
+			continue
+		}
+		if got == expectedPublicKey {
+			return "found"
+		}
+		state = "mismatch"
+	}
+	return state
 }
 
 // holdForApproval persists a fully composed outbound SendRequest as a

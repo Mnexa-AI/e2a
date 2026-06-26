@@ -165,7 +165,7 @@ type VerifyDomainView struct {
 	VerifiedAt *time.Time `json:"verified_at,omitempty"`
 	MX         string     `json:"mx,omitempty"`
 	SPF        string     `json:"spf,omitempty"`
-	DKIM       string     `json:"dkim,omitempty"`
+	DKIM       string     `json:"dkim,omitempty" doc:"Live DKIM probe state. Known values: found, missing, deferred, mismatch. 'mismatch' means a DKIM record IS published at the selector but its key doesn't match the issued one — almost always a truncated/clipped TXT (the value is ~400 chars and must be published in full, ending in 'AQAB'). On 'mismatch', re-publish the complete DKIM record; do not just wait."`
 }
 
 // listDomainsOutput uses the shared Page[T] envelope (items + next_cursor);
