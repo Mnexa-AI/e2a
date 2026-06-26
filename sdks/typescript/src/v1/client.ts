@@ -68,6 +68,7 @@ import { RetryHttpLibrary, type RetryOptions } from "./retry.js";
 import { E2AError, fromApiException, connectionError } from "./errors.js";
 import { AutoPager } from "./pagination.js";
 import { WSStream } from "./ws.js";
+import type { WebhookEvent, EmailReceivedPayload } from "./webhook-signature.js";
 
 export interface E2AClientOptions {
   /** Account (`e2a_acct_`) or agent (`e2a_agt_`) key, or an OAuth access token.
@@ -148,7 +149,7 @@ export class E2AClient {
     this.conversations = new ConversationsResource(new PromiseConversationsApi(config));
     this.domains = new DomainsResource(new PromiseDomainsApi(config));
     this.events = new EventsResource(new PromiseEventsApi(config));
-    this.webhooks = new WebhooksResource(new PromiseWebhooksApi(config));
+    this.webhooks = new WebhooksResource(new PromiseWebhooksApi(config), this.messages);
     this.account = new AccountResource(new PromiseAccountApi(config));
     this.reviews = new ReviewsResource(new PromiseReviewsApi(config));
     this.meta = new PromiseMetaApi(config);
@@ -372,7 +373,28 @@ class EventsResource {
 }
 
 class WebhooksResource {
-  constructor(private readonly api: PromiseWebhooksApi) {}
+  constructor(
+    private readonly api: PromiseWebhooksApi,
+    private readonly messages: MessagesResource,
+  ) {}
+
+  /**
+   * Fetch the full message referenced by an `email.received` event. The event
+   * is a metadata-only notification; this resolves its (recipient, message_id)
+   * fetch keys and returns the full {@link MessageView} (body, attachments,
+   * signed headers). Throws if the event is not an `email.received` carrying
+   * those keys.
+   */
+  fetchMessage(event: WebhookEvent): Promise<MessageView> {
+    const d = event.data as EmailReceivedPayload | undefined;
+    if (event.type !== "email.received" || !d?.message_id || !d?.recipient) {
+      throw new Error(
+        "fetchMessage expects an email.received event with message_id and recipient",
+      );
+    }
+    return this.messages.get(d.recipient, d.message_id);
+  }
+
   list(): AutoPager<WebhookView> {
     // No cursor param: single-page at GA — see AgentsResource.list / deliveries.
     return new AutoPager(async () => ({ items: (await call(() => this.api.listWebhooks())).items ?? [] }));

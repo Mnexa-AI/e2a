@@ -13,6 +13,7 @@
 
 import { createHmac, timingSafeEqual } from "crypto";
 import { E2AWebhookSignatureError } from "./errors.js";
+import { AuthVerdict } from "./generated/models/all.js";
 
 export interface VerifySignatureOptions {
   /** Raw HTTP request body bytes. */
@@ -77,6 +78,30 @@ export interface WebhookEvent {
   created_at?: string;
   data: unknown;
   [k: string]: unknown;
+}
+
+/** Typed payload of an `email.received` event. The event is a metadata-only
+ *  notification — it does NOT carry the message body. `message_id` + `recipient`
+ *  are the fetch keys; pass the event to {@link E2AClient.webhooks.fetchMessage}
+ *  (or call `client.messages.get(recipient, message_id)`) to retrieve the full
+ *  message (body + attachments + signed headers). `auth` is the structured
+ *  inbound trust verdict, the same shape as `MessageView.auth`. */
+export interface EmailReceivedPayload {
+  message_id: string;
+  conversation_id?: string;
+  agent: { id: string; email: string; domain: string };
+  /** Display/reply sender (prefers Reply-To). For the authenticated, gated
+   *  identity use `authenticated_from`. */
+  from: string;
+  authenticated_from: string;
+  to: string[];
+  cc?: string[];
+  reply_to?: string[];
+  /** The agent address the message was delivered to — the fetch key. */
+  recipient: string;
+  subject: string;
+  auth?: AuthVerdict;
+  received_at: string;
 }
 
 export interface ConstructEventOptions {

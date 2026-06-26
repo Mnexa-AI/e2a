@@ -16,6 +16,7 @@ from e2a.v1.errors import (
     E2APermissionError,
     E2AValidationError,
 )
+from e2a.v1.webhook_signature import WebhookEvent
 from e2a.v1.generated.models import (
     AgentView,
     AttachmentView,
@@ -23,6 +24,7 @@ from e2a.v1.generated.models import (
     DomainView,
     EventJSON,
     MessageSummaryView,
+    MessageView,
     ReviewView,
     Suppression,
     WebhookDeliveryView,
@@ -162,6 +164,38 @@ async def test_get_attachment_hits_endpoint_and_maps_view(httpx_mock):
     assert req.method == "GET"
     assert "/messages/msg_1/attachments/0" in str(req.url)
     assert "inline=true" in str(req.url)
+
+
+@pytest.mark.anyio
+async def test_webhooks_fetch_message_resolves_keys(httpx_mock):
+    # email.received is metadata-only; fetch_message resolves (recipient,
+    # message_id) into the full-message GET.
+    httpx_mock.add_response(json=_valid(MessageView, message_id="msg_9", subject="Hi"))
+    event = WebhookEvent(
+        type="email.received",
+        data={"message_id": "msg_9", "recipient": "bot@test.dev"},
+        id="evt_1",
+    )
+    async with _client() as c:
+        msg = await c.webhooks.fetch_message(event)
+    assert msg.message_id == "msg_9"
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "GET"
+    assert "/messages/msg_9" in str(req.url)
+    assert "bot%40test.dev" in str(req.url)
+
+
+@pytest.mark.anyio
+async def test_webhooks_fetch_message_rejects_bad_event():
+    async with _client() as c:
+        with pytest.raises(ValueError, match="email.received"):
+            await c.webhooks.fetch_message(
+                WebhookEvent(type="email.bounced", data={"message_id": "m", "recipient": "r"})
+            )
+        with pytest.raises(ValueError, match="recipient"):
+            await c.webhooks.fetch_message(
+                WebhookEvent(type="email.received", data={"message_id": "m"})
+            )
 
 
 @pytest.mark.anyio

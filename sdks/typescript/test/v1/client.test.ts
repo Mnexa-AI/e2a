@@ -197,6 +197,32 @@ describe("E2AClient", () => {
     expect(att.sizeBytes).toBe(14);
   });
 
+  // ── webhooks.fetchMessage: email.received is metadata-only ──────
+  it("webhooks.fetchMessage resolves (recipient, message_id) → GET the full message", async () => {
+    globalThis.fetch = mockFetch(200, { message_id: "msg_9", subject: "Hi", raw_message: "..." });
+    const event = {
+      id: "evt_1",
+      type: "email.received",
+      data: { message_id: "msg_9", recipient: "bot@test.dev" },
+    };
+    const msg = await client.webhooks.fetchMessage(event);
+    const { url, init } = lastCall();
+    expect(init.method).toBe("GET");
+    // the fetch keys carried by the metadata-only event drive the URL
+    expect(url).toContain("/messages/msg_9");
+    expect(url).toContain("bot%40test.dev");
+    expect(msg.messageId).toBe("msg_9");
+  });
+
+  it("webhooks.fetchMessage rejects a non-received event or missing fetch keys", async () => {
+    expect(() =>
+      client.webhooks.fetchMessage({ type: "email.bounced", data: { message_id: "m", recipient: "r" } }),
+    ).toThrow(/email\.received/);
+    expect(() =>
+      client.webhooks.fetchMessage({ type: "email.received", data: { message_id: "m" } }),
+    ).toThrow(/recipient/);
+  });
+
   // ── Reviews: account-scoped, id-addressed (no inbox email) ──────
   it("reviews.approve hits POST /v1/reviews/{id}/approve (no inbox email) + mints Idempotency-Key", async () => {
     globalThis.fetch = mockFetch(200, { message_id: "msg_r1", status: "sent" });

@@ -45,6 +45,7 @@ export type {
   VerifySignatureOptions,
   ConstructEventOptions,
   WebhookEvent,
+  EmailReceivedPayload,
 } from "./webhook-signature.js";
 
 // Real-time WebSocket stream.
