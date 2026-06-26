@@ -245,6 +245,21 @@ jobs:
       - run: npm test --workspace @e2a/cli
       - run: npm run build --workspace @e2a/cli
 
+  deps-sync:
+    # Guardrail: in-repo consumers (mcp, cli) must declare an @e2a/sdk range the
+    # workspace SDK satisfies, or npm links a STALE published SDK instead of the
+    # workspace (the bug that shipped dnsRecords: {} over MCP after the SDK
+    # majored to 4.0.0). Fails the moment the SDK majors without consumers bumping.
+    name: Internal SDK version sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node scripts/check-sdk-version-sync.mjs
+
   mcp:
     name: MCP server tests
     runs-on: ubuntu-latest
