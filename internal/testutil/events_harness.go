@@ -60,7 +60,8 @@ func NewEventsAPIHarness(t *testing.T, pool *pgxpool.Pool, store *identity.Store
 		SubscriberStore: subscriberStore, Idempotency: idempotencyStore, Pool: pool,
 		SMTPDomain: "test.e2a.dev", SharedDomain: "agents.e2a.dev",
 		PublicURL: "http://127.0.0.1", Production: false,
-		Legacy: router,
+		EventsEnabled: outbox.Enabled(),
+		Legacy:        router,
 	})
 
 	srv := httptest.NewServer(v1)

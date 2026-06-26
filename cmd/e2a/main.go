@@ -438,6 +438,7 @@ func main() {
 		SharedDomain:    cfg.SharedDomain,
 		PublicURL:       cfg.HTTP.PublicURL,
 		SigningSecret:   cfg.Signing.HMACSecret,
+		EventsEnabled:   webhookOutbox.Enabled(),
 		Production:      cfg.IsProduction(),
 		Legacy:          router,
 		WSHandle:        wsHandler.ServeWithEmail,

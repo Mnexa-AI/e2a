@@ -134,7 +134,8 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 		SubscriberStore: subscriberStore, Idempotency: idempotencyStore, Pool: pool,
 		SMTPDomain: "test.e2a.dev", SharedDomain: "agents.e2a.dev",
 		PublicURL: "http://127.0.0.1", Production: false,
-		Legacy: router, WSHandle: wsHandler.ServeWithEmail,
+		EventsEnabled: true,
+		Legacy:        router, WSHandle: wsHandler.ServeWithEmail,
 	})
 
 	httpServer := httptest.NewServer(v1)

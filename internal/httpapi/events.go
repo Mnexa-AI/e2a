@@ -120,6 +120,9 @@ func (s *Server) handleRedeliverEvent(ctx context.Context, in *RedeliverEventInp
 	if err != nil {
 		return nil, err
 	}
+	if err := s.requireEventsEnabled(); err != nil {
+		return nil, err
+	}
 	if s.deps.LoadReplayEvent == nil || s.deps.InsertReplayDelivery == nil {
 		return nil, NewError(http.StatusNotFound, "not_found", "events API not configured")
 	}
@@ -197,9 +200,26 @@ func containsStr(ss []string, want string) bool {
 	return false
 }
 
+// requireEventsEnabled returns a 501 when the durable event log isn't
+// populated on this deployment (WEBHOOKS_OUTBOX_ENABLED off). Without this the
+// list/get/redeliver handlers would query the empty webhook_events table and
+// return "no events" — indistinguishable from a deployment where events simply
+// haven't happened. The explicit error makes the disabled state legible.
+// Webhook *delivery* is unaffected; the legacy publisher handles it.
+func (s *Server) requireEventsEnabled() error {
+	if !s.deps.EventsEnabled {
+		return NewError(http.StatusNotImplemented, "events_log_disabled",
+			"the event log (list/get/redeliver events) is not enabled on this deployment; webhook delivery is unaffected")
+	}
+	return nil
+}
+
 func (s *Server) handleListEvents(ctx context.Context, in *ListEventsInput) (*listEventsOutput, error) {
 	user, err := s.requireAccountUser(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.requireEventsEnabled(); err != nil {
 		return nil, err
 	}
 	if s.deps.ListEvents == nil {
@@ -262,6 +282,9 @@ func (s *Server) handleGetEvent(ctx context.Context, in *struct {
 }) (*eventOutput, error) {
 	user, err := s.requireAccountUser(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.requireEventsEnabled(); err != nil {
 		return nil, err
 	}
 	if s.deps.GetEvent2 == nil {

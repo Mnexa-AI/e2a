@@ -78,7 +78,8 @@ func StartContractServer(ctx context.Context, dbURL string) (*ContractServer, er
 		SubscriberStore: subscriberStore, Idempotency: idempotencyStore, Pool: pool,
 		SMTPDomain: "test.e2a.dev", SharedDomain: "agents.e2a.dev",
 		PublicURL: "http://127.0.0.1", Production: false,
-		Legacy: router, WSHandle: wsHandler.ServeWithEmail,
+		EventsEnabled: true,
+		Legacy:        router, WSHandle: wsHandler.ServeWithEmail,
 	})
 
 	httpLn, err := net.Listen("tcp", "127.0.0.1:0")

@@ -235,6 +235,7 @@ func testServer(t *testing.T) *httptest.Server {
 		DeleteUserData: func(ctx context.Context, user *identity.User) (*identity.DeleteUserDataResult, error) {
 			return &identity.DeleteUserDataResult{}, nil
 		},
+		EventsEnabled: true,
 		ListEvents: func(ctx context.Context, q EventQuery) ([]agent.EventJSON, error) {
 			// Two events, honoring Limit + cursor (CursorID) so the
 			// cursor round-trip is exercised.
