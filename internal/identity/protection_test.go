@@ -44,11 +44,15 @@ func TestUpdateAgentProtectionRoundTrip(t *testing.T) {
 	if fresh.InboundScanSensitivity != identity.SensitivityOff || fresh.OutboundScanSensitivity != identity.SensitivityOff {
 		t.Errorf("default sensitivity = %q/%q, want off/off", fresh.InboundScanSensitivity, fresh.OutboundScanSensitivity)
 	}
+	if fresh.InboundRequireAuth {
+		t.Error("fresh agent should default inbound_require_auth=false (#318)")
+	}
 
 	cfg := identity.ProtectionConfig{
 		InboundGatePolicy:       "allowlist",
 		InboundAllowlist:        []string{"partner@acme.com"},
 		InboundGateAction:       "review",
+		InboundRequireAuth:      true,
 		InboundScanSensitivity:  identity.SensitivityHigh,
 		OutboundGatePolicy:      "domain",
 		OutboundAllowlist:       []string{"acme.com"},
@@ -74,6 +78,9 @@ func TestUpdateAgentProtectionRoundTrip(t *testing.T) {
 	}
 	if len(got.InboundAllowlist) != 1 || got.InboundAllowlist[0] != "partner@acme.com" {
 		t.Errorf("inbound allowlist not persisted: %v", got.InboundAllowlist)
+	}
+	if !got.InboundRequireAuth {
+		t.Error("inbound_require_auth not persisted (#318)")
 	}
 	// Sensitivity (source of truth) persisted.
 	if got.InboundScanSensitivity != identity.SensitivityHigh || got.OutboundScanSensitivity != identity.SensitivityOff {

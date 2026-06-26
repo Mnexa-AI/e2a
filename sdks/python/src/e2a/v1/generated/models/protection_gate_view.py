@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from typing_extensions import Annotated
 from typing import Optional, Set
@@ -30,7 +30,8 @@ class ProtectionGateView(BaseModel):
     action: Optional[StrictStr] = Field(default='flag', description="What a gate non-match does: flag (deliver + annotate), review (hold), block.")
     allowlist: Optional[Annotated[List[StrictStr], Field(max_length=1000)]] = Field(default=None, description="Addresses (allowlist) or domains (domain) the gate trusts; ignored for open.")
     policy: Optional[StrictStr] = Field(default='open', description="Trust gate: open (all), domain (listed domains), allowlist (listed addresses).")
-    __properties: ClassVar[List[str]] = ["action", "allowlist", "policy"]
+    require_authenticated: Optional[StrictBool] = Field(default=None, description="Inbound gate only: when true, flag any sender whose From is not DMARC-aligned-authenticated, regardless of policy. Default false. Ignored on the outbound gate.")
+    __properties: ClassVar[List[str]] = ["action", "allowlist", "policy", "require_authenticated"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -85,7 +86,8 @@ class ProtectionGateView(BaseModel):
         _obj = cls.model_validate({
             "action": obj.get("action") if obj.get("action") is not None else 'flag',
             "allowlist": obj.get("allowlist"),
-            "policy": obj.get("policy") if obj.get("policy") is not None else 'open'
+            "policy": obj.get("policy") if obj.get("policy") is not None else 'open',
+            "require_authenticated": obj.get("require_authenticated")
         })
         return _obj
 

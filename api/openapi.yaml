@@ -125,6 +125,8 @@ components:
           type: string
         inbound_policy_action:
           type: string
+        inbound_require_auth:
+          type: boolean
         inbound_scan:
           type: string
         inbound_scan_block_threshold:
@@ -193,6 +195,7 @@ components:
         - pending_count
         - webhook_healthy
         - inbound_policy
+        - inbound_require_auth
         - inbound_policy_action
         - outbound_policy
         - outbound_policy_action
@@ -1485,6 +1488,9 @@ components:
             - allowlist
             - domain
           type: string
+        require_authenticated:
+          description: "Inbound gate only: when true, flag any sender whose From is not DMARC-aligned-authenticated, regardless of policy. Default false. Ignored on the outbound gate."
+          type: boolean
       type: object
     ProtectionHoldsView:
       additionalProperties: false

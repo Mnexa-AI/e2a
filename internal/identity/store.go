@@ -124,6 +124,10 @@ type AgentIdentity struct {
 	// trusts; empty for open.
 	InboundPolicy    string   `json:"inbound_policy"`
 	InboundAllowlist []string `json:"inbound_allowlist,omitempty"`
+	// InboundRequireAuth (migration 050 / #318) is the opt-in additive flag that
+	// requires an inbound sender's From to be DMARC-aligned-authenticated before it
+	// is trusted. Composes with InboundPolicy; defaults false (column default).
+	InboundRequireAuth bool `json:"inbound_require_auth"`
 	// Screening config (migration 038 / Slice 3). The producer-policy actions
 	// decide what a gate/scan violation does (flag|review|block); outbound_policy +
 	// outbound_allowlist are the egress recipient gate (open|allowlist|domain);
@@ -759,7 +763,7 @@ func (s *Store) GetAgentByID(ctx context.Context, id string) (*AgentIdentity, er
 		`SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at,
 		        a.hitl_ttl_seconds, a.hitl_expiration_action,
 		        COALESCE(a.inbound_policy, 'open'), a.inbound_allowlist,
-		        a.inbound_policy_action,
+		        a.inbound_policy_action, COALESCE(a.inbound_require_auth, false),
 		        a.outbound_policy, a.outbound_allowlist, a.outbound_policy_action,
 		        a.inbound_scan, a.inbound_scan_review_threshold, a.inbound_scan_block_threshold,
 		        a.outbound_scan, a.outbound_scan_review_threshold, a.outbound_scan_block_threshold,
@@ -772,7 +776,7 @@ func (s *Store) GetAgentByID(ctx context.Context, id string) (*AgentIdentity, er
 	).Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt,
 		&a.HITLTTLSeconds, &a.HITLExpirationAction,
 		&a.InboundPolicy, &a.InboundAllowlist,
-		&a.InboundPolicyAction,
+		&a.InboundPolicyAction, &a.InboundRequireAuth,
 		&a.OutboundPolicy, &a.OutboundAllowlist, &a.OutboundPolicyAction,
 		&a.InboundScan, &a.InboundScanReviewThreshold, &a.InboundScanBlockThreshold,
 		&a.OutboundScan, &a.OutboundScanReviewThreshold, &a.OutboundScanBlockThreshold,
@@ -936,7 +940,7 @@ func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIde
 		`SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at,
 		        a.hitl_ttl_seconds, a.hitl_expiration_action,
 		        COALESCE(a.inbound_policy, 'open'), a.inbound_allowlist,
-		        a.inbound_policy_action,
+		        a.inbound_policy_action, COALESCE(a.inbound_require_auth, false),
 		        a.outbound_policy, a.outbound_allowlist, a.outbound_policy_action,
 		        a.inbound_scan, a.inbound_scan_review_threshold, a.inbound_scan_block_threshold,
 		        a.outbound_scan, a.outbound_scan_review_threshold, a.outbound_scan_block_threshold,
@@ -977,7 +981,7 @@ func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIde
 		if err := rows.Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt,
 			&a.HITLTTLSeconds, &a.HITLExpirationAction,
 			&a.InboundPolicy, &a.InboundAllowlist,
-			&a.InboundPolicyAction,
+			&a.InboundPolicyAction, &a.InboundRequireAuth,
 			&a.OutboundPolicy, &a.OutboundAllowlist, &a.OutboundPolicyAction,
 			&a.InboundScan, &a.InboundScanReviewThreshold, &a.InboundScanBlockThreshold,
 			&a.OutboundScan, &a.OutboundScanReviewThreshold, &a.OutboundScanBlockThreshold,

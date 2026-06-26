@@ -36,6 +36,7 @@ class AgentIdentity(BaseModel):
     inbound_allowlist: Optional[List[StrictStr]] = None
     inbound_policy: StrictStr
     inbound_policy_action: StrictStr
+    inbound_require_auth: StrictBool
     inbound_scan: StrictStr
     inbound_scan_block_threshold: Union[StrictFloat, StrictInt]
     inbound_scan_review_threshold: Union[StrictFloat, StrictInt]
@@ -56,7 +57,7 @@ class AgentIdentity(BaseModel):
     review_ttl_seconds: StrictInt
     user_id: StrictStr
     webhook_healthy: StrictBool
-    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "id", "inbound_7d", "inbound_allowlist", "inbound_policy", "inbound_policy_action", "inbound_scan", "inbound_scan_block_threshold", "inbound_scan_review_threshold", "inbound_scan_sensitivity", "last_delivery_at", "name", "outbound_7d", "outbound_allowlist", "outbound_policy", "outbound_policy_action", "outbound_scan", "outbound_scan_block_threshold", "outbound_scan_review_threshold", "outbound_scan_sensitivity", "pending_count", "public", "review_expiration_action", "review_ttl_seconds", "user_id", "webhook_healthy"]
+    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "id", "inbound_7d", "inbound_allowlist", "inbound_policy", "inbound_policy_action", "inbound_require_auth", "inbound_scan", "inbound_scan_block_threshold", "inbound_scan_review_threshold", "inbound_scan_sensitivity", "last_delivery_at", "name", "outbound_7d", "outbound_allowlist", "outbound_policy", "outbound_policy_action", "outbound_scan", "outbound_scan_block_threshold", "outbound_scan_review_threshold", "outbound_scan_sensitivity", "pending_count", "public", "review_expiration_action", "review_ttl_seconds", "user_id", "webhook_healthy"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -128,6 +129,7 @@ class AgentIdentity(BaseModel):
             "inbound_allowlist": obj.get("inbound_allowlist"),
             "inbound_policy": obj.get("inbound_policy"),
             "inbound_policy_action": obj.get("inbound_policy_action"),
+            "inbound_require_auth": obj.get("inbound_require_auth"),
             "inbound_scan": obj.get("inbound_scan"),
             "inbound_scan_block_threshold": obj.get("inbound_scan_block_threshold"),
             "inbound_scan_review_threshold": obj.get("inbound_scan_review_threshold"),

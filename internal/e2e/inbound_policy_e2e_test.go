@@ -133,6 +133,47 @@ func TestInboundPolicy_AllowlistAcceptsMember(t *testing.T) {
 	}
 }
 
+// TestInboundPolicy_RequireAuthFlagsUnauthenticated: with the opt-in
+// inbound_require_auth flag set (#318), an allowlisted sender whose From is NOT
+// DMARC-aligned-authenticated (the e2e harness injects locally-unsigned mail, so
+// DMARC=fail) is FLAGGED — a spoofed allowlisted address cannot be trusted. This
+// is the opt-in inverse of TestInboundPolicy_AllowlistAcceptsMember, where the
+// same unauthenticated sender is NOT flagged because require_auth defaults off.
+func TestInboundPolicy_RequireAuthFlagsUnauthenticated(t *testing.T) {
+	ts, pool, agent, receiver := setupFlaggedAgent(t, "allowlist",
+		[]string{"friend@trusted.com"}, "agent@reqauth.example.com", "reqauth.example.com")
+
+	// Opt the agent into authenticated-sender enforcement.
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE agent_identities SET inbound_require_auth = true WHERE id = $1`, agent.ID); err != nil {
+		t.Fatalf("set inbound_require_auth: %v", err)
+	}
+
+	msg := "From: friend@trusted.com\r\nTo: agent@reqauth.example.com\r\nSubject: Hi\r\n\r\nHello"
+	if err := smtp.SendMail(ts.SMTPAddr, nil, "friend@trusted.com", []string{"agent@reqauth.example.com"}, []byte(msg)); err != nil {
+		t.Fatalf("SendMail: %v", err)
+	}
+
+	tick(t, ts)
+	got := receiver.WaitFor(t, 5*time.Second, func(c []testutil.SubscriberCaptured) bool {
+		return eventTypes(c)["email.received"] >= 1
+	})
+	// Delivered (never dropped) but flagged for failing authentication.
+	if types := eventTypes(got); types["email.received"] < 1 {
+		t.Errorf("message must still be delivered: %v", types)
+	}
+	if n := eventTypes(got)["email.flagged"]; n != 1 {
+		t.Errorf("require_auth: unauthenticated allowlisted sender should be flagged, got %d email.flagged", n)
+	}
+	flagged, reason := readFlagged(t, pool, agent.ID)
+	if !flagged {
+		t.Error("require_auth: unauthenticated sender not persisted as flagged")
+	}
+	if reason == "" {
+		t.Error("flagged row must carry a reason")
+	}
+}
+
 // TestInboundPolicy_EvaluatesFromNotReplyTo pins the security-critical property:
 // the policy is evaluated against the authenticated From identity, NOT the
 // attacker-controllable Reply-To. A spoofer puts a trusted address in Reply-To

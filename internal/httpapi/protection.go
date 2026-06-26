@@ -35,10 +35,17 @@ const protectionBetaDoc = "Beta: the agent protection config is unstable — its
 // allowlist/domain gate and is flagged (fail closed); under "open" it still passes.
 // Net: per-agent inbound allowlisting is reliable for sending-verified senders;
 // unverified intra-system senders are uniformly gated, not silently admitted.
+//
+// require_authenticated (#318) is the opt-in, composable anti-spoofing flag: when
+// set on the INBOUND gate, a From that is not DMARC-aligned-authenticated is flagged
+// regardless of policy (so a spoofed allowlisted address can't be trusted). Default
+// false keeps non-DMARC mail (forwards, lists) unflagged. Inbound gate only —
+// ignored on the outbound gate.
 type ProtectionGateView struct {
-	Policy    string   `json:"policy,omitempty" enum:"open,allowlist,domain" default:"open" doc:"Trust gate: open (all), domain (listed domains), allowlist (listed addresses)."`
-	Allowlist []string `json:"allowlist,omitempty" nullable:"false" maxItems:"1000" doc:"Addresses (allowlist) or domains (domain) the gate trusts; ignored for open."`
-	Action    string   `json:"action,omitempty" enum:"flag,review,block" default:"flag" doc:"What a gate non-match does: flag (deliver + annotate), review (hold), block."`
+	Policy              string   `json:"policy,omitempty" enum:"open,allowlist,domain" default:"open" doc:"Trust gate: open (all), domain (listed domains), allowlist (listed addresses)."`
+	Allowlist           []string `json:"allowlist,omitempty" nullable:"false" maxItems:"1000" doc:"Addresses (allowlist) or domains (domain) the gate trusts; ignored for open."`
+	Action              string   `json:"action,omitempty" enum:"flag,review,block" default:"flag" doc:"What a gate non-match does: flag (deliver + annotate), review (hold), block."`
+	RequireAuthenticated bool    `json:"require_authenticated,omitempty" doc:"Inbound gate only: when true, flag any sender whose From is not DMARC-aligned-authenticated, regardless of policy. Default false. Ignored on the outbound gate."`
 }
 
 // ProtectionScanView is one direction's content scan, as a semantic sensitivity
@@ -72,7 +79,7 @@ type ProtectionConfigView struct {
 func protectionViewFromIdentity(ag *identity.AgentIdentity) ProtectionConfigView {
 	return ProtectionConfigView{
 		Inbound: ProtectionDirectionView{
-			Gate: ProtectionGateView{Policy: ag.InboundPolicy, Allowlist: orEmpty(ag.InboundAllowlist), Action: ag.InboundPolicyAction},
+			Gate: ProtectionGateView{Policy: ag.InboundPolicy, Allowlist: orEmpty(ag.InboundAllowlist), Action: ag.InboundPolicyAction, RequireAuthenticated: ag.InboundRequireAuth},
 			Scan: ProtectionScanView{Sensitivity: ag.InboundScanSensitivity},
 		},
 		Outbound: ProtectionDirectionView{
@@ -88,6 +95,7 @@ func protectionConfigFromView(v ProtectionConfigView) identity.ProtectionConfig 
 		InboundGatePolicy:       v.Inbound.Gate.Policy,
 		InboundAllowlist:        v.Inbound.Gate.Allowlist,
 		InboundGateAction:       v.Inbound.Gate.Action,
+		InboundRequireAuth:      v.Inbound.Gate.RequireAuthenticated,
 		InboundScanSensitivity:  v.Inbound.Scan.Sensitivity,
 		OutboundGatePolicy:      v.Outbound.Gate.Policy,
 		OutboundAllowlist:       v.Outbound.Gate.Allowlist,

@@ -1,0 +1,21 @@
+-- 050_inbound_require_auth.sql
+--
+-- Opt-in per-agent inbound-gate flag: require the sender's From identity to be
+-- DMARC-aligned-authenticated before it is trusted. This is the composable,
+-- additive return of the dropped `verified_only` posture (migration 047) — it
+-- COMPOSES with the trust ladder instead of replacing it:
+--
+--   inbound_require_auth = false (default)
+--       gate behaves exactly as today (open | allowlist | domain).
+--   inbound_require_auth = true
+--       an unauthenticated (spoofable) From is FLAGGED regardless of policy;
+--       under allowlist/domain the list is still checked for authenticated mail.
+--
+-- Default false preserves backward-compatible behavior — legitimate mail that is
+-- not DMARC-aligned (forwards, lists, domains without DMARC) is not flagged unless
+-- an operator opts in. Closes the From-spoofing gap on the allowlist gate (#318).
+--
+-- Idempotent + non-destructive: ADD COLUMN with a constant default does not
+-- rewrite the table (Postgres 11+).
+ALTER TABLE agent_identities
+    ADD COLUMN IF NOT EXISTS inbound_require_auth BOOLEAN NOT NULL DEFAULT false;

@@ -299,14 +299,24 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	}
 
 	// Inbound trust policy ingestion gate (decision 10 / Slice 7a). Evaluate the
-	// agent's policy against the AUTHENTICATED From identity (senderEmail — what
-	// SPF/DKIM/DMARC pertain to), NOT displaySender (Reply-To is attacker-
-	// controllable). A non-match is FLAGGED — still delivered (never dropped),
-	// marked on the row, and emits email.flagged so operators get a signal.
+	// agent's policy against the From identity (senderEmail), NOT displaySender
+	// (Reply-To is attacker-controllable). A non-match is FLAGGED — still delivered
+	// (never dropped), marked on the row, and emits email.flagged so operators get
+	// a signal.
 	//
-	// senderResolvable fails the gate closed for shared-relay "via e2a" mail,
-	// which authenticates but carries no per-agent identity (#299).
-	policyDecision := inboundpolicy.EvaluateIngestion(agent.InboundPolicy, agent.InboundAllowlist, senderEmail, s.senderResolvable(senderEmail))
+	// senderResolvable fails the gate closed for shared-relay "via e2a" mail, which
+	// authenticates but carries no per-agent identity (#299). When the agent opts in
+	// to inbound_require_auth (#318), an unauthenticated From is flagged regardless
+	// of policy — use the aligned DMARC verdict, not DomainAuthenticated() (SPF/DKIM
+	// pass without From-alignment is still spoofable).
+	policyDecision := inboundpolicy.EvaluateIngestion(inboundpolicy.Request{
+		Policy:              agent.InboundPolicy,
+		Allowlist:           agent.InboundAllowlist,
+		SenderEmail:         senderEmail,
+		SenderResolvable:    s.senderResolvable(senderEmail),
+		SenderAuthenticated: domainAuth != nil && domainAuth.DMARC.Status == emailauth.StatusPass,
+		RequireAuth:         agent.InboundRequireAuth,
+	})
 
 	// Content screening (Slice 4): run the per-agent inbound scan and record the
 	// audit trail (protection_events) + the denormalized verdict. Detection +

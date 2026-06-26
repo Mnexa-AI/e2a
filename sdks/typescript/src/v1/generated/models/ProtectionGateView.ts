@@ -25,6 +25,10 @@ export class ProtectionGateView {
     * Trust gate: open (all), domain (listed domains), allowlist (listed addresses).
     */
     'policy'?: ProtectionGateViewPolicyEnum;
+    /**
+    * Inbound gate only: when true, flag any sender whose From is not DMARC-aligned-authenticated, regardless of policy. Default false. Ignored on the outbound gate.
+    */
+    'requireAuthenticated'?: boolean;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -47,6 +51,12 @@ export class ProtectionGateView {
             "name": "policy",
             "baseName": "policy",
             "type": "ProtectionGateViewPolicyEnum",
+            "format": ""
+        },
+        {
+            "name": "requireAuthenticated",
+            "baseName": "require_authenticated",
+            "type": "boolean",
             "format": ""
         }    ];
 

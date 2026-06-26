@@ -22,6 +22,7 @@ export class AgentIdentity {
     'inboundAllowlist'?: Array<string> | null;
     'inboundPolicy': string;
     'inboundPolicyAction': string;
+    'inboundRequireAuth': boolean;
     'inboundScan': string;
     'inboundScanBlockThreshold': number;
     'inboundScanReviewThreshold': number;
@@ -100,6 +101,12 @@ export class AgentIdentity {
             "name": "inboundPolicyAction",
             "baseName": "inbound_policy_action",
             "type": "string",
+            "format": ""
+        },
+        {
+            "name": "inboundRequireAuth",
+            "baseName": "inbound_require_auth",
+            "type": "boolean",
             "format": ""
         },
         {

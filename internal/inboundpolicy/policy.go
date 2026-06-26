@@ -48,46 +48,73 @@ type Decision struct {
 	Reason  string // human-readable; empty when not flagged
 }
 
-// unresolvableSenderReason is the fail-closed flag reason for a sender with no
-// specific authenticated identity (shared-relay "via e2a" mail) under a gating
-// policy — see senderResolvable in the relay and issue #299.
-const unresolvableSenderReason = "sender has no resolvable per-agent identity (shared relay), so it cannot match a per-agent inbound gate"
+// Fail-closed flag reasons.
+const (
+	// unresolvableSenderReason: the From has no per-agent identity — shared-relay
+	// "via e2a" mail (#299). See senderResolvable in the relay.
+	unresolvableSenderReason = "sender has no resolvable per-agent identity (shared relay), so it cannot match a per-agent inbound gate"
+	// unauthenticatedSenderReason: require_authenticated is set and the From is not
+	// DMARC-aligned-authenticated, so it may be spoofed and is not trusted (#318).
+	unauthenticatedSenderReason = "sender From identity is not DMARC-authenticated and the gate requires authentication"
+)
+
+// Request is the per-message input to EvaluateIngestion. A struct (not positional
+// args) because the gate composes several orthogonal predicates.
+type Request struct {
+	// Policy is the agent's inbound_policy (unknown/empty → treated as Open).
+	Policy string
+	// Allowlist is the agent's inbound_allowlist (addresses for Allowlist, domains
+	// for Domain); matching is case-insensitive.
+	Allowlist []string
+	// SenderEmail is the message's From identity (the authenticated-from, not
+	// Reply-To).
+	SenderEmail string
+	// SenderResolvable: false for mail relayed under the shared "via e2a" address,
+	// which authenticates but carries no per-agent identity (#299). An unresolvable
+	// sender can never satisfy a per-agent allowlist/domain gate.
+	SenderResolvable bool
+	// SenderAuthenticated: whether SenderEmail is DMARC-aligned-authenticated
+	// (RFC 7489). Only consulted when RequireAuth is set.
+	SenderAuthenticated bool
+	// RequireAuth is the agent's opt-in inbound_require_auth flag (#318). When set,
+	// an unauthenticated From is flagged regardless of policy — the composable,
+	// additive anti-spoofing posture. Off by default (backward-compatible).
+	RequireAuth bool
+}
 
 // EvaluateIngestion applies the agent's ingestion policy to an inbound message.
-//   - policy: the agent's inbound_policy (unknown/empty → treated as Open).
-//   - allowlist: the agent's inbound_allowlist (addresses for Allowlist,
-//     domains for Domain); matching is case-insensitive.
-//   - senderEmail: the message's display sender (From identity).
-//   - senderResolvable: whether senderEmail maps to a SPECIFIC authenticated
-//     sender. False for mail relayed under the shared "via e2a" address, which
-//     authenticates (DMARC passes for the relay domain) but carries no per-agent
-//     identity (#299). An unresolvable sender can never legitimately satisfy a
-//     per-agent allowlist/domain gate, so it is treated as a non-match. Open is
-//     unaffected — open means open.
 //
 // Flagged is fail-closed for the gating postures: an empty/garbage sender, an
-// empty allowlist, or an unresolvable sender flags everything (you opted into a
-// gate but the sender cannot be matched).
-func EvaluateIngestion(policy string, allowlist []string, senderEmail string, senderResolvable bool) Decision {
-	switch policy {
+// empty allowlist, an unresolvable sender, or (when RequireAuth is set) an
+// unauthenticated sender flags everything. Open never flags on policy alone, but
+// RequireAuth still applies (it is an additive precondition across all policies).
+func EvaluateIngestion(r Request) Decision {
+	// Additive anti-spoofing precondition (#318): an opted-in agent never trusts an
+	// unauthenticated From, on any policy. Open + require_auth ≈ the old
+	// verified_only posture; allowlist/domain + require_auth additionally checks the
+	// list for authenticated mail below.
+	if r.RequireAuth && !r.SenderAuthenticated {
+		return Decision{Flagged: true, Reason: unauthenticatedSenderReason}
+	}
+	switch r.Policy {
 	case Allowlist:
-		if !senderResolvable {
+		if !r.SenderResolvable {
 			return Decision{Flagged: true, Reason: unresolvableSenderReason}
 		}
-		if containsFold(allowlist, strings.TrimSpace(senderEmail)) {
+		if containsFold(r.Allowlist, strings.TrimSpace(r.SenderEmail)) {
 			return Decision{}
 		}
 		return Decision{Flagged: true, Reason: "sender not on the agent's inbound allowlist"}
 	case Domain:
-		if !senderResolvable {
+		if !r.SenderResolvable {
 			return Decision{Flagged: true, Reason: unresolvableSenderReason}
 		}
-		dom := domainOf(senderEmail)
-		if dom != "" && containsFold(allowlist, dom) {
+		dom := domainOf(r.SenderEmail)
+		if dom != "" && containsFold(r.Allowlist, dom) {
 			return Decision{}
 		}
 		return Decision{Flagged: true, Reason: "sender domain not on the agent's inbound allowlist"}
-	default: // Open or unknown → never flag
+	default: // Open or unknown → never flag on policy (RequireAuth handled above)
 		return Decision{}
 	}
 }
