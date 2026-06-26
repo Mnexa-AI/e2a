@@ -150,6 +150,20 @@ func TestVerifyDomainTXTMissing(t *testing.T) {
 	}
 }
 
+// TestVerifyDomainMXMissing — verification now requires the inbound MX too, not
+// just the ownership TXT, so that inbound_mx.status="verified" (derived from the
+// domain's verified flag) is honest. TXT present but MX missing ⇒ 412, not verified.
+func TestVerifyDomainMXMissing(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/domains/nomx.com/verify", "good", nil)
+	if code != 412 || body["verified"] != false {
+		t.Fatalf("want 412 not-verified (MX missing), got %d %v", code, body)
+	}
+	if body["mx"] != "missing" {
+		t.Fatalf("expected mx=missing diagnostic in 412 body, got %v", body)
+	}
+}
+
 func TestVerifyDomainSuccess(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/domains/fresh.com/verify", "good", nil)

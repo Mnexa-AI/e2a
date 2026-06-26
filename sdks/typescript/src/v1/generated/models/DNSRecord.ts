@@ -26,7 +26,7 @@ export class DNSRecord {
     */
     'purpose': string;
     /**
-    * Per-record verification state. Open set; tolerate unknown values. Known values: verified, pending, missing, failed.
+    * Per-record verification state. Open set; tolerate unknown values. Known values: verified, pending, missing, failed. Inbound records (ownership, inbound_mx) become verified once inbound verification passes, which requires BOTH the ownership TXT and the inbound MX. Sending records (dkim, mail_from_mx, mail_from_spf) share the SES sending_status rollup, which is all-or-nothing: a failed value can mean only one of DKIM or MAIL FROM failed; consult sending_error for the specific reason. A per-record SES breakdown is a planned enhancement.
     */
     'status': string;
     /**

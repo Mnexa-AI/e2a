@@ -28,7 +28,7 @@ type DNSRecord struct {
 	Value    string `json:"value" doc:"Record value. For MX records this is the mail-server host only; the priority is in the priority field."`
 	Priority *int   `json:"priority" doc:"MX priority. Null for non-MX records."`
 	Purpose  string `json:"purpose" doc:"What the record is for. Open set; tolerate unknown values. Known values: ownership, inbound_mx, dkim, mail_from_mx, mail_from_spf."`
-	Status   string `json:"status" doc:"Per-record verification state. Open set; tolerate unknown values. Known values: verified, pending, missing, failed."`
+	Status   string `json:"status" doc:"Per-record verification state. Open set; tolerate unknown values. Known values: verified, pending, missing, failed. Inbound records (ownership, inbound_mx) become verified once inbound verification passes, which requires BOTH the ownership TXT and the inbound MX. Sending records (dkim, mail_from_mx, mail_from_spf) share the SES sending_status rollup, which is all-or-nothing: a failed value can mean only one of DKIM or MAIL FROM failed; consult sending_error for the specific reason. A per-record SES breakdown is a planned enhancement."`
 }
 
 type DomainView struct {
@@ -124,6 +124,12 @@ func (s *Server) domainView(d *identity.Domain) DomainView {
 // (none) or in-flight (pending) domain reads as `pending`; a hard failure as
 // `failed`; success as `verified`. Unknown rollup values fall through to
 // `pending` (open set).
+//
+// LIMITATION (documented on DNSRecord.Status): this is a ROLLUP — SES verifies
+// DKIM + custom MAIL FROM as a unit (mapSESStatus is all-or-nothing), so on
+// `failed` all three sending records read `failed` even if only one axis broke;
+// sending_error carries the specific reason. Carrying SES's per-axis statuses
+// (DkimStatus / MailFromMxStatus) through to each record is a planned follow-up.
 func sendingRecordStatus(sendingStatus string) string {
 	switch sendingStatus {
 	case "verified":
@@ -251,8 +257,15 @@ func (s *Server) handleVerifyDomain(ctx context.Context, in *DomainParam) (*veri
 			MX: check.MX, SPF: check.SPF, DKIM: check.DKIM,
 		}}, nil
 	}
-	// Missing TXT: 412 with the diagnostic so callers see what's missing.
-	if !check.TXTFound {
+	// Verification requires BOTH the ownership TXT and the inbound MX. The MX
+	// gate (added with the per-record status array) is what makes
+	// `inbound_mx.status: "verified"` honest: status is derived from the
+	// domain's `verified` flag, so `verified` must actually imply the MX is
+	// published — otherwise a TXT-only verify would claim a "verified" MX while
+	// inbound mail silently bounces. A domain can't receive mail without the MX,
+	// so requiring it for `verified` is also the correct inbound semantics.
+	// 412 with the diagnostic so callers see exactly which record is missing.
+	if !check.TXTFound || check.MX != "found" {
 		return &verifyDomainOutput{Status: http.StatusPreconditionFailed, Body: VerifyDomainView{
 			Domain: d.Domain, Verified: false, MX: check.MX, SPF: check.SPF, DKIM: check.DKIM,
 		}}, nil

@@ -29,7 +29,7 @@ class DNSRecord(BaseModel):
     name: StrictStr = Field(description="Record name (host). The apex domain for ownership/inbound_mx; an FQDN for dkim/mail_from records.")
     priority: Optional[StrictInt] = Field(description="MX priority. Null for non-MX records.")
     purpose: StrictStr = Field(description="What the record is for. Open set; tolerate unknown values. Known values: ownership, inbound_mx, dkim, mail_from_mx, mail_from_spf.")
-    status: StrictStr = Field(description="Per-record verification state. Open set; tolerate unknown values. Known values: verified, pending, missing, failed.")
+    status: StrictStr = Field(description="Per-record verification state. Open set; tolerate unknown values. Known values: verified, pending, missing, failed. Inbound records (ownership, inbound_mx) become verified once inbound verification passes, which requires BOTH the ownership TXT and the inbound MX. Sending records (dkim, mail_from_mx, mail_from_spf) share the SES sending_status rollup, which is all-or-nothing: a failed value can mean only one of DKIM or MAIL FROM failed; consult sending_error for the specific reason. A per-record SES breakdown is a planned enhancement.")
     type: StrictStr = Field(description="DNS record type. MX or TXT.")
     value: StrictStr = Field(description="Record value. For MX records this is the mail-server host only; the priority is in the priority field.")
     __properties: ClassVar[List[str]] = ["name", "priority", "purpose", "status", "type", "value"]

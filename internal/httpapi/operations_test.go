@@ -198,6 +198,9 @@ func testServer(t *testing.T) *httptest.Server {
 			case "fresh.com":
 				// Registered, TXT published, not yet marked verified.
 				return &identity.Domain{Domain: domain, Verified: false, VerificationToken: "e2a-verify=fresh"}, nil
+			case "nomx.com":
+				// Registered, ownership TXT published, but the inbound MX is missing.
+				return &identity.Domain{Domain: domain, Verified: false, VerificationToken: "e2a-verify=nomx"}, nil
 			default:
 				return nil, errors.New("not registered")
 			}
@@ -416,9 +419,13 @@ func testServer(t *testing.T) *httptest.Server {
 		TouchDomainChecked: func(ctx context.Context, domain, userID string) error { return nil },
 		VerifyDomain:       func(ctx context.Context, domain, userID string) error { return nil },
 		VerifyProbe: func(domain, token, dkimSel, dkimKey string) DomainCheckResult {
-			// "pending.com" has not published its TXT yet; everything else has.
+			// "pending.com" has not published its TXT yet; "nomx.com" published
+			// the ownership TXT but not the inbound MX; everything else is fully set up.
 			if domain == "pending.com" {
 				return DomainCheckResult{TXTFound: false, MX: "missing", SPF: "missing", DKIM: "missing"}
+			}
+			if domain == "nomx.com" {
+				return DomainCheckResult{TXTFound: true, MX: "missing", SPF: "missing", DKIM: "missing"}
 			}
 			return DomainCheckResult{TXTFound: true, MX: "found", SPF: "found", DKIM: "found"}
 		},
