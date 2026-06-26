@@ -35,9 +35,18 @@ const protectionBetaDoc = "Beta: the agent protection config is unstable — its
 // allowlist/domain gate and is flagged (fail closed); under "open" it still passes.
 // Net: per-agent inbound allowlisting is reliable for sending-verified senders;
 // unverified intra-system senders are uniformly gated, not silently admitted.
+//
+// INBOUND authentication limitation (#318): the allowlist/domain gate matches the
+// From address AS PRESENTED — it does not by itself require the From to be
+// DMARC-aligned-authenticated. An external message that forges From to a listed
+// address/domain but fails SPF/DKIM/DMARC can therefore satisfy the gate. The
+// authentication verdict is delivered separately (the X-E2A-Auth-* headers /
+// webhook auth fields), so a consumer that needs anti-spoofing must check it in
+// addition to the gate. A DMARC-gated posture may return later as a composable,
+// additive flag (the protection config is beta — its shape may still change).
 type ProtectionGateView struct {
 	Policy    string   `json:"policy,omitempty" enum:"open,allowlist,domain" default:"open" doc:"Trust gate: open (all), domain (listed domains), allowlist (listed addresses)."`
-	Allowlist []string `json:"allowlist,omitempty" nullable:"false" maxItems:"1000" doc:"Addresses (allowlist) or domains (domain) the gate trusts; ignored for open."`
+	Allowlist []string `json:"allowlist,omitempty" nullable:"false" maxItems:"1000" doc:"Addresses (allowlist) or domains (domain) the gate trusts; ignored for open. Inbound: matched against the message From AS PRESENTED — a match does not by itself prove the sender is authentic (a forged From that fails SPF/DKIM/DMARC can still match). For spoofing-sensitive trust, also check the message authentication result."`
 	Action    string   `json:"action,omitempty" enum:"flag,review,block" default:"flag" doc:"What a gate non-match does: flag (deliver + annotate), review (hold), block."`
 }
 
