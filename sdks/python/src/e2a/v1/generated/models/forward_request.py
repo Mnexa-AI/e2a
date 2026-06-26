@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.attachment import Attachment
 from typing import Optional, Set
@@ -27,7 +27,7 @@ class ForwardRequest(BaseModel):
     """
     ForwardRequest
     """ # noqa: E501
-    attachments: Optional[List[Attachment]] = None
+    attachments: Optional[List[Attachment]] = Field(default=None, description="Additional attachments to include alongside the forwarded message's original attachments, which are carried over automatically.")
     bcc: Optional[List[StrictStr]] = None
     body: StrictStr
     cc: Optional[List[StrictStr]] = None

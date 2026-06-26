@@ -834,6 +834,7 @@ components:
       additionalProperties: false
       properties:
         attachments:
+          description: Additional attachments to include alongside the forwarded message's original attachments, which are carried over automatically.
           items:
             $ref: "#/components/schemas/Attachment"
           type: array
@@ -2868,7 +2869,7 @@ paths:
         - messages
   /v1/agents/{email}/messages/{id}/forward:
     post:
-      description: Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.
+      description: Forward an inbound message to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.
       operationId: forwardMessage
       parameters:
         - in: path

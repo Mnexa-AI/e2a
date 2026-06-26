@@ -146,7 +146,7 @@ func (s *Server) registerOutbound() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "forwardMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/forward",
 		Summary: "Forward a message", Tags: []string{"messages"},
-		Description:  "Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.",
+		Description:  "Forward an inbound message to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
 		Responses:    map[string]*huma.Response{"202": held202(), "default": s.errorEnvelopeResponse()},
@@ -300,7 +300,7 @@ type ForwardRequest struct {
 	Body           string                `json:"body"` // required (MSG-3); subject derived as "Fwd:"
 	HTMLBody       string                `json:"html_body,omitempty"`
 	ConversationID string                `json:"conversation_id,omitempty"`
-	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false"`
+	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false" doc:"Additional attachments to include alongside the forwarded message's original attachments, which are carried over automatically."`
 }
 
 type forwardInput struct {
@@ -336,9 +336,15 @@ func (s *Server) handleForward(ctx context.Context, in *forwardInput) (*sendOutp
 	if b.HTMLBody != "" || fwdCtx.HTML != "" || fwdCtx.Text != "" {
 		composedHTML = outbound.BuildForwardHTMLBody(b.HTMLBody, fwdCtx)
 	}
+	// Carry the source message's attachment parts by default (#298): a
+	// forward should ship the original files the way mail clients do, without
+	// the caller re-fetching and re-encoding each one. Caller-supplied
+	// attachments are additive on top of the originals.
+	attachments := outbound.ForwardAttachments(inbound.RawMessage)
+	attachments = append(attachments, b.Attachments...)
 	req := outbound.SendRequest{
 		To: b.To, CC: b.CC, BCC: b.BCC, Subject: subject, Body: composedBody, HTMLBody: composedHTML,
-		ConversationID: b.ConversationID, Attachments: b.Attachments,
+		ConversationID: b.ConversationID, Attachments: attachments,
 	}
 	req.CC = agent.StripAgentSelfAliases(req.CC, ag.EmailAddress())
 	req.BCC = agent.StripAgentSelfAliases(req.BCC, ag.EmailAddress())
