@@ -333,7 +333,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// ON CONFLICT (id) DO NOTHING. Idempotency by construction; see
 	// design §5.1.
 	event := webhookpub.NewEvent(webhookpub.EventEmailReceived, agent.UserID, buildEmailReceivedPayload(
-		messageID, conversationID, displaySender, senderEmail, rcpt, s.inboundSubject, s.inboundThreadInfo, body, authHeaders, agent,
+		messageID, conversationID, displaySender, senderEmail, rcpt, s.inboundSubject, s.inboundThreadInfo, domainAuth, agent,
 	))
 	event.AgentID = agent.ID
 	event.ConversationID = conversationID
@@ -577,11 +577,25 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 // The envelope wrapper ({event, id, created_at, data}) is added by
 // the publisher when it marshals the Event; this helper only
 // produces the data subfield.
+// buildEmailReceivedPayload builds the email.received event data. The event is a
+// metadata-only NOTIFICATION, not a content carrier: it omits the message body
+// (raw_message) and the signed auth-header blob (auth_headers) that an earlier
+// revision embedded. A subscriber fetches the full message — body + attachments +
+// signed headers — from GET /v1/messages/{recipient}/{message_id} using the
+// message_id + recipient carried here (the same notify→fetch model the WebSocket
+// listener already uses). This keeps the fan-out bus payload bounded, avoids
+// shipping full message PII to every subscriber endpoint, and makes the REST
+// resource the single source of truth (no content schema to drift).
+//
+// `auth` is the STRUCTURED inbound trust verdict ({spf,dkim,dmarc}) — the same
+// shape REST exposes as MessageView.auth. It is metadata (a trust-decision input),
+// not content, so it rides on the event: a consumer can decide whether to trust /
+// fetch a message without a round trip. It replaces the raw auth_headers blob,
+// which is recoverable from the fetched message when its signed form is needed.
 func buildEmailReceivedPayload(
 	messageID, conversationID, displaySender, authenticatedFrom, recipient, subject string,
 	threadInfo threadInfo,
-	rawMessage []byte,
-	authHeaders map[string]string,
+	auth *emailauth.Result,
 	agent *identity.AgentIdentity,
 ) map[string]interface{} {
 	return map[string]interface{}{
@@ -604,8 +618,7 @@ func buildEmailReceivedPayload(
 		"reply_to":           threadInfo.ReplyTo,
 		"recipient":          recipient,
 		"subject":            subject,
-		"raw_message":        rawMessage,
-		"auth_headers":       authHeaders,
+		"auth":               auth,
 		"received_at":        time.Now().UTC().Format(time.RFC3339),
 	}
 }
