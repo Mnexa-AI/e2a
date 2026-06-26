@@ -88,7 +88,8 @@ async def webhook(request):
     except E2AWebhookSignatureError:
         return Response(status_code=400)
     if event.type == "email.received":
-        ...  # event.data carries the message payload
+        # metadata-only notification — fetch the full message (body + attachments)
+        msg = await client.webhooks.fetch_message(event)
     return {"ok": True}
 ```
 

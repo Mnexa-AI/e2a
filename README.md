@@ -158,7 +158,8 @@ from e2a.v1 import construct_event, E2AWebhookSignatureError
 # raw request body + the X-E2A-Signature header + your whsec_… secret
 event = construct_event(request_body, signature_header, webhook_secret)  # raises on bad signature
 if event.type == "email.received":
-    msg = event.data   # the message payload
+    # metadata-only notification — fetch the full message (body + attachments)
+    msg = await client.webhooks.fetch_message(event)
 ```
 
 ```typescript
@@ -166,7 +167,8 @@ import { constructEvent, E2AWebhookSignatureError } from "@e2a/sdk/v1";
 
 const event = constructEvent(req.body, req.header("X-E2A-Signature")!, webhookSecret); // throws on bad signature
 if (event.type === "email.received") {
-  const msg = event.data; // the message payload
+  // metadata-only notification — fetch the full message (body + attachments)
+  const msg = await client.webhooks.fetchMessage(event);
 }
 ```
 
