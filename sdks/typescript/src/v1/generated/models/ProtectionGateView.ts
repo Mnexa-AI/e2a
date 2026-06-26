@@ -18,7 +18,7 @@ export class ProtectionGateView {
     */
     'action'?: ProtectionGateViewActionEnum;
     /**
-    * Addresses (allowlist) or domains (domain) the gate trusts; ignored for open.
+    * Addresses (allowlist) or domains (domain) the gate trusts; ignored for open. Inbound: matched against the message From AS PRESENTED — a match does not by itself prove the sender is authentic (a forged From that fails SPF/DKIM/DMARC can still match). For spoofing-sensitive trust, also check the message authentication result.
     */
     'allowlist'?: Array<string>;
     /**
