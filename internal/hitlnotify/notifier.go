@@ -116,11 +116,11 @@ func (n *Notifier) NotifyPendingApproval(ctx context.Context, msg *identity.Mess
 	message, err := outbound.ComposeMultipartMessage(
 		fromHeader, []string{owner.Email}, nil,
 		subject, text, htmlBody,
-		"",            // no reply-to-message-id (fresh notification)
-		nil,           // no references chain (fresh notification)
-		n.fromDomain,  // from_domain (Message-ID generation)
-		fromAddr,      // reply_to — point replies back at the platform, not the agent
-		"",            // no conversation_id
+		"",           // no reply-to-message-id (fresh notification)
+		nil,          // no references chain (fresh notification)
+		n.fromDomain, // from_domain (Message-ID generation)
+		fromAddr,     // reply_to — point replies back at the platform, not the agent
+		"",           // no conversation_id
 	)
 	if err != nil {
 		return fmt.Errorf("notify: compose: %w", err)
@@ -278,11 +278,22 @@ func renderHTML(msg *identity.Message, agent *identity.AgentIdentity, approveURL
 	// actual approve/reject side effect only fires when the reviewer
 	// submits the form on that page — this is what keeps mail-client URL
 	// scanners from approving on the reviewer's behalf.
+	//
+	// Each button is a block-level anchor so the two stack vertically and
+	// fill the available width. Inline buttons sitting side-by-side
+	// overflowed and overlapped on narrow mobile viewports (the padded
+	// inline anchors didn't grow line height when they wrapped); stacking
+	// is robust across every width without needing @media queries, which
+	// many mail clients strip.
+	const btnStyle = `display:block;background:%s;color:%s;font-weight:500;padding:12px 18px;text-decoration:none;border-radius:6px;text-align:center;font-size:15px`
+	fmt.Fprintf(&b, `<div style="margin-top:16px">`)
 	fmt.Fprintf(&b,
-		`<p style="margin-top:16px"><a href="%s" style="background:%s;color:%s;font-weight:500;padding:10px 18px;text-decoration:none;border-radius:6px;margin-right:12px">Review &amp; approve</a>`+
-			`<a href="%s" style="background:%s;color:%s;font-weight:500;padding:10px 18px;text-decoration:none;border-radius:6px">Review &amp; reject</a></p>`,
-		html.EscapeString(approveURL), success, onAccent,
+		`<a href="%s" style="`+btnStyle+`;margin-bottom:10px">Review &amp; approve</a>`,
+		html.EscapeString(approveURL), success, onAccent)
+	fmt.Fprintf(&b,
+		`<a href="%s" style="`+btnStyle+`">Review &amp; reject</a>`,
 		html.EscapeString(rejectURL), danger, onAccent)
+	fmt.Fprintf(&b, `</div>`)
 
 	fmt.Fprintf(&b,
 		`<p style="margin-top:16px;font-size:13px;color:%s">Need to edit before approving? <a href="%s" style="color:%s">Review in the dashboard</a>.</p>`,
