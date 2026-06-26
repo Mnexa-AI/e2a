@@ -1,8 +1,9 @@
-// Package mailparse produces the injection-reduced "parsed view" of an inbound
-// email (decision 9 / Slice 4b-3): the text an agent feeds to a model by
-// default, derived server-side from the raw RFC 5322 message — prefer the
-// text/plain part (else HTML→text), strip quoted reply chains / forwarded
-// headers, and cap the length (a token-stuffing guard).
+// Package mailparse produces the "parsed view" of a raw RFC 5322 message —
+// inbound mail and the retained copy of sent outbound mail (decision 9 / Slice
+// 4b-3). It derives two representations server-side: the injection-reduced text
+// an agent feeds to a model by default (prefer the text/plain part, else
+// HTML→text, strip quoted reply chains / forwarded headers, cap the length as a
+// token-stuffing guard), and the decoded text/html part for human display.
 //
 // It is a CONVENIENCE, not a security control: the raw message is always
 // available, and the security decision is made on structured metadata (the
@@ -144,6 +145,13 @@ func walkParts(contentType, cte string, body io.Reader, depth int) (plain, htmlT
 			part, err := mr.NextPart()
 			if err != nil {
 				break
+			}
+			// Skip parts the sender flagged as attachments — they're files
+			// (fetched via the attachment endpoint), not the displayable body.
+			// Without this an attached .html file would surface as parsed.html.
+			if disp, _, derr := mime.ParseMediaType(part.Header.Get("Content-Disposition")); derr == nil && disp == "attachment" {
+				part.Close()
+				continue
 			}
 			p, h, hr := walkParts(part.Header.Get("Content-Type"), part.Header.Get("Content-Transfer-Encoding"), part, depth+1)
 			if plain == "" && p != "" {

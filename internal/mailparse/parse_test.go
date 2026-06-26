@@ -161,6 +161,34 @@ func TestParseHTML(t *testing.T) {
 		}
 	})
 
+	t.Run("attached .html file is not surfaced as the display body", func(t *testing.T) {
+		// multipart/mixed: a text/plain body + a text/html ATTACHMENT. The
+		// attachment must not become parsed.html (it's a file, not the body).
+		raw := "From: a@x.com\r\nContent-Type: multipart/mixed; boundary=M\r\n\r\n" +
+			"--M\r\nContent-Type: text/plain\r\n\r\nThe real body.\r\n" +
+			"--M\r\nContent-Type: text/html\r\nContent-Disposition: attachment; filename=report.html\r\n\r\n" +
+			"<h1>Attached report</h1>\r\n--M--\r\n"
+		v := Parse([]byte(raw), 0)
+		if v.Text != "The real body." {
+			t.Fatalf("text: got %q, want the plain body", v.Text)
+		}
+		if v.HTML != "" {
+			t.Fatalf("html attachment must not surface as display body, got %q", v.HTML)
+		}
+	})
+
+	t.Run("inline text/html sibling of an attachment still wins", func(t *testing.T) {
+		// multipart/mixed: text/html body (no disposition) + a non-HTML
+		// attachment. The body HTML must still be selected.
+		raw := "From: a@x.com\r\nContent-Type: multipart/mixed; boundary=M\r\n\r\n" +
+			"--M\r\nContent-Type: text/html\r\n\r\n<p>Body here</p>\r\n" +
+			"--M\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename=x.pdf\r\n\r\n%PDF-1.4\r\n--M--\r\n"
+		v := Parse([]byte(raw), 0)
+		if v.HTML != "<p>Body here</p>" {
+			t.Fatalf("html body: got %q", v.HTML)
+		}
+	})
+
 	t.Run("HTML capped at MaxHTMLBytes", func(t *testing.T) {
 		body := "<p>" + strings.Repeat("a", MaxHTMLBytes+1000) + "</p>"
 		raw := "From: a@x.com\r\nContent-Type: text/html\r\n\r\n" + body

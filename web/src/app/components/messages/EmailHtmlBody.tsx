@@ -34,12 +34,15 @@ function sanitizeEmail(
       el.setAttribute("rel", "noopener noreferrer nofollow");
     }
     if (!showImages) {
-      if (el.tagName === "IMG") {
-        if (el.getAttribute("src") || el.getAttribute("srcset")) {
+      // Strip every remote-resource carrier so the "Load images" banner is
+      // honest (blockedRemote reflects what was actually present). This is the
+      // belt; the CSP injected in wrapDocument is the authoritative block that
+      // also covers CSS-escaped url() and any vector missed here.
+      for (const attr of ["src", "srcset", "background", "poster"] as const) {
+        if (el.getAttribute?.(attr)) {
           blockedRemote = true;
+          el.removeAttribute(attr);
         }
-        el.removeAttribute("src");
-        el.removeAttribute("srcset");
       }
       const style = el.getAttribute?.("style");
       if (style && /url\s*\(/i.test(style)) {
@@ -62,9 +65,20 @@ function sanitizeEmail(
 // wrapDocument builds the full srcdoc: a forced-light surface (email HTML
 // assumes a white background regardless of the dashboard theme), responsive
 // images, and a base target so links open in a new tab.
-function wrapDocument(innerHTML: string): string {
+//
+// The Content-Security-Policy is the AUTHORITATIVE control, not the DOMPurify
+// hook: `default-src 'none'` blocks scripts/frames/objects/fetches outright,
+// and when images are blocked `img-src data:` (no http/https) defeats every
+// remote-resource vector at once — <img>, CSS url() (including CSS-escaped
+// forms), <td background>, <video poster>, <source srcset>, web fonts — so the
+// tracking-pixel block can't be bypassed by markup the hook didn't anticipate.
+function wrapDocument(innerHTML: string, showImages: boolean): string {
+  const csp = showImages
+    ? "default-src 'none'; img-src http: https: data:; media-src http: https: data:; style-src 'unsafe-inline'; font-src http: https: data:"
+    : "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:";
   return (
     "<!doctype html><html><head><meta charset=\"utf-8\">" +
+    "<meta http-equiv=\"Content-Security-Policy\" content=\"" + csp + "\">" +
     "<meta name=\"referrer\" content=\"no-referrer\">" +
     "<base target=\"_blank\">" +
     "<style>" +
@@ -89,7 +103,7 @@ export function EmailHtmlBody({ html }: { html: string }) {
     () => sanitizeEmail(html, showImages),
     [html, showImages],
   );
-  const srcDoc = useMemo(() => wrapDocument(clean), [clean]);
+  const srcDoc = useMemo(() => wrapDocument(clean, showImages), [clean, showImages]);
 
   // Auto-size the iframe to its content. Needs allow-same-origin to read the
   // content document; re-measures on reflow (e.g. late-loading images).
