@@ -28,7 +28,7 @@ type DNSRecord struct {
 	Value    string `json:"value" doc:"Record value. For MX records this is the mail-server host only; the priority is in the priority field."`
 	Priority *int   `json:"priority" doc:"MX priority. Null for non-MX records."`
 	Purpose  string `json:"purpose" doc:"What the record is for. Open set; tolerate unknown values. Known values: ownership, inbound_mx, dkim, mail_from_mx, mail_from_spf."`
-	Status   string `json:"status" doc:"Per-record verification state. Open set; tolerate unknown values. Known values: verified, pending, missing, failed. Inbound records (ownership, inbound_mx) become verified once inbound verification passes, which requires BOTH the ownership TXT and the inbound MX. Sending records (dkim, mail_from_mx, mail_from_spf) share the SES sending_status rollup, which is all-or-nothing: a failed value can mean only one of DKIM or MAIL FROM failed; consult sending_error for the specific reason. A per-record SES breakdown is a planned enhancement."`
+	Status   string `json:"status" doc:"Per-record verification state. Open set; tolerate unknown values. Known values: verified, pending, missing, failed. Inbound records (ownership, inbound_mx) become verified once inbound verification passes, which requires BOTH the ownership TXT and the inbound MX. Sending records reflect their own SES axis: the dkim record follows the DKIM axis, while mail_from_mx and mail_from_spf follow the custom MAIL FROM axis, so a domain with working DKIM but a broken MAIL FROM (or the reverse) shows exactly which record to fix rather than failing all three. Before SES has reported a per-axis result (pre-provision rows) the sending records fall back to the all-or-nothing sending_status rollup; consult sending_error for the failure reason. The domain-level sending_status field remains the all-or-nothing rollup summary."`
 }
 
 type DomainView struct {
@@ -58,9 +58,13 @@ type DomainView struct {
 //
 //   - Inbound records (ownership, inbound_mx) follow `verified`: the domain is
 //     either verified (TXT/MX confirmed) or pending.
-//   - Sending records (dkim, mail_from_mx, mail_from_spf) follow the domain's
-//     `sending_status` rollup via sendingRecordStatus (none/""→pending,
-//     pending→pending, verified→verified, failed→failed).
+//   - Sending records reflect their OWN persisted SES axis: the dkim record
+//     follows SendingDkimStatus and the mail_from_* records follow
+//     SendingMailFromStatus (via sendingAxisStatus), so a domain with good DKIM
+//     but a broken MAIL FROM (or the reverse) shows which record to fix instead
+//     of failing all three. When an axis is empty (pre-migration-049 rows, or
+//     before the reconciler has recorded one) the record falls back to the
+//     all-or-nothing `sending_status` rollup.
 //
 // mail_from_mx + mail_from_spf are emitted ONLY when the sending feature is
 // enabled (SESRegion set) and are computed deterministically here (no SES call),
@@ -77,7 +81,10 @@ func (s *Server) domainView(d *identity.Domain) DomainView {
 	if d.Verified {
 		inboundStatus = "verified"
 	}
-	sendingRec := sendingRecordStatus(sendingStatus)
+	// Per-axis: each sending record reflects its own SES axis, falling back to
+	// the all-or-nothing sending_status rollup when the axis is unset.
+	dkimRec := sendingAxisStatus(d.SendingDkimStatus, sendingStatus)
+	mailFromRec := sendingAxisStatus(d.SendingMailFromStatus, sendingStatus)
 	mxPriority := 10
 
 	records := []DNSRecord{
@@ -90,7 +97,7 @@ func (s *Server) domainView(d *identity.Domain) DomainView {
 	// dkim — surfaced for rows that have a stored per-domain key (migration 014+).
 	if d.DKIMSelector != "" && d.DKIMPublicKey != "" {
 		name, value := dkim.DNSRecord(d.DKIMSelector, d.Domain, d.DKIMPublicKey)
-		records = append(records, DNSRecord{Type: "TXT", Name: name, Value: value, Purpose: "dkim", Status: sendingRec})
+		records = append(records, DNSRecord{Type: "TXT", Name: name, Value: value, Purpose: "dkim", Status: dkimRec})
 	}
 
 	// mail_from_* — the custom MAIL FROM subdomain's MX + SPF, deterministic and
@@ -98,8 +105,8 @@ func (s *Server) domainView(d *identity.Domain) DomainView {
 	if s.deps.SESRegion != "" {
 		mf := mailfrom.Domain(d.Domain)
 		records = append(records,
-			DNSRecord{Type: "MX", Name: mf, Value: fmt.Sprintf("feedback-smtp.%s.amazonses.com", s.deps.SESRegion), Priority: &mxPriority, Purpose: "mail_from_mx", Status: sendingRec},
-			DNSRecord{Type: "TXT", Name: mf, Value: "v=spf1 include:amazonses.com ~all", Purpose: "mail_from_spf", Status: sendingRec},
+			DNSRecord{Type: "MX", Name: mf, Value: fmt.Sprintf("feedback-smtp.%s.amazonses.com", s.deps.SESRegion), Priority: &mxPriority, Purpose: "mail_from_mx", Status: mailFromRec},
+			DNSRecord{Type: "TXT", Name: mf, Value: "v=spf1 include:amazonses.com ~all", Purpose: "mail_from_spf", Status: mailFromRec},
 		)
 	}
 
@@ -118,18 +125,27 @@ func (s *Server) domainView(d *identity.Domain) DomainView {
 	}
 }
 
-// sendingRecordStatus maps the domain-level sending_status rollup onto the
-// per-record status carried by the sending records (dkim, mail_from_*). The
-// records are deterministic and shown before provisioning, so an unprovisioned
-// (none) or in-flight (pending) domain reads as `pending`; a hard failure as
-// `failed`; success as `verified`. Unknown rollup values fall through to
-// `pending` (open set).
-//
-// LIMITATION (documented on DNSRecord.Status): this is a ROLLUP — SES verifies
-// DKIM + custom MAIL FROM as a unit (mapSESStatus is all-or-nothing), so on
-// `failed` all three sending records read `failed` even if only one axis broke;
-// sending_error carries the specific reason. Carrying SES's per-axis statuses
-// (DkimStatus / MailFromMxStatus) through to each record is a planned follow-up.
+// sendingAxisStatus derives a sending record's per-record status from its OWN
+// persisted SES axis (sending_dkim_status for the dkim record;
+// sending_mail_from_status for the mail_from_* records). When the axis is empty
+// it falls back to the all-or-nothing sending_status rollup, so pre-migration-049
+// rows and domains that have not yet been polled behave exactly as before. SES
+// reports the DKIM and custom MAIL FROM axes independently, so this is what lets
+// a domain with good DKIM but a broken MAIL FROM (or the reverse) surface the
+// specific failed record instead of failing all three.
+func sendingAxisStatus(axis, sendingStatus string) string {
+	if axis == "" {
+		return sendingRecordStatus(sendingStatus)
+	}
+	return sendingRecordStatus(axis)
+}
+
+// sendingRecordStatus maps a sending status value (a domain-level rollup OR a
+// single SES axis) onto the per-record status carried by the sending records
+// (dkim, mail_from_*). The records are deterministic and shown before
+// provisioning, so an unprovisioned (none) or in-flight (pending) value reads as
+// `pending`; a hard failure as `failed`; success as `verified`. Unknown values
+// fall through to `pending` (open set).
 func sendingRecordStatus(sendingStatus string) string {
 	switch sendingStatus {
 	case "verified":

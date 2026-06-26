@@ -143,3 +143,86 @@ func TestDomainViewSendingRecords(t *testing.T) {
 		}
 	})
 }
+
+// TestDomainViewSendingPerAxis is the key regression for the per-axis fix: when
+// SES reports the DKIM and custom MAIL FROM axes separately, each sending record
+// must reflect its OWN axis instead of the all-or-nothing sending_status rollup,
+// so the user can tell which record to fix. The rollup field itself is unchanged.
+func TestDomainViewSendingPerAxis(t *testing.T) {
+	s := New(Deps{SMTPDomain: "mx.e2a.dev", SESRegion: "us-east-1"})
+
+	base := func() *identity.Domain {
+		return &identity.Domain{
+			Domain: "acme.com", Verified: true, VerificationToken: "tok",
+			DKIMSelector: "e2a202606", DKIMPublicKey: "PUBKEY",
+		}
+	}
+
+	// The headline case: good DKIM, broken MAIL FROM. The rollup is failed
+	// (all-or-nothing), but the dkim record must read verified while the
+	// mail_from_* records read failed.
+	t.Run("dkim verified + mail_from failed ⇒ records disagree", func(t *testing.T) {
+		d := base()
+		d.SendingStatus = "failed" // rollup stays all-or-nothing
+		d.SendingDkimStatus = "verified"
+		d.SendingMailFromStatus = "failed"
+		v := s.domainView(d)
+		m := byPurpose(v.DNSRecords)
+		if m["dkim"].Status != "verified" {
+			t.Fatalf("dkim should follow its OWN axis (verified): %+v", m["dkim"])
+		}
+		if m["mail_from_mx"].Status != "failed" || m["mail_from_spf"].Status != "failed" {
+			t.Fatalf("mail_from records should follow their OWN axis (failed): mx=%+v spf=%+v", m["mail_from_mx"], m["mail_from_spf"])
+		}
+		// The rollup field is the summary and must be untouched.
+		if v.SendingStatus != "failed" {
+			t.Fatalf("domain-level sending_status rollup must stay failed: %q", v.SendingStatus)
+		}
+	})
+
+	// Reverse mixed case: broken DKIM, good MAIL FROM.
+	t.Run("dkim failed + mail_from verified ⇒ records disagree", func(t *testing.T) {
+		d := base()
+		d.SendingStatus = "failed"
+		d.SendingDkimStatus = "failed"
+		d.SendingMailFromStatus = "verified"
+		m := byPurpose(s.domainView(d).DNSRecords)
+		if m["dkim"].Status != "failed" {
+			t.Fatalf("dkim should be failed: %+v", m["dkim"])
+		}
+		if m["mail_from_mx"].Status != "verified" || m["mail_from_spf"].Status != "verified" {
+			t.Fatalf("mail_from records should be verified: mx=%+v spf=%+v", m["mail_from_mx"], m["mail_from_spf"])
+		}
+	})
+
+	// Fallback: when the per-axis columns are empty (pre-migration-049 rows or
+	// pre-provision), every sending record falls back to the rollup — preserving
+	// the old behavior gracefully.
+	t.Run("empty axes ⇒ fall back to rollup", func(t *testing.T) {
+		d := base()
+		d.SendingStatus = "verified"
+		// SendingDkimStatus / SendingMailFromStatus left empty.
+		m := byPurpose(s.domainView(d).DNSRecords)
+		for _, p := range []string{"dkim", "mail_from_mx", "mail_from_spf"} {
+			if m[p].Status != "verified" {
+				t.Fatalf("%s should fall back to rollup (verified): %+v", p, m[p])
+			}
+		}
+	})
+
+	// Partial fallback: dkim axis recorded, mail_from axis still empty ⇒ dkim
+	// follows its axis, mail_from falls back to the rollup.
+	t.Run("one axis set, one empty ⇒ per-axis + fallback mix", func(t *testing.T) {
+		d := base()
+		d.SendingStatus = "pending"
+		d.SendingDkimStatus = "verified"
+		// SendingMailFromStatus empty ⇒ falls back to rollup (pending).
+		m := byPurpose(s.domainView(d).DNSRecords)
+		if m["dkim"].Status != "verified" {
+			t.Fatalf("dkim should follow its axis (verified): %+v", m["dkim"])
+		}
+		if m["mail_from_mx"].Status != "pending" || m["mail_from_spf"].Status != "pending" {
+			t.Fatalf("mail_from should fall back to rollup (pending): mx=%+v spf=%+v", m["mail_from_mx"], m["mail_from_spf"])
+		}
+	})
+}
