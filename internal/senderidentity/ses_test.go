@@ -103,6 +103,92 @@ func TestMapSESStatus(t *testing.T) {
 	}
 }
 
+// TestSESAxisStatuses verifies the per-axis extraction: each sending axis (DKIM,
+// custom MAIL FROM) maps onto our Status independently, mirroring mapSESStatus's
+// per-axis vocabulary (SUCCESS->verified, FAILED->failed, everything else->pending).
+func TestSESAxisStatuses(t *testing.T) {
+	tests := []struct {
+		name         string
+		out          *sesv2.GetEmailIdentityOutput
+		wantDkim     Status
+		wantMailFrom Status
+	}{
+		{
+			name: "both success",
+			out: &sesv2.GetEmailIdentityOutput{
+				DkimAttributes:     &ststypes.DkimAttributes{Status: ststypes.DkimStatusSuccess},
+				MailFromAttributes: &ststypes.MailFromAttributes{MailFromDomainStatus: ststypes.MailFromDomainStatusSuccess},
+			},
+			wantDkim: StatusVerified, wantMailFrom: StatusVerified,
+		},
+		{
+			// The key mixed case this fix exists for: DKIM is good but the custom
+			// MAIL FROM is broken. The axes must disagree.
+			name: "dkim success + mailfrom failed (mixed)",
+			out: &sesv2.GetEmailIdentityOutput{
+				DkimAttributes:     &ststypes.DkimAttributes{Status: ststypes.DkimStatusSuccess},
+				MailFromAttributes: &ststypes.MailFromAttributes{MailFromDomainStatus: ststypes.MailFromDomainStatusFailed},
+			},
+			wantDkim: StatusVerified, wantMailFrom: StatusFailed,
+		},
+		{
+			name: "dkim failed + mailfrom success (reverse mixed)",
+			out: &sesv2.GetEmailIdentityOutput{
+				DkimAttributes:     &ststypes.DkimAttributes{Status: ststypes.DkimStatusFailed},
+				MailFromAttributes: &ststypes.MailFromAttributes{MailFromDomainStatus: ststypes.MailFromDomainStatusSuccess},
+			},
+			wantDkim: StatusFailed, wantMailFrom: StatusVerified,
+		},
+		{
+			name: "transient axes -> pending, not failed",
+			out: &sesv2.GetEmailIdentityOutput{
+				DkimAttributes:     &ststypes.DkimAttributes{Status: ststypes.DkimStatusTemporaryFailure},
+				MailFromAttributes: &ststypes.MailFromAttributes{MailFromDomainStatus: ststypes.MailFromDomainStatusTemporaryFailure},
+			},
+			wantDkim: StatusPending, wantMailFrom: StatusPending,
+		},
+		{
+			name:     "nil attributes default to pending",
+			out:      &sesv2.GetEmailIdentityOutput{},
+			wantDkim: StatusPending, wantMailFrom: StatusPending,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotDkim, gotMailFrom := sesAxisStatuses(tt.out)
+			if gotDkim != tt.wantDkim || gotMailFrom != tt.wantMailFrom {
+				t.Fatalf("sesAxisStatuses = (%q, %q), want (%q, %q)", gotDkim, gotMailFrom, tt.wantDkim, tt.wantMailFrom)
+			}
+		})
+	}
+}
+
+// TestSESProvider_StatusReportsAxes proves Status() surfaces BOTH the rollup and
+// the per-axis breakdown: in the mixed DKIM-ok/MAILFROM-failed case the rollup
+// stays all-or-nothing (failed) while the axes disagree, which is exactly what
+// lets the API show only the broken record.
+func TestSESProvider_StatusReportsAxes(t *testing.T) {
+	stub := &stubSESAPI{getOut: &sesv2.GetEmailIdentityOutput{
+		VerifiedForSendingStatus: true,
+		DkimAttributes:           &ststypes.DkimAttributes{Status: ststypes.DkimStatusSuccess},
+		MailFromAttributes:       &ststypes.MailFromAttributes{MailFromDomainStatus: ststypes.MailFromDomainStatusFailed},
+	}}
+	p := NewSESProvider(stub, "us-east-1")
+	res, err := p.Status(context.Background(), "acme.com")
+	if err != nil {
+		t.Fatalf("Status error: %v", err)
+	}
+	if res.Status != StatusFailed {
+		t.Fatalf("rollup Status must stay all-or-nothing failed, got %q", res.Status)
+	}
+	if res.DkimStatus != StatusVerified {
+		t.Fatalf("dkim axis should be verified, got %q", res.DkimStatus)
+	}
+	if res.MailFromStatus != StatusFailed {
+		t.Fatalf("mail from axis should be failed, got %q", res.MailFromStatus)
+	}
+}
+
 func TestPKCS8Base64(t *testing.T) {
 	t.Run("valid pkcs1 der round-trips to parseable pkcs8", func(t *testing.T) {
 		key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -142,6 +228,10 @@ type stubSESAPI struct {
 	createErr error
 	putErr    error
 
+	// getOut, when set, is what GetEmailIdentity returns (so Status tests can
+	// drive the SES axes). Nil ⇒ an empty output.
+	getOut *sesv2.GetEmailIdentityOutput
+
 	// recorders for the Provision path.
 	createInput   *sesv2.CreateEmailIdentityInput
 	mailFromInput *sesv2.PutEmailIdentityMailFromAttributesInput
@@ -166,6 +256,9 @@ func (s *stubSESAPI) PutEmailIdentityMailFromAttributes(ctx context.Context, in 
 func (s *stubSESAPI) GetEmailIdentity(ctx context.Context, in *sesv2.GetEmailIdentityInput, optFns ...func(*sesv2.Options)) (*sesv2.GetEmailIdentityOutput, error) {
 	if s.getErr != nil {
 		return nil, s.getErr
+	}
+	if s.getOut != nil {
+		return s.getOut, nil
 	}
 	return &sesv2.GetEmailIdentityOutput{}, nil
 }

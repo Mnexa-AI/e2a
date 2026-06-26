@@ -116,7 +116,13 @@ func (p *SESProvider) Status(ctx context.Context, domain string) (Result, error)
 	// Re-emit the MAIL FROM records on every poll so the verify/failed transition
 	// preserves them (ReconcileWorker writes res.DNSRecords) — a verified domain's
 	// view keeps showing the MX/SPF the customer must KEEP published.
-	return Result{Status: mapSESStatus(out), DNSRecords: mailFromRecords(domain, p.region)}, nil
+	dkimAxis, mailFromAxis := sesAxisStatuses(out)
+	return Result{
+		Status:         mapSESStatus(out),
+		DkimStatus:     dkimAxis,
+		MailFromStatus: mailFromAxis,
+		DNSRecords:     mailFromRecords(domain, p.region),
+	}, nil
 }
 
 func (p *SESProvider) Deprovision(ctx context.Context, domain string) error {
@@ -172,6 +178,52 @@ func mapSESStatus(out *sesv2.GetEmailIdentityOutput) Status {
 		return StatusVerified
 	}
 	return StatusPending
+}
+
+// sesAxisStatuses reads SES's two INDEPENDENT sending axes off the identity and
+// maps each onto our Status enum, so each sending DNS record can reflect its OWN
+// axis rather than the all-or-nothing rollup. Mirrors mapSESStatus's per-axis
+// treatment: SUCCESS → verified, FAILED → failed, and everything else
+// (PENDING / NOT_STARTED / TEMPORARY_FAILURE) → pending. The defaults match
+// mapSESStatus (missing DKIM attrs read as not-started→pending; missing MAIL
+// FROM attrs read as pending). Note: unlike mapSESStatus the DKIM axis here does
+// NOT fold in VerifiedForSendingStatus — that gate belongs to the rollup, not to
+// the DKIM record's own state.
+func sesAxisStatuses(out *sesv2.GetEmailIdentityOutput) (dkim Status, mailFrom Status) {
+	dkimRaw := ststypes.DkimStatusNotStarted
+	if out.DkimAttributes != nil {
+		dkimRaw = out.DkimAttributes.Status
+	}
+	mfRaw := ststypes.MailFromDomainStatusPending
+	if out.MailFromAttributes != nil {
+		mfRaw = out.MailFromAttributes.MailFromDomainStatus
+	}
+	return mapSESDkimStatus(dkimRaw), mapSESMailFromStatus(mfRaw)
+}
+
+// mapSESDkimStatus folds a single SES DKIM axis state onto our Status.
+func mapSESDkimStatus(s ststypes.DkimStatus) Status {
+	switch s {
+	case ststypes.DkimStatusSuccess:
+		return StatusVerified
+	case ststypes.DkimStatusFailed:
+		return StatusFailed
+	default: // PENDING / NOT_STARTED / TEMPORARY_FAILURE
+		return StatusPending
+	}
+}
+
+// mapSESMailFromStatus folds a single SES custom-MAIL-FROM axis state onto our
+// Status.
+func mapSESMailFromStatus(s ststypes.MailFromDomainStatus) Status {
+	switch s {
+	case ststypes.MailFromDomainStatusSuccess:
+		return StatusVerified
+	case ststypes.MailFromDomainStatusFailed:
+		return StatusFailed
+	default: // PENDING / TEMPORARY_FAILURE
+		return StatusPending
+	}
 }
 
 // pkcs8Base64 converts a stored PKCS#1 DER RSA private key to the single-line

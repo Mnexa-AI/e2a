@@ -59,10 +59,21 @@ type DNSRecord struct {
 }
 
 // Result is what a Provider reports for a domain.
+//
+// Status is the all-or-nothing rollup (mapSESStatus): `verified` only when
+// EVERY sending axis is good. DkimStatus and MailFromStatus are the per-axis
+// breakdown SES reports independently (DkimAttributes.Status and
+// MailFromAttributes.MailFromDomainStatus), so a domain with good DKIM but a
+// broken custom MAIL FROM surfaces as DkimStatus=verified + MailFromStatus=failed
+// while the rollup Status stays `failed`. They are empty ("") when the provider
+// has no per-axis signal (e.g. Provision, which only registers the identity);
+// consumers fall back to the rollup in that case.
 type Result struct {
-	Status     Status      `json:"status"`
-	Error      string      `json:"error,omitempty"`
-	DNSRecords []DNSRecord `json:"dns_records,omitempty"`
+	Status         Status      `json:"status"`
+	DkimStatus     Status      `json:"dkim_status,omitempty"`
+	MailFromStatus Status      `json:"mail_from_status,omitempty"`
+	Error          string      `json:"error,omitempty"`
+	DNSRecords     []DNSRecord `json:"dns_records,omitempty"`
 }
 
 // ErrIdentityNotFound is what Status returns when the provider has no
