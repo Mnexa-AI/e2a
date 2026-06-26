@@ -571,32 +571,37 @@ components:
         - enabled
         - created_at
       type: object
-    DNSRecordView:
+    DNSRecord:
       additionalProperties: false
       properties:
-        host:
+        name:
+          description: Record name (host). The apex domain for ownership/inbound_mx; an FQDN for dkim/mail_from records.
           type: string
         priority:
+          description: MX priority. Null for non-MX records.
           format: int64
-          type: integer
+          type:
+            - integer
+            - "null"
+        purpose:
+          description: "What the record is for. Open set; tolerate unknown values. Known values: ownership, inbound_mx, dkim, mail_from_mx, mail_from_spf."
+          type: string
+        status:
+          description: "Per-record verification state. Open set; tolerate unknown values. Known values: verified, pending, missing, failed."
+          type: string
+        type:
+          description: DNS record type. MX or TXT.
+          type: string
         value:
+          description: Record value. For MX records this is the mail-server host only; the priority is in the priority field.
           type: string
       required:
-        - host
+        - type
+        - name
         - value
-      type: object
-    DNSRecordsView:
-      additionalProperties: false
-      properties:
-        dkim:
-          $ref: "#/components/schemas/DNSRecordView"
-        mx:
-          $ref: "#/components/schemas/DNSRecordView"
-        txt:
-          $ref: "#/components/schemas/DNSRecordView"
-      required:
-        - mx
-        - txt
+        - priority
+        - purpose
+        - status
       type: object
     DeleteUserDataResult:
       additionalProperties: false
@@ -735,23 +740,21 @@ components:
           format: date-time
           type: string
         dns_records:
-          $ref: "#/components/schemas/DNSRecordsView"
+          items:
+            $ref: "#/components/schemas/DNSRecord"
+          type: array
         domain:
           type: string
         last_checked_at:
           format: date-time
           type: string
-        sending_dns_records:
-          items:
-            $ref: "#/components/schemas/SendingDNSRecordView"
-          type: array
         sending_error:
           type: string
         sending_last_checked_at:
           format: date-time
           type: string
         sending_status:
-          description: "Async SES sending-identity state. Open set; tolerate unknown values. Known values: none, pending, verified, failed."
+          description: "Async SES sending-identity state (rollup). Open set; tolerate unknown values. Known values: none, pending, verified, failed."
           type: string
         verification_token:
           type: string
@@ -1730,20 +1733,6 @@ components:
       required:
         - status
         - message_id
-      type: object
-    SendingDNSRecordView:
-      additionalProperties: false
-      properties:
-        name:
-          type: string
-        type:
-          type: string
-        value:
-          type: string
-      required:
-        - type
-        - name
-        - value
       type: object
     Suppression:
       additionalProperties: false

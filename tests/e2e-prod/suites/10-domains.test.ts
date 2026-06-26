@@ -22,7 +22,7 @@ after(async () => {
 
 test("domains: register returns 201 with DNS records + zero-counted Domain", async () => {
   const domain = fakeDomain("reg");
-  const r = await client.post<{ domain: string; dns_records?: { txt?: unknown; mx?: unknown; spf?: unknown; dkim?: unknown }; agent_count?: number }>(
+  const r = await client.post<{ domain: string; dns_records?: Array<{ type: string; name: string; value: string; priority?: number | null; purpose: string; status: string }>; agent_count?: number }>(
     "/v1/domains",
     { body: { domain } },
   );
