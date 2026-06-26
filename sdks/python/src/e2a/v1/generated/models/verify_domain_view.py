@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
@@ -27,7 +27,7 @@ class VerifyDomainView(BaseModel):
     """
     VerifyDomainView
     """ # noqa: E501
-    dkim: Optional[StrictStr] = None
+    dkim: Optional[StrictStr] = Field(default=None, description="Live DKIM probe state. Known values: found, missing, deferred, mismatch. 'mismatch' means a DKIM record IS published at the selector but its key doesn't match the issued one — almost always a truncated/clipped TXT (the value is ~400 chars and must be published in full, ending in 'AQAB'). On 'mismatch', re-publish the complete DKIM record; do not just wait.")
     domain: StrictStr
     mx: Optional[StrictStr] = None
     spf: Optional[StrictStr] = None

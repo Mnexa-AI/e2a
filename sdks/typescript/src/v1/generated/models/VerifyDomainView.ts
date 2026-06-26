@@ -13,6 +13,9 @@
 import { HttpFile } from '../http/http.js';
 
 export class VerifyDomainView {
+    /**
+    * Live DKIM probe state. Known values: found, missing, deferred, mismatch. \'mismatch\' means a DKIM record IS published at the selector but its key doesn\'t match the issued one — almost always a truncated/clipped TXT (the value is ~400 chars and must be published in full, ending in \'AQAB\'). On \'mismatch\', re-publish the complete DKIM record; do not just wait.
+    */
     'dkim'?: string;
     'domain': string;
     'mx'?: string;
