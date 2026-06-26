@@ -245,8 +245,10 @@ from e2a.v1 import E2AClient, construct_event
 client = E2AClient()                                       # reads E2A_API_KEY
 event = construct_event(request_body, signature_header, webhook_secret)  # parse + HMAC-verify
 if event.type == "email.received":
-    msg = event.data
-    await client.messages.reply(msg["recipient"], msg["message_id"],
+    # event.data is metadata only — replying needs just the recipient + message_id
+    # it carries (fetch the body with client.webhooks.fetch_message(event) if needed)
+    meta = event.data
+    await client.messages.reply(meta["recipient"], meta["message_id"],
                                 {"body": "Got it!", "conversation_id": "conv_123"})
 ```
 

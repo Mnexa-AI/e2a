@@ -567,16 +567,9 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	}
 }
 
-// buildEmailReceivedPayload assembles the data portion of the
-// email.received envelope sent to webhook subscribers. Mirrors the
-// shape of the legacy webhook.Payload so receivers writing against
-// either model see the same fields — sender, to/cc/reply_to lists,
-// the raw RFC 5322 body (base64-encoded for JSON-safety), and the
-// signed auth headers.
+// The envelope wrapper ({event, id, created_at, data}) is added by the publisher
+// when it marshals the Event; this helper only produces the data subfield.
 //
-// The envelope wrapper ({event, id, created_at, data}) is added by
-// the publisher when it marshals the Event; this helper only
-// produces the data subfield.
 // buildEmailReceivedPayload builds the email.received event data. The event is a
 // metadata-only NOTIFICATION, not a content carrier: it omits the message body
 // (raw_message) and the signed auth-header blob (auth_headers) that an earlier
