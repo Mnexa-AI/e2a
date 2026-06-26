@@ -336,10 +336,103 @@ const (
 
 type Store struct {
 	pool *pgxpool.Pool
+	// dkimCipher envelope-encrypts DKIM private keys at rest (#144 / M4).
+	// Optional: nil ⇒ keys are stored as plaintext DER (dev/test without a
+	// configured signing secret). cmd/e2a always installs it in production.
+	dkimCipher *DKIMCipher
 }
 
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
+}
+
+// SetDKIMCipher enables envelope encryption of DKIM private keys at rest (#144).
+// Optional-setter (matches SetEnforcer/SetPublisher) so NewStore's signature —
+// and the many tests that call NewStore(pool) — stay unchanged. When unset, keys
+// are stored as plaintext DER. cmd/e2a always sets it in production, where
+// Signing.HMACSecret is enforced ≥32 bytes.
+func (s *Store) SetDKIMCipher(c *DKIMCipher) { s.dkimCipher = c }
+
+// sealDKIM encrypts a DKIM private key for storage when a cipher is configured,
+// else returns the plaintext DER unchanged. domain is bound as AAD.
+func (s *Store) sealDKIM(der []byte, domain string) ([]byte, error) {
+	if s.dkimCipher == nil || len(der) == 0 {
+		return der, nil
+	}
+	return s.dkimCipher.seal(der, domain)
+}
+
+// unsealDKIM reverses sealDKIM. Legacy plaintext rows (untagged DER) pass through
+// unchanged, so reads tolerate a half-migrated table. An encrypted blob with no
+// cipher configured is a hard error — fail closed, never return ciphertext as a
+// key. domain must be the normalized form used at seal time.
+func (s *Store) unsealDKIM(blob []byte, domain string) ([]byte, error) {
+	if len(blob) == 0 || blob[0] != dkimBlobV1 {
+		return blob, nil
+	}
+	if s.dkimCipher == nil {
+		return nil, fmt.Errorf("dkim key for %q is encrypted but no cipher is configured", domain)
+	}
+	return s.dkimCipher.open(blob, domain)
+}
+
+// EncryptLegacyDKIMKeys re-encrypts any DKIM private keys still stored as
+// plaintext DER (rows written before encryption-at-rest, #144). It is idempotent
+// and self-terminating: only untagged rows (first byte != dkimBlobV1) are
+// selected, so a second run is a no-op. No-op when no cipher is configured. The
+// domains table is small, so it is safe to run at every startup. Returns the
+// number of rows encrypted.
+func (s *Store) EncryptLegacyDKIMKeys(ctx context.Context) (int, error) {
+	if s.dkimCipher == nil {
+		return 0, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		// octet_length > 0 guards get_byte, which errors on a zero-length bytea
+		// (the codebase writes NULL not empty, but be robust to out-of-band rows).
+		`SELECT domain, dkim_private_key FROM domains
+		  WHERE octet_length(dkim_private_key) > 0 AND get_byte(dkim_private_key, 0) <> $1`,
+		int(dkimBlobV1),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("dkim backfill scan: %w", err)
+	}
+	type legacyRow struct {
+		domain string
+		der    []byte
+	}
+	var legacy []legacyRow
+	for rows.Next() {
+		var r legacyRow
+		if err := rows.Scan(&r.domain, &r.der); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("dkim backfill row: %w", err)
+		}
+		legacy = append(legacy, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("dkim backfill iterate: %w", err)
+	}
+
+	n := 0
+	for _, r := range legacy {
+		sealed, err := s.dkimCipher.seal(r.der, r.domain)
+		if err != nil {
+			return n, fmt.Errorf("dkim backfill seal %q: %w", r.domain, err)
+		}
+		// Re-check the tag in the WHERE so a concurrent run can't double-encrypt.
+		tag, err := s.pool.Exec(ctx,
+			`UPDATE domains SET dkim_private_key = $2
+			  WHERE domain = $1 AND octet_length(dkim_private_key) > 0
+			    AND get_byte(dkim_private_key, 0) <> $3`,
+			r.domain, sealed, int(dkimBlobV1),
+		)
+		if err != nil {
+			return n, fmt.Errorf("dkim backfill update %q: %w", r.domain, err)
+		}
+		n += int(tag.RowsAffected())
+	}
+	return n, nil
 }
 
 // --- Domain CRUD ---
@@ -398,9 +491,18 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 	var dkimPubKey string
 	var dkimPrivKey []byte
 	if kp, kerr := dkim.GenerateKeypair(); kerr == nil {
-		dkimSelector = kp.Selector
-		dkimPubKey = kp.PublicKeyDNS
-		dkimPrivKey = kp.PrivateKeyDER
+		// Encrypt the private key at rest (#144). On seal failure (catastrophic
+		// RNG) drop ALL three DKIM columns so we never publish a public key /
+		// selector without a usable private key — non-fatal, same posture as a
+		// keygen failure (the signer treats a missing key as "skip DKIM").
+		sealed, serr := s.sealDKIM(kp.PrivateKeyDER, domain)
+		if serr != nil {
+			log.Printf("[identity] dkim key seal failed for %s: %v", domain, serr)
+		} else {
+			dkimSelector = kp.Selector
+			dkimPubKey = kp.PublicKeyDNS
+			dkimPrivKey = sealed
+		}
 	} else {
 		log.Printf("[identity] dkim keygen failed for %s: %v", domain, kerr)
 	}
@@ -483,11 +585,12 @@ func nullIfEmptyBytes(b []byte) interface{} {
 // treat this as "skip signing" and fall back to whatever the
 // relay-level fallback does.
 func (s *Store) GetDKIMKeyInternal(ctx context.Context, domain string) (string, []byte, error) {
+	norm := normalizeDomain(domain)
 	var selector string
 	var privKey []byte
 	err := s.pool.QueryRow(ctx,
 		`SELECT COALESCE(dkim_selector, ''), dkim_private_key FROM domains WHERE domain = $1`,
-		normalizeDomain(domain),
+		norm,
 	).Scan(&selector, &privKey)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil, nil
@@ -495,7 +598,11 @@ func (s *Store) GetDKIMKeyInternal(ctx context.Context, domain string) (string, 
 	if err != nil {
 		return "", nil, fmt.Errorf("dkim key lookup: %w", err)
 	}
-	return selector, privKey, nil
+	der, err := s.unsealDKIM(privKey, norm)
+	if err != nil {
+		return "", nil, fmt.Errorf("dkim key unseal: %w", err)
+	}
+	return selector, der, nil
 }
 
 // --- Sender identity (decision 4 / Slice 4) ---
@@ -510,15 +617,21 @@ func (s *Store) GetDKIMKeyInternal(ctx context.Context, domain string) (string, 
 // GetDKIMKeyInternal this is unscoped — call only with a server-resolved
 // domain.
 func (s *Store) SendingProvisionInputs(ctx context.Context, domain string) (selector string, privateKeyDER []byte, ok bool, err error) {
+	norm := normalizeDomain(domain)
+	var blob []byte
 	err = s.pool.QueryRow(ctx,
 		`SELECT COALESCE(dkim_selector, ''), dkim_private_key FROM domains WHERE domain = $1`,
-		normalizeDomain(domain),
-	).Scan(&selector, &privateKeyDER)
+		norm,
+	).Scan(&selector, &blob)
 	if err != nil {
 		return "", nil, false, err // includes pgx.ErrNoRows (domain gone)
 	}
-	if selector == "" || len(privateKeyDER) == 0 {
+	if selector == "" || len(blob) == 0 {
 		return "", nil, false, nil
+	}
+	privateKeyDER, err = s.unsealDKIM(blob, norm)
+	if err != nil {
+		return "", nil, false, fmt.Errorf("dkim key unseal: %w", err)
 	}
 	return selector, privateKeyDER, true, nil
 }
