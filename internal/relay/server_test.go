@@ -185,6 +185,40 @@ func TestEnvelopeFromTrustedUnconfigured(t *testing.T) {
 	}
 }
 
+func TestSenderResolvable(t *testing.T) {
+	// #299: the shared "via e2a" relay sender (agent@<outboundFromDomain>) carries
+	// no per-agent identity, so the inbound gate must treat it as unresolvable.
+	s := &session{
+		relay: &Server{outboundFromDomain: "send.e2a.dev"},
+	}
+	cases := []struct {
+		sender string
+		want   bool
+	}{
+		{"alice@acme.com", true},               // external sender — resolvable
+		{"bob@customer-domain.com", true},      // sending-verified agent's own domain
+		{"agent@send.e2a.dev", false},          // shared relay collapse — unresolvable
+		{"agent@Send.E2A.Dev", false},          // case-insensitive
+		{"x@mail.send.e2a.dev", false},         // subdomain of the relay domain
+		{"agent@othersend.e2a.dev", true},      // suffix-match attack — not actually a subdomain
+		{"nodomain", true},                     // garbage; let normal matching/flagging handle it
+	}
+	for _, c := range cases {
+		if got := s.senderResolvable(c.sender); got != c.want {
+			t.Errorf("senderResolvable(%q) = %v, want %v", c.sender, got, c.want)
+		}
+	}
+}
+
+func TestSenderResolvableUnconfigured(t *testing.T) {
+	// With no outboundFromDomain there is no shared-relay address to recognize, so
+	// every sender is treated as resolvable (no spurious flagging).
+	s := &session{relay: &Server{outboundFromDomain: ""}}
+	if !s.senderResolvable("agent@send.e2a.dev") {
+		t.Error("unconfigured relay should treat all senders as resolvable")
+	}
+}
+
 func TestExtractThreadInfoMissingHeaders(t *testing.T) {
 	raw := []byte("From: alice@example.com\r\n\r\nBody only\r\n")
 

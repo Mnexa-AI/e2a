@@ -48,22 +48,40 @@ type Decision struct {
 	Reason  string // human-readable; empty when not flagged
 }
 
+// unresolvableSenderReason is the fail-closed flag reason for a sender with no
+// specific authenticated identity (shared-relay "via e2a" mail) under a gating
+// policy — see senderResolvable in the relay and issue #299.
+const unresolvableSenderReason = "sender has no resolvable per-agent identity (shared relay), so it cannot match a per-agent inbound gate"
+
 // EvaluateIngestion applies the agent's ingestion policy to an inbound message.
 //   - policy: the agent's inbound_policy (unknown/empty → treated as Open).
 //   - allowlist: the agent's inbound_allowlist (addresses for Allowlist,
 //     domains for Domain); matching is case-insensitive.
 //   - senderEmail: the message's display sender (From identity).
+//   - senderResolvable: whether senderEmail maps to a SPECIFIC authenticated
+//     sender. False for mail relayed under the shared "via e2a" address, which
+//     authenticates (DMARC passes for the relay domain) but carries no per-agent
+//     identity (#299). An unresolvable sender can never legitimately satisfy a
+//     per-agent allowlist/domain gate, so it is treated as a non-match. Open is
+//     unaffected — open means open.
 //
-// Flagged is fail-closed for the gating postures: an empty/garbage sender, or
-// an empty allowlist, flags everything (you opted into a gate but listed no one).
-func EvaluateIngestion(policy string, allowlist []string, senderEmail string) Decision {
+// Flagged is fail-closed for the gating postures: an empty/garbage sender, an
+// empty allowlist, or an unresolvable sender flags everything (you opted into a
+// gate but the sender cannot be matched).
+func EvaluateIngestion(policy string, allowlist []string, senderEmail string, senderResolvable bool) Decision {
 	switch policy {
 	case Allowlist:
+		if !senderResolvable {
+			return Decision{Flagged: true, Reason: unresolvableSenderReason}
+		}
 		if containsFold(allowlist, strings.TrimSpace(senderEmail)) {
 			return Decision{}
 		}
 		return Decision{Flagged: true, Reason: "sender not on the agent's inbound allowlist"}
 	case Domain:
+		if !senderResolvable {
+			return Decision{Flagged: true, Reason: unresolvableSenderReason}
+		}
 		dom := domainOf(senderEmail)
 		if dom != "" && containsFold(allowlist, dom) {
 			return Decision{}

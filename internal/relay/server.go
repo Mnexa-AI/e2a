@@ -303,7 +303,10 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// SPF/DKIM/DMARC pertain to), NOT displaySender (Reply-To is attacker-
 	// controllable). A non-match is FLAGGED — still delivered (never dropped),
 	// marked on the row, and emits email.flagged so operators get a signal.
-	policyDecision := inboundpolicy.EvaluateIngestion(agent.InboundPolicy, agent.InboundAllowlist, senderEmail)
+	//
+	// senderResolvable fails the gate closed for shared-relay "via e2a" mail,
+	// which authenticates but carries no per-agent identity (#299).
+	policyDecision := inboundpolicy.EvaluateIngestion(agent.InboundPolicy, agent.InboundAllowlist, senderEmail, s.senderResolvable(senderEmail))
 
 	// Content screening (Slice 4): run the per-agent inbound scan and record the
 	// audit trail (protection_events) + the denormalized verdict. Detection +
@@ -681,6 +684,29 @@ func (s *session) envelopeFromTrusted() bool {
 	envDomain := strings.ToLower(extractDomain(s.from))
 	trusted := strings.ToLower(s.relay.outboundFromDomain)
 	return envDomain == trusted || strings.HasSuffix(envDomain, "."+trusted)
+}
+
+// senderResolvable reports whether the inbound From identity maps to a SPECIFIC
+// authenticated sender, so a per-agent inbound allowlist/domain gate can match it.
+//
+// Mail relayed for a non-sending-verified agent goes out under the shared
+// "agent@<outboundFromDomain>" address (internal/outbound/sender.go): it
+// authenticates against the relay domain (DMARC passes) but is the SAME address
+// for every such agent, so it carries no per-agent identity. Treating it as
+// resolvable would let any allowlist that names the relay domain (or that shared
+// address) admit every unverified agent indiscriminately — and would never admit
+// the specific agent the operator meant. So we report it unresolvable and the
+// gate fails closed under allowlist/domain (open is unaffected). #299.
+//
+// Matches the exact relay domain OR any subdomain, mirroring envelopeFromTrusted:
+// a verified agent always sends from its own custom domain, never the relay's.
+func (s *session) senderResolvable(senderEmail string) bool {
+	if s.relay.outboundFromDomain == "" {
+		return true
+	}
+	dom := strings.ToLower(extractDomain(senderEmail))
+	relay := strings.ToLower(s.relay.outboundFromDomain)
+	return dom != relay && !strings.HasSuffix(dom, "."+relay)
 }
 
 func extractEmail(addr string) string {

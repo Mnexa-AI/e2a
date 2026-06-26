@@ -25,6 +25,16 @@ const protectionBetaDoc = "Beta: the agent protection config is unstable — its
 // gate/scan object and get the safe-permissive default. The three TOP-LEVEL
 // keys (inbound/outbound/holds) stay required (design D3) — a missing section
 // is a 422, not a silent reset.
+//
+// INBOUND gate identity note (#299): the inbound allowlist/domain gate matches on
+// the message's From address, which only carries a specific per-agent identity for
+// senders on a sending-verified domain. Mail from agents NOT yet sending-verified
+// is relayed under the shared "via e2a" address (internal/outbound/sender.go) — it
+// authenticates but is the same address for every such agent. The relay treats that
+// shared sender as unresolvable (see senderResolvable), so it can never satisfy an
+// allowlist/domain gate and is flagged (fail closed); under "open" it still passes.
+// Net: per-agent inbound allowlisting is reliable for sending-verified senders;
+// unverified intra-system senders are uniformly gated, not silently admitted.
 type ProtectionGateView struct {
 	Policy    string   `json:"policy,omitempty" enum:"open,allowlist,domain" default:"open" doc:"Trust gate: open (all), domain (listed domains), allowlist (listed addresses)."`
 	Allowlist []string `json:"allowlist,omitempty" nullable:"false" maxItems:"1000" doc:"Addresses (allowlist) or domains (domain) the gate trusts; ignored for open."`
