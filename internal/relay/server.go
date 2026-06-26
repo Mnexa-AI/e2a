@@ -333,7 +333,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// ON CONFLICT (id) DO NOTHING. Idempotency by construction; see
 	// design §5.1.
 	event := webhookpub.NewEvent(webhookpub.EventEmailReceived, agent.UserID, buildEmailReceivedPayload(
-		messageID, conversationID, displaySender, senderEmail, rcpt, s.inboundSubject, s.inboundThreadInfo, domainAuth, agent,
+		messageID, conversationID, displaySender, senderEmail, rcpt, s.inboundSubject, s.inboundThreadInfo, authHeaders, agent,
 	))
 	event.AgentID = agent.ID
 	event.ConversationID = conversationID
@@ -572,23 +572,21 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 //
 // buildEmailReceivedPayload builds the email.received event data. The event is a
 // metadata-only NOTIFICATION, not a content carrier: it omits the message body
-// (raw_message) and the signed auth-header blob (auth_headers) that an earlier
-// revision embedded. A subscriber fetches the full message — body + attachments +
-// signed headers — from GET /v1/messages/{recipient}/{message_id} using the
-// message_id + recipient carried here (the same notify→fetch model the WebSocket
-// listener already uses). This keeps the fan-out bus payload bounded, avoids
-// shipping full message PII to every subscriber endpoint, and makes the REST
-// resource the single source of truth (no content schema to drift).
+// (raw_message) that an earlier revision embedded. A subscriber fetches the full
+// message — body + attachments — from GET /v1/agents/{recipient}/messages/{message_id}
+// using the message_id + recipient carried here (the same notify→fetch model the
+// WebSocket listener already uses). This keeps the fan-out bus payload bounded,
+// avoids shipping full message PII to every subscriber endpoint, and makes the
+// REST resource the single source of truth for content.
 //
-// `auth` is the STRUCTURED inbound trust verdict ({spf,dkim,dmarc}) — the same
-// shape REST exposes as MessageView.auth. It is metadata (a trust-decision input),
-// not content, so it rides on the event: a consumer can decide whether to trust /
-// fetch a message without a round trip. It replaces the raw auth_headers blob,
-// which is recoverable from the fetched message when its signed form is needed.
+// auth_headers stays on the event: it is small SIGNED metadata — the X-E2A-Auth-*
+// attestation (HMAC-keyed by the owner's signing secret, with a replay timestamp)
+// that lets a subscriber INDEPENDENTLY verify the inbound SPF/DKIM/DMARC verdict.
+// It is metadata, not content, so it is not subject to the body-fetch rule.
 func buildEmailReceivedPayload(
 	messageID, conversationID, displaySender, authenticatedFrom, recipient, subject string,
 	threadInfo threadInfo,
-	auth *emailauth.Result,
+	authHeaders map[string]string,
 	agent *identity.AgentIdentity,
 ) map[string]interface{} {
 	return map[string]interface{}{
@@ -611,7 +609,7 @@ func buildEmailReceivedPayload(
 		"reply_to":           threadInfo.ReplyTo,
 		"recipient":          recipient,
 		"subject":            subject,
-		"auth":               auth,
+		"auth_headers":       authHeaders,
 		"received_at":        time.Now().UTC().Format(time.RFC3339),
 	}
 }

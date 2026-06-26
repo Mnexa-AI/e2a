@@ -13,7 +13,6 @@
 
 import { createHmac, timingSafeEqual } from "crypto";
 import { E2AWebhookSignatureError } from "./errors.js";
-import { AuthVerdict } from "./generated/models/all.js";
 
 export interface VerifySignatureOptions {
   /** Raw HTTP request body bytes. */
@@ -84,8 +83,9 @@ export interface WebhookEvent {
  *  notification — it does NOT carry the message body. `message_id` + `recipient`
  *  are the fetch keys; pass the event to {@link E2AClient.webhooks.fetchMessage}
  *  (or call `client.messages.get(recipient, message_id)`) to retrieve the full
- *  message (body + attachments + signed headers). `auth` is the structured
- *  inbound trust verdict, the same shape as `MessageView.auth`. */
+ *  message (body + attachments). `auth_headers` is the signed X-E2A-Auth-*
+ *  attestation — verify it to independently confirm the inbound SPF/DKIM/DMARC
+ *  verdict. */
 export interface EmailReceivedPayload {
   message_id: string;
   conversation_id?: string;
@@ -100,7 +100,8 @@ export interface EmailReceivedPayload {
   /** The agent address the message was delivered to — the fetch key. */
   recipient: string;
   subject: string;
-  auth?: AuthVerdict;
+  /** Signed X-E2A-Auth-* attestation of the inbound auth verdict. */
+  auth_headers?: Record<string, string>;
   received_at: string;
 }
 

@@ -3,15 +3,14 @@ package relay
 import (
 	"testing"
 
-	"github.com/Mnexa-AI/e2a/internal/emailauth"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 )
 
 // TestBuildEmailReceivedPayload_Shape verifies the email.received event is a
-// metadata-only notification: it carries the routing/identity fields, the
-// structured `auth` trust verdict, and the message_id + recipient fetch keys —
-// but NOT the message body (raw_message) or the signed auth_headers blob, which a
-// subscriber fetches from GET /v1/messages/{recipient}/{message_id}.
+// metadata-only notification: it carries the routing/identity fields, the signed
+// auth_headers attestation, and the message_id + recipient fetch keys — but NOT
+// the message body (raw_message), which a subscriber fetches from
+// GET /v1/agents/{recipient}/messages/{message_id}.
 func TestBuildEmailReceivedPayload_Shape(t *testing.T) {
 	threadInfo := threadInfo{
 		To:      []string{"bot@example.com"},
@@ -22,11 +21,7 @@ func TestBuildEmailReceivedPayload_Shape(t *testing.T) {
 		ID:     "bot@example.com",
 		Domain: "example.com",
 	}
-	auth := &emailauth.Result{
-		SPF:   emailauth.CheckResult{Status: "pass"},
-		DKIM:  emailauth.CheckResult{Status: "pass"},
-		DMARC: emailauth.CheckResult{Status: "pass"},
-	}
+	authHeaders := map[string]string{"X-E2A-Auth-Verified": "true"}
 
 	payload := buildEmailReceivedPayload(
 		"msg_123",
@@ -36,34 +31,29 @@ func TestBuildEmailReceivedPayload_Shape(t *testing.T) {
 		"bot@example.com",
 		"Hello",
 		threadInfo,
-		auth,
+		authHeaders,
 		agent,
 	)
 
-	// Metadata + fetch keys + the structured auth verdict are present.
+	// Metadata + fetch keys + the signed auth_headers attestation are present.
 	for _, key := range []string{
 		"message_id", "conversation_id", "agent",
 		"from", "authenticated_from", "to", "cc", "reply_to", "recipient",
-		"subject", "auth", "received_at",
+		"subject", "auth_headers", "received_at",
 	} {
 		if _, ok := payload[key]; !ok {
 			t.Errorf("payload missing %q", key)
 		}
 	}
 
-	// Content fields are NOT on the notification — they are fetched from REST.
-	for _, key := range []string{"raw_message", "auth_headers"} {
-		if _, ok := payload[key]; ok {
-			t.Errorf("metadata-only payload must not carry %q", key)
-		}
+	// The body is NOT on the notification — it is fetched from REST.
+	if _, ok := payload["raw_message"]; ok {
+		t.Errorf("metadata-only payload must not carry %q", "raw_message")
 	}
 
 	// recipient is the fetch key (agent address) for messages.get(recipient, id).
 	if payload["recipient"] != "bot@example.com" {
 		t.Errorf("recipient = %v, want bot@example.com (fetch key)", payload["recipient"])
-	}
-	if payload["auth"] != auth {
-		t.Errorf("auth = %v, want the structured verdict passed in", payload["auth"])
 	}
 
 	if payload["message_id"] != "msg_123" {
