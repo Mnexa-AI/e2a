@@ -72,6 +72,21 @@ type Domain struct {
 	SendingError          string     `json:"sending_error,omitempty"`
 	SendingDNSRecordsJSON []byte     `json:"-"`
 	SendingLastCheckedAt  *time.Time `json:"sending_last_checked_at,omitempty"`
+	// Per-axis SES sending status (migration 049). SES verifies DKIM and the
+	// custom MAIL FROM independently; these persist that breakdown so the API
+	// can show each sending DNS record its OWN status instead of the
+	// all-or-nothing SendingStatus rollup. Empty string ("") when no per-axis
+	// signal has been recorded (pre-migration / pre-provision / terminal
+	// failure) — the read path falls back to SendingStatus in that case. ∈
+	// {"",none,pending,verified,failed}.
+	//
+	// json:"-" (like SendingDNSRecordsJSON): these are internal read-model
+	// fields consumed by httpapi.domainView via Go field access to derive each
+	// DNSRecord.status. They are deliberately NOT serialized, so they stay out
+	// of the API/export shape — the fix only makes DNSRecord.status VALUES more
+	// accurate, it does not add API fields.
+	SendingDkimStatus     string `json:"-"`
+	SendingMailFromStatus string `json:"-"`
 }
 
 type AgentIdentity struct {
@@ -408,9 +423,9 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 		 ON CONFLICT (domain) DO UPDATE
 		 SET user_id = domains.user_id
 		 WHERE domains.verified = false AND domains.user_id = $2
-		 RETURNING domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at`,
+		 RETURNING domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at, COALESCE(sending_dkim_status, ''), COALESCE(sending_mail_from_status, '')`,
 		domain, userID, verificationToken, nullIfEmpty(dkimSelector), nullIfEmpty(dkimPubKey), nullIfEmptyBytes(dkimPrivKey),
-	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.SendingStatus, &d.SendingError, &d.SendingDNSRecordsJSON, &d.SendingLastCheckedAt)
+	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.SendingStatus, &d.SendingError, &d.SendingDNSRecordsJSON, &d.SendingLastCheckedAt, &d.SendingDkimStatus, &d.SendingMailFromStatus)
 
 	if err == nil {
 		return d, nil
@@ -422,9 +437,9 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 	// it" and "different user → not available".
 	existing := &Domain{}
 	err = s.pool.QueryRow(ctx,
-		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at
+		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at, COALESCE(sending_dkim_status, ''), COALESCE(sending_mail_from_status, '')
 		 FROM domains WHERE domain = $1`, domain,
-	).Scan(&existing.Domain, &existing.UserID, &existing.Verified, &existing.VerificationToken, &existing.CreatedAt, &existing.VerifiedAt, &existing.IsPrimary, &existing.LastCheckedAt, &existing.DKIMSelector, &existing.DKIMPublicKey, &existing.SendingStatus, &existing.SendingError, &existing.SendingDNSRecordsJSON, &existing.SendingLastCheckedAt)
+	).Scan(&existing.Domain, &existing.UserID, &existing.Verified, &existing.VerificationToken, &existing.CreatedAt, &existing.VerifiedAt, &existing.IsPrimary, &existing.LastCheckedAt, &existing.DKIMSelector, &existing.DKIMPublicKey, &existing.SendingStatus, &existing.SendingError, &existing.SendingDNSRecordsJSON, &existing.SendingLastCheckedAt, &existing.SendingDkimStatus, &existing.SendingMailFromStatus)
 	if err != nil {
 		return nil, fmt.Errorf("domain lookup failed: %w", err)
 	}
@@ -509,8 +524,12 @@ func (s *Store) SendingProvisionInputs(ctx context.Context, domain string) (sele
 }
 
 // SetSendingStatus writes the sending lifecycle state for a domain and stamps
-// sending_last_checked_at. recordsJSON may be nil (cleared).
-func (s *Store) SetSendingStatus(ctx context.Context, domain, status, errMsg string, recordsJSON []byte) error {
+// sending_last_checked_at. recordsJSON may be nil (cleared). dkimStatus and
+// mailFromStatus are the per-axis SES breakdown (migration 049); an empty
+// string for either is written as SQL NULL so the read path falls back to the
+// all-or-nothing sending_status rollup (and the CHECK constraint, which allows
+// NULL but not '', is satisfied).
+func (s *Store) SetSendingStatus(ctx context.Context, domain, status, dkimStatus, mailFromStatus, errMsg string, recordsJSON []byte) error {
 	var errPtr *string
 	if errMsg != "" {
 		errPtr = &errMsg
@@ -520,9 +539,11 @@ func (s *Store) SetSendingStatus(ctx context.Context, domain, status, errMsg str
 		    SET sending_status = $2,
 		        sending_error = $3,
 		        sending_dns_records = $4,
+		        sending_dkim_status = $5,
+		        sending_mail_from_status = $6,
 		        sending_last_checked_at = now()
 		  WHERE domain = $1`,
-		normalizeDomain(domain), status, errPtr, recordsJSON,
+		normalizeDomain(domain), status, errPtr, recordsJSON, nullIfEmpty(dkimStatus), nullIfEmpty(mailFromStatus),
 	)
 	return err
 }
@@ -586,10 +607,10 @@ func (s *Store) DomainExists(ctx context.Context, domain string) (bool, error) {
 func (s *Store) LookupDomain(ctx context.Context, domain, userID string) (*Domain, error) {
 	d := &Domain{}
 	err := s.pool.QueryRow(ctx,
-		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at
+		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at, COALESCE(sending_dkim_status, ''), COALESCE(sending_mail_from_status, '')
 		 FROM domains WHERE domain = $1 AND user_id = $2`,
 		normalizeDomain(domain), userID,
-	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.SendingStatus, &d.SendingError, &d.SendingDNSRecordsJSON, &d.SendingLastCheckedAt)
+	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.SendingStatus, &d.SendingError, &d.SendingDNSRecordsJSON, &d.SendingLastCheckedAt, &d.SendingDkimStatus, &d.SendingMailFromStatus)
 	if err != nil {
 		return nil, fmt.Errorf("domain not found")
 	}
@@ -623,6 +644,7 @@ func (s *Store) ListDomainsByUser(ctx context.Context, userID string) ([]Domain,
 		        d.is_primary, d.last_checked_at,
 		        COALESCE(d.dkim_selector, ''), COALESCE(d.dkim_public_key, ''),
 		        d.sending_status, COALESCE(d.sending_error, ''), d.sending_dns_records, d.sending_last_checked_at,
+		        COALESCE(d.sending_dkim_status, ''), COALESCE(d.sending_mail_from_status, ''),
 		        (SELECT count(*) FROM agent_identities a WHERE a.domain = d.domain AND a.user_id = d.user_id) AS agent_count
 		 FROM domains d
 		 WHERE d.user_id = $1
@@ -636,7 +658,7 @@ func (s *Store) ListDomainsByUser(ctx context.Context, userID string) ([]Domain,
 	var domains []Domain
 	for rows.Next() {
 		var d Domain
-		if err := rows.Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.SendingStatus, &d.SendingError, &d.SendingDNSRecordsJSON, &d.SendingLastCheckedAt, &d.AgentCount); err != nil {
+		if err := rows.Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.SendingStatus, &d.SendingError, &d.SendingDNSRecordsJSON, &d.SendingLastCheckedAt, &d.SendingDkimStatus, &d.SendingMailFromStatus, &d.AgentCount); err != nil {
 			return nil, err
 		}
 		domains = append(domains, d)

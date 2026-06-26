@@ -27,9 +27,13 @@ type Store interface {
 	// DER private key used for BYODKIM. ok=false means the domain has no key
 	// material (can't provision). err is for real DB failures (retryable).
 	SendingProvisionInputs(ctx context.Context, domain string) (selector string, privateKeyDER []byte, ok bool, err error)
-	// SetSendingStatus writes a terminal/transition status (+ error + DNS
-	// records) and stamps sending_last_checked_at.
-	SetSendingStatus(ctx context.Context, domain string, status Status, errMsg string, records []DNSRecord) error
+	// SetSendingStatus writes a terminal/transition status (+ the per-axis
+	// dkim/mailFrom breakdown + error + DNS records) and stamps
+	// sending_last_checked_at. dkimStatus/mailFromStatus may be empty ("")
+	// when the caller has no per-axis signal (e.g. provision, or a terminal
+	// failure with no SES poll); persisting empty lets the read path fall back
+	// to the all-or-nothing rollup.
+	SetSendingStatus(ctx context.Context, domain string, status, dkimStatus, mailFromStatus Status, errMsg string, records []DNSRecord) error
 	// TouchSendingChecked stamps sending_last_checked_at without changing the
 	// status — used on a still-pending poll.
 	TouchSendingChecked(ctx context.Context, domain string) error
@@ -111,7 +115,7 @@ func (w *ProvisionWorker) Work(ctx context.Context, job *river.Job[ProvisionArgs
 	if err != nil {
 		return err // transient SES/network error — River retries
 	}
-	if err := w.store.SetSendingStatus(ctx, domain, res.Status, res.Error, res.DNSRecords); err != nil {
+	if err := w.store.SetSendingStatus(ctx, domain, res.Status, res.DkimStatus, res.MailFromStatus, res.Error, res.DNSRecords); err != nil {
 		return err
 	}
 	switch res.Status {
@@ -187,13 +191,13 @@ func (w *ReconcileWorker) Work(ctx context.Context, job *river.Job[ReconcileArgs
 
 	switch res.Status {
 	case StatusVerified:
-		if err := w.store.SetSendingStatus(ctx, domain, StatusVerified, "", res.DNSRecords); err != nil {
+		if err := w.store.SetSendingStatus(ctx, domain, StatusVerified, res.DkimStatus, res.MailFromStatus, "", res.DNSRecords); err != nil {
 			return err
 		}
 		fireOwner(ctx, w.store, w.fire, domain, StatusVerified, "")
 		return nil
 	case StatusFailed:
-		if err := w.store.SetSendingStatus(ctx, domain, StatusFailed, res.Error, res.DNSRecords); err != nil {
+		if err := w.store.SetSendingStatus(ctx, domain, StatusFailed, res.DkimStatus, res.MailFromStatus, res.Error, res.DNSRecords); err != nil {
 			return err
 		}
 		fireOwner(ctx, w.store, w.fire, domain, StatusFailed, res.Error)
@@ -234,7 +238,10 @@ func maxAttempts(n int) int {
 
 // setFailedFire writes a failed status and fires domain.sending_failed.
 func setFailedFire(ctx context.Context, store Store, fire EventFirer, domain, reason string) {
-	if err := store.SetSendingStatus(ctx, domain, StatusFailed, reason, nil); err != nil {
+	// Terminal failures here (no key material, identity not found at provider,
+	// verification timed out) carry no per-axis signal — persist empty axes so
+	// the read path falls back to the rollup (all three records read failed).
+	if err := store.SetSendingStatus(ctx, domain, StatusFailed, "", "", reason, nil); err != nil {
 		log.Printf("[senderidentity] set failed for %s: %v", domain, err)
 		return
 	}

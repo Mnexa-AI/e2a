@@ -12,7 +12,7 @@ import (
 // into the typed Store the workers consume.
 type RawStore interface {
 	SendingProvisionInputs(ctx context.Context, domain string) (selector string, privateKeyDER []byte, ok bool, err error)
-	SetSendingStatus(ctx context.Context, domain, status, errMsg string, recordsJSON []byte) error
+	SetSendingStatus(ctx context.Context, domain, status, dkimStatus, mailFromStatus, errMsg string, recordsJSON []byte) error
 	TouchSendingChecked(ctx context.Context, domain string) error
 	GetSendingStatus(ctx context.Context, domain string) (string, error)
 	DomainOwner(ctx context.Context, domain string) (string, error)
@@ -29,7 +29,7 @@ func (a *storeAdapter) SendingProvisionInputs(ctx context.Context, domain string
 	return a.raw.SendingProvisionInputs(ctx, domain)
 }
 
-func (a *storeAdapter) SetSendingStatus(ctx context.Context, domain string, status Status, errMsg string, records []DNSRecord) error {
+func (a *storeAdapter) SetSendingStatus(ctx context.Context, domain string, status, dkimStatus, mailFromStatus Status, errMsg string, records []DNSRecord) error {
 	var recordsJSON []byte
 	if len(records) > 0 {
 		b, err := json.Marshal(records)
@@ -38,7 +38,7 @@ func (a *storeAdapter) SetSendingStatus(ctx context.Context, domain string, stat
 		}
 		recordsJSON = b
 	}
-	return a.raw.SetSendingStatus(ctx, domain, string(status), errMsg, recordsJSON)
+	return a.raw.SetSendingStatus(ctx, domain, string(status), string(dkimStatus), string(mailFromStatus), errMsg, recordsJSON)
 }
 
 func (a *storeAdapter) TouchSendingChecked(ctx context.Context, domain string) error {

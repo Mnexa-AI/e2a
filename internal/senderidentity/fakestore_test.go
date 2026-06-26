@@ -37,10 +37,12 @@ type fakeStore struct {
 }
 
 type setStatusCall struct {
-	Domain  string
-	Status  Status
-	ErrMsg  string
-	Records []DNSRecord
+	Domain         string
+	Status         Status
+	DkimStatus     Status
+	MailFromStatus Status
+	ErrMsg         string
+	Records        []DNSRecord
 }
 
 func newFakeStore() *fakeStore {
@@ -95,13 +97,13 @@ func (s *fakeStore) SendingProvisionInputs(ctx context.Context, domain string) (
 	return s.selector, s.privKey, s.inputsOK, nil
 }
 
-func (s *fakeStore) SetSendingStatus(ctx context.Context, domain string, status Status, errMsg string, records []DNSRecord) error {
+func (s *fakeStore) SetSendingStatus(ctx context.Context, domain string, status, dkimStatus, mailFromStatus Status, errMsg string, records []DNSRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.setStatusErr != nil {
 		return s.setStatusErr
 	}
-	s.SetStatusCalls = append(s.SetStatusCalls, setStatusCall{Domain: domain, Status: status, ErrMsg: errMsg, Records: records})
+	s.SetStatusCalls = append(s.SetStatusCalls, setStatusCall{Domain: domain, Status: status, DkimStatus: dkimStatus, MailFromStatus: mailFromStatus, ErrMsg: errMsg, Records: records})
 	s.status[domain] = status
 	return nil
 }

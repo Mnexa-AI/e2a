@@ -96,7 +96,10 @@ func TestReconcileWorker_Work(t *testing.T) {
 		store.setStatus(domain, StatusPending)
 		store.setOwner(domain, owner)
 		prov := NewFakeProvider()
-		prov.SetStatus(domain, Result{Status: StatusFailed, Error: "DKIM rejected"})
+		// Mixed axes: the rollup is failed but DKIM is fine and only the custom
+		// MAIL FROM broke. The worker must persist the per-axis breakdown so the
+		// API can surface exactly which record to fix.
+		prov.SetStatus(domain, Result{Status: StatusFailed, DkimStatus: StatusVerified, MailFromStatus: StatusFailed, Error: "MAIL FROM rejected"})
 		firer := &recordingFirer{}
 		w := &ReconcileWorker{store: store, provider: prov, fire: firer.fire()}
 
@@ -104,11 +107,14 @@ func TestReconcileWorker_Work(t *testing.T) {
 			t.Fatalf("Work returned error: %v", err)
 		}
 		got, _ := store.lastSetStatus()
-		if got.Status != StatusFailed || got.ErrMsg != "DKIM rejected" {
+		if got.Status != StatusFailed || got.ErrMsg != "MAIL FROM rejected" {
 			t.Fatalf("expected failed with reason, got %+v", got)
 		}
+		if got.DkimStatus != StatusVerified || got.MailFromStatus != StatusFailed {
+			t.Fatalf("expected per-axis dkim=verified mailFrom=failed persisted, got dkim=%q mailFrom=%q", got.DkimStatus, got.MailFromStatus)
+		}
 		ev, _ := firer.last()
-		if ev.Status != StatusFailed || ev.ErrMsg != "DKIM rejected" {
+		if ev.Status != StatusFailed || ev.ErrMsg != "MAIL FROM rejected" {
 			t.Fatalf("expected fired failed, got %+v", ev)
 		}
 	})

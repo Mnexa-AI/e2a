@@ -10,18 +10,22 @@ import (
 // fakeRawStore implements RawStore, recording the primitive (string/JSON) form
 // SetSendingStatus receives so the adapter's conversion can be asserted.
 type fakeRawStore struct {
-	lastStatus      string
-	lastErrMsg      string
-	lastRecordsJSON []byte
-	getStatusReturn string
+	lastStatus         string
+	lastDkimStatus     string
+	lastMailFromStatus string
+	lastErrMsg         string
+	lastRecordsJSON    []byte
+	getStatusReturn    string
 }
 
 func (f *fakeRawStore) SendingProvisionInputs(ctx context.Context, domain string) (string, []byte, bool, error) {
 	return "sel", []byte("der"), true, nil
 }
 
-func (f *fakeRawStore) SetSendingStatus(ctx context.Context, domain, status, errMsg string, recordsJSON []byte) error {
+func (f *fakeRawStore) SetSendingStatus(ctx context.Context, domain, status, dkimStatus, mailFromStatus, errMsg string, recordsJSON []byte) error {
 	f.lastStatus = status
+	f.lastDkimStatus = dkimStatus
+	f.lastMailFromStatus = mailFromStatus
 	f.lastErrMsg = errMsg
 	f.lastRecordsJSON = recordsJSON
 	return nil
@@ -46,11 +50,14 @@ func TestStoreAdapter_SetSendingStatus(t *testing.T) {
 	store := NewStoreAdapter(raw)
 	records := []DNSRecord{{Type: "TXT", Name: "_dmarc", Value: "v=DMARC1"}}
 
-	if err := store.SetSendingStatus(context.Background(), "example.com", StatusVerified, "ok", records); err != nil {
+	if err := store.SetSendingStatus(context.Background(), "example.com", StatusVerified, StatusVerified, StatusFailed, "ok", records); err != nil {
 		t.Fatalf("SetSendingStatus: %v", err)
 	}
 	if raw.lastStatus != "verified" {
 		t.Fatalf("status not converted to string: got %q", raw.lastStatus)
+	}
+	if raw.lastDkimStatus != "verified" || raw.lastMailFromStatus != "failed" {
+		t.Fatalf("per-axis statuses not converted: dkim=%q mailFrom=%q", raw.lastDkimStatus, raw.lastMailFromStatus)
 	}
 	if raw.lastErrMsg != "ok" {
 		t.Fatalf("errMsg = %q", raw.lastErrMsg)
@@ -67,11 +74,14 @@ func TestStoreAdapter_SetSendingStatus(t *testing.T) {
 func TestStoreAdapter_SetSendingStatus_NoRecords(t *testing.T) {
 	raw := &fakeRawStore{}
 	store := NewStoreAdapter(raw)
-	if err := store.SetSendingStatus(context.Background(), "example.com", StatusPending, "", nil); err != nil {
+	if err := store.SetSendingStatus(context.Background(), "example.com", StatusPending, "", "", "", nil); err != nil {
 		t.Fatalf("SetSendingStatus: %v", err)
 	}
 	if raw.lastRecordsJSON != nil {
 		t.Fatalf("expected nil records JSON for empty records, got %q", raw.lastRecordsJSON)
+	}
+	if raw.lastDkimStatus != "" || raw.lastMailFromStatus != "" {
+		t.Fatalf("expected empty per-axis statuses, got dkim=%q mailFrom=%q", raw.lastDkimStatus, raw.lastMailFromStatus)
 	}
 }
 
