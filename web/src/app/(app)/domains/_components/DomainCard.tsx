@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { DNSRecord } from "../../../components/Field";
+import { DNSRecord as DNSRecordField } from "../../../components/Field";
 import { Chip } from "../../../components/loft/Chip";
 import { Dot } from "../../../components/loft/Dot";
 import {
@@ -11,16 +11,59 @@ import {
 import type {
   DomainInfo,
   DomainSendingStatus,
+  DNSRecord,
+  DNSRecordPurpose,
+  DNSRecordStatus,
   VerifyDomainResponse,
 } from "../../../components/onboarding/types";
 import { track } from "../../../components/onboarding/analytics";
 
-// Renders a found/missing/deferred chip next to each per-record row in
-// the DNS expansion. "deferred" only appears on legacy pre-migration
-// domains that don't have a stored DKIM keypair yet — re-claiming the
-// domain provisions a key and flips the chip to found/missing on the
-// next probe.
-function RecordStatusChip({
+// Per-purpose display metadata. `group` decides whether a record lands in the
+// inbound "DNS records" section or the "Outbound sending" section. Unknown
+// purposes (open set) fall back to the inbound group + their raw purpose label,
+// so a future record kind renders generically instead of disappearing.
+const PURPOSE_META: Record<
+  DNSRecordPurpose,
+  { label: string; group: "inbound" | "sending" }
+> = {
+  ownership: {
+    label: "Prove domain ownership (also drives SPF check)",
+    group: "inbound",
+  },
+  inbound_mx: { label: "Route email to e2a", group: "inbound" },
+  dkim: { label: "Authenticate outbound mail (DKIM)", group: "inbound" },
+  mail_from_mx: {
+    label: "Return path for bounces (MAIL FROM)",
+    group: "sending",
+  },
+  mail_from_spf: { label: "Authorize sending (SPF)", group: "sending" },
+};
+
+// Maps a record purpose onto the matching field of the live verify probe so the
+// probe's found/missing result can be overlaid onto that record's row. Only the
+// inbound + dkim purposes have a live probe; the mail_from records are verified
+// by SES as a unit (surfaced via sending_status), not by this DNS probe.
+const PROBE_FIELD_BY_PURPOSE: Partial<
+  Record<DNSRecordPurpose, "mx" | "spf" | "dkim">
+> = {
+  inbound_mx: "mx",
+  ownership: "spf",
+  dkim: "dkim",
+};
+
+function purposeMeta(purpose: string): { label: string; group: "inbound" | "sending" } {
+  return (
+    PURPOSE_META[purpose as DNSRecordPurpose] ?? {
+      label: purpose,
+      group: "inbound",
+    }
+  );
+}
+
+// Renders a found/missing/deferred chip from the most recent live verify probe.
+// "deferred" only appears on legacy pre-migration domains with no stored DKIM
+// keypair. Used to OVERLAY the per-record status when a probe result exists.
+function ProbeStatusChip({
   status,
 }: {
   status: "found" | "missing" | "deferred" | undefined;
@@ -43,10 +86,39 @@ function RecordStatusChip({
   );
 }
 
-// SendingStatusChip reflects the async SES sending-identity verification for
-// the WHOLE domain (all-or-nothing: DKIM + custom MAIL FROM together), not a
-// single record — so it lives in the section header, not per-row. Mirrors the
-// `sending_status` column. Unknown values fall through to neutral (open set).
+// Renders the per-record status carried by the unified dns_records array
+// (purpose-tagged, server-derived). Open set — an unknown status falls through
+// to a neutral chip showing the raw value rather than crashing.
+function RecordStatusChip({ status }: { status: DNSRecordStatus }) {
+  if (status === "verified")
+    return (
+      <Chip tone="success">
+        <Dot tone="success" />
+        Verified
+      </Chip>
+    );
+  if (status === "failed")
+    return (
+      <Chip tone="danger">
+        <Dot tone="danger" />
+        Failed
+      </Chip>
+    );
+  if (status === "missing")
+    return (
+      <Chip tone="warn">
+        <Dot tone="warn" />
+        Missing
+      </Chip>
+    );
+  if (status === "pending") return <Chip tone="info">Pending</Chip>;
+  return <Chip tone="neutral">{status}</Chip>;
+}
+
+// SendingStatusChip reflects the async SES sending-identity verification for the
+// WHOLE domain (the rollup over the dkim + mail_from records), shown once in the
+// section header. Mirrors the `sending_status` column. Unknown values fall
+// through to the in-progress label (open set).
 function SendingStatusChip({
   status,
 }: {
@@ -66,19 +138,72 @@ function SendingStatusChip({
         Failed
       </Chip>
     );
-  // pending OR any unknown/future value: the chip only renders when records
-  // exist (provisioned), so a neutral in-progress label reads truer than
-  // "Not set up". "verified"/"failed" are handled above.
   return <Chip tone="info">Verifying…</Chip>;
 }
 
-// splitMX parses the backend's combined "10 host.example.com" MX value into the
-// (priority, host) pair most DNS providers ask for as separate fields. Returns
-// null if the value isn't "<priority> <host>" so the caller can fall back to a
-// single Content field rather than fabricating a priority.
-function splitMX(value: string): { priority: string; host: string } | null {
-  const m = value.match(/^\s*(\d+)\s+(.+?)\.?\s*$/);
-  return m ? { priority: m[1], host: m[2] } : null;
+// One DNS record row: a type badge + purpose label + status chip, then the
+// copyable field block. MX records split priority into its own field (the value
+// is the bare mail-server host); TXT records show name + content. When a live
+// probe result is supplied it overlays the server-derived per-record status.
+//
+// showStatus is false for the mail_from rows: SES verifies them as a unit
+// (all-or-nothing), so there is no meaningful per-record signal — the section's
+// rollup chip carries it instead, and a per-row chip would be redundant noise.
+function RecordRow({
+  record,
+  probeStatus,
+  showStatus = true,
+}: {
+  record: DNSRecord;
+  probeStatus?: "found" | "missing" | "deferred";
+  showStatus?: boolean;
+}) {
+  const isMX = record.type.toUpperCase() === "MX";
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span
+          className="font-mono text-[11px] px-2 py-0.5"
+          style={{
+            background: "var(--bg-elev)",
+            border: "1px solid var(--border-sub)",
+            borderRadius: "var(--r-sm)",
+            color: "var(--fg)",
+            minWidth: 36,
+            textAlign: "center",
+          }}
+        >
+          {record.type}
+        </span>
+        <span className="text-[12px]" style={{ color: "var(--fg-muted)" }}>
+          {purposeMeta(record.purpose).label}
+        </span>
+        <span className="flex-1" />
+        {showStatus &&
+          (probeStatus ? (
+            <ProbeStatusChip status={probeStatus} />
+          ) : (
+            <RecordStatusChip status={record.status} />
+          ))}
+      </div>
+      <DNSRecordField
+        type=""
+        label=""
+        fields={
+          isMX
+            ? [
+                { label: "Name", value: record.name },
+                { label: "Mail server", value: record.value },
+                { label: "Priority", value: String(record.priority ?? 10) },
+              ]
+            : [
+                { label: "Name", value: record.name },
+                { label: "Content", value: record.value },
+              ]
+        }
+      />
+    </div>
+  );
 }
 
 export function DomainCard({
@@ -96,10 +221,21 @@ export function DomainCard({
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState("");
   const [deleting, setDeleting] = useState(false);
-  // Cached per-record diagnostic from the most recent verify probe. Until
-  // the user clicks "View DNS records" + retries, this is null and the
-  // chips render as "—" placeholders.
+  // Cached per-record diagnostic from the most recent verify probe. Until the
+  // user re-checks, this is null and the rows fall back to the server-derived
+  // per-record status carried in dns_records.
   const [probe, setProbe] = useState<VerifyDomainResponse | null>(null);
+
+  // Split the unified records into the two display groups. mail_from records
+  // are present only when the sending feature is enabled server-side, so the
+  // sending section is naturally absent when the feature is off.
+  const records = domain.dns_records ?? [];
+  const inboundRecords = records.filter(
+    (r) => purposeMeta(r.purpose).group === "inbound",
+  );
+  const sendingRecords = records.filter(
+    (r) => purposeMeta(r.purpose).group === "sending",
+  );
 
   const handleVerify = async () => {
     setVerifyError("");
@@ -132,6 +268,17 @@ export function DomainCard({
     } finally {
       setDeleting(false);
     }
+  };
+
+  // Overlay the live probe's found/missing onto an inbound/dkim record by
+  // purpose. Returns undefined for records with no probe field (mail_from_*) or
+  // when no probe has run yet — the row then shows its server-derived status.
+  const probeFor = (
+    record: DNSRecord,
+  ): "found" | "missing" | "deferred" | undefined => {
+    const field = PROBE_FIELD_BY_PURPOSE[record.purpose as DNSRecordPurpose];
+    if (!field || !probe) return undefined;
+    return probe[field];
   };
 
   return (
@@ -271,10 +418,10 @@ export function DomainCard({
         </button>
       </div>
 
-      {/* DNS records — per-record status chips populated from the
-          most recent verify probe. The DKIM row renders for domains
-          with a stored keypair; pre-migration domains have no `dkim`
-          block in dns_records and the row is omitted. */}
+      {/* DNS records — rendered generically from the unified, purpose-tagged
+          dns_records array. Inbound rows (ownership, inbound_mx, dkim) overlay
+          the most recent live verify probe's found/missing onto their
+          server-derived status; sending rows follow sending_status. */}
       {showDNS && (
         <div
           className="mt-3 pt-4 space-y-4"
@@ -313,120 +460,21 @@ export function DomainCard({
             </button>
           </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span
-                className="font-mono text-[11px] px-2 py-0.5"
-                style={{
-                  background: "var(--bg-elev)",
-                  border: "1px solid var(--border-sub)",
-                  borderRadius: "var(--r-sm)",
-                  color: "var(--fg)",
-                  minWidth: 36,
-                  textAlign: "center",
-                }}
-              >
-                MX
-              </span>
-              <span className="text-[12px]" style={{ color: "var(--fg-muted)" }}>
-                Route email to e2a
-              </span>
-              <span className="flex-1" />
-              <RecordStatusChip status={probe?.mx} />
-            </div>
-            <DNSRecord
-              type=""
-              label=""
-              fields={[
-                { label: "Name", value: domain.domain },
-                { label: "Mail server", value: domain.dns_records.mx.value },
-                {
-                  label: "Priority",
-                  value: String(domain.dns_records.mx.priority),
-                },
-              ]}
+          {inboundRecords.map((rec, i) => (
+            <RecordRow
+              key={`${rec.purpose}-${rec.name}-${i}`}
+              record={rec}
+              probeStatus={probeFor(rec)}
             />
-          </div>
+          ))}
 
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span
-                className="font-mono text-[11px] px-2 py-0.5"
-                style={{
-                  background: "var(--bg-elev)",
-                  border: "1px solid var(--border-sub)",
-                  borderRadius: "var(--r-sm)",
-                  color: "var(--fg)",
-                  minWidth: 36,
-                  textAlign: "center",
-                }}
-              >
-                TXT
-              </span>
-              <span className="text-[12px]" style={{ color: "var(--fg-muted)" }}>
-                Prove domain ownership (also drives SPF check)
-              </span>
-              <span className="flex-1" />
-              <RecordStatusChip status={probe?.spf} />
-            </div>
-            <DNSRecord
-              type=""
-              label=""
-              fields={[
-                { label: "Name", value: domain.domain },
-                { label: "Content", value: domain.verification_token },
-              ]}
-            />
-          </div>
-
-          {/* DKIM row — only present once the backend has a stored
-              keypair for this domain. The TXT name is the per-domain
-              selector at "{selector}._domainkey.{domain}" and the
-              value contains the base64 public key. */}
-          {domain.dns_records.dkim?.host && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span
-                  className="font-mono text-[11px] px-2 py-0.5"
-                  style={{
-                    background: "var(--bg-elev)",
-                    border: "1px solid var(--border-sub)",
-                    borderRadius: "var(--r-sm)",
-                    color: "var(--fg)",
-                    minWidth: 36,
-                    textAlign: "center",
-                  }}
-                >
-                  TXT
-                </span>
-                <span
-                  className="text-[12px]"
-                  style={{ color: "var(--fg-muted)" }}
-                >
-                  Authenticate outbound mail (DKIM)
-                </span>
-                <span className="flex-1" />
-                <RecordStatusChip status={probe?.dkim} />
-              </div>
-              <DNSRecord
-                type=""
-                label=""
-                fields={[
-                  { label: "Name", value: domain.dns_records.dkim.host },
-                  { label: "Content", value: domain.dns_records.dkim.value },
-                ]}
-              />
-            </div>
-          )}
-
-          {/* Outbound sending (decision 4 / Slice 4). Rendered only when the
-              backend has provisioned a sending identity (sending_dns_records
-              present) — so when the feature is gated off (ses_region unset),
-              this whole block is absent and the card is unchanged. These are
-              the custom MAIL FROM subdomain's MX + SPF; the DKIM record above
-              is reused via BYODKIM. SES verifies them as a unit, surfaced by
-              the single status chip (no per-record probe). */}
-          {(domain.sending_dns_records?.length ?? 0) > 0 && (
+          {/* Outbound sending (decision 4 / Slice 4). Present only when the
+              sending feature is enabled server-side (ses_region set), in which
+              case the deterministic mail_from records arrive at register time —
+              so when the feature is off, this whole block is absent and the
+              card is unchanged. SES verifies these as a unit, surfaced by the
+              single rollup chip; each row also shows its server-derived status. */}
+          {sendingRecords.length > 0 && (
             <div
               className="space-y-3 pt-4"
               style={{ borderTop: "1px solid var(--border)" }}
@@ -463,53 +511,13 @@ export function DomainCard({
                 </div>
               )}
 
-              {domain.sending_dns_records!.map((rec, i) => {
-                const isMX = rec.type.toUpperCase() === "MX";
-                const mx = isMX ? splitMX(rec.value) : null;
-                return (
-                  <div key={`${rec.type}-${rec.name}-${i}`} className="space-y-2">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span
-                        className="font-mono text-[11px] px-2 py-0.5"
-                        style={{
-                          background: "var(--bg-elev)",
-                          border: "1px solid var(--border-sub)",
-                          borderRadius: "var(--r-sm)",
-                          color: "var(--fg)",
-                          minWidth: 36,
-                          textAlign: "center",
-                        }}
-                      >
-                        {rec.type}
-                      </span>
-                      <span
-                        className="text-[12px]"
-                        style={{ color: "var(--fg-muted)" }}
-                      >
-                        {isMX
-                          ? "Return path for bounces (MAIL FROM)"
-                          : "Authorize sending (SPF)"}
-                      </span>
-                    </div>
-                    <DNSRecord
-                      type=""
-                      label=""
-                      fields={
-                        mx
-                          ? [
-                              { label: "Name", value: rec.name },
-                              { label: "Mail server", value: mx.host },
-                              { label: "Priority", value: mx.priority },
-                            ]
-                          : [
-                              { label: "Name", value: rec.name },
-                              { label: "Content", value: rec.value },
-                            ]
-                      }
-                    />
-                  </div>
-                );
-              })}
+              {sendingRecords.map((rec, i) => (
+                <RecordRow
+                  key={`${rec.purpose}-${rec.name}-${i}`}
+                  record={rec}
+                  showStatus={false}
+                />
+              ))}
             </div>
           )}
 

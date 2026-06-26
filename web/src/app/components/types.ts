@@ -169,17 +169,22 @@ export type APIKeyData = {
 
 // Domain enrichment fields — chips on the Domains page. last_checked_at
 // moves on every verification probe (success or failure).
+//
+// NOTE: the live, consumed DomainInfo lives in
+// ./onboarding/types.ts. This standalone copy is kept in sync (unified
+// purpose-tagged dns_records array) so it doesn't read as a stale contract.
 export type DomainInfo = {
   domain: string;
   verified: boolean;
   verification_token: string;
-  dns_records: {
-    mx: { host: string; value: string; priority?: number };
-    txt: { host: string; value: string };
-    // DKIM is populated for domains with a stored keypair (migration 014).
-    // Legacy rows leave it absent; UI detects via `dkim?.host` being empty.
-    dkim?: { host: string; value: string };
-  };
+  dns_records: Array<{
+    type: string;
+    name: string;
+    value: string;
+    priority?: number | null;
+    purpose: string;
+    status: string;
+  }>;
   created_at: string;
   verified_at?: string | null;
   last_checked_at?: string | null;

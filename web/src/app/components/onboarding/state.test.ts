@@ -17,10 +17,24 @@ function makeDomain(overrides: Partial<DomainInfo> = {}): DomainInfo {
     domain: "mail.example.com",
     verified: false,
     verification_token: "e2a-verify=abc123",
-    dns_records: {
-      mx: { host: "mail.example.com", value: "mx.e2a.dev", priority: 10 },
-      txt: { host: "mail.example.com", value: "e2a-verify=abc123" },
-    },
+    dns_records: [
+      {
+        type: "TXT",
+        name: "mail.example.com",
+        value: "e2a-verify=abc123",
+        priority: null,
+        purpose: "ownership",
+        status: "pending",
+      },
+      {
+        type: "MX",
+        name: "mail.example.com",
+        value: "mx.e2a.dev",
+        priority: 10,
+        purpose: "inbound_mx",
+        status: "pending",
+      },
+    ],
     created_at: "2026-01-01T00:00:00Z",
     verified_at: null,
     ...overrides,

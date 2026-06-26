@@ -28,14 +28,30 @@ export type ChecklistStep =
  *  unknown values. */
 export type DomainSendingStatus = "none" | "pending" | "verified" | "failed";
 
-/** A DNS record the customer publishes to enable own-domain sending. Mirrors
- *  the backend `sending_dns_records[]` (senderidentity.DNSRecord): the custom
- *  MAIL FROM subdomain's MX + SPF. The DKIM record is the existing per-domain
- *  one, reused via BYODKIM, so it is NOT repeated here. */
-export type SendingDNSRecord = {
+/** What a DNS record is for. Documented OPEN set — tolerate unknown values
+ *  (a future record kind should render generically, not crash the card).
+ *  ownership/inbound_mx are inbound; dkim/mail_from_* are sending. */
+export type DNSRecordPurpose =
+  | "ownership"
+  | "inbound_mx"
+  | "dkim"
+  | "mail_from_mx"
+  | "mail_from_spf";
+
+/** Per-record verification state. Documented OPEN set — tolerate unknown. */
+export type DNSRecordStatus = "verified" | "pending" | "missing" | "failed";
+
+/** One row in the unified `dns_records` array (mirrors the backend DNSRecord).
+ *  Collapses the old `dns_records` object + `sending_dns_records` array into a
+ *  single purpose-tagged list. MX records carry their priority in `priority`
+ *  (TXT records leave it null); the value is the bare mail-server host. */
+export type DNSRecord = {
   type: string; // "MX" | "TXT"
   name: string;
   value: string;
+  priority?: number | null;
+  purpose: DNSRecordPurpose;
+  status: DNSRecordStatus;
 };
 
 /** Domain as returned by GET /v1/domains. */
@@ -43,25 +59,22 @@ export type DomainInfo = {
   domain: string;
   verified: boolean;
   verification_token: string;
-  dns_records: {
-    mx: { host: string; value: string; priority: number };
-    txt: { host: string; value: string };
-    // DKIM is populated for domains with a stored keypair (migration
-    // 014). Pre-migration rows omit it.
-    dkim?: { host: string; value: string };
-  };
+  // Unified, purpose-tagged record set. ALL applicable records (inbound +
+  // sending) are returned at register time — they are deterministic — so the
+  // onboarding paste is one shot. mail_from_* rows are present only when the
+  // sending feature is enabled server-side (ses_region set).
+  dns_records: DNSRecord[];
   created_at: string;
   verified_at: string | null;
   // Enrichment fields. last_checked_at moves on every verification probe
   // (success or failure); agent_count is computed at read time.
   last_checked_at?: string | null;
   agent_count?: number;
-  // Sender identity (decision 4 / Slice 4), independent of `verified`.
-  // Absent/none + empty sending_dns_records when the feature is off
-  // (ses_region unset) — the UI renders no sending section in that case.
+  // Sender identity (decision 4 / Slice 4), independent of `verified`. The
+  // rollup over the dkim + mail_from_* records' status; drives the section
+  // header chip. none/absent when the feature is off (ses_region unset).
   sending_status?: DomainSendingStatus;
   sending_error?: string;
-  sending_dns_records?: SendingDNSRecord[];
   sending_last_checked_at?: string | null;
 };
 

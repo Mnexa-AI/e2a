@@ -1,9 +1,37 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { DNSRecord } from "../../../components/Field";
-import type { DomainInfo } from "../../../components/onboarding/types";
+import { DNSRecord as DNSRecordField } from "../../../components/Field";
+import type {
+  DomainInfo,
+  DNSRecord,
+  DNSRecordPurpose,
+} from "../../../components/onboarding/types";
 import { track } from "../../../components/onboarding/analytics";
+
+// Human label per record purpose for the onboarding paste screen. Open set —
+// an unknown purpose falls back to its raw value rather than disappearing.
+const PURPOSE_LABEL: Record<DNSRecordPurpose, string> = {
+  ownership: "Prove domain ownership",
+  inbound_mx: "Route email to e2a",
+  dkim: "Authenticate outbound mail (DKIM)",
+  mail_from_mx: "Return path for bounces (MAIL FROM)",
+  mail_from_spf: "Authorize sending (SPF)",
+};
+
+function recordFields(rec: DNSRecord) {
+  if (rec.type.toUpperCase() === "MX") {
+    return [
+      { label: "Name", value: rec.name },
+      { label: "Mail server", value: rec.value },
+      { label: "Priority", value: String(rec.priority ?? 10) },
+    ];
+  }
+  return [
+    { label: "Name", value: rec.name },
+    { label: "Content", value: rec.value },
+  ];
+}
 
 export function DNSSetupCard({
   domain,
@@ -48,33 +76,16 @@ export function DNSSetupCard({
         &apos;s DNS to prove ownership and route email to e2a.
       </p>
       <div className="space-y-6">
-        <DNSRecord
-          type="MX"
-          label="Route email to e2a"
-          fields={[
-            { label: "Name", value: domain.domain },
-            { label: "Mail server", value: domain.dns_records.mx.value },
-            { label: "Priority", value: String(domain.dns_records.mx.priority) },
-          ]}
-        />
-        <DNSRecord
-          type="TXT"
-          label="Prove domain ownership"
-          fields={[
-            { label: "Name", value: domain.domain },
-            { label: "Content", value: domain.verification_token },
-          ]}
-        />
-        {domain.dns_records.dkim?.host && (
-          <DNSRecord
-            type="TXT"
-            label="Authenticate outbound mail (DKIM)"
-            fields={[
-              { label: "Name", value: domain.dns_records.dkim.host },
-              { label: "Content", value: domain.dns_records.dkim.value },
-            ]}
+        {(domain.dns_records ?? []).map((rec, i) => (
+          <DNSRecordField
+            key={`${rec.purpose}-${rec.name}-${i}`}
+            type={rec.type}
+            label={
+              PURPOSE_LABEL[rec.purpose as DNSRecordPurpose] ?? rec.purpose
+            }
+            fields={recordFields(rec)}
           />
-        )}
+        ))}
       </div>
       <div
         className="mt-6 p-4 text-[13px]"

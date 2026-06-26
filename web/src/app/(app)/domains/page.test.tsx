@@ -34,44 +34,100 @@ function mockDomainsAndAgents(
   });
 }
 
+// Unverified domain, sending feature off: only the two inbound records
+// (ownership + inbound_mx), both pending. dns_records is the unified,
+// purpose-tagged array (no more mx/txt/dkim object).
 const sampleDomain = {
   domain: "mail.example.com",
   verified: false,
   verification_token: "e2a-verify=abc123",
-  dns_records: {
-    mx: { host: "mail.example.com", value: "mx.e2a.dev", priority: 10 },
-    txt: { host: "mail.example.com", value: "e2a-verify=abc123" },
-  },
+  dns_records: [
+    {
+      type: "TXT",
+      name: "mail.example.com",
+      value: "e2a-verify=abc123",
+      priority: null,
+      purpose: "ownership",
+      status: "pending",
+    },
+    {
+      type: "MX",
+      name: "mail.example.com",
+      value: "mx.e2a.dev",
+      priority: 10,
+      purpose: "inbound_mx",
+      status: "pending",
+    },
+  ],
   created_at: "2026-01-01T00:00:00Z",
   verified_at: null,
 };
 
+// Verified domain, sending feature still off: inbound records now verified.
 const verifiedDomain = {
   ...sampleDomain,
   domain: "verified.example.com",
   verified: true,
   verified_at: "2026-01-15T00:00:00Z",
+  dns_records: [
+    { ...sampleDomain.dns_records[0], status: "verified" },
+    { ...sampleDomain.dns_records[1], status: "verified" },
+  ],
 };
 
-// A verified domain whose SES sending identity has been provisioned (the
-// feature is on). Carries the 2 custom MAIL FROM records the backend serves.
+// A verified domain with the sending feature ON: the unified array now also
+// carries the DKIM record and the 2 deterministic custom MAIL FROM records
+// (purpose mail_from_mx / mail_from_spf). The MX value is the bare host — its
+// priority lives in the priority field, never embedded in the value.
 const sendingDomain = {
   ...verifiedDomain,
   domain: "sending.example.com",
   sending_status: "pending",
-  sending_dns_records: [
+  dns_records: [
+    { ...verifiedDomain.dns_records[0] },
+    { ...verifiedDomain.dns_records[1] },
+    {
+      type: "TXT",
+      name: "e2a202606._domainkey.sending.example.com",
+      value: "v=DKIM1; k=rsa; p=PUBKEY",
+      priority: null,
+      purpose: "dkim",
+      status: "pending",
+    },
     {
       type: "MX",
       name: "bounce.sending.example.com",
-      value: "10 feedback-smtp.us-east-1.amazonses.com",
+      value: "feedback-smtp.us-east-1.amazonses.com",
+      priority: 10,
+      purpose: "mail_from_mx",
+      status: "pending",
     },
     {
       type: "TXT",
       name: "bounce.sending.example.com",
       value: "v=spf1 include:amazonses.com ~all",
+      priority: null,
+      purpose: "mail_from_spf",
+      status: "pending",
     },
   ],
 };
+
+// Flips every sending record's per-record status (dkim + mail_from_*) to mirror
+// a new domain-level sending_status — the backend derives these together.
+function withSendingStatus(status: string) {
+  return {
+    ...sendingDomain,
+    sending_status: status,
+    dns_records: sendingDomain.dns_records.map((r) =>
+      r.purpose === "dkim" ||
+      r.purpose === "mail_from_mx" ||
+      r.purpose === "mail_from_spf"
+        ? { ...r, status }
+        : r,
+    ),
+  };
+}
 
 const sampleAgent = {
   id: "ag_123",
@@ -211,8 +267,8 @@ describe("Domains page — with domains", () => {
   });
 });
 
-describe("Domains page — outbound sending records", () => {
-  it("renders the MAIL FROM records + a 'Verifying…' chip for a pending sending identity", async () => {
+describe("Domains page — unified sending records (by purpose)", () => {
+  it("renders the mail_from records by purpose + a 'Verifying…' rollup for a pending identity", async () => {
     mockDomainsAndAgents([sendingDomain], []);
     render(<DomainsPage />);
     await waitFor(() => {
@@ -224,30 +280,38 @@ describe("Domains page — outbound sending records", () => {
     await userEvent.click(screen.getByText("View DNS records"));
 
     expect(screen.getByText("Outbound sending")).toBeInTheDocument();
+    // Sending records are verified by SES as a unit → the rollup chip carries
+    // status (no redundant per-row chip).
     expect(screen.getByText("Verifying…")).toBeInTheDocument();
-    // The 2 MAIL FROM records: MX host (priority split out) + SPF TXT value.
+
+    // mail_from_mx — host only; the priority is split into its own field, so
+    // the backend's combined "10 feedback-smtp…" string is never rendered.
     expect(
       screen.getByText("feedback-smtp.us-east-1.amazonses.com"),
     ).toBeInTheDocument();
-    // The MX priority is split into its own field — the backend's combined
-    // "10 feedback-smtp…" value is never shown as one string.
     expect(
       screen.queryByText("10 feedback-smtp.us-east-1.amazonses.com"),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByText("v=spf1 include:amazonses.com ~all"),
-    ).toBeInTheDocument();
-    expect(
       screen.getByText("Return path for bounces (MAIL FROM)"),
     ).toBeInTheDocument();
+
+    // mail_from_spf — rendered by its purpose label + value.
+    expect(
+      screen.getByText("v=spf1 include:amazonses.com ~all"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Authorize sending (SPF)")).toBeInTheDocument();
+
+    // dkim (an inbound-group record) renders in the main list with its own
+    // per-record chip — pending here, tracking sending_status.
+    expect(
+      screen.getByText("Authenticate outbound mail (DKIM)"),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Pending").length).toBeGreaterThan(0);
   });
 
-  it("shows 'Sending enabled' when the sending identity is verified", async () => {
-    mockDomainsAndAgents(
-      [{ ...sendingDomain, sending_status: "verified" }],
-      [],
-    );
+  it("shows the 'Sending enabled' rollup when the sending identity is verified", async () => {
+    mockDomainsAndAgents([withSendingStatus("verified")], []);
     render(<DomainsPage />);
     await waitFor(() => {
       expect(screen.getByText("sending.example.com")).toBeInTheDocument();
@@ -260,8 +324,7 @@ describe("Domains page — outbound sending records", () => {
     mockDomainsAndAgents(
       [
         {
-          ...sendingDomain,
-          sending_status: "failed",
+          ...withSendingStatus("failed"),
           sending_error: "MAIL FROM MX not found",
         },
       ],
@@ -272,17 +335,15 @@ describe("Domains page — outbound sending records", () => {
       expect(screen.getByText("sending.example.com")).toBeInTheDocument();
     });
     await userEvent.click(screen.getByText("View DNS records"));
-    expect(screen.getByText("Failed")).toBeInTheDocument();
+    // Rollup chip + dkim per-record chip both read "Failed".
+    expect(screen.getAllByText("Failed").length).toBeGreaterThan(0);
     expect(screen.getByText("MAIL FROM MX not found")).toBeInTheDocument();
   });
 
-  it("degrades to the neutral 'Verifying…' chip for an unknown sending_status", async () => {
+  it("degrades to the neutral 'Verifying…' rollup for an unknown sending_status", async () => {
     // Open set — a future status the UI doesn't know must not read "Not set up"
     // next to a populated record list.
-    mockDomainsAndAgents(
-      [{ ...sendingDomain, sending_status: "provisioning" }],
-      [],
-    );
+    mockDomainsAndAgents([{ ...sendingDomain, sending_status: "provisioning" }], []);
     render(<DomainsPage />);
     await waitFor(() => {
       expect(screen.getByText("sending.example.com")).toBeInTheDocument();
@@ -292,7 +353,7 @@ describe("Domains page — outbound sending records", () => {
     expect(screen.getByText("Verifying…")).toBeInTheDocument();
   });
 
-  it("renders no sending section when the feature is off (no sending records)", async () => {
+  it("renders no sending section when the feature is off (no mail_from records)", async () => {
     mockDomainsAndAgents([verifiedDomain], []);
     render(<DomainsPage />);
     await waitFor(() => {
@@ -300,6 +361,9 @@ describe("Domains page — outbound sending records", () => {
     });
     await userEvent.click(screen.getByText("View DNS records"));
     expect(screen.queryByText("Outbound sending")).not.toBeInTheDocument();
+    // The inbound records still render, by purpose.
+    expect(screen.getByText("Route email to e2a")).toBeInTheDocument();
+    expect(screen.getByText(/Prove domain ownership/)).toBeInTheDocument();
   });
 });
 

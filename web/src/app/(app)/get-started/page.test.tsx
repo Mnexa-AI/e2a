@@ -81,10 +81,24 @@ const verifiedDomain = {
   domain: "verified.example.com",
   verified: true,
   verification_token: "e2a-verify=abc123",
-  dns_records: {
-    mx: { host: "verified.example.com", value: "mx.e2a.dev", priority: 10 },
-    txt: { host: "verified.example.com", value: "e2a-verify=abc123" },
-  },
+  dns_records: [
+    {
+      type: "TXT",
+      name: "verified.example.com",
+      value: "e2a-verify=abc123",
+      priority: null,
+      purpose: "ownership",
+      status: "verified",
+    },
+    {
+      type: "MX",
+      name: "verified.example.com",
+      value: "mx.e2a.dev",
+      priority: 10,
+      purpose: "inbound_mx",
+      status: "verified",
+    },
+  ],
   created_at: "2026-01-01T00:00:00Z",
   verified_at: "2026-01-15T00:00:00Z",
 };
@@ -426,10 +440,24 @@ const unverifiedDomain = {
   domain: "mail.newco.com",
   verified: false,
   verification_token: "e2a-verify=new123",
-  dns_records: {
-    mx: { host: "mail.newco.com", value: "mx.e2a.dev", priority: 10 },
-    txt: { host: "mail.newco.com", value: "e2a-verify=new123" },
-  },
+  dns_records: [
+    {
+      type: "TXT",
+      name: "mail.newco.com",
+      value: "e2a-verify=new123",
+      priority: null,
+      purpose: "ownership",
+      status: "pending",
+    },
+    {
+      type: "MX",
+      name: "mail.newco.com",
+      value: "mx.e2a.dev",
+      priority: 10,
+      purpose: "inbound_mx",
+      status: "pending",
+    },
+  ],
   created_at: "2026-03-01T00:00:00Z",
   verified_at: null,
 };
