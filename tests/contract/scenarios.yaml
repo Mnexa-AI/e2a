@@ -114,9 +114,15 @@ scenarios:
           body_match:
             domain: domain-crud.test.dev
             verified: false
-            "dns_records.mx.host": "@"
-            "dns_records.mx.priority": 10
-            "dns_records.txt.host": "@"
+            # dns_records is now ONE purpose-tagged array (was an mx/txt/dkim
+            # object). [0]=ownership, [1]=inbound_mx are always first; status
+            # follows `verified` for inbound records (pending until verified).
+            "dns_records[0].purpose": "ownership"
+            "dns_records[0].type": "TXT"
+            "dns_records[0].status": "pending"
+            "dns_records[1].purpose": "inbound_mx"
+            "dns_records[1].type": "MX"
+            "dns_records[1].priority": 10
 
       - id: list
         action: request
