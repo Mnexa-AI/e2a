@@ -34,8 +34,7 @@ models/CreateAPIKeyResponse.ts
 models/CreateAgentRequest.ts
 models/CreateWebhookRequest.ts
 models/CreateWebhookResponse.ts
-models/DNSRecordView.ts
-models/DNSRecordsView.ts
+models/DNSRecord.ts
 models/DeleteUserDataResult.ts
 models/DeliveryStatusJSON.ts
 models/DeploymentInfoView.ts
@@ -82,7 +81,6 @@ models/ReviewView.ts
 models/RotateSecretResponse.ts
 models/SendEmailRequest.ts
 models/SendResultView.ts
-models/SendingDNSRecordView.ts
 models/Suppression.ts
 models/SuppressionExportEntry.ts
 models/TestWebhookRequest.ts

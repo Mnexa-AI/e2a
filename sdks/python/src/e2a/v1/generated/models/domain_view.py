@@ -20,8 +20,7 @@ import json
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
-from e2a.v1.generated.models.dns_records_view import DNSRecordsView
-from e2a.v1.generated.models.sending_dns_record_view import SendingDNSRecordView
+from e2a.v1.generated.models.dns_record import DNSRecord
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -31,17 +30,16 @@ class DomainView(BaseModel):
     """ # noqa: E501
     agent_count: StrictInt
     created_at: datetime
-    dns_records: DNSRecordsView
+    dns_records: List[DNSRecord]
     domain: StrictStr
     last_checked_at: Optional[datetime] = None
-    sending_dns_records: Optional[List[SendingDNSRecordView]] = None
     sending_error: Optional[StrictStr] = None
     sending_last_checked_at: Optional[datetime] = None
-    sending_status: StrictStr = Field(description="Async SES sending-identity state. Open set; tolerate unknown values. Known values: none, pending, verified, failed.")
+    sending_status: StrictStr = Field(description="Async SES sending-identity state (rollup). Open set; tolerate unknown values. Known values: none, pending, verified, failed.")
     verification_token: StrictStr
     verified: StrictBool
     verified_at: Optional[datetime] = None
-    __properties: ClassVar[List[str]] = ["agent_count", "created_at", "dns_records", "domain", "last_checked_at", "sending_dns_records", "sending_error", "sending_last_checked_at", "sending_status", "verification_token", "verified", "verified_at"]
+    __properties: ClassVar[List[str]] = ["agent_count", "created_at", "dns_records", "domain", "last_checked_at", "sending_error", "sending_last_checked_at", "sending_status", "verification_token", "verified", "verified_at"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -82,16 +80,13 @@ class DomainView(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of dns_records
-        if self.dns_records:
-            _dict['dns_records'] = self.dns_records.to_dict()
-        # override the default output from pydantic by calling `to_dict()` of each item in sending_dns_records (list)
+        # override the default output from pydantic by calling `to_dict()` of each item in dns_records (list)
         _items = []
-        if self.sending_dns_records:
-            for _item_sending_dns_records in self.sending_dns_records:
-                if _item_sending_dns_records:
-                    _items.append(_item_sending_dns_records.to_dict())
-            _dict['sending_dns_records'] = _items
+        if self.dns_records:
+            for _item_dns_records in self.dns_records:
+                if _item_dns_records:
+                    _items.append(_item_dns_records.to_dict())
+            _dict['dns_records'] = _items
         return _dict
 
     @classmethod
@@ -106,10 +101,9 @@ class DomainView(BaseModel):
         _obj = cls.model_validate({
             "agent_count": obj.get("agent_count"),
             "created_at": obj.get("created_at"),
-            "dns_records": DNSRecordsView.from_dict(obj["dns_records"]) if obj.get("dns_records") is not None else None,
+            "dns_records": [DNSRecord.from_dict(_item) for _item in obj["dns_records"]] if obj.get("dns_records") is not None else None,
             "domain": obj.get("domain"),
             "last_checked_at": obj.get("last_checked_at"),
-            "sending_dns_records": [SendingDNSRecordView.from_dict(_item) for _item in obj["sending_dns_records"]] if obj.get("sending_dns_records") is not None else None,
             "sending_error": obj.get("sending_error"),
             "sending_last_checked_at": obj.get("sending_last_checked_at"),
             "sending_status": obj.get("sending_status"),

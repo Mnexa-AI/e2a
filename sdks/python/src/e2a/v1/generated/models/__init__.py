@@ -32,8 +32,7 @@ from e2a.v1.generated.models.create_api_key_response import CreateAPIKeyResponse
 from e2a.v1.generated.models.create_agent_request import CreateAgentRequest
 from e2a.v1.generated.models.create_webhook_request import CreateWebhookRequest
 from e2a.v1.generated.models.create_webhook_response import CreateWebhookResponse
-from e2a.v1.generated.models.dns_record_view import DNSRecordView
-from e2a.v1.generated.models.dns_records_view import DNSRecordsView
+from e2a.v1.generated.models.dns_record import DNSRecord
 from e2a.v1.generated.models.delete_user_data_result import DeleteUserDataResult
 from e2a.v1.generated.models.delivery_status_json import DeliveryStatusJSON
 from e2a.v1.generated.models.deployment_info_view import DeploymentInfoView
@@ -79,7 +78,6 @@ from e2a.v1.generated.models.review_view import ReviewView
 from e2a.v1.generated.models.rotate_secret_response import RotateSecretResponse
 from e2a.v1.generated.models.send_email_request import SendEmailRequest
 from e2a.v1.generated.models.send_result_view import SendResultView
-from e2a.v1.generated.models.sending_dns_record_view import SendingDNSRecordView
 from e2a.v1.generated.models.suppression import Suppression
 from e2a.v1.generated.models.suppression_export_entry import SuppressionExportEntry
 from e2a.v1.generated.models.test_webhook_request import TestWebhookRequest

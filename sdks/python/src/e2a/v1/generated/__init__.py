@@ -55,8 +55,7 @@ __all__ = [
     "CreateAgentRequest",
     "CreateWebhookRequest",
     "CreateWebhookResponse",
-    "DNSRecordView",
-    "DNSRecordsView",
+    "DNSRecord",
     "DeleteUserDataResult",
     "DeliveryStatusJSON",
     "DeploymentInfoView",
@@ -102,7 +101,6 @@ __all__ = [
     "RotateSecretResponse",
     "SendEmailRequest",
     "SendResultView",
-    "SendingDNSRecordView",
     "Suppression",
     "SuppressionExportEntry",
     "TestWebhookRequest",
@@ -162,8 +160,7 @@ from e2a.v1.generated.models.create_api_key_response import CreateAPIKeyResponse
 from e2a.v1.generated.models.create_agent_request import CreateAgentRequest as CreateAgentRequest
 from e2a.v1.generated.models.create_webhook_request import CreateWebhookRequest as CreateWebhookRequest
 from e2a.v1.generated.models.create_webhook_response import CreateWebhookResponse as CreateWebhookResponse
-from e2a.v1.generated.models.dns_record_view import DNSRecordView as DNSRecordView
-from e2a.v1.generated.models.dns_records_view import DNSRecordsView as DNSRecordsView
+from e2a.v1.generated.models.dns_record import DNSRecord as DNSRecord
 from e2a.v1.generated.models.delete_user_data_result import DeleteUserDataResult as DeleteUserDataResult
 from e2a.v1.generated.models.delivery_status_json import DeliveryStatusJSON as DeliveryStatusJSON
 from e2a.v1.generated.models.deployment_info_view import DeploymentInfoView as DeploymentInfoView
@@ -209,7 +206,6 @@ from e2a.v1.generated.models.review_view import ReviewView as ReviewView
 from e2a.v1.generated.models.rotate_secret_response import RotateSecretResponse as RotateSecretResponse
 from e2a.v1.generated.models.send_email_request import SendEmailRequest as SendEmailRequest
 from e2a.v1.generated.models.send_result_view import SendResultView as SendResultView
-from e2a.v1.generated.models.sending_dns_record_view import SendingDNSRecordView as SendingDNSRecordView
 from e2a.v1.generated.models.suppression import Suppression as Suppression
 from e2a.v1.generated.models.suppression_export_entry import SuppressionExportEntry as SuppressionExportEntry
 from e2a.v1.generated.models.test_webhook_request import TestWebhookRequest as TestWebhookRequest

@@ -42,6 +42,12 @@ type Params struct {
 	PublicURL    string
 	Production   bool
 
+	// SESRegion is the SES sending-identity region (config
+	// sender_identity.ses_region). Non-empty enables the sending feature, which
+	// makes domainView emit the deterministic mail_from_* DNS records. Mirrors
+	// the gate used to wire SenderIdentity below.
+	SESRegion string
+
 	// SigningSecret is the deployment HMAC secret (config.Signing.HMACSecret) —
 	// used to mint/verify short-lived attachment download tokens (§6a #5), the
 	// same primitive as the HITL magic-link. When empty, attachment endpoints
@@ -98,6 +104,7 @@ func BuildDeps(p Params) httpapi.Deps {
 		DeleteDomain:        deleteDomainFunc(p),
 		HasAgentsOnDomain:   p.Store.HasAgentsOnDomain,
 		SMTPDomain:          p.SMTPDomain,
+		SESRegion:           p.SESRegion,
 		CursorSecret:        p.SigningSecret,
 		Idempotency:         p.Idempotency,
 		DeliverOutbound:     p.API.DeliverOutbound,

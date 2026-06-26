@@ -16,10 +16,25 @@ func TestListDomains(t *testing.T) {
 		t.Fatalf("want 1 domain, got %d", len(doms))
 	}
 	d := doms[0].(map[string]any)
-	dns, _ := d["dns_records"].(map[string]any)
-	mx, _ := dns["mx"].(map[string]any)
-	if mx["value"] != "mx.e2a.dev" {
-		t.Fatalf("unexpected MX record: %v", dns)
+	// dns_records is now a unified, purpose-tagged array (the legacy
+	// mx/txt/dkim object + sending_dns_records array were collapsed).
+	recs, _ := d["dns_records"].([]any)
+	byPurpose := map[string]map[string]any{}
+	for _, r := range recs {
+		rec := r.(map[string]any)
+		byPurpose[rec["purpose"].(string)] = rec
+	}
+	mx, ok := byPurpose["inbound_mx"]
+	if !ok || mx["value"] != "mx.e2a.dev" || mx["type"] != "MX" {
+		t.Fatalf("unexpected inbound_mx record: %v", recs)
+	}
+	// Verified domain ⇒ inbound records verified; no sending feature in the
+	// base test server ⇒ no mail_from records.
+	if mx["status"] != "verified" {
+		t.Fatalf("want verified inbound_mx on a verified domain, got %v", mx["status"])
+	}
+	if _, present := byPurpose["mail_from_mx"]; present {
+		t.Fatalf("sending feature is off in the base test server; mail_from records must be absent: %v", recs)
 	}
 	// Domains are single-page at GA (no server-side cursoring yet): the Page
 	// envelope is present but next_cursor is always null. Locks the contract so

@@ -2,8 +2,8 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -12,72 +12,97 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/agent"
 	"github.com/Mnexa-AI/e2a/internal/dkim"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/mailfrom"
 	"github.com/danielgtaylor/huma/v2"
 )
 
-// DNSRecordView / DNSRecordsView / DomainView mirror the legacy DomainInfo
-// wire shape verbatim (Slice 1 = path move + conventions only).
-type DNSRecordView struct {
-	Host     string `json:"host"`
-	Value    string `json:"value"`
-	Priority *int   `json:"priority,omitempty"`
-}
-
-type DNSRecordsView struct {
-	MX   DNSRecordView `json:"mx"`
-	TXT  DNSRecordView `json:"txt"`
-	DKIM DNSRecordView `json:"dkim,omitempty"`
+// DNSRecord is one row in the unified DomainView.DNSRecords array. It supersedes
+// the legacy split of `dns_records` (an mx/txt/dkim object) + `sending_dns_records`
+// (an array): every record the customer must publish — inbound and sending — now
+// carries its own `purpose` and `status`, mirroring how peers (Resend/SendGrid)
+// model DNS setup. MX records carry their priority in the dedicated `priority`
+// field (TXT records leave it null) rather than embedding it in `value`.
+type DNSRecord struct {
+	Type     string `json:"type" doc:"DNS record type. MX or TXT."`
+	Name     string `json:"name" doc:"Record name (host). The apex domain for ownership/inbound_mx; an FQDN for dkim/mail_from records."`
+	Value    string `json:"value" doc:"Record value. For MX records this is the mail-server host only; the priority is in the priority field."`
+	Priority *int   `json:"priority" doc:"MX priority. Null for non-MX records."`
+	Purpose  string `json:"purpose" doc:"What the record is for. Open set; tolerate unknown values. Known values: ownership, inbound_mx, dkim, mail_from_mx, mail_from_spf."`
+	Status   string `json:"status" doc:"Per-record verification state. Open set; tolerate unknown values. Known values: verified, pending, missing, failed."`
 }
 
 type DomainView struct {
-	Domain            string         `json:"domain"`
-	Verified          bool           `json:"verified"`
-	VerificationToken string         `json:"verification_token"`
-	DNSRecords        DNSRecordsView `json:"dns_records"`
-	CreatedAt         time.Time      `json:"created_at"`
-	VerifiedAt        *time.Time     `json:"verified_at,omitempty"`
-	LastCheckedAt     *time.Time     `json:"last_checked_at,omitempty"`
-	AgentCount        int            `json:"agent_count"`
+	Domain            string `json:"domain"`
+	Verified          bool   `json:"verified"`
+	VerificationToken string `json:"verification_token"`
+	// DNSRecords is the unified, purpose-tagged set of records the customer must
+	// publish. ALL applicable records are returned at register time (they are
+	// deterministic), so onboarding is a single paste — sending records do not
+	// wait for the domain to verify.
+	DNSRecords    []DNSRecord `json:"dns_records" nullable:"false"`
+	CreatedAt     time.Time   `json:"created_at"`
+	VerifiedAt    *time.Time  `json:"verified_at,omitempty"`
+	LastCheckedAt *time.Time  `json:"last_checked_at,omitempty"`
+	AgentCount    int         `json:"agent_count"`
 	// Sender identity (decision 4 / Slice 4). Independent of `verified`
 	// (inbound ownership): the async SES sending identity that lets agents
-	// on this domain send as their own address. Poll GET /domains/{domain}
-	// to watch SendingStatus go pending → verified|failed.
-	SendingStatus        string                 `json:"sending_status" doc:"Async SES sending-identity state. Open set; tolerate unknown values. Known values: none, pending, verified, failed."`
-	SendingError         string                 `json:"sending_error,omitempty"`
-	SendingDNSRecords    []SendingDNSRecordView `json:"sending_dns_records,omitempty" nullable:"false"`
-	SendingLastCheckedAt *time.Time             `json:"sending_last_checked_at,omitempty"`
+	// on this domain send as their own address. This is the rollup over the
+	// dkim + mail_from_* records' per-record status; poll GET /domains/{domain}
+	// to watch it go pending → verified|failed.
+	SendingStatus        string     `json:"sending_status" doc:"Async SES sending-identity state (rollup). Open set; tolerate unknown values. Known values: none, pending, verified, failed."`
+	SendingError         string     `json:"sending_error,omitempty"`
+	SendingLastCheckedAt *time.Time `json:"sending_last_checked_at,omitempty"`
 }
 
-// SendingDNSRecordView mirrors senderidentity.DNSRecord on the wire. Defined
-// locally so the API layer doesn't import senderidentity (and its River +
-// AWS SDK deps); the stored JSONB is unmarshaled into this shape.
-type SendingDNSRecordView struct {
-	Type  string `json:"type"`
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
-// domainView replicates the legacy domainInfoFromRecord: the MX points at
-// the relay host, the TXT carries the verification token, and the DKIM
-// record is surfaced only for rows that have a per-domain key (migration 014+).
+// domainView builds the unified DNS-records array. Status derivation:
+//
+//   - Inbound records (ownership, inbound_mx) follow `verified`: the domain is
+//     either verified (TXT/MX confirmed) or pending.
+//   - Sending records (dkim, mail_from_mx, mail_from_spf) follow the domain's
+//     `sending_status` rollup via sendingRecordStatus (none/""→pending,
+//     pending→pending, verified→verified, failed→failed).
+//
+// mail_from_mx + mail_from_spf are emitted ONLY when the sending feature is
+// enabled (SESRegion set) and are computed deterministically here (no SES call),
+// so they appear at register time regardless of provisioning state. The httpapi
+// layer must not import senderidentity (AWS SDK/River), so the MAIL FROM record
+// shapes are mirrored locally from mailfrom.Domain + the region.
 func (s *Server) domainView(d *identity.Domain) DomainView {
-	mxPriority := 10
-	records := DNSRecordsView{
-		MX:  DNSRecordView{Host: "@", Value: s.deps.SMTPDomain, Priority: &mxPriority},
-		TXT: DNSRecordView{Host: "@", Value: d.VerificationToken},
-	}
-	if d.DKIMSelector != "" && d.DKIMPublicKey != "" {
-		name, value := dkim.DNSRecord(d.DKIMSelector, d.Domain, d.DKIMPublicKey)
-		records.DKIM = DNSRecordView{Host: name, Value: value}
-	}
 	sendingStatus := d.SendingStatus
 	if sendingStatus == "" {
 		sendingStatus = "none" // pre-migration-030 rows read as none
 	}
-	var sendingRecords []SendingDNSRecordView
-	if len(d.SendingDNSRecordsJSON) > 0 {
-		_ = json.Unmarshal(d.SendingDNSRecordsJSON, &sendingRecords)
+
+	inboundStatus := "pending"
+	if d.Verified {
+		inboundStatus = "verified"
 	}
+	sendingRec := sendingRecordStatus(sendingStatus)
+	mxPriority := 10
+
+	records := []DNSRecord{
+		// ownership — prove control of the domain (also drives the SPF check).
+		{Type: "TXT", Name: d.Domain, Value: d.VerificationToken, Purpose: "ownership", Status: inboundStatus},
+		// inbound_mx — route inbound mail to the e2a relay.
+		{Type: "MX", Name: d.Domain, Value: s.deps.SMTPDomain, Priority: &mxPriority, Purpose: "inbound_mx", Status: inboundStatus},
+	}
+
+	// dkim — surfaced for rows that have a stored per-domain key (migration 014+).
+	if d.DKIMSelector != "" && d.DKIMPublicKey != "" {
+		name, value := dkim.DNSRecord(d.DKIMSelector, d.Domain, d.DKIMPublicKey)
+		records = append(records, DNSRecord{Type: "TXT", Name: name, Value: value, Purpose: "dkim", Status: sendingRec})
+	}
+
+	// mail_from_* — the custom MAIL FROM subdomain's MX + SPF, deterministic and
+	// returned regardless of provisioning state, but only when sending is enabled.
+	if s.deps.SESRegion != "" {
+		mf := mailfrom.Domain(d.Domain)
+		records = append(records,
+			DNSRecord{Type: "MX", Name: mf, Value: fmt.Sprintf("feedback-smtp.%s.amazonses.com", s.deps.SESRegion), Priority: &mxPriority, Purpose: "mail_from_mx", Status: sendingRec},
+			DNSRecord{Type: "TXT", Name: mf, Value: "v=spf1 include:amazonses.com ~all", Purpose: "mail_from_spf", Status: sendingRec},
+		)
+	}
+
 	return DomainView{
 		Domain:               d.Domain,
 		Verified:             d.Verified,
@@ -89,8 +114,24 @@ func (s *Server) domainView(d *identity.Domain) DomainView {
 		AgentCount:           d.AgentCount,
 		SendingStatus:        sendingStatus,
 		SendingError:         d.SendingError,
-		SendingDNSRecords:    sendingRecords,
 		SendingLastCheckedAt: d.SendingLastCheckedAt,
+	}
+}
+
+// sendingRecordStatus maps the domain-level sending_status rollup onto the
+// per-record status carried by the sending records (dkim, mail_from_*). The
+// records are deterministic and shown before provisioning, so an unprovisioned
+// (none) or in-flight (pending) domain reads as `pending`; a hard failure as
+// `failed`; success as `verified`. Unknown rollup values fall through to
+// `pending` (open set).
+func sendingRecordStatus(sendingStatus string) string {
+	switch sendingStatus {
+	case "verified":
+		return "verified"
+	case "failed":
+		return "failed"
+	default:
+		return "pending"
 	}
 }
 

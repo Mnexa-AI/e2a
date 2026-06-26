@@ -119,6 +119,12 @@ type Deps struct {
 	// domain must publish (config smtp.domain).
 	SMTPDomain string
 
+	// SESRegion is the AWS region of the SES sending identity
+	// (config sender_identity.ses_region). Non-empty ⇒ the sending feature is
+	// enabled: domainView emits the deterministic mail_from_* records. Empty ⇒
+	// sending is off and those records are omitted.
+	SESRegion string
+
 	// CursorSecret is the deployment HMAC secret (config.Signing.HMACSecret)
 	// used to sign/verify pagination cursors so they are tamper-evident
 	// (issue #144 M2). The same key approvaltoken and the X-E2A-Auth-* email

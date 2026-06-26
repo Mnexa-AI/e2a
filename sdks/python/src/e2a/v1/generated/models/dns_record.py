@@ -17,19 +17,22 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictInt, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
 
-class DNSRecordView(BaseModel):
+class DNSRecord(BaseModel):
     """
-    DNSRecordView
+    DNSRecord
     """ # noqa: E501
-    host: StrictStr
-    priority: Optional[StrictInt] = None
-    value: StrictStr
-    __properties: ClassVar[List[str]] = ["host", "priority", "value"]
+    name: StrictStr = Field(description="Record name (host). The apex domain for ownership/inbound_mx; an FQDN for dkim/mail_from records.")
+    priority: Optional[StrictInt] = Field(description="MX priority. Null for non-MX records.")
+    purpose: StrictStr = Field(description="What the record is for. Open set; tolerate unknown values. Known values: ownership, inbound_mx, dkim, mail_from_mx, mail_from_spf.")
+    status: StrictStr = Field(description="Per-record verification state. Open set; tolerate unknown values. Known values: verified, pending, missing, failed.")
+    type: StrictStr = Field(description="DNS record type. MX or TXT.")
+    value: StrictStr = Field(description="Record value. For MX records this is the mail-server host only; the priority is in the priority field.")
+    __properties: ClassVar[List[str]] = ["name", "priority", "purpose", "status", "type", "value"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -49,7 +52,7 @@ class DNSRecordView(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of DNSRecordView from a JSON string"""
+        """Create an instance of DNSRecord from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -70,11 +73,16 @@ class DNSRecordView(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
+        # set to None if priority (nullable) is None
+        # and model_fields_set contains the field
+        if self.priority is None and "priority" in self.model_fields_set:
+            _dict['priority'] = None
+
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of DNSRecordView from a dict"""
+        """Create an instance of DNSRecord from a dict"""
         if obj is None:
             return None
 
@@ -82,8 +90,11 @@ class DNSRecordView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "host": obj.get("host"),
+            "name": obj.get("name"),
             "priority": obj.get("priority"),
+            "purpose": obj.get("purpose"),
+            "status": obj.get("status"),
+            "type": obj.get("type"),
             "value": obj.get("value")
         })
         return _obj

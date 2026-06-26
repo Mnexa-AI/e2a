@@ -10,21 +10,19 @@
  * Do not edit the class manually.
  */
 
-import { DNSRecordsView } from '../models/DNSRecordsView.js';
-import { SendingDNSRecordView } from '../models/SendingDNSRecordView.js';
+import { DNSRecord } from '../models/DNSRecord.js';
 import { HttpFile } from '../http/http.js';
 
 export class DomainView {
     'agentCount': number;
     'createdAt': Date;
-    'dnsRecords': DNSRecordsView;
+    'dnsRecords': Array<DNSRecord>;
     'domain': string;
     'lastCheckedAt'?: Date;
-    'sendingDnsRecords'?: Array<SendingDNSRecordView>;
     'sendingError'?: string;
     'sendingLastCheckedAt'?: Date;
     /**
-    * Async SES sending-identity state. Open set; tolerate unknown values. Known values: none, pending, verified, failed.
+    * Async SES sending-identity state (rollup). Open set; tolerate unknown values. Known values: none, pending, verified, failed.
     */
     'sendingStatus': string;
     'verificationToken': string;
@@ -51,7 +49,7 @@ export class DomainView {
         {
             "name": "dnsRecords",
             "baseName": "dns_records",
-            "type": "DNSRecordsView",
+            "type": "Array<DNSRecord>",
             "format": ""
         },
         {
@@ -65,12 +63,6 @@ export class DomainView {
             "baseName": "last_checked_at",
             "type": "Date",
             "format": "date-time"
-        },
-        {
-            "name": "sendingDnsRecords",
-            "baseName": "sending_dns_records",
-            "type": "Array<SendingDNSRecordView>",
-            "format": ""
         },
         {
             "name": "sendingError",

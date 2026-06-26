@@ -434,6 +434,7 @@ func main() {
 		Idempotency:     idempotencyStore,
 		Pool:            pool,
 		SMTPDomain:      cfg.SMTP.Domain,
+		SESRegion:       cfg.SenderIdentity.SESRegion,
 		SharedDomain:    cfg.SharedDomain,
 		PublicURL:       cfg.HTTP.PublicURL,
 		SigningSecret:   cfg.Signing.HMACSecret,

@@ -17,8 +17,7 @@ export * from '../models/CreateAPIKeyResponse.js';
 export * from '../models/CreateAgentRequest.js';
 export * from '../models/CreateWebhookRequest.js';
 export * from '../models/CreateWebhookResponse.js';
-export * from '../models/DNSRecordView.js';
-export * from '../models/DNSRecordsView.js';
+export * from '../models/DNSRecord.js';
 export * from '../models/DeleteUserDataResult.js';
 export * from '../models/DeliveryStatusJSON.js';
 export * from '../models/DeploymentInfoView.js';
@@ -64,7 +63,6 @@ export * from '../models/ReviewView.js';
 export * from '../models/RotateSecretResponse.js';
 export * from '../models/SendEmailRequest.js';
 export * from '../models/SendResultView.js';
-export * from '../models/SendingDNSRecordView.js';
 export * from '../models/Suppression.js';
 export * from '../models/SuppressionExportEntry.js';
 export * from '../models/TestWebhookRequest.js';
@@ -100,8 +98,7 @@ import { CreateAPIKeyResponse        , CreateAPIKeyResponseScopeEnum   } from '.
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
 import { CreateWebhookRequest , CreateWebhookRequestEventsEnum     } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
-import { DNSRecordView } from '../models/DNSRecordView.js';
-import { DNSRecordsView } from '../models/DNSRecordsView.js';
+import { DNSRecord } from '../models/DNSRecord.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
 import { DeliveryStatusJSON } from '../models/DeliveryStatusJSON.js';
 import { DeploymentInfoView } from '../models/DeploymentInfoView.js';
@@ -147,7 +144,6 @@ import { ReviewView   , ReviewViewDirectionEnum          } from '../models/Revie
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
-import { SendingDNSRecordView } from '../models/SendingDNSRecordView.js';
 import { Suppression } from '../models/Suppression.js';
 import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
 import { TestWebhookRequest , TestWebhookRequestEventEnum   } from '../models/TestWebhookRequest.js';
@@ -213,8 +209,7 @@ let typeMap: {[index: string]: any} = {
     "CreateAgentRequest": CreateAgentRequest,
     "CreateWebhookRequest": CreateWebhookRequest,
     "CreateWebhookResponse": CreateWebhookResponse,
-    "DNSRecordView": DNSRecordView,
-    "DNSRecordsView": DNSRecordsView,
+    "DNSRecord": DNSRecord,
     "DeleteUserDataResult": DeleteUserDataResult,
     "DeliveryStatusJSON": DeliveryStatusJSON,
     "DeploymentInfoView": DeploymentInfoView,
@@ -260,7 +255,6 @@ let typeMap: {[index: string]: any} = {
     "RotateSecretResponse": RotateSecretResponse,
     "SendEmailRequest": SendEmailRequest,
     "SendResultView": SendResultView,
-    "SendingDNSRecordView": SendingDNSRecordView,
     "Suppression": Suppression,
     "SuppressionExportEntry": SuppressionExportEntry,
     "TestWebhookRequest": TestWebhookRequest,
