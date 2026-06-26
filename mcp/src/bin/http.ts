@@ -114,8 +114,11 @@ async function main(): Promise<void> {
   const { close, port: bound } = await startHttpServer(cfg.port, {
     baseUrl: cfg.baseUrl,
     allowedHosts: cfg.allowedHosts,
-    sessionIdleMs: cfg.sessionIdleMs,
-    maxSessions: cfg.maxSessions,
+    // The server is stateless; the legacy session knobs now size the
+    // bearer→principal resolution cache (TTL + max entries). Env names are
+    // kept so existing deploy manifests keep working.
+    resolveCacheTtlMs: cfg.sessionIdleMs,
+    resolveCacheMaxEntries: cfg.maxSessions,
     publicUrl: cfg.publicUrl,
     authorizationServerUrl: cfg.authorizationServerUrl,
   });

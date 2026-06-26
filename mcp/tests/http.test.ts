@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { McpClient } from "../src/client.js";
 import { startHttpServer } from "../src/http-server.js";
-import { Sessions } from "../src/session.js";
+import { ResolveCache } from "../src/resolve.js";
 
 // Stub the McpClient wrapper — only the methods the tools and the
 // session prefetch (listAgents / agentEmail) actually touch. List
@@ -90,9 +91,8 @@ describe("HTTP MCP server", () => {
     expect(body.error.message).toMatch(/missing bearer/);
   });
 
-  it("invalid bearer returns 401 during initialize before session allocation", async () => {
+  it("invalid bearer (whoami 401) is rejected with an invalid_token challenge", async () => {
     await close();
-    const sessions = new Sessions({ idleTimeoutMs: 60_000, maxSessions: 10 });
     const invalidStub = makeStubClient();
     invalidStub.whoami = vi.fn(async () => {
       throw makeHttpError(401);
@@ -101,7 +101,6 @@ describe("HTTP MCP server", () => {
       baseUrl: "http://e2a.local",
       allowedHosts: ["127.0.0.1", "localhost"],
       clientFactory: () => invalidStub,
-      sessions,
     });
     close = c;
     url = `http://127.0.0.1:${port}/mcp`;
@@ -129,33 +128,23 @@ describe("HTTP MCP server", () => {
     expect(res.headers.get("www-authenticate")).toMatch(
       /Bearer realm="e2a", .*error="invalid_token"/,
     );
+    // Stateless: no session id is ever issued.
     expect(res.headers.get("mcp-session-id")).toBeNull();
-    expect(sessions.size()).toBe(0);
     expect(invalidStub.whoami).toHaveBeenCalledOnce();
     const body = await res.json();
     expect(body.error.message).toMatch(/invalid bearer/);
   });
 
-  it("rejects requests that present a known session-id with a different bearer", async () => {
-    // Regression for the session-id-hijack class: the per-session
-    // E2AClient holds the original bearer baked in. Without session-
-    // bearer binding, anyone who learned `Mcp-Session-Id` could
-    // dispatch to the session with any non-empty bearer string and
-    // execute tools as the session's owner.
-    //
-    // Flow:
-    //  1. Open a session with bearer "victim"; capture session-id.
-    //  2. POST a tools/call to that session-id with bearer "attacker".
-    //  3. Expect 401, WWW-Authenticate, and confirm stub.send was
-    //     NOT called (so the hijacked dispatch didn't reach a tool).
-
-    // Step 1 — initialize as victim and extract the session-id.
+  it("stateless: the initialize response carries no Mcp-Session-Id", async () => {
+    // The defining property of stateless mode — the server never allocates a
+    // session id, so there is no in-memory session to idle-GC and therefore
+    // nothing to drop a connection between requests (#298 follow-up).
     const initRes = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json, text/event-stream",
-        Authorization: "Bearer victim_token",
+        Authorization: "Bearer e2a_test",
       },
       body: JSON.stringify({
         jsonrpc: "2.0",
@@ -164,76 +153,55 @@ describe("HTTP MCP server", () => {
         params: {
           protocolVersion: "2024-11-05",
           capabilities: {},
-          clientInfo: { name: "victim", version: "0" },
+          clientInfo: { name: "x", version: "0" },
         },
       }),
     });
     expect(initRes.status).toBe(200);
-    const sessionId = initRes.headers.get("mcp-session-id");
-    expect(sessionId).toBeTruthy();
-    // Drain the stream — required so the SDK transport recognizes
-    // initialize is done before the test moves on.
+    expect(initRes.headers.get("mcp-session-id")).toBeNull();
     await initRes.text();
-
-    // Step 2 — POST a notifications/initialized then tools/call as
-    // "attacker" against the captured session-id.
-    const attackRes = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        Authorization: "Bearer attacker_anything",
-        "Mcp-Session-Id": sessionId!,
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 2,
-        method: "tools/call",
-        params: { name: "send_message", arguments: { to: ["x@example.com"], subject: "hi", body: "y" } },
-      }),
-    });
-    expect(attackRes.status).toBe(401);
-    expect(attackRes.headers.get("www-authenticate")).toMatch(
-      /Bearer realm="e2a", error="invalid_token"/,
-    );
-    expect(stub.send).not.toHaveBeenCalled();
   });
 
-  it("rejects an SSE GET on a known session-id with a different bearer", async () => {
-    // Same defense applies to the streaming/DELETE path. A leaked
-    // session-id should not give an attacker the notification
-    // stream of someone else's session.
-    const initRes = await fetch(url, {
+  it("stateless: each request authenticates independently from its own bearer", async () => {
+    // No session-id ⇒ no session-hijack surface. Two unrelated POSTs (no
+    // initialize, no session header) each resolve against their OWN bearer.
+    // A bearer whose whoami 401s is rejected; a valid one is served — proven
+    // back to back against the same running server.
+    await close();
+    const okStub = makeStubClient();
+    const badStub = makeStubClient();
+    badStub.whoami = vi.fn(async () => {
+      throw makeHttpError(401);
+    }) as McpClient["whoami"];
+    const { close: c, port } = await startHttpServer(0, {
+      baseUrl: "http://e2a.local",
+      allowedHosts: ["127.0.0.1", "localhost"],
+      clientFactory: (bearer: string) => (bearer === "good_token" ? okStub : badStub),
+    });
+    close = c;
+    const local = `http://127.0.0.1:${port}/mcp`;
+
+    const bad = await fetch(local, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json, text/event-stream",
-        Authorization: "Bearer victim_for_sse",
+        Authorization: "Bearer bad_token",
       },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: "2024-11-05",
-          capabilities: {},
-          clientInfo: { name: "v", version: "0" },
-        },
-      }),
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
     });
-    expect(initRes.status).toBe(200);
-    const sessionId = initRes.headers.get("mcp-session-id")!;
-    await initRes.text();
+    expect(bad.status).toBe(401);
 
-    const sseRes = await fetch(url, {
-      method: "GET",
+    const good = await fetch(local, {
+      method: "POST",
       headers: {
-        Authorization: "Bearer different_attacker",
-        "Mcp-Session-Id": sessionId,
-        Accept: "text/event-stream",
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: "Bearer good_token",
       },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
     });
-    expect(sseRes.status).toBe(401);
+    expect(good.status).toBe(200);
   });
 
   it("oauth-protected-resource discovery returns expected metadata", async () => {
@@ -362,14 +330,15 @@ describe("HTTP MCP server", () => {
     await transport.close();
   });
 
-  describe("session-init scope + agent resolution", () => {
-    // buildSessionClient resolves the credential's scope and bound agent from
+  describe("bearer scope + agent resolution", () => {
+    // resolvePrincipal resolves the credential's scope and bound agent from
     // whoami (GET /account): agent scope pins the bound agent (whoami
     // agent_address) and exposes the runtime tier; account scope has no default
     // agent and exposes the full surface. We drive it via clientFactory to
-    // observe what the final client is constructed with. The factory is called
-    // twice: the whoami probe (bearer only), then the final client
-    // (bearer + resolved {agentEmail?, scope}).
+    // observe what the client is constructed with. On a cache MISS the factory
+    // is called for the whoami probe (bearer only) then for the per-request
+    // client (bearer + resolved {agentEmail?, scope}); cache hits on later
+    // requests of the same connection skip the probe, so whoami runs once.
 
     function makeProbeClient(opts: {
       scope?: "account" | "agent";
@@ -412,9 +381,10 @@ describe("HTTP MCP server", () => {
       await startWithFactory(factory);
 
       const { transport } = await connect();
+      // whoami runs once and is cached for the connection's later POSTs.
       expect(probe.whoami).toHaveBeenCalledOnce();
-      // Probe (bearer only), then final with the resolved agent + scope.
-      expect(factory).toHaveBeenCalledTimes(2);
+      // First construction is the probe (bearer only); second is the
+      // per-request client with the resolved agent + scope.
       expect(factory.mock.calls[0]).toEqual(["e2a_test"]);
       expect(factory.mock.calls[1]).toEqual([
         "e2a_test",
@@ -429,13 +399,14 @@ describe("HTTP MCP server", () => {
       await startWithFactory(factory);
 
       const { transport } = await connect();
-      expect(factory).toHaveBeenCalledTimes(2);
+      expect(probe.whoami).toHaveBeenCalledOnce();
+      expect(factory.mock.calls[0]).toEqual(["e2a_test"]);
       // No agentEmail for account scope — explicit email required per §6a.
       expect(factory.mock.calls[1]).toEqual(["e2a_test", { scope: "account" }]);
       await transport.close();
     });
 
-    it("whoami non-auth failure falls back to least-privilege agent scope (session still inits)", async () => {
+    it("whoami non-auth failure falls back to least-privilege agent scope (request still served)", async () => {
       const probe = makeProbeClient({ whoamiThrows: true });
       const factory = vi.fn(() => probe);
       await startWithFactory(factory);
@@ -446,6 +417,56 @@ describe("HTTP MCP server", () => {
       // Fail-closed: runtime/agent scope, no default agent.
       expect(factory.mock.calls[1]).toEqual(["e2a_test", { scope: "agent" }]);
       await transport.close();
+    });
+
+    it("a transient whoami failure is NOT cached — every request re-probes", async () => {
+      // The fail-closed fallback must not stick: caching it would pin a healthy
+      // bearer to least-privilege for the whole TTL after one backend blip.
+      // So each POST re-probes whoami until the backend recovers.
+      const probe = makeProbeClient({ whoamiThrows: true });
+      const factory = vi.fn(() => probe);
+      await startWithFactory(factory);
+
+      // Two independent POSTs (no session in stateless mode). Each bare
+      // tools/list is served on its own (200) — a stateful revert would 400
+      // the second with "no session", so the status assertion pins statelessness.
+      for (const id of [1, 2]) {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json, text/event-stream",
+            Authorization: "Bearer e2a_test",
+          },
+          body: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/list" }),
+        });
+        expect(res.status).toBe(200);
+        await res.text();
+      }
+      // Re-probed once per request (would be 1 if the failure were cached).
+      expect((probe.whoami as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
+    });
+
+    it("a successful whoami IS cached — a second request skips the probe", async () => {
+      const probe = makeProbeClient({ scope: "agent", agentAddress: "solo@bot.example.com" });
+      const factory = vi.fn(() => probe);
+      await startWithFactory(factory);
+
+      for (const id of [1, 2]) {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json, text/event-stream",
+            Authorization: "Bearer e2a_test",
+          },
+          body: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/list" }),
+        });
+        expect(res.status).toBe(200); // both served — no session gate
+        await res.text();
+      }
+      // Cached across both requests: whoami runs exactly once.
+      expect(probe.whoami).toHaveBeenCalledOnce();
     });
 
     it("whoami 401 rejects session init as invalid bearer", async () => {
@@ -472,7 +493,113 @@ describe("HTTP MCP server", () => {
     });
   });
 
-  it("forwards Bearer transparently to the per-session E2AClient", async () => {
+  it("stateless: a request after the old idle-GC window still works (re-resolves, never drops)", async () => {
+    // The headline win of going stateless. The old stateful server reaped an
+    // idle session after 5 min (300_000 ms) and answered the next request with
+    // 400 "no session -- send initialize first". With no session there is
+    // nothing to reap: a gap merely expires the resolve cache, so the next bare
+    // request re-probes whoami and is served. We drive the cache clock past
+    // BOTH the cache TTL and the old idle window and assert the second request
+    // still 200s.
+    await close();
+    let nowMs = 0;
+    const cache = new ResolveCache({ ttlMs: 60_000, maxEntries: 10, now: () => nowMs });
+    const idleStub = makeStubClient();
+    const { close: c, port } = await startHttpServer(0, {
+      baseUrl: "http://e2a.local",
+      allowedHosts: ["127.0.0.1", "localhost"],
+      clientFactory: () => idleStub,
+      resolveCache: cache,
+    });
+    close = c;
+    const local = `http://127.0.0.1:${port}/mcp`;
+    const post = async (id: number) => {
+      const res = await fetch(local, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Authorization: "Bearer idle_token",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/list" }),
+      });
+      const text = await res.text();
+      return { status: res.status, text };
+    };
+
+    const first = await post(1);
+    expect(first.status).toBe(200);
+    expect(idleStub.whoami).toHaveBeenCalledOnce();
+
+    nowMs = 600_000; // 10 min — twice the old idle-GC window, past the cache TTL.
+
+    const second = await post(2);
+    expect(second.status).toBe(200); // not 400 "no session": the connection never drops
+    expect(second.text).toContain("send_message");
+    // Re-resolved after the gap rather than dropped.
+    expect((idleStub.whoami as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
+  });
+
+  it("stateless: concurrent requests with distinct bearers don't cross-contaminate", async () => {
+    // No session id ⇒ no shared per-connection state. Two bearers hitting the
+    // server at the same instant each resolve and dispatch with their OWN
+    // credential — proven by the factory seeing both bearers, never one twice.
+    await close();
+    const factory = vi.fn((bearer: string) => {
+      const s = makeStubClient();
+      (s as { agentEmail: string }).agentEmail = bearer === "tok_a" ? "a@x.com" : "b@x.com";
+      return s;
+    });
+    const { close: c, port } = await startHttpServer(0, {
+      baseUrl: "http://e2a.local",
+      allowedHosts: ["127.0.0.1", "localhost"],
+      clientFactory: factory,
+    });
+    close = c;
+    const local = `http://127.0.0.1:${port}/mcp`;
+    const fire = (tok: string, id: number) =>
+      fetch(local, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Authorization: `Bearer ${tok}`,
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/list" }),
+      }).then((r) => r.text().then(() => r.status));
+
+    const [a, b] = await Promise.all([fire("tok_a", 1), fire("tok_b", 2)]);
+    expect(a).toBe(200);
+    expect(b).toBe(200);
+    const bearersSeen = new Set(factory.mock.calls.map((call) => call[0]));
+    expect(bearersSeen).toEqual(new Set(["tok_a", "tok_b"]));
+  });
+
+  it("stateless: closes the per-request transport after the response (no leak)", async () => {
+    // Real cleanup assertion: the per-request transport is torn down once the
+    // response closes. Spying the SDK transport's close proves the res.on(
+    // "close") teardown fires on the success path (the throw-path test below
+    // never builds a transport, so it can't cover this).
+    const closeSpy = vi.spyOn(StreamableHTTPServerTransport.prototype, "close");
+    closeSpy.mockClear();
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: "Bearer e2a_test",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    expect(res.status).toBe(200);
+    await res.text();
+    // The server-side "close" fires just after the body is flushed; give it a tick.
+    await new Promise((r) => setTimeout(r, 25));
+    expect(closeSpy).toHaveBeenCalled();
+    closeSpy.mockRestore();
+  });
+
+  it("forwards Bearer transparently to the per-request E2AClient", async () => {
     // The factory we passed receives the bearer string. We can assert it
     // gets exactly what the client sent without any rewriting.
     const factorySpy = vi.fn(() => stub);
@@ -490,7 +617,7 @@ describe("HTTP MCP server", () => {
     await transport.close();
   });
 
-  it("tool call dispatches to the per-session client", async () => {
+  it("tool call dispatches to the per-request client", async () => {
     const { client, transport } = await connect();
     vi.mocked(stub.listAgents).mockClear();
     await client.callTool({ name: "list_agents", arguments: {} });
@@ -498,7 +625,10 @@ describe("HTTP MCP server", () => {
     await transport.close();
   });
 
-  it("rejects non-initialize requests without a session", async () => {
+  it("stateless: a bare tools/list without a prior initialize is served, not 400", async () => {
+    // The stateless transport skips the initialize/session gate, so a fresh
+    // POST stands on its own. This is the inverse of the old stateful server,
+    // which rejected this with 400 "no session -- send initialize first".
     const res = await fetch(url, {
       method: "POST",
       headers: {
@@ -508,109 +638,78 @@ describe("HTTP MCP server", () => {
       },
       body: JSON.stringify({ jsonrpc: "2.0", id: 99, method: "tools/list" }),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // The body (JSON or an SSE frame) carries the tool list, not a "no session"
+    // error.
+    expect(text).toContain("send_message");
+    expect(text).not.toMatch(/no session/);
+  });
+
+  it("DELETE /mcp returns 405 (stateless: no session to terminate)", async () => {
+    const res = await fetch(url, {
+      method: "DELETE",
+      headers: { Authorization: "Bearer e2a_test", "mcp-session-id": "anything" },
+    });
+    expect(res.status).toBe(405);
     const body = await res.json();
-    expect(body.error.message).toMatch(/no session/);
+    expect(body.error.message).toMatch(/stateless/);
   });
 
-  it("DELETE /mcp without bearer returns 401", async () => {
-    const res = await fetch(url, {
-      method: "DELETE",
-      headers: { "mcp-session-id": "anything" },
-    });
-    expect(res.status).toBe(401);
-    expect(res.headers.get("www-authenticate")).toMatch(/Bearer realm="e2a"/);
-  });
-
-  it("GET /mcp without bearer returns 401", async () => {
+  it("GET /mcp returns 405 (stateless: no standalone SSE stream)", async () => {
     const res = await fetch(url, {
       method: "GET",
-      headers: { "mcp-session-id": "anything" },
+      headers: { Authorization: "Bearer e2a_test", "mcp-session-id": "anything" },
     });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(405);
+    const body = await res.json();
+    expect(body.error.code).toBe(-32000);
+    expect(body.error.message).toMatch(/stateless/);
   });
 
-  it("DELETE /mcp without session id returns 400", async () => {
-    const res = await fetch(url, {
-      method: "DELETE",
-      headers: { Authorization: "Bearer e2a_test" },
-    });
-    expect(res.status).toBe(400);
+  it("GET/DELETE 405 even without a bearer (method genuinely unsupported)", async () => {
+    const get = await fetch(url, { method: "GET" });
+    expect(get.status).toBe(405);
+    const del = await fetch(url, { method: "DELETE" });
+    expect(del.status).toBe(405);
   });
 
-  it("DELETE /mcp with unknown session id returns 404", async () => {
-    const res = await fetch(url, {
-      method: "DELETE",
-      headers: {
-        Authorization: "Bearer e2a_test",
-        "mcp-session-id": "ghost-session-id",
-      },
+  it("an injected resolveCache is populated after a successful request and reused", async () => {
+    // Exercises the cache seam end to end: the first POST resolves whoami and
+    // writes one principal; a second POST is a cache hit (whoami stays at one).
+    await close();
+    const cache = new ResolveCache({ ttlMs: 60_000, maxEntries: 10 });
+    const cachedStub = makeStubClient();
+    const { close: c, port } = await startHttpServer(0, {
+      baseUrl: "http://e2a.local",
+      allowedHosts: ["127.0.0.1", "localhost"],
+      clientFactory: () => cachedStub,
+      resolveCache: cache,
     });
-    expect(res.status).toBe(404);
-  });
-
-  it("GET /mcp without session id returns 400", async () => {
-    const res = await fetch(url, {
-      method: "GET",
-      headers: { Authorization: "Bearer e2a_test" },
-    });
-    expect(res.status).toBe(400);
-  });
-
-  it("DELETE-then-POST: terminating a session makes follow-up POSTs return 400", async () => {
-    // initialize via raw fetch so we can capture the SDK-issued Mcp-Session-Id
-    const initRes = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        Authorization: "Bearer e2a_test",
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: "2024-11-05",
-          capabilities: {},
-          clientInfo: { name: "x", version: "0" },
+    close = c;
+    const local = `http://127.0.0.1:${port}/mcp`;
+    expect(cache.size()).toBe(0);
+    for (const id of [1, 2]) {
+      const res = await fetch(local, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Authorization: "Bearer cache_seam_token",
         },
-      }),
-    });
-    // SSE body — drain so the connection closes cleanly before we DELETE.
-    await initRes.text();
-    const sessionId = initRes.headers.get("mcp-session-id");
-    expect(sessionId).toBeTruthy();
-
-    const delRes = await fetch(url, {
-      method: "DELETE",
-      headers: {
-        Authorization: "Bearer e2a_test",
-        "mcp-session-id": sessionId!,
-      },
-    });
-    expect(delRes.status).toBeLessThan(400);
-
-    // Post-deletion: the same session id should no longer resolve, and
-    // a non-initialize body must surface as "no session".
-    const followup = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        Authorization: "Bearer e2a_test",
-        "mcp-session-id": sessionId!,
-      },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
-    });
-    expect(followup.status).toBe(400);
-    const body = await followup.json();
-    expect(body.error.message).toMatch(/no session/);
+        body: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/list" }),
+      });
+      await res.text();
+    }
+    expect(cache.size()).toBe(1);
+    expect(cachedStub.whoami).toHaveBeenCalledOnce();
   });
 
-  it("cleans up transport when clientFactory throws on initialize", async () => {
-    // Bring up a server whose clientFactory always throws. The handler
-    // should not leak any session into the map.
+  it("propagates a 500 when clientFactory throws before any transport is built", async () => {
+    // The factory throws during the whoami probe, i.e. before a transport or
+    // server is ever constructed — so there's nothing to leak here; the
+    // success-path teardown is covered by the close-spy test above. This just
+    // asserts the throw surfaces as a 5xx rather than hanging the request.
     await close();
     const { close: c, port } = await startHttpServer(0, {
       baseUrl: "http://e2a.local",

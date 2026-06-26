@@ -1,13 +1,11 @@
-import crypto from "node:crypto";
 import express, { type Express, type Request, type Response } from "express";
 import cors from "cors";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { E2AClient } from "@e2a/sdk/v1";
 import { buildServer } from "./server.js";
 import { McpClient } from "./client.js";
 import type { Scope } from "./tools/tiers.js";
-import { Sessions, fingerprintBearer } from "./session.js";
+import { ResolveCache, type ResolvedPrincipal } from "./resolve.js";
 
 export interface HttpServerOptions {
   /** Base URL of the e2a backend (Bearer is forwarded as-is). */
@@ -34,43 +32,48 @@ export interface HttpServerOptions {
    * without changing where the SDK forwards bearer tokens.
    */
   authorizationServerUrl?: string;
-  /** Optional shared sessions instance (defaults to a fresh one). */
-  sessions?: Sessions;
-  /** Session idle timeout. */
-  sessionIdleMs?: number;
-  /** Hard cap on concurrent sessions. */
-  maxSessions?: number;
+  /** Optional shared resolution cache (defaults to a fresh one). */
+  resolveCache?: ResolveCache;
+  /** How long a resolved bearer→principal entry stays cached (ms). */
+  resolveCacheTtlMs?: number;
+  /** Hard cap on cached principals. */
+  resolveCacheMaxEntries?: number;
   /**
-   * Test seam: override how the per-session E2AClient is built. The
+   * Test seam: override how the per-request E2AClient is built. The
    * default constructs `new E2AClient({ apiKey: bearer, baseUrl })`.
    *
-   * The optional second arg carries the agent_email resolved by the
-   * single-agent prefetch (see {@link buildSessionClient}). Tests that
-   * want to exercise the prefetch path can pass it through to their
-   * stub; tests that only care about the bearer can ignore it.
+   * The optional second arg carries the agent_email + scope resolved by the
+   * per-bearer `whoami` prefetch (see {@link resolvePrincipal}). Tests that
+   * want to exercise the prefetch path can pass it through to their stub;
+   * tests that only care about the bearer can ignore it.
    */
   clientFactory?: (bearer: string, opts?: { agentEmail?: string; scope?: Scope }) => McpClient;
 }
 
 interface BuiltApp {
   app: Express;
-  sessions: Sessions;
+  cache: ResolveCache;
 }
 
 /**
  * Build the Express app that hosts the MCP Streamable HTTP transport.
  *
- * Per design (.claude/design/mcp-system.md §4.2): this server is pure
- * transport. It forwards the user's Bearer to the e2a backend
- * unchanged; the backend dispatches on token prefix (e2a_ vs ate2a_).
- * No token introspection, no caching, no service credential held here.
+ * Per design (.claude/design/mcp-system.md §4.2): this server is pure,
+ * **stateless** transport. It forwards the user's Bearer to the e2a backend
+ * unchanged (the backend dispatches on token prefix e2a_ vs ate2a_) and holds
+ * no per-connection session state — every request builds a fresh server +
+ * transport and dispatches independently. The only thing kept between requests
+ * is a short-lived bearer→principal cache so a burst of tool calls doesn't pay
+ * a `whoami` round-trip each. There is no session idle GC, so an idle client is
+ * never disconnected; only the bearer's own expiry (handled by the client's
+ * OAuth refresh) ever ends a connection.
  */
 export function buildApp(opts: HttpServerOptions): BuiltApp {
-  const sessions =
-    opts.sessions ??
-    new Sessions({
-      idleTimeoutMs: opts.sessionIdleMs ?? 5 * 60_000,
-      maxSessions: opts.maxSessions ?? 500,
+  const cache =
+    opts.resolveCache ??
+    new ResolveCache({
+      ttlMs: opts.resolveCacheTtlMs ?? 60_000,
+      maxEntries: opts.resolveCacheMaxEntries ?? 500,
     });
 
   const app = express();
@@ -146,18 +149,24 @@ export function buildApp(opts: HttpServerOptions): BuiltApp {
   });
 
   app.post("/mcp", async (req, res) => {
-    await handleClientRequest(req, res, sessions, opts);
+    await handleClientRequest(req, res, cache, opts);
   });
 
-  // Streamable HTTP uses GET for SSE notifications and DELETE for session termination.
-  app.get("/mcp", async (req, res) => {
-    await handleStreamingOrDelete(req, res, sessions, opts);
-  });
-  app.delete("/mcp", async (req, res) => {
-    await handleStreamingOrDelete(req, res, sessions, opts);
-  });
+  // Stateless transport: there is no standalone SSE stream and no session to
+  // terminate, so the GET (SSE notifications) and DELETE (session teardown)
+  // verbs the Streamable-HTTP spec defines for stateful servers don't apply.
+  // Answer both with 405 + a JSON-RPC error, matching the SDK's stateless
+  // reference server.
+  app.get("/mcp", methodNotAllowed);
+  app.delete("/mcp", methodNotAllowed);
 
-  return { app, sessions };
+  return { app, cache };
+}
+
+function methodNotAllowed(_req: Request, res: Response): void {
+  res
+    .status(405)
+    .json(jsonRpcError(null, -32000, "Method not allowed: the e2a MCP server is stateless"));
 }
 
 // resourceMetadataURL returns the value the `WWW-Authenticate` header
@@ -184,7 +193,7 @@ class InvalidBearerError extends Error {
 async function handleClientRequest(
   req: Request,
   res: Response,
-  sessions: Sessions,
+  cache: ResolveCache,
   opts: HttpServerOptions,
 ): Promise<void> {
   const bearer = extractBearer(req);
@@ -194,30 +203,14 @@ async function handleClientRequest(
     return;
   }
 
-  const sessionId = req.headers["mcp-session-id"] as string | undefined;
-  let entry = sessionId ? sessions.get(sessionId) : undefined;
-
-  // Session-bearer binding. The per-session E2AClient has the original
-  // bearer baked in and forwards it verbatim to the e2a backend on
-  // every tool call — so dispatching to a session by id alone, with
-  // no bearer check, would let anyone who learned `Mcp-Session-Id`
-  // act as the session owner (Access-Control-Expose-Headers exposes
-  // the id, and the spec doesn't treat it as a secret). We refuse to
-  // dispatch when the bearer's fingerprint doesn't match the one
-  // captured at session-create.
-  if (entry && entry.bearerFingerprint !== fingerprintBearer(bearer)) {
-    res.setHeader(
-      "WWW-Authenticate",
-      `Bearer realm="e2a", error="invalid_token", error_description="bearer does not match session"`,
-    );
-    res.status(401).json(jsonRpcError(req.body, -32001, "session bearer mismatch"));
-    return;
-  }
-
-  if (!entry && isInitializeRequest(req.body)) {
-    let client: McpClient;
+  // Resolve the credential's scope + bound agent. A cache hit skips the
+  // backend round-trip; a miss probes `whoami` once and caches the result.
+  // A revoked/expired bearer surfaces as 401 here (InvalidBearerError).
+  let principal = cache.get(bearer);
+  if (!principal) {
+    let resolved: { value: ResolvedPrincipal; cacheable: boolean };
     try {
-      client = await buildSessionClient(opts, bearer);
+      resolved = await resolvePrincipal(opts, bearer);
     } catch (err) {
       if (err instanceof InvalidBearerError) {
         res.setHeader(
@@ -229,168 +222,113 @@ async function handleClientRequest(
       }
       throw err;
     }
-    const server = buildServer({ client });
-    const bearerFp = fingerprintBearer(bearer);
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => crypto.randomUUID(),
-      onsessioninitialized: (id) => {
-        sessions.put(id, {
-          transport,
-          server,
-          lastSeen: Date.now(),
-          bearerFingerprint: bearerFp,
-        });
-      },
-    });
-    // SDK chains any pre-existing onclose with its own internal cleanup
-    // (protocol.js:220-223), so setting before connect() is safe — both
-    // our handler and the SDK's run on transport close.
-    transport.onclose = () => {
-      const id = transport.sessionId;
-      if (id) void sessions.delete(id);
-    };
-    try {
-      await server.connect(transport);
-      await transport.handleRequest(req, res, req.body);
-    } catch (err) {
-      // Initialize failed mid-flow. If onsessioninitialized fired, the
-      // entry is in the map — delete() closes the transport. Otherwise
-      // close directly to release SDK state. Either path is best-effort:
-      // we're already on the error path and don't want to mask the
-      // original failure.
-      const sid = transport.sessionId;
-      if (sid) {
-        await sessions.delete(sid).catch(() => undefined);
-      } else {
-        await transport.close().catch(() => undefined);
-      }
-      throw err;
-    }
-    return;
-  }
-  if (!entry) {
-    res.status(400).json(jsonRpcError(req.body, -32000, "no session -- send initialize first"));
-    return;
+    principal = resolved.value;
+    // Only cache a genuine whoami result. A transient backend failure yields a
+    // least-privilege fallback that must NOT stick — re-probe next request so
+    // the session self-corrects once the backend recovers.
+    if (resolved.cacheable) cache.set(bearer, principal);
   }
 
-  await entry.transport.handleRequest(req, res, req.body);
-}
+  // The cold-path whoami probe above is awaited, so the client may have
+  // disconnected meanwhile. If so, `res`'s "close" has already fired — bail
+  // before building a transport whose teardown listener would never run.
+  if (res.closed) return;
 
-async function handleStreamingOrDelete(
-  req: Request,
-  res: Response,
-  sessions: Sessions,
-  opts: HttpServerOptions,
-): Promise<void> {
-  // Require Bearer on every /mcp request, including SSE GET and session
-  // DELETE — knowing a session id should not be sufficient to read its
-  // notification stream or terminate it.
-  const bearer = extractBearer(req);
-  if (!bearer) {
-    res.setHeader("WWW-Authenticate", bearerChallenge(req, opts));
-    res.status(401).end();
-    return;
+  // Stateless: a fresh server + transport per request, torn down when the
+  // response closes. The SDK forbids reusing a stateless transport across
+  // requests (message-id collisions), and a fresh transport with
+  // sessionIdGenerator=undefined skips all session/initialize gating, so a
+  // bare tools/call dispatches without a prior initialize on this instance.
+  const client = buildClient(opts, bearer, principal);
+  const server = buildServer({ client });
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+  });
+  res.on("close", () => {
+    void transport.close();
+    void server.close();
+  });
+  try {
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+  } catch (err) {
+    await transport.close().catch(() => undefined);
+    await server.close().catch(() => undefined);
+    throw err;
   }
-
-  const sessionId = req.headers["mcp-session-id"] as string | undefined;
-  if (!sessionId) {
-    res.status(400).end();
-    return;
-  }
-  const entry = sessions.get(sessionId);
-  if (!entry) {
-    res.status(404).end();
-    return;
-  }
-  // Session-bearer binding (same rationale as handleClientRequest):
-  // SSE notifications and session DELETE both carry the privilege of
-  // the original initialize; the inline comment that used to be here
-  // ("knowing a session id should not be sufficient...") is correct
-  // and now enforced. A bearer-fingerprint mismatch rejects with
-  // 401 + the standard WWW-Authenticate challenge.
-  if (entry.bearerFingerprint !== fingerprintBearer(bearer)) {
-    res.setHeader(
-      "WWW-Authenticate",
-      `Bearer realm="e2a", error="invalid_token", error_description="bearer does not match session"`,
-    );
-    res.status(401).end();
-    return;
-  }
-  await entry.transport.handleRequest(req, res);
 }
 
 /**
- * Construct the per-session E2AClient, opportunistically resolving a
- * default agent_email when the user has exactly one agent.
+ * Construct the per-request E2AClient for an already-resolved principal.
  *
- * Why this lives here and not in the SDK: the SDK is a thin contract
- * shared by CLI, browser, server, and Python users — auto-resolving an
- * agent on construction would be too magical for those callers. The
- * MCP transport, on the other hand, has a clear notion of "session
- * init": one prefetch per session is cheap and lets every subsequent
- * tool call dispatch without forcing the LLM (or the user) to pass
- * email explicitly. The OAuth grant already binds the user to
- * one agent at consent, so for the dominant single-agent case the
- * default is unambiguous.
- *
- * Resolution order (highest precedence first):
- *   1. listAgents() yields exactly one agent — pin it as the default.
- *   2. Otherwise leave the default empty. Tools that take an optional
- *      `email` arg require it explicitly (resolveAddress errors with a
- *      hint pointing at list_agents).
- *
- * (There is no env-var default: E2A_AGENT_EMAIL was removed. An
- * agent-scoped credential resolves its agent server-side.)
- *
- * listAgents failures are swallowed: a transient backend hiccup
- * shouldn't break MCP initialize. Worst case, the user sees the same
- * "email is required" error they'd see today.
+ * Why the agent-email default lives here and not in the SDK: the SDK is a thin
+ * contract shared by CLI, browser, server, and Python users — auto-resolving an
+ * agent on construction would be too magical for those callers. The MCP
+ * transport has a clear notion of "the connecting credential," so pinning its
+ * bound agent lets every tool call dispatch without forcing the LLM (or the
+ * user) to pass `email` explicitly.
  */
-export async function buildSessionClient(
+function buildClient(
   opts: HttpServerOptions,
   bearer: string,
-): Promise<McpClient> {
-  const make = (agentEmail?: string, scope?: Scope): McpClient => {
-    if (opts.clientFactory) {
-      // Preserve the no-arg-factory shape for callers (and tests) that
-      // don't care about the resolved email/scope. Pass them through only
-      // when we actually have them.
-      return agentEmail || scope
-        ? opts.clientFactory(bearer, { ...(agentEmail ? { agentEmail } : {}), ...(scope ? { scope } : {}) })
-        : opts.clientFactory(bearer);
-    }
-    return new McpClient(
-      new E2AClient({ apiKey: bearer, baseUrl: opts.baseUrl }),
-      agentEmail ?? "",
-      scope ?? "account",
-    );
-  };
+  principal: ResolvedPrincipal,
+): McpClient {
+  const { agentEmail, scope } = principal;
+  if (opts.clientFactory) {
+    // Preserve the no-arg-factory shape for callers (and tests) that don't
+    // care about the resolved email/scope. Pass them through only when set.
+    return agentEmail || scope
+      ? opts.clientFactory(bearer, { ...(agentEmail ? { agentEmail } : {}), ...(scope ? { scope } : {}) })
+      : opts.clientFactory(bearer);
+  }
+  return new McpClient(
+    new E2AClient({ apiKey: bearer, baseUrl: opts.baseUrl }),
+    agentEmail ?? "",
+    // Fail CLOSED if scope is ever absent: "agent" is the least-privilege tier
+    // (account = full admin surface). principal.scope is always set today, so
+    // this only guards a future refactor — but a fail-open default here would
+    // silently expose the admin surface.
+    scope ?? "agent",
+  );
+}
 
-  // Resolve scope + the credential-bound agent from whoami (GET /account),
-  // which the backend scope-filters per credential (§6a). This drives both
-  // tool-tier gating (server.ts) and the per-agent default:
-  //   - agent scope   → pin the bound agent (whoami.agentAddress); the
-  //     credential IS that agent. Surface = runtime tier.
-  //   - account scope → no default agent (per §6a, explicit `email` required —
-  //     the old single-agent auto-resolve is dropped). Surface = full.
-  const probe = make();
-  let scope: Scope = "agent"; // fail-closed default (least privilege) if whoami can't be read
-  let agentEmail: string | undefined;
+/**
+ * Resolve a bearer's scope + bound agent from whoami (GET /account), which the
+ * backend scope-filters per credential (§6a). This drives both tool-tier gating
+ * (server.ts) and the per-agent default:
+ *   - agent scope   → pin the bound agent (whoami.agentAddress); the credential
+ *     IS that agent. Surface = runtime tier.
+ *   - account scope → no default agent (per §6a, explicit `email` required —
+ *     the old single-agent auto-resolve is dropped). Surface = full.
+ *
+ * Throws {@link InvalidBearerError} on a 401 (revoked/expired/garbage token) so
+ * the caller answers with the OAuth challenge. A non-auth failure (transient
+ * backend hiccup) returns a least-privilege fallback marked `cacheable: false`
+ * so it doesn't stick — the backend still enforces scope, and the next request
+ * re-probes once the backend recovers.
+ */
+export async function resolvePrincipal(
+  opts: HttpServerOptions,
+  bearer: string,
+): Promise<{ value: ResolvedPrincipal; cacheable: boolean }> {
+  // The probe only calls whoami; its scope/agent don't matter. Build it bare
+  // (factory(bearer) with no resolved opts) so the construction is
+  // distinguishable from the final, resolved client.
+  const probe = opts.clientFactory
+    ? opts.clientFactory(bearer)
+    : new McpClient(new E2AClient({ apiKey: bearer, baseUrl: opts.baseUrl }), "", "account");
   try {
     const me = await probe.whoami();
-    scope = me.scope === "account" ? "account" : "agent";
-    if (scope === "agent" && me.agentAddress) {
-      agentEmail = me.agentAddress;
-    }
+    const scope: Scope = me.scope === "account" ? "account" : "agent";
+    const agentEmail = scope === "agent" && me.agentAddress ? me.agentAddress : undefined;
+    return { value: { scope, ...(agentEmail ? { agentEmail } : {}) }, cacheable: true };
   } catch (err) {
     if (isUnauthorizedError(err)) {
       throw new InvalidBearerError();
     }
-    // Non-auth failure (transient backend hiccup): don't break MCP initialize.
-    // Fall back to the least-privilege runtime tier with no default agent — the
-    // backend still enforces scope, and the session self-corrects on reconnect.
+    // Fail-closed: least-privilege runtime tier, no default agent, not cached.
+    return { value: { scope: "agent" }, cacheable: false };
   }
-  return make(agentEmail, scope);
 }
 
 function isUnauthorizedError(err: unknown): boolean {
@@ -428,15 +366,15 @@ function jsonRpcError(
 }
 
 /**
- * Start the HTTP server on `port`. Returns a closer that stops the listener
- * and drains active sessions — wire it to SIGTERM in bin/http.ts.
+ * Start the HTTP server on `port`. Returns a closer that stops the listener —
+ * wire it to SIGTERM in bin/http.ts. The server is stateless, so there are no
+ * sessions to drain; closing the listener is the whole shutdown.
  */
 export async function startHttpServer(
   port: number,
   opts: HttpServerOptions,
 ): Promise<{ close: () => Promise<void>; port: number }> {
-  const { app, sessions } = buildApp(opts);
-  sessions.startGc();
+  const { app, cache } = buildApp(opts);
   const server = app.listen(port);
   await new Promise<void>((resolve, reject) => {
     server.once("listening", resolve);
@@ -447,7 +385,7 @@ export async function startHttpServer(
     port: actualPort,
     close: async () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
-      await sessions.shutdown();
+      cache.clear();
     },
   };
 }
