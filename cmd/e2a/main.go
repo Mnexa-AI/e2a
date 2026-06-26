@@ -174,6 +174,20 @@ func main() {
 
 	// Services
 	store := identity.NewStore(pool)
+	// Envelope-encrypt DKIM private keys at rest (#144 / M4). In production the
+	// signing secret is enforced ≥32 bytes so the cipher is always configured and
+	// the startup backfill encrypts any legacy plaintext keys; in a weak-secret
+	// dev deploy we log and fall back to plaintext storage.
+	if dkimCipher, derr := identity.NewDKIMCipher([]byte(cfg.Signing.HMACSecret)); derr != nil {
+		log.Printf("[identity] DKIM key encryption-at-rest disabled: %v", derr)
+	} else {
+		store.SetDKIMCipher(dkimCipher)
+		if n, berr := store.EncryptLegacyDKIMKeys(ctx); berr != nil {
+			log.Fatalf("DKIM key encryption backfill failed: %v", berr)
+		} else if n > 0 {
+			log.Printf("[identity] encrypted %d legacy DKIM private key(s) at rest", n)
+		}
+	}
 	if err := store.EnsureSharedDomain(ctx, cfg.SharedDomain); err != nil {
 		log.Fatalf("Failed to seed shared domain row: %v", err)
 	}
