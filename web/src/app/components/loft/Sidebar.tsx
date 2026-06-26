@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { useAuth } from "../AuthProvider";
 import { usePendingCount } from "../hooks/usePendingCount";
+import { ThemeToggle } from "./ThemeToggle";
 
 type IconKey = "plus" | "grid" | "clock" | "globe" | "key" | "settings" | "msg" | "shield" | "card";
 
@@ -314,6 +315,12 @@ export function Sidebar({
           label="Send feedback"
           pathname={pathname}
         />
+
+        {/* Theme toggle — light / dark / system, persisted to localStorage
+            by ThemeProvider. */}
+        <div className="mt-2.5">
+          <ThemeToggle />
+        </div>
 
         {/* User card */}
         {user && (
