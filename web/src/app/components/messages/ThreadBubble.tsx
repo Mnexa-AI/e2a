@@ -12,8 +12,8 @@ import useSWR from "swr";
 import { Chip } from "../loft/Chip";
 import { Dot } from "../loft/Dot";
 import { CounterpartyAvatar } from "./CounterpartyAvatar";
+import { EmailHtmlBody } from "./EmailHtmlBody";
 import { getMessageDetail } from "../onboarding/api";
-import { formatRelativeAge } from "../../../lib/relativeTime";
 import type { MessageSummary } from "../types";
 import type { Counterparty } from "./threading";
 
@@ -76,15 +76,25 @@ export function ThreadBubble({
     () => getMessageDetail(agentEmail, message.message_id, message.direction),
   );
 
-  let body = "";
+  // Resolve both representations: a rich HTML body (rendered sanitized in a
+  // sandboxed iframe) when the message has one, else the plain text. Prefer the
+  // backend-parsed bodies (QP/base64 decoded); the raw decode is last resort.
+  let textBody = "";
+  let htmlBody = "";
   if (detail) {
     if (detail.direction === "outbound") {
-      body = detail.data.body_text ?? "";
+      textBody = detail.data.body_text ?? "";
+      htmlBody = detail.data.body_html ?? "";
     } else {
-      body = detail.data.body?.text || decodeRawBody(detail.data.raw_message) || "";
+      htmlBody = detail.data.parsed?.html ?? "";
+      textBody =
+        detail.data.parsed?.text ||
+        detail.data.body?.text ||
+        decodeRawBody(detail.data.raw_message) ||
+        "";
     }
   }
-  const showBody = body.trim() !== "";
+  const showBody = htmlBody.trim() !== "" || textBody.trim() !== "";
 
   const senderName = isInbound ? counterparty.name : "Inbox";
   const senderEmail = isInbound ? counterparty.email : agentEmail;
@@ -225,18 +235,21 @@ export function ThreadBubble({
             fontSize: 13.5,
             lineHeight: 1.6,
             color: "var(--fg)",
-            whiteSpace: "pre-wrap",
             wordBreak: "break-word",
           }}
         >
-          {showBody ? (
-            body
-          ) : isLoading ? (
-            <span style={{ color: "var(--fg-subtle)" }}>Loading…</span>
+          {!showBody ? (
+            isLoading ? (
+              <span style={{ color: "var(--fg-subtle)" }}>Loading…</span>
+            ) : (
+              <span style={{ fontStyle: "italic", color: "var(--fg-muted)" }}>
+                {message.subject || "(no content)"}
+              </span>
+            )
+          ) : htmlBody.trim() !== "" ? (
+            <EmailHtmlBody html={htmlBody} />
           ) : (
-            <span style={{ fontStyle: "italic", color: "var(--fg-muted)" }}>
-              {message.subject || "(no content)"}
-            </span>
+            <div style={{ whiteSpace: "pre-wrap" }}>{textBody}</div>
           )}
         </div>
       </div>

@@ -31,6 +31,7 @@ import { Dot } from "../../../../../components/loft/Dot";
 import { Eyebrow } from "../../../../../components/loft/Eyebrow";
 import { InkConsole, type InkLine } from "../../../../../components/loft/InkConsole";
 import { Collapsible } from "../../../../../components/messages/Collapsible";
+import { EmailHtmlBody } from "../../../../../components/messages/EmailHtmlBody";
 import { MessageDirectionIcon } from "../../../../../components/messages/MessageDirectionIcon";
 import {
   MessageLifecycleTimeline,
@@ -572,7 +573,16 @@ function BodyCard({
 }) {
   const bodyText = useMemo(() => {
     if (msg.direction === "outbound") return msg.data.body_text ?? "";
-    return decodeInboundBody(msg.data.raw_message);
+    // Prefer the backend-parsed text (QP/base64 decoded, HTML→text); the raw
+    // decode is a last-resort fallback that shows MIME framing.
+    return msg.data.parsed?.text || decodeInboundBody(msg.data.raw_message);
+  }, [msg]);
+  // Rich HTML body, when the message carries one — rendered sanitized in a
+  // sandboxed iframe. Outbound drafts/sends use body_html; inbound uses
+  // parsed.html (the decoded text/html part).
+  const bodyHtml = useMemo(() => {
+    if (msg.direction === "outbound") return msg.data.body_html ?? "";
+    return msg.data.parsed?.html ?? "";
   }, [msg]);
 
   const isOutbound = msg.direction === "outbound";
@@ -618,13 +628,15 @@ function BodyCard({
             fontSize: 14,
             lineHeight: 1.65,
             color: "var(--fg)",
-            whiteSpace: "pre-wrap",
+            whiteSpace: bodyHtml.trim() !== "" ? "normal" : "pre-wrap",
           }}
         >
           {isTerminal ? (
             <span style={{ color: "var(--fg-muted)", fontStyle: "italic" }}>
               Body no longer available (scrubbed after delivery).
             </span>
+          ) : bodyHtml.trim() !== "" ? (
+            <EmailHtmlBody html={bodyHtml} />
           ) : (
             bodyText || (
               <span style={{ color: "var(--fg-muted)", fontStyle: "italic" }}>

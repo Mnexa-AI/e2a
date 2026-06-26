@@ -1042,6 +1042,8 @@ components:
     MessageParsedView:
       additionalProperties: false
       properties:
+        html:
+          type: string
         text:
           type: string
         truncated:

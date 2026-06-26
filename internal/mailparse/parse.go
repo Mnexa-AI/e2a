@@ -30,6 +30,13 @@ import (
 // small enough to blunt token-stuffing. Callers may override.
 const DefaultMaxBytes = 16 * 1024
 
+// MaxHTMLBytes caps the display HTML (ParsedView.HTML). Unlike the text view —
+// which is capped tight as a token-stuffing guard for model input — the HTML is
+// for human display, so the bound is generous: just a backstop against a
+// pathological multi-MB part bloating every detail response. raw_message stays
+// the full-fidelity escape hatch.
+const MaxHTMLBytes = 1 << 20 // 1 MiB
+
 // maxMIMEDepth bounds multipart-nesting recursion. mime/multipart re-scans
 // buffered data at each level, so an attacker-nested message is O(depth²) — a
 // ~2MB email (under the 10MB inbound cap) could otherwise pin a request
@@ -38,65 +45,99 @@ const DefaultMaxBytes = 16 * 1024
 // (empty), consistent with the package's "over-stripping is acceptable" stance.
 const maxMIMEDepth = 32
 
-// ParsedBody extracts the best human-readable text from a raw RFC 5322 message,
-// strips quoted reply/forward chains, and truncates to maxBytes. truncated is
-// true when the cap cut content. maxBytes <= 0 uses DefaultMaxBytes.
-func ParsedBody(raw []byte, maxBytes int) (text string, truncated bool) {
+// ParsedView is the derived view of a raw RFC 5322 message: the
+// injection-reduced Text an agent feeds a model by default, plus the decoded
+// HTML part for human display.
+type ParsedView struct {
+	// Text is the injection-reduced plain text: text/plain preferred (else
+	// HTML→text), quoted reply/forward chains stripped, capped at maxBytes.
+	Text string
+	// Truncated is true when the cap cut Text.
+	Truncated bool
+	// HTML is the decoded text/html part for display, or "" when the message
+	// carries no HTML part. Full fidelity (NOT quote-stripped, unlike Text) and
+	// capped at MaxHTMLBytes; raw_message stays the canonical copy.
+	HTML string
+}
+
+// Parse extracts the derived view from a raw RFC 5322 message in a single MIME
+// walk. maxBytes <= 0 uses DefaultMaxBytes (applies to Text only). Best-effort:
+// a parse failure yields the best content available, never an error.
+func Parse(raw []byte, maxBytes int) ParsedView {
 	if maxBytes <= 0 {
 		maxBytes = DefaultMaxBytes
 	}
-	body := extractText(raw)
-	body = stripQuotedReplies(body)
-	body = normalizeWhitespace(body)
-	if len(body) > maxBytes {
-		// Truncate on a rune boundary.
-		cut := maxBytes
-		for cut > 0 && !utf8RuneStart(body[cut]) {
-			cut--
-		}
-		return strings.TrimSpace(body[:cut]), true
+	bestText, htmlRaw := extractText(raw)
+	text := normalizeWhitespace(stripQuotedReplies(bestText))
+	truncated := false
+	if len(text) > maxBytes {
+		text = strings.TrimSpace(text[:runeBoundary(text, maxBytes)])
+		truncated = true
 	}
-	return body, false
+	html := htmlRaw
+	if len(html) > MaxHTMLBytes {
+		html = html[:runeBoundary(html, MaxHTMLBytes)]
+	}
+	return ParsedView{Text: text, Truncated: truncated, HTML: html}
+}
+
+// ParsedBody extracts the injection-reduced text (see ParsedView.Text).
+// truncated is true when the cap cut content. maxBytes <= 0 uses DefaultMaxBytes.
+// Retained for callers that only need the text; callers wanting HTML use Parse.
+func ParsedBody(raw []byte, maxBytes int) (text string, truncated bool) {
+	v := Parse(raw, maxBytes)
+	return v.Text, v.Truncated
+}
+
+// runeBoundary returns the largest index <= n that doesn't split a UTF-8 rune,
+// so truncating at it never yields an invalid encoding.
+func runeBoundary(s string, n int) int {
+	for n > 0 && !utf8RuneStart(s[n]) {
+		n--
+	}
+	return n
 }
 
 func utf8RuneStart(b byte) bool { return b&0xC0 != 0x80 }
 
-// extractText walks the MIME tree and returns the best text representation:
+// extractText walks the MIME tree and returns the best text representation —
 // the first text/plain part, or (failing that) the first text/html rendered to
-// text. Falls back to the raw body if MIME parsing fails.
-func extractText(raw []byte) string {
+// text — together with the first text/html part decoded but NOT rendered to
+// text (htmlRaw, for display). Falls back to the raw body if MIME parsing fails.
+func extractText(raw []byte) (text, htmlRaw string) {
 	msg, err := mail.ReadMessage(bytes.NewReader(raw))
 	if err != nil {
-		return string(raw)
+		return string(raw), ""
 	}
-	plain, htmlText := walkParts(msg.Header.Get("Content-Type"), msg.Header.Get("Content-Transfer-Encoding"), msg.Body, 0)
+	plain, htmlText, htmlRaw := walkParts(msg.Header.Get("Content-Type"), msg.Header.Get("Content-Transfer-Encoding"), msg.Body, 0)
 	if plain != "" {
-		return plain
+		return plain, htmlRaw
 	}
 	if htmlText != "" {
-		return htmlText
+		return htmlText, htmlRaw
 	}
 	// No recognized text part — return the decoded top-level body.
 	b, _ := io.ReadAll(msg.Body)
-	return string(b)
+	return string(b), htmlRaw
 }
 
-// walkParts returns the first text/plain and first text/html-as-text found
-// anywhere in the (possibly nested multipart) body.
-func walkParts(contentType, cte string, body io.Reader, depth int) (plain, htmlText string) {
+// walkParts returns the first text/plain, the first text/html rendered to text,
+// and the first text/html decoded as-is (htmlRaw) found anywhere in the
+// (possibly nested multipart) body.
+func walkParts(contentType, cte string, body io.Reader, depth int) (plain, htmlText, htmlRaw string) {
 	mediaType, params, err := mime.ParseMediaType(contentType)
 	if err != nil {
 		// No/!invalid Content-Type → treat as text/plain.
-		return decode(body, cte), ""
+		return decode(body, cte), "", ""
 	}
 	switch {
 	case strings.HasPrefix(mediaType, "multipart/"):
 		if depth >= maxMIMEDepth {
-			return "", "" // bail on pathological nesting (see maxMIMEDepth)
+			return "", "", "" // bail on pathological nesting (see maxMIMEDepth)
 		}
 		boundary := params["boundary"]
 		if boundary == "" {
-			return "", ""
+			return "", "", ""
 		}
 		mr := multipart.NewReader(body, boundary)
 		for {
@@ -104,25 +145,33 @@ func walkParts(contentType, cte string, body io.Reader, depth int) (plain, htmlT
 			if err != nil {
 				break
 			}
-			p, h := walkParts(part.Header.Get("Content-Type"), part.Header.Get("Content-Transfer-Encoding"), part, depth+1)
+			p, h, hr := walkParts(part.Header.Get("Content-Type"), part.Header.Get("Content-Transfer-Encoding"), part, depth+1)
 			if plain == "" && p != "" {
 				plain = p
 			}
 			if htmlText == "" && h != "" {
 				htmlText = h
 			}
+			if htmlRaw == "" && hr != "" {
+				htmlRaw = hr
+			}
 			part.Close()
-			if plain != "" {
-				break // text/plain is preferred; stop early
+			// Stop once both representations are in hand. Unlike the old
+			// text-only walk we can't stop at text/plain alone — the text/html
+			// sibling (typically later in a multipart/alternative) is the
+			// display body we still need.
+			if plain != "" && htmlRaw != "" {
+				break
 			}
 		}
-		return plain, htmlText
+		return plain, htmlText, htmlRaw
 	case mediaType == "text/plain":
-		return decode(body, cte), ""
+		return decode(body, cte), "", ""
 	case mediaType == "text/html":
-		return "", htmlToText(decode(body, cte))
+		decoded := decode(body, cte)
+		return "", htmlToText(decoded), decoded
 	default:
-		return "", ""
+		return "", "", ""
 	}
 }
 

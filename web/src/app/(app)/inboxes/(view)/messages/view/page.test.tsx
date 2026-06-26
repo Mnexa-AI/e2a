@@ -207,6 +207,54 @@ describe("AgentMessageFocusPage", () => {
     expect(screen.getByText(/Attached is the renewal contract/)).toBeInTheDocument();
   });
 
+  it("prefers the backend-parsed text over the raw MIME body for inbound", async () => {
+    // Regression (#294): inbound rows carry the clean body in `parsed.text`
+    // (text/plain or HTML→text, quoted-printable decoded). The bug rendered the
+    // raw MIME body instead — showing literal <div>/<br> markup and `=` QP
+    // soft-breaks.
+    setSearchParams({ email: "support@acme.io", id: "msg_in2", direction: "inbound" });
+    mockDetail({
+      ...INBOUND_DETAIL,
+      message_id: "msg_in2",
+      parsed: { text: "Decoded body via parsed.text" },
+      raw_message: btoa(
+        "Content-Type: text/html\r\n" +
+          "Content-Transfer-Encoding: quoted-printable\r\n\r\n" +
+          "<div>Raw MIME body should not show<br>=</div>",
+      ),
+    });
+
+    render(<AgentMessageFocusPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("message-focus")).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Decoded body via parsed\.text/)).toBeInTheDocument();
+    expect(screen.queryByText(/Raw MIME body should not show/)).not.toBeInTheDocument();
+  });
+
+  it("renders an HTML inbound body in a sandboxed iframe, not as raw markup", async () => {
+    // parsed.html carries the decoded text/html part; the body card renders it
+    // sanitized inside a sandboxed <iframe>, never as escaped <div>/<br> text.
+    setSearchParams({ email: "support@acme.io", id: "msg_in3", direction: "inbound" });
+    mockDetail({
+      ...INBOUND_DETAIL,
+      message_id: "msg_in3",
+      parsed: { text: "Hello there", html: "<div>Hello <b>there</b></div>" },
+    });
+
+    render(<AgentMessageFocusPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("message-focus")).toBeInTheDocument();
+    });
+    const frame = screen.getByTitle("Email body") as HTMLIFrameElement;
+    expect(frame.getAttribute("sandbox")).toBe("allow-same-origin allow-popups");
+    expect(frame.srcdoc).toContain("Hello <b>there</b>");
+    // No literal markup leaked into the page as text.
+    expect(screen.queryByText(/<div>Hello/)).not.toBeInTheDocument();
+  });
+
   // Regression: GET /agents/{email}/messages/{id} flips inbox_status
   // unread → read as a server-side side effect. The focus page must
   // invalidate the per-agent inbox SWR cache when that happens, or

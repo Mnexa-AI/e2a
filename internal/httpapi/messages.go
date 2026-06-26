@@ -75,11 +75,12 @@ type MessageView struct {
 	// outbound messages, which carry no verdict.
 	Auth       *AuthVerdict `json:"auth,omitempty"`
 	RawMessage []byte       `json:"raw_message"`
-	// Parsed is the injection-reduced view (decision 9 / Slice 4b-3): the raw
-	// message rendered to text with quoted reply/forward chains stripped and a
-	// length cap, for the agent to feed a model by default. Inbound-only; a
-	// CONVENIENCE — `raw_message` is always present and the security decision is
-	// made on `auth` + provenance, never on this stripped text.
+	// Parsed is the derived view (decision 9 / Slice 4b-3): the raw message
+	// rendered to text (`text`, quoted chains stripped + length-capped, for the
+	// agent to feed a model by default) plus the decoded HTML part (`html`, for
+	// display). Present on any message carrying raw MIME — inbound and sent
+	// outbound. A CONVENIENCE — `raw_message` is always present and the security
+	// decision is made on `auth` + provenance, never on this derived body.
 	Parsed *MessageParsedView `json:"parsed,omitempty"`
 	// Body is the mutable draft body for a held outbound message
 	// (status=pending_review), which has no raw_message yet. This is the
@@ -106,8 +107,17 @@ type AttachmentMetaView struct {
 
 // MessageParsedView is the parsed-body payload (see MessageView.Parsed).
 type MessageParsedView struct {
-	Text      string `json:"text"`
-	Truncated bool   `json:"truncated"`
+	// Text is the injection-reduced plain body: text/plain preferred (else
+	// HTML→text), quoted reply/forward chains stripped, length-capped. This is
+	// what an agent feeds a model by default.
+	Text string `json:"text"`
+	// Truncated is true when the length cap cut `text`.
+	Truncated bool `json:"truncated"`
+	// HTML is the decoded text/html part for display, present only when the
+	// message carries an HTML part. Full fidelity (NOT quote-stripped, unlike
+	// `text`) — render it sanitized/sandboxed; it is untrusted sender content.
+	// Omitted for text-only messages; `raw_message` stays the canonical copy.
+	HTML string `json:"html,omitempty"`
 }
 
 // MessageBodyView is the held-draft body (see MessageView.Body).
@@ -157,10 +167,13 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		// view; on inbound rows `status` is not the HITL value (review F1).
 		v.HITLStatus = m.Status
 	}
-	// Parsed view (decision 9): inbound-only, derived from the raw message.
-	if m.Direction == "inbound" && len(m.RawMessage) > 0 {
-		text, truncated := mailparse.ParsedBody(m.RawMessage, mailparse.DefaultMaxBytes)
-		v.Parsed = &MessageParsedView{Text: text, Truncated: truncated}
+	// Parsed view (decision 9): derived from the raw message — any direction
+	// that carries one (inbound + sent outbound, whose draft body columns were
+	// scrubbed in favor of the sent MIME). Held outbound drafts have no
+	// raw_message and surface their body via `body` below instead.
+	if len(m.RawMessage) > 0 {
+		pv := mailparse.Parse(m.RawMessage, mailparse.DefaultMaxBytes)
+		v.Parsed = &MessageParsedView{Text: pv.Text, Truncated: pv.Truncated, HTML: pv.HTML}
 	}
 	// Attachment metadata (§6a #5): parsed from raw_message for ANY direction
 	// that has one (inbound + sent outbound). Always an array; the bytes are

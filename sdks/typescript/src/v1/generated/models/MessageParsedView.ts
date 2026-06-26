@@ -13,6 +13,7 @@
 import { HttpFile } from '../http/http.js';
 
 export class MessageParsedView {
+    'html'?: string;
     'text': string;
     'truncated': boolean;
 
@@ -21,6 +22,12 @@ export class MessageParsedView {
     static readonly mapping: {[index: string]: string} | undefined = undefined;
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
+        {
+            "name": "html",
+            "baseName": "html",
+            "type": "string",
+            "format": ""
+        },
         {
             "name": "text",
             "baseName": "text",

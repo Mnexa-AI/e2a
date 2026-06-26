@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
-from typing import Any, ClassVar, Dict, List
+from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -26,9 +26,10 @@ class MessageParsedView(BaseModel):
     """
     MessageParsedView
     """ # noqa: E501
+    html: Optional[StrictStr] = None
     text: StrictStr
     truncated: StrictBool
-    __properties: ClassVar[List[str]] = ["text", "truncated"]
+    __properties: ClassVar[List[str]] = ["html", "text", "truncated"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -81,6 +82,7 @@ class MessageParsedView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
+            "html": obj.get("html"),
             "text": obj.get("text"),
             "truncated": obj.get("truncated")
         })

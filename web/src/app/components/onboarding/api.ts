@@ -229,8 +229,9 @@ type MessageViewWire = {
   created_at: string;
   auth_headers?: Record<string, string>;
   body?: { text?: string; html?: string };
-  // Inbound parsed/injection-reduced text (held inbound has no draft body).
-  parsed?: { text?: string };
+  // Backend-derived body: `text` (injection-reduced) for any message with raw
+  // MIME, plus `html` (decoded text/html part) for rich display when present.
+  parsed?: { text?: string; html?: string };
   raw_message?: string;
 };
 
@@ -255,11 +256,11 @@ function projectPending(
     // the delivery rollup is empty until it's approved + sent.
     status: w.review_status ?? "",
     created_at: w.created_at,
-    // Outbound drafts carry an editable `body`; inbound holds carry the
-    // received content as `parsed.text` (no draft body). Fall back so the
-    // reviewer sees the message either way.
+    // Outbound drafts carry an editable `body`; sent outbound and inbound holds
+    // carry the content as `parsed` (the draft columns are scrubbed at send).
+    // Fall back so the body shows either way.
     body_text: w.body?.text ?? w.parsed?.text,
-    body_html: w.body?.html,
+    body_html: w.body?.html ?? w.parsed?.html,
   };
 }
 
@@ -320,6 +321,7 @@ export async function getMessageDetail(
       status: w.delivery_status ?? "",
       created_at: w.created_at,
       auth_headers: w.auth_headers ?? {},
+      parsed: w.parsed,
       body: w.body,
       raw_message: w.raw_message ?? "",
     },

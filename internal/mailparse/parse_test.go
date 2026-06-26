@@ -117,3 +117,56 @@ func TestBase64Decoded(t *testing.T) {
 		t.Fatalf("base64 decode: got %q", got)
 	}
 }
+
+func TestParseHTML(t *testing.T) {
+	t.Run("text/html part surfaces decoded HTML, text flattened", func(t *testing.T) {
+		raw := "From: a@x.com\r\nContent-Type: text/html\r\n\r\n<div>Hello<br><b>World</b></div>"
+		v := Parse([]byte(raw), 0)
+		if v.HTML != "<div>Hello<br><b>World</b></div>" {
+			t.Fatalf("HTML not preserved verbatim, got %q", v.HTML)
+		}
+		// Text view stays the flattened, tag-free representation.
+		if strings.Contains(v.Text, "<") || !strings.Contains(v.Text, "World") {
+			t.Fatalf("text should be flattened, got %q", v.Text)
+		}
+	})
+
+	t.Run("multipart/alternative: text from plain, html from html part", func(t *testing.T) {
+		raw := "From: a@x.com\r\nContent-Type: multipart/alternative; boundary=B\r\n\r\n" +
+			"--B\r\nContent-Type: text/plain\r\n\r\nPlain version.\r\n" +
+			"--B\r\nContent-Type: text/html\r\n\r\n<p>HTML <i>version</i></p>\r\n--B--\r\n"
+		v := Parse([]byte(raw), 0)
+		if v.Text != "Plain version." {
+			t.Fatalf("text: got %q, want plain part", v.Text)
+		}
+		if v.HTML != "<p>HTML <i>version</i></p>" {
+			t.Fatalf("html: got %q", v.HTML)
+		}
+	})
+
+	t.Run("quoted-printable HTML decoded", func(t *testing.T) {
+		// Mirrors the screenshot bug: soft-break '=' and entity must decode.
+		raw := "From: a@x.com\r\nContent-Type: text/html\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n<div>Caf=C3=A9 =\r\ntime</div>"
+		v := Parse([]byte(raw), 0)
+		if v.HTML != "<div>Café time</div>" {
+			t.Fatalf("QP HTML decode: got %q", v.HTML)
+		}
+	})
+
+	t.Run("plain-text-only message has no HTML", func(t *testing.T) {
+		raw := "From: a@x.com\r\nContent-Type: text/plain\r\n\r\nJust text.\r\n"
+		v := Parse([]byte(raw), 0)
+		if v.HTML != "" {
+			t.Fatalf("expected empty HTML for text-only message, got %q", v.HTML)
+		}
+	})
+
+	t.Run("HTML capped at MaxHTMLBytes", func(t *testing.T) {
+		body := "<p>" + strings.Repeat("a", MaxHTMLBytes+1000) + "</p>"
+		raw := "From: a@x.com\r\nContent-Type: text/html\r\n\r\n" + body
+		v := Parse([]byte(raw), 0)
+		if len(v.HTML) > MaxHTMLBytes {
+			t.Fatalf("HTML not capped: len=%d", len(v.HTML))
+		}
+	})
+}
