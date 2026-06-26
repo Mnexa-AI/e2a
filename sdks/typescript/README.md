@@ -98,7 +98,8 @@ app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
     throw e;
   }
   if (event.type === "email.received") {
-    // event.data carries the message payload
+    // metadata-only notification — fetch the full message (body + attachments)
+    const msg = await client.webhooks.fetchMessage(event);
   }
   res.json({ ok: true });
 });

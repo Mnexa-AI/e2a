@@ -6,10 +6,11 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/identity"
 )
 
-// TestBuildEmailReceivedPayload_Shape verifies the data envelope sent
-// to webhooks-as-a-resource subscribers carries the same fields the
-// legacy webhook.Payload exposes, so a customer writing one webhook
-// handler against either model sees the same shape.
+// TestBuildEmailReceivedPayload_Shape verifies the email.received event is a
+// metadata-only notification: it carries the routing/identity fields, the signed
+// auth_headers attestation, and the message_id + recipient fetch keys — but NOT
+// the message body (raw_message), which a subscriber fetches from
+// GET /v1/agents/{recipient}/messages/{message_id}.
 func TestBuildEmailReceivedPayload_Shape(t *testing.T) {
 	threadInfo := threadInfo{
 		To:      []string{"bot@example.com"},
@@ -20,6 +21,7 @@ func TestBuildEmailReceivedPayload_Shape(t *testing.T) {
 		ID:     "bot@example.com",
 		Domain: "example.com",
 	}
+	authHeaders := map[string]string{"X-E2A-Auth-Verified": "true"}
 
 	payload := buildEmailReceivedPayload(
 		"msg_123",
@@ -29,21 +31,29 @@ func TestBuildEmailReceivedPayload_Shape(t *testing.T) {
 		"bot@example.com",
 		"Hello",
 		threadInfo,
-		[]byte("raw RFC 5322 bytes"),
-		map[string]string{
-			"X-E2A-Auth-Verified": "true",
-		},
+		authHeaders,
 		agent,
 	)
 
+	// Metadata + fetch keys + the signed auth_headers attestation are present.
 	for _, key := range []string{
 		"message_id", "conversation_id", "agent",
 		"from", "authenticated_from", "to", "cc", "reply_to", "recipient",
-		"subject", "raw_message", "auth_headers", "received_at",
+		"subject", "auth_headers", "received_at",
 	} {
 		if _, ok := payload[key]; !ok {
 			t.Errorf("payload missing %q", key)
 		}
+	}
+
+	// The body is NOT on the notification — it is fetched from REST.
+	if _, ok := payload["raw_message"]; ok {
+		t.Errorf("metadata-only payload must not carry %q", "raw_message")
+	}
+
+	// recipient is the fetch key (agent address) for messages.get(recipient, id).
+	if payload["recipient"] != "bot@example.com" {
+		t.Errorf("recipient = %v, want bot@example.com (fetch key)", payload["recipient"])
 	}
 
 	if payload["message_id"] != "msg_123" {

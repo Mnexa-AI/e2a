@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from ._retry import RetryConfig, request_with_retry
 from .errors import E2AError, E2AValidationError
+from .webhook_signature import WebhookEvent
 from .generated.api.account_api import AccountApi
 from .generated.api.agents_api import AgentsApi
 from .generated.api.conversations_api import ConversationsApi
@@ -525,6 +526,24 @@ class WebhooksResource:
     def __init__(self, api: WebhooksApi, client: E2AClient) -> None:
         self._api = api
         self._c = client
+
+    async def fetch_message(self, event: WebhookEvent) -> MessageView:
+        """Fetch the full message referenced by an ``email.received`` event.
+
+        The event is a metadata-only notification; this resolves its
+        ``(recipient, message_id)`` fetch keys and returns the full
+        :class:`MessageView` (body, attachments, signed headers). Raises
+        ``ValueError`` if the event is not an ``email.received`` carrying those
+        keys.
+        """
+        data = event.data if isinstance(event.data, dict) else {}
+        message_id = data.get("message_id")
+        recipient = data.get("recipient")
+        if event.type != "email.received" or not message_id or not recipient:
+            raise ValueError(
+                "fetch_message expects an email.received event with message_id and recipient"
+            )
+        return await self._c.messages.get(recipient, message_id)
 
     def list(self) -> AutoPager[WebhookView]:
         async def fetch(_cursor: Optional[str]) -> Page:
