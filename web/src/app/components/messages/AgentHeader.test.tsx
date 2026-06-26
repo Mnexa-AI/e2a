@@ -56,6 +56,23 @@ describe("AgentHeader — test-send action (moved from the dashboard card)", () 
     ).not.toBeInTheDocument();
   });
 
+  // Regression guard: a long email address rendered in the identity-row <code>
+  // used to overflow the header. The fix caps it at maxWidth:100% and lets it
+  // wrap (wordBreak: break-all) instead of pushing past the card edge.
+  it("keeps a long inbox email from overflowing the header", () => {
+    const longEmail =
+      "a-very-long-inbox-slug-that-keeps-going@some-very-long-subdomain.acme.dev";
+    render(
+      <AgentHeader
+        agent={{ ...verified, email: longEmail }}
+        tab="messages"
+      />,
+    );
+    const code = screen.getByText(longEmail);
+    expect(code).toHaveStyle({ wordBreak: "break-all" });
+    expect(code).toHaveStyle({ maxWidth: "100%" });
+  });
+
   it("POSTs the agent test endpoint and surfaces success", async () => {
     mockFetch.mockResolvedValue({
       ok: true,

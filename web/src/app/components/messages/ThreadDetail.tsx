@@ -90,7 +90,7 @@ export function ThreadDetail({
         >
           <span aria-hidden>←</span> Inbox
         </button>
-        <div className="flex items-center" style={{ gap: 8, marginBottom: 10 }}>
+        <div className="flex items-center min-w-0" style={{ gap: 8, marginBottom: 10 }}>
           {thread.conversationId && (
             <code
               style={{
@@ -101,6 +101,8 @@ export function ThreadDetail({
                 padding: "1px 6px",
                 borderRadius: 4,
                 border: "1px solid var(--border-sub)",
+                minWidth: 0,
+                wordBreak: "break-all",
               }}
             >
               {thread.conversationId}

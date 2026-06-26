@@ -88,7 +88,7 @@ export function SharedAgentForm({
         <p className="font-medium text-foreground mb-1">How it works</p>
         <p>
           Your inbox gets{" "}
-          <code className="text-xs bg-white/60 px-1 py-0.5 rounded">
+          <code className="text-xs bg-white/60 px-1 py-0.5 rounded break-all">
             {slug || "your-slug"}@{AGENTS_DOMAIN_DISPLAY}
           </code>
           . Emails arrive in real time via CLI, SDK, or WebSocket, or to an

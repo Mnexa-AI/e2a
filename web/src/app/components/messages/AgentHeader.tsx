@@ -80,6 +80,9 @@ export function AgentHeader({
                 padding: "3px 9px",
                 borderRadius: "var(--r-sm)",
                 border: "1px solid var(--border-sub)",
+                maxWidth: "100%",
+                minWidth: 0,
+                wordBreak: "break-all",
               }}
             >
               {agent.email}

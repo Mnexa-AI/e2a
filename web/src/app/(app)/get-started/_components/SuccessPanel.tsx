@@ -50,7 +50,7 @@ export function SuccessPanel({
         <span className="font-semibold">Inbox created!</span>{" "}
         Your inbox&apos;s email is{" "}
         <code
-          className="font-mono text-[12px] px-1.5 py-0.5"
+          className="font-mono text-[12px] px-1.5 py-0.5 break-all"
           style={{
             background: "var(--bg-panel)",
             color: "var(--fg)",

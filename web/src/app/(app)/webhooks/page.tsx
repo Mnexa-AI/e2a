@@ -370,7 +370,7 @@ function RevealedSecretBanner({
       <p className="text-[13px] mb-3" style={{ color: "var(--warn-strong)" }}>
         This is the only time we&apos;ll show it. It belongs to{" "}
         <code
-          className="font-mono text-[12px] px-1 py-0.5"
+          className="font-mono text-[12px] px-1 py-0.5 break-all"
           style={{
             background: "var(--bg-panel)",
             color: "var(--fg)",

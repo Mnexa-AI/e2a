@@ -48,7 +48,7 @@ export function VerifyDomainCard({
       <p className="mb-7 text-[14px]" style={{ color: "var(--fg-muted)" }}>
         e2a will check that your TXT record is in place for{" "}
         <code
-          className="font-mono text-[12px] px-1.5 py-0.5"
+          className="font-mono text-[12px] px-1.5 py-0.5 break-all"
           style={{
             background: "var(--bg-elev)",
             border: "1px solid var(--border-sub)",

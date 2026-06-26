@@ -67,8 +67,8 @@ function DNSField({ label, value }: { label: string; value: string }) {
   return (
     <>
       <span className="text-xs text-muted">{label}</span>
-      <div className="flex items-center gap-2">
-        <code className="text-sm font-mono bg-background rounded px-2 py-1 border border-border flex-1">
+      <div className="flex items-center gap-2 min-w-0">
+        <code className="text-sm font-mono bg-background rounded px-2 py-1 border border-border flex-1 min-w-0 break-all">
           {value}
         </code>
         <button

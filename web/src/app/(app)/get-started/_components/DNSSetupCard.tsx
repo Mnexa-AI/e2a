@@ -63,7 +63,7 @@ export function DNSSetupCard({
       <p className="mb-7 text-[14px]" style={{ color: "var(--fg-muted)" }}>
         Add these records to{" "}
         <code
-          className="font-mono text-[12px] px-1.5 py-0.5"
+          className="font-mono text-[12px] px-1.5 py-0.5 break-all"
           style={{
             background: "var(--bg-elev)",
             border: "1px solid var(--border-sub)",

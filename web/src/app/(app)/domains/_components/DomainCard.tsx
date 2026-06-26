@@ -295,12 +295,14 @@ export function DomainCard({
         <div className="min-w-0">
           <div className="flex items-center gap-2 mb-2 flex-wrap">
             <code
-              className="font-mono text-[14px] font-semibold px-2 py-0.5"
+              className="font-mono text-[14px] font-semibold px-2 py-0.5 break-all"
               style={{
                 color: "var(--fg)",
                 background: "var(--bg-elev)",
                 border: "1px solid var(--border-sub)",
                 borderRadius: "var(--r-sm)",
+                maxWidth: "100%",
+                minWidth: 0,
               }}
             >
               {domain.domain}
