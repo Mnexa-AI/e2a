@@ -1,6 +1,13 @@
 package httpapi
 
-import "testing"
+import (
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/Mnexa-AI/e2a/internal/identity"
+)
 
 func TestListEventsNoOverflow(t *testing.T) {
 	srv := testServer(t)
@@ -112,5 +119,33 @@ func TestRedeliverEventNotFound(t *testing.T) {
 	code, _ := postJSON(t, srv.URL+"/v1/events/evt_missing/redeliver", "good", map[string]any{})
 	if code != 404 {
 		t.Fatalf("want 404, got %d", code)
+	}
+}
+
+// TestEventsDisabledReturns501 pins the gate: when the durable event log is
+// off (EventsEnabled=false, i.e. WEBHOOKS_OUTBOX_ENABLED unset in prod), the
+// list/get/redeliver endpoints must return 501 events_log_disabled rather than
+// querying the empty webhook_events table and masquerading as "no events".
+func TestEventsDisabledReturns501(t *testing.T) {
+	srv := httptest.NewServer(New(Deps{
+		EventsEnabled: false,
+		Authenticator: func(r *http.Request) (*identity.User, error) {
+			if r.Header.Get("Authorization") == "Bearer good" {
+				return &identity.User{ID: "u_1", Email: "owner@acme.com"}, nil
+			}
+			return nil, errors.New("unauthorized")
+		},
+	}))
+	defer srv.Close()
+
+	for _, path := range []string{"/v1/events?limit=5", "/v1/events/evt_a"} {
+		code, body := getJSON(t, srv.URL+path, "good")
+		if code != 501 || errCode(body) != "events_log_disabled" {
+			t.Fatalf("GET %s: want 501 events_log_disabled, got %d %v", path, code, body)
+		}
+	}
+	code, body := postJSON(t, srv.URL+"/v1/events/evt_a/redeliver", "good", map[string]any{})
+	if code != 501 || errCode(body) != "events_log_disabled" {
+		t.Fatalf("redeliver: want 501 events_log_disabled, got %d %v", code, body)
 	}
 }

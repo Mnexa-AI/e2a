@@ -201,6 +201,15 @@ type Deps struct {
 	LoadReplayEvent      func(ctx context.Context, userID, eventID string) (*agent.ReplayEvent, error)
 	InsertReplayDelivery func(ctx context.Context, eventID, webhookID, eventType string, messageID *string, envelope []byte) (string, error)
 
+	// EventsEnabled reflects whether the durable event log (the
+	// webhook_events outbox) is populated on this deployment — i.e. the
+	// WEBHOOKS_OUTBOX_ENABLED flag. When false the legacy publisher delivers
+	// webhooks straight to webhook_subscriber_deliveries and webhook_events is
+	// never written, so list/get/redeliver would silently return empty. The
+	// events handlers gate on this and return 501 events_log_disabled instead
+	// of masquerading as "no events". Webhook delivery is unaffected either way.
+	EventsEnabled bool
+
 	// webhooks
 	CreateWebhook func(ctx context.Context, userID, url, description string, events []string, filters identity.WebhookFilters) (*identity.Webhook, error)
 	ListWebhooks  func(ctx context.Context, userID string) ([]identity.Webhook, error)

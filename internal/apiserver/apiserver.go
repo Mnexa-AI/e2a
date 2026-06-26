@@ -54,6 +54,12 @@ type Params struct {
 	// are left unwired.
 	SigningSecret string
 
+	// EventsEnabled mirrors WEBHOOKS_OUTBOX_ENABLED (the outbox's flag). When
+	// false the webhook_events durable log is never written, so the events
+	// list/get/redeliver endpoints return 501 events_log_disabled instead of an
+	// empty result. Webhook delivery is unaffected.
+	EventsEnabled bool
+
 	// Legacy is the gorilla/mux handler the chi root falls back to for any
 	// route not on /v1. WSHandle serves the /v1 WebSocket upgrade.
 	Legacy   http.Handler
@@ -91,24 +97,25 @@ func BuildDeps(p Params) httpapi.Deps {
 		ListConversations: p.Store.ListConversationsByAgent,
 		GetConversation:   p.Store.GetConversationByID,
 
-		CreateAgent:              p.Store.CreateAgent,
-		LookupDomain:             p.Store.LookupDomain,
-		EnforceAgentCreate:       p.Enforcer.CheckAgentCreate,
-		UpdateAgentName:          p.Store.UpdateAgentName,
-		UpdateAgentProtection:    p.Store.UpdateAgentProtection,
-		DeleteAgent:              p.Store.DeleteAgent,
+		CreateAgent:           p.Store.CreateAgent,
+		LookupDomain:          p.Store.LookupDomain,
+		EnforceAgentCreate:    p.Enforcer.CheckAgentCreate,
+		UpdateAgentName:       p.Store.UpdateAgentName,
+		UpdateAgentProtection: p.Store.UpdateAgentProtection,
+		DeleteAgent:           p.Store.DeleteAgent,
 
-		ListDomains:         p.Store.ListDomainsByUser,
-		ClaimDomain:         p.Store.ClaimOrCreateDomain,
-		EnforceDomainCreate: p.Enforcer.CheckDomainCreate,
-		DeleteDomain:        deleteDomainFunc(p),
-		HasAgentsOnDomain:   p.Store.HasAgentsOnDomain,
-		SMTPDomain:          p.SMTPDomain,
-		SESRegion:           p.SESRegion,
-		CursorSecret:        p.SigningSecret,
-		Idempotency:         p.Idempotency,
-		DeliverOutbound:     p.API.DeliverOutbound,
-		SendTest:            p.API.SendTestCore,
+		ListDomains:          p.Store.ListDomainsByUser,
+		ClaimDomain:          p.Store.ClaimOrCreateDomain,
+		EnforceDomainCreate:  p.Enforcer.CheckDomainCreate,
+		DeleteDomain:         deleteDomainFunc(p),
+		HasAgentsOnDomain:    p.Store.HasAgentsOnDomain,
+		SMTPDomain:           p.SMTPDomain,
+		SESRegion:            p.SESRegion,
+		CursorSecret:         p.SigningSecret,
+		EventsEnabled:        p.EventsEnabled,
+		Idempotency:          p.Idempotency,
+		DeliverOutbound:      p.API.DeliverOutbound,
+		SendTest:             p.API.SendTestCore,
 		ApprovePending:       p.API.ApprovePendingCore,
 		SendLimit:            p.API.SendLimitAllow,
 		PollLimit:            p.API.PollLimitAllow,
@@ -120,13 +127,13 @@ func BuildDeps(p Params) httpapi.Deps {
 		RejectInboundReview:  p.API.RejectInboundReviewCore,
 		ListReviews:          p.Store.ListReviews,
 		GetReviewWithContent: p.Store.GetReviewWithContent,
-		EnforceMessageSend:  p.Enforcer.CheckMessageSend,
-		GetInboundMessage:   p.Store.GetInboundMessage,
-		GetLimits:           p.Enforcer.Get,
-		ExportUserData:      p.API.ExportUserDataCore,
-		DeleteUserData:      p.API.DeleteUserDataCore,
-		ListSuppressions:    p.Store.ListSuppressions,
-		RemoveSuppression:   p.Store.RemoveSuppression,
+		EnforceMessageSend:   p.Enforcer.CheckMessageSend,
+		GetInboundMessage:    p.Store.GetInboundMessage,
+		GetLimits:            p.Enforcer.Get,
+		ExportUserData:       p.API.ExportUserDataCore,
+		DeleteUserData:       p.API.DeleteUserDataCore,
+		ListSuppressions:     p.Store.ListSuppressions,
+		RemoveSuppression:    p.Store.RemoveSuppression,
 		GetUsage: func(ctx context.Context, userID string) httpapi.LimitsUsageView {
 			var u httpapi.LimitsUsageView
 			if n, err := p.UsageStore.CountAgentsByUser(ctx, userID); err == nil {
