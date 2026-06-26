@@ -148,7 +148,9 @@ The MAC binds to **both** `message_id` and a SHA-256 of the raw message body. Su
 
 #### Verifying the signature
 
-The `X-E2A-Auth-Verified` field is the *server's claim* — anyone who can reach your webhook URL can set it. To make a security decision, **verify the signature** with your webhook's signing secret. The secret (a `whsec_…` value) is returned **once** when you create the subscription (`POST /v1/webhooks`); store it then. Rotate via `POST /v1/webhooks/{id}/rotate-secret` (24h grace window where the old secret still verifies).
+Any field in the payload — including `X-E2A-Auth-Verified` — is just the *server's claim* until you authenticate the delivery: anyone who can reach your webhook URL can POST a forged body. To make a security decision, **verify the delivery's envelope signature** — the `X-E2A-Signature` header — with your webhook's signing secret, a `whsec_…` value returned **once** when you create the subscription (`POST /v1/webhooks`); store it then. Rotate via `POST /v1/webhooks/{id}/rotate-secret` (24h grace window where the old secret still verifies). The envelope signature covers the whole payload, so once it verifies, the `X-E2A-Auth-*` claims inside are trustworthy too.
+
+> The inner `X-E2A-Auth-Signature` (in the table above) is a separate mechanism, signed with the deployment's HMAC secret — **not** your `whsec_` — so a webhook subscriber neither needs nor can verify it. It exists for same-trust-domain consumers that receive these as relayed message headers (e.g. a self-hosted deployment holding the HMAC secret). Your verification path as a subscriber is the envelope signature.
 
 The one-call shortcut parses **and** verifies a delivery, returning a typed event — use it instead of trusting any field on an unverified payload:
 
@@ -330,6 +332,8 @@ e2a doesn't replace webhooks — agents *receive* email via webhooks. It bridges
 ### What stops an attacker from spoofing the `X-E2A-Auth-*` headers?
 
 The relay strips any incoming `X-E2A-Auth-*` from inbound messages and re-signs with HMAC-SHA256 against `signing.hmac_secret`. The signed canonical binds `Sender + Verified + Body-Hash + Message-Id` together — replay attempts, body swaps, and sender-only forgery all fail validation. Each delivery is bound to *that specific message body*, not just the sender claim, so a captured `(headers, signature)` tuple can't be lifted onto a different message.
+
+For a **webhook subscriber**, though, the protection you actually rely on is the delivery's **envelope signature** (`X-E2A-Signature`, verified with your `whsec_`): a forged POST to your URL fails envelope verification regardless of what `X-E2A-Auth-*` values it carries. The inner re-signing above is for the *relayed-header* trust model — consumers that hold the deployment HMAC secret and receive `X-E2A-Auth-*` as message headers — which a `/v1/webhooks` subscriber is not.
 
 Receivers verify with the SDK — `construct_event(body, header, secret)` / `constructEvent(body, header, secret)` does parse + HMAC verify in one call (or `verify_webhook_signature(...)` / `verifyWebhookSignature(...)` if you only need the boolean check). No API call back to e2a needed. If a signing secret leaks, rotate it via the dashboard and old signatures stop verifying. If it's *stolen from the relay*, the attacker has bigger access than headers anyway.
 
