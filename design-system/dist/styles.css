@@ -1,0 +1,411 @@
+/*  Loft · component styles
+ *  ───────────────────────
+ *  The single stylesheet a consumer loads once (import "@e2a/ui/styles.css").
+ *  It pulls in the tokens, sets a minimal base, then defines one class per
+ *  component. Components reference these classes (no Tailwind dependency).
+ */
+
+/* tokens.css inlined at build time — see scripts/flatten-css.mjs */
+/*  Loft · design tokens (colors, type, spacing, radii, shadows)
+ *  ───────────────────────────────────────────────────────────
+ *  Lifted from the e2a web app's globals.css so this package is the
+ *  single source of truth for the design language. Light values live on
+ *  :root; the `.dark` class (set on <html>) overrides them.
+ *
+ *  Fonts are referenced by family name (Geist, JetBrains Mono, Instrument
+ *  Serif). The library does not bundle the font files — consumers load them
+ *  (e.g. next/font, @fontsource, or a <link>). System fallbacks apply
+ *  otherwise, so components still render correctly without them.
+ */
+
+:root {
+  /* ── Surfaces — Drive shell (warm cream) ── */
+  --bg:           #FAF7F2;
+  --bg-panel:     #FFFFFF;
+  --bg-elev:      #F2ECE2;
+  --bg-sunken:    #ECE4D6;
+
+  /* ── Ink (agent-native) ── */
+  --ink:          #1A1714;
+  --ink-elev:     #23201C;
+  --ink-fg:       #E8E3D8;
+  --ink-fg-muted: #8C857A;
+  --ink-border:   #2E2A24;
+
+  /* ── Text ── */
+  --fg:           #1A1714;
+  --fg-strong:    #1A1714;
+  --fg-muted:     #6E665B;
+  --fg-subtle:    #9A9082;
+
+  /* ── Borders ── */
+  --border:        #E5DED3;
+  --border-sub:    #EFE9DD;
+  --border-strong: #D5CCBC;
+
+  /* ── Accent · Ember ── */
+  --accent:           #E26534;
+  --accent-soft:      #FBE9DF;
+  --accent-strong:    #A84218;
+  --accent-fill:      #B84A20;
+  --accent-fill-hov:  #9A3D1A;
+  --accent-fg:        #FFFFFF;
+
+  /* ── Agent-context on ink ── */
+  --spectral:  #6FDDE5;
+  --machine:   #B6F36E;
+
+  /* ── Semantic colors (decorative + -strong text pair) ── */
+  --info:    #2D6CFF;  --info-bg: #E4ECFF;   --info-strong: #0050D6;
+  --warn:    #C78400;  --warn-bg: #FFF1D1;   --warn-strong: #8F5F00;
+  --danger:  #CC2E2E;  --danger-bg: #FBE3E0; --danger-strong: #A82020;
+  --success: #0F7A4D;  --success-bg: #DFF3E8; --success-strong: #0B5C3A;
+
+  /* ── Avatar palette (deterministic by hash → 1..8) ── */
+  --av-1:#A84218; --av-2:#0F7A4D; --av-3:#0050D6; --av-4:#7A4FE0;
+  --av-5:#B43E8F; --av-6:#8F5F00; --av-7:#4A4A4A; --av-8:#1A1714;
+
+  /* ── Radii ── */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --r-xl: 16px;
+
+  /* ── Shadows ── */
+  --sh-1:   0 1px 0 rgba(26,23,20,.04), 0 1px 2px rgba(26,23,20,.04);
+  --sh-2:   0 2px 8px rgba(26,23,20,.06), 0 12px 32px rgba(26,23,20,.06);
+  --sh-pop: 0 24px 48px -16px rgba(26,23,20,.18), 0 4px 12px rgba(26,23,20,.06);
+
+  /* ── Focus ── */
+  --focus-ring: 0 0 0 3px rgba(226,101,52,0.30);
+
+  /* ── Type families ── */
+  --f-ui:        "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --f-mono:      "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+  --f-editorial: "Instrument Serif", Georgia, serif;
+
+  /* ── Type scale (semantic) ── */
+  --fs-display: 36px;  --fw-display: 700;  --tracking-display: -0.02em;
+  --fs-h1: 24px;       --fw-h1: 700;       --tracking-h1: -0.01em;
+  --fs-h2: 18px;       --fw-h2: 600;
+  --fs-h3: 15px;       --fw-h3: 600;
+  --fs-body: 14px;
+  --fs-small: 12px;
+  --fs-mono: 13px;
+  --fs-id: 11px;
+  --fs-eyebrow: 11px;
+
+  /* ── Spacing grid (4px) ── */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
+}
+
+/* ── Dark theme — applied via `.dark` on <html> ── */
+.dark {
+  --bg:           #13110E;
+  --bg-panel:     #1A1714;
+  --bg-elev:      #221F1B;
+  --bg-sunken:    #0D0B09;
+
+  --ink:          #0A0907;
+  --ink-elev:     #13110E;
+  --ink-fg:       #E8E3D8;
+  --ink-fg-muted: #8C857A;
+  --ink-border:   #221F1B;
+
+  --fg:        #ECE6D9;
+  --fg-strong: #ECE6D9;
+  --fg-muted:  #A8A092;
+  --fg-subtle: #6E665B;
+
+  --border:        #2E2A24;
+  --border-sub:    #25221E;
+  --border-strong: #3A352E;
+
+  --accent:          #F08055;
+  --accent-soft:     #3A1B0E;
+  --accent-strong:   #F5A07E;
+  --accent-fill:     #E26534;
+  --accent-fill-hov: #F08055;
+  --accent-fg:       #13110E;
+
+  --info: #79B4FF; --info-bg: #0F2046; --info-strong: #A6CCFF;
+  --warn: #E4A82F; --warn-bg: #2E1F00; --warn-strong: #F2C257;
+  --danger: #FF6B6B; --danger-bg: #2E1010; --danger-strong: #FF9292;
+  --success: #5AC68A; --success-bg: #0B2418; --success-strong: #8FE0B3;
+
+  --sh-1:   0 1px 0 rgba(0,0,0,.4), 0 1px 2px rgba(0,0,0,.3);
+  --sh-2:   0 2px 8px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.5);
+  --sh-pop: 0 24px 48px -16px rgba(0,0,0,.6), 0 4px 12px rgba(0,0,0,.4);
+
+  --focus-ring: 0 0 0 3px rgba(240,128,85,0.45);
+}
+
+
+/* ── Base ── */
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--f-ui);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ── Button ──────────────────────────────────────────────── */
+.loft-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  font-family: var(--f-ui);
+}
+.loft-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.loft-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.loft-btn--primary {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border-radius: var(--r-md);
+  background: var(--accent-fill);
+  color: var(--accent-fg);
+  border: none;
+}
+.loft-btn--primary:not(:disabled):hover {
+  background: var(--accent-fill-hov);
+}
+
+.loft-btn--ghost {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 7px 12px;
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+.loft-btn--ghost:not(:disabled):hover {
+  background: var(--bg-elev);
+}
+
+.loft-btn--mono {
+  gap: 5px;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  background: var(--ink-elev);
+  color: var(--ink-fg-muted);
+  border: 1px solid var(--ink-border);
+}
+
+/* ── Chip ────────────────────────────────────────────────── */
+.loft-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--f-ui);
+}
+.loft-chip--mono {
+  font-family: var(--f-mono);
+  letter-spacing: 0.02em;
+}
+.loft-chip--success { background: var(--success-bg); color: var(--success-strong); }
+.loft-chip--warn    { background: var(--warn-bg);    color: var(--warn-strong); }
+.loft-chip--info    { background: var(--info-bg);    color: var(--info-strong); }
+.loft-chip--accent  { background: var(--accent-soft); color: var(--accent-strong); }
+.loft-chip--danger  { background: var(--danger-bg);  color: var(--danger-strong); }
+.loft-chip--neutral { background: var(--bg-elev);    color: var(--fg-muted); }
+
+/* ── Dot ─────────────────────────────────────────────────── */
+.loft-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+}
+.loft-dot--success { background: var(--success); }
+.loft-dot--warn    { background: var(--warn); }
+.loft-dot--accent  { background: var(--accent); }
+.loft-dot--danger  { background: var(--danger); }
+.loft-dot--neutral { background: var(--fg-subtle); }
+
+/* ── Eyebrow ─────────────────────────────────────────────── */
+.loft-eyebrow {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-strong);
+}
+
+/* ── ThemeToggle (segmented radio control) ───────────────── */
+.loft-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-sub);
+  border-radius: var(--r-md);
+}
+.loft-seg__opt {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  border-radius: calc(var(--r-md) - 2px);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.loft-seg__opt[aria-checked="true"] {
+  color: var(--fg);
+  background: var(--bg-elev);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.loft-seg__opt:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ── Field (labeled text input) ──────────────────────────── */
+.loft-field {
+  display: block;
+}
+.loft-field__label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: var(--fg);
+}
+.loft-field__input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  font-size: 14px;
+  font-family: var(--f-ui);
+  background: var(--bg-panel);
+  color: var(--fg);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.loft-field__input::placeholder {
+  color: var(--fg-subtle);
+}
+.loft-field__input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+.loft-field__hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+/* ── Card (surface container) ────────────────────────────── */
+.loft-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--sp-4);
+}
+
+/* ── Collapsible (disclosure section) ────────────────────── */
+.loft-collapsible {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.loft-collapsible__trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  padding: 12px 18px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.loft-collapsible__trigger--open {
+  border-bottom: 1px solid var(--border-sub);
+}
+.loft-collapsible__chevron {
+  display: inline-block;
+  color: var(--fg-subtle);
+  font-size: 10px;
+}
+.loft-collapsible__spacer {
+  flex: 1;
+}
+.loft-collapsible__meta {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--fg-subtle);
+}
+
+/* ── InkConsole (agent-native code console) ──────────────── */
+.loft-console {
+  overflow: hidden;
+  font-family: var(--f-mono);
+  background: var(--ink);
+  border: 1px solid var(--ink-border);
+  border-radius: var(--r-lg);
+}
+.loft-console__header {
+  display: flex;
+  align-items: center;
+  padding: 8px 14px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid var(--ink-border);
+  background: var(--ink-elev);
+  color: var(--ink-fg-muted);
+}
+.loft-console__title {
+  font-weight: 500;
+  color: var(--ink-fg);
+}
+.loft-console__lang {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--spectral);
+}
+.loft-console__lang--gap {
+  margin-left: 10px;
+}
+.loft-console__spacer {
+  flex: 1;
+}
+.loft-console__body {
+  padding: 14px 16px;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.loft-console__line {
+  white-space: pre-wrap;
+}

@@ -1,6 +1,8 @@
 node_modules/
-dist/
 storybook-static/
+# dist/ is intentionally committed: web consumes @e2a/ui via a file: dep and its
+# Docker image copies the built output, both of which need dist/ present. A CI
+# freshness check (design-system-dist job) rebuilds it and fails on drift.
 *.log
 .DS_Store
 

@@ -9,7 +9,9 @@ export default defineConfig({
   entry: ["src/index.ts"],
   format: ["esm"],
   dts: true,
-  sourcemap: true,
+  // dist/ is committed (consumed by web via file: + verified fresh in CI), so
+  // skip sourcemaps to keep the tracked artifact minimal.
+  sourcemap: false,
   clean: true,
   external: ["react", "react-dom", "react/jsx-runtime"],
   // The bundle includes interactive components (InkConsole, Collapsible) that

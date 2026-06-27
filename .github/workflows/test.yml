@@ -418,3 +418,23 @@ jobs:
         run: npm install --package-lock=false
       - name: Check generated code is up to date
         run: make generate-sdk-check
+
+  design-system-dist:
+    name: Design system dist freshness
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      # @e2a/ui's dist/ is committed (web consumes it via a file: dep and its
+      # Docker image copies it). Rebuild and fail on drift, same idiom as the
+      # OpenAPI/SDK freshness gates above.
+      - name: Install workspace deps
+        run: npm install --package-lock=false
+      - name: Rebuild @e2a/ui
+        run: npm run build --workspace @e2a/ui
+      - name: Check dist/ is up to date
+        run: git diff --exit-code design-system/dist
