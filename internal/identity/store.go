@@ -1287,10 +1287,10 @@ func (s *Store) GetInboundMessage(ctx context.Context, id string) (*Message, err
 	m := &Message{}
 	var authVerdict []byte
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, auth_verdict, COALESCE(flagged, false), COALESCE(flag_reason, ''), created_at, expires_at
+		`SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, auth_verdict, COALESCE(flagged, false), COALESCE(flag_reason, ''), COALESCE(conversation_id, ''), created_at, expires_at
 		 FROM messages WHERE id = $1 AND direction = 'inbound' AND expires_at > now()
 		   AND status NOT IN (`+heldInboundStatuses+`)`, id,
-	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.RawMessage, &authVerdict, &m.Flagged, &m.FlagReason, &m.CreatedAt, &m.ExpiresAt)
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.RawMessage, &authVerdict, &m.Flagged, &m.FlagReason, &m.ConversationID, &m.CreatedAt, &m.ExpiresAt)
 	if err != nil {
 		return nil, err
 	}
