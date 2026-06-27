@@ -44,7 +44,7 @@ jobs:
       #   :latest           — only on a release tag, never the untested tip of main
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/mnexa-ai/e2a-mcp-http
           tags: |
