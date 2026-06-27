@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import type { APIKeyData } from "../../components/types";
 import { useAgents } from "../../components/hooks/useAgents";
 import { PageShell } from "../../components/loft/PageShell";
-import { Chip } from "../../components/loft/Chip";
+import { Chip } from "@e2a/ui";
 
 type SortKey = "last_used" | "created" | "name";
 

@@ -7,8 +7,7 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
-import { Eyebrow } from "../../../../components/loft/Eyebrow";
-import { Chip } from "../../../../components/loft/Chip";
+import { Chip, Eyebrow } from "@e2a/ui";
 import { deleteAgent, getProtection } from "../../../../components/onboarding/api";
 import { useAgents } from "../../../../components/hooks/useAgents";
 import {

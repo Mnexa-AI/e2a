@@ -15,9 +15,7 @@
 // does the chip surfaces Failed — delivery is a louder alarm than a
 // stale-but-recoverable approval.
 
-import { Chip } from "../loft/Chip";
-import { Dot } from "../loft/Dot";
-import type { ChipTone } from "../loft/Chip";
+import { Chip, Dot, type ChipTone } from "@e2a/ui";
 
 export type MessageStatusInput = {
   direction: "inbound" | "outbound";

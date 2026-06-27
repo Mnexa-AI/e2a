@@ -26,10 +26,7 @@ import type {
   InboundMessageDetail,
   PendingMessageDetail,
 } from "../../../../../components/types";
-import { Chip } from "../../../../../components/loft/Chip";
-import { Dot } from "../../../../../components/loft/Dot";
-import { Eyebrow } from "../../../../../components/loft/Eyebrow";
-import { InkConsole, type InkLine } from "../../../../../components/loft/InkConsole";
+import { Chip, Dot, Eyebrow, InkConsole, type InkLine } from "@e2a/ui";
 import { Collapsible } from "../../../../../components/messages/Collapsible";
 import { EmailHtmlBody } from "../../../../../components/messages/EmailHtmlBody";
 import { MessageDirectionIcon } from "../../../../../components/messages/MessageDirectionIcon";

@@ -25,8 +25,7 @@ import type {
   PendingMessageDetail,
   PendingMessageSummary,
 } from "../../../components/types";
-import { Chip } from "../../../components/loft/Chip";
-import { Dot } from "../../../components/loft/Dot";
+import { Chip, Dot } from "@e2a/ui";
 import { diffApproveEdits, joinCSV } from "./edits";
 
 function formatQueuedAgo(iso: string): string {

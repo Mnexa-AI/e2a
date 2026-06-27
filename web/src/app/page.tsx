@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useAuth } from "./components/AuthProvider";
-import { Eyebrow } from "./components/loft/Eyebrow";
+import { Eyebrow } from "@e2a/ui";
 import { AGENTS_DOMAIN } from "../lib/site";
 
 type Tab = "cli" | "claude" | "python" | "webhook";

@@ -6,7 +6,7 @@
 // and no API key; the web path is the click-through fallback.
 
 import type { SetupMethod } from "../../../components/onboarding/types";
-import { Chip } from "../../../components/loft/Chip";
+import { Chip } from "@e2a/ui";
 import { SelectableCard } from "./SelectableCard";
 
 export function SetupMethodChoice({

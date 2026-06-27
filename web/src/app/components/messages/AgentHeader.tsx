@@ -11,9 +11,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Chip } from "../loft/Chip";
-import { Dot } from "../loft/Dot";
-import { Eyebrow } from "../loft/Eyebrow";
+import { Chip, Dot, Eyebrow } from "@e2a/ui";
 import { CounterpartyAvatar } from "./CounterpartyAvatar";
 import { sendAgentTestEmail } from "../onboarding/api";
 import type { DashboardAgent } from "../types";

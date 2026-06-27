@@ -9,8 +9,7 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import { Chip } from "../loft/Chip";
-import { Dot } from "../loft/Dot";
+import { Chip, Dot } from "@e2a/ui";
 import { CounterpartyAvatar } from "./CounterpartyAvatar";
 import { EmailHtmlBody } from "./EmailHtmlBody";
 import { getMessageDetail } from "../onboarding/api";
