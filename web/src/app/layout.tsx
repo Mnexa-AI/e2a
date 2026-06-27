@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Instrument_Serif, JetBrains_Mono } from "next/font/google";
+// @e2a/ui component classes (loft-*). Imported before globals.css so the app's
+// globals.css stays authoritative for design tokens and the Tailwind theme.
+import "@e2a/ui/styles.css";
 import "./globals.css";
 import { AuthProvider } from "./components/AuthProvider";
 import { ThemeProvider } from "./components/ThemeProvider";

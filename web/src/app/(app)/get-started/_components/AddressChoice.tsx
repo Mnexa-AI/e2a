@@ -1,7 +1,7 @@
 "use client";
 
 import type { AddressType } from "../../../components/onboarding/types";
-import { Chip } from "../../../components/loft/Chip";
+import { Chip } from "@e2a/ui";
 import { AGENTS_DOMAIN_DISPLAY } from "../../../../lib/site";
 import { SelectableCard } from "./SelectableCard";
 

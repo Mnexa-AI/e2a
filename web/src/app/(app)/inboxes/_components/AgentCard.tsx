@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { DashboardAgent } from "../../../components/types";
-import { Chip } from "../../../components/loft/Chip";
-import { Dot } from "../../../components/loft/Dot";
+import { Chip, Dot } from "@e2a/ui";
 
 export function AgentCard({
   agent,

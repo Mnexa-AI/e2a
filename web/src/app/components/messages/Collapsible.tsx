@@ -9,7 +9,7 @@
 // 0ms instead of the default 120ms transition.
 
 import { useState, useSyncExternalStore, type ReactNode } from "react";
-import { Eyebrow } from "../loft/Eyebrow";
+import { Eyebrow } from "@e2a/ui";
 
 export type CollapsibleProps = {
   label: string;

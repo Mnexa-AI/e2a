@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Eyebrow } from "../components/loft/Eyebrow";
+import { Eyebrow } from "@e2a/ui";
 import { getPostsSortedByDate } from "./posts";
 
 function formatDate(iso: string): string {

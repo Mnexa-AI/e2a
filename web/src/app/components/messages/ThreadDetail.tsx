@@ -6,8 +6,7 @@
 // reverse-chronological in the artboard, but for an email-client
 // reading flow the conversation reads oldest→newest top→bottom.
 
-import { Chip } from "../loft/Chip";
-import { Dot } from "../loft/Dot";
+import { Chip, Dot } from "@e2a/ui";
 import { CounterpartyAvatar } from "./CounterpartyAvatar";
 import { ThreadBubble } from "./ThreadBubble";
 import { PendingCallout } from "./PendingCallout";

@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import { DNSRecord as DNSRecordField } from "../../../components/Field";
-import { Chip } from "../../../components/loft/Chip";
-import { Dot } from "../../../components/loft/Dot";
+import { Chip, Dot } from "@e2a/ui";
 import {
   verifyDomain,
   deleteDomain,
