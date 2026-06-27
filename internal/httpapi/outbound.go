@@ -279,7 +279,10 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 		To: replyTo, CC: rr.CC, BCC: b.BCC, Subject: subject, Body: b.Body, HTMLBody: b.HTMLBody,
 		ReplyToMessageID: inbound.EmailMessageID,
 		References:       outbound.BuildReferencesChain(inbound.RawMessage, inbound.EmailMessageID),
-		ConversationID:   b.ConversationID, Attachments: b.Attachments,
+		// conversation_id resolution (caller id > inherit-from-referenced > mint)
+		// is centralized in DeliverOutbound, which receives this inbound as the
+		// referenced message — so the reply inherits its thread there (#328).
+		ConversationID: b.ConversationID, Attachments: b.Attachments,
 	}
 	req.CC = agent.StripAgentSelfAliases(req.CC, ag.EmailAddress())
 	req.BCC = agent.StripAgentSelfAliases(req.BCC, ag.EmailAddress())

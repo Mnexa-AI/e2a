@@ -171,7 +171,7 @@ type API struct {
 	// via GET /v1/info so CLI/SDK clients can populate absolute
 	// links without each user configuring it. Empty when the operator
 	// hasn't set http.public_url.
-	publicURL         string
+	publicURL string
 	// apiURL is the externally visible base URL of the programmatic API —
 	// the OAuth issuer identity and the base for the token/registration/
 	// revocation/jwks endpoints. Defaults to publicURL; SetAPIURL overrides
@@ -519,25 +519,25 @@ func (a *API) SetDomainTeardownHook(h func(ctx context.Context, tx pgx.Tx, domai
 
 func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.SMTPRelay, userAuth *auth.UserAuth, usage usage.UsageTracker, smtpDomain, fromDomain, sharedDomain, publicURL string, production bool) *API {
 	return &API{
-		store:         store,
-		sender:        sender,
-		screen:        piguard.NewEngine(piguard.EngineConfig{}, piguard.NewHeuristicsDetector()),
-		smtpRelay:     smtpRelay,
-		userAuth:      userAuth,
-		usage:         usage,
-		smtpDomain:    smtpDomain,
-		fromDomain:    fromDomain,
-		sharedDomain:  sharedDomain,
-		publicURL:     publicURL,
+		store:        store,
+		sender:       sender,
+		screen:       piguard.NewEngine(piguard.EngineConfig{}, piguard.NewHeuristicsDetector()),
+		smtpRelay:    smtpRelay,
+		userAuth:     userAuth,
+		usage:        usage,
+		smtpDomain:   smtpDomain,
+		fromDomain:   fromDomain,
+		sharedDomain: sharedDomain,
+		publicURL:    publicURL,
 		// Default the API/issuer URL to the web URL; SetAPIURL overrides it
 		// for split web/API-host deployments.
 		apiURL:        publicURL,
 		production:    production,
-		sendLimit:     ratelimit.New(1*time.Minute, 60), // 60 sends per agent per minute
-		regLimit:      ratelimit.New(1*time.Hour, 200),  // 200 registrations per IP per hour
-		pollLimit:     ratelimit.New(1*time.Minute, 60), // 60 poll requests per user per minute
-		feedbackLimit: ratelimit.New(1*time.Hour, 10),   // 10 feedback submissions per IP per hour
-		dcrLimit:      ratelimit.New(1*time.Hour, 10),   // 10 OAuth client registrations per IP per hour
+		sendLimit:     ratelimit.New(1*time.Minute, 60),  // 60 sends per agent per minute
+		regLimit:      ratelimit.New(1*time.Hour, 200),   // 200 registrations per IP per hour
+		pollLimit:     ratelimit.New(1*time.Minute, 60),  // 60 poll requests per user per minute
+		feedbackLimit: ratelimit.New(1*time.Hour, 10),    // 10 feedback submissions per IP per hour
+		dcrLimit:      ratelimit.New(1*time.Hour, 10),    // 10 OAuth client registrations per IP per hour
 		downloadLimit: ratelimit.New(1*time.Minute, 120), // 120 attachment downloads per IP per minute
 	}
 }
@@ -1123,6 +1123,25 @@ func (a *API) checkSuppression(ctx context.Context, userID string, req outbound.
 // live delivery path exists exactly once (api-v1-redesign — outbound
 // extraction). On a nil-error return the side effect has committed, so the
 // idempotency key must be Completed (cached), never Released.
+// resolveOutboundConversationID picks the thread id for an outbound message, in
+// precedence order (#328):
+//  1. an explicit caller-supplied id wins;
+//  2. a reply inherits the conversation of the message it answers (referenced),
+//     so a multi-turn thread stays grouped — a forward does NOT inherit, since a
+//     forward starts a new thread;
+//  3. otherwise a fresh anchor is minted so this message becomes the root the
+//     relay's In-Reply-To lookup threads later inbound replies onto. Without an
+//     anchor an external reply recovers an empty id and the thread fragments.
+func resolveOutboundConversationID(explicit, msgType string, referenced *identity.Message) string {
+	if explicit != "" {
+		return explicit
+	}
+	if msgType == "reply" && referenced != nil && referenced.ConversationID != "" {
+		return referenced.ConversationID
+	}
+	return identity.NewConversationID()
+}
+
 func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string, referenced *identity.Message) (*OutboundResult, *OutboundError) {
 	// Suppression enforcement (decision 9 / Slice 4b): fail fast if any
 	// recipient is on this tenant's suppression list. Enforced fresh on every
@@ -1131,6 +1150,12 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 	if supErr := a.checkSuppression(ctx, user.ID, req); supErr != nil {
 		return nil, supErr
 	}
+
+	// Conversation threading (#328): resolve the thread id once, here, so every
+	// downstream use — the X-E2A-Conversation-Id header (compose), the
+	// held-for-review row, the stored outbound row, and the email.sent event — sees
+	// the same value.
+	req.ConversationID = resolveOutboundConversationID(req.ConversationID, msgType, referenced)
 
 	// Outbound screening (Slice 5): the recipient gate (outbound_policy) + content
 	// scan (outbound_scan) combine into one applied action. block ⇒ refuse;
