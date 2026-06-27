@@ -641,7 +641,7 @@ func (s *Store) SendingProvisionInputs(ctx context.Context, domain string) (sele
 // mailFromStatus are the per-axis SES breakdown (migration 049); an empty
 // string for either is written as SQL NULL so the read path falls back to the
 // all-or-nothing sending_status rollup (and the CHECK constraint, which allows
-// NULL but not '', is satisfied).
+// NULL but not ”, is satisfied).
 func (s *Store) SetSendingStatus(ctx context.Context, domain, status, dkimStatus, mailFromStatus, errMsg string, recordsJSON []byte) error {
 	var errPtr *string
 	if errMsg != "" {
@@ -1144,6 +1144,15 @@ const MessageTTL = 10 * 24 * time.Hour // 10 days
 // so the ID is part of the canonical string fed to HMAC.
 func NewMessageID() string {
 	return "msg_" + generateID()
+}
+
+// NewConversationID returns a fresh conversation (thread) ID. An outbound send
+// that omits a conversation_id gets one minted here so the message becomes a
+// thread anchor: external replies reference this message's Message-ID, and the
+// relay's In-Reply-To lookup recovers the conversation_id from it. Without an
+// anchor the lookup finds an empty id and the thread fragments (#328).
+func NewConversationID() string {
+	return "conv_" + generateID()
 }
 
 // CreateInboundMessage stores an inbound message. If id is empty a new
