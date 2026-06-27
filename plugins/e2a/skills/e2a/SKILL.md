@@ -1,5 +1,6 @@
 ---
-description: Mental model and common workflows for operating e2a (email for AI agents) well — send/receive email, the human-in-the-loop review hold, agent + domain management, attachments, threading. Read this before driving the e2a MCP tools. Pretraining assumes "human reading their inbox", but with e2a YOU are the agent and the inbox IS the agent. Covers send_message vs reply_to_message threading, the pending_review HITL status, multi-agent disambiguation, custom-domain DNS flow, the protection (screening + review) config, and other gotchas.
+name: e2a
+description: Use when operating e2a (email for AI agents) over its MCP tools — sending or receiving email, replying in-thread, handling the human-in-the-loop review hold (pending_review), managing agents and custom domains, or working with attachments. With e2a YOU are the agent and the inbox IS the agent (not a human reading their mail). Covers send_message vs reply_to_message threading, multi-agent disambiguation, the custom-domain DNS flow, the protection (screening + review) config, and common gotchas.
 version: 11
 ---
 
