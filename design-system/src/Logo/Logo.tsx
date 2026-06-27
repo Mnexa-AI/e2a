@@ -69,11 +69,10 @@ export function Logo({
           x="128"
           y="178"
           textAnchor="middle"
-          fontFamily={FONT}
           fontWeight={700}
           fontSize={200}
           letterSpacing={-12}
-          style={fillStyle(mono ? "currentColor" : "var(--ink-fg)")}
+          style={{ ...fillStyle(mono ? "currentColor" : "var(--ink-fg)"), fontFamily: FONT }}
         >
           2
         </text>
@@ -102,11 +101,10 @@ export function Logo({
         x="320"
         y="148"
         textAnchor="middle"
-        fontFamily={FONT}
         fontWeight={600}
         fontSize={176}
         letterSpacing={-12}
-        style={fillStyle(textFill)}
+        style={{ ...fillStyle(textFill), fontFamily: FONT }}
       >
         <tspan>e</tspan>
         <tspan style={fillStyle(twoFill)}>2</tspan>

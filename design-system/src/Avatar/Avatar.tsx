@@ -19,8 +19,9 @@ function hashTo8(input: string): number {
 }
 
 function initials(name?: string, email?: string): string {
-  if (name) {
-    const parts = name.trim().split(/\s+/);
+  const trimmed = name?.trim();
+  if (trimmed) {
+    const parts = trimmed.split(/\s+/);
     if (parts.length >= 2) {
       return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     }

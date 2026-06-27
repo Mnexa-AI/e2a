@@ -2,7 +2,7 @@
   "name": "@e2a/ui",
   "version": "0.1.0",
   "description": "Loft — the e2a design system. Standalone, buildable React component library.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "sideEffects": [
     "*.css"
