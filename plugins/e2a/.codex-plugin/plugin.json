@@ -1,0 +1,34 @@
+{
+  "name": "e2a",
+  "displayName": "e2a",
+  "version": "0.3.2",
+  "description": "Authenticated email gateway for AI agents — per-agent inboxes, HITL approval, SPF/DKIM verification, and a queryable, replayable event log. 37 MCP tools over hosted streamable HTTP with OAuth.",
+  "author": {
+    "name": "Mnexa AI"
+  },
+  "homepage": "https://e2a.dev",
+  "repository": "https://github.com/Mnexa-AI/e2a",
+  "license": "Apache-2.0",
+  "keywords": [
+    "email",
+    "smtp",
+    "agents",
+    "hitl",
+    "spf",
+    "dkim",
+    "inbox",
+    "mcp",
+    "oauth"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "e2a",
+    "shortDescription": "Authenticated email for AI agents",
+    "longDescription": "Bundles the hosted e2a MCP server and an operate-well skill so an agent can send and receive real email from per-agent inboxes — with SPF/DKIM verification, human-in-the-loop review holds, custom domains, attachments, and a replayable event log.",
+    "developerName": "Mnexa AI",
+    "category": "Productivity",
+    "websiteURL": "https://e2a.dev",
+    "composerIcon": "./assets/icon.svg"
+  }
+}

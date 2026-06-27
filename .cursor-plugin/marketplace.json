@@ -1,0 +1,18 @@
+{
+  "name": "e2a",
+  "owner": {
+    "name": "Mnexa AI",
+    "url": "https://e2a.dev"
+  },
+  "metadata": {
+    "description": "e2a — authenticated email gateway for AI agents (MCP server + operate-well skill).",
+    "version": "0.3.2"
+  },
+  "plugins": [
+    {
+      "name": "e2a",
+      "source": "./plugins/e2a",
+      "description": "Authenticated email gateway for AI agents — per-agent inboxes, HITL approval, SPF/DKIM verification, and a queryable, replayable event log."
+    }
+  ]
+}

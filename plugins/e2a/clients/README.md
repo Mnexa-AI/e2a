@@ -16,5 +16,6 @@ stdio-only clients (Codex, Zed) wrap it with `npx -y mcp-remote …`.
 **Full per-client guide** — Zed, Goose, headless API-key auth, and more:
 https://e2a.dev/e2a.md (the "Connecting other MCP clients" section)
 
-**Claude Code** users don't need any of this — installing this plugin wires the
-MCP server in via `.claude-plugin/plugin.json`.
+**Claude Code / Codex / Cursor** users don't need any of this — install the
+plugin instead (it registers the MCP server via the plugin's `.mcp.json`). See
+[`../README.md`](../README.md) for the one-command install per client.

@@ -1,0 +1,21 @@
+{
+  "name": "e2a",
+  "interface": {
+    "displayName": "e2a"
+  },
+  "plugins": [
+    {
+      "name": "e2a",
+      "source": {
+        "source": "local",
+        "path": "./plugins/e2a"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity",
+      "description": "Authenticated email gateway for AI agents — per-agent inboxes, HITL approval, SPF/DKIM verification, and a queryable, replayable event log."
+    }
+  ]
+}
