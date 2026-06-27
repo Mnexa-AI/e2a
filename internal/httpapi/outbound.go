@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -374,9 +376,39 @@ func (s *Server) validateOutboundBody(subject, body string, to, cc, bcc []string
 	return nil
 }
 
+// validateAttachments rejects any attachment whose Data is not decodable
+// base64. The composer passes att.Data through verbatim into the MIME body
+// (Content-Transfer-Encoding: base64), so malformed base64 otherwise slips past
+// every check and only fails downstream at the SMTP relay — surfacing to the
+// caller as a generic 500 instead of a clear 400. Whitespace (line-wrapping) is
+// stripped first to match how mail decoders treat base64 bodies, so a caller
+// that pre-wraps its base64 is not falsely rejected.
+func validateAttachments(atts []outbound.Attachment) *ErrorEnvelope {
+	for i, att := range atts {
+		clean := strings.Map(func(r rune) rune {
+			if r == '\r' || r == '\n' || r == ' ' || r == '\t' {
+				return -1
+			}
+			return r
+		}, att.Data)
+		if _, err := base64.StdEncoding.DecodeString(clean); err != nil {
+			name := att.Filename
+			if name == "" {
+				name = fmt.Sprintf("#%d", i)
+			}
+			return NewError(http.StatusBadRequest, "invalid_attachment",
+				fmt.Sprintf("attachment %q: data is not valid base64", name))
+		}
+	}
+	return nil
+}
+
 // deliver runs the domain-verified + enforce-cap checks then DeliverOutbound
 // under the idempotency handshake, mapping the OutboundResult to the wire view.
 func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyTo, route, idemKey string, rawBody []byte, referenced *identity.Message) (*sendOutput, error) {
+	if env := validateAttachments(req.Attachments); env != nil {
+		return nil, env
+	}
 	if env := s.checkSendLimit(ag.ID); env != nil {
 		return nil, env
 	}
