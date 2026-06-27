@@ -3,8 +3,9 @@
 # Two-stage build: Next.js produces a static export, Caddy serves it
 # with a parameterizable reverse-proxy to the e2a API backend.
 #
-# Build context is the `web/` directory:
-#   docker build -t e2a-web -f web/Dockerfile web
+# Build context is the repo ROOT (web depends on the sibling @e2a/ui workspace
+# via file:../design-system, which must be inside the context):
+#   docker build -t e2a-web -f web/Dockerfile .
 #
 # Customizing branding/SEO for a non-default deployment:
 #   docker build \
@@ -25,8 +26,14 @@
 FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
 WORKDIR /app
 
-# Install deps first so the layer caches when only source changes.
-COPY package.json package-lock.json ./
+# @e2a/ui is a sibling workspace consumed via file:../design-system. Copy it
+# (with its committed dist/) so web's file: symlink resolves during install and
+# `next build`. No build step needed here — dist/ is prebuilt and committed.
+COPY design-system ./design-system
+
+# Install web deps first so the layer caches when only source changes.
+COPY web/package.json web/package-lock.json ./web/
+WORKDIR /app/web
 RUN npm ci --no-audit --prefer-offline
 
 # Empty defaults make the published OSS image generic. The hosted
@@ -51,7 +58,7 @@ ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
     NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION=$NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION \
     NEXT_PUBLIC_BILLING_API=$NEXT_PUBLIC_BILLING_API
 
-COPY . ./
+COPY web ./
 RUN npm run build
 
 # ── Runtime ─────────────────────────────────────────────────────────
@@ -69,8 +76,8 @@ FROM caddy:2-alpine
 # Install explicitly so the HEALTHCHECK below can't silently break if a
 # future base image trims busybox.
 RUN apk add --no-cache wget
-COPY --from=builder /app/out /srv
-COPY Caddyfile /etc/caddy/Caddyfile
+COPY --from=builder /app/web/out /srv
+COPY web/Caddyfile /etc/caddy/Caddyfile
 
 # Default port; override with WEB_PORT env. Healthcheck reads the same
 # var so it works regardless of the chosen port.

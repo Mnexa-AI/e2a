@@ -1,0 +1,36 @@
+# Used INSTEAD of the repo-root .dockerignore when building the web image
+# (BuildKit picks <dockerfile>.dockerignore when present). The web image builds
+# from the repo root and needs web/ + design-system/ (the @e2a/ui workspace);
+# everything else is excluded to keep the build context small.
+.git
+**/node_modules
+web/.next
+web/out
+**/.env*
+**/.DS_Store
+
+# @e2a/ui: keep the committed dist/ (the build consumes it); drop work state.
+design-system/ds-bundle
+design-system/storybook-static
+design-system/.design-sync
+
+# Go backend + unrelated workspaces — not part of the web image.
+cmd
+internal
+sdks
+cli
+mcp
+migrations
+api
+tests
+docs
+examples
+assets
+bin
+plugins
+*.go
+go.mod
+go.sum
+Makefile
+config*.yaml
+docker-compose.yaml

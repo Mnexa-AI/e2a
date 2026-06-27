@@ -52,7 +52,7 @@
   --info:    #2D6CFF;  --info-bg: #E4ECFF;   --info-strong: #0050D6;
   --warn:    #C78400;  --warn-bg: #FFF1D1;   --warn-strong: #8F5F00;
   --danger:  #CC2E2E;  --danger-bg: #FBE3E0; --danger-strong: #A82020;
-  --success: #0F7A4D;  --success-bg: #DFF3E8;
+  --success: #0F7A4D;  --success-bg: #DFF3E8;  --success-strong: #0B5C3A;
 
   /* ── Kind hues (decorative; always paired with a kind icon) ── */
   --k-md:      #2D6CFF;
@@ -148,7 +148,7 @@
   --info: #79B4FF; --info-bg: #0F2046; --info-strong: #A6CCFF;
   --warn: #E4A82F; --warn-bg: #2E1F00; --warn-strong: #F2C257;
   --danger: #FF6B6B; --danger-bg: #2E1010; --danger-strong: #FF9292;
-  --success: #5AC68A; --success-bg: #0B2418;
+  --success: #5AC68A; --success-bg: #0B2418; --success-strong: #8FE0B3;
 
   --k-md: #79B4FF;  --k-code: #A989F0;  --k-image: #5AC68A;
   --k-video: #E4A82F; --k-dataset: #E07AC3; --k-skill: #F08055;

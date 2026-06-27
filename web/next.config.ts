@@ -1,12 +1,21 @@
 import type { NextConfig } from "next";
+import { fileURLToPath } from "node:url";
 import createMDX from "@next/mdx";
 
 const isDev = process.env.NODE_ENV !== "production";
+
+// The monorepo root (parent of web/). Pinned as Turbopack's root so it resolves
+// the sibling @e2a/ui workspace (file:../design-system) — which lives OUTSIDE
+// web/. Without this, Turbopack infers web/ as the root and rejects @e2a/ui as
+// "outside the project". Portable: resolves to the repo root locally and /app
+// in the web Docker image. Also silences the "inferred workspace root" warning.
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
 const withMDX = createMDX({});
 
 const nextConfig: NextConfig = {
   output: isDev ? undefined : "export",
+  turbopack: { root: repoRoot },
   pageExtensions: ["ts", "tsx", "md", "mdx"],
   ...(isDev && {
     rewrites: async () => [

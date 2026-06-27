@@ -15,6 +15,7 @@ on:
       - "cmd/**"
       - "internal/**"
       - "web/**"
+      - "design-system/**"
       - ".github/workflows/build-image.yml"
   workflow_dispatch:
 
@@ -52,7 +53,10 @@ jobs:
             dockerfile: Dockerfile
           - image: e2a-web
             display_name: web image
-            context: web
+            # Repo root: the web image needs the sibling @e2a/ui workspace
+            # (file:../design-system). web/Dockerfile.dockerignore trims the
+            # context. See web/Dockerfile.
+            context: .
             dockerfile: web/Dockerfile
     steps:
       - uses: actions/checkout@v7
