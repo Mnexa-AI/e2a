@@ -96,6 +96,7 @@ func TestScreenOutbound_OpenAllowsBenign(t *testing.T) {
 // TestScreenOutbound_Scan: outbound_scan=on flags an injection payload (Unicode
 // Tags smuggling) and combines via MoreSevere with the gate.
 func TestScreenOutbound_Scan(t *testing.T) {
+	t.Setenv("E2A_CONTENT_SCAN_ENABLED", "true")
 	a := testScreenAPI()
 	ag := &identity.AgentIdentity{
 		Domain: "bot.example.com", ID: "bot@bot.example.com",
@@ -169,6 +170,7 @@ func TestComposeScanBody_IncludesTextAttachment(t *testing.T) {
 // TestScreenOutbound_ScanCatchesAttachmentExfil: an injection payload smuggled in
 // a text attachment is detected when outbound_scan=on (was evading before the fix).
 func TestScreenOutbound_ScanCatchesAttachmentExfil(t *testing.T) {
+	t.Setenv("E2A_CONTENT_SCAN_ENABLED", "true")
 	a := testScreenAPI()
 	ag := &identity.AgentIdentity{
 		Domain: "bot.example.com", ID: "bot@bot.example.com",

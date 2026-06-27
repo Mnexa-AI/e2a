@@ -167,6 +167,15 @@ func (s *Server) handlePutProtection(ctx context.Context, in *putProtectionInput
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "update unavailable")
 	}
 	cfg := protectionConfigFromView(in.Body)
+	// Content scan is gated off by default for GA (see identity.ContentScanEnabled).
+	// Clamp the scan knob to "off" rather than store a sensitivity that would
+	// silently never run — so get_protection reads back the honest, effective
+	// posture. Re-enabling the flag restores the caller's intended values on the
+	// next write.
+	if !identity.ContentScanEnabled() {
+		cfg.InboundScanSensitivity = identity.SensitivityOff
+		cfg.OutboundScanSensitivity = identity.SensitivityOff
+	}
 	if err := s.deps.UpdateAgentProtection(ctx, ag.ID, ag.UserID, cfg); err != nil {
 		return nil, NewError(http.StatusBadRequest, "invalid_request", err.Error())
 	}

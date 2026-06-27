@@ -58,6 +58,7 @@ func protectionServer(t *testing.T) (*httptest.Server, *identity.AgentIdentity) 
 // TestProtectionPutGetRoundTrip: PUT a posture, then confirm GET returns the
 // nested shape with the written values.
 func TestProtectionPutGetRoundTrip(t *testing.T) {
+	t.Setenv("E2A_CONTENT_SCAN_ENABLED", "true") // round-trip the scan knob with the feature on
 	srv, _ := protectionServer(t)
 	put := map[string]any{
 		"inbound": map[string]any{
@@ -91,6 +92,39 @@ func TestProtectionPutGetRoundTrip(t *testing.T) {
 	holds, _ := got["holds"].(map[string]any)
 	if holds["on_expiry"] != "approve" {
 		t.Errorf("holds.on_expiry = %v, want approve", holds["on_expiry"])
+	}
+}
+
+// With content scan gated off (the GA default), the protection handler clamps
+// scan_sensitivity to "off" so a caller never persists a knob that silently
+// never runs — get_protection reads back the honest, effective posture.
+func TestProtectionPutClampsScanWhenDisabled(t *testing.T) {
+	t.Setenv("E2A_CONTENT_SCAN_ENABLED", "false") // explicit: scan disabled
+	srv, _ := protectionServer(t)
+	put := map[string]any{
+		"inbound": map[string]any{
+			"gate": map[string]any{"policy": "open", "action": "flag"},
+			"scan": map[string]any{"sensitivity": "high"},
+		},
+		"outbound": map[string]any{
+			"gate": map[string]any{"policy": "open", "action": "flag"},
+			"scan": map[string]any{"sensitivity": "high"},
+		},
+		"holds": map[string]any{"ttl_seconds": 3600, "on_expiry": "reject"},
+	}
+	if code, body := sendJSON(t, "PUT", srv.URL+"/v1/agents/support%40acme.com/protection", "good", put); code != 200 {
+		t.Fatalf("PUT status %d body %v", code, body)
+	}
+	code, got := sendJSON(t, "GET", srv.URL+"/v1/agents/support%40acme.com/protection", "good", nil)
+	if code != 200 {
+		t.Fatalf("GET status %d body %v", code, got)
+	}
+	for _, dir := range []string{"inbound", "outbound"} {
+		d, _ := got[dir].(map[string]any)
+		scan, _ := d["scan"].(map[string]any)
+		if scan["sensitivity"] != "off" {
+			t.Errorf("%s scan not clamped: sensitivity = %v, want off", dir, scan["sensitivity"])
+		}
 	}
 }
 

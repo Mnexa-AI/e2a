@@ -3,9 +3,23 @@ package identity
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/Mnexa-AI/e2a/internal/inboundpolicy"
 )
+
+// ContentScanEnabled reports whether the piguard content scan is turned on for
+// this deployment. The detector ships as a single heuristic lexicon that is
+// near-zero-false-positive but paraphrase-evadable, so it is gated OFF by
+// default for GA and only runs where an operator has explicitly opted in via
+// E2A_CONTENT_SCAN_ENABLED=true. When off: the two screening paths skip the
+// scan entirely (the recipient/sender gate, HITL review holds, suppression and
+// allowlists are unaffected), and the protection API clamps scan_sensitivity to
+// "off" so a caller never sets a knob that silently does nothing. Read at call
+// time so tests (and a live config flip) take effect without a restart.
+func ContentScanEnabled() bool {
+	return os.Getenv("E2A_CONTENT_SCAN_ENABLED") == "true"
+}
 
 // Scan sensitivity levels — the public protection API's content-scan knob
 // (design 2026-06-22-agent-protection-config.md §4.2). A level maps to the

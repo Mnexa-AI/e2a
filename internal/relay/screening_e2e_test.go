@@ -48,6 +48,7 @@ func (c *capturePublisher) has(typ string) bool {
 // email.received push, and excluded from the agent inbox. A benign message in the
 // same run delivers normally (the regression pair).
 func TestE2E_InboundInjectionHeldOverSMTP(t *testing.T) {
+	t.Setenv("E2A_CONTENT_SCAN_ENABLED", "true")
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
 	ctx := context.Background()

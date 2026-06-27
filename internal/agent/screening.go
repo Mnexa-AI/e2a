@@ -173,7 +173,7 @@ func (a *API) screenOutbound(ctx context.Context, agent *identity.AgentIdentity,
 	}
 
 	scanAction := piguard.ActionAllow
-	if agent.OutboundScan == identity.ScanOn && a.screen != nil {
+	if identity.ContentScanEnabled() && agent.OutboundScan == identity.ScanOn && a.screen != nil {
 		body := composeScanBody(req)
 		segs, sig, _ := piguard.Extract(body, 0)
 		agg := a.screen.Evaluate(ctx, piguard.Request{

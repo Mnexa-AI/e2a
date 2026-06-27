@@ -68,7 +68,7 @@ func (s *Server) screenInbound(ctx context.Context, agent *identity.AgentIdentit
 	// Scan action.
 	scanAction := piguard.ActionAllow
 	var scanScore *float64
-	if agent.InboundScan == identity.ScanOn {
+	if identity.ContentScanEnabled() && agent.InboundScan == identity.ScanOn {
 		segs, sig, _ := piguard.Extract(body, 0)
 		agg := s.screen.Evaluate(ctx, piguard.Request{
 			Direction: piguard.DirectionInput,
