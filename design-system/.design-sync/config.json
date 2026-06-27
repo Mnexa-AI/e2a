@@ -1,0 +1,10 @@
+{
+  "projectId": "f8ae151e-dd46-4d5c-a951-932d389bf47a",
+  "pkg": "@e2a/ui",
+  "globalName": "E2aUi",
+  "shape": "storybook",
+  "storybookConfigDir": ".storybook",
+  "storybookStatic": ".design-sync/sb-reference",
+  "buildCmd": "npm run build",
+  "readmeHeader": ".design-sync/conventions.md"
+}

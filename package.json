@@ -4,6 +4,7 @@
   "workspaces": [
     "cli",
     "sdks/typescript",
-    "mcp"
+    "mcp",
+    "design-system"
   ]
 }

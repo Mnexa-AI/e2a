@@ -1,0 +1,276 @@
+/*  Loft · component styles
+ *  ───────────────────────
+ *  The single stylesheet a consumer loads once (import "@e2a/ui/styles.css").
+ *  It pulls in the tokens, sets a minimal base, then defines one class per
+ *  component. Components reference these classes (no Tailwind dependency).
+ */
+
+@import "./tokens.css";
+
+/* ── Base ── */
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--f-ui);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ── Button ──────────────────────────────────────────────── */
+.loft-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  font-family: var(--f-ui);
+}
+.loft-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.loft-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.loft-btn--primary {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border-radius: var(--r-md);
+  background: var(--accent-fill);
+  color: var(--accent-fg);
+  border: none;
+}
+.loft-btn--primary:not(:disabled):hover {
+  background: var(--accent-fill-hov);
+}
+
+.loft-btn--ghost {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 7px 12px;
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+.loft-btn--ghost:not(:disabled):hover {
+  background: var(--bg-elev);
+}
+
+.loft-btn--mono {
+  gap: 5px;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  background: var(--ink-elev);
+  color: var(--ink-fg-muted);
+  border: 1px solid var(--ink-border);
+}
+
+/* ── Chip ────────────────────────────────────────────────── */
+.loft-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--f-ui);
+}
+.loft-chip--mono {
+  font-family: var(--f-mono);
+  letter-spacing: 0.02em;
+}
+.loft-chip--success { background: var(--success-bg); color: var(--success-strong); }
+.loft-chip--warn    { background: var(--warn-bg);    color: var(--warn-strong); }
+.loft-chip--info    { background: var(--info-bg);    color: var(--info-strong); }
+.loft-chip--accent  { background: var(--accent-soft); color: var(--accent-strong); }
+.loft-chip--danger  { background: var(--danger-bg);  color: var(--danger-strong); }
+.loft-chip--neutral { background: var(--bg-elev);    color: var(--fg-muted); }
+
+/* ── Dot ─────────────────────────────────────────────────── */
+.loft-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+}
+.loft-dot--success { background: var(--success); }
+.loft-dot--warn    { background: var(--warn); }
+.loft-dot--accent  { background: var(--accent); }
+.loft-dot--danger  { background: var(--danger); }
+.loft-dot--neutral { background: var(--fg-subtle); }
+
+/* ── Eyebrow ─────────────────────────────────────────────── */
+.loft-eyebrow {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-strong);
+}
+
+/* ── ThemeToggle (segmented radio control) ───────────────── */
+.loft-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-sub);
+  border-radius: var(--r-md);
+}
+.loft-seg__opt {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  border-radius: calc(var(--r-md) - 2px);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.loft-seg__opt[aria-checked="true"] {
+  color: var(--fg);
+  background: var(--bg-elev);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.loft-seg__opt:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ── Field (labeled text input) ──────────────────────────── */
+.loft-field {
+  display: block;
+}
+.loft-field__label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: var(--fg);
+}
+.loft-field__input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  font-size: 14px;
+  font-family: var(--f-ui);
+  background: var(--bg-panel);
+  color: var(--fg);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.loft-field__input::placeholder {
+  color: var(--fg-subtle);
+}
+.loft-field__input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+.loft-field__hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+/* ── Card (surface container) ────────────────────────────── */
+.loft-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--sp-4);
+}
+
+/* ── Collapsible (disclosure section) ────────────────────── */
+.loft-collapsible {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.loft-collapsible__trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  padding: 12px 18px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.loft-collapsible__trigger--open {
+  border-bottom: 1px solid var(--border-sub);
+}
+.loft-collapsible__chevron {
+  display: inline-block;
+  color: var(--fg-subtle);
+  font-size: 10px;
+}
+.loft-collapsible__spacer {
+  flex: 1;
+}
+.loft-collapsible__meta {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--fg-subtle);
+}
+
+/* ── InkConsole (agent-native code console) ──────────────── */
+.loft-console {
+  overflow: hidden;
+  font-family: var(--f-mono);
+  background: var(--ink);
+  border: 1px solid var(--ink-border);
+  border-radius: var(--r-lg);
+}
+.loft-console__header {
+  display: flex;
+  align-items: center;
+  padding: 8px 14px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid var(--ink-border);
+  background: var(--ink-elev);
+  color: var(--ink-fg-muted);
+}
+.loft-console__title {
+  font-weight: 500;
+  color: var(--ink-fg);
+}
+.loft-console__lang {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--spectral);
+}
+.loft-console__lang--gap {
+  margin-left: 10px;
+}
+.loft-console__spacer {
+  flex: 1;
+}
+.loft-console__body {
+  padding: 14px 16px;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.loft-console__line {
+  white-space: pre-wrap;
+}

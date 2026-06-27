@@ -1,0 +1,40 @@
+// @e2a/ui — Loft design system public API.
+// Every component the library exposes is re-exported here. Consumers also
+// import the stylesheet once:  import "@e2a/ui/styles.css";
+
+export { Button } from "./Button/Button";
+export type { ButtonProps, ButtonVariant } from "./Button/Button";
+
+export { Chip } from "./Chip/Chip";
+export type { ChipProps, ChipTone } from "./Chip/Chip";
+
+export { Dot } from "./Dot/Dot";
+export type { DotProps, DotTone } from "./Dot/Dot";
+
+export { Eyebrow } from "./Eyebrow/Eyebrow";
+export type { EyebrowProps } from "./Eyebrow/Eyebrow";
+
+export { ThemeToggle } from "./ThemeToggle/ThemeToggle";
+export type { ThemeToggleProps, Theme } from "./ThemeToggle/ThemeToggle";
+
+export { InkConsole } from "./InkConsole/InkConsole";
+export type {
+  InkConsoleProps,
+  InkLine,
+  InkLineKind,
+} from "./InkConsole/InkConsole";
+
+export { Logo } from "./Logo/Logo";
+export type { LogoProps, LogoVariant, LogoTone } from "./Logo/Logo";
+
+export { Field } from "./Field/Field";
+export type { FieldProps } from "./Field/Field";
+
+export { Avatar } from "./Avatar/Avatar";
+export type { AvatarProps } from "./Avatar/Avatar";
+
+export { Collapsible } from "./Collapsible/Collapsible";
+export type { CollapsibleProps } from "./Collapsible/Collapsible";
+
+export { Card } from "./Card/Card";
+export type { CardProps } from "./Card/Card";
