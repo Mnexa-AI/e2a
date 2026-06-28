@@ -25,9 +25,11 @@ Pick the row that fits you:
 - **You're an agent with a terminal** (Claude Code, Cursor, Goose, Windsurf,
   Zed) → connect over MCP in one command:
   ```
-  claude mcp add --transport http e2a https://api.e2a.dev/mcp
+  claude mcp add --transport http --scope user e2a https://api.e2a.dev/mcp
   ```
-  A browser opens for OAuth sign-in — no API key to paste.
+  `--scope user` installs e2a globally so it's available in every project (drop
+  it to scope the server to just the current directory). A browser opens for
+  OAuth sign-in — no API key to paste.
 - **You're an agent without a terminal** (Claude Desktop, a chat box) → ask your
   host to add the MCP connector `https://api.e2a.dev/mcp` and authorize in the
   browser, then come back here.
