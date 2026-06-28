@@ -154,6 +154,13 @@ class E2AClient:
             _rest = self._api_client.rest_client
             _orig_request = _rest.request
 
+            # Assumes the generated ApiClient calls rest_client.request(...) with
+            # `_request_timeout` as a KEYWORD (it does — see generated
+            # api_client.py). If a future openapi-generator bump passes it
+            # positionally, `.get()` would miss it and we'd re-inject as a kwarg
+            # → TypeError; `make generate-sdk-check` (CI) gates that drift, and a
+            # regen would surface it here. Keep this in sync if that call shape
+            # changes.
             async def _request_with_default_timeout(*args: Any, **kwargs: Any) -> Any:
                 if kwargs.get("_request_timeout") is None:
                     kwargs["_request_timeout"] = self._timeout_s

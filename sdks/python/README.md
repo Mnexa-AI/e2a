@@ -107,10 +107,12 @@ a `/v1` operation; per-agent methods take the agent `address` first.
 
 `api_key` falls back to `E2A_API_KEY`; `base_url` to `E2A_BASE_URL` then
 `https://api.e2a.dev`. `timeout_ms` is the per-request timeout (default 30s); a
-timed-out request retries like any other connection failure. Pass `timeout_ms=0`
-or `None` to fall back to the transport default. Use it as an async context
-manager (or call `await client.aclose()`) to close the underlying HTTP
-connections.
+timed-out request retries like any other connection failure. Passing
+`timeout_ms=0` or `None` removes the SDK's override and falls back to the HTTP
+transport's built-in **300s** ceiling — it does **not** make requests unbounded
+(this differs from the TypeScript SDK, where `timeoutMs: 0` is fully unbounded).
+Use it as an async context manager (or call `await client.aclose()`) to close
+the underlying HTTP connections.
 
 ### Errors
 

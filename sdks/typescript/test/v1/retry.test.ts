@@ -139,6 +139,19 @@ describe("RetryHttpLibrary timeout", () => {
     await expect(p).rejects.toThrow(/caller cancelled/);
     expect(fake.attempts).toBe(1); // aborted, not retried
   });
+
+  it("timeoutMs:0 installs no timeout — request is bounded only by the caller signal", async () => {
+    const fake = new HangingHttp();
+    const ctrl = new AbortController();
+    const req = get();
+    req.setSignal(ctrl.signal);
+    const retry = new RetryHttpLibrary(fake, { sleep: noSleep, maxRetries: 3, timeoutMs: 0 });
+    const p = retry.send(req).toPromise();
+    // With no SDK timeout the hung request never self-aborts; only the caller ends it.
+    ctrl.abort(new Error("only the caller stops it"));
+    await expect(p).rejects.toThrow(/only the caller stops it/);
+    expect(fake.attempts).toBe(1);
+  });
 });
 
 describe("RetryHttpLibrary idempotency", () => {

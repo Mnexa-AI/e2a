@@ -88,6 +88,22 @@ describe("E2AClient", () => {
     expect(() => new E2AClient({ baseUrl: BASE })).not.toThrow();
   });
 
+  it("maps a per-request timeout to E2AConnectionError", async () => {
+    // fetch hangs until its abort signal fires — i.e. only the per-attempt
+    // timeout can end it. Exercises the full client → retry → fetch → typed-error
+    // path (Python has the equivalent test_request_timeout_surfaces_as_connection_error).
+    globalThis.fetch = vi.fn(
+      (_url: string, init?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          const s = init?.signal;
+          if (s?.aborted) return reject(s.reason);
+          s?.addEventListener("abort", () => reject(s.reason), { once: true });
+        }),
+    ) as unknown as typeof fetch;
+    const c = new E2AClient({ apiKey: "e2a_test", baseUrl: BASE, timeoutMs: 5, maxRetries: 0 });
+    await expect(c.agents.get("bot@test.dev")).rejects.toBeInstanceOf(E2AConnectionError);
+  });
+
   it("exposes the namespaced resources", () => {
     expect(client.agents).toBeDefined();
     expect(client.messages).toBeDefined();
