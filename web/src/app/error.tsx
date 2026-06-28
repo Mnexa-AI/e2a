@@ -79,7 +79,7 @@ export default function GlobalError({
           Try again
         </button>
         <Link
-          href="/inboxes"
+          href="/"
           className="inline-flex items-center px-4 py-2.5 text-[14px] font-medium"
           style={{
             background: "var(--bg-panel)",
@@ -88,7 +88,7 @@ export default function GlobalError({
             borderRadius: "var(--r-md)",
           }}
         >
-          Go to dashboard
+          Back home
         </Link>
       </div>
     </div>

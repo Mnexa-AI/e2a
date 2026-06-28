@@ -45,18 +45,32 @@ export default function NotFound() {
       >
         {pathname || "/"}
       </p>
-      <Link
-        href="/inboxes"
-        className="inline-flex items-center gap-2 px-4 py-2.5 text-[14px] font-medium"
-        style={{
-          background: "var(--accent-fill)",
-          color: "var(--accent-fg)",
-          borderRadius: "var(--r-md)",
-        }}
-      >
-        Back to dashboard
-        <span className="font-mono">→</span>
-      </Link>
+      <div className="flex flex-wrap gap-2 justify-center">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-2 px-4 py-2.5 text-[14px] font-medium"
+          style={{
+            background: "var(--accent-fill)",
+            color: "var(--accent-fg)",
+            borderRadius: "var(--r-md)",
+          }}
+        >
+          Back home
+          <span className="font-mono">→</span>
+        </Link>
+        <Link
+          href="/inboxes"
+          className="inline-flex items-center px-4 py-2.5 text-[14px] font-medium"
+          style={{
+            background: "var(--bg-panel)",
+            color: "var(--fg)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r-md)",
+          }}
+        >
+          Go to dashboard
+        </Link>
+      </div>
     </div>
   );
 }
