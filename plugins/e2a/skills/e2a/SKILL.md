@@ -1,12 +1,12 @@
 ---
 name: e2a
-description: Use when operating e2a (email for AI agents) over its MCP tools — sending or receiving email, replying in-thread, handling the human-in-the-loop review hold (pending_review), managing agents and custom domains, or working with attachments. With e2a YOU are the agent and the inbox IS the agent (not a human reading their mail). Covers send_message vs reply_to_message threading, multi-agent disambiguation, the custom-domain DNS flow, the protection (screening + review) config, and common gotchas.
-version: 11
+description: Use when operating e2a (email for AI agents) over its MCP tools — sending or receiving email, replying in-thread, handling the human-in-the-loop review hold (pending_review), managing agents and custom domains, or working with attachments — OR when integrating e2a into your own software/service (the developer email-API use case: API keys, SDKs, webhooks). With e2a YOU are the agent and the inbox IS the agent (not a human reading their mail). Covers send_message vs reply_to_message threading, multi-agent disambiguation, the custom-domain DNS flow, the protection (screening + review) config, programmatic integration, and common gotchas.
+version: 12
 ---
 
 # Using e2a
 
-<!-- version: 11 -->
+<!-- version: 12 -->
 
 e2a is an authenticated email gateway for AI agents. It gives an agent a real email address (`agent@agents.e2a.dev` or `agent@your-domain.com`), verifies sender identity (SPF/DKIM), threads conversations, and optionally holds outbound mail for human review.
 
@@ -90,6 +90,35 @@ Posture lives on the protection sub-resource — `update_protection` (MCP) / `PU
 ### Receive mail in your own backend (webhooks)
 
 If the user is building a service that handles inbound mail in their own code, that's an SDK/webhook job, not an MCP one. Subscribe a webhook (`create_webhook`, a separate `/v1/webhooks` resource — NOT a per-agent "mode") and verify deliveries with the per-webhook `whsec_…` secret returned once at creation. The full handler code (FastAPI / Express, `construct_event` / `constructEvent`) is at https://e2a.dev/sdk.md — defer to it rather than reconstructing it here.
+
+## Integrating e2a into software
+
+Everything above assumes **you** are the agent operating an inbox over MCP. But e2a is also a plain email API any software can build on — the "send and receive email from code" use case, except every address is an authenticated *agent* identity, with optional human-in-the-loop review. When a user asks you to **integrate e2a into their app, service, or agent framework**, you're helping them write code against the REST API with an API key — not driving these MCP tools. Make the pivot explicit:
+
+- **MCP** (these tools) — interactive; the agent itself reads/sends mail; auth is OAuth; no integration code. This is you, right now.
+- **SDK / REST API** — programmatic; the user's software sends/receives mail; auth is an **API key**. This is what an integration uses.
+
+The mental model in this skill carries over unchanged: the REST/SDK responses use the same `status`, `message_id`, `pending_review` hold, and reply-threading semantics the MCP tools do — only the transport and auth differ.
+
+### Set it up
+
+1. **Issue an API key and choose its scope.** Programmatic access authenticates with a key sent as `Authorization: Bearer e2a_…` (not the OAuth flow MCP uses). Scope is the load-bearing decision:
+   - **account** — workspace admin: provision agents, domains, webhooks, and approve/reject review holds. Use for a backend that manages inboxes or drives the HITL queue.
+   - **agent** — bound to one inbox (`agent` email at creation): send / read / reply for that identity only. Use for a service that *is* a single sender.
+
+   The secret is returned **once** at creation — store it in the app's secret manager, never in source. (Keys + scopes: https://e2a.dev/auth.md.)
+
+2. **Have an agent identity to send as.** Mail goes out FROM an agent address — `name@agents.e2a.dev` out of the box, or `name@their-domain.com` after the custom-domain verify dance (see "Add a custom domain" above). Create it once (`create_agent` / `POST /v1/agents`) or reuse an existing one.
+
+3. **Send from code.** `POST /v1/agents/{email}/messages` to send, `…/messages/{id}/reply` to reply in-thread — or the equivalent helper in the TypeScript (`@e2a/sdk`) or Python SDK. A `pending_review` response is an accepted-and-held message, **not** an error, exactly as over MCP — surface it to the user as "queued for review," don't retry.
+
+4. **Receive from code (optional).** To handle inbound mail or delivery/review *events* in their backend, subscribe a webhook (`create_webhook` / `POST /v1/webhooks`) and verify every POST with the per-webhook `whsec_…` secret — see "Receive mail in your own backend" above. Don't poll the API for new mail.
+
+The full, current integration code — SDK install, send / reply / parse, webhook handlers with signature verification — lives in the docs, not here. Point the user at:
+
+- SDK + webhook code (TypeScript / Python): https://e2a.dev/sdk.md
+- Auth (API keys, scopes, OAuth): https://e2a.dev/auth.md
+- REST contract: https://e2a.dev/openapi.yaml
 
 ## Gotchas
 
