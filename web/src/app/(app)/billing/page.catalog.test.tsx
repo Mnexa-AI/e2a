@@ -225,6 +225,24 @@ describe("BillingPage — tier comparison", () => {
     expect(mockFetch.mock.calls.some(([u]) => u === CHECKOUT_URL)).toBe(false);
   });
 
+  it("offers no plan-change actions when the current plan can't be determined", async () => {
+    // Fail-safe path: both the sidecar's current.code and the OSS
+    // plan_code are empty, so currentCode resolves to "". No tier should
+    // be marked current and no Upgrade/Switch/Downgrade button should
+    // render — we don't act on an unknown current plan.
+    stage({
+      limits: { ...FREE_LIMITS, plan_code: "" },
+      plan: { catalog: CATALOG, current: { code: "", status: "inactive", has_stripe_customer: false } },
+    });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Plans")).toBeInTheDocument());
+    expect(screen.queryByText("Current")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Upgrade|Switch|Downgrade/ }),
+    ).not.toBeInTheDocument();
+  });
+
   it("degrades gracefully when the plan catalog fails to load", async () => {
     stage({ limits: FREE_LIMITS, planFails: true });
     renderPage();

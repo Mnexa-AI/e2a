@@ -38,6 +38,8 @@ type PlanEntry = {
   max_agents: number;
   max_domains: number;
   max_messages_month: number;
+  // int64 on the Go side; safe as a JS number — the largest tier cap
+  // (~100 GiB ≈ 1.07e11) is far below Number.MAX_SAFE_INTEGER (2^53).
   max_storage_bytes: number;
 };
 
@@ -166,7 +168,7 @@ function UsageRow({ label, current, limit, pct }: UsageRowProps) {
 // already their plan, nothing to buy).
 type PlanCTA = {
   label: string;
-  onClick?: () => void;
+  onClick: () => void;
   disabled: boolean;
 };
 
@@ -221,7 +223,7 @@ function PlanCard({
       {cta && (
         <button
           type="button"
-          disabled={cta.disabled || !cta.onClick}
+          disabled={cta.disabled}
           onClick={cta.onClick}
           className="mt-auto px-3 py-1.5 rounded-md text-sm font-medium bg-accent text-white hover:bg-accent/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
@@ -327,6 +329,13 @@ export default function BillingPage() {
   const hasSub = !!data?.upgrade_url;
 
   function ctaFor(tier: PlanEntry): PlanCTA | null {
+    // Fail safe: if we couldn't determine the user's current plan (both
+    // the sidecar and OSS plan code missing/empty), offer no plan-change
+    // actions rather than risk mislabeling — better to show no button
+    // than to send someone to Checkout for a plan they may already hold.
+    if (!currentCode) {
+      return null;
+    }
     // The current tier is marked with a "Current" badge and offers no
     // action button — there's nothing to do on the plan you're already on.
     if (tier.code === currentCode) {
