@@ -36,6 +36,10 @@ e2a relay -> SMTP -> human
 - A Google AI Studio API key for Gemini —
   [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
 
+> **ADK line:** this example pins ADK 1.x (`google-adk>=1.31,<2`); the MCP
+> quick-start example under [`mcp/examples/adk`](../../mcp/examples/adk/)
+> targets ADK 2.x. They intentionally track different ADK releases.
+
 ## Setup
 
 ```bash

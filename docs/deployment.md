@@ -57,11 +57,11 @@ export E2A_URL=https://e2a.example.com   # default: https://e2a.dev
 e2a login                                # browser flow; saves api key + auto-discovers shared domain
 ```
 
-The CLI hits `GET /v1/info` on login and caches `shared_domain` to `~/.e2a/config.json`, so commands like `e2a agents update my-bot` resolve to the right address on any deployment without further config. Escape hatches if you need to override or skip the discovery step:
+The CLI hits `GET /v1/info` on login and caches `shared_domain` to `~/.e2a/config.json`, so it resolves agent addresses to the right shared domain on any deployment without further config. Escape hatches if you need to override or skip the discovery step:
 
 | Variable | Description |
 |---|---|
-| `E2A_URL` | API base URL (default `https://e2a.dev`) |
+| `E2A_URL` | CLI base URL (default `https://e2a.dev`) — the unified host that serves the `e2a login` browser flow and proxies the `/v1` API |
 | `E2A_API_KEY` | Bypass `e2a login` — useful in CI |
 | `E2A_SHARED_DOMAIN` | Force the shared domain instead of auto-discovering it |
 

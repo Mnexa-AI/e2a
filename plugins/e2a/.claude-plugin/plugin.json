@@ -21,5 +21,6 @@
     "mcp",
     "oauth"
   ],
-  "icon": "./assets/icon.svg"
+  "icon": "./assets/icon.svg",
+  "mcpServers": "./.mcp.json"
 }

@@ -86,7 +86,7 @@ curl http://localhost:8080/api/health
 # → {"status":"ok"}
 
 curl -H "Authorization: Bearer <your-key>" http://localhost:8080/v1/agents
-# → {"agents":[]}
+# → {"items":[],"next_cursor":null}
 ```
 
 ### Optional: web dashboard
@@ -271,7 +271,7 @@ Keep the description tight; the checklist is the load-bearing part.
 review harder and rollback risky. A small refactor that genuinely
 enables the feature is fine; a drive-by typo fix should be its own PR.
 
-**CI must be green.** All twelve test jobs run on every PR. If a
+**CI must be green.** All CI test jobs run on every PR. If a
 flake hits you, re-run the job rather than disabling the test.
 
 ---

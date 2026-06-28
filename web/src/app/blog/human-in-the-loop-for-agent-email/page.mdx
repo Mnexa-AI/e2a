@@ -28,7 +28,7 @@ export const metadata = {
 
 Giving your AI agent an email address is a quietly big step. It means your agent can now reach your customers, your vendors, your boss — the same people you reach. That's the point. It's also the part that makes even the most bullish builder hesitate the first time.
 
-We heard a version of the same question from early beta users:
+We heard a version of the same question from early users:
 
 > I want my agent to send email. I don't want my agent to send *that* email.
 
@@ -38,11 +38,11 @@ Today we're shipping the answer: **human-in-the-loop approval**. It's a per-agen
 
 When an agent has HITL on, every outbound path pauses:
 
-- Fresh sends from `POST /v1/agents/{address}/messages`
+- Fresh sends from `POST /v1/agents/{email}/messages`
 - Replies to inbound mail from `POST /v1/.../reply`
 - Test sends from the dashboard
 
-The API still accepts the request — it just responds `202 Accepted` with `status: "pending_approval"` instead of the usual `200 OK` + `"sent"`. The message lands in a holding table with a TTL; your SDK call returns immediately so the rest of your agent's logic doesn't block.
+The API still accepts the request — it just responds `202 Accepted` with `status: "pending_review"` instead of the usual `200 OK` + `"sent"`. The message lands in a holding table with a TTL; your SDK call returns immediately so the rest of your agent's logic doesn't block.
 
 Nothing changes for agents that don't have HITL on. Same 200, same SES delivery, same latency.
 
@@ -62,64 +62,62 @@ Clicking a button takes you to a one-page, no-JavaScript confirmation view. Full
 
 ### The dashboard
 
-Or skip the email entirely. Go to **Dashboard → Pending**:
+Or skip the email entirely. Go to the **review queue** in the dashboard:
 
 - List view sorted by soonest-expiring first
 - Click any row to open the edit form
 - Change subject, recipients, body, HTML — whatever
 - Approve with edits (the server records `edited: true` so you have an audit trail) or reject with an optional reason
 
-Dashboard edits go through the same `POST /v1/agents/{address}/messages/{id}/approve` endpoint as everything else; edits are sent as a field-diff so the `edited` flag only flips when you actually changed something.
+Dashboard edits go through the same `POST /v1/reviews/{id}/approve` endpoint as everything else; edits are sent as a field-diff so the `edited` flag only flips when you actually changed something.
 
-### The CLI
+### The SDK
 
-Prefer a terminal?
+Prefer driving it from code? With an account-scoped key the review queue is `client.reviews`:
 
-```bash
-# list what's waiting
-e2a pending list
+```python
+# list what's waiting (both directions)
+held = await client.reviews.list().to_list()
 
-# inspect one
-e2a pending show msg_abc123
+# approve as-is (outbound: sends; inbound: releases to the inbox)
+await client.reviews.approve("msg_abc123")
 
-# approve as-is
-e2a pending approve msg_abc123
-
-# approve with edits — opens $EDITOR
-e2a pending approve msg_abc123 --edit
+# approve with edits — pass field overrides
+await client.reviews.approve("msg_abc123", {"body": "Revised copy."})
 
 # reject with a reason
-e2a pending reject msg_def456 --reason "wrong tone"
+await client.reviews.reject("msg_def456", {"reason": "wrong tone"})
 ```
 
-Same permissions, same endpoints, same audit trail.
+Same permissions, same endpoints, same audit trail. The TypeScript SDK mirrors it (`client.reviews.list().toArray()`, `client.reviews.approve(id)`).
 
 ## Turning it on
 
-One command:
+HITL lives on the agent's **protection config** — the `/v1/agents/{email}/protection` sub-resource (`ttl_seconds` + `on_expiry` for the outbound hold). Set it from the dashboard, or from code:
 
-```bash
-e2a agents update my-agent --hitl \
-  --hitl-ttl 3600 \
-  --hitl-expiration-action reject
+```python
+# read, flip the outbound hold on, write it back (account-scoped key)
+protection = await client.agents.get_protection("my-agent@agents.e2a.dev")
+# ...enable the outbound hold with ttl_seconds=3600, on_expiry="reject"...
+await client.agents.replace_protection("my-agent@agents.e2a.dev", protection)
 ```
 
-`--hitl-ttl` sets how long a message stays pending before the platform finalizes it automatically (capped at 7 days). `--hitl-expiration-action` decides what that finalization looks like:
+`ttl_seconds` sets how long a message stays in review before the platform finalizes it automatically (capped at 7 days). `on_expiry` decides what that finalization looks like:
 
 - `reject` — after TTL, the message is dropped. Safest default; matches "if I don't look in an hour, assume I didn't want this sent."
-- `approve` — after TTL, the message goes out automatically. Useful for `e2a agents update my-agent --hitl --hitl-ttl 30 --hitl-expiration-action approve` — a 30-second review window gives you a "reject undo" but keeps the agent responsive.
+- `approve` — after TTL, the message goes out automatically. A short window (say `ttl_seconds: 30`, `on_expiry: "approve"`) gives you a "reject undo" but keeps the agent responsive.
 
-Or toggle from the dashboard: **Agents → (your agent) → HITL → Edit**.
+Or toggle it from the dashboard: open the agent and edit its protection settings.
 
 ## What happens if you ignore it
 
-A background worker sweeps every minute. It looks for rows whose `approval_expires_at` is in the past and applies the agent's configured expiration action. Rows hit the state you chose (`expired_approved` or `expired_rejected`) and their body is scrubbed from storage. Multi-instance deploys use `FOR UPDATE SKIP LOCKED` so two workers can't race on the same row.
+A background worker sweeps every minute. It looks for rows whose `approval_expires_at` is in the past and applies the agent's configured expiration action. Rows hit the state you chose (`review_expired_approved` or `review_expired_rejected`) and their body is scrubbed from storage. Multi-instance deploys use `FOR UPDATE SKIP LOCKED` so two workers can't race on the same row.
 
-If the auto-approve send itself fails (SES down, for example), the row transitions to `expired_rejected` with the error recorded as the rejection reason rather than looping forever.
+If the auto-approve send itself fails (SES down, for example), the row transitions to `review_expired_rejected` with the error recorded as the rejection reason rather than looping forever.
 
 ## Retention, concretely
 
-Enabling HITL stores the full composed message — subject, body, HTML, attachments — in Postgres up to `hitl_ttl_seconds`. On every terminal transition (sent, rejected, expired_*) the server immediately scrubs those columns to NULL. Headers and metadata stay for the normal 30-day message-TTL window; bodies do not.
+Enabling HITL stores the full composed message — subject, body, HTML, attachments — in Postgres up to `hitl_ttl_seconds`. On every terminal transition (sent, review_rejected, review_expired_*) the server immediately scrubs those columns to NULL. Headers and metadata stay for the normal 30-day message-TTL window; bodies do not.
 
 TTL is server-capped at 604800 seconds (7 days) so the maximum exposure is bounded regardless of agent config. And, again: the notification email carries recipients and subject only. Body content stays server-side, behind the token-gated confirmation page.
 
@@ -132,13 +130,13 @@ TTL is server-capped at 604800 seconds (7 days) so the maximum exposure is bound
 
 ## The API surface
 
-Every action is mirrored across the dashboard, CLI, and API. If you want to build your own approval UI:
+Every action is mirrored across the dashboard, SDK, and API. If you want to build your own approval UI:
 
-- `GET /v1/agents/{address}/messages?direction=outbound` — held drafts surface as `status="pending_approval"`
-- `GET /v1/agents/{address}/messages/{id}` — full detail (body included while pending)
-- `POST /v1/agents/{address}/messages/{id}/approve` — optional body overrides
-- `POST /v1/agents/{address}/messages/{id}/reject` — optional reason
-- `PATCH /v1/agents/{address}` — toggle HITL on/off + configure TTL and expiration action
+- `GET /v1/reviews` — held messages (both directions) surface as `status="pending_review"`
+- `GET /v1/agents/{email}/messages/{id}` — full detail (body included while in review)
+- `POST /v1/reviews/{id}/approve` — optional body overrides
+- `POST /v1/reviews/{id}/reject` — optional reason
+- `GET` / `PUT /v1/agents/{email}/protection` — configure the holds, TTL, and expiration action (`PATCH /v1/agents/{email}` only updates the display name)
 
 Full spec in the [API reference](/api-docs).
 
@@ -146,16 +144,19 @@ Full spec in the [API reference](/api-docs).
 
 Off by default. Toggle it on one agent, send a message to yourself, and watch the flow end-to-end:
 
-```bash
-# from a fresh shell with the CLI installed
-e2a agents update my-agent --hitl --hitl-ttl 3600
-e2a send --to you@yourdomain.com --subject "test" --body "anyone home?"
-# → Holding for approval: msg_abc123
+```python
+async with E2AClient(api_key="e2a_...") as client:
+    # protection is on → this send comes back held, not sent
+    result = await client.messages.send(
+        "my-agent@agents.e2a.dev",
+        {"to": ["you@yourdomain.com"], "subject": "test", "body": "anyone home?"},
+    )
+    # result.status == "pending_review", e.g. msg_abc123
 ```
 
 Check your inbox for the approval email. Click through, look at the confirmation page, approve. The message shows up in the recipient's inbox a second later.
 
-Then turn it off and watch the same `send` command return `sent` in one shot.
+Then turn the hold off and watch the same `send` come back `sent` in one shot.
 
 That's the whole feature. Per-agent, reversible, opt-in.
 

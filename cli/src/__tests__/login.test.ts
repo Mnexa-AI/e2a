@@ -171,7 +171,7 @@ describe("login", () => {
       agent_email: "",
       shared_domain: "agents.e2a.dev",
     });
-    expect(mockStderr).toHaveBeenCalledWith("No agents found yet. Run: e2a agents register <slug>\n");
+    expect(mockStderr).toHaveBeenCalledWith("No agents found yet. Create one at https://e2a.dev/get-started\n");
   });
 
   it("unrefs the browser child process so Node can exit", async () => {

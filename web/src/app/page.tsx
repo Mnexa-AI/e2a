@@ -86,7 +86,7 @@ export default function Home() {
               className="hidden md:inline font-mono text-[11px]"
               style={{ color: "var(--fg-subtle)", letterSpacing: "0.04em" }}
             >
-              v0.4 · beta
+              v1.0
             </span>
           </div>
 
@@ -256,7 +256,7 @@ export default function Home() {
                 style={{ background: "var(--success)" }}
               />
             </span>
-            Now in public beta · free
+            Now generally available · free to start
           </p>
           <h1
             className="mx-auto mb-6 leading-[1.05]"
@@ -390,9 +390,9 @@ export default function Home() {
                 num: "01",
                 title: "Register your agent",
                 desc: AGENTS_DOMAIN
-                  ? `Sign in, pick a slug, and you've got my-agent@${AGENTS_DOMAIN}. Or BYO domain — verify by DNS TXT.`
-                  : "Sign in and bring your own domain — register it once and verify the DNS records.",
-                tag: "e2a agents register my-agent",
+                  ? `Sign in at e2a.dev/get-started, pick a slug, and you've got my-agent@${AGENTS_DOMAIN}. Or BYO domain — verify by DNS TXT. (Also creatable via MCP or the SDK.)`
+                  : "Sign in at e2a.dev/get-started and bring your own domain — register it once and verify the DNS records. (Also creatable via MCP or the SDK.)",
+                tag: "e2a.dev/get-started",
               },
               {
                 num: "02",
@@ -530,8 +530,8 @@ export default function Home() {
                   <Tok c="accent">npm install</Tok> -g @e2a/cli
                 </Line>
                 <Line>&nbsp;</Line>
-                <Line c="comment"># register your agent</Line>
-                <Line>e2a agents register my-agent</Line>
+                <Line c="comment"># sign in (register your agent at e2a.dev/get-started)</Line>
+                <Line>e2a login</Line>
                 <Line>&nbsp;</Line>
                 <Line c="comment"># listen for inbound email, forward to your local server</Line>
                 <Line>
@@ -541,16 +541,14 @@ export default function Home() {
             )}
             {activeTab === "claude" && (
               <>
-                <Line c="comment"># drop the e2a skill into your Claude Code project</Line>
-                <Line>mkdir -p .claude/skills/e2a</Line>
-                <Line>curl -o .claude/skills/e2a/SKILL.md \</Line>
-                <Line>&nbsp;&nbsp;https://raw.githubusercontent.com/Mnexa-AI/e2a/main/plugins/e2a/skills/e2a/SKILL.md</Line>
+                <Line c="comment"># connect Claude Code to e2a over MCP (OAuth in the browser)</Line>
+                <Line>claude mcp add <Tok c="flag">--transport</Tok> http <Tok c="flag">--scope</Tok> user \</Line>
+                <Line>&nbsp;&nbsp;e2a https://api.e2a.dev/mcp</Line>
                 <Line>&nbsp;</Line>
-                <Line c="comment"># then tell Claude Code:</Line>
-                <Line>/e2a register my-agent</Line>
-                <Line>/e2a listen</Line>
+                <Line c="comment"># then just ask Claude in plain language:</Line>
+                <Line c="comment">#   &quot;Create an email agent and listen for new mail.&quot;</Line>
                 <Line>&nbsp;</Line>
-                <Line c="comment"># works with OpenClaw, Gemini CLI, any skill-aware agent</Line>
+                <Line c="comment"># works with Cursor, Codex, Windsurf — any MCP-aware agent</Line>
               </>
             )}
             {activeTab === "python" && (
@@ -582,7 +580,7 @@ export default function Home() {
                 <Line c="comment"># 1. create the agent</Line>
                 <Line>curl -X POST https://api.e2a.dev/v1/agents \</Line>
                 <Line>&nbsp;&nbsp;-H <Tok c="string">{`"Authorization: Bearer $E2A_API_KEY"`}</Tok> \</Line>
-                <Line>&nbsp;&nbsp;-d <Tok c="string">{`'{"slug":"my-agent"}'`}</Tok></Line>
+                <Line>&nbsp;&nbsp;-d <Tok c="string">{`'{"email":"my-agent@agents.e2a.dev"}'`}</Tok></Line>
                 <Line>&nbsp;</Line>
                 <Line c="comment"># 2. subscribe a webhook to receive inbound mail</Line>
                 <Line>curl -X POST https://api.e2a.dev/v1/webhooks \</Line>
@@ -624,7 +622,7 @@ export default function Home() {
               className="mb-5 leading-[1.65]"
               style={{ fontSize: 13, color: "var(--fg-muted)" }}
             >
-              Per-agent, opt-in, off by default. Configurable TTL with auto-approve or auto-reject on expiry. Reviewable from the dashboard, CLI, or one-click magic links in your inbox.
+              Per-agent, opt-in, off by default. Configurable TTL with auto-approve or auto-reject on expiry. Reviewable from the dashboard, SDK, or one-click magic links in your inbox.
             </p>
             <div className="flex flex-wrap items-center gap-2.5">
               <Link
@@ -654,24 +652,20 @@ export default function Home() {
             </div>
           </div>
 
-          <CodeBlock title="hitl.sh · cli">
-            <Line c="comment"># hold outbound for review</Line>
-            <Line>
-              <Tok c="prompt">$</Tok>e2a agents update my-agent <Tok c="flag">--hitl</Tok> \
-            </Line>
-            <Line>
-              &nbsp;&nbsp;<Tok c="flag">--hitl-ttl</Tok> 3600 <Tok c="flag">--hitl-expiration-action</Tok> reject
-            </Line>
+          <CodeBlock title="hitl.ts · sdk">
+            <Line c="comment">{"// Turn on HITL in the dashboard, or hold outbound for"}</Line>
+            <Line c="comment">{"// review via the agent's protection config."}</Line>
             <Line>&nbsp;</Line>
-            <Line c="comment"># review held messages from your terminal</Line>
+            <Line c="comment">{"// review held messages with an account-scoped key"}</Line>
             <Line>
-              <Tok c="prompt">$</Tok>e2a pending list
+              <Tok c="keyword">const</Tok> held = <Tok c="keyword">await</Tok> client.reviews.<Tok c="fn">list</Tok>().<Tok c="fn">toArray</Tok>();
             </Line>
             <Line c="dim">&nbsp;&nbsp;msg_abc123  customer@acme.io   <Tok c="warn">in 47m</Tok></Line>
             <Line c="dim">&nbsp;&nbsp;msg_def456  legal@stripe.com   <Tok c="warn">in 2h 12m</Tok></Line>
             <Line>&nbsp;</Line>
+            <Line c="comment">{"// approve (sends it) or reject with a reason"}</Line>
             <Line>
-              <Tok c="prompt">$</Tok>e2a pending approve msg_abc123 <Tok c="flag">--edit</Tok>
+              <Tok c="keyword">await</Tok> client.reviews.<Tok c="fn">approve</Tok>(<Tok c="string">&quot;msg_abc123&quot;</Tok>);
             </Line>
             <Line c="success">&nbsp;&nbsp;→ approved · delivering now</Line>
           </CodeBlock>
@@ -782,7 +776,7 @@ export default function Home() {
             className="mb-7 leading-[1.55]"
             style={{ fontSize: 15, color: "var(--fg-muted)" }}
           >
-            Free during beta. No credit card. Up and running in under two minutes.
+            Free to start. No credit card. Up and running in under two minutes.
           </p>
           <div className="inline-flex flex-wrap items-center justify-center gap-2.5">
             <Link

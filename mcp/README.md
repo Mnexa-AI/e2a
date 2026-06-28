@@ -27,7 +27,7 @@ An agent-scoped credential resolves its agent server-side. Account-scoped caller
 import os
 
 from google.adk.agents import Agent
-from google.adk.tools.mcp_tool import McpToolset
+from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
 
 root_agent = Agent(
@@ -116,7 +116,7 @@ Hosts that support OAuth connectors can instead add `https://api.e2a.dev/mcp` as
 
 The server exposes up to **37** tools spanning agents, messages, human-in-the-loop
 approval, attachments, domains, events, and webhooks. **The visible set depends on
-your credential's scope (§6a):** an **agent**-scoped credential sees the 14
+your credential's scope:** an **agent**-scoped credential sees the 14
 runtime/inbox tools (read, send, reply, and view its pending queue); an
 **account**-scoped credential also sees the 23 admin/setup tools (agent/domain/
 webhook/event management — **and HITL approve/reject, which is an account-owner

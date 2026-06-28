@@ -15,8 +15,8 @@ Email **security@mnexa.ai** with:
 
 - A description of the issue
 - Steps to reproduce (or a proof-of-concept)
-- The version / commit you observed it on (run `e2a -version` or check
-  `VERSION` in the repo)
+- The version / commit you observed it on (the git SHA, release tag, or
+  the `VERSION` file)
 - Any mitigations you suggest
 
 You can also use GitHub's [private vulnerability reporting](https://github.com/Mnexa-AI/e2a/security/advisories/new)

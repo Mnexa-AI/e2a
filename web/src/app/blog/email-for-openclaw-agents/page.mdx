@@ -57,10 +57,7 @@ e2a login
 
 ## Step 2: Register the agent
 
-```bash
-e2a agents register research
-# → Registered: research@agents.e2a.dev
-```
+Create the agent in the dashboard at [e2a.dev/get-started](https://e2a.dev/get-started) (or via the MCP `create_agent` tool / the SDK) — pick a slug like `research` and you'll get `research@agents.e2a.dev`. The CLI itself only handles auth and listening, not agent creation.
 
 The slug becomes the local-part of your agent's address. There's no cloud-vs-local "mode" — webhook vs WebSocket is just a delivery choice. Here we never subscribe a webhook; instead `e2a listen` opens a WebSocket, so e2a holds mail server-side and pushes it down the stream when your listener connects. That's what keeps the whole setup public-URL-free.
 
@@ -152,4 +149,4 @@ Threading, sender auth, reply-routing — all handled by the gateway so OpenClaw
 - **Add tools.** OpenClaw supports tool calls via the Responses API. Your agent can query calendars, book meetings, or hand off to a human — all triggered by email.
 - **Wire up human-in-the-loop review.** For high-stakes replies, you can hold OpenClaw's outbound for a quick approval before it goes out the door.
 
-If you hit snags — the CLI logs are verbose, and the [API reference](/api-docs) covers the webhook / reply endpoints if you want to build your own listener. There's a free tier and the whole flow above costs nothing during the beta.
+If you hit snags — the CLI logs are verbose, and the [API reference](/api-docs) covers the webhook / reply endpoints if you want to build your own listener. There's a free tier and the whole flow above costs nothing to get started.

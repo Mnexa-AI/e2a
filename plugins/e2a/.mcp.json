@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "e2a": {
+      "type": "http",
+      "url": "https://api.e2a.dev/mcp"
+    }
+  }
+}

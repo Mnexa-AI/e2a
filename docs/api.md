@@ -193,7 +193,7 @@ To verify an inbound webhook payload, pass the webhook's signing secret to the S
 helper — `construct_event(body, header, secret)` /
 `constructEvent(body, header, secret)` does parse + verify in one call. See the
 [Python](../sdks/python/README.md#quick-start) and
-[TypeScript](../sdks/typescript/README.md#webhook-cloud-agents) SDK READMEs.
+[TypeScript](../sdks/typescript/README.md#verify-a-webhook) SDK READMEs.
 
 <a id="webhook-signing-secrets"></a>
 > **Signing.** Webhook deliveries are signed per-webhook with the `whsec_`

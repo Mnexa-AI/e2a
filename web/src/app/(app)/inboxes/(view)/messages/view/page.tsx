@@ -547,7 +547,7 @@ function FocusContent({
           )}
           <LifecycleSection msg={msg} hitlEnabled={hitlEnabled} />
           {isPending && msg.direction === "outbound" && (
-            <CliHint messageId={msg.data.id} />
+            <ApproveHint messageId={msg.data.id} />
           )}
         </aside>
       </div>
@@ -1070,7 +1070,7 @@ function LifecycleSection({ msg, hitlEnabled }: { msg: LoadedMessage; hitlEnable
   );
 }
 
-function CliHint({ messageId }: { messageId: string }) {
+function ApproveHint({ messageId }: { messageId: string }) {
   return (
     <div
       style={{
@@ -1080,7 +1080,7 @@ function CliHint({ messageId }: { messageId: string }) {
         padding: "0 4px",
       }}
     >
-      or via CLI:
+      or via SDK:
       <div
         style={{
           marginTop: 6,
@@ -1091,7 +1091,7 @@ function CliHint({ messageId }: { messageId: string }) {
           color: "var(--fg)",
         }}
       >
-        e2a pending approve {messageId}
+        await client.reviews.approve(&quot;{messageId}&quot;)
       </div>
     </div>
   );

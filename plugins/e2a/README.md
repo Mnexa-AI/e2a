@@ -68,7 +68,7 @@ The skill is authored in `skills/<name>/SKILL.md` with YAML frontmatter:
 ---
 name: e2a
 description: Use when operating e2a over its MCP tools — sending/receiving email, ...
-version: 11
+version: 12
 ---
 
 ...guide body...
