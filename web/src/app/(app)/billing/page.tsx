@@ -25,11 +25,40 @@ type LimitsInfo = {
   upgrade_url: string;
 };
 
+// PlanInfo mirrors the response of GET /api/billing/plan on the hosted
+// billing sidecar. The sidecar's plans package is the single source of
+// truth for what each tier includes and what it costs; we render the
+// comparison straight from it so the dashboard can never drift from the
+// caps the webhook actually provisions. Stripe price IDs stay
+// server-side — the client only ever sends a plan `code`.
+type PlanEntry = {
+  code: string;
+  display_name: string;
+  monthly_price_cents: number;
+  max_agents: number;
+  max_domains: number;
+  max_messages_month: number;
+  max_storage_bytes: number;
+};
+
+type CurrentState = {
+  code: string;
+  status: string;
+  current_period_end?: string;
+  has_stripe_customer: boolean;
+};
+
+type PlanInfo = {
+  catalog: PlanEntry[];
+  current: CurrentState;
+};
+
 // BILLING_API is the base URL of the external limits provisioner (the
 // hosted billing sidecar). When empty the dashboard renders the usage
-// surface without Upgrade / Manage Billing affordances — appropriate
-// for self-host deployments that don't run a paid tier. Set at build
-// time via NEXT_PUBLIC_BILLING_API; populated in the prod web image.
+// surface without the plan comparison or Upgrade / Manage Billing
+// affordances — appropriate for self-host deployments that don't run a
+// paid tier. Set at build time via NEXT_PUBLIC_BILLING_API; populated in
+// the prod web image.
 const BILLING_API = (process.env.NEXT_PUBLIC_BILLING_API ?? "").replace(/\/$/, "");
 
 async function fetchLimits(): Promise<LimitsInfo> {
@@ -37,6 +66,15 @@ async function fetchLimits(): Promise<LimitsInfo> {
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`limits: HTTP ${res.status}${body ? ` — ${body}` : ""}`);
+  }
+  return res.json();
+}
+
+async function fetchPlan(url: string): Promise<PlanInfo> {
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`plan: HTTP ${res.status}${body ? ` — ${body}` : ""}`);
   }
   return res.json();
 }
@@ -56,6 +94,27 @@ function formatNumber(n: number): string {
   return n.toLocaleString();
 }
 
+// formatPrice turns the catalog's integer cents into the dashboard's
+// price label. $0 reads "Free"; whole-dollar amounts drop the trailing
+// ".00" so "$20/mo" not "$20.00/mo".
+function formatPrice(cents: number): string {
+  if (cents <= 0) return "Free";
+  const dollars = cents / 100;
+  const amount = Number.isInteger(dollars) ? `$${dollars}` : `$${dollars.toFixed(2)}`;
+  return `${amount}/mo`;
+}
+
+// QUOTA_DIMS is the data-driven list of caps we show per tier. Each
+// dimension formats its own cell from a PlanEntry, so adding a future
+// cap (webhooks, seats, …) is one entry here plus the matching field on
+// PlanEntry — no per-tier markup to touch.
+const QUOTA_DIMS: { label: string; format: (p: PlanEntry) => string }[] = [
+  { label: "Inboxes", format: (p) => formatNumber(p.max_agents) },
+  { label: "Domains", format: (p) => formatNumber(p.max_domains) },
+  { label: "Messages / mo", format: (p) => formatNumber(p.max_messages_month) },
+  { label: "Storage", format: (p) => formatBytes(p.max_storage_bytes) },
+];
+
 // pctTone picks the bar color based on how close to the cap the user
 // is. <70% neutral, 70-90% warning, >=90% danger. Tones reuse existing
 // CSS vars so the dashboard's theme tokens own the actual colors.
@@ -64,17 +123,6 @@ function pctTone(pct: number): "neutral" | "warn" | "danger" {
   if (pct >= 70) return "warn";
   return "neutral";
 }
-
-// PLAN_CATALOG mirrors the operator-side plan catalog at
-// e2a-ops/billing/internal/plans/plans.go. Hardcoded here because the
-// dashboard isn't yet wired to the sidecar's GET /api/billing/plan
-// listing endpoint — and even if it were, the values are stable enough
-// that an extra round-trip on the upgrade page isn't worth it. If you
-// change a cap on either side, update both files in the same PR.
-const PLAN_CATALOG = [
-  { code: "pro", name: "Pro", price: "$20/mo", chips: ["25 inboxes", "10 domains", "50k msgs/mo", "10 GiB"] },
-  { code: "scale", name: "Scale", price: "$99/mo", chips: ["250 inboxes", "50 domains", "500k msgs/mo", "100 GiB"] },
-] as const;
 
 type UsageRowProps = {
   label: string;
@@ -113,17 +161,99 @@ function UsageRow({ label, current, limit, pct }: UsageRowProps) {
   );
 }
 
+// PlanCTA describes the action button on one tier card. `null` means the
+// tier shows no button (e.g. the Free tier for a brand-new user — it's
+// already their plan, nothing to buy).
+type PlanCTA = {
+  label: string;
+  onClick?: () => void;
+  disabled: boolean;
+};
+
+function PlanCard({
+  tier,
+  isCurrent,
+  cta,
+}: {
+  tier: PlanEntry;
+  isCurrent: boolean;
+  cta: PlanCTA | null;
+}) {
+  return (
+    <div
+      className="rounded-lg border p-4 flex flex-col gap-3"
+      style={{
+        // The current tier gets the accent border + a tinted surface so
+        // it reads as "you are here" at a glance.
+        borderColor: isCurrent ? "var(--accent)" : "var(--border)",
+        background: isCurrent ? "var(--surface)" : "var(--bg-elev)",
+      }}
+      aria-current={isCurrent ? "true" : undefined}
+    >
+      <div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm font-semibold text-foreground">
+            {tier.display_name}
+          </span>
+          {isCurrent && (
+            <span
+              className="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5"
+              style={{ background: "var(--accent)", color: "white" }}
+            >
+              Current
+            </span>
+          )}
+        </div>
+        <div className="text-xs text-muted mt-0.5">
+          {formatPrice(tier.monthly_price_cents)}
+        </div>
+      </div>
+
+      <dl className="text-xs text-muted space-y-1">
+        {QUOTA_DIMS.map((d) => (
+          <div key={d.label} className="flex items-baseline justify-between gap-2">
+            <dt>{d.label}</dt>
+            <dd className="text-foreground font-medium">{d.format(tier)}</dd>
+          </div>
+        ))}
+      </dl>
+
+      {cta && (
+        <button
+          type="button"
+          disabled={cta.disabled || !cta.onClick}
+          onClick={cta.onClick}
+          className="mt-auto px-3 py-1.5 rounded-md text-sm font-medium bg-accent text-white hover:bg-accent/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {cta.label}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function BillingPage() {
   const { data, error, isLoading, mutate } = useSWR<LimitsInfo>(
     "limits",
     fetchLimits,
   );
 
-  // Track the specific action in flight so each button can show its own
-  // "Opening…" label while disabling the others. Two upgrade variants
-  // because the page renders a Pro and a Scale CTA side-by-side.
-  type PendingAction = "upgrade-pro" | "upgrade-scale" | "portal";
-  const [actionPending, setActionPending] = useState<PendingAction | null>(null);
+  // The plan catalog comes from the sidecar's source of truth. Gated on
+  // BILLING_API so self-host builds (no sidecar) skip the fetch entirely
+  // — SWR treats a null key as "don't fetch".
+  const {
+    data: planData,
+    error: planError,
+    mutate: mutatePlan,
+  } = useSWR<PlanInfo>(
+    BILLING_API ? `${BILLING_API}/api/billing/plan` : null,
+    fetchPlan,
+  );
+
+  // Track which specific button is in flight so it can show "Opening…"
+  // while the others disable. Tier CTAs are keyed `tier-<code>`; the
+  // banner's Manage-billing button is "manage".
+  const [actionPending, setActionPending] = useState<string | null>(null);
 
   // Both Upgrade and Manage Billing POST to the sidecar and follow the
   // returned `url`. POST (not GET) because the OSS session cookie is
@@ -135,7 +265,7 @@ export default function BillingPage() {
   //
   // `body` carries the plan selector for /api/billing/checkout (sidecar
   // defaults to Pro when absent). /api/billing/portal ignores it.
-  async function postBilling(endpoint: string, kind: PendingAction, body?: unknown) {
+  async function postBilling(endpoint: string, kind: string, body?: unknown) {
     setActionPending(kind);
     try {
       const res = await fetch(endpoint, {
@@ -171,16 +301,73 @@ export default function BillingPage() {
   // stuck after a Back navigation.
   useEffect(() => {
     const onShow = (e: PageTransitionEvent) => {
-      if (e.persisted) void mutate();
+      if (e.persisted) {
+        void mutate();
+        void mutatePlan();
+      }
     };
     window.addEventListener("pageshow", onShow);
     return () => window.removeEventListener("pageshow", onShow);
-  }, [mutate]);
+  }, [mutate, mutatePlan]);
 
   // Compute usage percentages once data is loaded. Guard zero limits
   // (treat as 0% rather than NaN/Infinity) so a misconfigured row with
   // max_*=0 doesn't paint a full red bar.
   const pct = (used: number, cap: number) => (cap > 0 ? (used / cap) * 100 : 0);
+
+  // Current tier: prefer the sidecar's billing truth, fall back to the
+  // OSS-enforced plan_code so the banner still labels correctly when the
+  // catalog fetch hasn't landed (or isn't present on self-host).
+  const currentCode = planData?.current.code ?? data?.plan_code ?? "";
+
+  // hasSub: the user has an active Stripe subscription. upgrade_url is
+  // only populated by the OSS server when a subscription exists, and it
+  // *is* the portal POST target — so it doubles as the "has subscription"
+  // signal and the endpoint for plan changes / cancellation.
+  const hasSub = !!data?.upgrade_url;
+
+  function ctaFor(tier: PlanEntry): PlanCTA | null {
+    // The current tier is marked with a "Current" badge and offers no
+    // action button — there's nothing to do on the plan you're already on.
+    if (tier.code === currentCode) {
+      return null;
+    }
+    if (hasSub) {
+      // Existing subscribers change or cancel their plan through the
+      // Stripe Billing Portal (it owns proration). Both "switch up/down"
+      // and "downgrade to Free" route there.
+      const label =
+        tier.monthly_price_cents <= 0 ? "Downgrade" : `Switch to ${tier.display_name}`;
+      const key = `tier-${tier.code}`;
+      return {
+        label: actionPending === key ? "Opening…" : label,
+        onClick: () => postBilling(data!.upgrade_url, key),
+        disabled: actionPending !== null,
+      };
+    }
+    // No subscription yet. The Free tier is already their plan (handled
+    // above as current), so only paid tiers get an Upgrade CTA → Checkout.
+    if (tier.monthly_price_cents <= 0) {
+      return null;
+    }
+    const key = `tier-${tier.code}`;
+    return {
+      label: actionPending === key ? "Opening…" : `Upgrade to ${tier.display_name}`,
+      onClick: () =>
+        postBilling(`${BILLING_API}/api/billing/checkout`, key, { plan: tier.code }),
+      disabled: actionPending !== null,
+    };
+  }
+
+  // Human label for the current plan in the banner. "default" is the
+  // operator-configured self-host plan (not a catalog tier); otherwise
+  // prefer the catalog's display name, falling back to the raw code.
+  const currentPlanLabel =
+    data?.plan_code === "default"
+      ? "Default (operator-configured)"
+      : planData?.catalog.find((p) => p.code === currentCode)?.display_name ??
+        data?.plan_code ??
+        "";
 
   return (
     <PageShell
@@ -222,74 +409,77 @@ export default function BillingPage() {
                   Current plan
                 </div>
                 <div className="text-lg font-semibold text-foreground mt-1">
-                  {data.plan_code === "default"
-                    ? "Default (operator-configured)"
-                    : data.plan_code}
+                  {currentPlanLabel}
                 </div>
               </div>
               {BILLING_API && data.upgrade_url && (
                 // upgrade_url present → user has an active Stripe
                 // subscription. Clicking POSTs to the sidecar, which
                 // returns a fresh Stripe Billing Portal URL. From the
-                // Portal, users can switch plans (Pro ↔ Scale) and
-                // cancel — that's why we don't render separate
-                // upgrade-to-Scale buttons for paid users.
+                // Portal, users switch plans (Pro ↔ Scale) and cancel.
                 <div className="flex items-center gap-2 flex-wrap justify-end">
                   <button
                     type="button"
                     disabled={actionPending !== null}
-                    onClick={() => postBilling(data.upgrade_url, "portal")}
+                    onClick={() => postBilling(data.upgrade_url, "manage")}
                     className="px-3 py-1.5 rounded-md text-sm border hover:bg-background transition disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ borderColor: "var(--border)", color: "var(--fg)" }}
                   >
-                    {actionPending === "portal" ? "Opening…" : "Manage billing"}
+                    {actionPending === "manage" ? "Opening…" : "Manage billing"}
                   </button>
                 </div>
               )}
             </div>
-
-            {/* Plan picker for free users: render Pro + Scale side-by-side
-                with the caps each tier includes spelled out, so users
-                aren't picking blind from "Upgrade to Pro · $20/mo" alone.
-                Hidden once the user has an active subscription — they
-                manage plan changes through the Stripe Billing Portal. */}
-            {BILLING_API && !data.upgrade_url && (
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                {PLAN_CATALOG.map((p) => {
-                  const pendingKey = `upgrade-${p.code}` as PendingAction;
-                  return (
-                    <div
-                      key={p.code}
-                      className="rounded-lg border p-4 flex flex-col gap-3"
-                      style={{ borderColor: "var(--border)", background: "var(--bg-elev)" }}
-                    >
-                      <div>
-                        <div className="text-sm font-semibold text-foreground">{p.name}</div>
-                        <div className="text-xs text-muted mt-0.5">{p.price}</div>
-                      </div>
-                      <ul className="text-xs text-muted space-y-1">
-                        {p.chips.map((c) => (
-                          <li key={c}>· {c}</li>
-                        ))}
-                      </ul>
-                      <button
-                        type="button"
-                        disabled={actionPending !== null}
-                        onClick={() =>
-                          postBilling(`${BILLING_API}/api/billing/checkout`, pendingKey, {
-                            plan: p.code,
-                          })
-                        }
-                        className="mt-auto px-3 py-1.5 rounded-md text-sm font-medium bg-accent text-white hover:bg-accent/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {actionPending === pendingKey ? "Opening…" : `Upgrade to ${p.name}`}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </section>
+
+          {/* Plan comparison: every tier and its quota, sourced from the
+              sidecar catalog (the SSOT). Hidden on self-host (no
+              BILLING_API). The current tier is highlighted; each tier
+              carries the right CTA for the user's subscription state. */}
+          {BILLING_API && (
+            <section
+              className="rounded-xl border p-5 space-y-4"
+              style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+            >
+              <div>
+                <div className="text-xs uppercase tracking-wide text-muted">
+                  Plans
+                </div>
+                <div className="text-sm text-muted mt-1">
+                  Compare what each tier includes.
+                </div>
+              </div>
+
+              {planError && (
+                <div className="text-sm text-muted">
+                  Couldn&apos;t load plans.{" "}
+                  <button
+                    onClick={() => mutatePlan()}
+                    className="underline hover:text-foreground transition"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+
+              {!planError && !planData && (
+                <div className="text-sm text-muted">Loading plans…</div>
+              )}
+
+              {planData && (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {planData.catalog.map((tier) => (
+                    <PlanCard
+                      key={tier.code}
+                      tier={tier}
+                      isCurrent={tier.code === currentCode}
+                      cta={ctaFor(tier)}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
 
           {/* Usage card */}
           <section

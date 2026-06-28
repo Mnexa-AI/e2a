@@ -100,6 +100,11 @@ describe("BillingPage", () => {
     await waitFor(() => screen.getByText(/Default/i));
     expect(screen.queryByText(/Upgrade/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Manage billing/i)).not.toBeInTheDocument();
+    // The plan comparison is also a sidecar-only surface — with no
+    // BILLING_API there's no catalog to fetch, so the Plans section and
+    // its tier cards must not render.
+    expect(screen.queryByText("Plans")).not.toBeInTheDocument();
+    expect(screen.queryByText("Scale")).not.toBeInTheDocument();
   });
 
   it("renders error state when the API returns non-2xx", async () => {
