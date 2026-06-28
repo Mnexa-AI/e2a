@@ -9,7 +9,19 @@ npm install @e2a/sdk
 ```
 
 The SDK major version tracks the SDK package's own breaking changes and is
-independent of the API version path (`/v1`): SDK 3.x targets the e2a v1 API.
+independent of the API version path (`/v1`): SDK 4.x targets the e2a v1 API.
+
+## Upgrading to 4.0
+
+4.0 is a breaking change to the domain DNS-records shape (server #304).
+`DomainView.dns_records` is now a single purpose-tagged `DNSRecord[]` array
+instead of the old `dns_records.{ mx, txt, dkim }` object (and the separate
+`sending_dns_records` array is gone). Each record carries `type`, `name`,
+`value`, `priority`, `purpose`, and a per-record `status`. Address records by
+`purpose` (`ownership`, `inbound_mx`, `dkim`, `mail_from_mx`, `mail_from_spf`)
+rather than `dns_records.mx`/`.txt`/`.dkim` — the MAIL FROM records now live in
+the same array. `purpose` and `status` are open sets, so tolerate unknown
+values. No other public symbols changed.
 
 ## Upgrading from 2.x to 3.0
 
@@ -89,7 +101,7 @@ match the signature.
 ```typescript
 import { constructEvent, E2AWebhookSignatureError } from "@e2a/sdk/v1";
 
-app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
+app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   let event;
   try {
     event = constructEvent(req.body, req.header("X-E2A-Signature"), process.env.E2A_WEBHOOK_SECRET);

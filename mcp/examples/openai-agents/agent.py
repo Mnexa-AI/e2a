@@ -40,7 +40,8 @@ async def main(prompt: str) -> None:
             instructions=(
                 "Manage email through the e2a tools. Use whoami once to "
                 "find the inbox; list_messages + get_message to read; "
-                "reply_to_message (not send_email) to reply in-thread."
+                "reply_to_message to reply in-thread, and send_message to "
+                "start a new one."
             ),
             mcp_servers=[e2a],
         )

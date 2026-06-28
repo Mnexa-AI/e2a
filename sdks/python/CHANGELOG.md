@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.0.1
+
+Additive, no breaking changes.
+
+### Added
+- `email.received` is a metadata-only notification; `webhooks.fetch_message(event)`
+  + the `EmailReceivedPayload` type fetch the full message (body + attachments)
+  on demand (#321).
+- Per-axis SES sending status surfaced on the domain/sending types (#309).
+- DKIM verification support (#312).
+
 ## 4.0.0
 
 Breaking: the domain DNS-records shape changed (server #304).

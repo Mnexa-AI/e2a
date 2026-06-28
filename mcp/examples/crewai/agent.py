@@ -22,8 +22,9 @@ from crewai_tools import MCPServerAdapter
 BACKSTORY = (
     "You manage email through the e2a tools. Call whoami once to find "
     "your inbox address. Use list_messages and get_message to read; "
-    "use reply_to_message (not send_email) when replying to an existing "
-    "thread so In-Reply-To and References headers are preserved."
+    "use reply_to_message when replying to an existing thread (preserves "
+    "In-Reply-To and References headers), and send_message to start a new "
+    "thread."
 )
 
 

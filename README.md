@@ -32,7 +32,7 @@ Human (Gmail/Outlook)
     │
     ▼ SMTP
 ┌──────────────┐
-│   e2a relay   │  ← MX record for your agent domain points here
+│  e2a relay   │  ← MX record for your agent domain points here
 │              │
 │  1. Verify   │  ← SPF/DKIM check on the inbound message
 │  2. Sign     │  ← HMAC-signed X-E2A-Auth-* headers
@@ -118,7 +118,7 @@ Inbound mail reaches you two complementary ways — chosen per integration, not 
 | Channel | How | Public URL needed? |
 |---------|-----|---------------------|
 | **Webhooks** | Account-level subscriptions (`POST /v1/webhooks`) — HTTPS POST per event, filterable by agent / conversation / event type | Yes |
-| **WebSocket** | Per-agent real-time notification stream (`/v1/agents/{address}/ws`) + REST fetch | No |
+| **WebSocket** | Per-agent real-time notification stream (`/v1/agents/{email}/ws`) + REST fetch | No |
 
 A disconnected WebSocket client accumulates "unread" messages; on reconnect, the server drains them as notifications. Either channel can also poll messages via the REST API. Webhooks are their own resource (`/v1/webhooks`), chosen per integration rather than set on the agent.
 
@@ -158,7 +158,10 @@ The one-call shortcut parses **and** verifies a delivery, returning a typed even
 from e2a.v1 import construct_event, E2AWebhookSignatureError
 
 # raw request body + the X-E2A-Signature header + your whsec_… secret
-event = construct_event(request_body, signature_header, webhook_secret)  # raises on bad signature
+try:
+    event = construct_event(request_body, signature_header, webhook_secret)
+except E2AWebhookSignatureError:
+    abort(400)  # bad signature — reject the delivery
 if event.type == "email.received":
     # metadata-only notification — fetch the full message (body + attachments)
     msg = await client.webhooks.fetch_message(event)
@@ -167,7 +170,13 @@ if event.type == "email.received":
 ```typescript
 import { constructEvent, E2AWebhookSignatureError } from "@e2a/sdk/v1";
 
-const event = constructEvent(req.body, req.header("X-E2A-Signature")!, webhookSecret); // throws on bad signature
+let event;
+try {
+  event = constructEvent(req.body, req.header("X-E2A-Signature")!, webhookSecret);
+} catch (err) {
+  if (err instanceof E2AWebhookSignatureError) return res.status(400).end(); // bad signature
+  throw err;
+}
 if (event.type === "email.received") {
   // metadata-only notification — fetch the full message (body + attachments)
   const msg = await client.webhooks.fetchMessage(event);
@@ -193,10 +202,10 @@ When an agent's protection config holds an outbound message for review, `send` a
 
 Reviewers can approve or reject via:
 
-- **Dashboard / API** — the account-scoped review queue `POST /v1/reviews/{id}/approve` or `/reject` (id-addressed, no inbox email needed; lists held items across all the account's inboxes via `GET /v1/reviews`). This is the primary path. The agent-path `POST /v1/agents/{address}/messages/{id}/approve|reject` is **deprecated** but still works identically for back-compat.
+- **Dashboard / API** — the account-scoped review queue `POST /v1/reviews/{id}/approve` or `/reject` (id-addressed, no inbox email needed; lists held items across all the account's inboxes via `GET /v1/reviews`). This is the primary path. The agent-path `POST /v1/agents/{email}/messages/{id}/approve|reject` is **deprecated** but still works identically for back-compat.
 - **Magic-link email** — sent automatically when a hold fires; one-click `GET /v1/approve?t=…` and `/v1/reject?t=…` URLs (requires `E2A_PUBLIC_URL` and outbound SMTP configured)
 
-Enable review holds on an agent via `PUT /v1/agents/{address}/protection`: set the outbound gate action to `review` (or turn on the content scan), plus the hold TTL (`holds.ttl_seconds`) and its expiry behavior (`holds.on_expiry` = `approve` or `reject`). Posture lives entirely on the protection sub-resource.
+Enable review holds on an agent via `PUT /v1/agents/{email}/protection`: set the outbound gate action to `review` (or turn on the content scan), plus the hold TTL (`holds.ttl_seconds`) and its expiry behavior (`holds.on_expiry` = `approve` or `reject`). Posture lives entirely on the protection sub-resource.
 
 ## API
 
@@ -248,7 +257,7 @@ client = E2AClient()                                       # reads E2A_API_KEY
 event = construct_event(request_body, signature_header, webhook_secret)  # parse + HMAC-verify
 if event.type == "email.received":
     # event.data is metadata only — replying needs just the recipient + message_id
-    # it carries (fetch the body with client.webhooks.fetch_message(event) if needed)
+    # fetch the full body with client.webhooks.fetch_message(event) if needed
     meta = event.data
     await client.messages.reply(meta["recipient"], meta["message_id"],
                                 {"body": "Got it!", "conversation_id": "conv_123"})
@@ -313,7 +322,7 @@ See [docs/data-handling.md](docs/data-handling.md) for the full retention table,
 
 Four things that aren't possible to bolt on without significant rework:
 
-1. **Local-mode agents with no public URL.** Agents authenticate with their API key, open a WebSocket to `/v1/agents/{address}/ws`, and inbound mail arrives as JSON over that connection — no webhook URL, no ngrok, no port forward. Useful for agents on developer laptops, edge devices, or behind corporate firewalls. SendGrid/Resend are webhook-only by design. A polling REST API is available as fallback.
+1. **Local-mode agents with no public URL.** Agents authenticate with their API key, open a WebSocket to `/v1/agents/{email}/ws`, and inbound mail arrives as JSON over that connection — no webhook URL, no ngrok, no port forward. Useful for agents on developer laptops, edge devices, or behind corporate firewalls. SendGrid/Resend are webhook-only by design. A polling REST API is available as fallback.
 
 2. **Conversation threading on every reply.** Whether a human replies from Gmail or another e2a agent replies via the API, the inbound message arrives at the agent with a stable `conversation_id` already mapped to the original thread. For human senders, the relay does standard `In-Reply-To` / `References` lookup scoped to the recipient agent's own messages. For agent-to-agent where both sides are on e2a, it also trusts an `X-E2A-Conversation-Id` header it controls (envelope-from is its own domain), which survives clients that rewrite threading headers. SendGrid/Resend never see inbound mail — they aren't receivers — so neither path is available without you building both yourself.
 
@@ -373,7 +382,7 @@ make test                # all Go tests (needs Postgres on :5433)
 make test-unit           # Go unit tests only (no DB)
 make test-integration    # integration tests (needs Postgres)
 make test-e2e            # e2e tests (needs Postgres)
-make docker-up           # start local Postgres via docker compose
+make docker-up           # start local Postgres + Mailpit via docker compose
 make migrate             # apply SQL migrations to local DB
 ```
 

@@ -9,7 +9,19 @@ pip install e2a          # add the [ws] extra for client.listen(): pip install "
 ```
 
 The SDK major version tracks the SDK package's own breaking changes and is
-independent of the API version path (`/v1`): SDK 3.x targets the e2a v1 API.
+independent of the API version path (`/v1`): SDK 4.x targets the e2a v1 API.
+
+## Upgrading to 4.0
+
+4.0 is a breaking change to the domain DNS-records shape (server #304).
+`DomainView.dns_records` is now a single purpose-tagged `list[DNSRecord]`
+instead of the old `dns_records.{ mx, txt, dkim }` object (and the separate
+`sending_dns_records` list is gone). Each record carries `type`, `name`,
+`value`, `priority`, `purpose`, and a per-record `status`. Address records by
+`purpose` (`ownership`, `inbound_mx`, `dkim`, `mail_from_mx`, `mail_from_spf`)
+rather than `dns_records.mx`/`.txt`/`.dkim` — the MAIL FROM records now live in
+the same list. `purpose` and `status` are open sets, so tolerate unknown
+values. No other public symbols changed.
 
 ## Upgrading from 2.x to 3.0
 
@@ -141,6 +153,29 @@ async for notif in client.listen("bot@agents.e2a.dev"):  # falls back to E2A_AGE
 `client.listen(address)` returns a `WSStream` (async-iterable of
 `WSNotification`) that reconnects with exponential backoff. Requires the `[ws]`
 extra (`pip install "e2a[ws]"`).
+
+## Conversation threading
+
+`conversation_id` is an opaque string that ties multiple emails to one thread
+across the email boundary. Pass it on any `send` / `reply` (as a body field) and
+e2a surfaces it on the recipient's inbound — via `In-Reply-To` for humans, or a
+forge-resistant `X-E2A-Conversation-Id` header for same-platform agent-to-agent
+mail. It is not a security boundary; for sender identity check the message's
+`auth`. On first contact from a human it arrives `None` — assign one yourself if
+you want to thread.
+
+```python
+await client.messages.send(address, {
+    "to": ["alice@example.com"],
+    "subject": "Hello",
+    "body": "Hi from my agent!",
+    "conversation_id": "thread-42",
+})
+
+# Filter an inbox down to a single thread:
+async for m in client.messages.list(address, conversation_id="thread-42"):
+    ...
+```
 
 ## License
 
