@@ -7,13 +7,12 @@ export interface Config {
   api_url: string;
   agent_email: string;
   /**
-   * Shared mail domain the deployment uses for slug-based agent registration
-   * (e.g. "agents.example.com"). The CLI uses this to expand bare slugs into
-   * full email addresses when calling agent-scoped commands like
-   * `e2a agents update my-bot`. Self-hosters with a different shared domain
-   * should override via `E2A_SHARED_DOMAIN` or `e2a config set
-   * shared_domain ...`. Defaults to the hosted product's shared domain so
-   * the public deployment works zero-config.
+   * Shared mail domain the deployment uses for slug-based agent addresses
+   * (e.g. "agents.example.com"), auto-discovered from `GET /v1/info` on
+   * `e2a login` and cached here. Self-hosters with a different shared domain
+   * can override via `E2A_SHARED_DOMAIN` or `e2a config set shared_domain ...`.
+   * Defaults to the hosted product's shared domain so the public deployment
+   * works zero-config.
    */
   shared_domain: string;
 }

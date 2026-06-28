@@ -284,6 +284,6 @@ export async function login(): Promise<void> {
   if (agentEmail) {
     process.stdout.write(`Active agent: ${agentEmail}\n`);
   } else {
-    process.stderr.write("No agents found yet. Run: e2a agents register <slug>\n");
+    process.stderr.write(`No agents found yet. Create one at ${config.api_url.replace(/\/+$/, "")}/get-started\n`);
   }
 }

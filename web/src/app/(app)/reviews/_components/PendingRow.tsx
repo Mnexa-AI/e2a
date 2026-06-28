@@ -440,7 +440,7 @@ export function PendingRow({
                     className="font-mono text-[11px] hidden md:inline"
                     style={{ color: "var(--fg-subtle)" }}
                   >
-                    e2a pending approve {id}
+                    client.reviews.approve(&quot;{id}&quot;)
                   </code>
                 </div>
               )}
