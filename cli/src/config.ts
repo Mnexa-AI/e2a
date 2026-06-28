@@ -20,7 +20,7 @@ export interface Config {
 
 const CONFIG_DIR = join(homedir(), ".e2a");
 const CONFIG_PATH = join(CONFIG_DIR, "config.json");
-const DEFAULT_URL = "https://api.e2a.dev";
+const DEFAULT_URL = "https://e2a.dev";
 const DEFAULT_SHARED_DOMAIN = "agents.e2a.dev";
 
 export function loadConfig(): Config {

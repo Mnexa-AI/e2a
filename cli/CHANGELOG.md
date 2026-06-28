@@ -16,4 +16,7 @@ The `e2a` CLI targets the e2a v1 API and runs on the 4.x TypeScript SDK
 - Commands are thin wrappers over the namespaced SDK surface
   (`client.agents`, `client.messages`, `client.domains`, `client.webhooks`,
   `client.account`). Auth reads `E2A_API_KEY`; `E2A_URL` overrides the endpoint
-  for self-hosted deployments (default `https://api.e2a.dev`).
+  for self-hosted deployments (default `https://e2a.dev`, the hosted product's
+  unified host — it serves the `e2a login` browser flow and proxies the `/v1`
+  API). Direct SDK users (no browser login) can point at the API host
+  `https://api.e2a.dev` instead.

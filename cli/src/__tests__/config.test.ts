@@ -37,7 +37,7 @@ describe("loadConfig", () => {
 
     const config = loadConfig();
     expect(config.api_key).toBe("");
-    expect(config.api_url).toBe("https://api.e2a.dev");
+    expect(config.api_url).toBe("https://e2a.dev");
     expect(config.agent_email).toBe("");
   });
 
