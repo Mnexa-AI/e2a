@@ -103,11 +103,16 @@ During a rotation you can pass a list of secrets — accepted if any matches:
 `client.account.suppressions`), plus `await client.info()`. Each method maps to
 a `/v1` operation; per-agent methods take the agent `address` first.
 
-### `E2AClient(api_key=None, *, base_url=None, max_retries=2, max_elapsed_ms=None)`
+### `E2AClient(api_key=None, *, base_url=None, max_retries=2, max_elapsed_ms=None, timeout_ms=30000)`
 
 `api_key` falls back to `E2A_API_KEY`; `base_url` to `E2A_BASE_URL` then
-`https://api.e2a.dev`. Use it as an async context manager (or call
-`await client.aclose()`) to close the underlying HTTP connections.
+`https://api.e2a.dev`. `timeout_ms` is the per-request timeout (default 30s); a
+timed-out request retries like any other connection failure. Passing
+`timeout_ms=0` or `None` removes the SDK's override and falls back to the HTTP
+transport's built-in **300s** ceiling — it does **not** make requests unbounded
+(this differs from the TypeScript SDK, where `timeoutMs: 0` is fully unbounded).
+Use it as an async context manager (or call `await client.aclose()`) to close
+the underlying HTTP connections.
 
 ### Errors
 

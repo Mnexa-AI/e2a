@@ -123,6 +123,7 @@ class E2AClient:
         base_url: Optional[str] = None,
         max_retries: int = 2,
         max_elapsed_ms: Optional[float] = None,
+        timeout_ms: Optional[float] = 30_000.0,
         _retry_config: Optional[RetryConfig] = None,
     ) -> None:
         key = api_key or _env("E2A_API_KEY")
@@ -141,6 +142,31 @@ class E2AClient:
 
         config = Configuration(host=self._base_url, access_token=key)
         self._api_client = ApiClient(config)
+
+        # Per-request timeout (default 30s). The generated httpx transport applies
+        # `_request_timeout or 300s` per call; we inject our default when the caller
+        # didn't pass one, so every request is bounded without threading a timeout
+        # through each resource method. A timeout raises httpx.TimeoutException (a
+        # TransportError), which the retry layer treats as a retryable connection
+        # failure. Pass timeout_ms=None or 0 to fall back to the transport default.
+        self._timeout_s = (timeout_ms / 1000.0) if timeout_ms and timeout_ms > 0 else None
+        if self._timeout_s is not None:
+            _rest = self._api_client.rest_client
+            _orig_request = _rest.request
+
+            # Assumes the generated ApiClient calls rest_client.request(...) with
+            # `_request_timeout` as a KEYWORD (it does — see generated
+            # api_client.py). If a future openapi-generator bump passes it
+            # positionally, `.get()` would miss it and we'd re-inject as a kwarg
+            # → TypeError; `make generate-sdk-check` (CI) gates that drift, and a
+            # regen would surface it here. Keep this in sync if that call shape
+            # changes.
+            async def _request_with_default_timeout(*args: Any, **kwargs: Any) -> Any:
+                if kwargs.get("_request_timeout") is None:
+                    kwargs["_request_timeout"] = self._timeout_s
+                return await _orig_request(*args, **kwargs)
+
+            _rest.request = _request_with_default_timeout  # type: ignore[method-assign]
 
         self.agents = AgentsResource(AgentsApi(self._api_client), self)
         self.messages = MessagesResource(MessagesApi(self._api_client), self)

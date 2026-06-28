@@ -80,6 +80,10 @@ export interface E2AClientOptions {
   maxRetries?: RetryOptions["maxRetries"];
   /** Optional total deadline across attempts (ms). */
   maxElapsedMs?: RetryOptions["maxElapsedMs"];
+  /** Per-attempt request timeout in ms. Default 30000; pass 0 to disable. A
+   *  timed-out attempt is a retryable connection failure, so it composes with
+   *  maxRetries/maxElapsedMs. */
+  timeoutMs?: RetryOptions["timeoutMs"];
 }
 
 /** Per-call options for unsafe writes. */
@@ -137,6 +141,8 @@ export class E2AClient {
     const httpApi = new RetryHttpLibrary(new IsomorphicFetchHttpLibrary(), {
       maxRetries: opts.maxRetries,
       maxElapsedMs: opts.maxElapsedMs,
+      // `?? 30000` defaults the timeout; an explicit 0 disables it (0 is not nullish).
+      timeoutMs: opts.timeoutMs ?? 30000,
     });
     const config = createConfiguration({
       baseServer: new ServerConfiguration(baseUrl, {}),

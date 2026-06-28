@@ -5,12 +5,14 @@ stack: namespaced resource -> generated *Api -> bearer auth -> retry layer ->
 httpx -> envelope unwrap -> typed-error mapping.
 """
 
+import httpx
 import pytest
 
 from e2a.v1._retry import RetryConfig
 from e2a.v1.client import E2AClient
 from e2a.v1.errors import (
     E2AConflictError,
+    E2AConnectionError,
     E2AError,
     E2ANotFoundError,
     E2APermissionError,
@@ -126,6 +128,61 @@ def test_resources_exposed():
     for name in ("agents", "messages", "conversations", "domains", "events", "webhooks", "account", "reviews"):
         assert getattr(c, name) is not None
     assert c.account.suppressions is not None
+
+
+@pytest.mark.parametrize(
+    "timeout_ms, expected_s",
+    [
+        (None, 30.0),        # default
+        (30_000.0, 30.0),    # explicit default
+        (5_000.0, 5.0),      # custom
+        (0, None),           # disabled → transport default applies
+    ],
+)
+def test_timeout_ms_to_seconds(timeout_ms, expected_s):
+    kwargs = {} if timeout_ms is None else {"timeout_ms": timeout_ms}
+    c = E2AClient(api_key="e2a_test", base_url=BASE, **kwargs)
+    assert c._timeout_s == expected_s
+
+
+@pytest.mark.anyio
+async def test_timeout_injected_into_transport(monkeypatch):
+    # The real client wraps rest_client.request to inject _request_timeout when the
+    # caller passes none. Patch the generated transport BEFORE construction so the
+    # wrapper closes over our spy, then assert the default seconds value lands.
+    from e2a.v1.generated import rest as _rest_mod
+
+    seen = {}
+
+    async def spy(self, method, url, headers=None, body=None, post_params=None, _request_timeout=None):
+        seen["timeout"] = _request_timeout
+        raise httpx.ConnectError("boom")  # short-circuit; we only inspect the arg
+
+    monkeypatch.setattr(_rest_mod.RESTClientObject, "request", spy)
+    c = E2AClient(api_key="e2a_test", base_url=BASE, timeout_ms=5_000.0)
+    with pytest.raises(httpx.ConnectError):
+        await c._api_client.rest_client.request("GET", "http://test.local/x")
+    assert seen["timeout"] == 5.0
+
+
+@pytest.mark.anyio
+async def test_request_timeout_surfaces_as_connection_error(httpx_mock):
+    # A transport timeout (httpx.TimeoutException family) must surface as a typed,
+    # retryable connection error — same path as any connection-level failure.
+    httpx_mock.add_exception(httpx.ReadTimeout("read timed out"))
+
+    async def no_sleep(_s):
+        return None
+
+    c = E2AClient(
+        api_key="e2a_test",
+        base_url=BASE,
+        timeout_ms=50.0,
+        _retry_config=RetryConfig(max_retries=0, sleep=no_sleep),
+    )
+    async with c:
+        with pytest.raises(E2AConnectionError):
+            await c.agents.get("bot@test.dev")
 
 
 # ── auth + agents ───────────────────────────────────────────────────

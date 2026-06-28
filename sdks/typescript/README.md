@@ -124,6 +124,14 @@ argument.
 | `baseUrl`      | `string` | `https://api.e2a.dev`   | API base URL (override for self-host)    |
 | `maxRetries`   | `number` | `2`                     | Retries on 429/5xx/connection            |
 | `maxElapsedMs` | `number` | —                       | Optional total deadline across attempts  |
+| `timeoutMs`    | `number` | `30000`                 | Per-attempt request timeout (see below)  |
+
+`timeoutMs` bounds each individual attempt; a timed-out attempt is treated as a
+retryable connection failure, so it composes with `maxRetries`/`maxElapsedMs`.
+Setting `timeoutMs: 0` removes the SDK timeout entirely — a request is then
+bounded only by the runtime's own `fetch` default (effectively unbounded in
+Node). Note this differs from the Python SDK, where `timeout_ms=0` falls back to
+the HTTP transport's built-in 300s ceiling rather than going unbounded.
 
 ### Errors
 
