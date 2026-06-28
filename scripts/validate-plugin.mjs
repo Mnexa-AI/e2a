@@ -173,12 +173,16 @@ for (const dir of skillDirs) {
   }
 }
 
-// --- 5: standalone .mcp.json -------------------------------------------------
+// --- 5: standalone .mcp.json (optional) --------------------------------------
 
+// The e2a server is declared inline in .claude-plugin/plugin.json, so a
+// standalone .mcp.json is not required. Validate it only if it exists.
 const mcpPath = join(PLUGIN_DIR, ".mcp.json");
-const mcp = readJSON(mcpPath);
-if (mcp && (!mcp.mcpServers || Object.keys(mcp.mcpServers).length === 0)) {
-  fail(`${rel(mcpPath)}: "mcpServers" must define at least one server`);
+if (existsSync(mcpPath)) {
+  const mcp = readJSON(mcpPath);
+  if (mcp && (!mcp.mcpServers || Object.keys(mcp.mcpServers).length === 0)) {
+    fail(`${rel(mcpPath)}: "mcpServers" must define at least one server`);
+  }
 }
 
 // --- report ------------------------------------------------------------------
