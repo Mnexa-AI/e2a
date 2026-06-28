@@ -173,11 +173,20 @@ for (const dir of skillDirs) {
   }
 }
 
-// --- 5: standalone .mcp.json (optional) --------------------------------------
+// --- 5: standalone .mcp.json wiring ------------------------------------------
 
-// The e2a server is declared inline in .claude-plugin/plugin.json, so a
-// standalone .mcp.json is not required. Validate it only if it exists.
+// The e2a server is declared in a single plugins/e2a/.mcp.json that every
+// client manifest references via "mcpServers": "./.mcp.json". If a manifest
+// points at the file, the file must exist and define at least one server —
+// otherwise the plugin installs but silently registers zero MCP tools.
 const mcpPath = join(PLUGIN_DIR, ".mcp.json");
+const referencesMcpFile = PLUGIN_MANIFESTS.some(({ file }) => {
+  const m = readJSON(file);
+  return typeof m?.mcpServers === "string";
+});
+if (referencesMcpFile && !existsSync(mcpPath)) {
+  fail(`${rel(mcpPath)}: referenced by a client manifest ("mcpServers": "./.mcp.json") but the file is missing`);
+}
 if (existsSync(mcpPath)) {
   const mcp = readJSON(mcpPath);
   if (mcp && (!mcp.mcpServers || Object.keys(mcp.mcpServers).length === 0)) {
