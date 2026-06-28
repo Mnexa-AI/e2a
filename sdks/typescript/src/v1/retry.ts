@@ -25,6 +25,10 @@ export interface RetryOptions {
   /** Optional total deadline across all attempts (incl. backoff), in ms. When
    *  the next sleep would exceed it, stop and return/throw the last result. */
   maxElapsedMs?: number;
+  /** Per-attempt request timeout in ms. A timed-out attempt aborts the in-flight
+   *  fetch and is surfaced as a (retryable) connection failure, so it composes
+   *  with maxRetries/maxElapsedMs. Undefined or <=0 disables. */
+  timeoutMs?: number;
   /** Injectable for tests. */
   sleep?: (ms: number) => Promise<void>;
   random?: () => number;
@@ -76,13 +80,28 @@ export class RetryHttpLibrary implements HttpLibrary {
     for (;;) {
       this.throwIfAborted(signal);
 
+      // Bound this attempt: a signal that aborts on the caller's signal OR after
+      // timeoutMs. Set on the shared RequestContext so the generated fetch layer
+      // honors it.
+      const att = this.attemptSignal(signal, this.opts.timeoutMs);
+      if (att.signal) request.setSignal(att.signal);
+
       let resp: ResponseContext | undefined;
       let connErr: unknown;
       try {
         resp = await this.inner.send(request).toPromise();
       } catch (e) {
-        connErr = e; // connection-level failure (no HTTP response)
+        // A timeout aborts the fetch; surface it as a connection-level failure
+        // (retried like any other for retry-safe requests) with a clear message
+        // rather than the opaque AbortError.
+        connErr = att.timedOut() ? new Error(`request timed out after ${this.opts.timeoutMs}ms`) : e;
+      } finally {
+        att.cleanup();
       }
+
+      // A genuine caller abort (not our timeout) stops immediately — don't
+      // reclassify it as a retryable connection error below.
+      this.throwIfAborted(signal);
 
       const isConn = resp === undefined;
       const retryable = retrySafe && (isConn || isRetryableStatus(resp!.httpStatusCode));
@@ -175,6 +194,39 @@ export class RetryHttpLibrary implements HttpLibrary {
     }
     if (!present) return; // not a server-keyed op (no stub) — never seen here when gated
     request.setHeaderParam(IDEMPOTENCY_HEADER, (this.opts.genIdempotencyKey ?? defaultUuid)());
+  }
+
+  // Per-attempt timeout. Returns a signal that aborts on the caller's signal OR
+  // after timeoutMs, a cleanup to clear the timer/listener, and a flag that
+  // distinguishes a timeout from a caller abort (so the caller's abort still
+  // propagates, while a timeout is retried). With no timeout the caller's signal
+  // passes straight through.
+  private attemptSignal(
+    caller: AbortSignal | undefined,
+    timeoutMs: number | undefined,
+  ): { signal: AbortSignal | undefined; cleanup: () => void; timedOut: () => boolean } {
+    if (!timeoutMs || timeoutMs <= 0) {
+      return { signal: caller, cleanup: () => {}, timedOut: () => false };
+    }
+    const ctrl = new AbortController();
+    let didTimeout = false;
+    const onCallerAbort = () => ctrl.abort(caller?.reason);
+    if (caller) {
+      if (caller.aborted) ctrl.abort(caller.reason);
+      else caller.addEventListener("abort", onCallerAbort, { once: true });
+    }
+    const timer = setTimeout(() => {
+      didTimeout = true;
+      ctrl.abort(new DOMException(`Request timed out after ${timeoutMs}ms`, "TimeoutError"));
+    }, timeoutMs);
+    return {
+      signal: ctrl.signal,
+      cleanup: () => {
+        clearTimeout(timer);
+        caller?.removeEventListener("abort", onCallerAbort);
+      },
+      timedOut: () => didTimeout,
+    };
   }
 
   private throwIfAborted(signal: AbortSignal | undefined): void {

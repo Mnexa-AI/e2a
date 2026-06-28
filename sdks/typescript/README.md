@@ -124,6 +124,7 @@ argument.
 | `baseUrl`      | `string` | `https://api.e2a.dev`   | API base URL (override for self-host)    |
 | `maxRetries`   | `number` | `2`                     | Retries on 429/5xx/connection            |
 | `maxElapsedMs` | `number` | —                       | Optional total deadline across attempts  |
+| `timeoutMs`    | `number` | `30000`                 | Per-attempt request timeout; `0` disables |
 
 ### Errors
 

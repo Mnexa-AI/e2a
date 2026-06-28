@@ -89,6 +89,58 @@ describe("RetryHttpLibrary retry behavior", () => {
   });
 });
 
+// A transport that hangs until the request's signal aborts, then rejects with
+// the abort reason — mirroring how fetch behaves under an AbortSignal. Lets the
+// per-attempt timeout fire against a request that never resolves on its own.
+class HangingHttp implements HttpLibrary {
+  public attempts = 0;
+  send(req: RequestContext): Observable<ResponseContext> {
+    this.attempts += 1;
+    const signal = req.getSignal?.();
+    return from(
+      new Promise<ResponseContext>((_resolve, reject) => {
+        if (signal?.aborted) return reject(signal.reason);
+        signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+      }),
+    );
+  }
+}
+
+describe("RetryHttpLibrary timeout", () => {
+  it("times out a hung retry-safe request, retries, then throws a timeout error", async () => {
+    const fake = new HangingHttp();
+    const retry = new RetryHttpLibrary(fake, { sleep: noSleep, maxRetries: 1, timeoutMs: 5 });
+    await expect(retry.send(get()).toPromise()).rejects.toThrow(/timed out/);
+    expect(fake.attempts).toBe(2); // 1 + 1 retry, each timed out
+  });
+
+  it("does NOT retry a hung bare POST on timeout (throws after one attempt)", async () => {
+    const fake = new HangingHttp();
+    const retry = new RetryHttpLibrary(fake, { sleep: noSleep, maxRetries: 2, timeoutMs: 5 });
+    await expect(retry.send(barePost()).toPromise()).rejects.toThrow(/timed out/);
+    expect(fake.attempts).toBe(1); // non-idempotent POST: not retried
+  });
+
+  it("does not time out a fast response", async () => {
+    const fake = new FakeHttp([{ status: 200 }]);
+    const retry = new RetryHttpLibrary(fake, { sleep: noSleep, timeoutMs: 1000 });
+    const resp = await retry.send(get()).toPromise();
+    expect(resp.httpStatusCode).toBe(200);
+  });
+
+  it("propagates a caller abort as an abort (not a timeout) and stops", async () => {
+    const fake = new HangingHttp();
+    const ctrl = new AbortController();
+    const req = get();
+    req.setSignal(ctrl.signal);
+    const retry = new RetryHttpLibrary(fake, { sleep: noSleep, maxRetries: 3, timeoutMs: 10000 });
+    const p = retry.send(req).toPromise();
+    ctrl.abort(new Error("caller cancelled"));
+    await expect(p).rejects.toThrow(/caller cancelled/);
+    expect(fake.attempts).toBe(1); // aborted, not retried
+  });
+});
+
 describe("RetryHttpLibrary idempotency", () => {
   it("mints an Idempotency-Key ONCE and reuses it across retries", async () => {
     let n = 0;
