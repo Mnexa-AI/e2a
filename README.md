@@ -1,4 +1,10 @@
-# e2a — Email for AI agents
+<div align="center">
+
+<img src="assets/e2a-wordmark.png" width="320" alt="e2a">
+
+### Give your AI agents a real, authenticated email address.
+
+Receive inbound over **webhook · WebSocket · REST · MCP**. Send through an **HTTP API**. Every sender — human or agent — **identity-verified**.
 
 [![Tests](https://github.com/Mnexa-AI/e2a/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/Mnexa-AI/e2a/actions/workflows/test.yml)
 [![Build image](https://github.com/Mnexa-AI/e2a/actions/workflows/build-image.yml/badge.svg?branch=main)](https://github.com/Mnexa-AI/e2a/actions/workflows/build-image.yml)
@@ -6,23 +12,36 @@
 [![npm @e2a/sdk](https://img.shields.io/npm/v/%40e2a%2Fsdk?label=%40e2a%2Fsdk)](https://www.npmjs.com/package/@e2a/sdk)
 [![PyPI e2a](https://img.shields.io/pypi/v/e2a)](https://pypi.org/project/e2a/)
 
+[Hosted (e2a.dev)](https://e2a.dev) · [Quickstart](#quickstart) · [Concepts](#concepts) · [API](#api) · [SDKs](#sdks) · [MCP](#mcp-server) · [Deploy](#deployment) · [FAQ](#faq)
+
 <a href="https://www.producthunt.com/products/e2a-open-source-email-api-for-agents?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-e2a-open-source-email-api-for-agents" target="_blank" rel="noopener noreferrer"><img alt="e2a – open-source email API for agents - Give your AI agents a real, authenticated email address. | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1145559&theme=light&t=1778615217650"></a>
 
-Authenticated email gateway for AI agents. Receive emails as webhooks or via WebSocket, send emails through an HTTP API, and verify the identity of every sender — humans and other agents alike.
+</div>
+
+---
+
+e2a is an **authenticated email gateway for AI agents**. It receives inbound mail, verifies the sender (SPF/DKIM), and delivers it to your agent as structured data with HMAC-signed `X-E2A-Auth-*` headers — over whichever channel fits your runtime. Outbound goes back out through an HTTP API, with an optional human-in-the-loop approval gate.
+
+**Four ways to plug an agent in:**
+
+- **MCP** — point any MCP-aware runtime at the hosted server (`https://api.e2a.dev/mcp`) and your agent gets an inbox toolset (`list_messages`, `send_message`, `reply_to_message`, …). The fastest path for agent frameworks. → [MCP server](#mcp-server)
+- **SDKs** — TypeScript (`@e2a/sdk`) and Python (`e2a`) clients with one-call webhook verification and a WebSocket `listen()` stream. → [SDKs](#sdks)
+- **Raw delivery** — subscribe a **webhook**, open a **WebSocket**, or **poll** the REST API directly. → [Delivery channels](#delivery-channels)
+- **CLI** — `e2a listen` bridges inbound mail to a local HTTP handler (including an OpenAI Responses auto-reply mode). → [CLI](#cli)
+
+What you get on top of bare SMTP:
 
 - **Authenticated transport** — SPF/DKIM verified on inbound; HMAC-signed `X-E2A-Auth-*` headers on every delivery
-- **Two delivery channels** — webhook (cloud agents) or WebSocket (local agents, no public URL needed)
+- **No public URL required** — WebSocket, REST polling, and MCP all work from a laptop or behind a firewall
 - **Outbound API** — agents send to other agents (SMTP relay) or humans (upstream SMTP, e.g. SES, Resend)
 - **Human in the loop** — opt-in approval gate that holds outbound mail until a reviewer approves via dashboard, magic-link email, the MCP tools, or the API
-- **CLI + SDKs** — TypeScript and Python SDKs, plus a `e2a` CLI for everyday agent ops
-
-<video src="https://github.com/user-attachments/assets/b55a8f18-6470-44e3-a053-97dfb787228c" controls autoplay muted loop width="800"></video>
+- **Conversation threading** — a stable `conversation_id` that survives the email ↔ structured-data boundary
 
 ## Use it
 
 You can either use the hosted instance or self-host.
 
-- **Hosted** — sign up at [e2a.dev](https://e2a.dev). Includes the shared `agents.e2a.dev` domain for instant slug-based onboarding (no DNS setup), a dashboard, and managed deliverability.
+- **Hosted** — sign up at [e2a.dev](https://e2a.dev). Includes the shared `agents.e2a.dev` domain for instant slug-based onboarding (no DNS setup), a dashboard, the hosted MCP server, and managed deliverability.
 - **Self-host** — see [Quickstart](#quickstart) and [Deployment](#deployment). Every feature works the same; the shared-domain slug shortcut just needs you to point a mail domain at your relay and set `shared_domain` in `config.yaml`.
 
 ## How it works
@@ -39,19 +58,44 @@ Human (Gmail/Outlook)
 │  3. Deliver  │
 └──────────────┘
     │
-    ├──▶ Cloud-mode agent: HTTPS webhook POST
+    ├──▶ Webhook subscription: HTTPS POST to your endpoint
     │
-    └──▶ Local-mode agent: store + WebSocket notification
+    └──▶ Store → agent fetches over WebSocket, REST poll, or MCP tools (no public URL)
               │
               ▼
-         e2a listen (CLI) or client.listen() (SDK)
+         e2a listen (CLI) · client.listen() (SDK) · list_messages (MCP)
 ```
 
-Inbound flow: SMTP → SPF/DKIM check → agent lookup → HMAC-sign auth headers → webhook or WebSocket delivery.
+Inbound flow: SMTP → SPF/DKIM check → agent lookup → HMAC-sign auth headers → webhook / WebSocket / REST / MCP delivery.
 
 Outbound flow: API call → optional HITL hold → SMTP relay (agent-to-agent) or upstream SMTP (agent-to-human).
 
 ## Quickstart
+
+### Use it with your AI agent (recommended)
+
+Install the e2a plugin — it registers the hosted [MCP server](#mcp-server) and an operate-well skill, so your agent can send, receive, reply in-thread, and hold mail for review out of the box. On first tool use it runs an OAuth flow in your browser — no API key to paste.
+
+**Claude Code**
+
+```
+claude plugin marketplace add Mnexa-AI/e2a
+claude plugin install e2a@e2a
+```
+
+**Codex**
+
+```
+codex plugin marketplace add Mnexa-AI/e2a
+```
+
+Then launch `codex`, run `/plugins`, and install **e2a**.
+
+**Cursor** — run `/add-plugin e2a`, or paste `https://github.com/Mnexa-AI/e2a` into the marketplace search in Cursor Settings.
+
+**Other MCP clients** (Zed, Goose, Windsurf, Claude Desktop, raw `mcp.json`) — point straight at `https://api.e2a.dev/mcp`; ready-to-paste configs are in [plugins/e2a/clients/](plugins/e2a/clients). See [plugins/e2a/README.md](plugins/e2a/README.md) for the full per-client guide.
+
+### Self-host (Docker)
 
 Requires Docker.
 
@@ -100,27 +144,28 @@ To receive real inbound mail, point a domain's MX record at your relay host:
 - **A**: `your-domain.com` → server IP
 - **MX**: `your-domain.com` → `your-domain.com` (priority 10)
 
-Then register and verify the domain through the API (see [Domains](#domains)). Without DNS, the API still works for testing — but external email won't reach your relay.
+Then register and verify the domain through the API (see [Domains](docs/api.md)). Without DNS, the API still works for testing — but external email won't reach your relay.
 
-> **Upgrades and migrations.** The compose file mounts `migrations/` into Postgres' init directory, which only runs on first start (when the data volume is empty). When you upgrade e2a and pull a new schema migration, you must apply it manually:
-> ```bash
-> docker compose exec postgres sh -c \
->   'for f in /docker-entrypoint-initdb.d/*.sql; do psql -U e2a -d e2a -f "$f" -v ON_ERROR_STOP=1; done'
-> ```
-> The migration files are idempotent (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE … ADD COLUMN IF NOT EXISTS`) so re-running them is safe.
+> **Upgrades and migrations.** The e2a binary embeds `migrations/*.sql` and **auto-applies any pending ones at startup** (tracked in a `schema_migrations` table). When you upgrade e2a, restarting the container applies new schema migrations automatically — no manual step. `E2A_MIGRATION_MODE` controls this: `auto` (default, applies pending), `verify` (refuse startup and report pending), or `skip` (emergency surgery). Migrations are idempotent and non-destructive, so re-applying is safe.
+>
+> (The compose file also mounts `migrations/` into Postgres' init directory, but that path only runs on first start with an empty data volume — the binary's startup auto-apply is what keeps an upgraded deployment current.)
 
 ## Concepts
 
 ### Delivery channels
 
-Inbound mail reaches you two complementary ways — chosen per integration, not set on the agent:
+Inbound mail reaches you several complementary ways — **chosen per integration, not set on the agent**. There is no delivery "mode" on the agent record; any agent the caller owns can be consumed over any of these:
 
 | Channel | How | Public URL needed? |
 |---------|-----|---------------------|
 | **Webhooks** | Account-level subscriptions (`POST /v1/webhooks`) — HTTPS POST per event, filterable by agent / conversation / event type | Yes |
 | **WebSocket** | Per-agent real-time notification stream (`/v1/agents/{email}/ws`) + REST fetch | No |
+| **REST polling** | Pull messages via `GET /v1/agents/{email}/messages` — the default path for MCP-based agents | No |
+| **MCP tools** | The e2a [MCP server](#mcp-server)'s inbox tools (`list_messages`, `get_message`, `get_attachment`, `list_conversations`, …) layered over the REST API | No |
 
-A disconnected WebSocket client accumulates "unread" messages; on reconnect, the server drains them as notifications. Either channel can also poll messages via the REST API. Webhooks are their own resource (`/v1/webhooks`), chosen per integration rather than set on the agent.
+Notifications carry lightweight metadata (message id, sender, subject); you fetch the full body + attachments over REST when you want them. A disconnected WebSocket client accumulates "unread" messages; on reconnect, the server drains them as notifications.
+
+Webhooks are an **account-level resource** (`/v1/webhooks`), chosen per integration rather than configured on the agent — the legacy per-agent `agent_mode` / `webhook_url` fields were removed.
 
 ### Auth headers
 
@@ -189,12 +234,12 @@ Messages fetched over an authenticated channel — `client.messages.get(address,
 
 ### Conversation threading
 
-Both `send` and `reply` accept an opaque `conversation_id`. e2a propagates it to the recipient on delivery via `payload.conversation_id`, surfaced in this priority order:
+Both `send` and `reply` accept an optional opaque `conversation_id` (server-minted when omitted). e2a propagates it to the recipient on delivery via `payload.conversation_id`, surfaced in this priority order:
 
 1. **`X-E2A-Conversation-Id` header** — authoritative for e2a-to-e2a traffic. Only honored when the SMTP envelope `MAIL FROM` originates from this relay, so external senders cannot forge it.
 2. **`In-Reply-To` / `References` lookup** — standard RFC 5322 threading, scoped to the recipient agent's own messages. Covers humans replying from Gmail/Outlook.
 
-First contact from a human arrives with `conversation_id: null` — the agent should assign a new id before replying.
+First contact from a human arrives with `conversation_id: null` — the inbound relay assigns no thread id by design. You don't have to mint one yourself: when the agent replies with `conversation_id` omitted, e2a auto-generates a stable `conv_…` anchor that later replies thread onto, and replies within an existing thread inherit the referenced message's id. An explicit `conversation_id` you pass always takes precedence; a `forward` starts a new thread.
 
 ### Human in the loop (HITL)
 
@@ -203,7 +248,8 @@ When an agent's protection config holds an outbound message for review, `send` a
 Reviewers can approve or reject via:
 
 - **Dashboard / API** — the account-scoped review queue `POST /v1/reviews/{id}/approve` or `/reject` (id-addressed, no inbox email needed; lists held items across all the account's inboxes via `GET /v1/reviews`). This is the primary path. The agent-path `POST /v1/agents/{email}/messages/{id}/approve|reject` is **deprecated** but still works identically for back-compat.
-- **Magic-link email** — sent automatically when a hold fires; one-click `GET /v1/approve?t=…` and `/v1/reject?t=…` URLs (requires `E2A_PUBLIC_URL` and outbound SMTP configured)
+- **MCP tools** — `approve_message` / `reject_message` (with `list_pending_messages` / `get_pending_message` to find them).
+- **Magic-link email** — sent automatically when a hold fires; one-click `GET /v1/approve?t=…` and `/v1/reject?t=…` URLs (requires `E2A_PUBLIC_URL` and outbound SMTP configured).
 
 Enable review holds on an agent via `PUT /v1/agents/{email}/protection`: set the outbound gate action to `review` (or turn on the content scan), plus the hold TTL (`holds.ttl_seconds`) and its expiry behavior (`holds.on_expiry` = `approve` or `reject`). Posture lives entirely on the protection sub-resource.
 
@@ -211,9 +257,23 @@ Enable review holds on an agent via `PUT /v1/agents/{email}/protection`: set the
 
 All endpoints are under `/v1` unless noted. Auth is `Authorization: Bearer <api_key>` except for `/api/health`, `/v1/info`, `/api/feedback`, and the HITL magic-link routes. Path parameters containing `@` (agent emails) must be URL-encoded.
 
-The surface covers domain registration + verification, agent CRUD, inbound/outbound messages, HITL approve/reject (API key or signed magic-link token), GDPR-style export and deletion, and a WebSocket channel for real-time inbound delivery.
+The surface covers domain registration + verification, agent CRUD, inbound/outbound messages, webhook subscriptions, HITL approve/reject (API key or signed magic-link token), GDPR-style export and deletion, and a WebSocket channel for real-time inbound delivery.
 
 See [docs/api.md](docs/api.md) for the full endpoint reference, or [`api/openapi.yaml`](api/openapi.yaml) for the machine-readable spec.
+
+## MCP server
+
+The fastest way to give an AI-agent runtime an inbox. e2a runs a hosted [Model Context Protocol](https://modelcontextprotocol.io) server — point any MCP-aware host (Claude Desktop, Cursor, Cline, Google ADK, LangChain, OpenAI Agents SDK, …) at the Streamable HTTP endpoint:
+
+```
+https://api.e2a.dev/mcp
+```
+
+Authenticate either with **OAuth 2.1** (add e2a as a connector and authorize in the browser) or a **Bearer API key** (`Authorization: Bearer <e2a API key>`). An agent-scoped credential resolves its agent server-side; account-scoped callers pass the agent `email` per tool call.
+
+The toolset covers the full agent loop — inbox (`list_messages`, `get_message`, `get_attachment`, `list_conversations`, `get_conversation`, `update_message_labels`), outbound (`send_message`, `reply_to_message`, `forward_message`), HITL review (`list_pending_messages`, `approve_message`, `reject_message`), plus agent/domain/webhook management. Inbound is consumed by polling (`list_messages`) or a `create_webhook` subscription.
+
+The server publishes to npm as [`@e2a/mcp-server`](https://www.npmjs.com/package/@e2a/mcp-server) for self-hosting. See [mcp/README.md](mcp/README.md) for per-framework setup and the full tool reference.
 
 ## CLI
 
@@ -233,7 +293,7 @@ dashboard**.
 | `e2a listen --agent <email>` | Stream inbound email for an agent over WebSocket (real-time; `--json` for raw, `--forward <url>` to bridge to a local HTTP handler) |
 | `e2a config [list\|get\|set]` | View or update the local config |
 
-The `listen --forward` mode also supports OpenAI Responses API forwarding via `--forward-token`, which formats each inbound email as a Responses payload and auto-replies with the model's output:
+When the `--forward <url>` endpoint path ends in `/v1/responses`, `listen` switches to **OpenAI Responses API forwarding**: each inbound email is formatted as a Responses payload and the model's output is sent back as an auto-reply. Add `--forward-token <token>` to attach a bearer token to the forwarded request:
 
 ```bash
 e2a listen --forward http://localhost:18789/v1/responses --forward-token <token>
@@ -263,7 +323,7 @@ if event.type == "email.received":
                                 {"body": "Got it!", "conversation_id": "conv_123"})
 ```
 
-WebSocket (local agents):
+WebSocket (no public URL needed):
 
 ```python
 from e2a.v1 import E2AClient
@@ -306,7 +366,7 @@ See [docs/deployment.md](docs/deployment.md) for the full env-var reference, sha
 - **Header signatures** — HMAC-SHA256 over canonical auth-header string; reject if timestamp older than 5 minutes
 - **SSRF protection** — webhook URLs must be HTTPS (in production), resolve to public IPs, use domain names (no raw IPs, no private/loopback ranges)
 - **OAuth CSRF** — single-use, time-limited nonce in the `state` parameter
-- **Production mode** (`E2A_ENV=production`) enforces the above where development mode is more permissive
+- **Production mode** (`env: production` in `config.yaml`) enforces the above where development mode is more permissive
 
 Report security issues privately — see [SECURITY.md](SECURITY.md) for the disclosure process and what's in scope. **Do not file public GitHub issues for vulnerabilities.**
 
@@ -322,7 +382,7 @@ See [docs/data-handling.md](docs/data-handling.md) for the full retention table,
 
 Four things that aren't possible to bolt on without significant rework:
 
-1. **Local-mode agents with no public URL.** Agents authenticate with their API key, open a WebSocket to `/v1/agents/{email}/ws`, and inbound mail arrives as JSON over that connection — no webhook URL, no ngrok, no port forward. Useful for agents on developer laptops, edge devices, or behind corporate firewalls. SendGrid/Resend are webhook-only by design. A polling REST API is available as fallback.
+1. **Inbound with no public URL.** Agents authenticate with their API key and consume inbound mail over a WebSocket to `/v1/agents/{email}/ws`, by polling the REST API, or through the MCP tools — no webhook URL, no ngrok, no port forward. Useful for agents on developer laptops, edge devices, or behind corporate firewalls. SendGrid/Resend are webhook-only by design.
 
 2. **Conversation threading on every reply.** Whether a human replies from Gmail or another e2a agent replies via the API, the inbound message arrives at the agent with a stable `conversation_id` already mapped to the original thread. For human senders, the relay does standard `In-Reply-To` / `References` lookup scoped to the recipient agent's own messages. For agent-to-agent where both sides are on e2a, it also trusts an `X-E2A-Conversation-Id` header it controls (envelope-from is its own domain), which survives clients that rewrite threading headers. SendGrid/Resend never see inbound mail — they aren't receivers — so neither path is available without you building both yourself.
 
@@ -336,7 +396,7 @@ You can absolutely use SES / Resend / SendGrid as e2a's *outbound* SMTP for deli
 
 Email is the only protocol where every human already has an address and a working client. Webhooks / gRPC / MCP are great inside systems you control, but they don't reach Gmail or Outlook. If you want an agent that talks to humans (or to *other organizations'* agents) without forcing everyone to install a new client, email is the universal substrate.
 
-e2a doesn't replace webhooks — agents *receive* email via webhooks. It bridges email's universal addressability to the structured-data world the agent code already lives in.
+e2a doesn't replace webhooks or MCP — your agent *receives* email through them. It bridges email's universal addressability to the structured-data world the agent code already lives in.
 
 ### What stops an attacker from spoofing the `X-E2A-Auth-*` headers?
 
@@ -352,7 +412,7 @@ Yes — and the extra steps are the point. Concretely:
 
 - SPF/DKIM verdict normalization so receivers don't reimplement domain auth
 - HMAC-signed delivery contract binding sender, body hash, message ID, and verification status
-- WebSocket transport for agents without public URLs
+- WebSocket / REST / MCP transport for agents without public URLs
 - HITL approval flow with auto-expiration and stateless magic-link review
 - Conversation-Id threading that survives the email ↔ structured-data boundary
 - Slug-based agent provisioning on a shared domain
