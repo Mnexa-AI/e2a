@@ -1,0 +1,55 @@
+# autonomous-repo.config.yml — e2a's rendered instance (the first adopter).
+#
+# This is what `/agentify` produces when installed on e2a, with e2a's
+# chosen values. It lives under examples/ as the reference install; the
+# real deploy copies it to the repo root. See
+# docs/design/autonomous-repo-framework.md.
+
+product_name: "e2a"
+repo: "Mnexa-AI/e2a"
+marker: "e2a-feedback"                  # <!-- e2a-feedback --> footer in bot-authored issues/PRs
+
+reviewer: "jiashuoz"                    # PR ship-gate reviewer (requested + assigned)
+github_app_login: "e2a-support-bot[bot]"  # TODO: created at deploy (GitHub App); ticket-card/marker trusted only from this login
+
+labels:
+  feedback: "feedback"
+  agent_fix: "agent-fix"
+  wontfix: "wontfix"
+  ops: "feedback-ops"
+  status_triaged: "status:triaged"
+  status_awaiting_approval: "status:awaiting-approval"
+  status_in_progress: "status:in-progress"
+
+ticket_store: "github"                  # zero-backend: e2a's own conversation store holds the PII
+intake: "email"                         # feedback arrives at support_address; triage creates the issue
+
+comms:
+  channel: "e2a"                        # e2a runs its own support loop on e2a (dogfood)
+  support_address: "support@e2a.dev"    # TODO(open-q #6): confirm verified domain (e2a.dev / api.e2a.dev / support.)
+  e2a_mcp_url: "https://mcp.e2a.dev/mcp" # e2a-adapter-specific (used only when channel: e2a)
+
+fix_gate:
+  mode: "hitl"                          # e2a default: maintainer approves PRs by replying to an email
+  approver: "jszjosh@gmail.com"         # TODO(open-q): Josh's verified reply address for approvals
+  always_hitl:
+    - "auth / authz / permissions / sessions"
+    - "secrets, credentials, tokens, keys"
+    - "SMTP / SPF / DKIM / emailauth, HMAC header signing (internal/headers)"
+    - "billing / Stripe / usage metering"
+    - "migrations on messages / usage_events; schema / stored-data shape"
+    - "/v1 wire contract / OpenAPI spec / SDK codegen / ID format"
+    - "deletion or other irreversible operations"
+
+budgets:
+  triage_items_per_run: 20
+  comms_emails_per_day: 50
+
+models:
+  triage: "claude-sonnet-4-6"
+  fix: "claude-opus-4-8"
+  comms: "claude-sonnet-4-6"
+
+verify_setup_script: "scripts/agentify-fix-verify-setup.sh"   # authored in slice 3 (fix lane)
+
+# Pause switch: set repo variable AUTOREPO_LANES_PAUSED="true" (exact match) to halt all lanes.

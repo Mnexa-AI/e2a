@@ -1,0 +1,111 @@
+# autonomous-repo.config.yml — THE one place product-specific values live.
+#
+# The lane workflows and the runtime skill read everything from here; they
+# never hardcode the product name, repo, labels, addresses, or models. An
+# adopter edits THIS file and nothing else (extraction discipline: the
+# GitHub-side artifacts stay distributable).
+#
+# `/agentify` renders this template into your repo. Values in {{...}} are
+# filled at deploy time; everything else is a sane default you can tune.
+
+# --- Identity -----------------------------------------------------------
+product_name: "{{PRODUCT_NAME}}"        # human-facing name; used in email/issue copy ONLY via this key
+repo: "{{OWNER}}/{{REPO}}"              # the GitHub repo the lanes operate on
+
+# Stable correlation marker. Appears as an own-line HTML comment in
+# bot-authored issue bodies and PR descriptions; the release callback and
+# dedup honor it ONLY in bot-authored placement (never inside quoted user
+# text). Keep it unique to this product.
+marker: "{{MARKER}}"                    # e.g. "autorepo-feedback"
+
+# --- People -------------------------------------------------------------
+# The PR reviewer the fix lane requests + assigns (the ship gate). A GitHub
+# login. Leave empty to disable auto-request.
+reviewer: "{{REVIEWER_LOGIN}}"
+
+# The bot's GitHub login (App preferred). The ticket-card and markers are
+# honored ONLY from this identity — a third party can post a forged card or
+# marker on a public issue/PR and it must never be trusted.
+github_app_login: "{{BOT_LOGIN}}"      # e.g. "myrepo-support-bot[bot]"
+
+# --- Labels (the human-visible state projection) ------------------------
+labels:
+  feedback: "feedback"                  # marks a bot-created feedback issue
+  agent_fix: "agent-fix"                # the fix-lane trigger
+  wontfix: "wontfix"                    # human decline; synced by the triage sweep
+  ops: "feedback-ops"                   # pinned ops issue: failure alerts + escalations
+  status_triaged: "status:triaged"
+  status_awaiting_approval: "status:awaiting-approval"
+  status_in_progress: "status:in-progress"
+
+# --- Ticket store -------------------------------------------------------
+# github  = zero-backend (issue = ticket, labels = status, a pinned
+#           "ticket-card" bot comment = machine-readable state). OSS-only:
+#           the issue is public, so filer PII never lands here.
+# backend = a durable store speaking the §5.4 internal-API contract
+#           (anchor only; not implemented in v0).
+ticket_store: "github"
+
+# --- Intake (where raw feedback originates) -----------------------------
+# email        = a mailbox the triage lane polls; triage CREATES the issue.
+# github_issue = the community files issues directly (later adapter).
+intake: "email"
+
+# --- Comms channel (filer notifications + maintainer approvals) ---------
+# e2a  = the agent-native email surface; SMTP; or none
+#        (the public issue thread is the comms channel).
+comms:
+  channel: "e2a"
+  # The agent mailbox that sends/receives. With comms.channel: e2a this is
+  # also the INTAKE mailbox (feedback arrives here) AND the maintainer
+  # approval thread origin. Must be a verified domain you own.
+  support_address: "{{SUPPORT_ADDRESS}}"
+  # e2a MCP endpoint (HTTP transport); lanes authenticate with E2A_API_KEY.
+  # (e2a-adapter-specific infra default — only consulted when channel: e2a.)
+  e2a_mcp_url: "https://mcp.e2a.dev/mcp"
+
+# --- Fix gate (the pre-PR human gate) -----------------------------------
+# mode:
+#   auto = triage applies `agent-fix` itself for any confident clean fix →
+#          the fix lane opens a PR. (PR MERGE is still the only ship gate.)
+#   hitl = triage records the item as needing approval; the comms lane
+#          emails `approver` ("issue #N fixable — reply approve/decline?")
+#          and applies `agent-fix` only on a VERIFIED approval reply.
+# In BOTH modes the human merges the PR — `auto` means auto-OPEN, never
+# auto-merge.
+fix_gate:
+  mode: "{{FIX_GATE_MODE}}"             # auto | hitl
+  approver: "{{APPROVER_ADDRESS}}"      # hitl: approval email goes here AND must be replied from here
+  # Safety valve: items plausibly touching any of these ALWAYS take the
+  # hitl email-approval path, even when mode: auto. Match GENEROUSLY.
+  always_hitl:
+    - "auth / authz / permissions / sessions"
+    - "secrets, credentials, tokens, keys"
+    - "data correctness/integrity, schema, migrations, stored-data shape"
+    - "money / billing / quota / pricing"
+    - "public API / wire protocol / IDs / SDK contract"
+    - "deletion or other irreversible operations"
+
+# --- Lane budgets -------------------------------------------------------
+budgets:
+  triage_items_per_run: 20              # structurally enforced (the intake poll LIMITs by it)
+  comms_emails_per_day: 50              # prompt-level cap in v0 (not harness-enforced)
+
+# --- Models (pinned per lane; a bump is a PR that must pass fixtures) ----
+models:
+  triage: "claude-sonnet-4-6"
+  fix: "claude-opus-4-8"
+  comms: "claude-sonnet-4-6"
+
+# --- Fix-lane verification bootstrap ------------------------------------
+# The fix lane invokes this script to stand up a running stack to verify
+# against (product-specific; keeps the workflow YAML distributable).
+verify_setup_script: "{{VERIFY_SETUP_SCRIPT}}"
+
+# --- Pause switch -------------------------------------------------------
+# Set the repo VARIABLE `AUTOREPO_LANES_PAUSED` to exactly "true" to make
+# every lane early-exit (before any model call): vacation/incident. Intake
+# keeps accepting; no triage verdicts, no email, no new promises. The name
+# is FIXED — the workflows reference it literally (GitHub Actions cannot
+# resolve a config-named var) — and the match is exact: "True"/"1"/"yes" do
+# NOT pause.
