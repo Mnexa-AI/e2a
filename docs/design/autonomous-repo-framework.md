@@ -431,6 +431,32 @@ v0; `always_hitl` safety valve **on** even when `mode: auto`.
 
 Slices 1+2 already beat the status quo; 3 adds the fix automation; 4 makes it distributable.
 
+### §10 addenda (slice 4: the `/agentify` deploy flow)
+
+Built on `main`. `plugins/e2a/agentify/agentify-render.sh` is the deterministic
+scaffolder; `SKILL.md` is the interactive wrapper.
+
+- **Render** fills `autonomous-repo.config.yml` from `ANS_*` answers (failing
+  loudly on any unfilled placeholder — checked against the real `{{UPPERCASE}}`
+  tokens, not the literal `{{...}}` in the template's comment) and copies the
+  runtime skill, scripts, and the four workflows into their real paths
+  (`.claude/skills/autonomous-repo/`, `scripts/`, `.github/workflows/*.yml`,
+  `.tmpl` stripped). `_selftest` renders into a temp dir and asserts the tree +
+  substitution; an **e2e renders e2a's answers into a scratch repo** and the
+  three scaffolded scripts pass their own selftests in the rendered location —
+  the wizard provably reproduces the e2a install.
+- **Re-run preserves the adopter's config** (updates code only) unless
+  `--force` — so re-rendering to pick up framework updates never clobbers a
+  tuned `always_hitl` / filled `bot_login`. This is the foundation of the
+  deferred `update` mode.
+- **Honest scope**: the mechanical render is automated; the Q&A and the
+  one-time identity/secret setup remain guided (a skill can't create a GitHub
+  App or paste secrets — `references/setup-checklist.md`). sed answer-injection
+  is bounded (`\ & |` escaped; `|` delimiter so `/` in `owner/repo` is safe).
+- **Going live on e2a** = running this render against the e2a repo root (Phase
+  A) + the one-time setup; deferred to an explicit "go live" step since it
+  needs the human identity/secret work regardless.
+
 ## 10. Implementation reconciliation (`feat/agentify-feedback-loop`)
 
 Deviations recorded at build time (slice 1 — intake + triage):

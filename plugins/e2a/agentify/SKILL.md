@@ -12,12 +12,14 @@ skill is grabbing the framework. The install lands as a **PR the repo owner
 reviews and merges** — the install itself goes through the same human gate
 the framework runs on.
 
-> **v0 scope.** Slices 1–3 ship the full loop: **triage/intake** (email →
-> triaged issue), **comms** (filer acks + the fix-gate approval email +
-> verified-reply routing), and **fix + release** (the coding agent's
-> human-reviewed PR + the merge→shipped callback). The thick deploy wizard is
-> slice 4; this SKILL.md is the deploy procedure, intentionally thin in v0 (a
-> guided scaffold, not a fully automated wizard).
+> **v0 scope.** The full loop ships: **triage/intake** (email → triaged
+> issue), **comms** (filer acks + the fix-gate approval email + verified-reply
+> routing), **fix + release** (the coding agent's human-reviewed PR + the
+> merge→shipped callback), and this **deploy** flow. The mechanical render is
+> automated (`agentify-render.sh`, with a `_selftest`); the Q&A and the
+> one-time identity/secret setup stay guided. An `update` mode (re-render
+> preserving the adopter's config tweaks) is the natural follow-on — the
+> render is already idempotent.
 
 ## What gets scaffolded into the target repo
 
@@ -33,17 +35,24 @@ the framework runs on.
 1. **Detect.** Read the target repo: its `OWNER/REPO`, primary language,
    test command, and CI — used to fill the fix-lane `verify_setup_script`
    and sensible defaults.
-2. **Configure.** Ask the adopter (or take from args) the config values:
-   `product_name`, `reviewer` (PR ship-gate login), the comms channel +
-   `support_address`, `fix_gate.mode` (`hitl` recommended) + `approver`,
-   `marker`, labels (defaults are fine), model pins. Render
-   `autonomous-repo.config.yml.tmpl` → `autonomous-repo.config.yml` with
-   these. Leave `github_app_login` and secrets as the checklist's job.
-3. **Render.** Copy `runtime-skill/**` → `.claude/skills/autonomous-repo/`,
-   `scripts/ticket_card.sh` → `scripts/`, and each
-   `workflows/*.yml.tmpl` → `.github/workflows/*.yml` (drop the `.tmpl`).
-   The workflows read everything from config — they are copied verbatim, not
-   string-substituted.
+2. **Configure.** Ask the adopter the config values and export them as the
+   `ANS_*` env vars `agentify-render.sh` reads: `ANS_PRODUCT_NAME`,
+   `ANS_OWNER`, `ANS_REPO`, `ANS_MARKER`, `ANS_REVIEWER_LOGIN`,
+   `ANS_BOT_LOGIN`, `ANS_SUPPORT_ADDRESS`, `ANS_FIX_GATE_MODE` (`hitl`
+   recommended), `ANS_APPROVER_ADDRESS`, `ANS_VERIFY_SETUP_SCRIPT`. (The bot
+   login can be filled later from the checklist; secrets are never gathered
+   here.)
+3. **Render.** Run `agentify-render.sh --to <target-repo-root>`. It fills
+   `autonomous-repo.config.yml` from the `ANS_*` answers (failing loudly on
+   any unfilled placeholder) and scaffolds the runtime skill, the scripts,
+   and the four workflows into their real paths
+   (`.claude/skills/autonomous-repo/`, `scripts/`,
+   `.github/workflows/*.yml`). **Re-running updates the scaffolded code but
+   PRESERVES an existing `autonomous-repo.config.yml`** (your tuned
+   `always_hitl`, the filled `bot_login`) — pass `--force` only to regenerate
+   the config. Then **tune** the rendered config's `always_hitl` list for the
+   product's sensitive surfaces, and sanity-check: `scripts/*.sh _selftest`
+   all green and the config parses.
 4. **Auto-do the safe parts.** Create the labels from `labels.*` via `gh`
    (`feedback`, `agent-fix`, `wontfix`, `feedback-ops`, the `status:*` set).
 5. **Hand off the rest** (print, don't do — see `references/setup-checklist.md`):
