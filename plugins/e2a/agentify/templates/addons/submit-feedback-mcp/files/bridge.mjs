@@ -31,9 +31,22 @@ export function validateFeedback({ kind, title, body } = {}) {
 // address here (spoof/spam vector): replies route to the bridge's mailbox and
 // the filer reads progress via feedback_status.
 export function composeFeedbackEmail({ kind, title, body }) {
-  const subject = `[feedback:${kind}] ${title}`.slice(0, 240);
+  // Strip CR/LF/control chars from the title before it goes in the SUBJECT —
+  // defense-in-depth against header injection if a downstream mailer splats
+  // the subject into a MIME header. The body stays raw (it is the email body,
+  // not a header) and is opaque data the triage lane fences.
+  const cleanTitle = String(title).replace(/[\r\n\t\x00-\x1f]+/g, ' ').trim();
+  const subject = `[feedback:${kind}] ${cleanTitle}`.slice(0, 240);
   const text = `kind: ${kind}\n\n${body}`;
   return { subject, text };
+}
+
+// isValidFeedbackId: a feedback id is an e2a conversation id (conv_<...>).
+// feedback_status MUST check this before building the REST path —
+// encodeURIComponent leaves `.`/`..` intact, and the URL parser would
+// normalize dot-segment ids onto unintended (same-host) endpoints.
+export function isValidFeedbackId(id) {
+  return typeof id === 'string' && /^conv_[A-Za-z0-9_-]+$/.test(id);
 }
 
 // statusFromThread: derive a coarse, HONEST status from the e2a thread the

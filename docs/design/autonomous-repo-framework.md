@@ -488,6 +488,15 @@ is purely additive (zero loop changes).
   reach the filer's own inbox. For e2a, a tool in its own `mcp/` server; the
   agent-facing contract is unchanged.
 
+**Hardened after adversarial review** (relay/spoof/SSRF/key-exfil all refuted —
+the fixed-recipient bound holds): `feedback_status` now validates the id is a
+`conv_…` before the fetch (an `.`/`..` id otherwise reached unintended same-host
+endpoints via dot-segment normalization) and is rate-gated (enumeration was
+free); the subject strips CR/LF (defense-in-depth vs a downstream MIME-header
+splat); `submit_feedback` wraps the e2a call so a failure can't disclose the
+intake address; and `apply_addons` rejects non-`[a-z0-9-]` addon names (cp
+escaping `tools/`). Each fix has a regression test.
+
 ## 10. Implementation reconciliation (`feat/agentify-feedback-loop`)
 
 Deviations recorded at build time (slice 1 — intake + triage):

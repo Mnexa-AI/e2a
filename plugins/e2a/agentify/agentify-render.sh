@@ -73,6 +73,11 @@ scaffold() {  # $1 = target root
 apply_addons() {  # $1 = target root
   local t="$1" name src
   for name in ${ANS_ADDONS:-}; do
+    # Reject anything that isn't a plain addon name — `..`/`/` would let the
+    # cp escape tools/ (ANS_ADDONS is deployer-set, but fail safe anyway).
+    case "$name" in
+      ""|*[!a-z0-9-]*) echo "agentify: invalid addon name '$name' (skipped)" >&2; continue ;;
+    esac
     src="$TEMPLATES/addons/$name"
     if [ ! -d "$src/files" ]; then
       echo "agentify: unknown addon '$name' (skipped)" >&2; continue
@@ -115,6 +120,8 @@ if [ "${1:-}" = "_selftest" ]; then
   [ -f "$T/tools/submit-feedback-mcp/bridge.mjs" ] || { echo "FAIL: addon bridge.mjs not scaffolded"; fail=1; }
   grep -q 'Addon: submit-feedback-mcp' "$T/AGENTIFY-ADDON-SETUP.md" || { echo "FAIL: addon setup not appended"; fail=1; }
   ANS_ADDONS="nope-addon" apply_addons "$T" 2>/dev/null; [ -e "$T/tools/nope-addon" ] && { echo "FAIL: unknown addon scaffolded"; fail=1; }
+  # traversal name rejected (dest would be $T/tools/../evil = $T/evil)
+  ANS_ADDONS="../evil" apply_addons "$T" 2>/dev/null; [ -e "$T/evil" ] && { echo "FAIL: traversal addon escaped tools/"; fail=1; }
   if [ "$fail" = 0 ]; then echo "agentify-render.sh selftest: OK"; else echo "agentify-render.sh selftest: FAILED"; exit 1; fi
   exit 0
 fi
