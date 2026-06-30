@@ -54,11 +54,28 @@ type predictionRecord struct {
 	Error      string             `json:"error,omitempty"`
 }
 
+// segmentDumpRecord is the canonical detector-input dump consumed by the Python
+// eval harness via PIGUARD_SEGMENTS (one line per message, keyed by id).
+type segmentOut struct {
+	Type    string `json:"type"`
+	Content string `json:"content"`
+	Ref     string `json:"ref"`
+}
+
+type segmentDumpRecord struct {
+	ID       string         `json:"id"`
+	Segments []segmentOut   `json:"segments"`
+	Signals  signalsSummary `json:"signals"`
+	Error    string         `json:"error,omitempty"`
+}
+
 func main() {
 	manifestPath := flag.String("manifest", "", "manifest JSONL path (default: stdin)")
 	baseDir := flag.String("base-dir", ".", "root for resolving eml_path fields")
 	reviewThreshold := flag.Float64("review-threshold", 0.35, "score ≥ this → review")
 	blockThreshold := flag.Float64("block-threshold", 0.75, "score ≥ this → block")
+	dumpSegments := flag.Bool("dump-segments", false,
+		"emit {id,segments,signals} from Extract (canonical detector input) instead of verdicts")
 	flag.Parse()
 
 	var scanner *bufio.Scanner
@@ -90,7 +107,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "skip malformed line: %v\n", err)
 			continue
 		}
-		emit(out, evalEntry(ctx, engine, entry, *baseDir, *reviewThreshold, *blockThreshold))
+		if *dumpSegments {
+			emitJSON(out, dumpEntry(entry, *baseDir))
+		} else {
+			emit(out, evalEntry(ctx, engine, entry, *baseDir, *reviewThreshold, *blockThreshold))
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		log.Fatalf("scan: %v", err)
@@ -145,4 +166,38 @@ func emit(w *bufio.Writer, rec predictionRecord) {
 	b, _ := json.Marshal(rec)
 	w.Write(b)
 	w.WriteByte('\n')
+}
+
+func emitJSON(w *bufio.Writer, v any) {
+	b, _ := json.Marshal(v)
+	w.Write(b)
+	w.WriteByte('\n')
+}
+
+// dumpEntry emits the canonical segments + signals piguard's Extract produces
+// for an .eml — the exact input the engine's detectors screen.
+func dumpEntry(entry manifestEntry, baseDir string) segmentDumpRecord {
+	rawEML, err := os.ReadFile(filepath.Join(baseDir, entry.EMLPath))
+	if err != nil {
+		return segmentDumpRecord{ID: entry.ID, Error: fmt.Sprintf("read eml: %v", err)}
+	}
+	segs, signals, _ := piguard.Extract(rawEML, 0)
+	out := make([]segmentOut, len(segs))
+	for i, s := range segs {
+		out[i] = segmentOut{Type: string(s.Type), Content: s.Content, Ref: s.Ref}
+	}
+	return segmentDumpRecord{
+		ID:       entry.ID,
+		Segments: out,
+		Signals: signalsSummary{
+			UnicodeTags:      signals.UnicodeTags,
+			ZeroWidth:        signals.ZeroWidth,
+			HiddenCSSText:    signals.HiddenCSSText,
+			HomoglyphRatio:   signals.HomoglyphRatio,
+			PlainHTMLDiverge: signals.PlainHTMLDiverge,
+			FragmentedURL:    signals.FragmentedURL,
+			Truncated:        signals.Truncated,
+			Unscannable:      signals.Unscannable,
+		},
+	}
 }
