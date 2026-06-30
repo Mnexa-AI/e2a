@@ -4,12 +4,12 @@
 # the recorded action log. Token-gated: SKIPs cleanly without a model token.
 set -uo pipefail
 LANE="$1"; FIXTURE="$2"
-HARNESS="$(cd "$(dirname "$0")" && pwd)"
-AGENTIFY="$(cd "$HARNESS/../.." && pwd)"
+HARNESS="$(cd "$(dirname "$0")" && pwd)"          # .../agentify/test/fixtures/harness
+AGENTIFY="$(cd "$HARNESS/../../.." && pwd)"        # .../agentify (harness → fixtures → test → agentify)
 NAME="$LANE/$(basename "$FIXTURE")"
 
-if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}${ANTHROPIC_API_KEY:-}" ]; then
-  echo "SKIP $NAME (no model token — set CLAUDE_CODE_OAUTH_TOKEN to run the model layer)"; exit 0
+if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}${ANTHROPIC_API_KEY:-}" ] && [ "${AGENTIFY_FIXTURES_FORCE:-}" != "1" ]; then
+  echo "SKIP $NAME (no model token — set CLAUDE_CODE_OAUTH_TOKEN, or AGENTIFY_FIXTURES_FORCE=1 when the claude CLI is logged in locally)"; exit 0
 fi
 command -v claude >/dev/null || { echo "SKIP $NAME (claude CLI not installed)"; exit 0; }
 
@@ -25,6 +25,11 @@ cp "$HARNESS/mock-ticket_card.sh" "$SBX/scripts/ticket_card.sh"
 cp "$HARNESS/mock-comms_send.sh" "$SBX/scripts/comms_send.sh"
 cp "$HARNESS/mock-gh" "$SBX/bin/gh"
 chmod +x "$SBX/scripts/"*.sh "$SBX/bin/gh"
+
+# Fail loudly if the sandbox is incomplete — running the agent WITHOUT its real
+# procedure/config would silently test improvisation, not the prompt.
+[ -f "$SBX/.claude/skills/autonomous-repo/triage.md" ] && [ -f "$SBX/autonomous-repo.config.yml" ] \
+  || { echo "ERROR $NAME: sandbox setup failed (runtime skill or config missing)"; exit 1; }
 
 cat > "$SBX/mcp.json" <<JSON
 { "mcpServers": { "e2a": { "command": "node", "args": ["$HARNESS/mock-mcp.mjs"],
