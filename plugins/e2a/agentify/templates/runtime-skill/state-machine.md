@@ -21,11 +21,15 @@ projection of it, kept in sync on every transition.
 ## Forward edges
 
 ```
-triaged ──(fix_gate)──┐
-        │             ├─ mode:auto OR approved ──► in_progress ──► shipped
-        │             └─ mode:hitl ──► awaiting_approval ──► in_progress ──► shipped
+triaged ─(mode:auto, agent-fix applied by triage)──────────► in_progress ─► shipped
+triaged ─(mode:hitl)─► awaiting_approval ─(approve)─► triaged+agent-fix ─► in_progress ─► shipped
+                                          └(decline)─► closed_wontfix
 triaged ─► closed_duplicate | closed_wontfix | closed_noise
 ```
+
+On approval the ticket returns to `triaged` carrying the `agent-fix` label —
+the fix lane consumes the label the same way it does an `auto`-mode label, so
+there is one fix path, not two.
 
 ## Recovery edges (each exists because a specific actor needs it)
 
@@ -34,7 +38,9 @@ triaged ─► closed_duplicate | closed_wontfix | closed_noise
 | `shipped → triaged` | comms lane | filer disputes the fix (verified reply) |
 | `closed_duplicate → triaged` | comms lane | filer disputes the dup verdict (verified reply) |
 | `closed_noise → received*` | comms lane | filer supplies substance (verified reply) |
-| `awaiting_approval → triaged` | comms lane | approver declines (verified reply); reason recorded |
+| `triaged → awaiting_approval` | comms lane | fix_gate hitl: approval-request emailed to the approver |
+| `awaiting_approval → triaged` | comms lane | approver **approves** (verified reply); `agent-fix` applied |
+| `awaiting_approval → closed_wontfix` | comms lane | approver **declines** (verified reply); reason recorded |
 | `in_progress → triaged` | triage sweep | fix PR closed unmerged — re-arms the gate |
 | `in_progress → shipped` | release callback / triage sweep | PR merged (callback, or merged >24h repair) |
 | `triaged → closed_wontfix` | triage sweep | human applied the `wontfix` label |

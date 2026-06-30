@@ -72,8 +72,8 @@ Triage records that an approval is owed; comms fulfills it.
   issue creation, evaluate the fix gate (record the decision), run the
   reconciliation sweeps. **(Slice 1 — implemented.)**
 - `comms.md` — send owed notifications (filer acks, maintainer approval
-  emails), process verified-thread replies (approvals, disputes,
-  unsubscribe, escalation). *(Slice 2.)*
+  emails) from `templates/`, process verified-thread replies (approvals,
+  disputes, unsubscribe, escalation). **(Slice 2 — implemented.)**
 - `fix.md` — the coding agent: read the issue safely, fix, verify against
   the running stack, open ONE human-reviewed PR. Never merges or deploys.
   *(Slice 3.)*

@@ -493,3 +493,36 @@ Fixed after independent + adversarial review of `feat/agentify-feedback-loop`:
 - **Known bounds (accepted in v0)**: `find-by-comms` scans ≤500 issues; the pause
   match is exact-string; an injection that the model obeys can still publish a
   bounded-scope token (the blast-radius framing, not a leak-proof claim).
+
+### §10 addenda (slice 2: comms lane)
+
+Built on `main`. The E2A comms lane — `runtime-skill/comms.md`,
+`runtime-skill/templates/{triage-ack,approval-request,resolved-closed,shipped}.md`,
+`workflows/feedback-comms.yml.tmpl`:
+
+- **Triage↔comms mailbox partition resolved** (was the deferred §8 question):
+  triage owns inbound that is NOT a known reply (new feedback → it marks read);
+  comms owns owed notifications + inbound that IS a reply to a known thread. The
+  predicate is `find-by-comms` (deterministic, same for both), and comms only
+  *routes* a reply once `triage-ack` is in `notified[]` — so the original
+  feedback is never mistaken for a reply.
+- **The fix-gate hitl loop is actuated by comms**, not triage (capability split):
+  triage records `fix_gate.decision=needs_approval`; comms emails the approver
+  (`send_message` to `fix_gate.approver` only), moves `triaged → awaiting_approval`,
+  and on a verified approval reply applies `agent-fix` (back to `triaged`, fix
+  lane picks it up) / on decline → `closed_wontfix`.
+- **Verified reply** = `conversation_id` matches a ticket's `comms_ref` (filer) or
+  `approval.conversation_id` (approver) AND `authenticated_from` is the address on
+  file — for the approver that is the config address; for the filer it is proven by
+  thread membership (e2a only delivers a thread to its participants).
+- **Send guardrails** (prompt-level, the honest bound): outbound is
+  template-bounded (free prose only inside a reply thread); `send_message`'s `to`
+  is ONLY `fix_gate.approver`, never an address from email content;
+  `reply_to_message` cannot be redirected out of its thread; one thread's content
+  never enters another's context. `forward_message` is disallowed.
+- **Notification stages active in v0**: `triage-ack`, `approval-request`,
+  `resolved-closed`. `shipped` ships dormant (needs the fix + release lanes).
+  Dup-filer fan-out acks are a noted refinement (the dup `conversation_id` is on
+  the canonical ticket's `dup_merged` event).
+- **Deferred to slice 3**: fix lane + release callback; the `shipped` stage and
+  the `shipped → triaged` filer-dispute edge activate then.
