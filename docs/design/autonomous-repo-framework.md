@@ -595,3 +595,39 @@ Built on `main`. The coding agent + the merge→shipped callback complete the lo
   index lags); `claude-code-action`'s broad `Bash/Edit/Write` is the fix
   agent's necessary surface — bounded by zero prod creds + the human merge gate,
   not by a narrow allowlist.
+
+### §10 addenda (slice-3 dual-review hardening)
+
+Fixed after independent + adversarial review of the fix + release lanes:
+
+- **CRITICAL (no attacker): `released_markers.sh` digit-leak.** The issue-number
+  extraction ran over the whole marker, so `e2a-feedback` (the `2`) made every
+  merge emit a phantom `#2`. Anchored to `fix:#[0-9]+ → [0-9]+$`; the `_selftest`
+  now uses a digit-containing marker so it can't hide again. (Lesson: an
+  unrepresentative fixture passed a broken function.)
+- **Cross-ticket marker forgery (injection-as-bot).** The "user text never
+  reaches a PR body" argument fails when the bot writing the PR is the injection
+  target — it could smuggle `fix:#<other>`. The release callback now ships #N
+  ONLY if #N's own ticket-card `pr` is set AND that PR is `MERGED` (a forged
+  marker in an unrelated PR can't match #N's recorded PR). Per-issue guards
+  (`|| continue`) stop a missing/forged card from aborting the whole step.
+- **PR-find prefix collision** (both reviewers): `contains("fix:#$ISSUE")` matched
+  `#4` inside `#42`. Now matches the footer form `fix:#<n> -->` via real `jq
+  --arg` (no program interpolation).
+- **Config-driven labels**: the fix/release relabels parsed their `status:*` /
+  `agent-fix` labels from config (were hardcoded literals); skill-prose status
+  labels normalized to `{labels.status_*}`. The triage missed-callback sweep now
+  drops `status:in-progress` on `shipped`/`triaged` for projection parity.
+- **`security-invariants.md §2` corrected** (was overstated). The fix lane's
+  honest fences are: zero prod creds + **branch protection (now REQUIRED, not a
+  checklist nicety)** + the App **without `workflows:write`** + a diligent PR
+  review (incl. the now-visible customer-note and any config diff). Residual:
+  run-env token exfil needs no merge (network-egress restriction is the future
+  hardening).
+- **Customer-note** made review-salient (visible heading; content already renders
+  between the markers) — PR review is its gate.
+- **Lower residuals documented**: `Fixes #<n>` auto-closes at merge independent of
+  the callback (the triage sweep reconciles a card left `in_progress`); the
+  `marker` is interpolated into a grep regex (adopters: alphanumeric+dash only);
+  `on: push branches:[main]` is a literal (adopters with a different default
+  branch edit it); release-vs-triage-sweep can both set `shipped` (idempotent).

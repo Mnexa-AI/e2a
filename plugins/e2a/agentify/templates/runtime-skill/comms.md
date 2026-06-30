@@ -84,12 +84,12 @@ work from SUMMARIES. For each, match by `conversation_id` BEFORE any fetch:
   unambiguous decision ONLY:
   - **approve** → `gh issue edit <n> --add-label {labels.agent_fix}`; set
     `approval.status="approved"`, `approval.decided_by=<approver>`; relabel
-    `status` back to `triaged` (drop `status:awaiting-approval`, add
-    `status:triaged`). `add-event approved`. *(The label is what triggers the
+    `status` back to `triaged` (drop `{labels.status_awaiting_approval}`, add
+    `{labels.status_triaged}`). `add-event approved`. *(The label is what triggers the
     fix lane — applying it is the actuator; the verified-approver check above
     is the gate, and PR-merge remains the real ship fence.)*
   - **decline** → set `approval.status="declined"`, `approval.reason=<text>`,
-    `status="closed_wontfix"`; relabel (drop `status:awaiting-approval`, add
+    `status="closed_wontfix"`; relabel (drop `{labels.status_awaiting_approval}`, add
     `{labels.wontfix}`) and `gh issue close <n> --reason "not planned"`; quote
     the reason as a comment. (`resolved-closed` fires next outbound pass.)
   - ambiguous ("maybe", "let me look") → leave pending; do nothing.
@@ -104,7 +104,7 @@ work from SUMMARIES. For each, match by `conversation_id` BEFORE any fetch:
     argue, placate, or defend. One-line note on the pinned ops issue
     (`{labels.ops}`); stop.
   - dispute of a fix (`shipped`) → reopen: `status="triaged"`, reopen the issue
-    (`gh issue reopen`), relabel to `status:triaged`, quote-comment the dispute.
+    (`gh issue reopen`), relabel to `{labels.status_triaged}`, quote-comment the dispute.
   - *(Deferred with the dup-filer fan-out: dispute of a dup verdict and
     substantive follow-up to a noise close. v0 creates no issue for dup/noise,
     so no such ticket exists to reply to yet.)*

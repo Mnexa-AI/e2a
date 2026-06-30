@@ -12,7 +12,9 @@ the bot, not a human or the generic Actions bot.
 
 - Create a GitHub App (org or personal), grant it **Issues: read/write**,
   **Pull requests: read/write**, **Contents: read/write**; install it on
-  the repo.
+  the repo. **Do NOT grant `Workflows: write`** — without it the fix agent
+  cannot push a change to `.github/workflows/` (a config-poisoning vector,
+  security-invariants §2).
 - Put its login in config: `github_app_login: "<app-name>[bot]"` (the
   ticket-card and markers are trusted ONLY from this login).
 - Add repo secrets `AUTOREPO_APP_ID` and `AUTOREPO_APP_PRIVATE_KEY`.
@@ -39,8 +41,13 @@ emails.
 ## 4. Repo settings
 
 - Enable GitHub Actions on the repo.
-- Branch protection on the default branch so the fix lane's PRs require the
-  `reviewer`'s review before merge — **PR merge is the ship gate.**
+- **Branch protection on the default branch is REQUIRED, not optional** — it
+  is a load-bearing fence (security-invariants §2). Require the `reviewer`'s
+  PR review before merge, require status checks, and **do not let the bot App
+  bypass it** (so the fix agent cannot `git push` straight to `main` instead
+  of opening a reviewable PR). **PR merge is the ship gate.**
+- (Recommended) CODEOWNERS on `autonomous-repo.config.yml` and `.github/` so a
+  fix PR that touches the trust anchors needs explicit owner review.
 - (Optional) Set the `AUTOREPO_LANES_PAUSED` repo **variable** to `true` to
   pause all lanes; unset/`false` to run.
 

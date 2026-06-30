@@ -60,11 +60,12 @@ jobs:
         run: |
           CFG=autonomous-repo.config.yml
           echo "model=$(yq -r '.models.fix' "$CFG")" >> "$GITHUB_OUTPUT"
-          echo "marker=$(yq -r '.marker' "$CFG")" >> "$GITHUB_OUTPUT"
           echo "reviewer=$(yq -r '.reviewer // ""' "$CFG")" >> "$GITHUB_OUTPUT"
           echo "bot=$(yq -r '.github_app_login' "$CFG")" >> "$GITHUB_OUTPUT"
           echo "repo=$(yq -r '.repo' "$CFG")" >> "$GITHUB_OUTPUT"
-          echo "fb_label=$(yq -r '.labels.feedback' "$CFG")" >> "$GITHUB_OUTPUT"
+          echo "agent_fix_label=$(yq -r '.labels.agent_fix' "$CFG")" >> "$GITHUB_OUTPUT"
+          echo "triaged_label=$(yq -r '.labels.status_triaged' "$CFG")" >> "$GITHUB_OUTPUT"
+          echo "in_progress_label=$(yq -r '.labels.status_in_progress' "$CFG")" >> "$GITHUB_OUTPUT"
           echo "verify=$(yq -r '.verify_setup_script' "$CFG")" >> "$GITHUB_OUTPUT"
 
       - name: Mint GitHub App token
@@ -117,16 +118,21 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           AUTOREPO_REPO: ${{ steps.cfg.outputs.repo }}
           AUTOREPO_BOT_LOGIN: ${{ steps.cfg.outputs.bot }}
-          AUTOREPO_FEEDBACK_LABEL: ${{ steps.cfg.outputs.fb_label }}
+          AGENT_FIX_LABEL: ${{ steps.cfg.outputs.agent_fix_label }}
+          TRIAGED_LABEL: ${{ steps.cfg.outputs.triaged_label }}
+          IN_PROGRESS_LABEL: ${{ steps.cfg.outputs.in_progress_label }}
           REVIEWER: ${{ steps.cfg.outputs.reviewer }}
           ISSUE: ${{ github.event.issue.number }}
         run: |
           set -euo pipefail
           # Find the agent's PR locally (search index lags right after create):
-          # the bot-authored open PR whose body carries `fix:#<issue>`.
+          # the bot-authored open PR whose body carries the FOOTER form
+          # `fix:#<issue> -->` (anchored so #4 doesn't match #42's footer). Use
+          # real jq with --arg, never string-interpolation into the program.
           PR=$(gh pr list --state open --limit 30 --json number,body,author \
-            --jq "[.[] | select(.author.login==\"$AUTOREPO_BOT_LOGIN\") | select(.body|contains(\"fix:#$ISSUE\"))][0].number")
-          if [ -z "${PR:-}" ] || [ "$PR" = "null" ]; then
+            | jq -r --arg bot "$AUTOREPO_BOT_LOGIN" --arg n "$ISSUE" \
+              '[.[] | select(.author.login==$bot) | select(.body|contains("fix:#"+$n+" -->"))][0].number // empty')
+          if [ -z "${PR:-}" ]; then
             echo "no fix PR found for #$ISSUE — leaving ticket triaged (self-healing); next attempt re-arms on re-label"
             exit 0
           fi
@@ -140,7 +146,7 @@ jobs:
           if [ -n "$NOTE" ]; then
             scripts/ticket_card.sh set "$ISSUE" "$(jq -cn --arg n "$NOTE" '{customer_note:$n}')"
           fi
-          gh issue edit "$ISSUE" --remove-label "agent-fix" --remove-label "status:triaged" --add-label "status:in-progress" || true
+          gh issue edit "$ISSUE" --remove-label "$AGENT_FIX_LABEL" --remove-label "$TRIAGED_LABEL" --add-label "$IN_PROGRESS_LABEL" || true
           if [ -n "${REVIEWER:-}" ] && [ "$REVIEWER" != "null" ]; then
             gh pr edit "$PR" --add-reviewer "$REVIEWER" --add-assignee "$REVIEWER" \
               || echo "warn: could not request review/assign '$REVIEWER' on #$PR (non-fatal)"

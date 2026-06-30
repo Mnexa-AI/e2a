@@ -135,9 +135,10 @@ Then:
   detail `{human: <login>}`).
 - `in_progress` tickets: read the PR (`gh pr view <pr> --json state,mergedAt`).
   PR merged >24h ago → `shipped` (missed release callback: `ticket_card.sh set
-  '{"status":"shipped"}'` + `gh issue close --reason completed`); PR closed
-  unmerged → `triaged` (re-arm the gate: `set '{"status":"triaged","pr":null}'`,
-  relabel drop `status:in-progress` add `status:triaged`).
+  '{"status":"shipped"}'`, drop `{labels.status_in_progress}`, `gh issue close
+  --reason completed`); PR closed unmerged → `triaged` (re-arm the gate: `set
+  '{"status":"triaged","pr":null}'`, drop `{labels.status_in_progress}`, add
+  `{labels.status_triaged}`).
 
 ## 5. Output discipline
 

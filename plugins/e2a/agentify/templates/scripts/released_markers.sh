@@ -17,23 +17,30 @@
 set -euo pipefail
 
 # _extract: PR-array JSON on stdin -> issue numbers (one per line).
+# The issue number is taken from `fix:#<N>` and anchored at end-of-token, so
+# digits in the MARKER NAME (e.g. the "2" in "e2a-feedback") cannot leak a
+# phantom issue.
 _extract() {
   local bot="$1" marker="$2"
   jq -r --arg bot "$bot" '.[] | select(.user.login == $bot) | select(.merged_at != null) | .body' \
     | grep -oE "<!-- ${marker} fix:#[0-9]+ -->" \
-    | grep -oE '[0-9]+'
+    | grep -oE 'fix:#[0-9]+' \
+    | grep -oE '[0-9]+$'
 }
 
 if [ "${1:-}" = "_selftest" ]; then
   fail=0
-  fix='<!-- acme-feedback fix:#42 -->'
-  arr="$(jq -n --arg f "body text\n$fix" --arg g "body\n<!-- acme-feedback fix:#99 -->" '[
+  # Use a marker WITH A DIGIT ("e2a-feedback") — the bug the old fixture hid:
+  # the "2" must not leak as a phantom issue.
+  fix='<!-- e2a-feedback fix:#42 -->'
+  arr="$(jq -n --arg f "body text\n$fix" --arg g "body\n<!-- e2a-feedback fix:#99 -->" '[
     {number:1, user:{login:"bot[bot]"}, merged_at:"2026-01-01T00:00:00Z", body:$f},
     {number:2, user:{login:"attacker"},  merged_at:"2026-01-01T00:00:00Z", body:$g},
     {number:3, user:{login:"bot[bot]"}, merged_at:null,                   body:$g},
     {number:4, user:{login:"bot[bot]"}, merged_at:"2026-01-01T00:00:00Z", body:"no marker here"}]')"
-  out="$(printf '%s' "$arr" | _extract "bot[bot]" "acme-feedback" | tr '\n' ',')"
-  [ "$out" = "42," ] || { echo "FAIL: expected '42,' got '$out' (must ignore non-bot #99, unmerged, and no-marker)"; fail=1; }
+  out="$(printf '%s' "$arr" | _extract "bot[bot]" "e2a-feedback" | tr '\n' ',')"
+  # Exactly "42," — NOT "2,42," (digit-leak) and not "99" (non-bot/unmerged).
+  [ "$out" = "42," ] || { echo "FAIL: expected '42,' got '$out' (digit-leak, or non-bot/unmerged not ignored)"; fail=1; }
   if [ "$fail" = 0 ]; then echo "released_markers.sh selftest: OK"; else echo "released_markers.sh selftest: FAILED"; exit 1; fi
   exit 0
 fi

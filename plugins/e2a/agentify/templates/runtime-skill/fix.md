@@ -41,16 +41,19 @@ is no production to reach. Keep the diff minimal and reversible.
 - **Body**, in this order:
   1. one-paragraph plain summary of the change and why;
   2. how you verified it (commands run, what you observed);
-  3. a **customer-note block** — the prose the comms lane will email the
-     filer verbatim when this ships, in user terms (what changed for them).
-     Fence it exactly:
+  3. a **customer-note block** — a visible heading plus the prose the comms
+     lane will email the filer verbatim on ship, in user terms. The text
+     between the markers renders VISIBLY in the PR, so the reviewer sees and
+     approves exactly what the customer will receive (the PR review IS the
+     gate on this text — it derives from untrusted feedback). Format:
      ```
+     ### Customer note — emailed to the filer verbatim on ship (review it)
      <!-- customer-note -->
      <one short paragraph the filer will read>
      <!-- /customer-note -->
      ```
      If you cannot write an honest customer-facing note, say so in the PR —
-     do not invent product claims.
+     never invent product claims, links, or instructions.
   4. `Fixes #<issue>` (GitHub linkage);
   5. the marker footer on its OWN last line (bot-authored placement — the
      release callback trusts it only here): `<!-- {marker} fix:#<issue> -->`.

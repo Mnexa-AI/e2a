@@ -12,10 +12,34 @@ AND (later) a repo-write coding agent.
    (image-borne injection). Attachments are *described*, never executed or
    rendered; their bytes never reach GitHub.
 
-2. **The fix lane holds ZERO deploy/prod secrets.** Its entire credential
-   inventory is the Anthropic token + a repo-scoped GitHub App token. Its
-   output is a PR a human reviews. The blast radius of a successful
-   injection is a rejected PR — nothing ships.
+2. **The fix lane holds ZERO deploy/prod/cloud secrets** — its entire
+   credential inventory is the Anthropic token + a repo-scoped GitHub App
+   token + a throwaway local verify stack. That bound is real and is what
+   keeps the blast radius bounded. **But be honest about what "bounded"
+   means** — it is NOT "only a rejected PR". A coding agent with `Bash` +
+   `Edit/Write` + repo write, reading untrusted issue text, can also:
+   - **exfiltrate the run-env tokens** (the Anthropic token, the ~1h App
+     token) via `curl`/`gh issue create` — *no merge required*. The App token
+     is short-lived + issues/PR-scoped; the Anthropic token is the real
+     residual. Network-egress restrictions on the runner are the future
+     hardening.
+   - **land code on `main` directly** *if branch protection is missing* — the
+     workflow denies `gh pr merge` but cannot deny a raw `git push
+     origin HEAD:main`. **Branch protection on the default branch is therefore
+     a REQUIRED activation step, not optional** (setup-checklist).
+   - **poison config/workflows in its PR** (re-point `approver`/`reviewer`,
+     add a cloud-auth step) — bounded by PR review AND by the App **not**
+     holding `workflows:write` (so it cannot even push a `.github/workflows`
+     change). Grant the App no `workflows` permission; consider CODEOWNERS on
+     `autonomous-repo.config.yml` + `.github/`.
+   - **author a hostile `customer-note`** (emailed from the verified domain /
+     shown on the public issue) — its content renders visibly in the PR, so
+     **the PR review is the gate on it**; review it.
+
+   So the load-bearing fences are: zero prod creds + **branch protection** +
+   **App without `workflows:write`** + a **diligent PR review** (incl. the
+   customer-note and any config diff). The merge gate is real, but it is those
+   four together, not "a PR can't do anything until merged".
 
 3. **Authorship trust.** Decisions read only the bot-authored issue/PR body
    and `OWNER`/`MEMBER` comments. The ticket-card and the `marker` are
