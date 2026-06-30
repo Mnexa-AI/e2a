@@ -834,6 +834,7 @@ components:
       additionalProperties: false
       properties:
         attachments:
+          description: Additional attachments to include alongside the forwarded message's original attachments, which are carried over automatically.
           items:
             $ref: "#/components/schemas/Attachment"
           type: array
@@ -1471,7 +1472,7 @@ components:
             - block
           type: string
         allowlist:
-          description: Addresses (allowlist) or domains (domain) the gate trusts; ignored for open.
+          description: "Addresses (allowlist) or domains (domain) the gate trusts; ignored for open. Inbound: matched against the message From AS PRESENTED — a match does not by itself prove the sender is authentic (a forged From that fails SPF/DKIM/DMARC can still match). For spoofing-sensitive trust, also check the message authentication result."
           items:
             type: string
           maxItems: 1000
@@ -1966,6 +1967,7 @@ components:
       additionalProperties: false
       properties:
         dkim:
+          description: "Live DKIM probe state. Known values: found, missing, deferred, mismatch. 'mismatch' means a DKIM record IS published at the selector but its key doesn't match the issued one — almost always a truncated/clipped TXT (the value is ~400 chars and must be published in full, ending in 'AQAB'). On 'mismatch', re-publish the complete DKIM record; do not just wait."
           type: string
         domain:
           type: string
@@ -2868,7 +2870,7 @@ paths:
         - messages
   /v1/agents/{email}/messages/{id}/forward:
     post:
-      description: Forward an inbound message to new recipients; the original is quoted. 202 when held for HITL.
+      description: Forward an inbound message to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.
       operationId: forwardMessage
       parameters:
         - in: path
