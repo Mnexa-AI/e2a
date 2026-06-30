@@ -76,7 +76,7 @@ Triage records that an approval is owed; comms fulfills it.
   disputes, unsubscribe, escalation). **(Slice 2 — implemented.)**
 - `fix.md` — the coding agent: read the issue safely, fix, verify against
   the running stack, open ONE human-reviewed PR. Never merges or deploys.
-  *(Slice 3.)*
+  **(Slice 3 — implemented.)**
 
 See `state-machine.md` and `ticket-card.md` for the shared state model and
 the github-store state representation.

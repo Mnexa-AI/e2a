@@ -61,7 +61,11 @@ and `add-event` an `email_sent` entry.
   `triage-ack` ∈ `notified`, `resolved-closed` ∉ `notified`. `comms_send.sh
   reply` into the filer thread with `resolved-closed.md` filled from the
   decline/wontfix reason. Then `notified += resolved-closed`.
-- **`shipped`** *(slice 3 — dormant.)*
+- **`shipped`** — owed when `status == "shipped"`, `triage-ack` ∈ `notified`,
+  `shipped` ∉ `notified`. `comms_send.sh reply` into the filer thread with
+  `shipped.md` filled — slot the ticket-card `customer_note` (captured from the
+  merged PR) VERBATIM. If `customer_note` is empty, leave it for a human; do
+  not improvise product claims. Then `notified += shipped`.
 
 Dup-filer fan-out *(deferred refinement)*: dup/noise filings get no issue (a
 `dup_merged` event on the canonical ticket records the `conversation_id`);
@@ -99,7 +103,8 @@ work from SUMMARIES. For each, match by `conversation_id` BEFORE any fetch:
   - **escalation** — anger, churn/legal language, "I want a person" → DO NOT
     argue, placate, or defend. One-line note on the pinned ops issue
     (`{labels.ops}`); stop.
-  - dispute of a fix (`shipped`) *(slice 3 — dormant)* → `status="triaged"`.
+  - dispute of a fix (`shipped`) → reopen: `status="triaged"`, reopen the issue
+    (`gh issue reopen`), relabel to `status:triaged`, quote-comment the dispute.
   - *(Deferred with the dup-filer fan-out: dispute of a dup verdict and
     substantive follow-up to a noise close. v0 creates no issue for dup/noise,
     so no such ticket exists to reply to yet.)*

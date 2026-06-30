@@ -133,10 +133,11 @@ Then:
   (`ticket_card.sh set '{"status":"closed_wontfix"}'` + close/relabel via
   `gh issue`, then `ticket_card.sh add-event` with actor `triage-lane`,
   detail `{human: <login>}`).
-- *(Slice 3, with the fix lane.)* `in_progress` tickets: PR merged >24h ago
-  → `shipped` (missed release callback); PR closed unmerged → `triaged`
-  (re-arms the gate, clear `pr`). This needs `gh pr` read, which is not in
-  the slice-1 allowlist — it activates when the fix lane lands.
+- `in_progress` tickets: read the PR (`gh pr view <pr> --json state,mergedAt`).
+  PR merged >24h ago → `shipped` (missed release callback: `ticket_card.sh set
+  '{"status":"shipped"}'` + `gh issue close --reason completed`); PR closed
+  unmerged → `triaged` (re-arm the gate: `set '{"status":"triaged","pr":null}'`,
+  relabel drop `status:in-progress` add `status:triaged`).
 
 ## 5. Output discipline
 

@@ -12,12 +12,12 @@ skill is grabbing the framework. The install lands as a **PR the repo owner
 reviews and merges** — the install itself goes through the same human gate
 the framework runs on.
 
-> **v0 scope.** Slices 1–2 ship the **triage/intake** lane (email → triaged
-> issue) and the **comms** lane (filer acks + the fix-gate approval email +
-> verified-reply routing). The fix and release-callback lanes are later
-> slices; their templates are added under `templates/workflows/` as they
-> land. This SKILL.md is the deploy procedure; it is intentionally thin in v0
-> (a guided scaffold, not a fully automated wizard).
+> **v0 scope.** Slices 1–3 ship the full loop: **triage/intake** (email →
+> triaged issue), **comms** (filer acks + the fix-gate approval email +
+> verified-reply routing), and **fix + release** (the coding agent's
+> human-reviewed PR + the merge→shipped callback). The thick deploy wizard is
+> slice 4; this SKILL.md is the deploy procedure, intentionally thin in v0 (a
+> guided scaffold, not a fully automated wizard).
 
 ## What gets scaffolded into the target repo
 

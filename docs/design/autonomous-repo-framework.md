@@ -561,3 +561,37 @@ Fixed after independent + adversarial review of the comms lane:
   ledger — read-on-fetch); double-send window across runs; cross-thread body
   discipline is prompt-level (recipients are structural); escalation/
   unsubscribe detection is prose judgment.
+
+### §10 addenda (slice 3: fix + release lanes)
+
+Built on `main`. The coding agent + the merge→shipped callback complete the loop:
+
+- **Fix lane** (`workflows/feedback-fix.yml.tmpl` + `runtime-skill/fix.md`):
+  `claude-code-action` gated on the `agent-fix` label. Credential inventory =
+  Anthropic token + App token + a throwaway local verify stack
+  (`verify_setup_script`, e2a's example at
+  `examples/e2a/agentify-fix-verify-setup.sh`). **Zero backend/cloud/prod
+  secrets** — blast radius is a rejected PR. The agent reads only the
+  bot-authored issue + OWNER/MEMBER comments, opens ONE PR with a
+  `customer-note` block + a bot-authored `<!-- {marker} fix:#N -->` footer, and
+  stops. A **non-agent post-step** (App token, no backend secret in the github
+  store) records `in_progress` + the PR number on the ticket-card, captures the
+  `customer-note` into the card, relabels, and requests the `reviewer`.
+- **Release callback** (`workflows/feedback-released.yml.tmpl` +
+  `scripts/released_markers.sh`): on push to main, resolves merged PRs for the
+  SHA and flips ticket #N → `shipped` (close `completed`) for each
+  **bot-authored** PR carrying `fix:#N`. `released_markers.sh` enforces
+  bot-author + footer placement (a forged/human marker is ignored); it has a
+  `_selftest`. Idempotent: already-`shipped`/closed tickets are skipped (the
+  triage sweep reconciles real misses).
+- **Activations**: the triage `in_progress` sweep is live (PR merged >24h →
+  shipped; closed-unmerged → triaged) — `gh pr list`/`view` added to the triage
+  allowlist (`gh pr merge` denied). The comms `shipped` notification + the
+  `shipped → triaged` filer-dispute reopen are active; `shipped.md` slots the
+  card's `customer_note` (no PR read needed by comms).
+- **Marker change**: PR↔issue link is `fix:#N` in the PR body (github store
+  uses the issue number as the id; no minted `fbk_`).
+- **Accepted residuals**: the PR-find is a local scan of ≤30 open PRs (search
+  index lags); `claude-code-action`'s broad `Bash/Edit/Write` is the fix
+  agent's necessary surface — bounded by zero prod creds + the human merge gate,
+  not by a narrow allowlist.
