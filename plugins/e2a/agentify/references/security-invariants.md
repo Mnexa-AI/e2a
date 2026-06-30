@@ -46,6 +46,18 @@ AND (later) a repo-write coding agent.
    used) are scoped per lane and reachable only through a single allowlisted
    script.
 
+   **Comms lane (read + send).** The comms key can send mail, so its blast
+   radius includes outbound email — but the *recipient* is bounded
+   **structurally**: all sends go through `scripts/comms_send.sh`, which
+   computes the recipient from the thread (reply) or config
+   (`fix_gate.approver`) and never sets `cc`/`bcc`/`reply_all`; the raw e2a
+   send tools (`send_message`/`reply_to_message`/`forward_message`), which
+   accept arbitrary `to`/`cc`/`bcc`, are **disallowed**. So an injection
+   cannot relay mail off the verified domain or bcc thread content to an
+   attacker. The residual (the model controls the *body* sent to a legitimate
+   thread participant or the approver) is the bounded-blast-radius limit, not
+   an arbitrary-egress hole.
+
 6. **Per-adopter identity.** Each adopter brings its own GitHub App and its
    own Anthropic + comms credentials. Nothing is shared across installs.
 

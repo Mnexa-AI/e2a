@@ -526,3 +526,38 @@ Built on `main`. The E2A comms lane — `runtime-skill/comms.md`,
   the canonical ticket's `dup_merged` event).
 - **Deferred to slice 3**: fix lane + release callback; the `shipped` stage and
   the `shipped → triaged` filer-dispute edge activate then.
+
+### §10 addenda (slice-2 dual-review hardening)
+
+Fixed after independent + adversarial review of the comms lane:
+
+- **Structural send bound (was an open mail relay).** The raw e2a send tools
+  accept `to`/`cc`/`bcc`/`reply_all`, so "reply stays in-thread" was false —
+  an injection could relay mail off the verified domain / bcc thread content +
+  secrets out. Fix: all sends go through `scripts/comms_send.sh` (reply →
+  server-derived recipient; approval → `fix_gate.approver` only; never
+  cc/bcc); the raw `send_message`/`reply_to_message`/`forward_message` tools
+  are **disallowed**. Recipient bounding is now structural. Added
+  `comms.e2a_api_url`; `comms_send.sh` has a `_selftest`.
+- **`get_message` read-on-fetch broke the loop (HIGH).** Fetching a message
+  marks it read, so triage's classify-pass consumed approver/dispute replies
+  before comms could route them. Fix: both lanes classify from the
+  `list_messages` **summary** (`conversation_id`) and call `get_message` ONLY
+  on a message they own and will act on — triage fetches only non-matching
+  (new feedback), comms only matched replies.
+- **Approval-gate bindings hold; the actuator is prompt-gated.** A filer/third
+  party cannot forge an approval (conversation_id + `authenticated_from` +
+  bot-only trust). But `agent-fix` is applied by `gh issue edit` with no
+  structural tie to the verified branch — documented honestly (PR-merge is the
+  real fence). Hardened: a null/empty `approval.conversation_id` never matches.
+- **`security-invariants.md` corrected**: the comms key is read+**send**, not
+  read-only; its mail-egress is recipient-bounded by the wrapper.
+- **Coherence fixes**: decline now relabels (drop `status:awaiting-approval`,
+  add `wontfix`, close `not_planned`); `contact` added to the ticket-card
+  schema; the `feedback_status` dangling reference removed; over-granted e2a
+  tools trimmed; the `closed_duplicate`/`closed_noise` dispute branches marked
+  deferred (no issue exists for those in v0).
+- **Accepted residuals (documented)**: inbound is at-most-once (no inbound
+  ledger — read-on-fetch); double-send window across runs; cross-thread body
+  discipline is prompt-level (recipients are structural); escalation/
+  unsubscribe detection is prose judgment.

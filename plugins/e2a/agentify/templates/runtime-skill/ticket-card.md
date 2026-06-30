@@ -51,6 +51,7 @@ append-only `events` array; use `add-event` to extend it.
     "reason": null               // approver's note on decline
   },
   "pr": null,                    // fix PR number, or null
+  "contact": true,               // filer opted into updates; comms flips false on a verified unsubscribe — gates proactive sends
   "notified": [],                // comms stages already sent (idempotency): ["triage-ack","shipped",...]
   "events": [                    // append-only timeline (audit trail)
     { "at": "2026-06-29T12:00:00Z", "actor": "triage-lane", "kind": "triaged", "detail": "classified bug; issue created" }
