@@ -488,6 +488,18 @@ is purely additive (zero loop changes).
   reach the filer's own inbox. For e2a, a tool in its own `mcp/` server; the
   agent-facing contract is unchanged.
 
+### §10 addenda (test harness)
+
+`plugins/e2a/agentify/test/run.sh` is the deterministic suite (CI:
+`.github/workflows/agentify-test.yml`): every script `_selftest` + the addon's
+`bridge.test.mjs` + bash/JS syntax + `test/validate.py` (YAML parse, the
+rendered config vs what the workflows read, **e2a MCP/REST URL host
+consistency** — which catches the `mcp.e2a.dev` vs `api.e2a.dev` class, with a
+negative test confirming it fails on the bug — required keys, stray
+placeholders). Still-open layers (per §9): **golden-fixture lane tests** (drive
+each lane prompt via `claude -p` over fixtures — the highest-value gap) and the
+**live over-the-wire e2e** at go-live.
+
 **Hardened after adversarial review** (relay/spoof/SSRF/key-exfil all refuted —
 the fixed-recipient bound holds): `feedback_status` now validates the id is a
 `conv_…` before the fetch (an `.`/`..` id otherwise reached unintended same-host

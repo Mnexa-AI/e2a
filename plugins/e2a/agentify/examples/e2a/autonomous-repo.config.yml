@@ -27,7 +27,7 @@ intake: "email"                         # feedback arrives at support_address; t
 comms:
   channel: "e2a"                        # e2a runs its own support loop on e2a (dogfood)
   support_address: "support@e2a.dev"    # TODO(open-q #6): confirm verified domain (e2a.dev / api.e2a.dev / support.)
-  e2a_mcp_url: "https://mcp.e2a.dev/mcp" # e2a-adapter-specific (used only when channel: e2a)
+  e2a_mcp_url: "https://api.e2a.dev/mcp" # e2a-adapter-specific (used only when channel: e2a)
   e2a_api_url: "https://api.e2a.dev"     # REST base for the comms send wrapper (recipients bound here)
 
 fix_gate:
