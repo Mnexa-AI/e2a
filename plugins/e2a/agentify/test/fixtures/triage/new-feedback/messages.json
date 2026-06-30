@@ -1,0 +1,12 @@
+[
+  {
+    "message_id": "msg_new1",
+    "conversation_id": "conv_new1",
+    "from": "dev@acme.test",
+    "authenticated_from": "dev@acme.test",
+    "subject": "crash when saving a doc with a unicode name",
+    "body": "Saving a document whose title has a unicode character 500s. Repro: create a doc named 'café', click Save, server returns 500.",
+    "direction": "inbound",
+    "read": false
+  }
+]

@@ -1,0 +1,1 @@
+Run the triage procedure in .claude/skills/autonomous-repo/triage.md. Read autonomous-repo.config.yml FIRST. Use scripts/ticket_card.sh for ticket-card state, gh issue for issues, and the e2a read tools for intake. Respect budgets.triage_items_per_run. An empty intake queue is a successful run — exit immediately.

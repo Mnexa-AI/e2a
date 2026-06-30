@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Fake `gh` for lane fixtures: records the invocation to $ACTION_LOG and
+# returns canned fixture data. The agent's real GitHub actions become
+# assertable log lines instead of touching a repo.
+echo "gh $*" >> "$ACTION_LOG"
+case "$1 $2" in
+  "issue list"|"search issues"|"pr list") echo "[]" ;;
+  "issue view")   cat "$FIXTURE_DIR/gh-issue-view.json" 2>/dev/null || echo '{}' ;;
+  "pr view")      echo '{"state":"OPEN"}' ;;
+  "issue create")
+    # Return a created-issue URL; the agent parses the number (101) for the card.
+    echo "https://github.com/owner/repo/issues/101" ;;
+  *) : ;;  # edit/comment/close/etc: logged above, no output needed
+esac
+exit 0

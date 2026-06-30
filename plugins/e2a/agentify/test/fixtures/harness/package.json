@@ -1,0 +1,12 @@
+{
+  "name": "agentify-lane-fixtures-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Stub e2a MCP server for driving lane prompts against a mocked world",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "engines": { "node": ">=20" }
+}

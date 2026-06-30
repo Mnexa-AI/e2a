@@ -27,6 +27,9 @@ done
 section "yaml + config validation"
 run python3 test/validate.py
 
+section "lane-fixture assertions (deterministic; model layer runs in CI)"
+run bash test/fixtures/harness/assert-selftest.sh
+
 echo
 if [ "$fail" = 0 ]; then echo "AGENTIFY TESTS: ALL PASS"; else echo "AGENTIFY TESTS: FAILURES ABOVE"; fi
 exit $fail
