@@ -67,6 +67,25 @@ scaffold() {  # $1 = target root
   done
 }
 
+# apply_addons: scaffold each opted-in addon (ANS_ADDONS, space-separated) to
+# tools/<name>/ and append its setup.md. Addons are additive — the core loop
+# runs without them.
+apply_addons() {  # $1 = target root
+  local t="$1" name src
+  for name in ${ANS_ADDONS:-}; do
+    src="$TEMPLATES/addons/$name"
+    if [ ! -d "$src/files" ]; then
+      echo "agentify: unknown addon '$name' (skipped)" >&2; continue
+    fi
+    mkdir -p "$t/tools/$name"
+    cp -R "$src/files/." "$t/tools/$name/"
+    if [ -f "$src/setup.md" ]; then
+      { printf '\n## Addon: %s\n\n' "$name"; cat "$src/setup.md"; } >> "$t/AGENTIFY-ADDON-SETUP.md"
+    fi
+    echo "agentify: addon '$name' -> tools/$name/"
+  done
+}
+
 if [ "${1:-}" = "_selftest" ]; then
   T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
   export ANS_PRODUCT_NAME="acme" ANS_OWNER="acme" ANS_REPO="widget" ANS_MARKER="acme-feedback" \
@@ -88,6 +107,14 @@ if [ "${1:-}" = "_selftest" ]; then
   [ -f "$T/.claude/skills/autonomous-repo/templates/triage-ack.md" ] || { echo "FAIL: email templates missing"; fail=1; }
   [ -x "$T/scripts/ticket_card.sh" ] || { echo "FAIL: ticket_card.sh missing/not exec"; fail=1; }
   [ -x "$T/scripts/comms_send.sh" ] || { echo "FAIL: comms_send.sh missing/not exec"; fail=1; }
+  # addons: none by default
+  [ -e "$T/tools" ] && { echo "FAIL: tools/ created with no ANS_ADDONS"; fail=1; }
+  # addons: opt in submit-feedback-mcp
+  ANS_ADDONS="submit-feedback-mcp" apply_addons "$T"
+  [ -f "$T/tools/submit-feedback-mcp/server.mjs" ] || { echo "FAIL: addon server.mjs not scaffolded"; fail=1; }
+  [ -f "$T/tools/submit-feedback-mcp/bridge.mjs" ] || { echo "FAIL: addon bridge.mjs not scaffolded"; fail=1; }
+  grep -q 'Addon: submit-feedback-mcp' "$T/AGENTIFY-ADDON-SETUP.md" || { echo "FAIL: addon setup not appended"; fail=1; }
+  ANS_ADDONS="nope-addon" apply_addons "$T" 2>/dev/null; [ -e "$T/tools/nope-addon" ] && { echo "FAIL: unknown addon scaffolded"; fail=1; }
   if [ "$fail" = 0 ]; then echo "agentify-render.sh selftest: OK"; else echo "agentify-render.sh selftest: FAILED"; exit 1; fi
   exit 0
 fi
@@ -104,4 +131,5 @@ done
 [ -d "$TEMPLATES" ] || { echo "agentify-render.sh: templates not found at $TEMPLATES" >&2; exit 2; }
 render_config "$TARGET" "$FORCE"
 scaffold "$TARGET"
+apply_addons "$TARGET"
 echo "agentify: rendered into $TARGET (config + .claude/skills/autonomous-repo + scripts + .github/workflows)"

@@ -457,6 +457,37 @@ scaffolder; `SKILL.md` is the interactive wrapper.
   A) + the one-time setup; deferred to an explicit "go live" step since it
   needs the human identity/secret work regardless.
 
+### §10 addenda (addon mechanism + submit_feedback)
+
+Built on `main`. An **addon mechanism** (`templates/addons/`) makes the
+framework extensible: each addon is `manifest.yml` + `files/` + `setup.md`,
+opted in via `ANS_ADDONS`; the render scaffolds `files/` → `tools/<name>/` and
+appends `setup.md` → `AGENTIFY-ADDON-SETUP.md`. Selftest covers scaffold +
+unknown-addon rejection + the no-addons default.
+
+The first addon, **`submit-feedback-mcp`**, is an *intake* adapter — a
+`submit_feedback` / `feedback_status` MCP server that **email-bridges** agent-
+filed feedback into the support mailbox the triage lane already drains, so it
+is purely additive (zero loop changes).
+
+- **In-band model**: the bridge sends from its OWN e2a identity (TO the support
+  address, a fixed recipient — structurally bounded like `comms_send.sh`); it
+  never accepts a caller-supplied "email me here" address (spoof/spam vector).
+  The filer polls `feedback_status` rather than getting direct email replies.
+- **Pure logic unit-tested** (`bridge.mjs` + `bridge.test.mjs`, node:test):
+  validation (validate-before-charge), email composition (untrusted body sent
+  as opaque data — never interpolated/evaluated), coarse status derivation. The
+  MCP + e2a-REST wiring (`server.mjs`) is verified at install.
+- **Accepted residuals**: `feedback_status` ids are bearer capabilities
+  (unguessable `conv_` ids; the tool returns only coarse `received`/`answered`
+  status, not thread content) — fine for the in-band model. Rate limit is a
+  per-process backstop (the host/e2a is the durable limiter). `feedback_status`
+  is coarse vs the ticket-card.
+- **Richer variant (follow-on)**: put `submit_feedback` inside a host MCP
+  server that authenticates the *caller* and sends as them — then comms acks
+  reach the filer's own inbox. For e2a, a tool in its own `mcp/` server; the
+  agent-facing contract is unchanged.
+
 ## 10. Implementation reconciliation (`feat/agentify-feedback-loop`)
 
 Deviations recorded at build time (slice 1 — intake + triage):

@@ -1,0 +1,31 @@
+# submit-feedback-mcp — an INTAKE addon for the autonomous-repo framework.
+#
+# Adds a `submit_feedback` MCP tool so an agent can file feedback from inside
+# its session. It is an EMAIL BRIDGE: the tool drops a structured feedback
+# email into the support mailbox the triage lane already drains, so the loop
+# needs ZERO changes — this addon is purely additive.
+
+name: submit-feedback-mcp
+provides: intake
+description: >
+  An MCP server exposing submit_feedback + feedback_status. Bridges agent-filed
+  feedback into the support mailbox (the existing email intake handles it).
+  In-band model: the bridge owns the thread; the filer polls feedback_status.
+
+# Scaffolded into the target repo (the bridge MCP server).
+scaffold:
+  - { from: files/, to: tools/submit-feedback-mcp/ }
+
+# Declarative note for the config (the loop works without it — the email
+# intake already drains the bridged mail; this documents the added surface).
+config_note: "intake now also accepts the submit_feedback MCP tool (email-bridged)."
+
+# Appended to references/setup-checklist.md by the deploy flow.
+setup_doc: setup.md
+
+# Extra env the bridge server needs (the adopter sets these where they run it).
+env:
+  - E2A_API_URL
+  - E2A_API_KEY               # the BRIDGE's own agent-scoped key (NOT the lane keys)
+  - FEEDBACK_INTAKE_ADDRESS   # the bridge's e2a agent address (the From)
+  - SUPPORT_ADDRESS           # = comms.support_address (the triage mailbox)

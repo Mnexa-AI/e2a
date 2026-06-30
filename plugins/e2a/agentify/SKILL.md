@@ -52,7 +52,12 @@ the framework runs on.
    `always_hitl`, the filled `bot_login`) — pass `--force` only to regenerate
    the config. Then **tune** the rendered config's `always_hitl` list for the
    product's sensitive surfaces, and sanity-check: `scripts/*.sh _selftest`
-   all green and the config parses.
+   all green and the config parses. **Optional addons** (`templates/addons/`)
+   — e.g. `submit-feedback-mcp` (a `submit_feedback` MCP tool that
+   email-bridges into the support mailbox) — are opted in via
+   `ANS_ADDONS="<name> ..."`; the render scaffolds each to `tools/<name>/` and
+   appends its setup to `AGENTIFY-ADDON-SETUP.md`. Addons are additive; the
+   loop runs without them.
 4. **Auto-do the safe parts.** Create the labels from `labels.*` via `gh`
    (`feedback`, `agent-fix`, `wontfix`, `feedback-ops`, the `status:*` set).
 5. **Hand off the rest** (print, don't do — see `references/setup-checklist.md`):
