@@ -6,11 +6,15 @@ description: Deploy the autonomous-repo feedback loop into a GitHub repo. Scaffo
 # agentify — deploy the autonomous-repo feedback loop
 
 `/agentify` installs the framework into a target repo: feedback in →
-triaged GitHub issue → human-gated fix PR → filer notified. It **bundles
-the framework as templates** (this skill's `templates/`), so grabbing this
-skill is grabbing the framework. The install lands as a **PR the repo owner
-reviews and merges** — the install itself goes through the same human gate
-the framework runs on.
+triaged GitHub issue → human-gated fix PR → filer notified. It **bundles the
+framework as templates**, so installing this plugin is grabbing the
+framework. The install lands as a **PR the repo owner reviews and merges** —
+the install itself goes through the same human gate the framework runs on.
+
+> **Where the tooling lives.** The scaffolder and templates ship in this
+> plugin at `${CLAUDE_PLUGIN_ROOT}/agentify/` — `agentify-render.sh`,
+> `templates/`, `references/`. Reference them with that variable (it resolves
+> to the plugin's install path); run commands from there.
 
 > **v0 scope.** The full loop ships: **triage/intake** (email → triaged
 > issue), **comms** (filer acks + the fix-gate approval email + verified-reply
@@ -23,7 +27,7 @@ the framework runs on.
 
 ## What gets scaffolded into the target repo
 
-| from `templates/` | to the target repo |
+| from `${CLAUDE_PLUGIN_ROOT}/agentify/templates/` | to the target repo |
 |---|---|
 | `autonomous-repo.config.yml.tmpl` | `autonomous-repo.config.yml` (the only file the adopter owns) |
 | `runtime-skill/**` | `.claude/skills/autonomous-repo/**` |
@@ -42,7 +46,7 @@ the framework runs on.
    recommended), `ANS_APPROVER_ADDRESS`, `ANS_VERIFY_SETUP_SCRIPT`. (The bot
    login can be filled later from the checklist; secrets are never gathered
    here.)
-3. **Render.** Run `agentify-render.sh --to <target-repo-root>`. It fills
+3. **Render.** Run `"${CLAUDE_PLUGIN_ROOT}/agentify/agentify-render.sh" --to <target-repo-root>`. It fills
    `autonomous-repo.config.yml` from the `ANS_*` answers (failing loudly on
    any unfilled placeholder) and scaffolds the runtime skill, the scripts,
    and the four workflows into their real paths
@@ -52,7 +56,8 @@ the framework runs on.
    `always_hitl`, the filled `bot_login`) — pass `--force` only to regenerate
    the config. Then **tune** the rendered config's `always_hitl` list for the
    product's sensitive surfaces, and sanity-check: `scripts/*.sh _selftest`
-   all green and the config parses. **Optional addons** (`templates/addons/`)
+   all green and the config parses. **Optional addons**
+   (`${CLAUDE_PLUGIN_ROOT}/agentify/templates/addons/`)
    — e.g. `submit-feedback-mcp` (a `submit_feedback` MCP tool that
    email-bridges into the support mailbox) — are opted in via
    `ANS_ADDONS="<name> ..."`; the render scaffolds each to `tools/<name>/` and
@@ -81,8 +86,10 @@ variable to pause everything. Run the loop interactively any time with the
 
 ## References
 
-- `references/setup-checklist.md` — the one-time identity/secret setup.
-- `references/adapters.md` — the TicketStore / CommsChannel / Intake
-  adapter contracts and which are implemented.
-- `references/security-invariants.md` — the defaults an adopter must not
-  misconfigure away.
+(all under `${CLAUDE_PLUGIN_ROOT}/agentify/references/`)
+
+- `setup-checklist.md` — the one-time identity/secret setup.
+- `adapters.md` — the TicketStore / CommsChannel / Intake adapter contracts
+  and which are implemented.
+- `security-invariants.md` — the defaults an adopter must not misconfigure
+  away.

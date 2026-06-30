@@ -515,6 +515,25 @@ splat); `submit_feedback` wraps the e2a call so a failure can't disclose the
 intake address; and `apply_addons` rejects non-`[a-z0-9-]` addon names (cp
 escaping `tools/`). Each fix has a regression test.
 
+### §10 addenda (plugin packaging)
+
+`/agentify` is shipped as a **skill in the e2a Claude Code plugin** so it's
+installable, not just copy-able:
+
+- The deploy procedure lives at `plugins/e2a/skills/agentify/SKILL.md` (a
+  second skill alongside the existing `skills/e2a/`); the plugin's marketplace
+  entry is unchanged, version bumped `0.3.2 → 0.4.0` across all manifests
+  (`scripts/validate-plugin.mjs` enforces the sync + the frontmatter rules).
+- The scaffolder + templates stay at `plugins/e2a/agentify/` (so CI and the
+  test suite are unchanged); the skill references them via
+  **`${CLAUDE_PLUGIN_ROOT}/agentify/`** — the whole plugin ships to the install
+  cache, so the bundled `agentify-render.sh` / `templates/` / `references/`
+  resolve at runtime.
+- Install: `/plugin marketplace add Mnexa-AI/e2a` → `/plugin install e2a` →
+  `/agentify` is available (plus the e2a MCP tools). The §4.5 "home:
+  `plugins/e2a/agentify/`" note refers to the tooling dir; the user-facing
+  skill is the plugin skill above.
+
 ## 10. Implementation reconciliation (`feat/agentify-feedback-loop`)
 
 Deviations recorded at build time (slice 1 — intake + triage):
