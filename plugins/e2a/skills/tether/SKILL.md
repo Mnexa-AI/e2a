@@ -60,7 +60,10 @@ Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
 2. **Start**: `"$T" start <email>` — sends the intro email, opens the thread, arms.
 3. **Work**, and **send updates as you see fit**: `"$T" update "<what changed / what you need>"`.
    Good moments: finished a slice, made a decision that's worth surfacing, hit a
-   blocker, or before a long unattended stretch. Skip trivial turns.
+   blocker, or before a long unattended stretch. Skip trivial turns. For a rich
+   update (diagram, table, formatting), write the HTML to a file and run
+   `"$T" update --html <file>` — a plain-text fallback is auto-derived (or pass
+   `--text "<fallback>"`).
 4. **Need a decision from the user? Ask by email — never the terminal.** Run
    `"$T" ask "<question>"` (in the background); it emails the question and blocks
    until the user replies, then prints the answer. **Do not** use AskUserQuestion

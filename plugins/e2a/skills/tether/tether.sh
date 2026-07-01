@@ -3,6 +3,7 @@
 #
 #   tether.sh start <your-email>   send the intro email, open the thread, arm
 #   tether.sh update "<message>"   send a threaded update ("as you see fit")
+#   tether.sh update --html <file> send an HTML update (+ auto text fallback)
 #   tether.sh ask "<question>"     email a question and BLOCK until the reply
 #   tether.sh poll                 print any new replies since last poll (exit 0)
 #   tether.sh status               show tether state
@@ -43,13 +44,31 @@ minutes). Reply any time with a question or instruction; reply \"stop\" to end.
     ;;
 
   update)
+    # update "<text>"                       plain-text update
+    # update --html <file> [--text "<t>"]   HTML update (+ optional text fallback)
     need_config; need_armed
-    msg="${1:-}"; [ -n "$msg" ] || { echo "usage: tether.sh update \"<message>\""; exit 2; }
+    htmlfile=""; textarg=""; msg=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --html) htmlfile="${2:-}"; shift 2;;
+        --text) textarg="${2:-}"; shift 2;;
+        *) msg="$1"; shift;;
+      esac
+    done
+    html=""
+    if [ -n "$htmlfile" ]; then
+      [ -f "$htmlfile" ] || { echo "tether: --html file not found: $htmlfile"; exit 2; }
+      html="$(cat "$htmlfile")"
+      # plain-text fallback: explicit --text/positional, else derived from the HTML
+      [ -n "$msg" ] || msg="$textarg"
+      [ -n "$msg" ] || msg="$(printf '%s' "$html" | t_html_to_text)"
+    fi
+    [ -n "$msg" ] || { echo "usage: tether.sh update \"<text>\"  |  update --html <file> [--text \"<fallback>\"]"; exit 2; }
     rid="$(t_state_get last_message_id)"
-    mid="$(t_api_reply "$rid" "$msg")"
+    mid="$(t_api_reply "$rid" "$msg" "$html")"
     if [ -z "$mid" ]; then echo "tether: update send failed"; exit 1; fi
     t_state_set last_message_id "$mid"
-    echo "tether: update sent (${mid})"
+    echo "tether: update sent (${mid})$([ -n "$html" ] && echo ' [html]')"
     ;;
 
   poll)
