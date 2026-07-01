@@ -59,14 +59,42 @@ func ParseReplyRecipients(rawMessage []byte, replyAll bool, extraCC []string) (*
 	}
 
 	// Merge explicit CC from request (always, even without raw message)
+	result.CC = append(result.CC, mergeExtraCC(extraCC)...)
+
+	return result, nil
+}
+
+// ReplyRecipientsForOutbound resolves reply recipients for a message the agent
+// itself SENT. Unlike ParseReplyRecipients (which targets the original
+// sender via Reply-To/From), a reply to your own message continues the thread
+// to the people you sent it to: To = the original To, and — on reply_all — the
+// original Cc is added to Cc. The original Bcc is deliberately never carried
+// (a reply must not re-expose blind recipients). Explicit extraCC from the
+// request is merged into Cc. The values come from the stored outbound row's
+// recipient columns, which are the authoritative record of what was sent.
+//
+// Downstream Sender.Send() still normalizes, dedupes, and strips the agent's
+// own address, so this returns the recipients as-stored.
+func ReplyRecipientsForOutbound(origTo, origCC, extraCC []string, replyAll bool) *ReplyRecipients {
+	result := &ReplyRecipients{To: append([]string(nil), origTo...)}
+	if replyAll {
+		result.CC = append(result.CC, origCC...)
+	}
+	result.CC = append(result.CC, mergeExtraCC(extraCC)...)
+	return result
+}
+
+// mergeExtraCC trims, drops empties, and lowercases caller-supplied CC
+// addresses — the shared normalization both reply paths apply.
+func mergeExtraCC(extraCC []string) []string {
+	var out []string
 	for _, addr := range extraCC {
 		addr = strings.TrimSpace(addr)
 		if addr != "" {
-			result.CC = append(result.CC, strings.ToLower(addr))
+			out = append(out, strings.ToLower(addr))
 		}
 	}
-
-	return result, nil
+	return out
 }
 
 // BuildReferencesChain returns the References chain to write on a reply,

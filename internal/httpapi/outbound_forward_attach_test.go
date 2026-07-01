@@ -48,7 +48,7 @@ func TestForwardCarriesOriginalAttachments(t *testing.T) {
 			}
 			return nil, errors.New("not found")
 		},
-		GetInboundMessage: func(ctx context.Context, messageID string) (*identity.Message, error) {
+		GetRepliableMessage: func(ctx context.Context, messageID string) (*identity.Message, error) {
 			if messageID == "msg_att" {
 				return &identity.Message{
 					ID: "msg_att", AgentID: "support@acme.com", Sender: "alice@x.com",
