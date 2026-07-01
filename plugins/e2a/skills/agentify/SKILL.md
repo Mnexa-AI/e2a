@@ -1,9 +1,12 @@
 ---
 name: agentify
-description: Deploy the autonomous-repo feedback loop into a GitHub repo. Scaffolds the lane workflows, the runtime skill, and one config file as a reviewed PR, then prints the one-time identity/secret setup checklist. Turns a repo into one that triages incoming feedback into issues and prepares human-gated fix PRs. Use when someone wants to make a repo self-managing / "agentify" it / install the feedback loop.
+description: Beta — Deploy the autonomous-repo feedback loop into a GitHub repo. Scaffolds the lane workflows, the runtime skill, and one config file as a reviewed PR, then prints the one-time identity/secret setup checklist. Turns a repo into one that triages incoming feedback into issues and prepares human-gated fix PRs. Use when someone wants to make a repo self-managing / "agentify" it / install the feedback loop.
 ---
 
 # agentify — deploy the autonomous-repo feedback loop
+
+> **Beta.** This skill is under active development; the setup flow may
+> change and a lower-friction "express" onboarding is being explored.
 
 `/agentify` installs the framework into a target repo: feedback in →
 triaged GitHub issue → human-gated fix PR → filer notified. It **bundles the
