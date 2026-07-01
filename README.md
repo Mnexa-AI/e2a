@@ -170,7 +170,7 @@ Inbound mail reaches you several complementary ways — **chosen per integration
 
 Notifications carry lightweight metadata (message id, sender, subject); you fetch the full body + attachments over REST when you want them. A disconnected WebSocket client accumulates "unread" messages; on reconnect, the server drains them as notifications.
 
-Webhooks are an **account-level resource** (`/v1/webhooks`), chosen per integration rather than configured on the agent — the legacy per-agent `agent_mode` / `webhook_url` fields were removed.
+Webhooks are an **account-level resource** (`/v1/webhooks`), chosen per integration rather than configured on the agent.
 
 ### Auth headers
 
