@@ -75,17 +75,31 @@ try:print(json.load(sys.stdin).get("message_id",""))
 except Exception:print("")'
 }
 
-# t_api_reply <in_reply_to_id> <body> → prints new message_id
+# t_api_reply <in_reply_to_id> <body> [html_body] → prints new message_id
 t_api_reply() {
   local email resp
   email="$(t_urlencode "$E2A_AGENT_EMAIL")"
   resp="$(curl -sS -m 30 -X POST \
     -H "Authorization: Bearer ${E2A_API_KEY}" -H "Content-Type: application/json" \
-    -d "$(python3 -c 'import json,sys;print(json.dumps({"body":sys.argv[1]}))' "$2")" \
+    -d "$(python3 -c 'import json,sys
+p={"body":sys.argv[1]}
+if len(sys.argv)>2 and sys.argv[2]:p["html_body"]=sys.argv[2]
+print(json.dumps(p))' "$2" "${3:-}")" \
     "${E2A_BASE_URL}/v1/agents/${email}/messages/${1}/reply" 2>/dev/null)" || return 1
   printf '%s' "$resp" | python3 -c 'import json,sys
 try:print(json.load(sys.stdin).get("message_id",""))
 except Exception:print("")'
+}
+
+# strip HTML tags → a plain-text fallback (crude but fine for email body)
+t_html_to_text() {
+  python3 -c 'import sys,re,html
+t=sys.stdin.read()
+t=re.sub(r"(?is)<(script|style).*?</\1>"," ",t)
+t=re.sub(r"(?i)<(br|/p|/div|/li|/tr|/h[1-6])\s*/?>","\n",t)
+t=re.sub(r"<[^>]+>"," ",t)
+t=html.unescape(t)
+print(re.sub(r"[ \t]+"," ",re.sub(r"\n\s*\n\s*","\n\n",t)).strip())'
 }
 
 # t_api_poll <conversation_id> <since_iso> → TSV lines: id<TAB>from<TAB>created_at (inbound, oldest first)
