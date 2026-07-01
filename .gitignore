@@ -36,6 +36,14 @@ sdks/python/.pytest_cache/
 *.pyc
 .gstack/
 .claude/
+# ...but DO track the agentify autonomous-repo runtime skill. The feedback
+# lane workflows read .claude/skills/autonomous-repo/*.md at runtime in CI, so
+# it must be committed; everything else under .claude/ stays local/ignored.
+!.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/autonomous-repo/
 
 # Docs
 docs/originals/

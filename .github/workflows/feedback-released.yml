@@ -1,0 +1,115 @@
+# Feedback release callback — autonomous-repo framework (github ticket_store).
+#
+# Closes the loop without trusting commit messages: on push to the default
+# branch, find the merged PR(s) for the pushed commit, and for each
+# BOT-AUTHORED PR carrying a `fix:#<n>` marker, flip ticket #<n> to shipped
+# (merge ≈ release). The comms lane then sends the shipped email.
+#
+# Marker trust (design §5.5): user feedback is quoted only into ISSUES, never
+# PR descriptions, and released_markers.sh honors a marker ONLY from a PR
+# authored by the bot — so a PR-body marker cannot be attacker-forged.
+#
+# Holds the App token (to patch the bot's ticket-card + close the issue); no
+# model, no backend secret.
+
+name: feedback-released
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: autorepo-released
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+jobs:
+  released:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check activation secrets
+        if: vars.AUTOREPO_LANES_PAUSED != 'true'
+        id: gate
+        env:
+          HAS_APP: ${{ secrets.AUTOREPO_APP_ID != '' && secrets.AUTOREPO_APP_PRIVATE_KEY != '' }}
+        run: |
+          if [ "$HAS_APP" != "true" ]; then
+            echo "release callback not yet activated (missing App secrets)"
+            echo "active=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "active=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.active == 'true'
+
+      - name: Read config
+        if: steps.gate.outputs.active == 'true'
+        id: cfg
+        run: |
+          CFG=autonomous-repo.config.yml
+          echo "marker=$(yq -r '.marker' "$CFG")" >> "$GITHUB_OUTPUT"
+          echo "bot=$(yq -r '.github_app_login' "$CFG")" >> "$GITHUB_OUTPUT"
+          echo "repo=$(yq -r '.repo' "$CFG")" >> "$GITHUB_OUTPUT"
+          echo "in_progress_label=$(yq -r '.labels.status_in_progress' "$CFG")" >> "$GITHUB_OUTPUT"
+
+      - name: Mint GitHub App token
+        if: steps.gate.outputs.active == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.AUTOREPO_APP_ID }}
+          private-key: ${{ secrets.AUTOREPO_APP_PRIVATE_KEY }}
+
+      - name: Flip shipped for any feedback PR in this push
+        if: steps.gate.outputs.active == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          AUTOREPO_REPO: ${{ steps.cfg.outputs.repo }}
+          AUTOREPO_BOT_LOGIN: ${{ steps.cfg.outputs.bot }}
+          AUTOREPO_MARKER: ${{ steps.cfg.outputs.marker }}
+          IN_PROGRESS_LABEL: ${{ steps.cfg.outputs.in_progress_label }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
+            -H "Accept: application/vnd.github+json" \
+            | scripts/released_markers.sh > /tmp/issues || true
+          if [ ! -s /tmp/issues ]; then
+            echo "no bot-authored feedback marker in this push — nothing to ship"; exit 0
+          fi
+          # Per-issue, fully guarded — one bad/forged marker must not abort the
+          # rest (set -e would otherwise kill the loop on the first failure).
+          while read -r N; do
+            [ -n "$N" ] || continue
+            CARD=$(scripts/ticket_card.sh read "$N" 2>/dev/null || echo "")
+            [ -n "$CARD" ] || { echo "#$N: no ticket-card — skip"; continue; }
+            CUR=$(printf '%s' "$CARD" | jq -r '.status // ""')
+            case "$CUR" in shipped|closed_*) echo "#$N already $CUR — skip"; continue ;; esac
+            PR=$(printf '%s' "$CARD" | jq -r '.pr // empty')
+            # CROSS-CHECK: ship #N ONLY if its OWN recorded PR is merged. A
+            # forged `fix:#N` marker smuggled into an unrelated bot PR cannot
+            # ship #N — #N's card.pr is null or points at a different, unmerged
+            # PR (the fix-lane post-step records pr for the RIGHT issue only).
+            [ -n "$PR" ] || { echo "#$N: no recorded PR — skip (forged/cross-ticket marker?)"; continue; }
+            STATE=$(gh pr view "$PR" --json state --jq '.state' 2>/dev/null || echo "")
+            [ "$STATE" = "MERGED" ] || { echo "#$N: its PR #$PR is $STATE, not MERGED — skip"; continue; }
+            scripts/ticket_card.sh set "$N" '{"status":"shipped"}' || { echo "#$N: card set failed — skip"; continue; }
+            scripts/ticket_card.sh add-event "$N" "{\"at\":\"$(date -u +%FT%TZ)\",\"actor\":\"release-callback\",\"kind\":\"shipped\",\"detail\":\"#$PR ${{ github.sha }}\"}" || true
+            gh issue edit "$N" --remove-label "$IN_PROGRESS_LABEL" || true
+            gh issue close "$N" --reason completed || true
+            echo "#$N → shipped (PR #$PR)"
+          done < /tmp/issues
+
+      - name: "Alert on failure"
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BODY="feedback-released failed for ${{ github.sha }}: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          N=$(gh issue list --label feedback-ops --state open --limit 1 --json number --jq '.[0].number' || true)
+          if [ -n "$N" ] && [ "$N" != "null" ]; then gh issue comment "$N" --body "$BODY"; else gh issue create --title "feedback-ops" --label feedback-ops --body "$BODY"; fi

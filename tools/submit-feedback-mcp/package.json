@@ -1,0 +1,17 @@
+{
+  "name": "autonomous-repo-submit-feedback",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "submit_feedback / feedback_status email-bridge MCP server for the autonomous-repo feedback loop",
+  "bin": { "autorepo-submit-feedback": "server.mjs" },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node bridge.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "engines": { "node": ">=20" }
+}
