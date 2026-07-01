@@ -7,6 +7,7 @@ getting a working local environment.
 
 This document covers:
 
+- [Fork and pull request workflow](#fork-and-pull-request-workflow)
 - [Prerequisites](#prerequisites)
 - [First run](#first-run)
 - [Project layout](#project-layout)
@@ -20,6 +21,57 @@ For deeper architecture detail and command reference, see
 [CLAUDE.md](./CLAUDE.md) (it doubles as Claude Code agent context but
 the architecture and commands sections are useful regardless of how
 you read it).
+
+---
+
+## Fork and pull request workflow
+
+e2a is a public repository, so **you don't need to be granted access to
+contribute** — you don't push to `Mnexa-AI/e2a` directly. Instead you
+work on your own fork and open a pull request. If you cloned the
+upstream repo and got a `remote: Permission to Mnexa-AI/e2a.git denied`
+(or `403`) error on `git push`, that's the "no access" symptom — the
+fix is to push to your fork, not upstream.
+
+```bash
+# 1. Fork on GitHub: click "Fork" at https://github.com/Mnexa-AI/e2a
+#    (creates https://github.com/<you>/e2a).
+
+# 2. Clone YOUR fork (not the upstream repo):
+git clone https://github.com/<you>/e2a.git
+cd e2a
+
+# 3. Add upstream so you can pull in new changes later:
+git remote add upstream https://github.com/Mnexa-AI/e2a.git
+
+# 4. Branch, commit, and push to YOUR fork (origin):
+git checkout -b my-feature
+# ...make changes...
+git commit -am "feat(scope): my change"
+git push origin my-feature
+
+# 5. Open a PR from your fork's branch → Mnexa-AI/e2a:main.
+#    GitHub shows a "Compare & pull request" button after you push.
+```
+
+Keep your fork current before starting new work:
+
+```bash
+git fetch upstream
+git checkout main
+git merge upstream/main    # or: git rebase upstream/main
+git push origin main
+```
+
+CI (including all test tiers) runs automatically on pull requests from
+forks — you don't need any special access for checks to run. A
+maintainer reviews and merges; you never need write access to the
+upstream repo.
+
+**Want to be added as a direct collaborator instead?** That's only for
+trusted, ongoing contributors and is at the maintainers' discretion —
+ask in a [discussion](https://github.com/Mnexa-AI/e2a/discussions).
+The fork workflow above is the expected path for everyone else.
 
 ---
 
@@ -44,7 +96,8 @@ The fastest path to a running backend with working outbound mail:
 
 ```bash
 # 1. clone + bootstrap configs
-git clone https://github.com/Mnexa-AI/e2a.git
+#    (clone your fork — see "Fork and pull request workflow" above)
+git clone https://github.com/<you>/e2a.git
 cd e2a
 cp config.example.yaml config.yaml
 
