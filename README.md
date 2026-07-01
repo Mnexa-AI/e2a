@@ -133,23 +133,22 @@ You can either use the hosted instance or self-host.
 ## How it works
 
 ```
-Human (Gmail/Outlook)
-    │
-    ▼ SMTP
-┌──────────────┐
-│  e2a relay   │  ← MX record for your agent domain points here
-│              │
-│  1. Verify   │  ← SPF/DKIM check on the inbound message
-│  2. Sign     │  ← HMAC-signed X-E2A-Auth-* headers
-│  3. Deliver  │
-└──────────────┘
-    │
-    ├──▶ Webhook subscription: HTTPS POST to your endpoint
-    │
-    └──▶ Store → agent fetches over WebSocket, REST poll, or MCP tools (no public URL)
-              │
-              ▼
-         e2a listen (CLI) · client.listen() (SDK) · list_messages (MCP)
+   Human (Gmail/Outlook)  ·  another e2a agent
+          │   ▲
+  inbound │   │ outbound
+    SMTP  ▼   │ upstream SMTP (to humans) / relay (to agents)
+   ┌───────────────┐
+   │   e2a relay   │  ← MX for your agent domain points here
+   │               │
+   │   inbound  ↓  │  ← verify (SPF/DKIM) · sign (X-E2A-Auth-*) · deliver
+   │   outbound ↑  │  ← optional HITL hold · send
+   └───────────────┘
+          │   ▲
+  deliver │   │ send · reply · forward (HTTP API)
+          ▼   │
+   ┌───────────────┐
+   │   your agent  │  ← webhook / WebSocket / REST poll / MCP · SDK · CLI
+   └───────────────┘
 ```
 
 Inbound flow: SMTP → SPF/DKIM check → agent lookup → HMAC-sign auth headers → webhook / WebSocket / REST / MCP delivery.
