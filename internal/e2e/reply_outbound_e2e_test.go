@@ -5,6 +5,7 @@ package e2e_test
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/Mnexa-AI/e2a/internal/testutil"
@@ -64,6 +65,17 @@ func TestReplyForwardOutboundE2E(t *testing.T) {
 	}
 	if repMsg.ConversationID != sentConv {
 		t.Errorf("reply conversation_id = %q, want %q (reply must inherit the outbound's thread)", repMsg.ConversationID, sentConv)
+	}
+	// The reply must carry RFC threading headers anchored on the PARENT's
+	// Message-ID (the relay-assigned provider_message_id, since outbound rows
+	// have no email_message_id). Without this the recipient's mail client forks
+	// the thread — the whole point of "continues the thread".
+	if sent.ProviderMessageID == "" {
+		t.Fatal("precondition: send did not surface a provider_message_id to thread on")
+	}
+	if raw := string(repMsg.RawMessage); !strings.Contains(raw, "In-Reply-To: "+sent.ProviderMessageID) {
+		t.Errorf("reply raw missing In-Reply-To anchored on parent %q; raw headers=\n%s",
+			sent.ProviderMessageID, raw[:min(len(raw), 600)])
 	}
 
 	// (4) reply_all re-includes the original cc (carol) and merges a new cc.

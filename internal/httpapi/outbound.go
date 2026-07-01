@@ -277,10 +277,16 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 	if e != nil {
 		return nil, e
 	}
+	// Anchor threading on the parent's RFC Message-ID. For an inbound that's the
+	// sender's Message-ID (email_message_id); for the agent's own outbound it's
+	// the relay-assigned provider_message_id — email_message_id is empty there,
+	// so using it would drop In-Reply-To/References and fork the recipient's
+	// thread (see identity.Message.ThreadMessageID).
+	parentMessageID := msg.ThreadMessageID()
 	req := outbound.SendRequest{
 		To: rr.To, CC: rr.CC, BCC: b.BCC, Subject: subject, Body: b.Body, HTMLBody: b.HTMLBody,
-		ReplyToMessageID: msg.EmailMessageID,
-		References:       outbound.BuildReferencesChain(msg.RawMessage, msg.EmailMessageID),
+		ReplyToMessageID: parentMessageID,
+		References:       outbound.BuildReferencesChain(msg.RawMessage, parentMessageID),
 		// conversation_id resolution (caller id > inherit-from-referenced > mint)
 		// is centralized in DeliverOutbound, which receives this message as the
 		// referenced message — so the reply inherits its thread there (#328).
@@ -296,7 +302,7 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 	if env := recipientCountError(req.To, req.CC, req.BCC); env != nil {
 		return nil, env
 	}
-	return s.deliver(ctx, user, ag, req, "reply", msg.EmailMessageID, "/v1/reply/"+in.ID, in.IdempotencyKey, in.RawBody, msg)
+	return s.deliver(ctx, user, ag, req, "reply", parentMessageID, "/v1/reply/"+in.ID, in.IdempotencyKey, in.RawBody, msg)
 }
 
 // replyRecipients resolves a reply's To/CC from the referenced message,
@@ -380,7 +386,7 @@ func (s *Server) handleForward(ctx context.Context, in *forwardInput) (*sendOutp
 	}
 	req.CC = agent.StripAgentSelfAliases(req.CC, ag.EmailAddress())
 	req.BCC = agent.StripAgentSelfAliases(req.BCC, ag.EmailAddress())
-	return s.deliver(ctx, user, ag, req, "forward", msg.EmailMessageID, "/v1/forward/"+in.ID, in.IdempotencyKey, in.RawBody, msg)
+	return s.deliver(ctx, user, ag, req, "forward", msg.ThreadMessageID(), "/v1/forward/"+in.ID, in.IdempotencyKey, in.RawBody, msg)
 }
 
 // validateOutboundBody runs the shared pre-send validation.

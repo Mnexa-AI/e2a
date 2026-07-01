@@ -572,11 +572,49 @@ func TestGetRepliableMessage_ReturnsOutbound(t *testing.T) {
 	if len(got.CC) != 1 || got.CC[0] != "carol@gmail.com" {
 		t.Errorf("CC = %v, want [carol@gmail.com]", got.CC)
 	}
+	// provider_message_id is the outbound's RFC Message-ID (email_message_id is
+	// empty for outbound), and ThreadMessageID resolves to it — this is what the
+	// reply path anchors In-Reply-To/References on.
+	if got.ProviderMessageID != "<sent-1@repliable-out.example.com>" {
+		t.Errorf("ProviderMessageID = %q, want the sent Message-ID", got.ProviderMessageID)
+	}
+	if got.ThreadMessageID() != "<sent-1@repliable-out.example.com>" {
+		t.Errorf("ThreadMessageID() = %q, want provider_message_id for outbound", got.ThreadMessageID())
+	}
 
 	// The legacy inbound-only lookup must still refuse the same outbound id —
 	// this is exactly the asymmetry the feature relies on.
 	if _, err := store.GetInboundMessage(ctx, out.ID); err == nil {
 		t.Error("GetInboundMessage returned an outbound message (direction filter regressed)")
+	}
+}
+
+func TestGetMessageByEmailMessageID_ResolvesOutboundByProviderID(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner@example.com", "Owner", "google-parentlookup")
+	store.ClaimOrCreateDomain(ctx, "parentlookup.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@parentlookup.example.com", "parentlookup.example.com", "", "https://example.com/webhook", "", user.ID)
+
+	// An outbound the agent sent: its RFC Message-ID lives in provider_message_id,
+	// not email_message_id. The HITL approve-time References rebuild must resolve
+	// the parent by that id (a held reply-to-own-message threads on it).
+	providerID := "<sent-p@parentlookup.example.com>"
+	out, _ := store.CreateOutboundMessage(ctx, a.ID, []string{"bob@gmail.com"}, nil, nil, "Update", "send", "smtp", providerID, "", []byte("raw"))
+
+	got, err := store.GetMessageByEmailMessageID(ctx, a.ID, providerID)
+	if err != nil {
+		t.Fatalf("GetMessageByEmailMessageID(providerID): %v", err)
+	}
+	if got.ID != out.ID {
+		t.Errorf("resolved id = %q, want the outbound %q", got.ID, out.ID)
+	}
+
+	// A different agent must not resolve it (agent-scoped).
+	if _, err := store.GetMessageByEmailMessageID(ctx, "someone-else", providerID); err == nil {
+		t.Error("GetMessageByEmailMessageID resolved across agents")
 	}
 }
 

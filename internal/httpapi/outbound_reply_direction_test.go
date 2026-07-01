@@ -47,18 +47,20 @@ func replyDirTestServer(t *testing.T, fixtures map[string]*identity.Message, cap
 	return srv
 }
 
-// outboundFixture is a message the agent itself sent, as stored: recipients in
-// the to_recipients/cc columns and a composed raw message with its Message-ID.
+// outboundFixture is a message the agent itself sent, as actually stored:
+// recipients in the to_recipients/cc columns, NO email_message_id (the composer
+// omits Message-ID; the relay-assigned id lives in provider_message_id), and a
+// composed raw message without a Message-ID header. This mirrors what
+// CreateOutboundMessage persists so the threading assertions aren't fiction.
 func outboundFixture() *identity.Message {
 	raw := []byte("From: support@acme.com\r\n" +
 		"To: bob@x.com, carol@x.com\r\n" +
 		"Cc: dave@x.com\r\n" +
-		"Subject: Project update\r\n" +
-		"Message-ID: <sent-1@acme.com>\r\n\r\nhello team")
+		"Subject: Project update\r\n\r\nhello team")
 	return &identity.Message{
 		ID: "msg_out1", AgentID: "support@acme.com", Direction: "outbound",
 		Sender: "support@acme.com", Subject: "Project update",
-		EmailMessageID: "<sent-1@acme.com>", ConversationID: "conv_out",
+		ProviderMessageID: "<sent-1@acme.com>", ConversationID: "conv_out",
 		ToRecipients: []string{"bob@x.com", "carol@x.com"},
 		CC:           []string{"dave@x.com"},
 		RawMessage:   raw,
@@ -131,6 +133,25 @@ func TestReplyToOutbound_NoRecipients_400(t *testing.T) {
 	}
 	if captured.To != nil {
 		t.Errorf("DeliverOutbound should not have been called; captured.To = %v", captured.To)
+	}
+}
+
+// A message owned by a DIFFERENT agent must 404 even though the id resolves in
+// the (id-only) store lookup — the handler's agent-ownership guard is the only
+// thing scoping the id-only query.
+func TestReplyToOutbound_CrossAgent_404(t *testing.T) {
+	var captured outbound.SendRequest
+	fix := outboundFixture()
+	fix.AgentID = "other@acme.com" // not the path agent (support@acme.com)
+	srv := replyDirTestServer(t, map[string]*identity.Message{"msg_out1": fix}, &captured)
+
+	status, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_out1/reply", "good",
+		map[string]any{"body": "hi"})
+	if status != http.StatusNotFound {
+		t.Fatalf("reply to another agent's message: want 404, got %d", status)
+	}
+	if captured.To != nil {
+		t.Errorf("DeliverOutbound must not run for a cross-agent target; captured.To = %v", captured.To)
 	}
 }
 
