@@ -5,6 +5,25 @@
 # Required: E2A_API_KEY, E2A_AGENT_EMAIL. The recipient is supplied at
 # `tether.sh start <email>` and kept in the state file.
 
+# --- interpreter resolution --------------------------------------------------
+# Resolve a working Python 3 once and reuse it as "$PY". We can't hardcode
+# `python3`: on Windows it's often the Microsoft Store redirector shim, which
+# is on PATH (so `command -v` finds it) but exits non-zero without running —
+# there the real interpreter is `python`. So we probe each candidate and pick
+# the first that actually executes as Python 3. Override with E2A_PYTHON.
+t_resolve_python() {
+  local c
+  for c in "${E2A_PYTHON:-}" python3 python python3.13 python3.12 python3.11; do
+    [ -n "$c" ] || continue
+    if command -v "$c" >/dev/null 2>&1 \
+       && "$c" -c 'import sys; sys.exit(0 if sys.version_info[0]==3 else 1)' >/dev/null 2>&1; then
+      command -v "$c"; return 0
+    fi
+  done
+  return 1
+}
+PY="$(t_resolve_python)" || echo "tether: no working Python 3 found on PATH (set E2A_PYTHON to your python)" >&2
+
 t_load_config() {
   # 1) explicit tether config
   if [ -z "${E2A_API_KEY:-}" ] && [ -f "${HOME}/.e2a-tether.env" ]; then
@@ -13,7 +32,7 @@ t_load_config() {
   fi
   # 2) reuse the CLI's agent creds from `e2a login` (~/.e2a/config.json)
   if [ -z "${E2A_API_KEY:-}" ] && [ -f "${HOME}/.e2a/config.json" ]; then
-    eval "$(python3 -c 'import json,shlex,os
+    eval "$("$PY" -c 'import json,shlex,os
 try:
   d=json.load(open(os.path.expanduser("~/.e2a/config.json")))
   if d.get("api_key"):     print("export E2A_API_KEY="+shlex.quote(d["api_key"]))
@@ -25,8 +44,8 @@ except Exception:pass')"
   [ -n "${E2A_API_KEY:-}" ] && [ -n "${E2A_AGENT_EMAIL:-}" ]
 }
 
-t_now_iso()  { python3 -c 'import datetime;print(datetime.datetime.now(datetime.timezone.utc).isoformat())'; }
-t_urlencode(){ python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$1"; }
+t_now_iso()  { "$PY" -c 'import datetime;print(datetime.datetime.now(datetime.timezone.utc).isoformat())'; }
+t_urlencode(){ "$PY" -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$1"; }
 
 # --- state -------------------------------------------------------------------
 
@@ -34,14 +53,14 @@ t_state_path() { echo "${TETHER_STATE:-$HOME/.e2a-tether/state.json}"; }
 
 t_state_get() {
   local f; f="$(t_state_path)"; [ -f "$f" ] || return 0
-  python3 -c 'import json,sys
+  "$PY" -c 'import json,sys
 try:print(json.load(open(sys.argv[1])).get(sys.argv[2],"") or "")
 except Exception:pass' "$f" "$1"
 }
 
 t_state_set() {  # t_state_set k1 v1 [k2 v2 ...]
   local f; f="$(t_state_path)"; mkdir -p "$(dirname "$f")"
-  python3 -c 'import json,sys,os
+  "$PY" -c 'import json,sys,os
 f=sys.argv[1];kv=sys.argv[2:]
 d={}
 if os.path.exists(f):
@@ -58,7 +77,7 @@ t_state_clear() { rm -f "$(t_state_path)"; }
 # t_duration_to_expiry <dur> → ISO expires_at (empty = no expiry / "until stop")
 # accepts: 30m, 2h, 8h, 1d ; "" / forever / until-stop → empty
 t_duration_to_expiry() {
-  python3 -c 'import sys,datetime,re
+  "$PY" -c 'import sys,datetime,re
 d=(sys.argv[1] if len(sys.argv)>1 else "").strip().lower()
 if not d or d in ("forever","none","off","until-stop","stop"):print("");raise SystemExit
 m=re.fullmatch(r"(\d+)\s*([mhd])",d)
@@ -71,7 +90,7 @@ print((datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(seconds=s
 t_remaining_seconds() {
   local exp; exp="$(t_state_get expires_at)"
   [ -n "$exp" ] || { echo 2147483647; return; }
-  python3 -c 'import sys,datetime
+  "$PY" -c 'import sys,datetime
 try:
   t=datetime.datetime.fromisoformat(sys.argv[1].replace("Z","+00:00"))
   print(int((t-datetime.datetime.now(datetime.timezone.utc)).total_seconds()))
@@ -85,17 +104,17 @@ t_api_send() {
   local email resp status
   email="$(t_urlencode "$E2A_AGENT_EMAIL")"
   local payload
-  payload="$(python3 -c 'import json,sys
+  payload="$("$PY" -c 'import json,sys
 print(json.dumps({"to":[sys.argv[1]],"subject":sys.argv[2],"body":sys.argv[3],"conversation_id":sys.argv[4]}))' \
     "$1" "$2" "$3" "$4")"
   resp="$(curl -sS -m 30 -X POST \
     -H "Authorization: Bearer ${E2A_API_KEY}" -H "Content-Type: application/json" \
     -d "$payload" "${E2A_BASE_URL}/v1/agents/${email}/messages" 2>/dev/null)" || return 1
-  status="$(printf '%s' "$resp" | python3 -c 'import json,sys
+  status="$(printf '%s' "$resp" | "$PY" -c 'import json,sys
 try:print(json.load(sys.stdin).get("status",""))
 except Exception:print("")')"
   [ "$status" = "pending_review" ] && echo "tether: WARNING send held (pending_review) — disable protection on ${E2A_AGENT_EMAIL}" >&2
-  printf '%s' "$resp" | python3 -c 'import json,sys
+  printf '%s' "$resp" | "$PY" -c 'import json,sys
 try:print(json.load(sys.stdin).get("message_id",""))
 except Exception:print("")'
 }
@@ -106,19 +125,19 @@ t_api_reply() {
   email="$(t_urlencode "$E2A_AGENT_EMAIL")"
   resp="$(curl -sS -m 30 -X POST \
     -H "Authorization: Bearer ${E2A_API_KEY}" -H "Content-Type: application/json" \
-    -d "$(python3 -c 'import json,sys
+    -d "$("$PY" -c 'import json,sys
 p={"body":sys.argv[1]}
 if len(sys.argv)>2 and sys.argv[2]:p["html_body"]=sys.argv[2]
 print(json.dumps(p))' "$2" "${3:-}")" \
     "${E2A_BASE_URL}/v1/agents/${email}/messages/${1}/reply" 2>/dev/null)" || return 1
-  printf '%s' "$resp" | python3 -c 'import json,sys
+  printf '%s' "$resp" | "$PY" -c 'import json,sys
 try:print(json.load(sys.stdin).get("message_id",""))
 except Exception:print("")'
 }
 
 # strip HTML tags → a plain-text fallback (crude but fine for email body)
 t_html_to_text() {
-  python3 -c 'import sys,re,html
+  "$PY" -c 'import sys,re,html
 t=sys.stdin.read()
 t=re.sub(r"(?is)<(script|style).*?</\1>"," ",t)
 t=re.sub(r"(?i)<(br|/p|/div|/li|/tr|/h[1-6])\s*/?>","\n",t)
@@ -137,7 +156,7 @@ t_api_poll() {
     --data-urlencode "sort=asc" --data-urlencode "limit=20" \
     --data-urlencode "conversation_id=${1}" --data-urlencode "since=${2}" \
     "${E2A_BASE_URL}/v1/agents/${email}/messages" 2>/dev/null)" || return 1
-  printf '%s' "$resp" | python3 -c 'import json,sys
+  printf '%s' "$resp" | "$PY" -c 'import json,sys
 try:
   for m in json.load(sys.stdin).get("items",[]):
     print("\t".join([m.get("message_id",""),m.get("from",""),m.get("created_at","")]))
@@ -150,7 +169,7 @@ t_api_body() {
   email="$(t_urlencode "$E2A_AGENT_EMAIL")"
   resp="$(curl -sS -m 30 -H "Authorization: Bearer ${E2A_API_KEY}" \
     "${E2A_BASE_URL}/v1/agents/${email}/messages/${1}" 2>/dev/null)" || return 1
-  printf '%s' "$resp" | python3 -c 'import json,sys
+  printf '%s' "$resp" | "$PY" -c 'import json,sys
 try:
   d=json.load(sys.stdin)
   p=(d.get("parsed") or {}).get("text") or ""
@@ -168,7 +187,7 @@ except Exception:print("")'
 
 # seconds since an RFC3339 timestamp
 t_age_seconds() {
-  python3 -c 'import sys,datetime
+  "$PY" -c 'import sys,datetime
 try:
   t=datetime.datetime.fromisoformat(sys.argv[1].replace("Z","+00:00"))
   print(int((datetime.datetime.now(datetime.timezone.utc)-t).total_seconds()))
@@ -177,14 +196,14 @@ except Exception:print(0)' "$1"
 
 t_seen_has() {  # <id> → 0 if already processed
   local f; f="$(t_state_path)"; [ -f "$f" ] || return 1
-  python3 -c 'import json,sys
+  "$PY" -c 'import json,sys
 try:sys.exit(0 if sys.argv[2] in (json.load(open(sys.argv[1])).get("seen") or []) else 1)
 except Exception:sys.exit(1)' "$f" "$1"
 }
 
 t_seen_add() {  # <id> → record as processed (cap at last 500)
   local f; f="$(t_state_path)"; mkdir -p "$(dirname "$f")"
-  python3 -c 'import json,sys,os
+  "$PY" -c 'import json,sys,os
 f,i=sys.argv[1],sys.argv[2]
 d={}
 if os.path.exists(f):

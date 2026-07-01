@@ -176,6 +176,14 @@ question or instruction; reply \"stop\" to end early.
       bash "${here}/tether.sh" status
     rm -f /tmp/tether-selftest.json
     bash -n "${here}/lib.sh" && bash -n "${here}/tether.sh" && echo "# syntax OK"
+    # interpreter must actually run — a real Python round-trip (catches the
+    # Windows python3-shim / missing-interpreter case that syntax checks miss).
+    echo "# interpreter: ${PY:-<none>}"
+    [ -n "${PY:-}" ] || { echo "# FAIL: no working Python 3 on PATH (set E2A_PYTHON)"; exit 1; }
+    _st="$(mktemp)"; TETHER_STATE="$_st" t_state_set probe ok >/dev/null 2>&1
+    if [ "$(TETHER_STATE="$_st" t_state_get probe)" = "ok" ]; then echo "# python round-trip OK"
+    else echo "# FAIL: Python state round-trip broke (interpreter ${PY:-<none>})"; rm -f "$_st"; exit 1; fi
+    rm -f "$_st"
     ;;
 
   ""|help|-h|--help)

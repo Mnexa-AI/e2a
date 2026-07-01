@@ -10,6 +10,8 @@
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 notify="${here}/hooks/tether-notify.sh"
+# shellcheck source=lib.sh
+. "${here}/lib.sh"   # for the resolved "$PY" interpreter (see lib.sh)
 
 target="$PWD"; mode="install"
 while [ $# -gt 0 ]; do
@@ -33,7 +35,7 @@ settings="${target}/.claude/settings.local.json"
 mkdir -p "${target}/.claude"
 [ -f "$settings" ] || echo '{}' > "$settings"
 
-NOTIFY="$notify" MODE="$mode" python3 - "$settings" <<'PY'
+NOTIFY="$notify" MODE="$mode" "$PY" - "$settings" <<'PY'
 import json,os,sys
 f=sys.argv[1];d=json.load(open(f));notify=os.environ["NOTIFY"];mode=os.environ["MODE"]
 hooks=d.setdefault("hooks",{})

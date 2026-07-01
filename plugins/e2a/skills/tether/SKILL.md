@@ -41,6 +41,12 @@ the two directions use different mechanisms:
 
 ## Setup (once)
 
+> **Prerequisites:** `bash`, `curl`, and **Python 3** on `PATH`. The scripts
+> auto-detect the interpreter (`python3`, then `python`); on Windows/Git Bash
+> where `python3` is the non-functional Microsoft Store shim, they fall through
+> to `python`. Override with `E2A_PYTHON=/path/to/python`. Run
+> `tether.sh _selftest` to confirm the interpreter actually works.
+
 Tether needs an **agent-scoped** e2a API key (`e2a_agt_…`) bound to a single
 inbox — least privilege, so a leaked key can't touch the rest of the account.
 
