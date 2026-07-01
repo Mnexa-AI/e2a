@@ -175,8 +175,13 @@ type Deps struct {
 	// The download route is a raw chi handler outside the Huma rate-limit
 	// middleware, so it consults this directly. Optional — nil disables it.
 	DownloadLimit RateSnapshot
-	// GetInboundMessage loads an inbound message for reply/forward.
-	GetInboundMessage func(ctx context.Context, messageID string) (*identity.Message, error)
+	// GetRepliableMessage loads a message that can be replied to or forwarded —
+	// either an inbound the agent received or an outbound the agent sent — as
+	// long as it is live (not expired) and not held/rejected in review. The
+	// reply/forward handlers use this so an agent can continue a thread off its
+	// own sent message (Gmail-style), which GetInboundMessage's direction filter
+	// forbids.
+	GetRepliableMessage func(ctx context.Context, messageID string) (*identity.Message, error)
 
 	// AttachmentStore mints/verifies short-lived attachment downloads (§6a #5).
 	// Native by default; when nil, the attachment endpoints are unavailable.

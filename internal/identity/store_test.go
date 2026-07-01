@@ -544,6 +544,66 @@ func TestGetInboundMessageExpired(t *testing.T) {
 	}
 }
 
+func TestGetRepliableMessage_ReturnsOutbound(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner@example.com", "Owner", "google-repliable-out")
+	store.ClaimOrCreateDomain(ctx, "repliable-out.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@repliable-out.example.com", "repliable-out.example.com", "", "https://example.com/webhook", "", user.ID)
+
+	out, err := store.CreateOutboundMessage(ctx, a.ID, []string{"bob@gmail.com"}, []string{"carol@gmail.com"}, nil, "Update", "send", "smtp", "<sent-1@repliable-out.example.com>", "conv_x", []byte("raw"))
+	if err != nil {
+		t.Fatalf("CreateOutboundMessage: %v", err)
+	}
+
+	// GetRepliableMessage resolves the outbound row with its recipients intact.
+	got, err := store.GetRepliableMessage(ctx, out.ID)
+	if err != nil {
+		t.Fatalf("GetRepliableMessage(outbound): %v", err)
+	}
+	if got.Direction != "outbound" {
+		t.Errorf("Direction = %q, want outbound", got.Direction)
+	}
+	if len(got.ToRecipients) != 1 || got.ToRecipients[0] != "bob@gmail.com" {
+		t.Errorf("ToRecipients = %v, want [bob@gmail.com]", got.ToRecipients)
+	}
+	if len(got.CC) != 1 || got.CC[0] != "carol@gmail.com" {
+		t.Errorf("CC = %v, want [carol@gmail.com]", got.CC)
+	}
+
+	// The legacy inbound-only lookup must still refuse the same outbound id —
+	// this is exactly the asymmetry the feature relies on.
+	if _, err := store.GetInboundMessage(ctx, out.ID); err == nil {
+		t.Error("GetInboundMessage returned an outbound message (direction filter regressed)")
+	}
+}
+
+func TestGetRepliableMessage_ExcludesHeldAndExpired(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner@example.com", "Owner", "google-repliable-held")
+	store.ClaimOrCreateDomain(ctx, "repliable-held.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@repliable-held.example.com", "repliable-held.example.com", "", "https://example.com/webhook", "", user.ID)
+
+	out, _ := store.CreateOutboundMessage(ctx, a.ID, []string{"bob@gmail.com"}, nil, nil, "Update", "send", "smtp", "", "", nil)
+
+	// A message still in review (not yet delivered) is not a valid reply target.
+	pool.Exec(ctx, `UPDATE messages SET status = 'pending_review' WHERE id = $1`, out.ID)
+	if _, err := store.GetRepliableMessage(ctx, out.ID); err == nil {
+		t.Error("GetRepliableMessage returned a held (pending_review) message")
+	}
+
+	// An expired message is likewise excluded.
+	pool.Exec(ctx, `UPDATE messages SET status = 'sent', expires_at = $1 WHERE id = $2`, time.Now().Add(-1*time.Hour), out.ID)
+	if _, err := store.GetRepliableMessage(ctx, out.ID); err == nil {
+		t.Error("GetRepliableMessage returned an expired message")
+	}
+}
+
 func TestDeleteExpiredMessages(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)

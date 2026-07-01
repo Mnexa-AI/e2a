@@ -1300,6 +1300,35 @@ func (s *Store) GetInboundMessage(ctx context.Context, id string) (*Message, err
 	return m, nil
 }
 
+// GetRepliableMessage loads a message that can be the target of a reply or
+// forward, regardless of direction: an inbound the agent received or an
+// outbound the agent sent. It is the direction-agnostic sibling of
+// GetInboundMessage — same columns, but without the `direction = 'inbound'`
+// predicate — so an agent can continue a thread off its own sent message
+// (mirrors how mail clients let you reply to a message in your Sent folder).
+//
+// The held-status exclusion is kept for BOTH directions: a message still in
+// review (pending/rejected/expired) has not actually been delivered, so it is
+// not a legitimate reply/forward anchor. `expires_at > now()` keeps expired
+// rows out the same way GetInboundMessage does. Callers still scope the result
+// to the owning agent (id-only lookup here does not).
+func (s *Store) GetRepliableMessage(ctx context.Context, id string) (*Message, error) {
+	m := &Message{}
+	var authVerdict []byte
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, auth_verdict, COALESCE(flagged, false), COALESCE(flag_reason, ''), COALESCE(conversation_id, ''), created_at, expires_at
+		 FROM messages WHERE id = $1 AND expires_at > now()
+		   AND status NOT IN (`+heldInboundStatuses+`)`, id,
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.RawMessage, &authVerdict, &m.Flagged, &m.FlagReason, &m.ConversationID, &m.CreatedAt, &m.ExpiresAt)
+	if err != nil {
+		return nil, err
+	}
+	if err := unmarshalAuthVerdict(authVerdict, m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // unmarshalAuthVerdict parses the messages.auth_verdict JSONB column into
 // m.Auth. A NULL/empty column (every outbound row, and inbound rows written
 // before migration 032) leaves m.Auth nil.
@@ -1337,6 +1366,37 @@ func (s *Store) GetInboundByEmailMessageID(ctx context.Context, agentID, emailMe
 		 FROM messages
 		 WHERE agent_id = $1
 		   AND direction = 'inbound'
+		   AND email_message_id = $2
+		   AND expires_at > now()
+		   AND status NOT IN (`+heldInboundStatuses+`)
+		 ORDER BY created_at DESC LIMIT 1`,
+		agentID, emailMessageID,
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.RawMessage, &authHeaders, &m.CreatedAt, &m.ExpiresAt)
+	if err != nil {
+		return nil, err
+	}
+	m.AuthHeaders = authHeaders
+	return m, nil
+}
+
+// GetMessageByEmailMessageID looks up a message by its RFC 5322 Message-ID for
+// the given agent, regardless of direction. It is the direction-agnostic
+// sibling of GetInboundByEmailMessageID: the HITL approve path uses it to
+// rebuild the References chain of a held reply, and the reply's parent can be
+// an outbound the agent sent (reply-to-own-message), not just a received
+// inbound. Same expiry/held exclusions apply. Returns sql.ErrNoRows when the
+// parent has expired or was never persisted; callers must tolerate that and
+// fall back to legacy single-id threading.
+func (s *Store) GetMessageByEmailMessageID(ctx context.Context, agentID, emailMessageID string) (*Message, error) {
+	if emailMessageID == "" {
+		return nil, fmt.Errorf("empty email_message_id")
+	}
+	m := &Message{}
+	var authHeaders map[string]string
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, auth_headers, created_at, expires_at
+		 FROM messages
+		 WHERE agent_id = $1
 		   AND email_message_id = $2
 		   AND expires_at > now()
 		   AND status NOT IN (`+heldInboundStatuses+`)
