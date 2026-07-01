@@ -1278,7 +1278,7 @@ export class ObjectMessagesApi {
     }
 
     /**
-     * Forward an inbound message to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.
+     * Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.
      * Forward a message
      * @param param the request object
      */
@@ -1287,7 +1287,7 @@ export class ObjectMessagesApi {
     }
 
     /**
-     * Forward an inbound message to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.
+     * Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.
      * Forward a message
      * @param param the request object
      */
@@ -1368,7 +1368,7 @@ export class ObjectMessagesApi {
     }
 
     /**
-     * Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.
+     * Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL.
      * Reply to a message
      * @param param the request object
      */
@@ -1377,7 +1377,7 @@ export class ObjectMessagesApi {
     }
 
     /**
-     * Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.
+     * Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL.
      * Reply to a message
      * @param param the request object
      */
