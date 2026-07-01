@@ -22,10 +22,10 @@ the two directions use different mechanisms:
 - **Send = agent-driven.** The agent calls `tether.sh update "…"` at meaningful
   moments (finished a slice, hit a blocker, needs a decision). Cadence is the
   model's judgment → no per-turn spam, nothing to throttle.
-- **Receive = poll-driven.** The agent calls `tether.sh poll` on an interval to
-  fetch replies. **Keep the session alive with `/loop`** so polling continues
-  while the agent would otherwise be idle — this is the only way a reply sent
-  *after* the agent goes idle gets picked up (no hook fires while idle).
+- **Receive = poll-driven.** The agent runs `tether.sh listen` — a cheap,
+  curl-only poll loop (no LLM tokens per check) that runs for the duration set at
+  `start --for`. It wakes the agent *only* when a reply actually arrives (or the
+  window ends). See **Durability tiers** for keeping it alive across idle/sleep.
 - **Questions = ask by email.** When the agent needs a decision or clarification
   from you, it must **not** use a terminal prompt / AskUserQuestion — you're AFK
   and can't see it, which would stall the whole session. It calls
@@ -41,12 +41,26 @@ the two directions use different mechanisms:
 
 ## Setup (once)
 
-```bash
-cp "${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.env.example" ~/.e2a-tether.env
-chmod 600 ~/.e2a-tether.env    # fill E2A_API_KEY + E2A_AGENT_EMAIL (agent protection OFF)
-# optional blocked-alert hook:
-"${CLAUDE_PLUGIN_ROOT}/skills/tether/install.sh" --to <repo-root>
-```
+Tether needs an **agent-scoped** e2a API key (`e2a_agt_…`) bound to a single
+inbox — least privilege, so a leaked key can't touch the rest of the account.
+
+1. **Get an agent-scoped API key from the e2a website:**
+   **https://e2a.dev/api-keys** — create or pick an agent and generate a key
+   scoped to it. Note the agent's email address too.
+2. **Save the credentials:**
+   ```bash
+   cp "${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.env.example" ~/.e2a-tether.env
+   chmod 600 ~/.e2a-tether.env   # fill E2A_API_KEY (e2a_agt_…) + E2A_AGENT_EMAIL
+   ```
+3. **(Optional) blocked-alert hook:**
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/skills/tether/install.sh" --to <repo-root>
+   ```
+
+Credentials resolve in order: explicit env vars → `~/.e2a-tether.env` →
+`~/.e2a/config.json`. (That last one, written by `e2a login`, is an
+**account-scoped** key — broader than tether needs; prefer the agent key above.
+A smoother CLI path is coming.)
 
 > The tether agent must have send-side protection / HITL **off**, or each update
 > is held as an approval email instead of reaching you. `tether.sh` warns on
@@ -59,8 +73,8 @@ Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
 1. **Ask** the user's email address **and how long to stay tethered** (e.g. 30m,
    2h, 8h/overnight, or until they say stop). They're present at this step, so a
    normal question is fine.
-2. **Start**: `"$T" start <email> --for <duration>` (omit `--for` for
-   until-stop) — sends the intro, opens the thread, arms, and records the window.
+2. **Start**: `"$T" start <email> --for <duration>` (or `--until <ISO>`; omit
+   both for until-stop) — sends the intro, opens the thread, arms, records the window.
 3. **Work**, and **send updates as you see fit**: `"$T" update "<what changed / what you need>"`.
    Good moments: finished a slice, made a decision that's worth surfacing, hit a
    blocker, or before a long unattended stretch. Skip trivial turns. For a rich
@@ -82,23 +96,52 @@ Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
 6. **Stop** when the user replies `stop`/`done`, the window expires, or the work
    is complete: `"$T" stop`.
 
-## Interval guidance
+## Writing good emails
 
-The poll interval is the reply latency while the agent is idle, traded against
-token cost (each tick is a turn). Recommended:
+The recipient is a **person reading email (often on a phone)**, not a terminal.
+Write for that medium, not for a CLI.
 
-| situation | interval |
-|---|---|
-| **Attended-ish / expecting a reply soon** (just sent an update) | **2–3 min** |
-| **Default** | **3 min** |
-| **Fully AFK, latency-tolerant** | **5–10 min** |
-| floor (Claude Code `/loop` minimum) | 1 min |
+**Plain text (default — use for most updates):**
+- Lead with the takeaway (what changed / what you need), then details. Keep it
+  short and scannable.
+- **No markdown** — `**bold**`, `` `code` ``, `#` headings render as literal
+  characters in a plain-text email. Use plain prose and simple `-` bullets.
+- Be concrete: name the file / PR / decision ("merged #357"), not "did some work".
+- If you need something, end with **one clear ask** ("Reply A or B?").
+- No large code/log dumps — summarize or link. Don't paste stack traces.
 
-Nice-to-have (adaptive backoff): poll every ~2 min right after sending an
-update, then back off toward ~10 min after prolonged silence — responsive when a
-reply is likely, cheap when it isn't. While the agent is actively working it also
-catches replies at natural checkpoints, so the interval mainly governs the idle
-gap.
+**HTML (`update --html <file>` — use when structure earns it):**
+- Reach for it for a diagram, table, before/after, or a multi-section status —
+  not for a one-liner.
+- **Mobile-first** (learned the hard way): `max-width:~480px`, **inline styles
+  only** (email strips `<style>`/`<head>`), readable sizes (14–15px), and a
+  **vertical/stacked layout**. Avoid wide tables and big ASCII in `<pre>` — they
+  force horizontal scroll and shrink to unreadable on phones.
+- Prefer real elements (stacked `<div>` boxes, small `<table>`s) over ASCII art.
+- Use a system font stack; keep colors subtle. `update` auto-derives the
+  plain-text fallback, so HTML sends are always safe.
+
+**Both:**
+- **Acknowledge fast.** When a reply comes in, a quick "on it — doing X" beats
+  silence; there's inherent email latency, so don't leave the user wondering if
+  you heard them.
+- Everything stays in one thread automatically (updates reply into it).
+
+## Poll interval & knobs
+
+`listen`/`poll` hit the inbox with a plain `curl` — **no LLM tokens per check** —
+so polling can be frequent. The agent is only woken (a real turn) when a reply
+actually lands.
+
+| env var | default | effect |
+|---|---|---|
+| `E2A_TETHER_POLL_INTERVAL` | `20` (s) | how often `listen`/`ask` check the inbox |
+| `E2A_TETHER_ASK_TIMEOUT` | `1800` (s) | how long `ask` blocks for an answer before giving up |
+| `E2A_BASE_URL` | `https://api.e2a.dev` | API base (set for self-host) |
+
+The only thing that costs a turn per tick is a `/loop` **heartbeat** (tier 2
+below) — keep that coarse (e.g. 30m). Reply latency ≈ the poll interval, and
+it's cheap, so 20–30s is fine.
 
 ## Durability tiers
 
