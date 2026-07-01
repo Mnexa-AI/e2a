@@ -3,6 +3,7 @@
 #
 #   tether.sh start <your-email>   send the intro email, open the thread, arm
 #   tether.sh update "<message>"   send a threaded update ("as you see fit")
+#   tether.sh ask "<question>"     email a question and BLOCK until the reply
 #   tether.sh poll                 print any new replies since last poll (exit 0)
 #   tether.sh status               show tether state
 #   tether.sh stop                 disarm and clear state
@@ -53,24 +54,30 @@ minutes). Reply any time with a question or instruction; reply \"stop\" to end.
 
   poll)
     need_config; need_armed
-    conv="$(t_state_get conversation_id)"; since="$(t_state_get last_poll)"
-    checkpoint="$(t_now_iso)"
-    rows="$(t_api_poll "$conv" "$since")"
-    # advance the cursor regardless so we never re-report the same reply
-    t_state_set last_poll "$checkpoint"
-    [ -n "$rows" ] || { echo "(no new replies)"; exit 0; }
-    n=0
-    while IFS=$'\t' read -r id from created; do
-      [ -n "$id" ] || continue
-      body="$(t_api_body "$id")"
-      [ -n "$body" ] || continue
-      n=$((n+1))
-      echo "── reply from ${from} @ ${created} ──"
-      echo "$body"
-      echo
-      t_state_set last_message_id "$id"   # thread the next update off the user's latest
-    done <<< "$rows"
-    [ "$n" -gt 0 ] || echo "(no new replies)"
+    t_poll_once
+    ;;
+
+  ask)
+    # Email a question into the thread and BLOCK until the user replies, then
+    # print the answer. This is how a tethered agent asks the user anything —
+    # over email, never a terminal prompt the AFK user can't see. Run it in the
+    # background and wait for the completion notification.
+    need_config; need_armed
+    q="${1:-}"; [ -n "$q" ] || { echo "usage: tether.sh ask \"<question>\""; exit 2; }
+    rid="$(t_state_get last_message_id)"
+    mid="$(t_api_reply "$rid" "❓ ${q}
+
+(Reply to this email with your answer — I'll wait for it.)")"
+    [ -n "$mid" ] || { echo "tether: ask send failed"; exit 1; }
+    t_state_set last_message_id "$mid"
+    echo "tether: question sent (${mid}); waiting for your reply…"
+    max="${E2A_TETHER_ASK_TIMEOUT:-1800}"; interval="${E2A_TETHER_POLL_INTERVAL:-20}"; elapsed=0
+    while [ "$elapsed" -lt "$max" ]; do
+      sleep "$interval"; elapsed=$((elapsed + interval))
+      out="$(t_poll_once)"
+      [ "$out" = "(no new replies)" ] || { echo "$out"; exit 0; }
+    done
+    echo "tether: ask timed out after ${max}s with no answer"; exit 3
     ;;
 
   status)

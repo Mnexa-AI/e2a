@@ -119,3 +119,65 @@ try:
   print((p or b).strip())
 except Exception:print("")'
 }
+
+# --- dedup + poll core -------------------------------------------------------
+# Replies are deduped by message-id (a `seen` set in state), NOT a bare time
+# cursor. Email parsing is async: a just-arrived reply can have an empty
+# parsed/body for a moment. We therefore do NOT mark such a message seen or
+# advance the watermark past it — we retry it next poll (up to a max age),
+# so a reply can never be silently skipped (the bug that dropped a real reply).
+
+# seconds since an RFC3339 timestamp
+t_age_seconds() {
+  python3 -c 'import sys,datetime
+try:
+  t=datetime.datetime.fromisoformat(sys.argv[1].replace("Z","+00:00"))
+  print(int((datetime.datetime.now(datetime.timezone.utc)-t).total_seconds()))
+except Exception:print(0)' "$1"
+}
+
+t_seen_has() {  # <id> → 0 if already processed
+  local f; f="$(t_state_path)"; [ -f "$f" ] || return 1
+  python3 -c 'import json,sys
+try:sys.exit(0 if sys.argv[2] in (json.load(open(sys.argv[1])).get("seen") or []) else 1)
+except Exception:sys.exit(1)' "$f" "$1"
+}
+
+t_seen_add() {  # <id> → record as processed (cap at last 500)
+  local f; f="$(t_state_path)"; mkdir -p "$(dirname "$f")"
+  python3 -c 'import json,sys,os
+f,i=sys.argv[1],sys.argv[2]
+d={}
+if os.path.exists(f):
+  try:d=json.load(open(f))
+  except Exception:d={}
+s=d.get("seen") or []
+if i not in s:s.append(i)
+d["seen"]=s[-500:]
+json.dump(d,open(f,"w"),indent=2)' "$f" "$1"
+}
+
+# t_poll_once → print any new replies (dedup + parse-race safe), else "(no new replies)"
+# Advances the `last_poll` watermark only through the contiguous processed prefix,
+# stopping at the first not-yet-parsed message so it is retried, never lost.
+t_poll_once() {
+  local conv since rows n advance id from created body age
+  conv="$(t_state_get conversation_id)"; since="$(t_state_get last_poll)"
+  rows="$(t_api_poll "$conv" "$since")" || return 1
+  n=0; advance="$since"
+  while IFS=$'\t' read -r id from created; do
+    [ -n "$id" ] || continue
+    if t_seen_has "$id"; then advance="$created"; continue; fi
+    body="$(t_api_body "$id")"
+    if [ -z "$body" ]; then
+      age="$(t_age_seconds "$created")"
+      if [ "$age" -gt 120 ]; then t_seen_add "$id"; advance="$created"; continue
+      else break; fi   # not parsed yet — retry next poll, don't advance past it
+    fi
+    t_seen_add "$id"; advance="$created"; n=$((n+1))
+    printf '── reply from %s @ %s ──\n%s\n\n' "$from" "$created" "$body"
+    t_state_set last_message_id "$id"
+  done <<< "$rows"
+  t_state_set last_poll "$advance"
+  [ "$n" -gt 0 ] || echo "(no new replies)"
+}

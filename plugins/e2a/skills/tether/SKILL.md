@@ -26,8 +26,18 @@ the two directions use different mechanisms:
   fetch replies. **Keep the session alive with `/loop`** so polling continues
   while the agent would otherwise be idle — this is the only way a reply sent
   *after* the agent goes idle gets picked up (no hook fires while idle).
+- **Questions = ask by email.** When the agent needs a decision or clarification
+  from you, it must **not** use a terminal prompt / AskUserQuestion — you're AFK
+  and can't see it, which would stall the whole session. It calls
+  `tether.sh ask "<question>"`, which emails the question into the thread and
+  **blocks until you reply**, then prints your answer. This is the hard rule:
+  **while tethered, every question goes over email, never the terminal.**
 - **Blocked-alert = hook (optional).** A `Notification` hook emails you when the
-  agent is stuck on a permission prompt and can't proceed at all.
+  agent is stuck on a *permission prompt* it can't proceed past. Note: an emailed
+  reply cannot answer a CLI permission prompt (there's no native way to inject
+  approval), so for unattended runs **pre-authorize** the tools the session needs
+  (a permission allowlist / a less-prompting mode). The hook is the safety net,
+  not the approval channel.
 
 ## Setup (once)
 
@@ -51,11 +61,17 @@ Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
 3. **Work**, and **send updates as you see fit**: `"$T" update "<what changed / what you need>"`.
    Good moments: finished a slice, made a decision that's worth surfacing, hit a
    blocker, or before a long unattended stretch. Skip trivial turns.
-4. **Poll on an interval**: run `"$T" poll`; if it prints a reply, treat it as a
+4. **Need a decision from the user? Ask by email — never the terminal.** Run
+   `"$T" ask "<question>"` (in the background); it emails the question and blocks
+   until the user replies, then prints the answer. **Do not** use AskUserQuestion
+   or a bare terminal prompt while tethered — an AFK user can't answer it and the
+   session stalls.
+5. **Poll on an interval**: run `"$T" poll`; if it prints a reply, treat it as a
    new instruction and act on it (then `update` with the result). To keep polling
    while idle, run the session under **`/loop <interval>`** (or self-schedule the
-   next poll). See the interval guidance below.
-5. **Stop** when the user replies `stop`/`done`, or the work is complete:
+   next poll). See the interval guidance below. (Replies are deduped by
+   message-id and survive e2a's async parse, so none are dropped or repeated.)
+6. **Stop** when the user replies `stop`/`done`, or the work is complete:
    `"$T" stop`.
 
 ## Interval guidance
@@ -87,7 +103,7 @@ working context). Left as a follow-on.
 
 | file | role |
 |---|---|
-| `tether.sh` | runtime CLI: `start` / `update` / `poll` / `status` / `stop` |
+| `tether.sh` | runtime CLI: `start` / `update` / `ask` / `poll` / `status` / `stop` |
 | `lib.sh` | config + e2a send/reply/poll helpers |
 | `hooks/tether-notify.sh` | optional Notification hook (blocked-alert) |
 | `install.sh` | wire/unwire the Notification hook; `_selftest` |
