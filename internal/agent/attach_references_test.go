@@ -10,7 +10,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 )
 
-// fakeInboundLookup is a stub that satisfies hitlInboundLookup so we can
+// fakeInboundLookup is a stub that satisfies hitlParentLookup so we can
 // drive attachReferencesChain without a live Postgres. Each test sets up
 // the fields it cares about; everything else is zero-valued.
 type fakeInboundLookup struct {
@@ -23,7 +23,7 @@ type fakeInboundLookup struct {
 	returnErr          error
 }
 
-func (f *fakeInboundLookup) GetInboundByEmailMessageID(_ context.Context, agentID, emailMessageID string) (*identity.Message, error) {
+func (f *fakeInboundLookup) GetMessageByEmailMessageID(_ context.Context, agentID, emailMessageID string) (*identity.Message, error) {
 	f.calledWith.agentID = agentID
 	f.calledWith.emailMessageID = emailMessageID
 	return f.returnInbound, f.returnErr
@@ -91,6 +91,25 @@ func TestAttachReferencesChain_InboundMissingNoErr(t *testing.T) {
 
 	if req.References != nil {
 		t.Errorf("References = %v, want nil", req.References)
+	}
+}
+
+func TestAttachReferencesChain_OutboundParent_BuildsChain(t *testing.T) {
+	// A held reply whose parent is an OUTBOUND message the agent sent
+	// (reply-to-own-message). The direction-agnostic lookup resolves it and
+	// the References chain is rebuilt exactly as for an inbound parent —
+	// previously this no-op'd because the lookup filtered direction='inbound'.
+	parentRaw := []byte("References: <orig@x>\r\nFrom: agent@e2a\r\nTo: bob@x\r\n\r\nsent body")
+	lookup := &fakeInboundLookup{
+		returnInbound: &identity.Message{Direction: "outbound", RawMessage: parentRaw},
+	}
+	req := outbound.SendRequest{ReplyToMessageID: "<sent@e2a>"}
+
+	attachReferencesChain(context.Background(), lookup, "agent-1", &req)
+
+	want := []string{"<orig@x>", "<sent@e2a>"}
+	if !reflect.DeepEqual(req.References, want) {
+		t.Errorf("References = %v, want %v", req.References, want)
 	}
 }
 
