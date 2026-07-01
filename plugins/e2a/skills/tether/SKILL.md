@@ -56,8 +56,11 @@ chmod 600 ~/.e2a-tether.env    # fill E2A_API_KEY + E2A_AGENT_EMAIL (agent prote
 
 Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
 
-1. **Ask** the user's email address.
-2. **Start**: `"$T" start <email>` — sends the intro email, opens the thread, arms.
+1. **Ask** the user's email address **and how long to stay tethered** (e.g. 30m,
+   2h, 8h/overnight, or until they say stop). They're present at this step, so a
+   normal question is fine.
+2. **Start**: `"$T" start <email> --for <duration>` (omit `--for` for
+   until-stop) — sends the intro, opens the thread, arms, and records the window.
 3. **Work**, and **send updates as you see fit**: `"$T" update "<what changed / what you need>"`.
    Good moments: finished a slice, made a decision that's worth surfacing, hit a
    blocker, or before a long unattended stretch. Skip trivial turns. For a rich
@@ -69,13 +72,15 @@ Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
    until the user replies, then prints the answer. **Do not** use AskUserQuestion
    or a bare terminal prompt while tethered — an AFK user can't answer it and the
    session stalls.
-5. **Poll on an interval**: run `"$T" poll`; if it prints a reply, treat it as a
-   new instruction and act on it (then `update` with the result). To keep polling
-   while idle, run the session under **`/loop <interval>`** (or self-schedule the
-   next poll). See the interval guidance below. (Replies are deduped by
-   message-id and survive e2a's async parse, so none are dropped or repeated.)
-6. **Stop** when the user replies `stop`/`done`, or the work is complete:
-   `"$T" stop`.
+5. **Listen for the whole window**: run `"$T" listen` **in the background**. It
+   polls cheaply (curl, no tokens) and exits with either:
+   - `REPLY_RECEIVED:` + the message → act on it (then `update` with the result),
+     and **relaunch `listen`** for the remaining window; or
+   - `TETHER_EXPIRED` → the window is up; run `"$T" stop`.
+   Replies are deduped by message-id and survive e2a's async parse, so none are
+   dropped or repeated. (`poll` is the same one-shot check if you want it manually.)
+6. **Stop** when the user replies `stop`/`done`, the window expires, or the work
+   is complete: `"$T" stop`.
 
 ## Interval guidance
 
@@ -95,18 +100,27 @@ reply is likely, cheap when it isn't. While the agent is actively working it als
 catches replies at natural checkpoints, so the interval mainly governs the idle
 gap.
 
-## Durability note
+## Durability tiers
 
-`/loop` keeps the session alive only while the terminal is open. To keep
-listening after you close the laptop, the always-on path is an **e2a webhook
-firing a cloud Routine** — but that runs a *fresh* session (loses the live
-working context). Left as a follow-on.
+1. **In-session (default):** `listen` polls for the whole `--for` window —
+   automatic while the terminal stays open, and cheap (curl only, no tokens).
+   This is what the duration setup buys you: one long-lived poller, not manual
+   restarts. Add **`listen --awake`** to keep the machine from *idle*-sleeping
+   during the window (macOS `caffeinate`, auto-released when listening ends).
+   Note: `--awake` does **not** survive *closing the lid* (macOS clamshell still
+   sleeps) — that's tier 3.
+2. **Heartbeat (optional):** a slow `/loop` (e.g. every 30m) can relaunch
+   `listen` if it dies and keep the session warm. `/loop` wakes the *agent* (a
+   full turn each tick) — use it as a supervisor, not the poller.
+3. **Always-on (survives a closed laptop):** nothing in-session outlives a
+   closed terminal, regardless of duration — that needs an **e2a webhook firing
+   a cloud Routine** (a *fresh* session per fire, loses live context). Follow-on.
 
 ## Files
 
 | file | role |
 |---|---|
-| `tether.sh` | runtime CLI: `start` / `update` / `ask` / `poll` / `status` / `stop` |
+| `tether.sh` | runtime CLI: `start [--for]` / `update` / `ask` / `listen` / `poll` / `status` / `stop` |
 | `lib.sh` | config + e2a send/reply/poll helpers |
 | `hooks/tether-notify.sh` | optional Notification hook (blocked-alert) |
 | `install.sh` | wire/unwire the Notification hook; `_selftest` |

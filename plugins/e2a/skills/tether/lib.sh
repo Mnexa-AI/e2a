@@ -53,6 +53,31 @@ json.dump(d,open(f,"w"),indent=2)' "$f" "$@"
 
 t_state_clear() { rm -f "$(t_state_path)"; }
 
+# --- duration / expiry -------------------------------------------------------
+
+# t_duration_to_expiry <dur> → ISO expires_at (empty = no expiry / "until stop")
+# accepts: 30m, 2h, 8h, 1d ; "" / forever / until-stop → empty
+t_duration_to_expiry() {
+  python3 -c 'import sys,datetime,re
+d=(sys.argv[1] if len(sys.argv)>1 else "").strip().lower()
+if not d or d in ("forever","none","off","until-stop","stop"):print("");raise SystemExit
+m=re.fullmatch(r"(\d+)\s*([mhd])",d)
+if not m:print("");raise SystemExit
+secs=int(m.group(1))*{"m":60,"h":3600,"d":86400}[m.group(2)]
+print((datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(seconds=secs)).isoformat())' "$1"
+}
+
+# t_remaining_seconds → seconds until expires_at; huge sentinel if no expiry
+t_remaining_seconds() {
+  local exp; exp="$(t_state_get expires_at)"
+  [ -n "$exp" ] || { echo 2147483647; return; }
+  python3 -c 'import sys,datetime
+try:
+  t=datetime.datetime.fromisoformat(sys.argv[1].replace("Z","+00:00"))
+  print(int((t-datetime.datetime.now(datetime.timezone.utc)).total_seconds()))
+except Exception:print(2147483647)' "$exp"
+}
+
 # --- e2a API -----------------------------------------------------------------
 
 # t_api_send <to> <subject> <body> <conversation_id> → prints message_id

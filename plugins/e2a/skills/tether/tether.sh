@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # tether.sh — the runtime CLI the agent calls to stay in touch over email.
 #
-#   tether.sh start <your-email>   send the intro email, open the thread, arm
+#   tether.sh start <email> [--for 2h|8h|30m|1d] [--until <ISO>]  open + arm
 #   tether.sh update "<message>"   send a threaded update ("as you see fit")
 #   tether.sh update --html <file> send an HTML update (+ auto text fallback)
 #   tether.sh ask "<question>"     email a question and BLOCK until the reply
+#   tether.sh listen [--awake]     poll until a reply OR the window ends (bg it)
 #   tether.sh poll                 print any new replies since last poll (exit 0)
 #   tether.sh status               show tether state
 #   tether.sh stop                 disarm and clear state
@@ -25,22 +26,35 @@ need_armed()  { [ "$(t_state_get armed)" = "1" ] || { echo "tether: not started 
 
 case "$cmd" in
   start)
+    # start <email> [--for 30m|2h|8h|1d] [--until <ISO>]
     need_config
-    to="${1:-}"; [ -n "$to" ] || { echo "usage: tether.sh start <your-email>"; exit 2; }
+    to=""; forarg=""; untilarg=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --for) forarg="${2:-}"; shift 2;;
+        --until) untilarg="${2:-}"; shift 2;;
+        *) to="$1"; shift;;
+      esac
+    done
+    [ -n "$to" ] || { echo "usage: tether.sh start <your-email> [--for 2h|8h|30m|1d] [--until <ISO>]"; exit 2; }
+    expires=""
+    if [ -n "$untilarg" ]; then expires="$untilarg"
+    elif [ -n "$forarg" ]; then expires="$(t_duration_to_expiry "$forarg")"; fi
+    window="${forarg:-${untilarg:-until you say stop}}"
     proj="$(basename "$PWD")"
     conv="tether-$(date +%s)-$$"
     intro="🪢 Tethered — ${proj}
 
-This session is now tethered. I'll send updates to this thread as I make
-meaningful progress, and I'll pick up your replies (usually within a few
-minutes). Reply any time with a question or instruction; reply \"stop\" to end.
+This session is now tethered (${window}). I'll send updates to this thread as I
+make meaningful progress, and I'll pick up your replies. Reply any time with a
+question or instruction; reply \"stop\" to end early.
 
 — your coding agent"
     mid="$(t_api_send "$to" "Tether: ${proj}" "$intro" "$conv")"
     [ -n "$mid" ] || { echo "tether: intro send failed (check creds / base url / agent protection)"; exit 1; }
     t_state_set armed 1 to "$to" conversation_id "$conv" last_message_id "$mid" \
-      last_poll "$(t_now_iso)" project "$proj" started_at "$(t_now_iso)"
-    echo "tether: started — thread ${conv} → ${to} (intro sent, ${mid})"
+      last_poll "$(t_now_iso)" project "$proj" started_at "$(t_now_iso)" expires_at "$expires"
+    echo "tether: started — thread ${conv} → ${to} (intro ${mid}); window: ${window}${expires:+ (until ${expires})}"
     ;;
 
   update)
@@ -76,6 +90,36 @@ minutes). Reply any time with a question or instruction; reply \"stop\" to end.
     t_poll_once
     ;;
 
+  listen)
+    # Deadline-bounded poller. Polls until a reply (prints REPLY_RECEIVED + exits)
+    # or until the window (expires_at) ends (prints TETHER_EXPIRED + exits). Run
+    # it in the BACKGROUND: on a reply-exit, act then relaunch for the remaining
+    # window; on TETHER_EXPIRED, run `stop`. Cheap (curl only, no tokens).
+    #   --awake  keep the machine from IDLE-sleeping while listening (macOS
+    #            caffeinate; released when listen exits). Does NOT survive the
+    #            lid closing.
+    need_config; need_armed
+    awake=0
+    while [ $# -gt 0 ]; do case "$1" in --awake) awake=1; shift;; *) shift;; esac; done
+    if [ "$awake" = "1" ]; then
+      if command -v caffeinate >/dev/null 2>&1; then
+        caffeinate -i -w "$$" >/dev/null 2>&1 &   # dies with this listen process
+        echo "tether: keeping the machine awake (caffeinate, idle-sleep off) while listening" >&2
+      else
+        echo "tether: --awake unsupported here (no caffeinate); machine may idle-sleep" >&2
+      fi
+    fi
+    interval="${E2A_TETHER_POLL_INTERVAL:-20}"
+    while :; do
+      rem="$(t_remaining_seconds)"
+      if [ "$rem" -le 0 ]; then echo "TETHER_EXPIRED"; exit 0; fi
+      out="$(t_poll_once)"
+      if [ "$out" != "(no new replies)" ]; then echo "REPLY_RECEIVED:"; echo "$out"; exit 0; fi
+      s="$interval"; [ "$rem" -lt "$s" ] && s="$rem"
+      sleep "$s"
+    done
+    ;;
+
   ask)
     # Email a question into the thread and BLOCK until the user replies, then
     # print the answer. This is how a tethered agent asks the user anything —
@@ -105,6 +149,13 @@ minutes). Reply any time with a question or instruction; reply \"stop\" to end.
       echo "armed:  yes"
       echo "thread: $(t_state_get conversation_id) → $(t_state_get to)"
       echo "since:  $(t_state_get last_poll)"
+      exp="$(t_state_get expires_at)"
+      if [ -n "$exp" ]; then
+        rem="$(t_remaining_seconds)"
+        if [ "$rem" -gt 0 ]; then echo "window: until ${exp} (${rem}s left)"; else echo "window: EXPIRED (${exp})"; fi
+      else
+        echo "window: until you stop"
+      fi
     else
       echo "armed:  no"
     fi
