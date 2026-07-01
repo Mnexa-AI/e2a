@@ -53,6 +53,8 @@ plugins/e2a/
 ├── .mcp.json                    # the hosted MCP server (single source of truth)
 ├── assets/icon.svg
 ├── skills/e2a/SKILL.md          # the "operate-well" skill (surfaces as /e2a)
+├── skills/agentify/SKILL.md     # deploy the autonomous-repo feedback loop (/agentify)
+├── skills/tether/SKILL.md       # email handoff for long-running sessions (/tether)
 └── clients/                     # manual paste-in configs for non-plugin clients
 ```
 
