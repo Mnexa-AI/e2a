@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="assets/e2a-wordmark.png" width="320" alt="e2a">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/e2a-wordmark-dark.svg">
+  <img src="assets/e2a-wordmark-light.svg" width="320" alt="e2a">
+</picture>
 
 ### Give your AI agents a real, authenticated email address.
 
