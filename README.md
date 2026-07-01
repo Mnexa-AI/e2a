@@ -43,39 +43,6 @@ What you get on top of bare SMTP:
 - **Human in the loop** — opt-in approval gate that holds outbound mail until a reviewer approves via dashboard, magic-link email, the MCP tools, or the API
 - **Conversation threading** — a stable `conversation_id` that survives the email ↔ structured-data boundary
 
-## Use it
-
-You can either use the hosted instance or self-host.
-
-- **Hosted** — sign up at [e2a.dev](https://e2a.dev). Includes the shared `agents.e2a.dev` domain for instant slug-based onboarding (no DNS setup), a dashboard, the hosted MCP server, and managed deliverability.
-- **Self-host** — see [Quickstart](#quickstart) and [Deployment](#deployment). Every feature works the same; the shared-domain slug shortcut just needs you to point a mail domain at your relay and set `shared_domain` in `config.yaml`.
-
-## How it works
-
-```
-Human (Gmail/Outlook)
-    │
-    ▼ SMTP
-┌──────────────┐
-│  e2a relay   │  ← MX record for your agent domain points here
-│              │
-│  1. Verify   │  ← SPF/DKIM check on the inbound message
-│  2. Sign     │  ← HMAC-signed X-E2A-Auth-* headers
-│  3. Deliver  │
-└──────────────┘
-    │
-    ├──▶ Webhook subscription: HTTPS POST to your endpoint
-    │
-    └──▶ Store → agent fetches over WebSocket, REST poll, or MCP tools (no public URL)
-              │
-              ▼
-         e2a listen (CLI) · client.listen() (SDK) · list_messages (MCP)
-```
-
-Inbound flow: SMTP → SPF/DKIM check → agent lookup → HMAC-sign auth headers → webhook / WebSocket / REST / MCP delivery.
-
-Outbound flow: API call → optional HITL hold → SMTP relay (agent-to-agent) or upstream SMTP (agent-to-human).
-
 ## Quickstart
 
 ### Use it with your AI agent (recommended)
@@ -155,6 +122,39 @@ Then register and verify the domain through the API (see [Domains](docs/api.md))
 > **Upgrades and migrations.** The e2a binary embeds `migrations/*.sql` and **auto-applies any pending ones at startup** (tracked in a `schema_migrations` table). When you upgrade e2a, restarting the container applies new schema migrations automatically — no manual step. `E2A_MIGRATION_MODE` controls this: `auto` (default, applies pending), `verify` (refuse startup and report pending), or `skip` (emergency surgery). Migrations are idempotent and non-destructive, so re-applying is safe.
 >
 > (The compose file also mounts `migrations/` into Postgres' init directory, but that path only runs on first start with an empty data volume — the binary's startup auto-apply is what keeps an upgraded deployment current.)
+
+## Use it
+
+You can either use the hosted instance or self-host.
+
+- **Hosted** — sign up at [e2a.dev](https://e2a.dev). Includes the shared `agents.e2a.dev` domain for instant slug-based onboarding (no DNS setup), a dashboard, the hosted MCP server, and managed deliverability.
+- **Self-host** — see [Quickstart](#quickstart) and [Deployment](#deployment). Every feature works the same; the shared-domain slug shortcut just needs you to point a mail domain at your relay and set `shared_domain` in `config.yaml`.
+
+## How it works
+
+```
+Human (Gmail/Outlook)
+    │
+    ▼ SMTP
+┌──────────────┐
+│  e2a relay   │  ← MX record for your agent domain points here
+│              │
+│  1. Verify   │  ← SPF/DKIM check on the inbound message
+│  2. Sign     │  ← HMAC-signed X-E2A-Auth-* headers
+│  3. Deliver  │
+└──────────────┘
+    │
+    ├──▶ Webhook subscription: HTTPS POST to your endpoint
+    │
+    └──▶ Store → agent fetches over WebSocket, REST poll, or MCP tools (no public URL)
+              │
+              ▼
+         e2a listen (CLI) · client.listen() (SDK) · list_messages (MCP)
+```
+
+Inbound flow: SMTP → SPF/DKIM check → agent lookup → HMAC-sign auth headers → webhook / WebSocket / REST / MCP delivery.
+
+Outbound flow: API call → optional HITL hold → SMTP relay (agent-to-agent) or upstream SMTP (agent-to-human).
 
 ## Concepts
 
