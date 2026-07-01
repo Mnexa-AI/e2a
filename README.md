@@ -334,7 +334,7 @@ Four things that aren't possible to bolt on without significant rework:
 
 2. **Conversation threading on every reply.** Whether a human replies from Gmail or another e2a agent replies via the API, the inbound message arrives at the agent with a stable `conversation_id` already mapped to the original thread. For human senders, the relay does standard `In-Reply-To` / `References` lookup scoped to the recipient agent's own messages. For agent-to-agent where both sides are on e2a, it also trusts an `X-E2A-Conversation-Id` header it controls (envelope-from is its own domain), which survives clients that rewrite threading headers. SendGrid/Resend never see inbound mail — they aren't receivers — so neither path is available without you building both yourself.
 
-3. **Slug provisioning on a shared domain.** Operators set `shared_domain: agents.e2a.dev` and users `POST {"slug": "my-agent"}` to immediately get `my-agent@agents.e2a.dev` with no DNS configuration. Possible because e2a *is* the SMTP relay claiming the domain — Resend / SendGrid are providers, not platforms, and can't multi-tenant a shared address space without you running the relay yourself.
+3. **Slug provisioning on a shared domain.** Operators set `shared_domain: agents.e2a.dev` and users `POST {"email": "my-agent@agents.e2a.dev"}` to immediately register an agent on the shared domain with no DNS configuration. Possible because e2a *is* the SMTP relay claiming the domain — Resend / SendGrid are providers, not platforms, and can't multi-tenant a shared address space without you running the relay yourself.
 
 4. **Built-in review hold + auto-expiration.** A per-agent protection policy (outbound gate action `review`, or the content scan) holds mail in `pending_review` state. Reviewers approve via dashboard, magic-link email, the MCP tools, or the API; a background worker auto-acts on expired holds based on the `holds.on_expiry` config. Magic-link tokens are HMAC-encoded — stateless, no session backend. With Resend / SendGrid you'd hold the message in your own DB, build the timer, the approval UI, and the stateless review tokens.
 
@@ -348,11 +348,11 @@ e2a doesn't replace webhooks or MCP — your agent *receives* email through them
 
 ### What stops an attacker from spoofing the `X-E2A-Auth-*` headers?
 
-The relay strips any incoming `X-E2A-Auth-*` from inbound messages and re-signs with HMAC-SHA256 against `signing.hmac_secret`. The signed canonical binds `Sender + Verified + Body-Hash + Message-Id` together — replay attempts, body swaps, and sender-only forgery all fail validation. Each delivery is bound to *that specific message body*, not just the sender claim, so a captured `(headers, signature)` tuple can't be lifted onto a different message.
+The relay never trusts inbound `X-E2A-Auth-*` headers — it derives the auth claim from scratch and signs it with HMAC-SHA256 against `signing.hmac_secret`, so any values a sender injects are ignored (read the signed `auth_headers` field, not raw message headers). The signed canonical binds `Sender + Verified + Body-Hash + Message-Id` together — replay attempts, body swaps, and sender-only forgery all fail validation. Each delivery is bound to *that specific message body*, not just the sender claim, so a captured `(headers, signature)` tuple can't be lifted onto a different message.
 
 For a **webhook subscriber**, though, the protection you actually rely on is the delivery's **envelope signature** (`X-E2A-Signature`, verified with your `whsec_`): a forged POST to your URL fails envelope verification regardless of what `X-E2A-Auth-*` values it carries. The inner re-signing above is for the *relayed-header* trust model — consumers that hold the deployment HMAC secret and receive `X-E2A-Auth-*` as message headers — which a `/v1/webhooks` subscriber is not.
 
-Receivers verify with the SDK — `construct_event(body, header, secret)` / `constructEvent(body, header, secret)` does parse + HMAC verify in one call (or `verify_webhook_signature(...)` / `verifyWebhookSignature(...)` if you only need the boolean check). No API call back to e2a needed. If a signing secret leaks, rotate it via the dashboard and old signatures stop verifying. If it's *stolen from the relay*, the attacker has bigger access than headers anyway.
+Receivers verify with the SDK — `construct_event(body, header, secret)` / `constructEvent(body, header, secret)` does parse + HMAC verify in one call (or `verify_webhook_signature(...)` / `verifyWebhookSignature(...)` if you only need the boolean check). No API call back to e2a needed. If a signing secret leaks, rotate it via the dashboard; the previous secret keeps verifying through a 24h grace window, then stops. If it's *stolen from the relay*, the attacker has bigger access than headers anyway.
 
 ### Isn't this just SMTP with extra steps?
 
@@ -379,7 +379,7 @@ Two reasons:
 1. **Auditability.** Identity infrastructure for your agents should be readable code, not a vendor black box. You can verify the cosign signature on `ghcr.io/mnexa-ai/e2a`, reproduce the build, and confirm what's actually running.
 2. **Self-host as a real option.** The hosted instance at e2a.dev runs the same `ghcr.io/mnexa-ai/e2a` image you can pull right now. Convenience features on the hosted side (the shared `agents.e2a.dev` domain, managed deliverability) are config + DNS, not closed-source extras.
 
-The hosted version at [e2a.dev](https://e2a.dev) has paid tiers (a free tier plus paid plans); billing is opt-in via env var on the hosted side and the OSS code path stays unchanged — self-hosting has no quotas or billing.
+The hosted version at [e2a.dev](https://e2a.dev) has paid tiers (a free tier plus paid plans); billing is opt-in on the hosted side — config (settable via env) points the OSS server at an external limits/billing sidecar, and the OSS code path stays unchanged. Self-hosting runs on generous default limits with no billing.
 
 ## Development
 
