@@ -24,7 +24,8 @@ npx @e2a/cli login
 
 ### `e2a login`
 
-Open a browser login and save your API key + default agent to `~/.e2a/config.json`.
+Open a browser login and save your API key + default agent to `~/.e2a/config.json`
+(also caches the deployment's shared mail domain, discovered from `GET /v1/info`).
 
 ```bash
 e2a login
@@ -42,15 +43,32 @@ e2a listen --agent bot@acme.com
 
 # --forward bridges each message to a local HTTP handler (the
 # `stripe listen --forward-to` pattern) — ideal for developing a webhook
-# handler locally without exposing a public URL:
+# handler locally without exposing a public URL. Each message is POSTed as
+# the full v1 MessageView JSON (SDK camelCase: messageId, createdAt, …):
 e2a listen --agent bot@acme.com --forward http://localhost:3000/inbound
+
+# --forward-token adds an `Authorization: Bearer <token>` header to the POST:
 e2a listen --agent bot@acme.com --forward http://localhost:3000/inbound --forward-token <secret>
 
-# Raw JSON notifications (one per line) for piping:
+# Emit the full message as JSON (one object per line) for piping:
 e2a listen --agent bot@acme.com --json
 ```
 
 `--agent` falls back to the `agent_email` saved in config.
+
+#### OpenAI Responses auto-reply
+
+When the `--forward <url>` path ends in `/v1/responses`, `listen` switches to
+**auto-reply mode**: it formats each inbound email as an OpenAI
+[Responses API](https://platform.openai.com/docs/api-reference/responses) request,
+POSTs it, and sends the model's output text back as a reply in the thread. Use
+`--forward-token` for the model endpoint's bearer token.
+
+```bash
+e2a listen --agent bot@acme.com \
+  --forward http://localhost:18789/v1/responses \
+  --forward-token <token>
+```
 
 ### `e2a config`
 
@@ -64,5 +82,5 @@ e2a config set agent_email bot@acme.com
 
 ## Options
 
-- `--help` — show help
-- `--version` — show version
+- `--help`, `-h` — show help
+- `--version`, `-v` — show version
