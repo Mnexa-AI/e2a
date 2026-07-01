@@ -45,9 +45,7 @@ What you get on top of bare SMTP:
 
 ## Quickstart
 
-### Use it with your AI agent (recommended)
-
-Install the e2a plugin — it registers the hosted [MCP server](#mcp-server) and an operate-well skill, so your agent can send, receive, reply in-thread, and hold mail for review out of the box. On first tool use it runs an OAuth flow in your browser — no API key to paste.
+The fastest path is to give your AI agent an inbox directly. Install the e2a plugin — it registers the hosted [MCP server](#mcp-server) and an operate-well skill, so your agent can send, receive, reply in-thread, and hold mail for review out of the box. On first tool use it runs an OAuth flow in your browser — no API key to paste.
 
 **Claude Code**
 
@@ -68,67 +66,12 @@ Then launch `codex`, run `/plugins`, and install **e2a**.
 
 **Other MCP clients** (Zed, Goose, Windsurf, Claude Desktop, raw `mcp.json`) — point straight at `https://api.e2a.dev/mcp`; ready-to-paste configs are in [plugins/e2a/clients/](plugins/e2a/clients). See [plugins/e2a/README.md](plugins/e2a/README.md) for the full per-client guide.
 
-### Self-host (Docker)
-
-Requires Docker.
-
-```bash
-git clone https://github.com/Mnexa-AI/e2a.git
-cd e2a
-docker compose up -d
-```
-
-Postgres comes up first (migrations run automatically), then the API server, then the dashboard. Three host ports:
-
-- `:8080` — HTTP API
-- `:2525` — SMTP relay
-- `:3000` — Dashboard (Caddy + Next.js, proxies `/api/*` to the API server)
-
-Health check:
-
-```bash
-curl http://localhost:8080/api/health
-# {"status":"ok"}
-```
-
-Open `http://localhost:3000` in a browser to view the dashboard. Sign-in requires Google OAuth credentials configured in `config.yaml`; for an API-only smoke test you can skip the dashboard and use the bootstrap flow below.
-
-Create your first user and API key (no OAuth required):
-
-```bash
-docker compose exec e2a e2a -config /etc/e2a/config.yaml -bootstrap-email you@example.com
-# User:    you@example.com (id=...)
-# API key: e2a_...
-```
-
-Save the key — it's only shown once. Register an agent and confirm it works:
-
-```bash
-KEY=e2a_...
-curl -X POST http://localhost:8080/v1/agents \
-  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-  -d '{"email":"my-bot@agents.e2a.dev"}'   # an email on the deployment shared domain (or a domain you've verified)
-
-curl -H "Authorization: Bearer $KEY" http://localhost:8080/v1/agents
-```
-
-To receive real inbound mail, point a domain's MX record at your relay host:
-
-- **A**: `your-domain.com` → server IP
-- **MX**: `your-domain.com` → `your-domain.com` (priority 10)
-
-Then register and verify the domain through the API (see [Domains](docs/api.md)). Without DNS, the API still works for testing — but external email won't reach your relay.
-
-> **Upgrades and migrations.** The e2a binary embeds `migrations/*.sql` and **auto-applies any pending ones at startup** (tracked in a `schema_migrations` table). When you upgrade e2a, restarting the container applies new schema migrations automatically — no manual step. `E2A_MIGRATION_MODE` controls this: `auto` (default, applies pending), `verify` (refuse startup and report pending), or `skip` (emergency surgery). Migrations are idempotent and non-destructive, so re-applying is safe.
->
-> (The compose file also mounts `migrations/` into Postgres' init directory, but that path only runs on first start with an empty data volume — the binary's startup auto-apply is what keeps an upgraded deployment current.)
-
 ## Use it
 
 You can either use the hosted instance or self-host.
 
 - **Hosted** — sign up at [e2a.dev](https://e2a.dev). Includes the shared `agents.e2a.dev` domain for instant slug-based onboarding (no DNS setup), a dashboard, the hosted MCP server, and managed deliverability.
-- **Self-host** — see [Quickstart](#quickstart) and [Deployment](#deployment). Every feature works the same; the shared-domain slug shortcut just needs you to point a mail domain at your relay and set `shared_domain` in `config.yaml`.
+- **Self-host** — see [Self-host (Docker)](#self-host-docker) and [Deployment](#deployment). Every feature works the same; the shared-domain slug shortcut just needs you to point a mail domain at your relay and set `shared_domain` in `config.yaml`.
 
 ## How it works
 
@@ -452,6 +395,61 @@ make migrate             # apply SQL migrations to local DB
 ```
 
 See [CLAUDE.md](CLAUDE.md) for the full developer guide (architecture, tests, code generation, conventions).
+
+## Self-host (Docker)
+
+Requires Docker.
+
+```bash
+git clone https://github.com/Mnexa-AI/e2a.git
+cd e2a
+docker compose up -d
+```
+
+Postgres comes up first (migrations run automatically), then the API server, then the dashboard. Three host ports:
+
+- `:8080` — HTTP API
+- `:2525` — SMTP relay
+- `:3000` — Dashboard (Caddy + Next.js, proxies `/api/*` to the API server)
+
+Health check:
+
+```bash
+curl http://localhost:8080/api/health
+# {"status":"ok"}
+```
+
+Open `http://localhost:3000` in a browser to view the dashboard. Sign-in requires Google OAuth credentials configured in `config.yaml`; for an API-only smoke test you can skip the dashboard and use the bootstrap flow below.
+
+Create your first user and API key (no OAuth required):
+
+```bash
+docker compose exec e2a e2a -config /etc/e2a/config.yaml -bootstrap-email you@example.com
+# User:    you@example.com (id=...)
+# API key: e2a_...
+```
+
+Save the key — it's only shown once. Register an agent and confirm it works:
+
+```bash
+KEY=e2a_...
+curl -X POST http://localhost:8080/v1/agents \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"email":"my-bot@agents.e2a.dev"}'   # an email on the deployment shared domain (or a domain you've verified)
+
+curl -H "Authorization: Bearer $KEY" http://localhost:8080/v1/agents
+```
+
+To receive real inbound mail, point a domain's MX record at your relay host:
+
+- **A**: `your-domain.com` → server IP
+- **MX**: `your-domain.com` → `your-domain.com` (priority 10)
+
+Then register and verify the domain through the API (see [Domains](docs/api.md)). Without DNS, the API still works for testing — but external email won't reach your relay.
+
+> **Upgrades and migrations.** The e2a binary embeds `migrations/*.sql` and **auto-applies any pending ones at startup** (tracked in a `schema_migrations` table). When you upgrade e2a, restarting the container applies new schema migrations automatically — no manual step. `E2A_MIGRATION_MODE` controls this: `auto` (default, applies pending), `verify` (refuse startup and report pending), or `skip` (emergency surgery). Migrations are idempotent and non-destructive, so re-applying is safe.
+>
+> (The compose file also mounts `migrations/` into Postgres' init directory, but that path only runs on first start with an empty data volume — the binary's startup auto-apply is what keeps an upgraded deployment current.)
 
 ## Contributing
 
