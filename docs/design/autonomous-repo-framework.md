@@ -241,9 +241,9 @@ runtime generic without a code plugin system.
 
 ### 4.5 Deploy skill (`/agentify`)
 
-Bundle layout (home: `plugins/e2a/agentify/` for v0):
+Bundle layout (home: `plugins/e2a/skills/agentify/`):
 ```
-agentify/SKILL.md                         # the deploy procedure (the only thing that "runs")
+skills/agentify/SKILL.md                  # the deploy procedure (the only thing that "runs")
   templates/workflows/*.yml.tmpl          # triage, fix, comms, released
   templates/autonomous-repo.config.yml.tmpl
   templates/runtime-skill/**              # SKILL.md, triage.md, fix.md, comms.md, email-templates/
@@ -404,7 +404,7 @@ v0; `always_hitl` safety valve **on** even when `mode: auto`.
    auto | hitl`. `auto` = triage opens a PR directly; `hitl` (e2a default) =
    triage emails the approver, and a verified approval reply triggers the PR.
    PR merge stays the ship gate in both. Remaining sub-decisions in §4.7.
-4. **Build location** — inside `e2a/plugins/e2a/agentify` first then extract to a
+4. **Build location** — inside `e2a/plugins/e2a/skills/agentify` first then extract to a
    standalone repo at the second real adopter (recommended; extract-after-second-use),
    vs standalone from day one (purer framework-first).
 5. **Shared-source for the runtime skill across adopters** — vendored copy (deploy
@@ -433,7 +433,7 @@ Slices 1+2 already beat the status quo; 3 adds the fix automation; 4 makes it di
 
 ### §10 addenda (slice 4: the `/agentify` deploy flow)
 
-Built on `main`. `plugins/e2a/agentify/agentify-render.sh` is the deterministic
+Built on `main`. `plugins/e2a/skills/agentify/agentify-render.sh` is the deterministic
 scaffolder; `SKILL.md` is the interactive wrapper.
 
 - **Render** fills `autonomous-repo.config.yml` from `ANS_*` answers (failing
@@ -490,7 +490,7 @@ is purely additive (zero loop changes).
 
 ### §10 addenda (test harness)
 
-`plugins/e2a/agentify/test/run.sh` is the deterministic suite (CI:
+`plugins/e2a/skills/agentify/test/run.sh` is the deterministic suite (CI:
 `.github/workflows/agentify-test.yml`): every script `_selftest` + the addon's
 `bridge.test.mjs` + bash/JS syntax + `test/validate.py` (YAML parse, the
 rendered config vs what the workflows read, **e2a MCP/REST URL host
@@ -524,21 +524,20 @@ installable, not just copy-able:
   second skill alongside the existing `skills/e2a/`); the plugin's marketplace
   entry is unchanged, version bumped `0.3.2 → 0.4.0` across all manifests
   (`scripts/validate-plugin.mjs` enforces the sync + the frontmatter rules).
-- The scaffolder + templates stay at `plugins/e2a/agentify/` (so CI and the
-  test suite are unchanged); the skill references them via
-  **`${CLAUDE_PLUGIN_ROOT}/agentify/`** — the whole plugin ships to the install
-  cache, so the bundled `agentify-render.sh` / `templates/` / `references/`
-  resolve at runtime.
+- The scaffolder + templates live in the skill's own directory,
+  `plugins/e2a/skills/agentify/` alongside `SKILL.md` (the conventional
+  skill-local layout); the skill references them via
+  **`${CLAUDE_PLUGIN_ROOT}/skills/agentify/`** — the whole plugin ships to the
+  install cache, so the bundled `agentify-render.sh` / `templates/` /
+  `references/` resolve at runtime. (The CI workflows follow the same path.)
 - Install: `/plugin marketplace add Mnexa-AI/e2a` → `/plugin install e2a` →
-  `/agentify` is available (plus the e2a MCP tools). The §4.5 "home:
-  `plugins/e2a/agentify/`" note refers to the tooling dir; the user-facing
-  skill is the plugin skill above.
+  `/agentify` is available (plus the e2a MCP tools).
 
 ## 10. Implementation reconciliation (`feat/agentify-feedback-loop`)
 
 Deviations recorded at build time (slice 1 — intake + triage):
 
-- **Home / shape**: the framework lives at `plugins/e2a/agentify/` — a deploy
+- **Home / shape**: the framework lives at `plugins/e2a/skills/agentify/` — a deploy
   skill (`SKILL.md` + `references/`) whose `templates/` *are* the framework
   (`autonomous-repo.config.yml.tmpl`, `runtime-skill/**`,
   `workflows/feedback-triage.yml.tmpl`, `scripts/ticket_card.sh`).
