@@ -133,7 +133,8 @@ limits:
 # The Gemini LLM-as-detector layer is enabled by setting the environment
 # variable GEMINI_API_KEY (or GOOGLE_API_KEY) to a Google AI Studio key.
 # When the variable is absent the Gemini detector is silently skipped and
-# the dependency-free heuristics detector runs alone.
+# the dependency-free heuristics detector runs alone. It only screens INBOUND
+# mail (internal/relay); outbound agent-mail screening is heuristics-only.
 #
 # Obtain a key: https://aistudio.google.com/apikey
-# Model default: gemini-2.5-flash (change via GEMINI_EVAL_MODEL env var)
+# Model default: gemini-3.1-flash-lite (change via GEMINI_EVAL_MODEL env var)

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"unicode/utf8"
 )
 
 // newGeminiTestDetector builds a GeminiDetector that points at srv instead of the
@@ -173,6 +174,77 @@ func TestGeminiDetector_TransientRetry(t *testing.T) {
 	}
 }
 
+// TestGeminiDetector_ThinkingConfigRejected_TerminalError verifies that when the
+// model rejects the minimise-thinking config (HTTP 400 mentioning
+// budget/thinking/level), the detector fails the call outright instead of
+// silently retrying with thinking re-enabled (the behaviour reviewer feedback on
+// PR #359 flagged as going against the "never think" cost/latency requirement).
+func TestGeminiDetector_ThinkingConfigRejected_TerminalError(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"Unsupported field: THINKING_LEVEL is not supported for this model"}}`))
+	}))
+	defer srv.Close()
+
+	d := newGeminiTestDetector(t, srv, 3) // maxRetries irrelevant: rejection is terminal
+	res, err := d.Inspect(context.Background(), Request{
+		Segments: []Segment{{Type: SegmentTextPlain, Content: "hi"}},
+	})
+	if err == nil {
+		t.Fatal("Inspect: expected error on rejected thinking config, got nil")
+	}
+	if res.Status != StatusError {
+		t.Errorf("Status = %v, want StatusError", res.Status)
+	}
+	if calls != 1 {
+		t.Errorf("calls = %d, want exactly 1 (no retry-with-thinking-enabled fallback)", calls)
+	}
+}
+
+// TestNewGeminiDetector_ModelFromEnv verifies GEMINI_EVAL_MODEL actually changes
+// the model used (PR #359 review: the env var was documented but never read).
+func TestNewGeminiDetector_ModelFromEnv(t *testing.T) {
+	t.Setenv("GEMINI_EVAL_MODEL", "gemini-env-override")
+	d, err := NewGeminiDetector(GeminiConfig{APIKey: "k"})
+	if err != nil {
+		t.Fatalf("NewGeminiDetector: %v", err)
+	}
+	if d.Model() != "gemini-env-override" {
+		t.Errorf("Model() = %q, want %q (GEMINI_EVAL_MODEL not applied)", d.Model(), "gemini-env-override")
+	}
+}
+
+// TestNewGeminiDetector_CfgModelBeatsEnv verifies GeminiConfig.Model still takes
+// priority over GEMINI_EVAL_MODEL.
+func TestNewGeminiDetector_CfgModelBeatsEnv(t *testing.T) {
+	t.Setenv("GEMINI_EVAL_MODEL", "gemini-env-override")
+	d, err := NewGeminiDetector(GeminiConfig{APIKey: "k", Model: "gemini-explicit"})
+	if err != nil {
+		t.Fatalf("NewGeminiDetector: %v", err)
+	}
+	if d.Model() != "gemini-explicit" {
+		t.Errorf("Model() = %q, want %q", d.Model(), "gemini-explicit")
+	}
+}
+
+func TestGeminiTruncateRunes(t *testing.T) {
+	// "café" is 4 runes but 5 bytes ('é' is 2 bytes); a byte-slice truncation to 4
+	// would cut 'é' in half and produce invalid UTF-8 (replacement chars in JSON).
+	got := geminiTruncateRunes("café", 4)
+	if got != "café" {
+		t.Errorf("geminiTruncateRunes(%q, 4) = %q, want %q", "café", got, "café")
+	}
+	got = geminiTruncateRunes("café", 3)
+	if got != "caf" {
+		t.Errorf("geminiTruncateRunes(%q, 3) = %q, want %q", "café", got, "caf")
+	}
+	if !utf8.ValidString(got) {
+		t.Errorf("geminiTruncateRunes produced invalid UTF-8: %q", got)
+	}
+}
+
 // — helpers —
 
 type geminiVerdict struct {
@@ -183,11 +255,11 @@ type geminiVerdict struct {
 
 func geminiFixedHandler(v geminiVerdict) http.HandlerFunc {
 	text, _ := json.Marshal(map[string]any{
-		"injection":             v.Injection,
-		"injection_confidence":  v.InjectionConf,
-		"phishing":              v.Phishing,
-		"phishing_confidence":   v.PhishingConf,
-		"rationale":             v.Rationale,
+		"injection":            v.Injection,
+		"injection_confidence": v.InjectionConf,
+		"phishing":             v.Phishing,
+		"phishing_confidence":  v.PhishingConf,
+		"rationale":            v.Rationale,
 	})
 	return func(w http.ResponseWriter, r *http.Request) {
 		geminiWriteTextResponse(w, string(text))

@@ -15,11 +15,18 @@ import (
 
 const (
 	// geminiDefaultModel is the most cost/latency-efficient GA Gemini model as of
-	// this writing. Override via GeminiConfig.Model or GEMINI_EVAL_MODEL env var.
-	geminiDefaultModel    = "gemini-2.5-flash-lite"
+	// this writing (confirmed non-preview via v1beta/models — "gemini-3.1-flash-lite",
+	// distinct from the "-preview" tagged alias). Override via GeminiConfig.Model or
+	// the GEMINI_EVAL_MODEL env var.
+	geminiDefaultModel    = "gemini-3.1-flash-lite"
 	geminiAPIBase         = "https://generativelanguage.googleapis.com/v1beta"
 	geminiMaxOutputTokens = 2048
 	geminiMaxBodyChars    = 4000
+	// geminiDefaultMaxRetries and the backoff schedule in generate are sized to fit
+	// inside the Engine's default 5 s per-detector timeout (see engine.go
+	// defaultDetectorTimeout): 2 retries with a 500ms/1s backoff leaves ~3.5s of
+	// budget for the up-to-3 HTTP calls themselves against a flash-lite model.
+	geminiDefaultMaxRetries = 2
 )
 
 // geminiSystemPrompt is the combined injection+phishing classifier prompt used in
@@ -42,14 +49,15 @@ Do not wrap the JSON in markdown fences. Output only the JSON object.`
 
 // GeminiConfig configures the Gemini detector.
 type GeminiConfig struct {
-	// Model is the Gemini model name. Defaults to "gemini-2.5-flash".
+	// Model is the Gemini model name. When empty, NewGeminiDetector falls back to
+	// the GEMINI_EVAL_MODEL environment variable, then to geminiDefaultModel.
 	Model string
 	// APIKey is the Google AI Studio key. When empty, NewGeminiDetector falls back
 	// to the GEMINI_API_KEY and GOOGLE_API_KEY environment variables. Never log or
 	// include this value in error messages.
 	APIKey string
 	// MaxRetries is the number of retries on transient API errors (429, 5xx).
-	// Default 3.
+	// Default geminiDefaultMaxRetries.
 	MaxRetries int
 	// HTTPClient allows injecting a custom *http.Client (e.g. for tests). When nil
 	// a default client with a 30 s timeout is used.
@@ -76,23 +84,14 @@ type GeminiDetector struct {
 // API key is available (cfg.APIKey empty and neither GEMINI_API_KEY nor
 // GOOGLE_API_KEY is set in the environment).
 func NewGeminiDetector(cfg GeminiConfig) (*GeminiDetector, error) {
-	key := cfg.APIKey
-	if key == "" {
-		key = os.Getenv("GEMINI_API_KEY")
-	}
-	if key == "" {
-		key = os.Getenv("GOOGLE_API_KEY")
-	}
+	key := firstNonEmpty(cfg.APIKey, os.Getenv("GEMINI_API_KEY"), os.Getenv("GOOGLE_API_KEY"))
 	if key == "" {
 		return nil, fmt.Errorf("piguard/gemini: no API key (set GEMINI_API_KEY or GOOGLE_API_KEY)")
 	}
-	model := cfg.Model
-	if model == "" {
-		model = geminiDefaultModel
-	}
+	model := firstNonEmpty(cfg.Model, os.Getenv("GEMINI_EVAL_MODEL"), geminiDefaultModel)
 	maxRetries := cfg.MaxRetries
 	if maxRetries <= 0 {
-		maxRetries = 3
+		maxRetries = geminiDefaultMaxRetries
 	}
 	hc := cfg.HTTPClient
 	if hc == nil {
@@ -101,8 +100,21 @@ func NewGeminiDetector(cfg GeminiConfig) (*GeminiDetector, error) {
 	return &GeminiDetector{model: model, apiKey: key, maxRetries: maxRetries, client: hc}, nil
 }
 
+// firstNonEmpty returns the first non-empty string, or "" if all are empty.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // Name implements Detector.
 func (g *GeminiDetector) Name() string { return "gemini" }
+
+// Model returns the configured Gemini model name, e.g. for startup logging.
+func (g *GeminiDetector) Model() string { return g.model }
 
 // Inspect implements Detector. It concatenates the email's extracted segments,
 // sends them to Gemini, and maps injection_confidence to the primary piguard score.
@@ -150,7 +162,16 @@ func (g *GeminiDetector) Inspect(ctx context.Context, req Request) (*Result, err
 }
 
 // formatEmail assembles the email text from piguard segments, mirroring the Python
-// eval's parts_for + _USER_TMPL format. Caps the combined body at geminiMaxBodyChars.
+// eval's parts_for + _USER_TMPL format. Caps the combined body at geminiMaxBodyChars
+// (rune-safe: never splits inside a multi-byte UTF-8 sequence).
+//
+// Text-only: this sends only Segment.Content (extracted text). Even though the
+// configured model is multimodal, no image bytes are ever attached — Segment
+// carries Content string only and Extract never emits raw image bytes
+// (SegmentImageOCR is reserved but unused in v1), so an injection/phishing lure
+// hidden purely in image content is not seen by this detector. Passing image
+// bytes would require extending Request/Segment to carry []byte + mimeType and
+// building inlineData/fileData parts here; tracked as a follow-up, not done here.
 func (g *GeminiDetector) formatEmail(req Request) string {
 	var subject string
 	var bodyParts []string
@@ -162,53 +183,58 @@ func (g *GeminiDetector) formatEmail(req Request) string {
 		}
 	}
 	body := strings.Join(bodyParts, "\n\n")
-	if len(body) > geminiMaxBodyChars {
-		body = body[:geminiMaxBodyChars]
-	}
+	body = geminiTruncateRunes(body, geminiMaxBodyChars)
 	return fmt.Sprintf("Subject: %s\nFrom: %s\n\n%s", subject, req.Sender, body)
 }
 
-// generate calls the Gemini REST API with exponential backoff on transient errors.
-// It sends the model-appropriate thinking config first (thinkingBudget=0 for Gemini
-// 2.x, thinkingLevel="low" for Gemini 3.x). If the model rejects the thinking
-// config with HTTP 400, it retries once without any thinking config.
-func (g *GeminiDetector) generate(ctx context.Context, emailText string) (string, error) {
-	disableThinking := true
+// geminiTruncateRunes truncates s to at most n runes (not bytes), so a multi-byte
+// UTF-8 character is never split into an invalid trailing sequence.
+func geminiTruncateRunes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	count := 0
+	for i := range s {
+		if count == n {
+			return s[:i]
+		}
+		count++
+	}
+	return s
+}
 
-	// Initial attempt.
-	text, err, budgetRejected := g.callOnce(ctx, emailText, disableThinking)
+// generate calls the Gemini REST API with exponential backoff on transient errors.
+// It always sends the model-appropriate minimise-thinking config (thinkingBudget=0
+// for Gemini 2.x, thinkingLevel="low" for Gemini 3.x — see thinkingCfgFor). If the
+// model rejects that config with HTTP 400, that is treated as a terminal
+// configuration error, NOT retried with thinking silently re-enabled: minimising
+// thinking is a cost/latency requirement here, not best-effort, so a model that
+// can't honor it should surface as StatusError (excluded from the aggregate,
+// heuristics carries) rather than making an uncontrolled-cost call.
+func (g *GeminiDetector) generate(ctx context.Context, emailText string) (string, error) {
+	text, err, configRejected := g.callOnce(ctx, emailText)
 	if err == nil {
 		return text, nil
 	}
-	if budgetRejected {
-		// Model doesn't support thinking_budget=0; switch off and retry immediately.
-		disableThinking = false
-		text, err, _ = g.callOnce(ctx, emailText, disableThinking)
-		if err == nil {
-			return text, nil
-		}
-	}
-	if !geminiIsTransient(err) {
+	if configRejected || !geminiIsTransient(err) {
 		return "", err
 	}
 
-	// Exponential backoff for transient errors (429 / 5xx).
+	// Exponential backoff for transient errors (429 / 5xx). Sized to fit inside the
+	// Engine's default per-detector timeout — see geminiDefaultMaxRetries.
 	var lastErr error = err
 	for attempt := 1; attempt <= g.maxRetries; attempt++ {
-		delay := time.Duration(1<<uint(attempt-1)) * time.Second
-		if delay > 8*time.Second {
-			delay = 8 * time.Second
-		}
+		delay := time.Duration(500*attempt) * time.Millisecond
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
 		case <-time.After(delay):
 		}
-		text, err, _ = g.callOnce(ctx, emailText, disableThinking)
+		text, err, configRejected = g.callOnce(ctx, emailText)
 		if err == nil {
 			return text, nil
 		}
-		if !geminiIsTransient(err) {
+		if configRejected || !geminiIsTransient(err) {
 			return "", err
 		}
 		lastErr = err
@@ -216,11 +242,12 @@ func (g *GeminiDetector) generate(ctx context.Context, emailText string) (string
 	return "", lastErr
 }
 
-// callOnce makes one HTTP POST to the Gemini generateContent endpoint.
-// The third return value signals "retry without thinking config" when the model
-// rejects thinking_budget=0 (HTTP 400 + budget/thinking in body).
-func (g *GeminiDetector) callOnce(ctx context.Context, emailText string, disableThinking bool) (string, error, bool) {
-	payload := geminiMakeRequest(emailText, g.model, disableThinking)
+// callOnce makes one HTTP POST to the Gemini generateContent endpoint, always with
+// the model's minimise-thinking config applied. The third return value reports
+// whether the model rejected that config (HTTP 400 + budget/thinking/level in the
+// error body) — a terminal condition, not a transient one.
+func (g *GeminiDetector) callOnce(ctx context.Context, emailText string) (string, error, bool) {
+	payload := geminiMakeRequest(emailText, g.model)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", err, false
@@ -264,12 +291,12 @@ func (g *GeminiDetector) callOnce(ctx context.Context, emailText string, disable
 		return gr.Candidates[0].Content.Parts[0].Text, nil, false
 	}
 
-	// HTTP 400 from a rejected thinking config (thinkingBudget on 3.x, or
-	// thinkingLevel on 2.x). Retry with no thinking config at all.
-	if resp.StatusCode == http.StatusBadRequest && disableThinking {
-		s := string(respBody)
-		if strings.Contains(s, "budget") || strings.Contains(s, "hinking") || strings.Contains(s, "level") {
-			return "", fmt.Errorf("thinking config rejected"), true
+	// HTTP 400 from a rejected minimise-thinking config (thinkingBudget on 2.x, or
+	// thinkingLevel on 3.x). Terminal, not retried — see generate's doc comment.
+	if resp.StatusCode == http.StatusBadRequest {
+		low := strings.ToLower(string(respBody))
+		if strings.Contains(low, "budget") || strings.Contains(low, "thinking") || strings.Contains(low, "level") {
+			return "", fmt.Errorf("piguard/gemini: model %q rejected thinking config", g.model), true
 		}
 	}
 
@@ -284,7 +311,7 @@ func (g *GeminiDetector) callOnce(ctx context.Context, emailText string, disable
 // — REST request/response types —
 
 type geminiAPIReq struct {
-	SystemInstruction *geminiContent `json:"systemInstruction,omitempty"`
+	SystemInstruction *geminiContent  `json:"systemInstruction,omitempty"`
 	Contents          []geminiContent `json:"contents"`
 	GenerationConfig  geminiGenCfg    `json:"generationConfig"`
 }
@@ -353,11 +380,7 @@ func thinkingCfgFor(model string) *geminiThinkCfg {
 	return &geminiThinkCfg{ThinkingBudget: &zero}
 }
 
-func geminiMakeRequest(emailText, model string, disableThinking bool) geminiAPIReq {
-	var thinkCfg *geminiThinkCfg
-	if disableThinking {
-		thinkCfg = thinkingCfgFor(model)
-	}
+func geminiMakeRequest(emailText, model string) geminiAPIReq {
 	return geminiAPIReq{
 		SystemInstruction: &geminiContent{
 			Parts: []geminiPart{{Text: geminiSystemPrompt}},
@@ -368,7 +391,7 @@ func geminiMakeRequest(emailText, model string, disableThinking bool) geminiAPIR
 		GenerationConfig: geminiGenCfg{
 			Temperature:     0,
 			MaxOutputTokens: geminiMaxOutputTokens,
-			ThinkingConfig:  thinkCfg,
+			ThinkingConfig:  thinkingCfgFor(model),
 		},
 	}
 }
@@ -399,6 +422,14 @@ func parseGeminiVerdict(raw string) (geminiVerdictJSON, error) {
 // probability. Some Gemini models treat *_confidence as confidence in the boolean
 // verdict rather than P(threat): a false verdict with 0.95 confidence should
 // yield 0.05, not 0.95.
+//
+// Score-scale note: this returns a calibrated probability (AUC 0.97-0.99 in the
+// e2a eval, see docs/design/2026-06-20-agent-screening-hitl.md), while the
+// heuristics detector returns a weighted heuristic sum. Engine.aggregate averages
+// both on one 0..1 scale against thresholds tuned for heuristics — that eval
+// operating point does not automatically carry over to the combined aggregate.
+// A calibration pass, or expressing "prefer the LLM" via EngineConfig.Weights
+// rather than assuming a shared scale, is a tracked follow-up.
 func geminiScoreFromFlagConf(flagged bool, confidence float64) float64 {
 	confidence = geminiClamp01(confidence)
 	if flagged {

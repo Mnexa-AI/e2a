@@ -122,16 +122,26 @@ func NewServer(cfg *config.Config, store *identity.Store, signer *headers.Signer
 	return s
 }
 
-// buildScreenEngine constructs the piguard screening engine. The heuristics
-// detector is always included. The Gemini detector is added when GEMINI_API_KEY
-// or GOOGLE_API_KEY is set in the environment.
+// geminiDetectorTimeout is the per-detector timeout used when the Gemini detector
+// is wired in, wider than the Engine's default (5s) so the retry/backoff schedule
+// in piguard/gemini.go (up to geminiDefaultMaxRetries retries) has room to run
+// instead of being cut off by the engine before it can fire.
+const geminiDetectorTimeout = 10 * time.Second
+
+// buildScreenEngine constructs the piguard screening engine for inbound mail. The
+// heuristics detector is always included. The Gemini detector is added when
+// GEMINI_API_KEY or GOOGLE_API_KEY is set in the environment; its prompt only
+// classifies inbound content, so this engine (inbound-only, unlike
+// buildAgentScreenEngine in internal/agent/api.go) is where it belongs.
 func buildScreenEngine() *piguard.Engine {
 	detectors := []piguard.Detector{piguard.NewHeuristicsDetector()}
+	cfg := piguard.EngineConfig{}
 	if d, err := piguard.NewGeminiDetector(piguard.GeminiConfig{}); err == nil {
 		detectors = append(detectors, d)
-		log.Printf("[piguard] Gemini detector enabled (model: gemini-2.5-flash)")
+		cfg.Timeout = geminiDetectorTimeout
+		log.Printf("[piguard] Gemini detector enabled (model: %s)", d.Model())
 	}
-	return piguard.NewEngine(piguard.EngineConfig{}, detectors...)
+	return piguard.NewEngine(cfg, detectors...)
 }
 
 func (s *Server) ListenAndServe() error {
