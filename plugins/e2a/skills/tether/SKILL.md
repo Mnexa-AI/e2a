@@ -14,6 +14,13 @@ timer, not every turn), and checks your inbox on an interval so your replies —
 questions or new instructions — are picked up within a few minutes. Reply
 `stop` to end.
 
+> **Transport primer.** tether rides on e2a. The e2a *operate-well manual* —
+> the `e2a` skill (`${CLAUDE_PLUGIN_ROOT}/skills/e2a/SKILL.md`) — carries the
+> mental model this skill assumes: how threading really works (reply headers +
+> stable subject, **not** `conversation_id`), when a shared `agents.e2a.dev`
+> address is all you need vs. a custom domain, and the `pending_review`/HITL
+> gotcha. Read it if you're new to e2a; tether does not re-explain those.
+
 ## Architecture (why this shape)
 
 Coding agents are turn-based; nothing native listens to an inbox mid-session. So
@@ -46,7 +53,10 @@ inbox — least privilege, so a leaked key can't touch the rest of the account.
 
 1. **Get an agent-scoped API key from the e2a website:**
    **https://e2a.dev/api-keys** — create or pick an agent and generate a key
-   scoped to it. Note the agent's email address too.
+   scoped to it. Note the agent's email address too. If you don't already own a
+   domain, create the agent on the **shared `agents.e2a.dev`** domain (the
+   default — `name@agents.e2a.dev`, live immediately, no DNS). A custom domain is
+   only worth the setup if you own one and want branded addresses.
 2. **Save the credentials:**
    ```bash
    cp "${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.env.example" ~/.e2a-tether.env
@@ -66,10 +76,34 @@ A smoother CLI path is coming.)
 > is held as an approval email instead of reaching you. `tether.sh` warns on
 > stderr if it sees `pending_review`.
 
+## First run (new user) — set them up, then tether
+
+Before tethering, confirm the harness can actually send. Run `"$T" status`
+(where `T` is defined below). If it reports **`config: MISSING`**, this is a
+first-time user — **help them get to a working setup instead of just failing**:
+
+1. **Is e2a connected at all?** If they've never used e2a, get them connected
+   first: open **https://e2a.dev** to sign up, and complete the plugin's MCP
+   OAuth (`/plugin` in Claude Code). If the e2a MCP tools (`mcp__e2a__*`) are
+   available, you can then create their first inbox directly with `create_agent`
+   on the shared `agents.e2a.dev` domain — no domain, no DNS. Interactive
+   sign-in/OAuth is theirs to complete: hand them the step, don't drive it.
+2. **Mint the tether key.** tether's poller is a plain-`curl` script, so it needs
+   an **agent-scoped API key** (`e2a_agt_…`), which the MCP OAuth session doesn't
+   provide. Send them to **https://e2a.dev/api-keys** to generate a key scoped to
+   that agent, then save it per **Setup** above (`~/.e2a-tether.env`).
+3. **Re-check.** `"$T" status` should now print `config: OK (agent …)`. Proceed
+   to the runtime flow.
+
+If `status` already prints `config: OK`, skip this — they're a returning user.
+Don't put a configured user through onboarding.
+
 ## Runtime flow (what the agent does when `/tether` is invoked)
 
 Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
 
+0. **Preflight.** Run `"$T" status`. If `config: MISSING`, do **First run (new
+   user)** above before continuing — don't call `start` and let it error out.
 1. **Ask** the user's email address **and how long to stay tethered** (e.g. 30m,
    2h, 8h/overnight, or until they say stop). They're present at this step, so a
    normal question is fine.
@@ -125,7 +159,14 @@ Write for that medium, not for a CLI.
 - **Acknowledge fast.** When a reply comes in, a quick "on it — doing X" beats
   silence; there's inherent email latency, so don't leave the user wondering if
   you heard them.
-- Everything stays in one thread automatically (updates reply into it).
+- **Keep it in one thread — always `update`, never a fresh send.** `tether.sh`
+  threads by *replying* (In-Reply-To/References + a stable subject), which is what
+  Gmail/Outlook actually stitch on. e2a threads on `conversation_id`, but Gmail
+  ignores that — so a fresh send in the same e2a conversation still lands as a
+  *second* thread in the user's inbox (the split Gmail showed). While tethered,
+  send every update through `"$T" update` (it replies into the thread); do **not**
+  reach for the e2a MCP `send_message` or start a new subject to reach the user
+  mid-session. One session = one thread = one subject.
 
 ## Poll interval & knobs
 

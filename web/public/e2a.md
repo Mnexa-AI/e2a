@@ -102,7 +102,12 @@ current signatures and treat that as the source of truth. The surface, by area:
 - **You are the agent; the inbox is yours.** Don't model a separate "user
   mailbox."
 - **Threading.** Answer with `reply_to_message` (not a fresh `send`) to stay in
-  the same conversation — e2a carries `conversation_id` across turns.
+  the same conversation. e2a threads on `conversation_id`, but the recipient's
+  mail client (Gmail/Outlook) ignores that and threads on the reply's
+  `In-Reply-To`/`References` headers plus a stable subject — which
+  `reply_to_message` sets. So a fresh `send` (even with the same
+  `conversation_id`, or a changed subject) stays in the same e2a conversation but
+  shows up as a separate thread in the user's inbox.
 - **HITL.** A send may come back `pending_review` instead of `sent`. That's the
   human-approval gate, not an error; it resolves when a human approves/rejects
   (or the review TTL expires).
