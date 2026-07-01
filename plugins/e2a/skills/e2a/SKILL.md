@@ -1,12 +1,12 @@
 ---
 name: e2a
 description: Use when operating e2a (email for AI agents) over its MCP tools — sending or receiving email, replying in-thread, handling the human-in-the-loop review hold (pending_review), managing agents and custom domains, or working with attachments — OR when integrating e2a into your own software/service (the developer email-API use case: API keys, SDKs, webhooks). With e2a YOU are the agent and the inbox IS the agent (not a human reading their mail). Covers send_message vs reply_to_message threading, multi-agent disambiguation, the custom-domain DNS flow, the protection (screening + review) config, programmatic integration, and common gotchas.
-version: 12
+version: 13
 ---
 
 # Using e2a
 
-<!-- version: 12 -->
+<!-- version: 13 -->
 
 e2a is an authenticated email gateway for AI agents. It gives an agent a real email address (`agent@agents.e2a.dev` or `agent@your-domain.com`), verifies sender identity (SPF/DKIM), threads conversations, and optionally holds outbound mail for human review.
 
@@ -23,21 +23,35 @@ The mental model below holds regardless of surface. Tool descriptions teach the 
 
 ## The mental model
 
-Six load-bearing facts. Internalize these before you start calling tools.
+Seven load-bearing facts. Internalize these before you start calling tools.
 
 1. **An agent is an email address.** `support-bot@agents.e2a.dev` is an agent. When you send mail, the recipient sees a message FROM that address — not from "the user." When you list messages, you are reading the agent's own inbox, not the user's personal mail. You are not a secretary; you are the mailbox owner.
 
 2. **Replies preserve threads; new sends do not.** `reply_to_message` carries the `In-Reply-To` and `References` headers from the original message, so the response lands in the same email thread. A fresh `send_message` creates a new thread every time. If a user (or an inbound message) is asking you to respond to something specific, reply with the original `message_id` — even when you could synthesize an equivalent body as a new send. Thread fragmentation is the #1 visible symptom of getting this wrong.
 
+   **Two threading systems, and they don't share a key.** e2a threads on `conversation_id` (it's what `list_conversations`/`get_conversation` group by). The recipient's mail client — Gmail, Outlook, Apple Mail — ignores `conversation_id` entirely and threads on the wire headers instead: `In-Reply-To`/`References` plus a **stable `Subject`**. `reply_to_message` sets those headers correctly, so it threads in *both* systems. A `send_message` — even one you tag with the same `conversation_id` — carries no `References` and lets you pick a new subject: e2a still files it in the same conversation, but the user's inbox shows a *separate* thread. This is the trap — the `conversation_id` looks like it threads because e2a's own views stay tidy, while Gmail splits the exchange in two. Within one ongoing exchange: reply, and keep the subject stable.
+
 3. **`pending_review` is success, not failure.** When the agent's protection config holds outbound mail, a send returns `{ status: "pending_review", message_id: "msg_..." }`. The message was accepted by the server and is being held for a human to review. Do NOT retry. Do NOT report this as an error to the user. Tell them the draft was queued for review, and (if asked) check on it via the pending tools.
 
 4. **Multi-agent accounts need `agent_email` per call.** If the account owns exactly one agent (the common case), tools auto-resolve to it — `whoami` is the cheapest way to confirm. If the account owns more than one, you'll get "agentEmail required." The fix is to enumerate once (`list_agents`), then pass `agent_email` explicitly to subsequent calls. Don't guess; don't pick at random; don't ask the user to pick if context already makes the choice obvious (e.g. they said "my support inbox").
 
-5. **Custom domains are a two-step async dance.** `register_domain` returns DNS records (MX + TXT) to publish — it does NOT make the domain live. The user (or a DNS-provider MCP, if one is loaded) must add those records out-of-band, wait for DNS propagation (minutes to hours), then `verify_domain`. Verification is idempotent and safe to retry. Until verification succeeds, the domain cannot send or receive mail. Don't promise the user their domain works the moment registration returns.
+5. **Most users don't need a custom domain — default to the shared one.** Every account can create agents on the shared `agents.e2a.dev` domain with zero DNS setup: `create_agent` with just a local part (e.g. `support-bot`) yields `support-bot@agents.e2a.dev`, live immediately. This is the right default for onboarding and for anyone who doesn't already **own** a domain. Only reach for a custom domain when the user explicitly owns a domain and wants branded addresses — if they don't own one, stay on `agents.e2a.dev` and skip the domain flow entirely. Don't send a user who just wants to get started down the DNS dance.
 
-6. **HITL lives in the protection config.** A new agent has no review hold by default. To turn one on, set the agent's protection posture (see below).
+6. **Custom domains are a two-step async dance.** `register_domain` returns DNS records (MX + TXT) to publish — it does NOT make the domain live. The user (or a DNS-provider MCP, if one is loaded) must add those records out-of-band, wait for DNS propagation (minutes to hours), then `verify_domain`. Verification is idempotent and safe to retry. Until verification succeeds, the domain cannot send or receive mail. Don't promise the user their domain works the moment registration returns.
+
+7. **HITL lives in the protection config.** A new agent has no review hold by default. To turn one on, set the agent's protection posture (see below).
 
 ## Common workflows
+
+### First run: onboard a new user before anything else
+
+Before driving any e2a task or harness, check whether this is a **new/unconfigured user** and, if so, get them to a working setup instead of failing partway. One cheap probe answers it: call `whoami`.
+
+- **`whoami` errors with auth/connection failure** → not connected over MCP yet. Point the user at connecting the e2a plugin and completing OAuth: open **https://e2a.dev/e2a.md** (the connect guide) and, in Claude Code, run `/plugin` to authenticate. Interactive auth is theirs to complete — hand them the step, don't try to drive it. Once connected, continue.
+- **`whoami` succeeds but the account has no agent** (or `list_agents` is empty) → connected, but no inbox exists. Create their first one on the shared domain with `create_agent` (local part only → `name@agents.e2a.dev`, live immediately — see mental-model fact #5). No custom domain, no DNS.
+- **`whoami` returns an agent** → already set up; proceed straight to the task.
+
+The through-line: for a first-time user, **help them stand up a functional e2a setup first** (connect → create a shared-domain inbox), then run the harness — rather than assuming credentials and erroring. Default new inboxes to `agents.e2a.dev`; only involve a custom domain if the user owns one and asks for it.
 
 ### Triage the inbox
 
@@ -80,6 +94,8 @@ Posture lives on the protection sub-resource — `update_protection` (MCP) / `PU
 - Read the current posture with `get_protection`. Both are account-scope only. Confirm the exact shape with `tools/list` / the OpenAPI contract — the protection config is beta and may change.
 
 ### Add a custom domain (e.g. `mail.acme.com`)
+
+**First: does the user actually own this domain?** If they just want to get started and don't own a domain, skip this entirely — create the agent on the shared `agents.e2a.dev` (mental-model fact #5), which is live with no DNS. Only run the flow below when the user owns the domain and wants branded addresses.
 
 1. `register_domain` with the FQDN — returns MX + TXT records and an unverified domain row.
 2. Hand the records to the user (or to a DNS-provider MCP — Cloudflare, Route 53, etc. — if one is loaded; call its `create_dns_record`-style tool with the returned values).
