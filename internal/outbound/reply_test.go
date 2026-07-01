@@ -266,3 +266,54 @@ func TestBuildReferencesChain_MultiPartyThreadFork(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+func TestReplyRecipientsForOutbound_Reply(t *testing.T) {
+	// Plain reply to your own sent message: To = original To, no Cc carried.
+	rr := ReplyRecipientsForOutbound(
+		[]string{"bob@x.com", "carol@x.com"},
+		[]string{"dave@x.com"},
+		nil, false,
+	)
+	if !reflect.DeepEqual(rr.To, []string{"bob@x.com", "carol@x.com"}) {
+		t.Errorf("To = %v, want original To", rr.To)
+	}
+	if len(rr.CC) != 0 {
+		t.Errorf("CC = %v, want empty on non-reply_all", rr.CC)
+	}
+}
+
+func TestReplyRecipientsForOutbound_ReplyAll(t *testing.T) {
+	// reply_all adds the original Cc; extraCC is merged and lowercased.
+	rr := ReplyRecipientsForOutbound(
+		[]string{"bob@x.com"},
+		[]string{"dave@x.com"},
+		[]string{"  Eve@X.com  "},
+		true,
+	)
+	if !reflect.DeepEqual(rr.To, []string{"bob@x.com"}) {
+		t.Errorf("To = %v, want [bob@x.com]", rr.To)
+	}
+	if !reflect.DeepEqual(rr.CC, []string{"dave@x.com", "eve@x.com"}) {
+		t.Errorf("CC = %v, want [dave@x.com eve@x.com]", rr.CC)
+	}
+}
+
+func TestReplyRecipientsForOutbound_EmptyTo(t *testing.T) {
+	// No recorded recipients: To is empty so the handler can fail closed
+	// rather than address the agent itself.
+	rr := ReplyRecipientsForOutbound(nil, nil, nil, false)
+	if len(rr.To) != 0 {
+		t.Errorf("To = %v, want empty", rr.To)
+	}
+}
+
+func TestReplyRecipientsForOutbound_DoesNotMutateInputs(t *testing.T) {
+	origTo := []string{"bob@x.com"}
+	origCC := []string{"dave@x.com"}
+	rr := ReplyRecipientsForOutbound(origTo, origCC, []string{"eve@x.com"}, true)
+	rr.To = append(rr.To, "mutated@x.com")
+	rr.CC = append(rr.CC, "mutated@x.com")
+	if len(origTo) != 1 || len(origCC) != 1 {
+		t.Errorf("inputs mutated: origTo=%v origCC=%v", origTo, origCC)
+	}
+}

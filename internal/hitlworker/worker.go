@@ -265,20 +265,21 @@ func (w *Worker) autoReject(ctx context.Context, messageID, reason string) {
 }
 
 // attachReferencesChain rebuilds the References chain on a HITL-approved
-// SendRequest by looking up the parent inbound's raw message via
-// email_message_id. Duplicates the equivalent helper in internal/agent
-// for the same reason sendRequestFromStoredMessage does — keep this
-// low-level package free of upward imports. See that helper's docstring
-// for the full rationale.
+// SendRequest by looking up the parent message's raw message via
+// email_message_id. The lookup is direction-agnostic: a held reply's parent
+// may be an outbound the agent sent (reply-to-own-message), not only a
+// received inbound. Duplicates the equivalent helper in internal/agent for the
+// same reason sendRequestFromStoredMessage does — keep this low-level package
+// free of upward imports. See that helper's docstring for the full rationale.
 func (w *Worker) attachReferencesChain(ctx context.Context, agentID string, req *outbound.SendRequest) {
 	if req.ReplyToMessageID == "" {
 		return
 	}
-	inbound, err := w.store.GetInboundByEmailMessageID(ctx, agentID, req.ReplyToMessageID)
-	if err != nil || inbound == nil {
+	parent, err := w.store.GetMessageByEmailMessageID(ctx, agentID, req.ReplyToMessageID)
+	if err != nil || parent == nil {
 		return
 	}
-	req.References = outbound.BuildReferencesChain(inbound.RawMessage, req.ReplyToMessageID)
+	req.References = outbound.BuildReferencesChain(parent.RawMessage, req.ReplyToMessageID)
 }
 
 // sendRequestFromStoredMessage reconstructs a SendRequest from a locked

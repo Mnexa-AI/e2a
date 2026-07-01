@@ -128,7 +128,7 @@ func BuildDeps(p Params) httpapi.Deps {
 		ListReviews:          p.Store.ListReviews,
 		GetReviewWithContent: p.Store.GetReviewWithContent,
 		EnforceMessageSend:   p.Enforcer.CheckMessageSend,
-		GetInboundMessage:    p.Store.GetInboundMessage,
+		GetRepliableMessage:  p.Store.GetRepliableMessage,
 		GetLimits:            p.Enforcer.Get,
 		ExportUserData:       p.API.ExportUserDataCore,
 		DeleteUserData:       p.API.DeleteUserDataCore,

@@ -81,12 +81,12 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
   server.registerTool(
     "reply_to_message",
     {
-      title: "Reply to a received message",
+      title: "Reply to a message",
       annotations: { destructiveHint: false },
       description:
-        "Use whenever you're responding to a message you can see in the inbox — preserves the In-Reply-To and References headers so the reply joins the original email thread instead of starting a new one. Prefer this over `send_message` for any response to an inbound; thread fragmentation (broken conversation view in the recipient's mail client) is the most visible symptom of using `send_message` by mistake. Pass `reply_all: true` to copy the original Cc list; subject is auto-derived as `Re: …` by the server. Same review caveat as `send_message`: a `pending_review` status is success, not failure.",
+        "Use whenever you're responding to a message you can see — preserves the In-Reply-To and References headers so the reply joins the original email thread instead of starting a new one. Works on both a message the agent RECEIVED (replies to its sender) and a message the agent SENT (continues the thread to its original recipients, i.e. a Gmail-style follow-up on your own message). Prefer this over `send_message` for any in-thread response; thread fragmentation (broken conversation view in the recipient's mail client) is the most visible symptom of using `send_message` by mistake. Pass `reply_all: true` to copy the original Cc list; subject is auto-derived as `Re: …` by the server. Same review caveat as `send_message`: a `pending_review` status is success, not failure.",
       inputSchema: strictInputSchema({
-        message_id: z.string().describe("ID of the inbound message to reply to (e.g. msg_…)."),
+        message_id: z.string().describe("ID of the message to reply to — inbound or one the agent sent (e.g. msg_…)."),
         body: z.string().describe("Plain-text reply body."),
         html_body: z.string().optional(),
         reply_all: z
@@ -136,12 +136,12 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
   server.registerTool(
     "forward_message",
     {
-      title: "Forward an inbound message",
+      title: "Forward a message",
       annotations: { destructiveHint: false },
       description:
-        "Forward a message the agent has received to one or more new recipients. The server auto-prepends a Gmail-style header block (From/Date/Subject/To/Cc) and the original body to whatever optional comment you pass in `body`/`html_body`, **and carries over the original message's attachments by default** — you do NOT need to re-fetch them via `get_attachment`. Anything you pass in `attachments[]` is added on top of the originals. **Unlike `reply_to_message`, a forward is a NEW thread** — no In-Reply-To / References headers are emitted, so the recipient sees a fresh conversation. Use this when the user asks to share a received email with someone else; use `reply_to_message` when continuing the existing conversation. Same review behavior as send/reply: `pending_review` is success, not failure.",
+        "Forward a message the agent has received OR one it sent to one or more new recipients. The server auto-prepends a Gmail-style header block (From/Date/Subject/To/Cc) and the original body to whatever optional comment you pass in `body`/`html_body`, **and carries over the original message's attachments by default** — you do NOT need to re-fetch them via `get_attachment`. Anything you pass in `attachments[]` is added on top of the originals. **Unlike `reply_to_message`, a forward is a NEW thread** — no In-Reply-To / References headers are emitted, so the recipient sees a fresh conversation. Use this when the user asks to share an email with someone else; use `reply_to_message` when continuing the existing conversation. Same review behavior as send/reply: `pending_review` is success, not failure.",
       inputSchema: strictInputSchema({
-        message_id: z.string().describe("ID of the inbound message to forward (e.g. msg_…)."),
+        message_id: z.string().describe("ID of the message to forward — inbound or one the agent sent (e.g. msg_…)."),
         to: z.array(z.string()).describe("Forward target addresses (one or more)."),
         cc: z.array(z.string()).optional(),
         bcc: z.array(z.string()).optional(),

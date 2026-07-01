@@ -382,7 +382,7 @@ func testServer(t *testing.T) *httptest.Server {
 			}
 			return nil
 		},
-		GetInboundMessage: func(ctx context.Context, messageID string) (*identity.Message, error) {
+		GetRepliableMessage: func(ctx context.Context, messageID string) (*identity.Message, error) {
 			if messageID == "msg_in1" {
 				return &identity.Message{
 					ID: "msg_in1", AgentID: "support@acme.com", Sender: "alice@x.com",

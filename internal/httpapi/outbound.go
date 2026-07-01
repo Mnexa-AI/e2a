@@ -139,7 +139,7 @@ func (s *Server) registerOutbound() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "replyToMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/reply",
 		Summary: "Reply to a message", Tags: []string{"messages"},
-		Description:  "Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.",
+		Description:  "Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL.",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
 		Responses:    map[string]*huma.Response{"202": held202(), "default": s.errorEnvelopeResponse()},
@@ -148,7 +148,7 @@ func (s *Server) registerOutbound() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "forwardMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/forward",
 		Summary: "Forward a message", Tags: []string{"messages"},
-		Description:  "Forward an inbound message to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.",
+		Description:  "Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
 		Responses:    map[string]*huma.Response{"202": held202(), "default": s.errorEnvelopeResponse()},
@@ -218,9 +218,10 @@ type replyInput struct {
 	Body           ReplyRequest
 }
 
-// loadInbound resolves the owned agent + the inbound message (404 if missing
-// or not on this agent).
-func (s *Server) loadInbound(ctx context.Context, address, msgID string) (*identity.AgentIdentity, *identity.Message, *identity.User, error) {
+// loadRepliableMessage resolves the owned agent + the reply/forward target
+// message — inbound or outbound — (404 if missing, expired/held, or not on
+// this agent).
+func (s *Server) loadRepliableMessage(ctx context.Context, address, msgID string) (*identity.AgentIdentity, *identity.Message, *identity.User, error) {
 	ag, err := s.resolveOwnedAgent(ctx, address)
 	if err != nil {
 		return nil, nil, nil, err
@@ -229,18 +230,18 @@ func (s *Server) loadInbound(ctx context.Context, address, msgID string) (*ident
 	if uerr != nil {
 		return nil, nil, nil, uerr
 	}
-	if s.deps.GetInboundMessage == nil {
+	if s.deps.GetRepliableMessage == nil {
 		return nil, nil, nil, NewError(http.StatusInternalServerError, "internal_error", "outbound unavailable")
 	}
-	in, err := s.deps.GetInboundMessage(ctx, msgID)
-	if err != nil || in == nil || in.AgentID != ag.ID {
+	msg, err := s.deps.GetRepliableMessage(ctx, msgID)
+	if err != nil || msg == nil || msg.AgentID != ag.ID {
 		return nil, nil, nil, NewError(http.StatusNotFound, "not_found", "message not found")
 	}
-	return ag, in, user, nil
+	return ag, msg, user, nil
 }
 
 func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, error) {
-	ag, inbound, user, err := s.loadInbound(ctx, in.Address, in.ID)
+	ag, msg, user, err := s.loadRepliableMessage(ctx, in.Address, in.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +250,7 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 		return nil, NewError(http.StatusBadRequest, "invalid_request", "body is required")
 	}
 	// Validate only the user-supplied CC/BCC; the implicit To comes from the
-	// (already-validated) inbound message — mirrors the legacy handler.
+	// (already-validated) referenced message — mirrors the legacy handler.
 	if env := recipientCountError(b.CC, b.BCC); env != nil {
 		return nil, env
 	}
@@ -261,26 +262,33 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 	}
 	// Build the reply request via the same outbound helpers the legacy
 	// handler uses (subject normalization, recipient parsing, References).
-	subject := inbound.Subject
+	subject := msg.Subject
 	if subject != "" && !strings.HasPrefix(strings.ToLower(subject), "re: ") {
 		subject = "Re: " + subject
 	} else if subject == "" {
 		subject = "Re: your message"
 	}
-	rr, e := outbound.ParseReplyRecipients(inbound.RawMessage, b.ReplyAll, b.CC)
+	// Recipient derivation branches on direction. Replying to a message the
+	// agent RECEIVED targets its sender (Reply-To/From). Replying to a message
+	// the agent SENT continues the thread to its original recipients (To, plus
+	// Cc on reply_all) — reply-to-From would just address the agent itself.
+	// BCC is never carried in either case.
+	rr, e := s.replyRecipients(msg, b.ReplyAll, b.CC)
 	if e != nil {
-		return nil, NewError(http.StatusBadRequest, "invalid_recipient", e.Error())
+		return nil, e
 	}
-	replyTo := rr.To
-	if len(replyTo) == 0 {
-		replyTo = []string{inbound.Sender}
-	}
+	// Anchor threading on the parent's RFC Message-ID. For an inbound that's the
+	// sender's Message-ID (email_message_id); for the agent's own outbound it's
+	// the relay-assigned provider_message_id — email_message_id is empty there,
+	// so using it would drop In-Reply-To/References and fork the recipient's
+	// thread (see identity.Message.ThreadMessageID).
+	parentMessageID := msg.ThreadMessageID()
 	req := outbound.SendRequest{
-		To: replyTo, CC: rr.CC, BCC: b.BCC, Subject: subject, Body: b.Body, HTMLBody: b.HTMLBody,
-		ReplyToMessageID: inbound.EmailMessageID,
-		References:       outbound.BuildReferencesChain(inbound.RawMessage, inbound.EmailMessageID),
+		To: rr.To, CC: rr.CC, BCC: b.BCC, Subject: subject, Body: b.Body, HTMLBody: b.HTMLBody,
+		ReplyToMessageID: parentMessageID,
+		References:       outbound.BuildReferencesChain(msg.RawMessage, parentMessageID),
 		// conversation_id resolution (caller id > inherit-from-referenced > mint)
-		// is centralized in DeliverOutbound, which receives this inbound as the
+		// is centralized in DeliverOutbound, which receives this message as the
 		// referenced message — so the reply inherits its thread there (#328).
 		ConversationID: b.ConversationID, Attachments: b.Attachments,
 	}
@@ -294,7 +302,32 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 	if env := recipientCountError(req.To, req.CC, req.BCC); env != nil {
 		return nil, env
 	}
-	return s.deliver(ctx, user, ag, req, "reply", inbound.EmailMessageID, "/v1/reply/"+in.ID, in.IdempotencyKey, in.RawBody, inbound)
+	return s.deliver(ctx, user, ag, req, "reply", parentMessageID, "/v1/reply/"+in.ID, in.IdempotencyKey, in.RawBody, msg)
+}
+
+// replyRecipients resolves a reply's To/CC from the referenced message,
+// branching on direction. An inbound (received) message replies to its sender;
+// an outbound (sent) message continues the thread to its original recipients.
+// Returns a 400 envelope for an outbound target with no recorded recipients —
+// falling back to the message's Sender there would address the agent itself, so
+// we fail closed rather than emit a self-addressed reply.
+func (s *Server) replyRecipients(msg *identity.Message, replyAll bool, extraCC []string) (*outbound.ReplyRecipients, *ErrorEnvelope) {
+	if msg.Direction == "outbound" {
+		rr := outbound.ReplyRecipientsForOutbound(msg.ToRecipients, msg.CC, extraCC, replyAll)
+		if len(rr.To) == 0 {
+			return nil, NewError(http.StatusBadRequest, "invalid_recipient",
+				"cannot reply: the original message has no recorded recipients")
+		}
+		return rr, nil
+	}
+	rr, err := outbound.ParseReplyRecipients(msg.RawMessage, replyAll, extraCC)
+	if err != nil {
+		return nil, NewError(http.StatusBadRequest, "invalid_recipient", err.Error())
+	}
+	if len(rr.To) == 0 {
+		rr.To = []string{msg.Sender}
+	}
+	return rr, nil
 }
 
 // ForwardRequest mirrors the legacy forward body.
@@ -317,7 +350,7 @@ type forwardInput struct {
 }
 
 func (s *Server) handleForward(ctx context.Context, in *forwardInput) (*sendOutput, error) {
-	ag, inbound, user, err := s.loadInbound(ctx, in.Address, in.ID)
+	ag, msg, user, err := s.loadRepliableMessage(ctx, in.Address, in.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -334,8 +367,8 @@ func (s *Server) handleForward(ctx context.Context, in *forwardInput) (*sendOutp
 	if e := validateConversationID(b.ConversationID); e != nil {
 		return nil, NewError(http.StatusBadRequest, "invalid_request", e.Error())
 	}
-	subject := outbound.BuildForwardSubject(inbound.Subject)
-	fwdCtx := outbound.ExtractForwardContext(inbound.RawMessage)
+	subject := outbound.BuildForwardSubject(msg.Subject)
+	fwdCtx := outbound.ExtractForwardContext(msg.RawMessage)
 	composedBody := outbound.BuildForwardBody(b.Body, fwdCtx)
 	var composedHTML string
 	if b.HTMLBody != "" || fwdCtx.HTML != "" || fwdCtx.Text != "" {
@@ -345,7 +378,7 @@ func (s *Server) handleForward(ctx context.Context, in *forwardInput) (*sendOutp
 	// forward should ship the original files the way mail clients do, without
 	// the caller re-fetching and re-encoding each one. Caller-supplied
 	// attachments are additive on top of the originals.
-	attachments := outbound.ForwardAttachments(inbound.RawMessage)
+	attachments := outbound.ForwardAttachments(msg.RawMessage)
 	attachments = append(attachments, b.Attachments...)
 	req := outbound.SendRequest{
 		To: b.To, CC: b.CC, BCC: b.BCC, Subject: subject, Body: composedBody, HTMLBody: composedHTML,
@@ -353,7 +386,7 @@ func (s *Server) handleForward(ctx context.Context, in *forwardInput) (*sendOutp
 	}
 	req.CC = agent.StripAgentSelfAliases(req.CC, ag.EmailAddress())
 	req.BCC = agent.StripAgentSelfAliases(req.BCC, ag.EmailAddress())
-	return s.deliver(ctx, user, ag, req, "forward", inbound.EmailMessageID, "/v1/forward/"+in.ID, in.IdempotencyKey, in.RawBody, inbound)
+	return s.deliver(ctx, user, ag, req, "forward", msg.ThreadMessageID(), "/v1/forward/"+in.ID, in.IdempotencyKey, in.RawBody, msg)
 }
 
 // validateOutboundBody runs the shared pre-send validation.

@@ -153,22 +153,24 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 // case we silently fall back to legacy single-id behavior — better
 // than refusing the send. Callers must keep ReplyToMessageID populated
 // regardless; only References is filled in here.
-func attachReferencesChain(ctx context.Context, store hitlInboundLookup, agentID string, req *outbound.SendRequest) {
+func attachReferencesChain(ctx context.Context, store hitlParentLookup, agentID string, req *outbound.SendRequest) {
 	if req.ReplyToMessageID == "" {
 		return
 	}
-	inbound, err := store.GetInboundByEmailMessageID(ctx, agentID, req.ReplyToMessageID)
-	if err != nil || inbound == nil {
+	// Direction-agnostic: a held reply's parent may be an outbound the agent
+	// sent (reply-to-own-message), not only a received inbound.
+	parent, err := store.GetMessageByEmailMessageID(ctx, agentID, req.ReplyToMessageID)
+	if err != nil || parent == nil {
 		return
 	}
-	req.References = outbound.BuildReferencesChain(inbound.RawMessage, req.ReplyToMessageID)
+	req.References = outbound.BuildReferencesChain(parent.RawMessage, req.ReplyToMessageID)
 }
 
-// hitlInboundLookup is the narrow store contract attachReferencesChain
+// hitlParentLookup is the narrow store contract attachReferencesChain
 // needs. Defined as an interface so tests can stub it without spinning
 // up the full identity store.
-type hitlInboundLookup interface {
-	GetInboundByEmailMessageID(ctx context.Context, agentID, emailMessageID string) (*identity.Message, error)
+type hitlParentLookup interface {
+	GetMessageByEmailMessageID(ctx context.Context, agentID, emailMessageID string) (*identity.Message, error)
 }
 
 // buildSendRequestFromMessage reconstructs a SendRequest from a stored
