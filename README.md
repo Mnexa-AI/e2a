@@ -23,6 +23,9 @@ Receive inbound over **webhook · WebSocket · REST · MCP**. Send through an **
 
 ---
 
+> [!IMPORTANT]
+> **e2a v1.0 reaches GA in mid-July 2026.** The `/v1` API and SDKs are in release-candidate shape today — any breaking changes land *before* GA, after which the interface is stable. Pin your SDK versions and watch [Releases](https://github.com/Mnexa-AI/e2a/releases).
+
 e2a is an **authenticated email gateway for AI agents**. It receives inbound mail, verifies the sender (SPF/DKIM), and delivers it to your agent as structured data with HMAC-signed `X-E2A-Auth-*` headers — over whichever channel fits your runtime. Outbound goes back out through an HTTP API, with an optional human-in-the-loop approval gate.
 
 **Four ways to plug an agent in:**
