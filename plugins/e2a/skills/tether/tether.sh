@@ -139,8 +139,12 @@ question or instruction; reply \"stop\" to end early.
       if t_ask_active; then
         s="$interval"; [ "$rem" -lt "$s" ] && s="$rem"; sleep "$s"; continue
       fi
-      out="$(t_poll_once)"
-      if [ "$out" != "(no new replies)" ]; then echo "REPLY_RECEIVED:"; echo "$out"; exit 0; fi
+      out="$(t_poll_once)" || out=""
+      # Empty out = a transient poll failure (curl blip), NOT a reply — without
+      # this guard it exits REPLY_RECEIVED with nothing, killing the listen.
+      if [ -n "$out" ] && [ "$out" != "(no new replies)" ]; then
+        echo "REPLY_RECEIVED:"; echo "$out"; exit 0
+      fi
       s="$interval"; [ "$rem" -lt "$s" ] && s="$rem"
       sleep "$s"
     done
@@ -178,8 +182,9 @@ question or instruction; reply \"stop\" to end early.
     max="${E2A_TETHER_ASK_TIMEOUT:-1800}"; interval="${E2A_TETHER_POLL_INTERVAL:-20}"; elapsed=0
     while [ "$elapsed" -lt "$max" ]; do
       sleep "$interval"; elapsed=$((elapsed + interval))
-      out="$(t_poll_once)"
-      [ "$out" = "(no new replies)" ] || { echo "$out"; exit 0; }
+      out="$(t_poll_once)" || out=""
+      # Empty out = transient poll failure, not an answer (same guard as listen).
+      if [ -n "$out" ] && [ "$out" != "(no new replies)" ]; then echo "$out"; exit 0; fi
     done
     echo "tether: ask timed out after ${max}s with no answer"; exit 3
     ;;
