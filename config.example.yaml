@@ -138,3 +138,6 @@ limits:
 #
 # Obtain a key: https://aistudio.google.com/apikey
 # Model default: gemini-3.1-flash-lite (change via GEMINI_EVAL_MODEL env var)
+# Kill-switch: set E2A_GEMINI_DETECTOR_ENABLED=false to disable Gemini even when
+# a key is configured (e.g. to isolate whether Gemini or heuristics drove a given
+# block/review outcome, or to roll back without removing the credential).

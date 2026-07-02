@@ -19,16 +19,18 @@ import (
 // to annotate the message row, append audit rows, and (when blocked) emit
 // email.blocked. Mirrors relay.inboundScreenResult on the egress side.
 type outboundVerdict struct {
-	Applied      piguard.Action // most-severe of gate + scan
-	scanAction   piguard.Action // the scan's own action (for its audit row)
-	ReviewReason string         // recipient_gate | outbound_scan (drives denorm + event)
-	ScanScore    *float64
-	Categories   []string // category names for the event payload
-	catsJSON     json.RawMessage
-	Reason       string
-	GateAddr     string // recipient that tripped the gate (audit subject_addr)
-	gateFlagged  bool
-	scanDetected bool
+	Applied       piguard.Action // most-severe of gate + scan
+	scanAction    piguard.Action // the scan's own action (for its audit row)
+	ReviewReason  string         // recipient_gate | outbound_scan (drives denorm + event)
+	ScanScore     *float64
+	Categories    []string // category names for the event payload
+	catsJSON      json.RawMessage
+	detectorLabel string          // agg.DetectorLabel(): which detector(s) actually contributed
+	rawJSON       json.RawMessage // agg.PerDetector marshaled, for audit drill-down
+	Reason        string
+	GateAddr      string // recipient that tripped the gate (audit subject_addr)
+	gateFlagged   bool
+	scanDetected  bool
 }
 
 // Block/Review/Annotate/Emit describe what the caller must do with the verdict.
@@ -194,6 +196,11 @@ func (a *API) screenOutbound(ctx context.Context, agent *identity.AgentIdentity,
 				v.Categories = append(v.Categories, c.Name)
 			}
 			v.catsJSON, _ = json.Marshal(agg.Categories)
+			// detectorLabel/rawJSON: see the matching comment in relay/screening.go —
+			// records which detector(s) actually contributed instead of a hardcoded
+			// name, plus the full per-detector breakdown for audit drill-down.
+			v.detectorLabel = agg.DetectorLabel()
+			v.rawJSON, _ = json.Marshal(agg.PerDetector)
 		}
 	}
 
@@ -234,16 +241,17 @@ func (v outboundVerdict) screeningEvents(messageID string, agent *identity.Agent
 	}
 	if v.scanDetected {
 		evs = append(evs, identity.ProtectionEvent{
-			ID:         identity.DeterministicProtectionEventID(messageID, identity.ScreeningSourceScan, identity.ReviewReasonOutboundScan, "heuristics"),
+			ID:         identity.DeterministicProtectionEventID(messageID, identity.ScreeningSourceScan, identity.ReviewReasonOutboundScan, v.detectorLabel),
 			MessageID:  messageID,
 			AgentID:    agent.ID,
 			Direction:  "outbound",
 			Source:     identity.ScreeningSourceScan,
 			Reason:     identity.ReviewReasonOutboundScan,
 			Action:     string(v.scanAction),
-			Detector:   "heuristics",
+			Detector:   v.detectorLabel,
 			Score:      v.ScanScore,
 			Categories: v.catsJSON,
+			Raw:        v.rawJSON,
 		})
 	}
 	return evs

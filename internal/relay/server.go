@@ -12,6 +12,7 @@ import (
 	"mime"
 	"net"
 	"net/mail"
+	"os"
 	"strings"
 	"time"
 
@@ -128,18 +129,34 @@ func NewServer(cfg *config.Config, store *identity.Store, signer *headers.Signer
 // instead of being cut off by the engine before it can fire.
 const geminiDetectorTimeout = 10 * time.Second
 
+// geminiDetectorEnabled reports whether buildScreenEngine should even attempt to
+// construct the Gemini detector. Defaults to true — the existing behavior, where
+// Gemini is enabled purely by GEMINI_API_KEY/GOOGLE_API_KEY being present — unless
+// E2A_GEMINI_DETECTOR_ENABLED is explicitly set to "false". This is an operator
+// kill-switch/A-B toggle independent of the credential: it lets you disable Gemini
+// (isolating whether it or heuristics is driving a given block/review outcome, or
+// rolling back without touching secrets) without having to remove the API key.
+func geminiDetectorEnabled() bool {
+	return os.Getenv("E2A_GEMINI_DETECTOR_ENABLED") != "false"
+}
+
 // buildScreenEngine constructs the piguard screening engine for inbound mail. The
 // heuristics detector is always included. The Gemini detector is added when
-// GEMINI_API_KEY or GOOGLE_API_KEY is set in the environment; its prompt only
-// classifies inbound content, so this engine (inbound-only, unlike
-// buildAgentScreenEngine in internal/agent/api.go) is where it belongs.
+// geminiDetectorEnabled() and GEMINI_API_KEY or GOOGLE_API_KEY is set in the
+// environment; its prompt only classifies inbound content, so this engine
+// (inbound-only, unlike buildAgentScreenEngine in internal/agent/api.go) is where
+// it belongs.
 func buildScreenEngine() *piguard.Engine {
 	detectors := []piguard.Detector{piguard.NewHeuristicsDetector()}
 	cfg := piguard.EngineConfig{}
-	if d, err := piguard.NewGeminiDetector(piguard.GeminiConfig{}); err == nil {
-		detectors = append(detectors, d)
-		cfg.Timeout = geminiDetectorTimeout
-		log.Printf("[piguard] Gemini detector enabled (model: %s)", d.Model())
+	if geminiDetectorEnabled() {
+		if d, err := piguard.NewGeminiDetector(piguard.GeminiConfig{}); err == nil {
+			detectors = append(detectors, d)
+			cfg.Timeout = geminiDetectorTimeout
+			log.Printf("[piguard] Gemini detector enabled (model: %s)", d.Model())
+		}
+	} else {
+		log.Printf("[piguard] Gemini detector disabled via E2A_GEMINI_DETECTOR_ENABLED=false")
 	}
 	return piguard.NewEngine(cfg, detectors...)
 }

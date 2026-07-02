@@ -276,9 +276,15 @@ URLs (markdown-image exfil), encoded blobs. Emits categories + a weighted score.
 
 **`GeminiDetector`** (`piguard/gemini`): optional LLM-as-detector layer backed by
 the Gemini REST API (stdlib `net/http`, no new module dependencies). Uses the same
-combined injection+phishing prompt as the e2a eval framework; `injection_confidence`
-is the primary piguard score, `phishing_confidence` surfaces as a Category for audit.
-Enabled by setting `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) in the environment;
+combined injection+phishing prompt as the e2a eval framework; the primary piguard
+Score/Flagged is `max(injection_confidence, phishing_confidence)`, so a
+purely-phishing message (no injection component) crosses review/block on its own
+the same way a purely-injection message does — both scores stay individually
+visible as Categories for audit either way. (Earlier revisions used
+`injection_confidence` alone as the primary score, leaving phishing audit-only and
+invisible to `Aggregate.Action`; changed after adversarial testing showed a
+100%-confidence phishing verdict with no injection component was silently
+delivered.) Enabled by setting `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) in the environment;
 silently absent otherwise (heuristics-only, no behaviour change). Model defaults to
 `gemini-3.1-flash-lite` (override via `GEMINI_EVAL_MODEL`). Always requests the
 model-appropriate minimise-thinking config (`thinkingBudget=0` on 2.x,

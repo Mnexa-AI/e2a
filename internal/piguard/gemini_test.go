@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"unicode/utf8"
 )
@@ -74,6 +75,73 @@ func TestGeminiDetector_Injection(t *testing.T) {
 	}
 	if res.Score < 0.9 {
 		t.Errorf("Score = %.2f, want ≥ 0.9", res.Score)
+	}
+}
+
+// TestGeminiDetector_PhishingOnly guards the fix for the "phishing never blocks"
+// gap found via live/adversarial testing: a purely-phishing message (no injection
+// component) must flag and score high on its own, the same way a purely-injection
+// message already does — not just surface a Category that Aggregate.Action never
+// looks at.
+func TestGeminiDetector_PhishingOnly(t *testing.T) {
+	srv := httptest.NewServer(geminiFixedHandler(geminiVerdict{
+		Injection: false, InjectionConf: 0.02,
+		Phishing: true, PhishingConf: 0.97,
+		Rationale: "credential-harvest lure impersonating a bank",
+	}))
+	defer srv.Close()
+
+	d := newGeminiTestDetector(t, srv, 0)
+	req := Request{
+		Direction: DirectionInput,
+		Sender:    "security@paypa1-support.example",
+		Segments: []Segment{
+			{Type: SegmentSubject, Content: "Your account has been limited"},
+			{Type: SegmentTextPlain, Content: "Verify your identity now or your account will be closed: http://paypa1-secure-login.example"},
+		},
+	}
+	res, err := d.Inspect(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Inspect: %v", err)
+	}
+	if res.Status != StatusOK {
+		t.Errorf("Status = %v, want StatusOK", res.Status)
+	}
+	if !res.Flagged {
+		t.Error("Flagged = false, want true for a high-confidence phishing verdict")
+	}
+	if res.Score < 0.9 {
+		t.Errorf("Score = %.2f, want ≥ 0.9 (phishing alone must reach the primary score, not just a Category)", res.Score)
+	}
+	if !hasCategory(res.Categories, "phishing") {
+		t.Errorf("expected a phishing category, got %+v", res.Categories)
+	}
+}
+
+// TestGeminiDetector_BothThreats_ScoreIsMaxNotSum guards against double-counting:
+// when both injection and phishing are flagged, the primary Score must be the max
+// of the two, not their sum (which could otherwise exceed 1.0 or over-weight a
+// message relative to one flagged on only one axis).
+func TestGeminiDetector_BothThreats_ScoreIsMaxNotSum(t *testing.T) {
+	srv := httptest.NewServer(geminiFixedHandler(geminiVerdict{
+		Injection: true, InjectionConf: 0.9,
+		Phishing: true, PhishingConf: 0.6,
+		Rationale: "BEC lure with an embedded agent-directed instruction",
+	}))
+	defer srv.Close()
+
+	d := newGeminiTestDetector(t, srv, 0)
+	res, err := d.Inspect(context.Background(), Request{
+		Segments: []Segment{{Type: SegmentTextPlain, Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("Inspect: %v", err)
+	}
+	if !res.Flagged {
+		t.Error("Flagged = false, want true")
+	}
+	if res.Score != 0.9 {
+		t.Errorf("Score = %.2f, want exactly 0.9 (max of 0.9 and 0.6, not their sum)", res.Score)
 	}
 }
 
@@ -242,6 +310,46 @@ func TestGeminiTruncateRunes(t *testing.T) {
 	}
 	if !utf8.ValidString(got) {
 		t.Errorf("geminiTruncateRunes produced invalid UTF-8: %q", got)
+	}
+}
+
+// TestGeminiDetector_TruncatedBodySetsResultTruncated guards the fix for the
+// truncation blind spot found via adversarial testing: padding a message past
+// geminiMaxBodyChars hides everything after the cutoff from Gemini with no signal
+// that anything was missed, letting a payload placed after the cutoff evade
+// detection entirely (the mock here always returns "benign" regardless of input,
+// same as what an attacker relies on — a truncated call that never even sees the
+// payload). Result.Truncated must be true so the Engine floors the action to at
+// least review instead of trusting the now-meaningless benign score.
+func TestGeminiDetector_TruncatedBodySetsResultTruncated(t *testing.T) {
+	srv := httptest.NewServer(geminiFixedHandler(geminiVerdict{
+		Injection: false, InjectionConf: 0.0,
+		Phishing: false, PhishingConf: 0.0,
+		Rationale: "looks benign (attacker is counting on this)",
+	}))
+	defer srv.Close()
+
+	d := newGeminiTestDetector(t, srv, 0)
+	longBody := strings.Repeat("innocuous padding text. ", geminiMaxBodyChars) // far past the cap
+	res, err := d.Inspect(context.Background(), Request{
+		Segments: []Segment{{Type: SegmentTextPlain, Content: longBody}},
+	})
+	if err != nil {
+		t.Fatalf("Inspect: %v", err)
+	}
+	if !res.Truncated {
+		t.Error("Result.Truncated = false, want true when the body exceeds geminiMaxBodyChars")
+	}
+
+	shortBody := "short benign email, well under the cap"
+	res2, err := d.Inspect(context.Background(), Request{
+		Segments: []Segment{{Type: SegmentTextPlain, Content: shortBody}},
+	})
+	if err != nil {
+		t.Fatalf("Inspect: %v", err)
+	}
+	if res2.Truncated {
+		t.Error("Result.Truncated = true, want false for a body under the cap")
 	}
 }
 

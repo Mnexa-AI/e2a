@@ -112,6 +112,66 @@ func TestEngine_TruncatedFloorsReview(t *testing.T) {
 	}
 }
 
+// TestAggregate_DetectorLabel guards the audit-trail attribution fix: callers
+// writing protection_events used to hardcode Detector: "heuristics" regardless of
+// how many detectors actually ran, silently misattributing verdicts driven by
+// other detectors (e.g. Gemini). DetectorLabel must instead reflect exactly which
+// detector(s) returned StatusOK.
+func TestAggregate_DetectorLabel(t *testing.T) {
+	t.Run("single_detector", func(t *testing.T) {
+		eng := NewEngine(EngineConfig{}, &stubDetector{name: "heuristics", result: okResult("heuristics", 0.8, CategoryInjectionDirect)})
+		agg := eng.Evaluate(context.Background(), Request{})
+		if got := agg.DetectorLabel(); got != "heuristics" {
+			t.Errorf("DetectorLabel() = %q, want %q", got, "heuristics")
+		}
+	})
+
+	t.Run("two_detectors_sorted", func(t *testing.T) {
+		eng := NewEngine(EngineConfig{},
+			&stubDetector{name: "heuristics", result: okResult("heuristics", 0.3, CategoryObfuscation)},
+			&stubDetector{name: "gemini", result: okResult("gemini", 0.9, CategoryInjectionDirect)},
+		)
+		agg := eng.Evaluate(context.Background(), Request{})
+		if got := agg.DetectorLabel(); got != "gemini,heuristics" {
+			t.Errorf("DetectorLabel() = %q, want %q (sorted, comma-joined)", got, "gemini,heuristics")
+		}
+	})
+
+	t.Run("errored_detector_excluded", func(t *testing.T) {
+		eng := NewEngine(EngineConfig{MinOK: 1},
+			&stubDetector{name: "heuristics", result: okResult("heuristics", 0.3, CategoryObfuscation)},
+			&stubDetector{name: "gemini", panicOn: true},
+		)
+		agg := eng.Evaluate(context.Background(), Request{})
+		if got := agg.DetectorLabel(); got != "heuristics" {
+			t.Errorf("DetectorLabel() = %q, want %q (a failed detector must not be attributed)", got, "heuristics")
+		}
+	})
+}
+
+// TestEngine_DetectorTruncatedFloorsReview guards against the truncation blind
+// spot found via adversarial testing: Gemini caps the content it sends per-call
+// (geminiMaxBodyChars) independently of the extraction-level scan cap that sets
+// DecodedSignals.Truncated. Before this fix, a benign-looking Result from a
+// detector that silently only saw a prefix of the message produced NO floor at
+// all — an attacker could pad a message past the cap and place a payload after
+// it, invisible to that detector, with the aggregate reading as a clean "allow".
+func TestEngine_DetectorTruncatedFloorsReview(t *testing.T) {
+	benignButTruncated := &Result{
+		Score: 0.0, Status: StatusOK, Truncated: true,
+		Provider: ProviderMeta{Name: "gemini"},
+	}
+	d := &stubDetector{name: "gemini", result: benignButTruncated}
+	eng := NewEngine(EngineConfig{}, d)
+	agg := eng.Evaluate(context.Background(), Request{})
+	if !agg.Truncated {
+		t.Errorf("Aggregate.Truncated should be true when a StatusOK detector reports Result.Truncated")
+	}
+	if got := agg.Action(0.5, 0.9); got != ActionReview {
+		t.Errorf("a detector-reported truncation must floor to review even at a benign score, got %v", got)
+	}
+}
+
 func TestEngine_NaNScoreExcluded(t *testing.T) {
 	nan := &stubDetector{name: "nan", result: &Result{Flagged: true, Score: math.NaN(), Status: StatusOK, Provider: ProviderMeta{Name: "nan"}}}
 	good := &stubDetector{name: "good", result: okResult("good", 0.9, CategoryInjectionDirect)}

@@ -93,17 +93,26 @@ func (s *Server) screenInbound(ctx context.Context, agent *identity.AgentIdentit
 				res.Categories = append(res.Categories, c.Name)
 			}
 			catsJSON, _ := json.Marshal(agg.Categories)
+			// detectorLabel names every detector that actually contributed a StatusOK
+			// verdict (e.g. "gemini,heuristics") instead of a hardcoded single name —
+			// with two detectors wired in, "heuristics" alone would misattribute a
+			// score/action that Gemini (or Gemini alone) actually drove. rawJSON keeps
+			// the full per-detector breakdown (each one's own score/status/categories/
+			// rationale) for drill-down without needing to reproduce the request.
+			detectorLabel := agg.DetectorLabel()
+			rawJSON, _ := json.Marshal(agg.PerDetector)
 			res.Events = append(res.Events, identity.ProtectionEvent{
-				ID:         identity.DeterministicProtectionEventID(messageID, identity.ScreeningSourceScan, identity.ReviewReasonInboundScan, "heuristics"),
+				ID:         identity.DeterministicProtectionEventID(messageID, identity.ScreeningSourceScan, identity.ReviewReasonInboundScan, detectorLabel),
 				MessageID:  messageID,
 				AgentID:    agent.ID,
 				Direction:  "inbound",
 				Source:     identity.ScreeningSourceScan,
 				Reason:     identity.ReviewReasonInboundScan,
 				Action:     string(act),
-				Detector:   "heuristics",
+				Detector:   detectorLabel,
 				Score:      &score,
 				Categories: json.RawMessage(catsJSON),
+				Raw:        json.RawMessage(rawJSON),
 			})
 		}
 	}
