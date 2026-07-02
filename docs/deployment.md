@@ -26,6 +26,9 @@ Copy `config.example.yaml` to `config.yaml` and fill in values, or set the envir
 | `E2A_OUTBOUND_SMTP_PASSWORD` | for outbound | Upstream SMTP password |
 | `E2A_OUTBOUND_SMTP_FROM_DOMAIN` | for outbound | Domain used in `From:` of outbound mail |
 | `E2A_USAGE_TRACKING` | no (default `false`) | Set to `true` to write per-message rows into `usage_events` / `usage_summaries`. The hosted deployment uses these for billing reconciliation; self-hosters typically don't need them. |
+| `GEMINI_API_KEY` | no | Google AI Studio key. When set, the Gemini LLM-as-detector layer is added to the inbound piguard screening engine alongside the built-in heuristics detector (outbound agent-mail screening stays heuristics-only). Obtain at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). `GOOGLE_API_KEY` is accepted as a fallback. |
+| `GEMINI_EVAL_MODEL` | no (default `gemini-3.1-flash-lite`) | Overrides the Gemini model used by the LLM-as-detector layer. Only takes effect when `GEMINI_API_KEY`/`GOOGLE_API_KEY` is also set. |
+| `E2A_GEMINI_DETECTOR_ENABLED` | no (default `true`) | Set to `false` to disable the Gemini detector even when an API key is configured — an operator kill-switch independent of the credential, useful for isolating whether Gemini or heuristics drove a given block/review outcome, or for rolling back without touching secrets. |
 
 `env: production` in [config.example.yaml](../config.example.yaml) enforces TLS for SMTP and HTTPS for webhook URLs. Leave it as `development` for local work.
 

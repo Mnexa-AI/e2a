@@ -187,6 +187,13 @@ type Result struct {
 	Spans      []Span       `json:"spans,omitempty"`
 	Status     Status       `json:"status"`
 	Provider   ProviderMeta `json:"provider"`
+	// Truncated reports that this detector only inspected a prefix of the content
+	// (e.g. a provider-side context-window cap) — a "no finding" from THIS detector
+	// is not a safety guarantee. Distinct from DecodedSignals.Truncated, which
+	// reports extraction-level truncation (the 1 MiB scan cap) shared by all
+	// detectors; this field is per-detector and additive to the Engine's
+	// force-override floor (see Engine.forceFloor).
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // Detector is the pluggable screening backend. Implementations must be safe for

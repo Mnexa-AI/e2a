@@ -3,6 +3,8 @@ package piguard
 import (
 	"context"
 	"math"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -43,6 +45,11 @@ func NewEngine(cfg EngineConfig, detectors ...Detector) *Engine {
 	return &Engine{detectors: detectors, cfg: cfg}
 }
 
+// Timeout returns the effective per-detector timeout, e.g. for wiring-layer tests
+// that assert a caller configured a non-default timeout (see buildScreenEngine in
+// internal/relay/server.go, which widens this when the Gemini detector is present).
+func (e *Engine) Timeout() time.Duration { return e.cfg.Timeout }
+
 // Aggregate is the combined verdict plus the control signals the wiring layer needs
 // to choose an action without knowing per-detector internals.
 type Aggregate struct {
@@ -55,13 +62,35 @@ type Aggregate struct {
 	// truncated/unscannable content), the applied action is at least this severe
 	// regardless of score. ActionAllow when no override fires.
 	MinAction Action
-	// Truncated mirrors DecodedSignals.Truncated: the content exceeded the scan cap
-	// and was only partially inspected. Folded into MinAction (→ review) but exposed
-	// for audit/metrics.
+	// Truncated is true when DecodedSignals.Truncated (the content exceeded the
+	// extraction-level scan cap) OR any StatusOK detector reported its own
+	// Result.Truncated (e.g. Gemini's provider-side content-length cap cut off part
+	// of the message before it was even sent) — either way, only partially
+	// inspected. Folded into MinAction (→ review) but exposed for audit/metrics.
 	Truncated bool
 	// PerDetector retains every detector's raw Result (including timeouts/errors)
 	// for audit and for writing protection_events rows.
 	PerDetector []Result
+}
+
+// DetectorLabel returns a stable, sorted, comma-joined list of the names of
+// detectors that actually contributed a StatusOK verdict to this aggregate.
+// Callers writing an audit row (e.g. protection_events.detector) should use this
+// instead of hardcoding a single detector name — with more than one detector
+// wired into the Engine, a hardcoded name silently mislabels which detector(s)
+// actually drove the recorded score/action. Empty when no detector returned
+// StatusOK (a Degraded aggregate); PerDetector still has every detector's Result,
+// including timeouts/errors, for a caller that wants the full breakdown (e.g.
+// marshaled into an audit row's raw/JSONB column).
+func (a Aggregate) DetectorLabel() string {
+	var names []string
+	for _, r := range a.PerDetector {
+		if r.Status == StatusOK {
+			names = append(names, r.Provider.Name)
+		}
+	}
+	sort.Strings(names)
+	return strings.Join(names, ",")
 }
 
 // Action folds the aggregate into a single applied action using the per-agent
@@ -146,6 +175,7 @@ func (e *Engine) aggregate(req Request, results []Result) Aggregate {
 	var weightSum, scoreSum float64
 	okCount := 0
 	flagged := false
+	detectorTruncated := false
 	catScores := map[string]float64{}
 	catNative := map[string]string{}
 	var spans []Span
@@ -161,6 +191,9 @@ func (e *Engine) aggregate(req Request, results []Result) Aggregate {
 		if r.Flagged {
 			flagged = true
 		}
+		if r.Truncated {
+			detectorTruncated = true
+		}
 		for _, c := range r.Categories {
 			if c.Score > catScores[c.Name] {
 				catScores[c.Name] = c.Score
@@ -172,13 +205,17 @@ func (e *Engine) aggregate(req Request, results []Result) Aggregate {
 		spans = append(spans, r.Spans...)
 	}
 
-	agg := Aggregate{PerDetector: results, MinAction: ActionAllow, Truncated: req.Signals.Truncated}
+	agg := Aggregate{
+		PerDetector: results,
+		MinAction:   ActionAllow,
+		Truncated:   req.Signals.Truncated || detectorTruncated,
+	}
 	if okCount < e.cfg.MinOK {
 		// Fail-to-review: too few usable verdicts to trust. Mark the aggregate as not
 		// OK so callers cannot read it as a benign allow.
 		agg.Degraded = true
 		agg.Result.Status = StatusError
-		agg.MinAction = e.forceFloor(req)
+		agg.MinAction = e.forceFloor(req, detectorTruncated)
 		return agg
 	}
 
@@ -194,18 +231,22 @@ func (e *Engine) aggregate(req Request, results []Result) Aggregate {
 	}
 	sortCategories(cats)
 	agg.Result.Categories = cats
-	agg.MinAction = e.forceFloor(req)
+	agg.MinAction = e.forceFloor(req, detectorTruncated)
 	return agg
 }
 
 // forceFloor returns the deterministic minimum action implied by high-confidence
-// signals, independent of the (possibly low) aggregate score.
-func (e *Engine) forceFloor(req Request) Action {
+// signals, independent of the (possibly low) aggregate score. detectorTruncated is
+// true when any StatusOK detector reported Result.Truncated (e.g. Gemini's
+// provider-side content cap cut off part of the message) — treated the same as
+// extraction-level truncation: a low score from a detector that didn't see
+// everything is not a safety guarantee.
+func (e *Engine) forceFloor(req Request, detectorTruncated bool) Action {
 	floor := ActionAllow
 	if req.Signals.UnicodeTags {
 		floor = MoreSevere(floor, ActionFlag)
 	}
-	if req.Signals.Truncated {
+	if req.Signals.Truncated || detectorTruncated {
 		// Unscannable content (scan cap hit) is not a safety guarantee — design §5
 		// routes it to review rather than treating "no finding" as benign.
 		floor = MoreSevere(floor, ActionReview)

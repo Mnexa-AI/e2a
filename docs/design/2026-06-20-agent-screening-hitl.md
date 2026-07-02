@@ -269,11 +269,48 @@ and the thing every future provider depends on. Split visible vs hidden HTML
 detect Unicode Tags-block (U+E0000–E007F), zero-width (U+200B–200D, U+FEFF),
 homoglyph ratio, fragmented/reassembly URLs, and `text/plain`↔`text/html` divergence.
 
-**Built-in `heuristics` detector** (`piguard/heuristics`): the only registered
-detector in v1. Deterministic, no network, near-zero false positives. Inbound:
-the obfuscation vectors above. Outbound: egress/exfil signatures — secret/key/PII
-regexes, suspicious egress URLs (markdown-image exfil), encoded blobs. Emits
-categories + a weighted score.
+**Built-in `heuristics` detector** (`piguard/heuristics`): deterministic, no
+network, near-zero false positives. Inbound: the obfuscation vectors above.
+Outbound: egress/exfil signatures — secret/key/PII regexes, suspicious egress
+URLs (markdown-image exfil), encoded blobs. Emits categories + a weighted score.
+
+**`GeminiDetector`** (`piguard/gemini`): optional LLM-as-detector layer backed by
+the Gemini REST API (stdlib `net/http`, no new module dependencies). Uses the same
+combined injection+phishing prompt as the e2a eval framework; the primary piguard
+Score/Flagged is `max(injection_confidence, phishing_confidence)`, so a
+purely-phishing message (no injection component) crosses review/block on its own
+the same way a purely-injection message does — both scores stay individually
+visible as Categories for audit either way. (Earlier revisions used
+`injection_confidence` alone as the primary score, leaving phishing audit-only and
+invisible to `Aggregate.Action`; changed after adversarial testing showed a
+100%-confidence phishing verdict with no injection component was silently
+delivered.) Enabled by setting `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) in the environment;
+silently absent otherwise (heuristics-only, no behaviour change). Model defaults to
+`gemini-3.1-flash-lite` (override via `GEMINI_EVAL_MODEL`). Always requests the
+model-appropriate minimise-thinking config (`thinkingBudget=0` on 2.x,
+`thinkingLevel="low"` on 3.x); a model that rejects that config surfaces as a
+detector error (excluded from the aggregate) rather than silently retrying with
+thinking re-enabled. Retries 429/5xx with a short exponential backoff (2 attempts,
+500ms/1s) sized to fit the wider `10s` per-detector timeout `buildScreenEngine`
+gives this engine (the Engine's plain default is `5s`).
+Inbound-only: wired into `buildScreenEngine` (`internal/relay/server.go`), which
+backs inbound message screening. It is deliberately **not** wired into
+`buildAgentScreenEngine` (`internal/agent/api.go`), which backs `screenOutbound` —
+the Gemini prompt only classifies content aimed *at* the agent and does not check
+for egress/exfiltration, so it would both miss the outbound threat model and
+false-positive on agents legitimately quoting injection-like text. Only the
+heuristics detector currently branches on `Request.Direction` for outbound.
+No multimodal support yet: `formatEmail` sends extracted text segments only —
+`Segment` carries `Content string`, and `Extract` never emits raw image bytes
+(`SegmentImageOCR` is reserved but unused) — so an injection/phishing lure hidden
+purely in image content is not seen by this detector, even though the configured
+model itself is multimodal. Tracked as a follow-up (would need `Request`/`Segment`
+to carry `[]byte` + mimeType and building `inlineData`/`fileData` parts).
+Score-scale caveat: Gemini returns a calibrated probability (AUC 0.97–0.99 in the
+e2a eval) while heuristics returns a weighted heuristic sum; `Engine.aggregate`
+averages both on one 0..1 scale against thresholds tuned for heuristics, so the
+eval's operating point does not automatically carry over — a calibration pass (or
+expressing "prefer the LLM" via `EngineConfig.Weights`) is a tracked follow-up.
 
 **Aggregator** (`piguard.Engine`): runs registered detectors **in parallel**,
 combines into one `Result`:
@@ -549,6 +586,10 @@ deployment-level.
   gives the data to auto-tune later.
 - **Stay narrow for v1**: one detector, no OCR, no external providers, no RBAC — the
   contract is built to absorb all of them without reshaping.
+- **Gemini detector (shipped post-v1)**: `GeminiDetector` in `piguard/gemini.go`
+  implements the seam without reshaping the contract; wired in alongside heuristics
+  for inbound screening only when `GEMINI_API_KEY` is set (see §4.2 for why it's
+  excluded from outbound screening).
 
 ## 7. Verification strategy
 

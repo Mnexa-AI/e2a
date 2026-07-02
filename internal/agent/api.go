@@ -521,7 +521,7 @@ func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.
 	return &API{
 		store:        store,
 		sender:       sender,
-		screen:       piguard.NewEngine(piguard.EngineConfig{}, piguard.NewHeuristicsDetector()),
+		screen:       buildAgentScreenEngine(),
 		smtpRelay:    smtpRelay,
 		userAuth:     userAuth,
 		usage:        usage,
@@ -540,6 +540,20 @@ func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.
 		dcrLimit:      ratelimit.New(1*time.Hour, 10),    // 10 OAuth client registrations per IP per hour
 		downloadLimit: ratelimit.New(1*time.Minute, 120), // 120 attachment downloads per IP per minute
 	}
+}
+
+// buildAgentScreenEngine constructs the piguard screening engine for outbound agent
+// mail (see screenOutbound in screening.go, the engine's only caller — it always
+// passes Direction: piguard.DirectionOutput). Heuristics-only: GeminiDetector is
+// deliberately NOT wired in here. Its prompt (geminiSystemPrompt in
+// piguard/gemini.go) classifies only inbound injection/phishing aimed at the AI
+// agent and ignores Request.Direction entirely, so on outbound mail it would
+// produce false-positive holds (an agent quoting injection-like content scores as
+// injection) while missing the actual outbound concern (egress/exfiltration),
+// which only the heuristics detector currently checks for Direction ==
+// DirectionOutput. Revisit once Gemini has an outbound/exfiltration-aware prompt.
+func buildAgentScreenEngine() *piguard.Engine {
+	return piguard.NewEngine(piguard.EngineConfig{}, piguard.NewHeuristicsDetector())
 }
 
 // SetAPIURL overrides the API/issuer base URL (default: publicURL). Set it
