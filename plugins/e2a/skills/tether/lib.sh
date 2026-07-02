@@ -99,8 +99,34 @@ t_cli_desc() {
 }
 
 # --- state -------------------------------------------------------------------
+# One tether = one session = one state file. The default path is keyed by the
+# repo (git toplevel, else cwd) so concurrent tethered sessions in DIFFERENT
+# repos can't clobber each other's thread pointer, watermark, seen-set, or
+# ask-lock. Two sessions in the SAME repo still resolve to one key — `start`
+# refuses to arm over a live session (loud, instead of silently hijacking its
+# thread); set TETHER_STATE to a unique path to run them in parallel anyway.
+# A legacy machine-global state.json (pre-keying) is honored while it exists,
+# so a live tether isn't orphaned by a plugin update; it disappears at `stop`.
 
-t_state_path() { echo "${TETHER_STATE:-$HOME/.e2a-tether/state.json}"; }
+t_state_key() {
+  local root
+  root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="$PWD"
+  python3 -c 'import hashlib,sys;print(hashlib.sha1(sys.argv[1].encode()).hexdigest()[:12])' "$root"
+}
+
+T_STATE_PATH=""   # memoized: t_state_path runs in every poll tick
+t_state_path() {
+  if [ -z "$T_STATE_PATH" ]; then
+    if [ -n "${TETHER_STATE:-}" ]; then
+      T_STATE_PATH="$TETHER_STATE"
+    elif [ -f "$HOME/.e2a-tether/state.json" ]; then
+      T_STATE_PATH="$HOME/.e2a-tether/state.json"
+    else
+      T_STATE_PATH="$HOME/.e2a-tether/state-$(t_state_key).json"
+    fi
+  fi
+  echo "$T_STATE_PATH"
+}
 
 t_state_get() {
   local f; f="$(t_state_path)"; [ -f "$f" ] || return 0
@@ -130,7 +156,10 @@ t_state_clear() { rm -f "$(t_state_path)" "$(t_ask_lock_path)"; }
 # While an `ask` is in flight it holds this lock; `listen` sees it and pauses
 # polling so the answer flows to the blocked `ask`.
 
-t_ask_lock_path() { echo "$(dirname "$(t_state_path)")/ask.lock"; }
+# The lock lives NEXT TO its session's state file (state-<key>.ask.lock), not
+# at a fixed name — a fixed name would couple ask/listen across unrelated
+# sessions that share ~/.e2a-tether/.
+t_ask_lock_path() { local f; f="$(t_state_path)"; echo "${f%.json}.ask.lock"; }
 t_ask_begin()  { local f; f="$(t_ask_lock_path)"; mkdir -p "$(dirname "$f")"; : > "$f"; }
 t_ask_end()    { rm -f "$(t_ask_lock_path)"; }
 t_ask_active() { [ -f "$(t_ask_lock_path)" ]; }

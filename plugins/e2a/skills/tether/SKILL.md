@@ -260,6 +260,18 @@ below) — keep that coarse (e.g. 30m).
    closed terminal, regardless of duration — that needs an **e2a webhook firing
    a cloud Routine** (a *fresh* session per fire, loses live context). Follow-on.
 
+## Multiple sessions
+
+Each `start` opens a **dedicated email thread** (fresh conversation id, its own
+subject; replies anchor by In-Reply-To), and local state is **keyed per repo**
+(git toplevel), so tethered sessions in different repos coexist without
+touching each other's thread, watermark, or ask-lock. Within one repo there is
+one session by design: `start` **refuses to arm over a live session** instead
+of silently hijacking its thread — run `stop` first, or point `TETHER_STATE`
+at a unique path to deliberately run two in parallel. (A pre-existing
+machine-global `state.json` from an older tether keeps working until its
+session stops.)
+
 ## Files
 
 | file | role |

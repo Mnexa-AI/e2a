@@ -41,6 +41,14 @@ case "$cmd" in
       esac
     done
     [ -n "$to" ] || { echo "usage: tether.sh start <your-email> [--title \"<work>\"] [--for 2h|8h|30m|1d] [--until <ISO>]"; exit 2; }
+    # Never arm over a live session: that would hijack its thread pointer and
+    # watermark (each session must keep its own dedicated email thread).
+    if [ "$(t_state_get armed)" = "1" ]; then
+      echo "tether: already armed — thread $(t_state_get conversation_id) → $(t_state_get to)."
+      echo "        Run 'tether.sh stop' to end it first, or set TETHER_STATE to a unique"
+      echo "        path to run a second session in this repo in parallel."
+      exit 1
+    fi
     expires=""
     if [ -n "$untilarg" ]; then expires="$untilarg"
     elif [ -n "$forarg" ]; then
@@ -327,6 +335,17 @@ except Exception:print("")')"
       t_ask_end;   ! t_ask_active || { echo "FAIL: lock present after end"; exit 1; }
       echo "ok: ask lock begin/active/end" ) || fail=1
     rm -f /tmp/tether-selftest-lock.json /tmp/ask.lock
+
+    echo "# session isolation:"
+    k1="$(cd /tmp && TETHER_STATE= bash -c '. "'"${here}"'/lib.sh"; t_state_key')"
+    k2="$(cd "$HOME" && TETHER_STATE= bash -c '. "'"${here}"'/lib.sh"; t_state_key')"
+    ck "different dirs → different state keys" "$([ -n "$k1" ] && [ -n "$k2" ] && [ "$k1" != "$k2" ] && echo distinct)" "distinct"
+    armf=/tmp/tether-selftest-armed.json
+    printf '{"armed":"1","conversation_id":"tether-old","to":"a@b.c"}' > "$armf"
+    out="$(env E2A_API_KEY='e2a_agt_selftest123' E2A_AGENT_EMAIL='selftest@agents.e2a.dev' \
+      TETHER_STATE="$armf" bash "${here}/tether.sh" start someone@example.com 2>&1)"; rc=$?
+    ck "start refuses to arm over a live session" "$rc:$(printf '%s' "$out" | grep -c 'already armed')" "1:1"
+    rm -f "$armf"
 
     echo "# CLI resolution:"
     ck "version compare: 1.6.2 >= 1.6.0" "$(t_ver_ge "e2a 1.6.2" "1.6.0" && echo yes)" "yes"
