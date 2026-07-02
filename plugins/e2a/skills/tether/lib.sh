@@ -135,20 +135,62 @@ except Exception:print("")')"
   fi
 }
 
-# t_api_reply <in_reply_to_id> <body> [html_body] → prints new message_id;
+# Attachment cap: 15 MB of raw bytes total per send. Base64 inflates ~4/3 and
+# the server rejects requests over 25 MB, so 15 MB raw (~20 MB encoded) leaves
+# headroom for the body; typical mail providers cap around 25 MB too.
+T_ATTACH_MAX_BYTES=$((15 * 1024 * 1024))
+
+# t_attach_check <file>... → 0 ok; 3 a file is missing; 4 over the total cap.
+# Validates BEFORE encoding so callers can fail fast with a clear message.
+t_attach_check() {
+  python3 -c 'import sys,os
+maxb=int(sys.argv[1]); total=0
+for f in sys.argv[2:]:
+    if not os.path.isfile(f):
+        sys.stderr.write("tether: attachment not found: %s\n"%f); sys.exit(3)
+    total+=os.path.getsize(f)
+if total>maxb:
+    sys.stderr.write("tether: attachments total %d bytes — over the %d MB cap; send a link instead\n"%(total,maxb//1048576)); sys.exit(4)' \
+    "$T_ATTACH_MAX_BYTES" "$@"
+}
+
+# t_reply_payload <out_file> <body> <html> [file...] — write the reply JSON
+# payload to <out_file>. Each file becomes {filename, content_type, data(b64)}
+# per the API's attachments[] schema; MIME type is guessed from the filename
+# (fallback application/octet-stream).
+t_reply_payload() {
+  python3 -c 'import json,sys,base64,mimetypes,os
+out,body,html=sys.argv[1],sys.argv[2],sys.argv[3]
+p={"body":body}
+if html: p["html_body"]=html
+atts=[]
+for f in sys.argv[4:]:
+    atts.append({"filename":os.path.basename(f),
+                 "content_type":mimetypes.guess_type(f)[0] or "application/octet-stream",
+                 "data":base64.b64encode(open(f,"rb").read()).decode()})
+if atts: p["attachments"]=atts
+json.dump(p,open(out,"w"))' "$@"
+}
+
+# t_api_reply <in_reply_to_id> <body> [html_body] [attach_file ...] → prints new message_id;
 # returns 2 (and warns on stderr) if the reply was HELD (pending_review). The
 # reply path — every update/ask/stop — used to drop `status`, so a held update
 # printed a phantom "sent" while the user's inbox stayed empty.
+# Optional args past html_body are file paths attached to the reply. The payload
+# goes to curl via a temp file, never argv — a multi-MB base64 attachment would
+# blow past ARG_MAX if passed as a command-line argument.
 t_api_reply() {
-  local email resp status mid
+  local email resp status mid rid body html pf
+  rid="$1"; body="$2"; html="${3:-}"
+  shift 2; [ $# -gt 0 ] && shift   # remaining args = attachment file paths
   email="$(t_urlencode "$E2A_AGENT_EMAIL")"
-  resp="$(curl -sS -m 30 -X POST \
+  pf="$(mktemp "${TMPDIR:-/tmp}/tether-payload.XXXXXX")" || return 1
+  t_reply_payload "$pf" "$body" "$html" "$@" || { rm -f "$pf"; return 1; }
+  resp="$(curl -sS -m 120 -X POST \
     -H "Authorization: Bearer ${E2A_API_KEY}" -H "Content-Type: application/json" \
-    -d "$(python3 -c 'import json,sys
-p={"body":sys.argv[1]}
-if len(sys.argv)>2 and sys.argv[2]:p["html_body"]=sys.argv[2]
-print(json.dumps(p))' "$2" "${3:-}")" \
-    "${E2A_BASE_URL}/v1/agents/${email}/messages/${1}/reply" 2>/dev/null)" || return 1
+    --data-binary "@${pf}" \
+    "${E2A_BASE_URL}/v1/agents/${email}/messages/${rid}/reply" 2>/dev/null)" || { rm -f "$pf"; return 1; }
+  rm -f "$pf"
   status="$(printf '%s' "$resp" | python3 -c 'import json,sys
 try:print(json.load(sys.stdin).get("status",""))
 except Exception:print("")')"

@@ -126,14 +126,20 @@ Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
    far better in mail clients: write the HTML to a file and run
    `"$T" update --html <file>` — a plain-text fallback is auto-derived (or pass
    `--text "<fallback>"`). Plain `"$T" update "<text>"` is for quick one-liner
-   acks only. Good moments: finished a slice, made a decision that's worth
-   surfacing, hit a blocker, or before a long unattended stretch. Skip trivial
+   acks only. To send a file (a rendered PDF, a screenshot, a small log), add
+   `--attach <file>` — repeatable, on either form, capped at 15 MB total per
+   send (**exit 3** = file not found, **exit 4** = over the cap; past the cap,
+   upload the file somewhere and send a link instead). Good moments: finished a
+   slice, made a decision that's worth surfacing, hit a blocker, or before a
+   long unattended stretch. Skip trivial
    turns. If `update` prints a `HELD for review (pending_review)`
    warning (exit 2), the update did **not** reach the user — stop and fix
    protection before continuing; don't keep "reporting" into a review queue.
 4. **Need a decision from the user? Ask by email — never the terminal.** Run
    `"$T" ask "<question>"` (in the background); it emails the question and blocks
-   until the user replies, then prints the answer. **Do not** use AskUserQuestion
+   until the user replies, then prints the answer. `--attach <file>` works here
+   too — attach the artifact the decision hinges on (a diff, a mockup) rather
+   than describing it. **Do not** use AskUserQuestion
    or a bare terminal prompt while tethered — an AFK user can't answer it and the
    session stalls. `ask` coordinates with `listen` automatically (it holds a lock
    so a background `listen` pauses and can't swallow your answer). Handle its exit
@@ -173,14 +179,18 @@ Write for that medium, not for a CLI.
   single-sentence status. Anything with structure should be HTML.
 - **No markdown** — `**bold**`, `` `code` ``, `#` headings render as literal
   characters in a plain-text email. Use plain prose.
-- Note: `ask` is plain-text only — keep questions short and prose-only there.
+- Note: `ask` bodies are plain-text only (no `--html`) — keep questions short
+  and prose-only there. `--attach` does work on `ask`: attach the artifact the
+  decision hinges on (a diff, a mockup) rather than describing it.
 
 **Both:**
 - Lead with the takeaway (what changed / what you need), then details. Keep it
   short and scannable.
 - Be concrete: name the file / PR / decision ("merged #357"), not "did some work".
 - If you need something, end with **one clear ask** ("Reply A or B?").
-- No large code/log dumps — summarize or link. Don't paste stack traces.
+- No large code/log dumps — summarize or link. Don't paste stack traces. If the
+  artifact itself matters (a rendered PDF, a screenshot, a report), send it as
+  an attachment (`--attach`) instead of inlining it.
 - **Acknowledge fast.** When a reply comes in, a quick "on it — doing X" beats
   silence; there's inherent email latency, so don't leave the user wondering if
   you heard them.
@@ -229,7 +239,7 @@ it's cheap, so 20–30s is fine.
 
 | file | role |
 |---|---|
-| `tether.sh` | runtime CLI: `start [--title] [--for]` / `update` / `ask` / `listen` / `poll` / `status` / `stop` |
+| `tether.sh` | runtime CLI: `start [--title] [--for]` / `update [--html] [--attach]` / `ask [--attach]` / `listen` / `poll` / `status` / `stop` |
 | `lib.sh` | config + e2a send/reply/poll helpers |
 | `hooks/tether-notify.sh` | optional Notification hook (blocked-alert) |
 | `install.sh` | wire/unwire the Notification hook; `_selftest` |
