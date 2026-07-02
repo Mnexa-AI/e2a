@@ -55,6 +55,7 @@ describe("messages commands", () => {
 
     expect(mockList).toHaveBeenCalledWith("bot@agents.e2a.dev", {
       sort: "asc",
+      readStatus: "all", // poll-loop safe: never hide messages read elsewhere
       direction: "inbound",
       since: "2026-07-01T09:00:00Z",
       conversationId: "conv-1",
@@ -68,12 +69,27 @@ describe("messages commands", () => {
     );
   });
 
-  it("emits NDJSON with --json", async () => {
+  it("emits NDJSON with --json, renaming the generated _from to wire-stable from", async () => {
     mockList.mockReturnValue(summaries(M1));
     const { messagesList } = await import("../commands/messages.js");
     await messagesList({ json: true });
 
-    expect(mockStdout).toHaveBeenCalledWith(JSON.stringify(M1) + "\n");
+    const line = mockStdout.mock.calls[0][0] as string;
+    const parsed = JSON.parse(line);
+    expect(parsed.from).toBe("you@example.com");
+    expect(parsed._from).toBeUndefined();
+    expect(parsed.messageId).toBe("msg_1");
+    expect(parsed.createdAt).toBe("2026-07-01T10:00:00.000Z");
+  });
+
+  it("passes --read-status through and rejects invalid values", async () => {
+    mockList.mockReturnValue(summaries());
+    const { messagesList } = await import("../commands/messages.js");
+    await messagesList({ readStatus: "unread" });
+    expect(mockList.mock.calls[0][1].readStatus).toBe("unread");
+
+    await expect(messagesList({ readStatus: "sideways" })).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(2);
   });
 
   it("stops after --limit items", async () => {
@@ -117,6 +133,19 @@ describe("messages commands", () => {
 
     mockGet.mockResolvedValue({ messageId: "msg_2" });
     await messagesGet("msg_2", { text: true });
+    expect(mockStdout).toHaveBeenCalledWith("\n");
+  });
+
+  it("get --text respects an intentionally-empty parsed result (all-quoted reply)", async () => {
+    // parsed.text === "" means the parser ran and the reply was ALL quoted
+    // history — must NOT fall through to the unstripped raw body.
+    mockGet.mockResolvedValue({
+      messageId: "msg_q",
+      parsed: { text: "" },
+      body: { text: "> the entire quoted thread" },
+    });
+    const { messagesGet } = await import("../commands/messages.js");
+    await messagesGet("msg_q", { text: true });
     expect(mockStdout).toHaveBeenCalledWith("\n");
   });
 

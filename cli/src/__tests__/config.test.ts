@@ -62,6 +62,27 @@ describe("loadConfig", () => {
     expect(config.api_key).toBe("e2a_fromenv");
     expect(config.api_url).toBe("https://custom.dev");
   });
+
+  it("honors the tether env names: E2A_BASE_URL alias and E2A_AGENT_EMAIL", () => {
+    vi.mocked(readFileSync).mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+    process.env.E2A_BASE_URL = "https://api.selfhost.dev";
+    process.env.E2A_AGENT_EMAIL = "tether@agents.e2a.dev";
+    try {
+      const config = loadConfig();
+      expect(config.api_url).toBe("https://api.selfhost.dev");
+      expect(config.agent_email).toBe("tether@agents.e2a.dev");
+
+      // Canonical E2A_URL wins over the alias.
+      process.env.E2A_URL = "https://canonical.dev";
+      expect(loadConfig().api_url).toBe("https://canonical.dev");
+    } finally {
+      delete process.env.E2A_BASE_URL;
+      delete process.env.E2A_AGENT_EMAIL;
+      delete process.env.E2A_URL;
+    }
+  });
 });
 
 describe("saveConfig", () => {
@@ -137,7 +158,9 @@ describe("requireApiKey", () => {
       requireApiKey({ api_key: "", api_url: "", agent_email: "", shared_domain: "agents.e2a.dev" }),
     ).toThrow("process.exit");
 
-    expect(mockStderr).toHaveBeenCalledWith("Not authenticated. Run: e2a login\n");
+    expect(mockStderr).toHaveBeenCalledWith(
+      "Not authenticated. Run: e2a login (or set E2A_API_KEY)\n",
+    );
     // Missing credentials exit AUTH (4) per the scripting contract — not 1,
     // which scripts treat as a retryable transient error.
     expect(mockExit).toHaveBeenCalledWith(4);

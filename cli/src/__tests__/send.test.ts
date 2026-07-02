@@ -41,13 +41,35 @@ describe("send/reply commands", () => {
     const { send } = await import("../commands/send.js");
     await send({ to: ["you@example.com"], subject: "hi", body: "hello" });
 
-    expect(mockSend).toHaveBeenCalledWith("bot@agents.e2a.dev", {
-      to: ["you@example.com"],
-      subject: "hi",
-      body: "hello",
-    });
+    expect(mockSend).toHaveBeenCalledWith(
+      "bot@agents.e2a.dev",
+      { to: ["you@example.com"], subject: "hi", body: "hello" },
+      undefined,
+    );
     expect(mockStdout).toHaveBeenCalledWith("msg_abc\n");
     expect(mockExit).not.toHaveBeenCalled();
+  });
+
+  it("threads --idempotency-key through to the SDK request options", async () => {
+    mockSend.mockResolvedValue({ messageId: "msg_i", status: "sent" });
+    const { send } = await import("../commands/send.js");
+    await send({
+      to: ["you@example.com"],
+      subject: "s",
+      body: "b",
+      idempotencyKey: "evt-42",
+    });
+
+    expect(mockSend.mock.calls[0][2]).toEqual({ idempotencyKey: "evt-42" });
+  });
+
+  it("treats any non-'sent' status as HELD (open-set status contract)", async () => {
+    mockSend.mockResolvedValue({ messageId: "msg_u", status: "some_future_hold" });
+    const { send } = await import("../commands/send.js");
+    await send({ to: ["you@example.com"], subject: "s", body: "b" });
+
+    expect(mockStderr).toHaveBeenCalledWith(expect.stringContaining("some_future_hold"));
+    expect(process.exitCode).toBe(3);
   });
 
   it("sets exit code HELD (3) with a warning when the send is pending_review", async () => {
@@ -118,9 +140,12 @@ describe("send/reply commands", () => {
     const { reply } = await import("../commands/send.js");
 
     await reply("msg_orig", { body: "answer" });
-    expect(mockReply).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_orig", {
-      body: "answer",
-    });
+    expect(mockReply).toHaveBeenCalledWith(
+      "bot@agents.e2a.dev",
+      "msg_orig",
+      { body: "answer" },
+      undefined,
+    );
     expect(process.exitCode).toBe(3);
   });
 

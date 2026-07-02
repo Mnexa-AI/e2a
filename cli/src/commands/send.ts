@@ -13,6 +13,7 @@ export interface SendOptions {
   conversationId?: string;
   agent?: string;
   json?: boolean;
+  idempotencyKey?: string;
 }
 
 export interface ReplyOptions {
@@ -21,6 +22,7 @@ export interface ReplyOptions {
   htmlFile?: string;
   agent?: string;
   json?: boolean;
+  idempotencyKey?: string;
 }
 
 const SEND_USAGE =
@@ -66,10 +68,15 @@ function emitSendResult(result: SendResultView, json?: boolean): void {
   } else {
     process.stdout.write(result.messageId + "\n");
   }
-  if (result.status === "pending_review") {
+  // `status` is an OPEN SET per the spec ("tolerate unknown values") — so the
+  // delivered check is `=== "sent"`, inverted. A future held-variant status
+  // must fail loud (exit HELD), never slip through as exit 0: an unknown
+  // outcome is "not known to be delivered".
+  if (result.status !== "sent") {
     process.stderr.write(
-      "WARNING: held for review (pending_review) — the message did NOT reach the recipient. " +
-        "Disable outbound protection on this agent or approve it in the review queue.\n",
+      `WARNING: send returned status "${result.status}" — the message did NOT go out now. ` +
+        "pending_review means it is held for approval: disable outbound protection on this " +
+        "agent or approve it in the review queue.\n",
     );
     // exitCode + return, NOT process.exit(): a hard exit can truncate piped
     // stdout before the message id above flushes, and scripts need that id to
@@ -85,14 +92,21 @@ export async function send(opts: SendOptions): Promise<void> {
   const client = createClient();
   const agentEmail = requireAgentEmail(opts.agent);
   // Optional fields may be undefined — the generated serializer drops
-  // undefined-valued keys before they reach the wire.
-  const result = await client.messages.send(agentEmail, {
-    to: opts.to,
-    subject: opts.subject,
-    body,
-    htmlBody,
-    conversationId: opts.conversationId,
-  });
+  // undefined-valued keys before they reach the wire. An explicit
+  // --idempotency-key makes a *re-invocation* after an ambiguous failure
+  // dedupe server-side (the SDK's auto-minted key only survives in-process
+  // retries).
+  const result = await client.messages.send(
+    agentEmail,
+    {
+      to: opts.to,
+      subject: opts.subject,
+      body,
+      htmlBody,
+      conversationId: opts.conversationId,
+    },
+    opts.idempotencyKey ? { idempotencyKey: opts.idempotencyKey } : undefined,
+  );
   emitSendResult(result, opts.json);
 }
 
@@ -102,6 +116,11 @@ export async function reply(messageId: string | undefined, opts: ReplyOptions): 
 
   const client = createClient();
   const agentEmail = requireAgentEmail(opts.agent);
-  const result = await client.messages.reply(agentEmail, messageId, { body, htmlBody });
+  const result = await client.messages.reply(
+    agentEmail,
+    messageId,
+    { body, htmlBody },
+    opts.idempotencyKey ? { idempotencyKey: opts.idempotencyKey } : undefined,
+  );
   emitSendResult(result, opts.json);
 }

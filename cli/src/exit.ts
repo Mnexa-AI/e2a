@@ -17,7 +17,13 @@ export const EXIT = {
   HELD: 3,
   /** Bad credentials or wrong key scope for the operation. */
   AUTH: 4,
-  // 5 is earmarked for deadline-bounded waits (listen --once) and ships with
+  /**
+   * Permanent request error (404 / 409 / 422 …) — retrying the identical
+   * invocation cannot succeed. Distinguished from ERROR so retry-on-1
+   * wrappers don't hammer a typo'd message id or an unverified domain.
+   */
+  REQUEST: 5,
+  // 6 is earmarked for deadline-bounded waits (listen --once) and ships with
   // that feature — a code must never be published in --help before an
   // invocation can actually produce it.
 } as const;

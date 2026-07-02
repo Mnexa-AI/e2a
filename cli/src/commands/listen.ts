@@ -9,7 +9,7 @@ export interface ListenOptions {
 }
 
 export async function listen(opts: ListenOptions): Promise<void> {
-  const client = createClient({ from: opts.agent });
+  const client = createClient();
   const agentEmail = requireAgentEmail(opts.agent);
 
   process.stderr.write(`Listening for emails to ${agentEmail}...\n`);

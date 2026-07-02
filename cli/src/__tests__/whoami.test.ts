@@ -7,6 +7,15 @@ vi.mock("../sdk.js", () => ({
   requireAgentEmail: vi.fn(() => "bot@agents.e2a.dev"),
 }));
 
+vi.mock("../config.js", () => ({
+  loadConfig: vi.fn(() => ({
+    api_key: "e2a_testkey",
+    api_url: "https://e2a.dev",
+    agent_email: "bot@agents.e2a.dev",
+    shared_domain: "agents.e2a.dev",
+  })),
+}));
+
 function makeAccount(overrides: Record<string, unknown> = {}) {
   return {
     user: { id: "usr_1", email: "owner@example.com" },
@@ -39,7 +48,9 @@ describe("whoami command", () => {
     const output = mockStdout.mock.calls.map((c: unknown[]) => c[0]).join("");
     expect(output).toContain("user:  owner@example.com (usr_1)");
     expect(output).toContain("scope: account");
-    expect(output).not.toContain("agent:");
+    // Account keys aren't inbox-bound; the preflight shows the config default
+    // that send/reply will actually use.
+    expect(output).toContain("agent: bot@agents.e2a.dev (default from config/E2A_AGENT_EMAIL)");
     expect(output).toContain("plan:  free");
     expect(output).toContain("usage: 2/5 agents, 17/1000 messages this month");
   });

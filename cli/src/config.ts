@@ -43,9 +43,14 @@ export function loadConfig(): Config {
     // No config file yet
   }
 
-  // Env vars override file
+  // Env vars override file. E2A_BASE_URL is accepted as an alias for E2A_URL
+  // and E2A_AGENT_EMAIL selects the inbox — these are the exact names the
+  // tether harness trains users to export, so ignoring them is a silent trap
+  // for the CLI's primary scripting consumer. E2A_URL wins over the alias.
   if (process.env.E2A_API_KEY) config.api_key = process.env.E2A_API_KEY;
   if (process.env.E2A_URL) config.api_url = process.env.E2A_URL;
+  else if (process.env.E2A_BASE_URL) config.api_url = process.env.E2A_BASE_URL;
+  if (process.env.E2A_AGENT_EMAIL) config.agent_email = process.env.E2A_AGENT_EMAIL;
   if (process.env.E2A_SHARED_DOMAIN) config.shared_domain = process.env.E2A_SHARED_DOMAIN;
 
   return config;
@@ -88,9 +93,9 @@ export function saveConfig(updates: Partial<Config>): void {
   if ("agent_email" in updates) {
     if (updates.agent_email) fileConfig.agent_email = updates.agent_email;
     else delete fileConfig.agent_email;
-  } else if (merged.agent_email) {
+  } else if (!process.env.E2A_AGENT_EMAIL && merged.agent_email) {
     fileConfig.agent_email = merged.agent_email;
-  } else {
+  } else if (!process.env.E2A_AGENT_EMAIL) {
     delete fileConfig.agent_email;
   }
 
@@ -121,7 +126,8 @@ export function requireApiKey(config: Config): string {
   if (!config.api_key) {
     // Missing credentials are an auth failure per the documented exit-code
     // contract (4) — never 1, which scripts treat as retryable-transient.
-    process.stderr.write("Not authenticated. Run: e2a login\n");
+    // Name the headless path too: `login` needs a browser on this machine.
+    process.stderr.write("Not authenticated. Run: e2a login (or set E2A_API_KEY)\n");
     process.exit(EXIT.AUTH);
   }
   return config.api_key;

@@ -19,7 +19,7 @@ import { whoami } from "../commands/whoami.js";
 import { send, reply } from "../commands/send.js";
 import { messagesList, messagesGet } from "../commands/messages.js";
 import { EXIT } from "../exit.js";
-import { E2AAuthError, E2APermissionError } from "@e2a/sdk/v1";
+import { E2AError, E2AAuthError, E2APermissionError } from "@e2a/sdk/v1";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
@@ -40,17 +40,23 @@ Usage:
         --subject <s>              Subject line
         --body <text>              Plain-text body (or --body-file <f>)
         --html-file <f>            HTML body; text fallback derived if no --body
-        --conversation-id <id>     Thread id for the agent's own threading
-        --agent <email>            Sending inbox (or config agent_email)
+        --conversation-id <id>     Thread id (alias: --conversation)
+        --idempotency-key <k>      Stable key so a retried invocation can't double-send
+        --agent <email>            Sending inbox (or config agent_email / E2A_AGENT_EMAIL)
         --json                     Print the full send result as JSON
   e2a reply <message-id> [options]  Reply in-thread (same body options as send)
   e2a messages list [options]       List messages, oldest first
         --direction <d>            inbound|outbound|all
-        --since <ISO>              Only messages after this timestamp
-        --conversation <id>        Filter to one conversation
+        --since <ISO>              Messages created AT or after this timestamp
+                                   (inclusive — dedup by message id when cursoring)
+        --conversation <id>        Filter to one conversation (alias: --conversation-id)
+        --read-status <s>          unread|read|all (default all — safe for poll loops)
         --limit <n>                Stop after n messages
+        --agent <email>            Inbox to list (or config agent_email)
         --json                     NDJSON instead of TSV (id, from, created_at)
-  e2a messages get <id> [--text]    Fetch one message (--text = body text only)
+  e2a messages get <id> [--text]    Fetch one message; marks it read
+        --text                     Print body text only (parsed reply-text preferred)
+        --agent <email>            Inbox to read (or config agent_email)
   e2a listen [options]              Stream inbound email over WebSocket
         --agent <email>            Agent inbox to listen on (or config agent_email)
         --forward <url>            POST each message to a local URL (dev webhook proxy)
@@ -64,10 +70,11 @@ Options:
 
 Exit codes (stable scripting contract):
   0  success
-  1  network / server / unexpected error
+  1  transient error (network / 5xx / rate limit) — retry may help
   2  usage error (bad flags or arguments)
   3  send accepted but HELD for review (pending_review) — not delivered
   4  bad credentials or wrong key scope
+  5  permanent request error (not found / invalid / conflict) — do NOT retry
 `;
 
 function parseArgs(argv: string[]): { command: string; args: string[] } {
@@ -160,6 +167,29 @@ function getFlagsChecked(args: string[], flag: string): string[] {
   return values;
 }
 
+/**
+ * Reject flags a command doesn't know, loudly. Without this, a typo'd
+ * `--conversation-id` on `messages list` silently widens the query to the
+ * whole mailbox with exit 0 — the silent-corruption class the exit-code
+ * contract exists to prevent. Also rejects `--flag=value` (unsupported form)
+ * with a pointer at the space-separated syntax.
+ */
+function checkFlags(args: string[], allowed: string[]): void {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (!arg.startsWith("--")) continue;
+    if (arg.includes("=")) {
+      process.stderr.write(`${arg}: use space-separated values (--flag value), not --flag=value\n`);
+      process.exit(EXIT.USAGE);
+    }
+    if (!allowed.includes(arg)) {
+      process.stderr.write(`unknown flag: ${arg} (see e2a --help)\n`);
+      process.exit(EXIT.USAGE);
+    }
+    if (!BOOLEAN_FLAGS.has(arg)) i++; // skip the flag's value
+  }
+}
+
 async function main() {
   const { command, args } = parseArgs(process.argv);
 
@@ -184,26 +214,39 @@ async function main() {
       await login();
       break;
     case "whoami":
+      checkFlags(args, ["--json"]);
       await whoami({ json: hasFlag(args, "--json") });
       break;
     case "send":
+      checkFlags(args, [
+        "--to", "--subject", "--body", "--body-file", "--html-file",
+        "--conversation-id", "--conversation", "--agent", "--idempotency-key", "--json",
+      ]);
       await send({
         to: getFlagsChecked(args, "--to"),
         subject: getFlagChecked(args, "--subject"),
         body: getFlagChecked(args, "--body"),
         bodyFile: getFlagChecked(args, "--body-file"),
         htmlFile: getFlagChecked(args, "--html-file"),
-        conversationId: getFlagChecked(args, "--conversation-id"),
+        // --conversation accepted as an alias so send and messages list can't
+        // trip each other's spelling.
+        conversationId:
+          getFlagChecked(args, "--conversation-id") ?? getFlagChecked(args, "--conversation"),
         agent: getFlagChecked(args, "--agent"),
+        idempotencyKey: getFlagChecked(args, "--idempotency-key"),
         json: hasFlag(args, "--json"),
       });
       break;
     case "reply":
+      checkFlags(args, [
+        "--body", "--body-file", "--html-file", "--agent", "--idempotency-key", "--json",
+      ]);
       await reply(getPositionals(args)[0], {
         body: getFlagChecked(args, "--body"),
         bodyFile: getFlagChecked(args, "--body-file"),
         htmlFile: getFlagChecked(args, "--html-file"),
         agent: getFlagChecked(args, "--agent"),
+        idempotencyKey: getFlagChecked(args, "--idempotency-key"),
         json: hasFlag(args, "--json"),
       });
       break;
@@ -211,15 +254,22 @@ async function main() {
       const sub = args[0];
       const rest = args.slice(1);
       if (sub === "list") {
+        checkFlags(rest, [
+          "--direction", "--since", "--conversation", "--conversation-id",
+          "--read-status", "--limit", "--agent", "--json",
+        ]);
         await messagesList({
           agent: getFlagChecked(rest, "--agent"),
           direction: getFlagChecked(rest, "--direction"),
           since: getFlagChecked(rest, "--since"),
-          conversation: getFlagChecked(rest, "--conversation"),
+          conversation:
+            getFlagChecked(rest, "--conversation") ?? getFlagChecked(rest, "--conversation-id"),
+          readStatus: getFlagChecked(rest, "--read-status"),
           limit: getFlagChecked(rest, "--limit"),
           json: hasFlag(rest, "--json"),
         });
       } else if (sub === "get") {
+        checkFlags(rest, ["--text", "--json", "--agent"]);
         await messagesGet(getPositionals(rest)[0], {
           agent: getFlagChecked(rest, "--agent"),
           text: hasFlag(rest, "--text"),
@@ -232,11 +282,14 @@ async function main() {
       break;
     }
     case "listen":
+      checkFlags(args, ["--agent", "--forward", "--forward-token", "--json"]);
       await listen({
-        agent: getFlag(args, "--agent"),
+        agent: getFlagChecked(args, "--agent"),
         json: hasFlag(args, "--json"),
-        forward: getFlag(args, "--forward"),
-        forwardToken: getFlag(args, "--forward-token"),
+        // Checked variants: `listen --forward` with a missing value used to
+        // silently listen WITHOUT forwarding — the silent-drop class again.
+        forward: getFlagChecked(args, "--forward"),
+        forwardToken: getFlagChecked(args, "--forward-token"),
       });
       break;
     case "config":
@@ -254,11 +307,16 @@ const isTestImport = typeof process !== "undefined" && !!process.env.VITEST_WORK
 
 if (!isTestImport) {
   main().catch((err) => {
-    process.stderr.write(`Error: ${err.message}\n`);
-    // Auth failures get their own exit code so scripts can distinguish "fix
-    // your key" from a transient error worth retrying.
+    // Print the API error code when present so scripts can grep it even
+    // without branching on exit codes.
+    const code = err instanceof E2AError && err.code ? ` [${err.code}]` : "";
+    process.stderr.write(`Error: ${err.message}${code}\n`);
+    // Contract mapping: AUTH (4) = fix your key; REQUEST (5) = permanent
+    // request error (404/409/422 — the SDK marks these non-retryable), do NOT
+    // retry the identical invocation; ERROR (1) = transient, retry may help.
     const isAuth = err instanceof E2AAuthError || err instanceof E2APermissionError;
-    process.exit(isAuth ? EXIT.AUTH : EXIT.ERROR);
+    const isPermanent = !isAuth && err instanceof E2AError && !err.retryable;
+    process.exit(isAuth ? EXIT.AUTH : isPermanent ? EXIT.REQUEST : EXIT.ERROR);
   });
 }
 

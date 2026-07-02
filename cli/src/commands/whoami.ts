@@ -1,4 +1,5 @@
 import { createClient } from "../sdk.js";
+import { loadConfig } from "../config.js";
 
 export interface WhoamiOptions {
   json?: boolean;
@@ -20,6 +21,15 @@ export async function whoami(opts: WhoamiOptions): Promise<void> {
   process.stdout.write(`scope: ${account.scope}\n`);
   if (account.agentAddress) {
     process.stdout.write(`agent: ${account.agentAddress}\n`);
+  } else {
+    // Account-scoped keys aren't bound to an inbox — show what send/reply
+    // will actually use, so the preflight answers "which inbox am I?".
+    const agentEmail = loadConfig().agent_email;
+    process.stdout.write(
+      agentEmail
+        ? `agent: ${agentEmail} (default from config/E2A_AGENT_EMAIL)\n`
+        : "agent: (none set — use --agent, E2A_AGENT_EMAIL, or e2a config set agent_email)\n",
+    );
   }
   process.stdout.write(`plan:  ${account.planCode}\n`);
   process.stdout.write(
