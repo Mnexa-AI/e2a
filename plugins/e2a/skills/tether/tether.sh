@@ -67,6 +67,7 @@ question or instruction; reply \"stop\" to end early.
       exit 1
     fi
     t_state_set armed 1 to "$to" conversation_id "$conv" last_message_id "$mid" \
+      intro_id "$mid" \
       last_poll "$(t_now_iso)" project "$proj" started_at "$(t_now_iso)" expires_at "$expires"
     echo "tether: started — thread ${conv} → ${to} (intro ${mid}); window: ${window}${expires:+ (until ${expires})}"
     ;;
@@ -95,8 +96,7 @@ question or instruction; reply \"stop\" to end early.
     fi
     [ -n "$msg" ] || { echo "usage: tether.sh update \"<text>\"  |  update --html <file> [--text \"<fallback>\"]  (either form: [--attach <file>]...)"; exit 2; }
     if [ "${#attach[@]}" -gt 0 ]; then t_attach_check "${attach[@]}" || exit $?; fi
-    rid="$(t_state_get last_message_id)"
-    mid="$(t_api_reply "$rid" "$msg" "$html" ${attach[@]+"${attach[@]}"})"; rc=$?
+    mid="$(t_reply_anchored "$msg" "$html" ${attach[@]+"${attach[@]}"})"; rc=$?
     if [ -z "$mid" ]; then echo "tether: update send failed"; exit 1; fi
     t_state_set last_message_id "$mid"
     if [ "$rc" = "2" ]; then
@@ -165,8 +165,7 @@ question or instruction; reply \"stop\" to end early.
     # and doesn't steal the answer; released on any exit (reply, timeout, error).
     trap 't_ask_end' EXIT INT TERM
     t_ask_begin
-    rid="$(t_state_get last_message_id)"
-    mid="$(t_api_reply "$rid" "❓ ${q}
+    mid="$(t_reply_anchored "❓ ${q}
 
 (Reply to this email with your answer — I'll wait for it.)" "" ${attach[@]+"${attach[@]}"})"; rc=$?
     [ -n "$mid" ] || { echo "tether: ask send failed"; exit 1; }
@@ -205,8 +204,7 @@ question or instruction; reply \"stop\" to end early.
 
   stop)
     if [ "$(t_state_get armed)" = "1" ] && t_load_config; then
-      rid="$(t_state_get last_message_id)"
-      [ -n "$rid" ] && t_api_reply "$rid" "Tether ended. Session is no longer listening." >/dev/null 2>&1 || true
+      t_reply_anchored "Tether ended. Session is no longer listening." >/dev/null 2>&1 || true
     fi
     t_state_clear
     echo "tether: stopped"

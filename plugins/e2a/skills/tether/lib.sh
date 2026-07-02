@@ -198,10 +198,43 @@ except Exception:print("")')"
 try:print(json.load(sys.stdin).get("message_id",""))
 except Exception:print("")')"
   printf '%s' "$mid"
+  if [ -z "$mid" ]; then
+    # Distinguish "this anchor is not repliable" (404) from other failures so
+    # t_reply_anchored can fall back to another anchor instead of giving up.
+    local ecode
+    ecode="$(printf '%s' "$resp" | python3 -c 'import json,sys
+try:print((json.load(sys.stdin).get("error") or {}).get("code",""))
+except Exception:print("")')"
+    [ "$ecode" = "not_found" ] && return 3
+    return 1
+  fi
   if [ "$status" = "pending_review" ]; then
     echo "tether: WARNING reply held (pending_review) — disable protection on ${E2A_AGENT_EMAIL}" >&2
     return 2
   fi
+}
+
+# t_reply_anchored <body> <html> [attach_file ...] → send a threaded reply,
+# trying anchors in order: the last message in the thread (best Gmail
+# threading), then the user's last inbound reply, then the intro. Hosted APIs
+# that predate reply-to-own-outbound (#360) 404 when the anchor is a
+# reply-created outbound message — without this fallback, the SECOND of two
+# consecutive updates with no user reply in between is silently undeliverable.
+# Prints the new message_id; propagates t_api_reply's return code.
+t_reply_anchored() {
+  local body="$1" html="${2:-}"
+  shift 1; [ $# -gt 0 ] && shift
+  local tried="" rid mid rc
+  for rid in "$(t_state_get last_message_id)" "$(t_state_get last_inbound_id)" "$(t_state_get intro_id)"; do
+    [ -n "$rid" ] || continue
+    case " $tried " in *" $rid "*) continue;; esac
+    tried="$tried $rid"
+    mid="$(t_api_reply "$rid" "$body" "$html" "$@")"; rc=$?
+    [ "$rc" = "3" ] && continue   # anchor not repliable here — try the next one
+    printf '%s' "$mid"; return $rc
+  done
+  echo "tether: no repliable anchor (tried:${tried})" >&2
+  return 3
 }
 
 # strip HTML tags → a plain-text fallback (crude but fine for email body)
@@ -303,7 +336,10 @@ t_poll_once() {
     fi
     t_seen_add "$id"; advance="$created"; n=$((n+1))
     printf '── reply from %s @ %s ──\n%s\n\n' "$from" "$created" "$body"
-    t_state_set last_message_id "$id"
+    # last_inbound_id is the always-repliable fallback anchor for
+    # t_reply_anchored (an inbound message is a valid reply target on every
+    # API version; the agent's own reply-created outbound may not be).
+    t_state_set last_message_id "$id" last_inbound_id "$id"
   done <<< "$rows"
   t_state_set last_poll "$advance"
   [ "$n" -gt 0 ] || echo "(no new replies)"
