@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tether.sh — the runtime CLI the agent calls to stay in touch over email.
 #
-#   tether.sh start <email> [--for 2h|8h|30m|1d] [--until <ISO>]  open + arm
+#   tether.sh start <email> [--title "<work>"] [--for 2h|8h|30m|1d] [--until <ISO>]  open + arm
 #   tether.sh update "<message>"   send a threaded update ("as you see fit")
 #   tether.sh update --html <file> send an HTML update (+ auto text fallback)
 #   tether.sh ask "<question>"     email a question and BLOCK until the reply
@@ -26,17 +26,18 @@ need_armed()  { [ "$(t_state_get armed)" = "1" ] || { echo "tether: not started 
 
 case "$cmd" in
   start)
-    # start <email> [--for 30m|2h|8h|1d] [--until <ISO>]
+    # start <email> [--title "<work>"] [--for 30m|2h|8h|1d] [--until <ISO>]
     need_config
-    to=""; forarg=""; untilarg=""
+    to=""; forarg=""; untilarg=""; title=""
     while [ $# -gt 0 ]; do
       case "$1" in
+        --title) title="${2:-}"; shift 2;;
         --for) forarg="${2:-}"; shift 2;;
         --until) untilarg="${2:-}"; shift 2;;
         *) to="$1"; shift;;
       esac
     done
-    [ -n "$to" ] || { echo "usage: tether.sh start <your-email> [--for 2h|8h|30m|1d] [--until <ISO>]"; exit 2; }
+    [ -n "$to" ] || { echo "usage: tether.sh start <your-email> [--title \"<work>\"] [--for 2h|8h|30m|1d] [--until <ISO>]"; exit 2; }
     expires=""
     if [ -n "$untilarg" ]; then expires="$untilarg"
     elif [ -n "$forarg" ]; then
@@ -46,14 +47,18 @@ case "$cmd" in
     window="${forarg:-${untilarg:-until you say stop}}"
     proj="$(basename "$PWD")"
     conv="tether-$(date +%s)-$$"
-    intro="🪢 Tethered — ${proj}
+    # Subject = the thread's one stable title (threading replies onto it), so
+    # make it say what the session is DOING, not just where it's running.
+    subject="Tether: ${proj}"
+    [ -n "$title" ] && subject="Tether: ${proj} — ${title}"
+    intro="🪢 Tethered — ${proj}${title:+ — ${title}}
 
 This session is now tethered (${window}). I'll send updates to this thread as I
 make meaningful progress, and I'll pick up your replies. Reply any time with a
 question or instruction; reply \"stop\" to end early.
 
 — your coding agent"
-    mid="$(t_api_send "$to" "Tether: ${proj}" "$intro" "$conv")"; rc=$?
+    mid="$(t_api_send "$to" "$subject" "$intro" "$conv")"; rc=$?
     [ -n "$mid" ] || { echo "tether: intro send failed (check creds / base url / agent protection)"; exit 1; }
     if [ "$rc" = "2" ]; then
       echo "tether: intro was HELD for review (pending_review) — the user won't receive it, so NOT arming."

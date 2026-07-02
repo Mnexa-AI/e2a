@@ -110,18 +110,25 @@ Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
 1. **Ask** the user's email address **and how long to stay tethered** (e.g. 30m,
    2h, 8h/overnight, or until they say stop). They're present at this step, so a
    normal question is fine.
-2. **Start**: `"$T" start <email> --for <duration>` (or `--until <ISO>`; omit
-   both for until-stop) — sends the intro, opens the thread, arms, records the
-   window. `--for` takes a **single unit** (`30m`, `2h`, `8h`, `1d`); a compound
+2. **Start**: `"$T" start <email> --title "<work>" --for <duration>` (or
+   `--until <ISO>`; omit both for until-stop) — sends the intro, opens the
+   thread, arms, records the window. **Always pass `--title`** with a short
+   description of the work being done (e.g. `"migrate loft → @e2a/ui"`, `"fix
+   webhook retries"`) — it becomes the thread's subject line
+   (`Tether: <repo> — <title>`), which is how the user tells this session apart
+   from others in their inbox. The subject is fixed at start (threading needs it
+   stable), so title the *work*, not the first step. `--for` takes a **single
+   unit** (`30m`, `2h`, `8h`, `1d`); a compound
    like `1h30m` is rejected rather than silently treated as no-limit. If the intro
    comes back **held for review** (`pending_review`), `start` refuses to arm and
    tells you to turn protection off — a held intro means the user never got it.
-3. **Work**, and **send updates as you see fit**: `"$T" update "<what changed / what you need>"`.
-   Good moments: finished a slice, made a decision that's worth surfacing, hit a
-   blocker, or before a long unattended stretch. Skip trivial turns. For a rich
-   update (diagram, table, formatting), write the HTML to a file and run
+3. **Work**, and **send updates as you see fit** — **prefer HTML**, it renders
+   far better in mail clients: write the HTML to a file and run
    `"$T" update --html <file>` — a plain-text fallback is auto-derived (or pass
-   `--text "<fallback>"`). If `update` prints a `HELD for review (pending_review)`
+   `--text "<fallback>"`). Plain `"$T" update "<text>"` is for quick one-liner
+   acks only. Good moments: finished a slice, made a decision that's worth
+   surfacing, hit a blocker, or before a long unattended stretch. Skip trivial
+   turns. If `update` prints a `HELD for review (pending_review)`
    warning (exit 2), the update did **not** reach the user — stop and fix
    protection before continuing; don't keep "reporting" into a review queue.
 4. **Need a decision from the user? Ask by email — never the terminal.** Run
@@ -149,18 +156,10 @@ Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
 The recipient is a **person reading email (often on a phone)**, not a terminal.
 Write for that medium, not for a CLI.
 
-**Plain text (default — use for most updates):**
-- Lead with the takeaway (what changed / what you need), then details. Keep it
-  short and scannable.
-- **No markdown** — `**bold**`, `` `code` ``, `#` headings render as literal
-  characters in a plain-text email. Use plain prose and simple `-` bullets.
-- Be concrete: name the file / PR / decision ("merged #357"), not "did some work".
-- If you need something, end with **one clear ask** ("Reply A or B?").
-- No large code/log dumps — summarize or link. Don't paste stack traces.
-
-**HTML (`update --html <file>` — use when structure earns it):**
-- Reach for it for a diagram, table, before/after, or a multi-section status —
-  not for a one-liner.
+**HTML (`update --html <file>` — the default; use it for any substantive update):**
+- HTML renders far better than plain text in real mail clients. Reach for it
+  for anything beyond a quick one-liner: a status update, a summary, a
+  question with options, a diagram, a table, a before/after.
 - **Mobile-first** (learned the hard way): `max-width:~480px`, **inline styles
   only** (email strips `<style>`/`<head>`), readable sizes (14–15px), and a
   **vertical/stacked layout**. Avoid wide tables and big ASCII in `<pre>` — they
@@ -169,7 +168,19 @@ Write for that medium, not for a CLI.
 - Use a system font stack; keep colors subtle. `update` auto-derives the
   plain-text fallback, so HTML sends are always safe.
 
+**Plain text (`update "<text>"` — quick one-liner acks only):**
+- Fine for a fast acknowledgement ("on it — rerunning the tests") or a
+  single-sentence status. Anything with structure should be HTML.
+- **No markdown** — `**bold**`, `` `code` ``, `#` headings render as literal
+  characters in a plain-text email. Use plain prose.
+- Note: `ask` is plain-text only — keep questions short and prose-only there.
+
 **Both:**
+- Lead with the takeaway (what changed / what you need), then details. Keep it
+  short and scannable.
+- Be concrete: name the file / PR / decision ("merged #357"), not "did some work".
+- If you need something, end with **one clear ask** ("Reply A or B?").
+- No large code/log dumps — summarize or link. Don't paste stack traces.
 - **Acknowledge fast.** When a reply comes in, a quick "on it — doing X" beats
   silence; there's inherent email latency, so don't leave the user wondering if
   you heard them.
@@ -218,7 +229,7 @@ it's cheap, so 20–30s is fine.
 
 | file | role |
 |---|---|
-| `tether.sh` | runtime CLI: `start [--for]` / `update` / `ask` / `listen` / `poll` / `status` / `stop` |
+| `tether.sh` | runtime CLI: `start [--title] [--for]` / `update` / `ask` / `listen` / `poll` / `status` / `stop` |
 | `lib.sh` | config + e2a send/reply/poll helpers |
 | `hooks/tether-notify.sh` | optional Notification hook (blocked-alert) |
 | `install.sh` | wire/unwire the Notification hook; `_selftest` |
