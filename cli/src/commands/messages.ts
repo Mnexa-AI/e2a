@@ -23,9 +23,9 @@ const GET_USAGE = "usage: e2a messages get <message-id> [--text] [--agent <inbox
 
 const DIRECTIONS = ["inbound", "outbound", "all"] as const;
 
-function isoString(d: Date | string): string {
-  return d instanceof Date ? d.toISOString() : String(d);
-}
+// The server pages at 50 by default but allows 100; always ask for the max so
+// draining a mailbox costs half the round trips.
+const MAX_PAGE_SIZE = 100;
 
 // Default output is TSV (message_id, from, created_at) in ascending order —
 // the shape a shell poll loop wants (`while IFS=$'\t' read -r id from at`).
@@ -45,8 +45,8 @@ export async function messagesList(opts: MessagesListOptions): Promise<void> {
   if (opts.limit !== undefined) {
     max = Number(opts.limit);
     if (!Number.isInteger(max) || max <= 0) fail(EXIT.USAGE, LIST_USAGE);
-    params.limit = Math.min(max, 100);
   }
+  params.limit = Math.min(max ?? MAX_PAGE_SIZE, MAX_PAGE_SIZE);
 
   const client = createClient();
   const agentEmail = requireAgentEmail(opts.agent);
@@ -56,7 +56,7 @@ export async function messagesList(opts: MessagesListOptions): Promise<void> {
     if (opts.json) {
       process.stdout.write(JSON.stringify(m) + "\n");
     } else {
-      process.stdout.write(`${m.messageId}\t${m._from}\t${isoString(m.createdAt)}\n`);
+      process.stdout.write(`${m.messageId}\t${m._from}\t${m.createdAt.toISOString()}\n`);
     }
     count++;
     if (max !== undefined && count >= max) break;
@@ -68,6 +68,9 @@ export async function messagesGet(
   opts: MessagesGetOptions,
 ): Promise<void> {
   if (!messageId) fail(EXIT.USAGE, GET_USAGE);
+  // JSON is the default output, so --json is accepted as an explicit alias —
+  // but combining it with --text is a contradiction, not a precedence puzzle.
+  if (opts.text && opts.json) fail(EXIT.USAGE, "--text and --json are mutually exclusive");
 
   const client = createClient();
   const agentEmail = requireAgentEmail(opts.agent);

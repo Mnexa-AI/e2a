@@ -58,6 +58,7 @@ describe("messages commands", () => {
       direction: "inbound",
       since: "2026-07-01T09:00:00Z",
       conversationId: "conv-1",
+      limit: 100, // unbounded lists page at the server max, not its 50 default
     });
     expect(mockStdout).toHaveBeenCalledWith(
       "msg_1\tyou@example.com\t2026-07-01T10:00:00.000Z\n",
@@ -131,6 +132,14 @@ describe("messages commands", () => {
   it("get exits USAGE (2) without a message id", async () => {
     const { messagesGet } = await import("../commands/messages.js");
     await expect(messagesGet(undefined, {})).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(2);
+  });
+
+  it("get exits USAGE (2) when --text and --json are combined", async () => {
+    const { messagesGet } = await import("../commands/messages.js");
+    await expect(messagesGet("msg_1", { text: true, json: true })).rejects.toThrow(
+      "process.exit",
+    );
     expect(mockExit).toHaveBeenCalledWith(2);
   });
 });

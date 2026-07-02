@@ -1,5 +1,6 @@
 import { E2AClient } from "@e2a/sdk/v1";
 import { loadConfig, requireApiKey } from "./config.js";
+import { EXIT, fail } from "./exit.js";
 
 export function createClient(_opts?: { from?: string }): E2AClient {
   const config = loadConfig();
@@ -11,10 +12,9 @@ export function requireAgentEmail(fromOverride?: string): string {
   const config = loadConfig();
   const email = fromOverride || config.agent_email;
   if (!email) {
-    process.stderr.write(
-      "No agent email. Use --agent or run: e2a config set agent_email <email>\n",
-    );
-    process.exit(1);
+    // A missing inbox selection is a fixable invocation problem → USAGE (2),
+    // per the documented exit-code contract.
+    fail(EXIT.USAGE, "No agent email. Use --agent or run: e2a config set agent_email <email>");
   }
   return email;
 }

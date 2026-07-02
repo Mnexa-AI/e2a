@@ -138,7 +138,9 @@ describe("requireApiKey", () => {
     ).toThrow("process.exit");
 
     expect(mockStderr).toHaveBeenCalledWith("Not authenticated. Run: e2a login\n");
-    expect(mockExit).toHaveBeenCalledWith(1);
+    // Missing credentials exit AUTH (4) per the scripting contract — not 1,
+    // which scripts treat as a retryable transient error.
+    expect(mockExit).toHaveBeenCalledWith(4);
 
     mockExit.mockRestore();
     mockStderr.mockRestore();

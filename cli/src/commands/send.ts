@@ -48,7 +48,10 @@ export function resolveBodies(
   const htmlBody = opts.htmlFile ? readFileOrUsage(opts.htmlFile, "--html-file") : undefined;
   let body = opts.body ?? (opts.bodyFile ? readFileOrUsage(opts.bodyFile, "--body-file") : undefined);
   if (body === undefined && htmlBody !== undefined) body = htmlToText(htmlBody);
-  if (!body) fail(EXIT.USAGE, usage);
+  // Only "no body source at all" is a usage error. An empty string is legal:
+  // markup-only HTML (images/tables, no text nodes) derives "" and must still
+  // send — the HTML part is the real content.
+  if (body === undefined) fail(EXIT.USAGE, usage);
   return { body, htmlBody };
 }
 
@@ -68,7 +71,10 @@ function emitSendResult(result: SendResultView, json?: boolean): void {
       "WARNING: held for review (pending_review) — the message did NOT reach the recipient. " +
         "Disable outbound protection on this agent or approve it in the review queue.\n",
     );
-    process.exit(EXIT.HELD);
+    // exitCode + return, NOT process.exit(): a hard exit can truncate piped
+    // stdout before the message id above flushes, and scripts need that id to
+    // approve the held message.
+    process.exitCode = EXIT.HELD;
   }
 }
 
@@ -78,12 +84,14 @@ export async function send(opts: SendOptions): Promise<void> {
 
   const client = createClient();
   const agentEmail = requireAgentEmail(opts.agent);
+  // Optional fields may be undefined — the generated serializer drops
+  // undefined-valued keys before they reach the wire.
   const result = await client.messages.send(agentEmail, {
     to: opts.to,
     subject: opts.subject,
     body,
-    ...(htmlBody !== undefined ? { htmlBody } : {}),
-    ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
+    htmlBody,
+    conversationId: opts.conversationId,
   });
   emitSendResult(result, opts.json);
 }
@@ -94,9 +102,6 @@ export async function reply(messageId: string | undefined, opts: ReplyOptions): 
 
   const client = createClient();
   const agentEmail = requireAgentEmail(opts.agent);
-  const result = await client.messages.reply(agentEmail, messageId, {
-    body,
-    ...(htmlBody !== undefined ? { htmlBody } : {}),
-  });
+  const result = await client.messages.reply(agentEmail, messageId, { body, htmlBody });
   emitSendResult(result, opts.json);
 }

@@ -31,6 +31,9 @@ describe("send/reply commands", () => {
     mockStderr.mockRestore();
     mockExit.mockRestore();
     vi.clearAllMocks();
+    // The held path sets process.exitCode (flush-safe) instead of exiting;
+    // reset it so a passing suite doesn't report a nonzero exit.
+    process.exitCode = 0;
   });
 
   it("sends a plain-text message and prints the message id", async () => {
@@ -47,19 +50,19 @@ describe("send/reply commands", () => {
     expect(mockExit).not.toHaveBeenCalled();
   });
 
-  it("exits HELD (3) with a warning when the send is pending_review", async () => {
+  it("sets exit code HELD (3) with a warning when the send is pending_review", async () => {
     mockSend.mockResolvedValue({ messageId: "msg_held", status: "pending_review" });
     const { send } = await import("../commands/send.js");
 
-    await expect(
-      send({ to: ["you@example.com"], subject: "hi", body: "hello" }),
-    ).rejects.toThrow("process.exit");
+    await send({ to: ["you@example.com"], subject: "hi", body: "hello" });
 
     // The id is still printed (the message exists, parked in the queue) …
     expect(mockStdout).toHaveBeenCalledWith("msg_held\n");
-    // … but the held contract fires: warning + exit 3.
+    // … and the held contract fires via exitCode (not process.exit, which
+    // could truncate the piped stdout carrying the id).
     expect(mockStderr).toHaveBeenCalledWith(expect.stringContaining("pending_review"));
-    expect(mockExit).toHaveBeenCalledWith(3);
+    expect(mockExit).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(3);
   });
 
   it("derives a text fallback from --html-file when no --body is given", async () => {
@@ -114,11 +117,23 @@ describe("send/reply commands", () => {
     mockReply.mockResolvedValue({ messageId: "msg_r", status: "pending_review" });
     const { reply } = await import("../commands/send.js");
 
-    await expect(reply("msg_orig", { body: "answer" })).rejects.toThrow("process.exit");
+    await reply("msg_orig", { body: "answer" });
     expect(mockReply).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_orig", {
       body: "answer",
     });
-    expect(mockExit).toHaveBeenCalledWith(3);
+    expect(process.exitCode).toBe(3);
+  });
+
+  it("sends markup-only HTML whose derived text fallback is empty", async () => {
+    mockReadFileSync.mockReturnValue('<img src="cid:logo"><table><tr><td></td></tr></table>');
+    mockSend.mockResolvedValue({ messageId: "msg_img", status: "sent" });
+    const { send } = await import("../commands/send.js");
+    await send({ to: ["you@example.com"], subject: "s", htmlFile: "/tmp/banner.html" });
+
+    const call = mockSend.mock.calls[0][1];
+    expect(call.body).toBe("");
+    expect(call.htmlBody).toContain("<img");
+    expect(mockExit).not.toHaveBeenCalled();
   });
 
   it("exits USAGE (2) when reply is missing the message id", async () => {

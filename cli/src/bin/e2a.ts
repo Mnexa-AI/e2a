@@ -68,7 +68,6 @@ Exit codes (stable scripting contract):
   2  usage error (bad flags or arguments)
   3  send accepted but HELD for review (pending_review) — not delivered
   4  bad credentials or wrong key scope
-  5  bounded wait hit its deadline
 `;
 
 function parseArgs(argv: string[]): { command: string; args: string[] } {
@@ -121,6 +120,46 @@ function getPositionals(args: string[]): string[] {
   return positionals;
 }
 
+/**
+ * True when `flag` appears as an actual flag — not as the VALUE of a
+ * preceding value-taking flag. Without this, `e2a send --body "--help"`
+ * would print usage and exit 0 with nothing sent: a silent drop.
+ */
+function hasBareFlag(args: string[], flag: string): boolean {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] !== flag) continue;
+    const prev = i > 0 ? args[i - 1] : undefined;
+    const prevTakesValue = prev !== undefined && prev.startsWith("--") && !BOOLEAN_FLAGS.has(prev);
+    if (!prevTakesValue) return true;
+  }
+  return false;
+}
+
+/**
+ * getFlag, but a flag that is present with a missing or flag-like value is a
+ * loud usage error instead of a silent "flag not given" — a dropped
+ * --conversation-id or --limit must never quietly change what a send or list
+ * does. (Values that legitimately start with "--" go via --body-file.)
+ */
+function getFlagChecked(args: string[], flag: string): string | undefined {
+  const value = getFlag(args, flag);
+  if (value === undefined && args.includes(flag)) {
+    process.stderr.write(`${flag} requires a value\n`);
+    process.exit(EXIT.USAGE);
+  }
+  return value;
+}
+
+function getFlagsChecked(args: string[], flag: string): string[] {
+  const values = getFlags(args, flag);
+  const occurrences = args.filter((a) => a === flag).length;
+  if (values.length !== occurrences) {
+    process.stderr.write(`${flag} requires a value\n`);
+    process.exit(EXIT.USAGE);
+  }
+  return values;
+}
+
 async function main() {
   const { command, args } = parseArgs(process.argv);
 
@@ -129,13 +168,13 @@ async function main() {
     command === "help" ||
     command === "--help" ||
     command === "-h" ||
-    hasFlag(args, "--help")
+    hasBareFlag(args, "--help")
   ) {
     process.stdout.write(USAGE);
     return;
   }
 
-  if (command === "--version" || command === "-v" || hasFlag(args, "--version")) {
+  if (command === "--version" || command === "-v" || hasBareFlag(args, "--version")) {
     process.stdout.write(`e2a ${pkg.version}\n`);
     return;
   }
@@ -149,22 +188,22 @@ async function main() {
       break;
     case "send":
       await send({
-        to: getFlags(args, "--to"),
-        subject: getFlag(args, "--subject"),
-        body: getFlag(args, "--body"),
-        bodyFile: getFlag(args, "--body-file"),
-        htmlFile: getFlag(args, "--html-file"),
-        conversationId: getFlag(args, "--conversation-id"),
-        agent: getFlag(args, "--agent"),
+        to: getFlagsChecked(args, "--to"),
+        subject: getFlagChecked(args, "--subject"),
+        body: getFlagChecked(args, "--body"),
+        bodyFile: getFlagChecked(args, "--body-file"),
+        htmlFile: getFlagChecked(args, "--html-file"),
+        conversationId: getFlagChecked(args, "--conversation-id"),
+        agent: getFlagChecked(args, "--agent"),
         json: hasFlag(args, "--json"),
       });
       break;
     case "reply":
       await reply(getPositionals(args)[0], {
-        body: getFlag(args, "--body"),
-        bodyFile: getFlag(args, "--body-file"),
-        htmlFile: getFlag(args, "--html-file"),
-        agent: getFlag(args, "--agent"),
+        body: getFlagChecked(args, "--body"),
+        bodyFile: getFlagChecked(args, "--body-file"),
+        htmlFile: getFlagChecked(args, "--html-file"),
+        agent: getFlagChecked(args, "--agent"),
         json: hasFlag(args, "--json"),
       });
       break;
@@ -173,16 +212,16 @@ async function main() {
       const rest = args.slice(1);
       if (sub === "list") {
         await messagesList({
-          agent: getFlag(rest, "--agent"),
-          direction: getFlag(rest, "--direction"),
-          since: getFlag(rest, "--since"),
-          conversation: getFlag(rest, "--conversation"),
-          limit: getFlag(rest, "--limit"),
+          agent: getFlagChecked(rest, "--agent"),
+          direction: getFlagChecked(rest, "--direction"),
+          since: getFlagChecked(rest, "--since"),
+          conversation: getFlagChecked(rest, "--conversation"),
+          limit: getFlagChecked(rest, "--limit"),
           json: hasFlag(rest, "--json"),
         });
       } else if (sub === "get") {
         await messagesGet(getPositionals(rest)[0], {
-          agent: getFlag(rest, "--agent"),
+          agent: getFlagChecked(rest, "--agent"),
           text: hasFlag(rest, "--text"),
           json: hasFlag(rest, "--json"),
         });
@@ -206,7 +245,7 @@ async function main() {
     default:
       process.stderr.write(`Unknown command: ${command}\n`);
       process.stderr.write(USAGE);
-      process.exit(1);
+      process.exit(EXIT.USAGE);
   }
 }
 
@@ -223,4 +262,4 @@ if (!isTestImport) {
   });
 }
 
-export { getFlag, getFlags, hasFlag, parseArgs, getPositionals };
+export { getFlag, getFlags, hasFlag, parseArgs, getPositionals, hasBareFlag };

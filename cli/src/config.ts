@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { EXIT } from "./exit.js";
 
 export interface Config {
   api_key: string;
@@ -15,12 +16,6 @@ export interface Config {
    * works zero-config.
    */
   shared_domain: string;
-  /**
-   * Scope of the stored api_key ("account" or "agent"), recorded at login so
-   * commands that need workspace-admin scope can fail with a precise message
-   * instead of a server 403. Absent for keys saved before this field existed.
-   */
-  key_scope?: string;
 }
 
 const CONFIG_DIR = join(homedir(), ".e2a");
@@ -44,7 +39,6 @@ export function loadConfig(): Config {
     if (file.api_url) config.api_url = file.api_url;
     if (file.agent_email) config.agent_email = file.agent_email;
     if (file.shared_domain) config.shared_domain = file.shared_domain;
-    if (file.key_scope) config.key_scope = file.key_scope;
   } catch {
     // No config file yet
   }
@@ -100,14 +94,6 @@ export function saveConfig(updates: Partial<Config>): void {
     delete fileConfig.agent_email;
   }
 
-  // key_scope mirrors agent_email: persist when set, drop when cleared.
-  if ("key_scope" in updates) {
-    if (updates.key_scope) fileConfig.key_scope = updates.key_scope;
-    else delete fileConfig.key_scope;
-  } else if (merged.key_scope) {
-    fileConfig.key_scope = merged.key_scope;
-  }
-
   // Mirror the api_url policy: only persist non-default, non-env-overridden values.
   if ("shared_domain" in updates) {
     if (
@@ -133,8 +119,10 @@ export function saveConfig(updates: Partial<Config>): void {
 
 export function requireApiKey(config: Config): string {
   if (!config.api_key) {
+    // Missing credentials are an auth failure per the documented exit-code
+    // contract (4) — never 1, which scripts treat as retryable-transient.
     process.stderr.write("Not authenticated. Run: e2a login\n");
-    process.exit(1);
+    process.exit(EXIT.AUTH);
   }
   return config.api_key;
 }

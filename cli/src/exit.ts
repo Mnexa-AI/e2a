@@ -17,8 +17,9 @@ export const EXIT = {
   HELD: 3,
   /** Bad credentials or wrong key scope for the operation. */
   AUTH: 4,
-  /** A bounded wait (e.g. `listen --once --until`) hit its deadline. */
-  TIMEOUT: 5,
+  // 5 is earmarked for deadline-bounded waits (listen --once) and ships with
+  // that feature — a code must never be published in --help before an
+  // invocation can actually produce it.
 } as const;
 
 /** Write a message to stderr and exit with the given code. */
