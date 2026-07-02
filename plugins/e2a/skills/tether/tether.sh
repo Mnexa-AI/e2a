@@ -39,7 +39,10 @@ case "$cmd" in
     [ -n "$to" ] || { echo "usage: tether.sh start <your-email> [--for 2h|8h|30m|1d] [--until <ISO>]"; exit 2; }
     expires=""
     if [ -n "$untilarg" ]; then expires="$untilarg"
-    elif [ -n "$forarg" ]; then expires="$(t_duration_to_expiry "$forarg")"; fi
+    elif [ -n "$forarg" ]; then
+      expires="$(t_duration_to_expiry "$forarg")"
+      [ "$expires" = "INVALID" ] && { echo "tether: can't parse --for '$forarg' — use a single unit (30m, 2h, 8h, 1d). Omit --for for no time limit."; exit 2; }
+    fi
     window="${forarg:-${untilarg:-until you say stop}}"
     proj="$(basename "$PWD")"
     conv="tether-$(date +%s)-$$"
@@ -50,8 +53,13 @@ make meaningful progress, and I'll pick up your replies. Reply any time with a
 question or instruction; reply \"stop\" to end early.
 
 — your coding agent"
-    mid="$(t_api_send "$to" "Tether: ${proj}" "$intro" "$conv")"
+    mid="$(t_api_send "$to" "Tether: ${proj}" "$intro" "$conv")"; rc=$?
     [ -n "$mid" ] || { echo "tether: intro send failed (check creds / base url / agent protection)"; exit 1; }
+    if [ "$rc" = "2" ]; then
+      echo "tether: intro was HELD for review (pending_review) — the user won't receive it, so NOT arming."
+      echo "        Turn send-side protection/HITL OFF on ${E2A_AGENT_EMAIL}, then run start again."
+      exit 1
+    fi
     t_state_set armed 1 to "$to" conversation_id "$conv" last_message_id "$mid" \
       last_poll "$(t_now_iso)" project "$proj" started_at "$(t_now_iso)" expires_at "$expires"
     echo "tether: started — thread ${conv} → ${to} (intro ${mid}); window: ${window}${expires:+ (until ${expires})}"
@@ -79,9 +87,13 @@ question or instruction; reply \"stop\" to end early.
     fi
     [ -n "$msg" ] || { echo "usage: tether.sh update \"<text>\"  |  update --html <file> [--text \"<fallback>\"]"; exit 2; }
     rid="$(t_state_get last_message_id)"
-    mid="$(t_api_reply "$rid" "$msg" "$html")"
+    mid="$(t_api_reply "$rid" "$msg" "$html")"; rc=$?
     if [ -z "$mid" ]; then echo "tether: update send failed"; exit 1; fi
     t_state_set last_message_id "$mid"
+    if [ "$rc" = "2" ]; then
+      echo "tether: WARNING update HELD for review (pending_review) — it did NOT reach the user. Disable send-side protection on ${E2A_AGENT_EMAIL}."
+      exit 2
+    fi
     echo "tether: update sent (${mid})$([ -n "$html" ] && echo ' [html]')"
     ;;
 
@@ -113,6 +125,11 @@ question or instruction; reply \"stop\" to end early.
     while :; do
       rem="$(t_remaining_seconds)"
       if [ "$rem" -le 0 ]; then echo "TETHER_EXPIRED"; exit 0; fi
+      # An `ask` is blocking on the same inbox — don't poll, or we'd consume the
+      # answer it's waiting for. Idle until the ask releases the lock.
+      if t_ask_active; then
+        s="$interval"; [ "$rem" -lt "$s" ] && s="$rem"; sleep "$s"; continue
+      fi
       out="$(t_poll_once)"
       if [ "$out" != "(no new replies)" ]; then echo "REPLY_RECEIVED:"; echo "$out"; exit 0; fi
       s="$interval"; [ "$rem" -lt "$s" ] && s="$rem"
@@ -127,12 +144,20 @@ question or instruction; reply \"stop\" to end early.
     # background and wait for the completion notification.
     need_config; need_armed
     q="${1:-}"; [ -n "$q" ] || { echo "usage: tether.sh ask \"<question>\""; exit 2; }
+    # Hold the ask lock for this whole invocation so a background `listen` pauses
+    # and doesn't steal the answer; released on any exit (reply, timeout, error).
+    trap 't_ask_end' EXIT INT TERM
+    t_ask_begin
     rid="$(t_state_get last_message_id)"
     mid="$(t_api_reply "$rid" "❓ ${q}
 
-(Reply to this email with your answer — I'll wait for it.)")"
+(Reply to this email with your answer — I'll wait for it.)")"; rc=$?
     [ -n "$mid" ] || { echo "tether: ask send failed"; exit 1; }
     t_state_set last_message_id "$mid"
+    if [ "$rc" = "2" ]; then
+      echo "tether: WARNING question HELD for review (pending_review) — it did NOT reach the user, so not waiting. Disable send-side protection on ${E2A_AGENT_EMAIL}."
+      exit 4
+    fi
     echo "tether: question sent (${mid}); waiting for your reply…"
     max="${E2A_TETHER_ASK_TIMEOUT:-1800}"; interval="${E2A_TETHER_POLL_INTERVAL:-20}"; elapsed=0
     while [ "$elapsed" -lt "$max" ]; do
@@ -175,7 +200,31 @@ question or instruction; reply \"stop\" to end early.
     env -u E2A_API_KEY -u E2A_AGENT_EMAIL HOME=/nonexistent TETHER_STATE=/tmp/tether-selftest.json \
       bash "${here}/tether.sh" status
     rm -f /tmp/tether-selftest.json
+
+    fail=0
+    ck() { if [ "$2" = "$3" ]; then echo "ok: $1"; else echo "FAIL: $1 (want [$3] got [$2])"; fail=1; fi; }
+
+    echo "# duration parser:"
+    ck "2h parses"        "$([ -n "$(t_duration_to_expiry 2h)" ] && echo good)" "good"
+    ck "'' → until-stop"  "$(t_duration_to_expiry '')"     ""
+    ck "1h30m → INVALID"  "$(t_duration_to_expiry '1h30m')" "INVALID"
+    ck "'90 min'→INVALID" "$(t_duration_to_expiry '90 min')" "INVALID"
+
+    echo "# placeholder creds are treated as MISSING:"
+    ph="$(env E2A_API_KEY='e2a_agt_...' E2A_AGENT_EMAIL='tether@you.example' \
+      HOME=/nonexistent bash "${here}/tether.sh" status | grep -c 'config: MISSING')"
+    ck "unfilled template → MISSING" "$ph" "1"
+
+    echo "# ask/listen mutex:"
+    ( export TETHER_STATE=/tmp/tether-selftest-lock.json
+      t_ask_active && { echo "FAIL: lock present before begin"; exit 1; }
+      t_ask_begin;  t_ask_active || { echo "FAIL: lock absent after begin"; exit 1; }
+      t_ask_end;   ! t_ask_active || { echo "FAIL: lock present after end"; exit 1; }
+      echo "ok: ask lock begin/active/end" ) || fail=1
+    rm -f /tmp/tether-selftest-lock.json /tmp/ask.lock
+
     bash -n "${here}/lib.sh" && bash -n "${here}/tether.sh" && echo "# syntax OK"
+    [ "$fail" = "0" ] && echo "# selftest PASS" || { echo "# selftest FAIL"; exit 1; }
     ;;
 
   ""|help|-h|--help)

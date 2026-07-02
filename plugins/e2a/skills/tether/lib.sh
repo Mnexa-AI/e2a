@@ -6,13 +6,17 @@
 # `tether.sh start <email>` and kept in the state file.
 
 t_load_config() {
+  # Explicit env vars win; each fallback source fills only the vars still missing
+  # (so exporting just E2A_API_KEY in the env doesn't skip an email set in the file).
+  local envk="${E2A_API_KEY:-}" enve="${E2A_AGENT_EMAIL:-}" envu="${E2A_BASE_URL:-}"
+
   # 1) explicit tether config
-  if [ -z "${E2A_API_KEY:-}" ] && [ -f "${HOME}/.e2a-tether.env" ]; then
+  if { [ -z "${E2A_API_KEY:-}" ] || [ -z "${E2A_AGENT_EMAIL:-}" ]; } && [ -f "${HOME}/.e2a-tether.env" ]; then
     # shellcheck disable=SC1091
     set -a; . "${HOME}/.e2a-tether.env"; set +a
   fi
   # 2) reuse the CLI's agent creds from `e2a login` (~/.e2a/config.json)
-  if [ -z "${E2A_API_KEY:-}" ] && [ -f "${HOME}/.e2a/config.json" ]; then
+  if { [ -z "${E2A_API_KEY:-}" ] || [ -z "${E2A_AGENT_EMAIL:-}" ]; } && [ -f "${HOME}/.e2a/config.json" ]; then
     eval "$(python3 -c 'import json,shlex,os
 try:
   d=json.load(open(os.path.expanduser("~/.e2a/config.json")))
@@ -21,6 +25,17 @@ try:
   if d.get("api_url"):     print("export E2A_BASE_URL="+shlex.quote(d["api_url"].rstrip("/")))
 except Exception:pass')"
   fi
+  # explicit env always wins over whatever a fallback source supplied
+  [ -n "$envk" ] && E2A_API_KEY="$envk"
+  [ -n "$enve" ] && E2A_AGENT_EMAIL="$enve"
+  [ -n "$envu" ] && E2A_BASE_URL="$envu"
+
+  # Treat the copied-but-unfilled tether.env.example placeholders as unset, so a
+  # user who ran `cp … tether.env.example` without editing gets `config: MISSING`
+  # (the new-user signal) instead of a bogus `config: OK` that fails at `start`.
+  case "${E2A_API_KEY:-}" in *...*) E2A_API_KEY="";; esac
+  case "${E2A_AGENT_EMAIL:-}" in *@*.example|*.example) E2A_AGENT_EMAIL="";; esac
+
   E2A_BASE_URL="${E2A_BASE_URL:-https://api.e2a.dev}"
   [ -n "${E2A_API_KEY:-}" ] && [ -n "${E2A_AGENT_EMAIL:-}" ]
 }
@@ -51,18 +66,32 @@ for i in range(0,len(kv),2):d[kv[i]]=kv[i+1]
 json.dump(d,open(f,"w"),indent=2)' "$f" "$@"
 }
 
-t_state_clear() { rm -f "$(t_state_path)"; }
+t_state_clear() { rm -f "$(t_state_path)" "$(t_ask_lock_path)"; }
+
+# --- ask/listen mutex --------------------------------------------------------
+# `ask` and `listen` both poll the same inbox and share one dedup cursor, so if
+# they run at once whichever polls first consumes the reply — a running `listen`
+# would eat the answer `ask` is blocking for, and `ask` would spin to timeout.
+# While an `ask` is in flight it holds this lock; `listen` sees it and pauses
+# polling so the answer flows to the blocked `ask`.
+
+t_ask_lock_path() { echo "$(dirname "$(t_state_path)")/ask.lock"; }
+t_ask_begin()  { local f; f="$(t_ask_lock_path)"; mkdir -p "$(dirname "$f")"; : > "$f"; }
+t_ask_end()    { rm -f "$(t_ask_lock_path)"; }
+t_ask_active() { [ -f "$(t_ask_lock_path)" ]; }
 
 # --- duration / expiry -------------------------------------------------------
 
-# t_duration_to_expiry <dur> → ISO expires_at (empty = no expiry / "until stop")
-# accepts: 30m, 2h, 8h, 1d ; "" / forever / until-stop → empty
+# t_duration_to_expiry <dur> → ISO expires_at (empty = no expiry / "until stop";
+# "INVALID" = unparseable, so the caller can reject it instead of silently
+# treating a mistyped "1h30m"/"90 min" as an unbounded window).
+# accepts a SINGLE unit: 30m, 2h, 8h, 1d ; "" / forever / until-stop → empty
 t_duration_to_expiry() {
   python3 -c 'import sys,datetime,re
 d=(sys.argv[1] if len(sys.argv)>1 else "").strip().lower()
 if not d or d in ("forever","none","off","until-stop","stop"):print("");raise SystemExit
 m=re.fullmatch(r"(\d+)\s*([mhd])",d)
-if not m:print("");raise SystemExit
+if not m:print("INVALID");raise SystemExit
 secs=int(m.group(1))*{"m":60,"h":3600,"d":86400}[m.group(2)]
 print((datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(seconds=secs)).isoformat())' "$1"
 }
@@ -80,9 +109,11 @@ except Exception:print(2147483647)' "$exp"
 
 # --- e2a API -----------------------------------------------------------------
 
-# t_api_send <to> <subject> <body> <conversation_id> → prints message_id
+# t_api_send <to> <subject> <body> <conversation_id> → prints message_id;
+# returns 2 (and warns on stderr) if the send was HELD (pending_review) so the
+# caller can refuse to arm / not report a phantom "sent".
 t_api_send() {
-  local email resp status
+  local email resp status mid
   email="$(t_urlencode "$E2A_AGENT_EMAIL")"
   local payload
   payload="$(python3 -c 'import json,sys
@@ -94,15 +125,22 @@ print(json.dumps({"to":[sys.argv[1]],"subject":sys.argv[2],"body":sys.argv[3],"c
   status="$(printf '%s' "$resp" | python3 -c 'import json,sys
 try:print(json.load(sys.stdin).get("status",""))
 except Exception:print("")')"
-  [ "$status" = "pending_review" ] && echo "tether: WARNING send held (pending_review) — disable protection on ${E2A_AGENT_EMAIL}" >&2
-  printf '%s' "$resp" | python3 -c 'import json,sys
+  mid="$(printf '%s' "$resp" | python3 -c 'import json,sys
 try:print(json.load(sys.stdin).get("message_id",""))
-except Exception:print("")'
+except Exception:print("")')"
+  printf '%s' "$mid"
+  if [ "$status" = "pending_review" ]; then
+    echo "tether: WARNING send held (pending_review) — disable protection on ${E2A_AGENT_EMAIL}" >&2
+    return 2
+  fi
 }
 
-# t_api_reply <in_reply_to_id> <body> [html_body] → prints new message_id
+# t_api_reply <in_reply_to_id> <body> [html_body] → prints new message_id;
+# returns 2 (and warns on stderr) if the reply was HELD (pending_review). The
+# reply path — every update/ask/stop — used to drop `status`, so a held update
+# printed a phantom "sent" while the user's inbox stayed empty.
 t_api_reply() {
-  local email resp
+  local email resp status mid
   email="$(t_urlencode "$E2A_AGENT_EMAIL")"
   resp="$(curl -sS -m 30 -X POST \
     -H "Authorization: Bearer ${E2A_API_KEY}" -H "Content-Type: application/json" \
@@ -111,9 +149,17 @@ p={"body":sys.argv[1]}
 if len(sys.argv)>2 and sys.argv[2]:p["html_body"]=sys.argv[2]
 print(json.dumps(p))' "$2" "${3:-}")" \
     "${E2A_BASE_URL}/v1/agents/${email}/messages/${1}/reply" 2>/dev/null)" || return 1
-  printf '%s' "$resp" | python3 -c 'import json,sys
+  status="$(printf '%s' "$resp" | python3 -c 'import json,sys
+try:print(json.load(sys.stdin).get("status",""))
+except Exception:print("")')"
+  mid="$(printf '%s' "$resp" | python3 -c 'import json,sys
 try:print(json.load(sys.stdin).get("message_id",""))
-except Exception:print("")'
+except Exception:print("")')"
+  printf '%s' "$mid"
+  if [ "$status" = "pending_review" ]; then
+    echo "tether: WARNING reply held (pending_review) — disable protection on ${E2A_AGENT_EMAIL}" >&2
+    return 2
+  fi
 }
 
 # strip HTML tags → a plain-text fallback (crude but fine for email body)
