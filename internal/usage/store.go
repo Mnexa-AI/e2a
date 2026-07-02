@@ -147,6 +147,32 @@ func (s *Store) MessagesThisMonth(ctx context.Context, userID string) (int, erro
 	return count, err
 }
 
+// CountDomainSendsToday returns how many outbound messages agents on the given
+// domain have created during the current UTC calendar day. This is the running
+// numerator the warmup enforcer compares against the day's ramp cap; it buckets
+// on the UTC day to match warmup.untilNextUTCMidnight (the retry-after the
+// enforcer reports). Satisfies warmup.DailyCounter.
+//
+// It counts all outbound rows for the domain, including drafts held for review
+// that have not yet left the wire — conservative on purpose: over-counting a
+// held draft can only slow a warming domain slightly, never send more than the
+// cap allows. domain is lowercased to match the stored (lowercase) value.
+func (s *Store) CountDomainSendsToday(ctx context.Context, domain string) (int, error) {
+	now := time.Now().UTC()
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	var count int
+	err := s.pool.QueryRow(ctx,
+		`SELECT count(*)
+		   FROM messages m
+		   JOIN agent_identities a ON a.id = m.agent_id
+		  WHERE a.domain = lower($1)
+		    AND m.direction = 'outbound'
+		    AND m.created_at >= $2`,
+		domain, dayStart,
+	).Scan(&count)
+	return count, err
+}
+
 // GetStorageBytes returns the user's current materialized storage bytes
 // from account_usage. Returns 0 with no error if the user has no row
 // yet — the trigger in migration 016 lazily creates the row on first

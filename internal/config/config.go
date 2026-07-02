@@ -43,6 +43,7 @@ type Config struct {
 	SenderIdentity   SenderIdentityConfig   `yaml:"sender_identity"`
 	DeliveryFeedback DeliveryFeedbackConfig `yaml:"delivery_feedback"`
 	Limits           LimitsConfig           `yaml:"limits"`
+	Warmup           WarmupConfig           `yaml:"warmup"`
 	Env              string                 `yaml:"env"` // "development" or "production"
 	// SharedDomain enables slug-based agent registration. When set
 	// (e.g. "agents.example.com"), users can register agents with just a
@@ -180,6 +181,29 @@ type LimitsConfig struct {
 	// — appropriate for self-host without billing. The same
 	// InternalAPISecret signs the POST body.
 	BillingHookURL string `yaml:"billing_hook_url"`
+}
+
+// WarmupConfig tunes the per-domain sending warmup ramp. Warmup begins
+// automatically when a domain first becomes sending-verified and gradually
+// raises its daily outbound allowance from StartDaily to TargetDaily over
+// RampDays days — the same reputation-building ramp hosted email services
+// apply to new senders. It is scoped per domain (mailbox providers track
+// reputation per sending domain).
+//
+// Disabled by default so a self-host that never configures `warmup:` is not
+// surprised by throttling; hosted operators set Enabled=true. When enabled but
+// the numbers are left at zero, the built-in DefaultSchedule (50 → 2000 over
+// 30 days) is used.
+type WarmupConfig struct {
+	// Enabled turns the ramp on. When false, EnforceWarmup is left unwired and
+	// every send flows at full volume regardless of domain age.
+	Enabled bool `yaml:"enabled"`
+	// StartDaily is the day-one daily send allowance for a warming domain.
+	StartDaily int `yaml:"start_daily"`
+	// TargetDaily is the full daily allowance reached at the end of the ramp.
+	TargetDaily int `yaml:"target_daily"`
+	// RampDays is the number of days over which the cap climbs to TargetDaily.
+	RampDays int `yaml:"ramp_days"`
 }
 
 func Load(path string) (*Config, error) {

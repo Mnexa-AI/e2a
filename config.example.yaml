@@ -128,6 +128,26 @@ limits:
   billing_hook_url: ""
 
 
+# — Sending warmup ————————————————————————————————————————————————————————————
+# Per-domain sending warmup: an automatic ramp that raises a newly
+# sending-verified domain's daily outbound allowance over a fixed window so a
+# cold domain builds ISP reputation instead of blasting full volume on day one
+# (the same reputation-building ramp hosted email services apply to new
+# senders). Scoped per domain — mailbox providers track reputation per sending
+# domain. Warmup begins automatically the first time a domain becomes
+# sending-verified (see sender_identity), and once a domain's ramp completes it
+# is never re-throttled. A throttled send returns 429 warmup_throttled with the
+# day's cap, count so far, and a retry-after (until the next UTC midnight).
+#
+# Disabled by default so a self-host is never surprised by throttling. When
+# enabled with the numbers left at 0, the built-in default curve is used:
+# 50/day on day one climbing to 2000/day over 30 days.
+warmup:
+  enabled: false
+  start_daily: 50     # day-one allowance for a warming domain
+  target_daily: 2000  # full daily allowance at the end of the ramp
+  ramp_days: 30        # days to climb from start_daily to target_daily
+
 
 # — Content screening (piguard) ——————————————————————————————————————————————
 # The Gemini LLM-as-detector layer is enabled by setting the environment

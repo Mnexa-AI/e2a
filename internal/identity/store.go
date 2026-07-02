@@ -647,6 +647,13 @@ func (s *Store) SetSendingStatus(ctx context.Context, domain, status, dkimStatus
 	if errMsg != "" {
 		errPtr = &errMsg
 	}
+	// The two warmup_* CASE clauses arm the sending ramp exactly once, on the
+	// FIRST transition to 'verified' (warmup_started_at still NULL). A later
+	// re-verify (forced re-check, reconcile flap) leaves them untouched, so a
+	// domain that has already built reputation is never dropped back to day-one
+	// throttling. Every non-verified status write is a no-op on the warmup
+	// columns — this keeps warmup wholly a side effect of becoming
+	// sending-verified, with no separate call site to forget (migration 050).
 	_, err := s.pool.Exec(ctx,
 		`UPDATE domains
 		    SET sending_status = $2,
@@ -654,11 +661,33 @@ func (s *Store) SetSendingStatus(ctx context.Context, domain, status, dkimStatus
 		        sending_dns_records = $4,
 		        sending_dkim_status = $5,
 		        sending_mail_from_status = $6,
-		        sending_last_checked_at = now()
+		        sending_last_checked_at = now(),
+		        warmup_status = CASE
+		            WHEN $2 = 'verified' AND warmup_started_at IS NULL THEN 'active'
+		            ELSE warmup_status END,
+		        warmup_started_at = CASE
+		            WHEN $2 = 'verified' AND warmup_started_at IS NULL THEN now()
+		            ELSE warmup_started_at END
 		  WHERE domain = $1`,
 		normalizeDomain(domain), status, errPtr, recordsJSON, nullIfEmpty(dkimStatus), nullIfEmpty(mailFromStatus),
 	)
 	return err
+}
+
+// GetWarmupState returns the domain's warmup status and ramp-anchor timestamp
+// (migration 050). startedAt is nil until the domain first became
+// sending-verified. Satisfies warmup.StateReader. Propagates pgx.ErrNoRows
+// when the domain row is gone — the warmup enforcer treats any read error as
+// fail-open (allow the send), so a missing row never blocks mail.
+func (s *Store) GetWarmupState(ctx context.Context, domain string) (status string, startedAt *time.Time, err error) {
+	err = s.pool.QueryRow(ctx,
+		`SELECT warmup_status, warmup_started_at FROM domains WHERE domain = $1`,
+		normalizeDomain(domain),
+	).Scan(&status, &startedAt)
+	if err != nil {
+		return "", nil, err
+	}
+	return status, startedAt, nil
 }
 
 // TouchSendingChecked stamps sending_last_checked_at without changing status

@@ -31,6 +31,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/senderidentity"
 	"github.com/Mnexa-AI/e2a/internal/telemetry"
 	"github.com/Mnexa-AI/e2a/internal/usage"
+	"github.com/Mnexa-AI/e2a/internal/warmup"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"github.com/Mnexa-AI/e2a/internal/ws"
@@ -384,6 +385,21 @@ func main() {
 		time.Duration(cfg.Limits.CacheTTLSeconds)*time.Second,
 	)
 	api.SetEnforcer(enforcer)
+
+	// Per-domain sending warmup (email-warmup-support). Wired only when
+	// enabled; nil leaves the send path unthrottled. When enabled with all
+	// numbers left at zero, the built-in DefaultSchedule (50 → 2000 over 30
+	// days) is used; any set field switches to the operator's curve.
+	var warmupEnforcer *warmup.Enforcer
+	if cfg.Warmup.Enabled {
+		sched := warmup.DefaultSchedule
+		if cfg.Warmup.StartDaily > 0 || cfg.Warmup.TargetDaily > 0 || cfg.Warmup.RampDays > 0 {
+			sched = warmup.NewSchedule(cfg.Warmup.StartDaily, cfg.Warmup.TargetDaily, cfg.Warmup.RampDays)
+		}
+		warmupEnforcer = warmup.NewEnforcer(store, usageStore, sched)
+		log.Printf("[warmup] per-domain sending warmup enabled: %d → %d/day over %d days",
+			sched.StartDaily, sched.TargetDaily, sched.RampDays)
+	}
 	api.SetUsageStore(usageStore)
 	api.SetInternalAPISecret(cfg.Limits.InternalAPISecret)
 	api.SetBillingHookURL(cfg.Limits.BillingHookURL)
@@ -457,6 +473,7 @@ func main() {
 		Legacy:          router,
 		WSHandle:        wsHandler.ServeWithEmail,
 		SenderIdentity:  senderEnqueuer,
+		Warmup:          warmupEnforcer,
 	})
 
 	httpServer := &http.Server{

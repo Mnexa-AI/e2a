@@ -12,6 +12,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/agent"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
+	"github.com/Mnexa-AI/e2a/internal/warmup"
 	"github.com/danielgtaylor/huma/v2"
 )
 
@@ -185,6 +186,9 @@ func (s *Server) handleTestSend(ctx context.Context, in *AddressParam) (*sendOut
 			}
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "limits check failed")
 		}
+	}
+	if env := s.checkWarmup(ctx, ag); env != nil {
+		return nil, env
 	}
 	if s.deps.SendTest == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "test send unavailable")
@@ -459,6 +463,9 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "limits check failed")
 		}
 	}
+	if env := s.checkWarmup(ctx, ag); env != nil {
+		return nil, env
+	}
 	if s.deps.DeliverOutbound == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "outbound delivery unavailable")
 	}
@@ -476,6 +483,41 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 		return nil, err
 	}
 	return &sendOutput{Status: status, Body: view}, nil
+}
+
+// checkWarmup applies the per-domain sending warmup ramp for the agent's own
+// domain. It returns a 429 warmup_throttled envelope when the domain has hit
+// its day's ramp cap, carrying the pacing details (retry_after + cap/sent) so
+// the caller can back off. A non-throttle error means the state/count read
+// failed; warmup is a reputation optimization, not a correctness gate, so we
+// fail open (return nil) and let the send proceed rather than block real mail
+// on a transient DB blip. nil dep (self-host without the sending feature) is a
+// no-op. Keyed on the agent's OWN domain: the shared relay domain and
+// not-yet-warming domains return status inactive inside the enforcer and pass.
+func (s *Server) checkWarmup(ctx context.Context, ag *identity.AgentIdentity) *ErrorEnvelope {
+	if s.deps.EnforceWarmup == nil || ag == nil {
+		return nil
+	}
+	err := s.deps.EnforceWarmup(ctx, ag.Domain)
+	if err == nil {
+		return nil
+	}
+	te, ok := warmup.AsThrottleError(err)
+	if !ok {
+		return nil // fail open on read errors
+	}
+	secs := int(te.RetryAfter.Round(time.Second).Seconds())
+	if secs < 1 {
+		secs = 1
+	}
+	return NewError(http.StatusTooManyRequests, "warmup_throttled",
+		"sending is warming up for this domain — daily volume is ramping up to protect deliverability; retry after the reset").
+		WithDetails(map[string]any{
+			"domain":              te.Domain,
+			"daily_cap":           te.DailyCap,
+			"sent_today":          te.SentToday,
+			"retry_after_seconds": secs,
+		})
 }
 
 // checkSendLimit applies the per-agent outbound rate limit (mirrors the

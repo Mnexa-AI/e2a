@@ -63,6 +63,39 @@ outbound_smtp:
 	}
 }
 
+func TestLoadConfigWarmup(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(`
+warmup:
+  enabled: true
+  start_daily: 25
+  target_daily: 5000
+  ramp_days: 45
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if !cfg.Warmup.Enabled || cfg.Warmup.StartDaily != 25 || cfg.Warmup.TargetDaily != 5000 || cfg.Warmup.RampDays != 45 {
+		t.Fatalf("warmup config not parsed: %+v", cfg.Warmup)
+	}
+
+	// Omitted `warmup:` leaves it disabled (no accidental throttling on a
+	// self-host that never configures it).
+	other := filepath.Join(dir, "no-warmup.yaml")
+	os.WriteFile(other, []byte("env: development\n"), 0644)
+	c2, err := Load(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c2.Warmup.Enabled {
+		t.Fatal("warmup must default to disabled when omitted")
+	}
+}
+
 func TestLoadConfigEnvOverrides(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
