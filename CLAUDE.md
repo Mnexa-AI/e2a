@@ -119,7 +119,7 @@ Layered: generated types → `E2AApi` (raw HTTP) → `E2AClient` (high-level wit
 
 ### CLI (`cli/`)
 
-Commands: login, listen, config. Config stored in `~/.e2a/config.json`. The `listen` command supports `--forward` mode for proxying WebSocket messages to local HTTP endpoints.
+Commands: login, listen, config, whoami, send, reply, messages. Config stored in `~/.e2a/config.json`. The `listen` command supports `--forward` mode for proxying WebSocket messages to local HTTP endpoints. The messaging commands (whoami/send/reply/messages) are the scripting surface for shell-based harnesses and publish a stable exit-code contract (`cli/src/exit.ts`): 0 ok, 1 transient error, 2 usage, 3 held-for-review (any non-`sent` status — HTTP-successful but undelivered), 4 auth, 5 permanent request error (non-retryable 4xx). Exit codes are frozen once published; add new ones, never renumber.
 
 ### Web (`web/`)
 

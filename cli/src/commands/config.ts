@@ -1,6 +1,7 @@
 import { loadConfig, saveConfig, Config } from "../config.js";
+import { EXIT } from "../exit.js";
 
-const VALID_KEYS: (keyof Config)[] = ["api_key", "api_url", "agent_email", "shared_domain"];
+const VALID_KEYS: (keyof Config)[] = ["api_key", "api_url", "agent_email", "shared_domain", "key_scope"];
 
 export async function config(args: string[]): Promise<void> {
   const subcommand = args[0];
@@ -14,11 +15,11 @@ export async function config(args: string[]): Promise<void> {
     const key = args[1];
     if (!key) {
       process.stderr.write("Usage: e2a config get <key>\n");
-      process.exit(1);
+      process.exit(EXIT.USAGE);
     }
     if (!VALID_KEYS.includes(key as keyof Config)) {
       process.stderr.write(`Unknown key: ${key}\nValid keys: ${VALID_KEYS.join(", ")}\n`);
-      process.exit(1);
+      process.exit(EXIT.USAGE);
     }
     const cfg = loadConfig();
     const value = cfg[key as keyof Config];
@@ -33,11 +34,17 @@ export async function config(args: string[]): Promise<void> {
     const value = args[2];
     if (!key || value === undefined) {
       process.stderr.write("Usage: e2a config set <key> <value>\n");
-      process.exit(1);
+      process.exit(EXIT.USAGE);
     }
     if (!VALID_KEYS.includes(key as keyof Config)) {
       process.stderr.write(`Unknown key: ${key}\nValid keys: ${VALID_KEYS.join(", ")}\n`);
-      process.exit(1);
+      process.exit(EXIT.USAGE);
+    }
+    // key_scope is an enum, not free text — a persisted typo would feed any
+    // future scope preflight confidently wrong data.
+    if (key === "key_scope" && value !== "account" && value !== "agent") {
+      process.stderr.write(`key_scope must be "account" or "agent"\n`);
+      process.exit(EXIT.USAGE);
     }
     saveConfig({ [key]: value });
     process.stdout.write(`${key}=${value}\n`);
@@ -58,7 +65,7 @@ export async function config(args: string[]): Promise<void> {
     "Usage: e2a config [list|get <key>|set <key> <value>]\n" +
       `Valid keys: ${VALID_KEYS.join(", ")}\n`,
   );
-  process.exit(1);
+  process.exit(EXIT.USAGE);
 }
 
 function showAll(): void {

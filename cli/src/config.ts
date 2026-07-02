@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { EXIT } from "./exit.js";
 
 export interface Config {
   api_key: string;
@@ -15,6 +16,14 @@ export interface Config {
    * works zero-config.
    */
   shared_domain: string;
+  /**
+   * Scope of the stored api_key ("account" or "agent"), recorded by `e2a
+   * login` (which now writes it on every path: browser, --agent exchange,
+   * --with-key). Lets commands that need workspace-admin scope fail with a
+   * precise message instead of a server 403. Absent for keys saved by older
+   * CLIs or set out-of-band.
+   */
+  key_scope?: string;
 }
 
 const CONFIG_DIR = join(homedir(), ".e2a");
@@ -38,13 +47,19 @@ export function loadConfig(): Config {
     if (file.api_url) config.api_url = file.api_url;
     if (file.agent_email) config.agent_email = file.agent_email;
     if (file.shared_domain) config.shared_domain = file.shared_domain;
+    if (file.key_scope) config.key_scope = file.key_scope;
   } catch {
     // No config file yet
   }
 
-  // Env vars override file
+  // Env vars override file. E2A_BASE_URL is accepted as an alias for E2A_URL
+  // and E2A_AGENT_EMAIL selects the inbox — these are the exact names the
+  // tether harness trains users to export, so ignoring them is a silent trap
+  // for the CLI's primary scripting consumer. E2A_URL wins over the alias.
   if (process.env.E2A_API_KEY) config.api_key = process.env.E2A_API_KEY;
   if (process.env.E2A_URL) config.api_url = process.env.E2A_URL;
+  else if (process.env.E2A_BASE_URL) config.api_url = process.env.E2A_BASE_URL;
+  if (process.env.E2A_AGENT_EMAIL) config.agent_email = process.env.E2A_AGENT_EMAIL;
   if (process.env.E2A_SHARED_DOMAIN) config.shared_domain = process.env.E2A_SHARED_DOMAIN;
 
   return config;
@@ -87,10 +102,18 @@ export function saveConfig(updates: Partial<Config>): void {
   if ("agent_email" in updates) {
     if (updates.agent_email) fileConfig.agent_email = updates.agent_email;
     else delete fileConfig.agent_email;
-  } else if (merged.agent_email) {
+  } else if (!process.env.E2A_AGENT_EMAIL && merged.agent_email) {
     fileConfig.agent_email = merged.agent_email;
-  } else {
+  } else if (!process.env.E2A_AGENT_EMAIL) {
     delete fileConfig.agent_email;
+  }
+
+  // key_scope has no env override and no default: persist when set, drop when
+  // cleared. Login rewrites it whenever api_key changes, so it can't go stale
+  // through the login path (a hand-edited api_key is on the user).
+  if ("key_scope" in updates) {
+    if (updates.key_scope) fileConfig.key_scope = updates.key_scope;
+    else delete fileConfig.key_scope;
   }
 
   // Mirror the api_url policy: only persist non-default, non-env-overridden values.
@@ -118,8 +141,11 @@ export function saveConfig(updates: Partial<Config>): void {
 
 export function requireApiKey(config: Config): string {
   if (!config.api_key) {
-    process.stderr.write("Not authenticated. Run: e2a login\n");
-    process.exit(1);
+    // Missing credentials are an auth failure per the documented exit-code
+    // contract (4) — never 1, which scripts treat as retryable-transient.
+    // Name the headless path too: `login` needs a browser on this machine.
+    process.stderr.write("Not authenticated. Run: e2a login (or set E2A_API_KEY)\n");
+    process.exit(EXIT.AUTH);
   }
   return config.api_key;
 }

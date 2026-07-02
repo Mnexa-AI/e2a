@@ -1,16 +1,34 @@
 import type { E2AClient, WSNotification } from "@e2a/sdk/v1";
 import { createClient, requireAgentEmail } from "../sdk.js";
+import { EXIT, fail } from "../exit.js";
 
 export interface ListenOptions {
   agent?: string;
   json?: boolean;
   forward?: string;
   forwardToken?: string;
+  /** Only surface messages belonging to this conversation id. */
+  conversation?: string;
+  /** Exit 0 after the first (matching) message — the blocking-wait primitive. */
+  once?: boolean;
+  /** RFC3339 deadline for --once; expiry prints TIMEOUT and exits 6. */
+  until?: string;
+  /** With --once: print the message's body text instead of a summary/JSON. */
+  text?: boolean;
 }
 
 export async function listen(opts: ListenOptions): Promise<void> {
-  const client = createClient({ from: opts.agent });
+  const client = createClient();
   const agentEmail = requireAgentEmail(opts.agent);
+
+  let deadlineMs: number | undefined;
+  if (opts.until) {
+    deadlineMs = Date.parse(opts.until);
+    if (Number.isNaN(deadlineMs)) fail(EXIT.USAGE, `--until must be an RFC3339 timestamp, got: ${opts.until}`);
+  }
+  if ((opts.until || opts.text) && !opts.once) {
+    fail(EXIT.USAGE, "--until and --text require --once");
+  }
 
   process.stderr.write(`Listening for emails to ${agentEmail}...\n`);
 
@@ -18,6 +36,26 @@ export async function listen(opts: ListenOptions): Promise<void> {
   // and EventEmitter. We use both: events for connection lifecycle, the
   // for-await loop for the happy path.
   const stream = client.listen(agentEmail);
+
+  // Deadline: closing the stream ends the for-await loop; the flag tells the
+  // post-loop code this was expiry, not a server-side close. exitCode (not
+  // process.exit) so pending stdout flushes.
+  let timedOut = false;
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  if (deadlineMs !== undefined) {
+    const wait = deadlineMs - Date.now();
+    if (wait <= 0) {
+      process.stdout.write("TIMEOUT\n");
+      process.exitCode = EXIT.TIMEOUT;
+      stream.close();
+      return;
+    }
+    deadlineTimer = setTimeout(() => {
+      timedOut = true;
+      stream.close();
+    }, wait);
+    deadlineTimer.unref?.();
+  }
 
   stream.on("open", () => {
     process.stderr.write("Connected.\n");
@@ -39,12 +77,52 @@ export async function listen(opts: ListenOptions): Promise<void> {
 
   // Iterate notifications. handleNotification swallows its own errors so
   // a single bad message doesn't tear down the loop.
+  let matched = false;
   for await (const notification of stream) {
     try {
+      // Conversation filtering needs the full message (the WS notification
+      // doesn't carry conversation_id).
+      if (opts.conversation || (opts.once && opts.text)) {
+        const full = await client.messages.get(agentEmail, notification.message_id);
+        if (opts.conversation && full.conversationId !== opts.conversation) continue;
+        if (opts.once) {
+          if (opts.text) {
+            process.stdout.write((full.parsed?.text ?? full.body?.text ?? "").trim() + "\n");
+          } else if (opts.json) {
+            process.stdout.write(JSON.stringify(full) + "\n");
+          } else {
+            process.stdout.write(
+              `${notification.message_id}\t${notification.from}\t${notification.received_at}\n`,
+            );
+          }
+          matched = true;
+          break;
+        }
+      }
       await handleNotification(client, agentEmail, notification, opts);
+      if (opts.once) {
+        matched = true;
+        break;
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       process.stderr.write(`Error handling message: ${message}\n`);
+    }
+  }
+
+  if (deadlineTimer) clearTimeout(deadlineTimer);
+  stream.close();
+  if (opts.once && !matched) {
+    if (timedOut) {
+      // Clean window expiry — the documented exit-6 outcome.
+      process.stdout.write("TIMEOUT\n");
+      process.exitCode = EXIT.TIMEOUT;
+    } else {
+      // The stream ended before the deadline (handshake rejected, server
+      // close). That's a transient error, NOT a timeout — callers polling in
+      // a loop must be able to tell the difference or they spin hot.
+      process.stderr.write("stream closed before the deadline\n");
+      process.exitCode = EXIT.ERROR;
     }
   }
 }

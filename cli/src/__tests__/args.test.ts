@@ -1,5 +1,33 @@
 import { describe, it, expect } from "vitest";
-import { getFlag, getFlags, hasFlag, parseArgs } from "../bin/e2a.js";
+import { getFlag, getFlags, hasFlag, parseArgs, getPositionals, hasBareFlag } from "../bin/e2a.js";
+
+describe("hasBareFlag", () => {
+  it("finds a flag in normal position", () => {
+    expect(hasBareFlag(["--json", "--help"], "--help")).toBe(true);
+    expect(hasBareFlag(["--help"], "--help")).toBe(true);
+  });
+
+  it("does NOT match the flag when it is the value of a value-taking flag", () => {
+    // `e2a send --body "--help"` must not hijack the command into help+exit 0.
+    expect(hasBareFlag(["--body", "--help"], "--help")).toBe(false);
+    expect(hasBareFlag(["--subject", "--version"], "--version")).toBe(false);
+  });
+
+  it("matches when preceded by a boolean flag", () => {
+    expect(hasBareFlag(["--to", "a@b.c", "--json", "--help"], "--help")).toBe(true);
+  });
+});
+
+describe("getPositionals", () => {
+  it("extracts positionals, skipping value flags and their values", () => {
+    expect(getPositionals(["msg_1", "--body", "hi", "--json"])).toEqual(["msg_1"]);
+    expect(getPositionals(["--body", "hi", "msg_1"])).toEqual(["msg_1"]);
+  });
+
+  it("returns empty when only flags are present", () => {
+    expect(getPositionals(["--body", "hi", "--json"])).toEqual([]);
+  });
+});
 
 describe("parseArgs", () => {
   it("extracts command and remaining args", () => {
