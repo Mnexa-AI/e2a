@@ -20,7 +20,6 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/usage"
-	"github.com/Mnexa-AI/e2a/internal/warmup"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -71,11 +70,6 @@ type Params struct {
 	// nil when SES is not configured (dev/self-host), leaving sending_status
 	// at none and the relay From in place. *senderidentity.Manager satisfies it.
 	SenderIdentity SenderIdentityEnqueuer
-
-	// Warmup applies the per-domain sending warmup ramp on outbound. Optional —
-	// nil (warmup disabled, or self-host without the sending feature) leaves
-	// EnforceWarmup unwired so every send flows at full volume.
-	Warmup *warmup.Enforcer
 }
 
 // SenderIdentityEnqueuer is the slice of *senderidentity.Manager apiserver
@@ -134,7 +128,6 @@ func BuildDeps(p Params) httpapi.Deps {
 		ListReviews:          p.Store.ListReviews,
 		GetReviewWithContent: p.Store.GetReviewWithContent,
 		EnforceMessageSend:   p.Enforcer.CheckMessageSend,
-		EnforceWarmup:        warmupEnforce(p),
 		GetRepliableMessage:  p.Store.GetRepliableMessage,
 		GetLimits:            p.Enforcer.Get,
 		ExportUserData:       p.API.ExportUserDataCore,
@@ -225,17 +218,6 @@ func enqueueSenderProvisionFunc(p Params) func(ctx context.Context, domain strin
 			log.Printf("[apiserver] enqueue sender provision for %s: %v", domain, err)
 		}
 	}
-}
-
-// warmupEnforce wires the per-domain warmup check. Nil when warmup is disabled
-// (Params.Warmup nil), which leaves httpapi.Deps.EnforceWarmup nil so the send
-// path no-ops. p.Warmup.Check is nil-safe (a nil *warmup.Enforcer allows), but
-// returning nil here keeps the "feature off" state explicit at the wiring seam.
-func warmupEnforce(p Params) func(ctx context.Context, domain string) error {
-	if p.Warmup == nil {
-		return nil
-	}
-	return p.Warmup.Check
 }
 
 // attachmentStore wires the default (native) attachment store when the signing

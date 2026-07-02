@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Mnexa-AI/e2a/internal/warmup"
 	"gopkg.in/yaml.v3"
 )
 
@@ -191,12 +192,14 @@ type LimitsConfig struct {
 // reputation per sending domain).
 //
 // Disabled by default so a self-host that never configures `warmup:` is not
-// surprised by throttling; hosted operators set Enabled=true. When enabled but
-// the numbers are left at zero, the built-in DefaultSchedule (50 → 2000 over
-// 30 days) is used.
+// surprised by throttling; hosted operators set Enabled=true. The schedule
+// numbers are seeded from warmup.DefaultSchedule (50 → 2000 over 30 days)
+// before unmarshal, so omitted fields keep their defaults individually.
 type WarmupConfig struct {
-	// Enabled turns the ramp on. When false, EnforceWarmup is left unwired and
-	// every send flows at full volume regardless of domain age.
+	// Enabled turns the ramp on. When false, neither the sender's warmup gate
+	// nor the identity store's ramp arming is wired: every send flows at full
+	// volume, and domains that verify meanwhile can never be throttled
+	// retroactively by enabling warmup later.
 	Enabled bool `yaml:"enabled"`
 	// StartDaily is the day-one daily send allowance for a warming domain.
 	StartDaily int `yaml:"start_daily"`
@@ -230,6 +233,15 @@ func Load(path string) (*Config, error) {
 			MaxMessagesMonth: 1_000_000_000,
 			MaxStorageBytes:  1 << 50, // 1 PiB
 			CacheTTLSeconds:  60,
+		},
+		// Seeded pre-unmarshal (the LimitsConfig pattern) so a partially-set
+		// `warmup:` block keeps per-field defaults — an operator who writes
+		// only `target_daily: 5000` still gets the default start and ramp
+		// window, not a degenerate clamped schedule.
+		Warmup: WarmupConfig{
+			StartDaily:  warmup.DefaultSchedule.StartDaily,
+			TargetDaily: warmup.DefaultSchedule.TargetDaily,
+			RampDays:    warmup.DefaultSchedule.RampDays,
 		},
 		Env: "development",
 	}

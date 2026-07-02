@@ -387,16 +387,16 @@ func main() {
 	api.SetEnforcer(enforcer)
 
 	// Per-domain sending warmup (email-warmup-support). Wired only when
-	// enabled; nil leaves the send path unthrottled. When enabled with all
-	// numbers left at zero, the built-in DefaultSchedule (50 → 2000 over 30
-	// days) is used; any set field switches to the operator's curve.
-	var warmupEnforcer *warmup.Enforcer
+	// enabled: the identity store arms the ramp on first sending-verified, and
+	// the sender reserves a ramp slot right before every wire send — the one
+	// chokepoint direct sends and all HITL release paths share. Disabled (the
+	// default) leaves both unset, so every send flows at full volume. The
+	// schedule numbers are seeded by config.Load from warmup.DefaultSchedule,
+	// so a partially-set `warmup:` block keeps per-field defaults.
 	if cfg.Warmup.Enabled {
-		sched := warmup.DefaultSchedule
-		if cfg.Warmup.StartDaily > 0 || cfg.Warmup.TargetDaily > 0 || cfg.Warmup.RampDays > 0 {
-			sched = warmup.NewSchedule(cfg.Warmup.StartDaily, cfg.Warmup.TargetDaily, cfg.Warmup.RampDays)
-		}
-		warmupEnforcer = warmup.NewEnforcer(store, usageStore, sched)
+		sched := warmup.NewSchedule(cfg.Warmup.StartDaily, cfg.Warmup.TargetDaily, cfg.Warmup.RampDays)
+		store.SetWarmupArming(true)
+		sender.SetWarmupGate(warmup.NewEnforcer(store, usageStore, sched))
 		log.Printf("[warmup] per-domain sending warmup enabled: %d → %d/day over %d days",
 			sched.StartDaily, sched.TargetDaily, sched.RampDays)
 	}
@@ -473,7 +473,6 @@ func main() {
 		Legacy:          router,
 		WSHandle:        wsHandler.ServeWithEmail,
 		SenderIdentity:  senderEnqueuer,
-		Warmup:          warmupEnforcer,
 	})
 
 	httpServer := &http.Server{

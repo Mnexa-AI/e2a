@@ -109,7 +109,25 @@ type Sender struct {
 	// SES publishes delivery/bounce/complaint events (decision 9 / Slice 4b).
 	// Empty (the default) = no header, no events — dev/self-host without SES.
 	sesConfigSet string
+	// warmupGate, when set, reserves one of the agent domain's daily warmup
+	// ramp slots right before the wire send (see Send). nil (warmup disabled,
+	// dev/self-host) leaves every send unthrottled.
+	warmupGate WarmupGate
 }
+
+// WarmupGate atomically claims a warmup send slot for a domain, returning a
+// *warmup.ThrottleError when the domain has spent its day's ramp cap and nil
+// otherwise (including on internal read errors — the gate fails open inside).
+// *warmup.Enforcer satisfies it. Kept as an interface so outbound does not
+// depend on the warmup package and tests can inject a fake.
+type WarmupGate interface {
+	Reserve(ctx context.Context, domain string) error
+}
+
+// SetWarmupGate enables per-domain sending-warmup enforcement on Send.
+// Optional-setter pattern (cf. SetSendingStatusLookup) so existing call sites
+// and tests are unaffected.
+func (s *Sender) SetWarmupGate(g WarmupGate) { s.warmupGate = g }
 
 // SetSESConfigurationSet enables SES event publishing for outbound mail by
 // tagging each message with the given configuration set. Optional-setter
@@ -290,6 +308,20 @@ func (s *Sender) Send(agent *identity.AgentIdentity, req SendRequest) (*SendResu
 	// event publishing is not configured (dev/self-host) — no header, no events.
 	if s.sesConfigSet != "" {
 		message = append([]byte("X-SES-CONFIGURATION-SET: "+s.sesConfigSet+"\r\n"), message...)
+	}
+
+	// Per-domain sending warmup: reserve one of the domain's daily ramp slots
+	// immediately before the wire send. This is the single chokepoint every
+	// producer of real upstream mail converges on — direct sends, HITL
+	// approvals (API + magic link), and the TTL auto-approve worker — while
+	// loopback self-sends and relay-domain test sends never reach it, so they
+	// are neither throttled nor counted. The gate returns *warmup.ThrottleError
+	// only (its internals fail open on dependency errors), which callers map to
+	// 429 warmup_throttled.
+	if s.warmupGate != nil {
+		if gerr := s.warmupGate.Reserve(context.Background(), agent.Domain); gerr != nil {
+			return nil, gerr
+		}
 	}
 
 	sesMessageID, err := s.smtpRelay.Send(envelopeFrom, envelope, message)

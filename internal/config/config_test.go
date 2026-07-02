@@ -84,7 +84,7 @@ warmup:
 	}
 
 	// Omitted `warmup:` leaves it disabled (no accidental throttling on a
-	// self-host that never configures it).
+	// self-host that never configures it) with the default schedule seeded.
 	other := filepath.Join(dir, "no-warmup.yaml")
 	os.WriteFile(other, []byte("env: development\n"), 0644)
 	c2, err := Load(other)
@@ -93,6 +93,22 @@ warmup:
 	}
 	if c2.Warmup.Enabled {
 		t.Fatal("warmup must default to disabled when omitted")
+	}
+	if c2.Warmup.StartDaily != 50 || c2.Warmup.TargetDaily != 2000 || c2.Warmup.RampDays != 30 {
+		t.Fatalf("omitted warmup must keep the default schedule, got %+v", c2.Warmup)
+	}
+
+	// A PARTIAL `warmup:` block keeps per-field defaults: setting only
+	// target_daily must not degrade start/ramp to their zero-value clamps
+	// (which would allow exactly 1 send on day one).
+	partial := filepath.Join(dir, "partial-warmup.yaml")
+	os.WriteFile(partial, []byte("warmup:\n  enabled: true\n  target_daily: 5000\n"), 0644)
+	c3, err := Load(partial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c3.Warmup.StartDaily != 50 || c3.Warmup.TargetDaily != 5000 || c3.Warmup.RampDays != 30 {
+		t.Fatalf("partial warmup config must keep unset fields at defaults, got %+v", c3.Warmup)
 	}
 }
 

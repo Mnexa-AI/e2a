@@ -16,10 +16,12 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/warmup"
 )
 
-// warmupSendServer builds a minimal send-capable server whose EnforceWarmup dep
-// is driven by the supplied func, and records whether the message was actually
-// delivered (so a test can distinguish "throttled before send" from "allowed").
-func warmupSendServer(t *testing.T, enforce func(ctx context.Context, domain string) error, delivered *bool) *httptest.Server {
+// warmupSendServer builds a minimal send-capable server whose DeliverOutbound
+// dep is driven by the supplied func. The warmup gate itself lives in
+// outbound.Sender.Send (below the DeliverOutbound seam), so at this layer the
+// contract under test is the wire mapping: a *agent.OutboundError carrying the
+// warmup 429 must reach the client with its structured pacing details intact.
+func warmupSendServer(t *testing.T, deliver func() *agent.OutboundError) *httptest.Server {
 	t.Helper()
 	ag := &identity.AgentIdentity{ID: "support@acme.com", Email: "support@acme.com", Domain: "acme.com", UserID: "u_1", DomainVerified: true}
 	srv := httptest.NewServer(New(Deps{
@@ -30,9 +32,10 @@ func warmupSendServer(t *testing.T, enforce func(ctx context.Context, domain str
 			}
 			return nil, errors.New("not found")
 		},
-		EnforceWarmup: enforce,
 		DeliverOutbound: func(ctx context.Context, u *identity.User, a *identity.AgentIdentity, req outbound.SendRequest, mt, rt string, ref *identity.Message) (*agent.OutboundResult, *agent.OutboundError) {
-			*delivered = true
+			if oerr := deliver(); oerr != nil {
+				return nil, oerr
+			}
 			return &agent.OutboundResult{MessageID: "msg_1", Method: "smtp"}, nil
 		},
 	}))
@@ -56,20 +59,19 @@ func warmupSend(t *testing.T, srv *httptest.Server) (int, map[string]any) {
 	return resp.StatusCode, body
 }
 
-// A domain over its warmup daily cap is rejected with 429 warmup_throttled,
-// BEFORE any delivery, carrying the pacing details.
+// A domain over its warmup daily cap surfaces as 429 warmup_throttled with the
+// pacing details (daily_cap / sent_today / retry_after_seconds) intact through
+// the DeliverOutbound → error-envelope mapping. This exercises the same
+// OutboundError the agent layer builds from the sender's *warmup.ThrottleError.
 func TestSendWarmupThrottled(t *testing.T) {
-	delivered := false
-	srv := warmupSendServer(t, func(ctx context.Context, domain string) error {
-		return &warmup.ThrottleError{Domain: domain, DailyCap: 50, SentToday: 50, RetryAfter: 3 * time.Hour}
-	}, &delivered)
+	srv := warmupSendServer(t, func() *agent.OutboundError {
+		te := &warmup.ThrottleError{Domain: "acme.com", DailyCap: 50, SentToday: 50, RetryAfter: 3 * time.Hour}
+		return agent.WarmupThrottleError(te)
+	})
 
 	code, body := warmupSend(t, srv)
 	if code != http.StatusTooManyRequests || errCode(body) != "warmup_throttled" {
 		t.Fatalf("want 429 warmup_throttled, got %d %v", code, body)
-	}
-	if delivered {
-		t.Fatal("send must be throttled BEFORE delivery")
 	}
 	errObj, _ := body["error"].(map[string]any)
 	det, _ := errObj["details"].(map[string]any)
@@ -82,33 +84,28 @@ func TestSendWarmupThrottled(t *testing.T) {
 	if det["retry_after_seconds"].(float64) != float64(3*60*60) {
 		t.Fatalf("expected retry_after_seconds=10800, got %v", det["retry_after_seconds"])
 	}
+	if det["domain"] != "acme.com" {
+		t.Fatalf("expected domain detail, got %v", det)
+	}
 }
 
-// Under the cap: the enforcer returns nil, the send proceeds.
+// A plain OutboundError without details keeps its envelope shape (no details
+// key materializes from nil).
+func TestSendOutboundErrorWithoutDetails(t *testing.T) {
+	srv := warmupSendServer(t, func() *agent.OutboundError {
+		return &agent.OutboundError{Status: http.StatusForbidden, Code: "blocked_by_policy", Msg: "message blocked by outbound policy"}
+	})
+	code, body := warmupSend(t, srv)
+	if code != http.StatusForbidden || errCode(body) != "blocked_by_policy" {
+		t.Fatalf("want 403 blocked_by_policy, got %d %v", code, body)
+	}
+}
+
+// The happy path is unaffected.
 func TestSendWarmupAllowed(t *testing.T) {
-	delivered := false
-	srv := warmupSendServer(t, func(ctx context.Context, domain string) error { return nil }, &delivered)
+	srv := warmupSendServer(t, func() *agent.OutboundError { return nil })
 	code, body := warmupSend(t, srv)
 	if code != http.StatusOK {
 		t.Fatalf("under cap: want 200, got %d %v", code, body)
-	}
-	if !delivered {
-		t.Fatal("under-cap send should be delivered")
-	}
-}
-
-// Fail-open: a non-throttle error from the enforcer (e.g. a DB read blip) must
-// NOT block real mail — the send proceeds.
-func TestSendWarmupFailsOpenOnError(t *testing.T) {
-	delivered := false
-	srv := warmupSendServer(t, func(ctx context.Context, domain string) error {
-		return errors.New("db down")
-	}, &delivered)
-	code, body := warmupSend(t, srv)
-	if code != http.StatusOK {
-		t.Fatalf("fail-open: want 200, got %d %v", code, body)
-	}
-	if !delivered {
-		t.Fatal("a non-throttle enforcer error must fail open (deliver anyway)")
 	}
 }

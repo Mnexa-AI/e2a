@@ -9,15 +9,11 @@
 //   - Schedule (this file) is the pure ramp math: given a start time and
 //     "now", it returns the day's allowed send count. No I/O, no clock — the
 //     caller passes the times in, so it is trivially unit-testable.
-//   - Enforcer (enforcer.go) binds a Schedule to a domain-state reader and a
-//     per-domain daily send counter to decide whether one more send is allowed.
+//   - Enforcer (enforcer.go) binds a Schedule to a domain-state reader and an
+//     atomic per-domain daily send counter to reserve send slots.
 //
 // Warmup is scoped PER DOMAIN because mailbox providers track reputation per
 // sending domain, not per agent or account.
-//
-// An EngagementProvider seam (engagement.go) is defined for the follow-up
-// warmup-network phase (peer inboxes exchanging + positively engaging with
-// mail); the core ramp does not depend on it.
 package warmup
 
 import "time"
@@ -30,7 +26,7 @@ import "time"
 // ~505"), and never overshoots the target. A zero-value Schedule is not valid;
 // construct via NewSchedule so the fields are sanitized.
 type Schedule struct {
-	// StartDaily is the allowance on day 0 (the first 24h after warmup begins).
+	// StartDaily is the allowance on day 0 (the UTC calendar day warmup begins).
 	StartDaily int
 	// TargetDaily is the full daily allowance reached at the end of the ramp.
 	TargetDaily int
@@ -39,9 +35,10 @@ type Schedule struct {
 	RampDays int
 }
 
-// DefaultSchedule is the built-in ramp used when the operator does not
-// configure `warmup:` — a conservative curve that suits a brand-new domain:
-// 50 sends on day one climbing to 2,000/day over 30 days.
+// DefaultSchedule is the built-in ramp — a conservative curve that suits a
+// brand-new domain: 50 sends on day one climbing to 2,000/day over 30 days.
+// config.Load seeds the `warmup:` section from these numbers so a partially
+// set config keeps per-field defaults.
 var DefaultSchedule = Schedule{StartDaily: 50, TargetDaily: 2000, RampDays: 30}
 
 // NewSchedule returns a Schedule with the fields clamped to a sane, monotonic
@@ -66,22 +63,27 @@ func NewSchedule(startDaily, targetDaily, rampDays int) Schedule {
 }
 
 // DailyCap returns the number of messages the domain may send during the UTC
-// day containing now, and whether the ramp has completed (the cap has reached
-// TargetDaily). startedAt is when warmup began for the domain.
+// calendar day containing now, and whether the ramp has completed (the cap has
+// reached TargetDaily). startedAt is when warmup began for the domain.
 //
-// Day index is floor(elapsed / 24h) measured from startedAt, so the cap steps
-// up once per 24 hours rather than mid-day. A now before startedAt (clock skew)
-// is treated as day 0. The cap is linearly interpolated across [0, RampDays]:
+// The day index is the number of UTC calendar-day boundaries between startedAt
+// and now, so the cap steps up at UTC midnight — the same instant the
+// per-domain daily counter resets and the instant ThrottleError.RetryAfter
+// points at. (Indexing by 24h-from-start would let a domain sample two counter
+// days inside one ramp day and send double its cap.) Day 0 is the partial
+// first day, which is conservative: a domain verified at 20:00 UTC gets its
+// day-0 allowance for 4 hours, then day 1 begins. A now before startedAt
+// (clock skew) is treated as day 0. The cap is linearly interpolated across
+// [0, RampDays]:
 //
 //	cap(d) = StartDaily + (TargetDaily-StartDaily) * d / RampDays   for 0 <= d < RampDays
 //	cap(d) = TargetDaily                                            for d >= RampDays
 func (s Schedule) DailyCap(startedAt, now time.Time) (cap int, done bool) {
 	sched := NewSchedule(s.StartDaily, s.TargetDaily, s.RampDays)
-	elapsed := now.Sub(startedAt)
-	if elapsed < 0 {
-		elapsed = 0
+	day := calendarDaysUTC(startedAt, now)
+	if day < 0 {
+		day = 0
 	}
-	day := int(elapsed / (24 * time.Hour))
 	if day >= sched.RampDays {
 		return sched.TargetDaily, true
 	}
@@ -90,4 +92,13 @@ func (s Schedule) DailyCap(startedAt, now time.Time) (cap int, done bool) {
 	// below the ideal line (conservative for reputation).
 	cap = sched.StartDaily + span*day/sched.RampDays
 	return cap, false
+}
+
+// calendarDaysUTC counts UTC calendar-day boundaries crossed between from and
+// to (to's UTC date minus from's UTC date, in days).
+func calendarDaysUTC(from, to time.Time) int {
+	f, t := from.UTC(), to.UTC()
+	fd := time.Date(f.Year(), f.Month(), f.Day(), 0, 0, 0, 0, time.UTC)
+	td := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+	return int(td.Sub(fd) / (24 * time.Hour))
 }

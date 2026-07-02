@@ -147,30 +147,48 @@ func (s *Store) MessagesThisMonth(ctx context.Context, userID string) (int, erro
 	return count, err
 }
 
-// CountDomainSendsToday returns how many outbound messages agents on the given
-// domain have created during the current UTC calendar day. This is the running
-// numerator the warmup enforcer compares against the day's ramp cap; it buckets
-// on the UTC day to match warmup.untilNextUTCMidnight (the retry-after the
-// enforcer reports). Satisfies warmup.DailyCounter.
+// ReserveDomainSend atomically claims one warmup send slot for the domain on
+// the given UTC calendar day, refusing once the day's count would exceed cap.
+// It is the warmup enforcer's numerator (satisfies warmup.DailyReserver) and
+// is called at actual wire-send time (outbound.Sender.Send), so held-for-review
+// drafts don't consume slots until they are released, and agent churn cannot
+// rewind the count — the counter row (domain_send_counters, migration 050)
+// lives independently of messages/agent_identities on purpose (message rows
+// cascade-delete with their agent).
 //
-// It counts all outbound rows for the domain, including drafts held for review
-// that have not yet left the wire — conservative on purpose: over-counting a
-// held draft can only slow a warming domain slightly, never send more than the
-// cap allows. domain is lowercased to match the stored (lowercase) value.
-func (s *Store) CountDomainSendsToday(ctx context.Context, domain string) (int, error) {
-	now := time.Now().UTC()
-	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	var count int
-	err := s.pool.QueryRow(ctx,
-		`SELECT count(*)
-		   FROM messages m
-		   JOIN agent_identities a ON a.id = m.agent_id
-		  WHERE a.domain = lower($1)
-		    AND m.direction = 'outbound'
-		    AND m.created_at >= $2`,
-		domain, dayStart,
+// The increment-if-below-cap runs as one statement: concurrent senders
+// serialize on the row lock, so the cap can never be jointly overshot the way
+// a read-count-then-compare check can. allowed=false means the day's cap is
+// spent; count is the day's running total either way. domain must be the
+// stored (normalized) form — callers pass AgentIdentity.Domain, which is.
+func (s *Store) ReserveDomainSend(ctx context.Context, domain string, day time.Time, cap int) (allowed bool, count int, err error) {
+	d := day.UTC()
+	err = s.pool.QueryRow(ctx,
+		`INSERT INTO domain_send_counters (domain, day, count)
+		 VALUES ($1, $2, 1)
+		 ON CONFLICT (domain, day) DO UPDATE
+		    SET count = domain_send_counters.count + 1
+		  WHERE domain_send_counters.count < $3
+		 RETURNING count`,
+		domain, d, cap,
 	).Scan(&count)
-	return count, err
+	if err == nil {
+		return true, count, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return false, 0, err
+	}
+	// At cap: the conditional update matched no row. Read the day's total for
+	// the throttle payload (a racy read is fine here — it only feeds the 429
+	// details, not the decision).
+	err = s.pool.QueryRow(ctx,
+		`SELECT count FROM domain_send_counters WHERE domain = $1 AND day = $2`,
+		domain, d,
+	).Scan(&count)
+	if err != nil {
+		return false, 0, err
+	}
+	return false, count, nil
 }
 
 // GetStorageBytes returns the user's current materialized storage bytes

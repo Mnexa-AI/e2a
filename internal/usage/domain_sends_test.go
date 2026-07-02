@@ -2,80 +2,89 @@ package usage_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
 	"github.com/Mnexa-AI/e2a/internal/usage"
 )
 
-// CountDomainSendsToday is the running numerator the warmup enforcer compares
-// against the day's ramp cap. It must count only THIS domain's outbound rows
-// from the current UTC day — not inbound, not other domains, not yesterday.
-func TestCountDomainSendsToday(t *testing.T) {
+// ReserveDomainSend is the warmup numerator: an atomic per-(domain, UTC day)
+// slot reservation guarded by the day's cap. It must count per domain per day,
+// refuse exactly at the cap, and never jointly overshoot under concurrency.
+func TestReserveDomainSend(t *testing.T) {
 	pool := testutil.TestDB(t)
 	ctx := context.Background()
-	idStore := identity.NewStore(pool)
-	usageStore := usage.NewStore(pool)
+	store := usage.NewStore(pool)
 
-	user, err := idStore.CreateOrGetUser(ctx, "sends@example.com", "Sends Owner", "google-sends")
-	if err != nil {
-		t.Fatalf("CreateOrGetUser: %v", err)
-	}
-	const domain = "sends.example.com"
-	const other = "other.example.com"
-	for _, d := range []string{domain, other} {
-		if _, err := idStore.ClaimOrCreateDomain(ctx, d, user.ID); err != nil {
-			t.Fatalf("ClaimOrCreateDomain %s: %v", d, err)
+	day := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	const domain = "reserve.example.com"
+
+	// Slots 1..3 of cap 3 are granted with a running count.
+	for want := 1; want <= 3; want++ {
+		allowed, count, err := store.ReserveDomainSend(ctx, domain, day, 3)
+		if err != nil || !allowed || count != want {
+			t.Fatalf("slot %d: got allowed=%v count=%d err=%v, want true/%d/nil", want, allowed, count, err, want)
 		}
 	}
+	// Slot 4 refuses and reports the day's total.
+	allowed, count, err := store.ReserveDomainSend(ctx, domain, day, 3)
+	if err != nil || allowed || count != 3 {
+		t.Fatalf("over cap: got allowed=%v count=%d err=%v, want false/3/nil", allowed, count, err)
+	}
 
-	mkAgent := func(id, d string) {
-		if _, err := pool.Exec(ctx,
-			`INSERT INTO agent_identities (id, domain, user_id, name) VALUES ($1, $2, $3, $4)`,
-			id, d, user.ID, id); err != nil {
-			t.Fatalf("insert agent %s: %v", id, err)
+	// A new UTC day starts a fresh counter.
+	if allowed, count, err := store.ReserveDomainSend(ctx, domain, day.Add(24*time.Hour), 3); err != nil || !allowed || count != 1 {
+		t.Fatalf("next day: got allowed=%v count=%d err=%v, want true/1/nil", allowed, count, err)
+	}
+	// Another domain on the same day is independent.
+	if allowed, count, err := store.ReserveDomainSend(ctx, "other.example.com", day, 3); err != nil || !allowed || count != 1 {
+		t.Fatalf("other domain: got allowed=%v count=%d err=%v, want true/1/nil", allowed, count, err)
+	}
+	// A raised cap (the ramp stepping up next day) re-admits the same domain+day.
+	if allowed, _, err := store.ReserveDomainSend(ctx, domain, day, 10); err != nil || !allowed {
+		t.Fatalf("raised cap: got allowed=%v err=%v, want true/nil", allowed, err)
+	}
+}
+
+// The reservation must hold under concurrency: N parallel claims against a cap
+// admit exactly cap sends, never cap+overshoot — this is the property the old
+// read-count-then-compare check lacked.
+func TestReserveDomainSendConcurrent(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := usage.NewStore(pool)
+
+	day := time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)
+	const domain = "burst.example.com"
+	const cap = 10
+	const attempts = 40
+
+	var wg sync.WaitGroup
+	granted := make(chan bool, attempts)
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			allowed, _, err := store.ReserveDomainSend(ctx, domain, day, cap)
+			if err != nil {
+				t.Errorf("ReserveDomainSend: %v", err)
+				return
+			}
+			granted <- allowed
+		}()
+	}
+	wg.Wait()
+	close(granted)
+
+	got := 0
+	for a := range granted {
+		if a {
+			got++
 		}
 	}
-	mkAgent("agt_dom", domain)
-	mkAgent("agt_other", other)
-
-	mkMsg := func(id, agentID, direction string, createdAt time.Time) {
-		if _, err := pool.Exec(ctx,
-			`INSERT INTO messages (id, agent_id, direction, created_at) VALUES ($1, $2, $3, $4)`,
-			id, agentID, direction, createdAt); err != nil {
-			t.Fatalf("insert message %s: %v", id, err)
-		}
-	}
-
-	now := time.Now().UTC()
-	yesterday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).Add(-2 * time.Hour)
-
-	// 3 outbound today on the target domain (counted).
-	mkMsg("m1", "agt_dom", "outbound", now)
-	mkMsg("m2", "agt_dom", "outbound", now)
-	mkMsg("m3", "agt_dom", "outbound", now)
-	// Noise that must NOT be counted:
-	mkMsg("m4", "agt_dom", "inbound", now)      // inbound
-	mkMsg("m5", "agt_dom", "outbound", yesterday) // prior UTC day
-	mkMsg("m6", "agt_other", "outbound", now)   // different domain
-
-	got, err := usageStore.CountDomainSendsToday(ctx, domain)
-	if err != nil {
-		t.Fatalf("CountDomainSendsToday: %v", err)
-	}
-	if got != 3 {
-		t.Fatalf("got %d, want 3 (only today's outbound on %s)", got, domain)
-	}
-
-	// Case-insensitive: the stored domain is lowercase; an upper-case query must match.
-	if got, err := usageStore.CountDomainSendsToday(ctx, "SENDS.EXAMPLE.COM"); err != nil || got != 3 {
-		t.Fatalf("upper-case query: got %d err %v, want 3/nil", got, err)
-	}
-
-	// A domain with no sends is zero, not an error.
-	if got, err := usageStore.CountDomainSendsToday(ctx, "never.example.com"); err != nil || got != 0 {
-		t.Fatalf("empty domain: got %d err %v, want 0/nil", got, err)
+	if got != cap {
+		t.Fatalf("concurrent burst: %d of %d claims granted, want exactly %d", got, attempts, cap)
 	}
 }

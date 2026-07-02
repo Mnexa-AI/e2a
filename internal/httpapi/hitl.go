@@ -117,7 +117,7 @@ func (s *Server) approveHeld(ctx context.Context, userID, msgID, agentEmail stri
 			return SendResultView{}, NewError(http.StatusInternalServerError, "internal_error", "approve unavailable")
 		}
 		if derr := s.deps.ApproveInboundReview(ctx, userID, meta); derr != nil {
-			return SendResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
+			return SendResultView{}, outboundErrorEnvelope(derr)
 		}
 		return SendResultView{Status: identity.MessageStatusReviewApproved, MessageID: meta.ID}, nil
 	}
@@ -130,7 +130,7 @@ func (s *Server) approveHeld(ctx context.Context, userID, msgID, agentEmail stri
 	_, view, err := runIdempotent(s, ctx, userID, idemKey, "/v1/approve/"+msgID, rawBody, func() (int, SendResultView, error) {
 		sent, derr := s.deps.ApprovePending(ctx, userID, msgID, agentEmail, body)
 		if derr != nil {
-			return 0, SendResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
+			return 0, SendResultView{}, outboundErrorEnvelope(derr)
 		}
 		edited := sent.Edited
 		return http.StatusOK, SendResultView{
@@ -175,7 +175,7 @@ func (s *Server) rejectHeld(ctx context.Context, userID, msgID, agentEmail, reas
 			return RejectResultView{}, NewError(http.StatusInternalServerError, "internal_error", "reject unavailable")
 		}
 		if derr := s.deps.RejectInboundReview(ctx, userID, reason, meta); derr != nil {
-			return RejectResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
+			return RejectResultView{}, outboundErrorEnvelope(derr)
 		}
 		return RejectResultView{Status: identity.MessageStatusReviewRejected, MessageID: meta.ID, RejectionReason: reason}, nil
 	}
@@ -184,7 +184,7 @@ func (s *Server) rejectHeld(ctx context.Context, userID, msgID, agentEmail, reas
 	}
 	rejected, derr := s.deps.RejectPending(ctx, userID, msgID, agentEmail, reason)
 	if derr != nil {
-		return RejectResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
+		return RejectResultView{}, outboundErrorEnvelope(derr)
 	}
 	return RejectResultView{Status: rejected.Status, MessageID: rejected.ID, RejectionReason: rejected.RejectionReason}, nil
 }

@@ -145,13 +145,6 @@ type Deps struct {
 	ApprovePending     func(ctx context.Context, userID, messageID, expectedAgentEmail string, ovr agent.ApproveOverrides) (*identity.Message, *agent.OutboundError)
 	RejectPending      func(ctx context.Context, userID, messageID, expectedAgentEmail, reason string) (*identity.Message, *agent.OutboundError)
 	EnforceMessageSend func(ctx context.Context, userID string) error
-	// EnforceWarmup applies the per-domain sending warmup ramp: it returns a
-	// *warmup.ThrottleError (mapped to 429 warmup_throttled) when the agent's
-	// sending domain has hit its day's warmup cap, nil otherwise. Keyed on the
-	// agent's OWN domain — the shared relay domain and non-warming domains
-	// no-op. Optional: nil (self-host without the sending feature) disables
-	// warmup entirely. See internal/warmup.
-	EnforceWarmup func(ctx context.Context, domain string) error
 	// Inbound review release — the held-screening decision (design 2026-06-22 §5).
 	// GetReviewMessage resolves a held message's direction so /approve+/reject can
 	// branch (it intentionally sees held inbound statuses, scoped to the resolved

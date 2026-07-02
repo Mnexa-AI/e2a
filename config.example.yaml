@@ -135,18 +135,24 @@ limits:
 # (the same reputation-building ramp hosted email services apply to new
 # senders). Scoped per domain — mailbox providers track reputation per sending
 # domain. Warmup begins automatically the first time a domain becomes
-# sending-verified (see sender_identity), and once a domain's ramp completes it
-# is never re-throttled. A throttled send returns 429 warmup_throttled with the
-# day's cap, count so far, and a retry-after (until the next UTC midnight).
+# sending-verified (see sender_identity) while this is enabled, and once a
+# domain's ramp completes it is never throttled again.
 #
-# Disabled by default so a self-host is never surprised by throttling. When
-# enabled with the numbers left at 0, the built-in default curve is used:
-# 50/day on day one climbing to 2000/day over 30 days.
+# The ramp is enforced where mail actually leaves for the ISPs — direct sends
+# and human-approved (HITL) releases alike — via an atomic per-(domain, UTC-day)
+# slot counter, so held drafts don't consume allowance until released and
+# concurrent bursts can't overshoot the cap. A throttled send returns 429
+# warmup_throttled with the day's cap, count so far, and retry_after_seconds
+# (until the next UTC midnight, when the counter resets and the cap steps up).
+#
+# Disabled by default so a self-host is never surprised by throttling, and
+# domains verified while disabled are never throttled retroactively if warmup
+# is enabled later. Omitted fields keep the defaults below individually.
 warmup:
   enabled: false
   start_daily: 50     # day-one allowance for a warming domain
   target_daily: 2000  # full daily allowance at the end of the ramp
-  ramp_days: 30        # days to climb from start_daily to target_daily
+  ramp_days: 30       # days to climb from start_daily to target_daily
 
 
 # — Content screening (piguard) ——————————————————————————————————————————————

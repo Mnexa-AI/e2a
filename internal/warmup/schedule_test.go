@@ -47,6 +47,25 @@ func TestDailyCapMonotonicNonDescending(t *testing.T) {
 	}
 }
 
+func TestDailyCapStepsAtUTCMidnight(t *testing.T) {
+	// The ramp day index must advance at UTC midnight — the same boundary the
+	// per-domain daily counter resets on. Indexing by 24h-from-start instead
+	// would let a domain that started mid-day sample two counter days inside
+	// one ramp day and send double its cap.
+	s := Schedule{StartDaily: 50, TargetDaily: 2000, RampDays: 30}
+	start := time.Date(2026, 1, 1, 20, 0, 0, 0, time.UTC) // verified at 20:00 UTC
+
+	// 22:00 same calendar day: still day 0.
+	if cap, _ := s.DailyCap(start, start.Add(2*time.Hour)); cap != 50 {
+		t.Fatalf("same UTC day: got cap=%d want 50", cap)
+	}
+	// 00:01 next calendar day (only 4h elapsed): day 1, cap steps with the
+	// counter reset.
+	if cap, _ := s.DailyCap(start, start.Add(4*time.Hour+time.Minute)); cap != 115 {
+		t.Fatalf("after UTC midnight: got cap=%d want 115 (day 1)", cap)
+	}
+}
+
 func TestDailyCapClockSkewBeforeStart(t *testing.T) {
 	s := Schedule{StartDaily: 50, TargetDaily: 2000, RampDays: 30}
 	start := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)

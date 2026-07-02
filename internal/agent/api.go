@@ -30,6 +30,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/ratelimit"
 	"github.com/Mnexa-AI/e2a/internal/telemetry"
 	"github.com/Mnexa-AI/e2a/internal/usage"
+	"github.com/Mnexa-AI/e2a/internal/warmup"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"github.com/google/go-github/v72/github"
@@ -1094,13 +1095,39 @@ type OutboundResult struct {
 // OutboundError carries an HTTP status + message so both the legacy handler
 // (http.Error) and the v1 httpapi layer (error envelope) render it
 // consistently. Code is the machine-branchable code the v1 layer uses.
+// Details, when non-nil, is attached as the v1 envelope's structured details
+// (the legacy handler renders Msg only).
 type OutboundError struct {
-	Status int
-	Code   string
-	Msg    string
+	Status  int
+	Code    string
+	Msg     string
+	Details map[string]any
 }
 
 func (e *OutboundError) Error() string { return e.Msg }
+
+// WarmupThrottleError maps a warmup ramp throttle to the 429 warmup_throttled
+// wire error, carrying the pacing details (day cap, count so far, seconds
+// until the UTC-midnight reset) so callers can back off instead of retrying
+// blind. Shared by the direct send path and the HITL release paths — every
+// producer that can hit the sender's warmup gate.
+func WarmupThrottleError(te *warmup.ThrottleError) *OutboundError {
+	secs := int(te.RetryAfter.Round(time.Second).Seconds())
+	if secs < 1 {
+		secs = 1
+	}
+	return &OutboundError{
+		Status: http.StatusTooManyRequests,
+		Code:   "warmup_throttled",
+		Msg:    "sending is warming up for this domain — daily volume is ramping up to protect deliverability; retry after the reset",
+		Details: map[string]any{
+			"domain":              te.Domain,
+			"daily_cap":           te.DailyCap,
+			"sent_today":          te.SentToday,
+			"retry_after_seconds": secs,
+		},
+	}
+}
 
 // checkSuppression rejects a send when any recipient (To/CC/BCC) is on the
 // tenant's suppression list (decision 9). Returns a structured
@@ -1121,8 +1148,8 @@ func (a *API) checkSuppression(ctx context.Context, userID string, req outbound.
 		return nil
 	}
 	if len(suppressed) > 0 {
-		return &OutboundError{http.StatusUnprocessableEntity, "recipient_suppressed",
-			"recipient(s) on the suppression list: " + strings.Join(suppressed, ", ") +
+		return &OutboundError{Status: http.StatusUnprocessableEntity, Code: "recipient_suppressed",
+			Msg: "recipient(s) on the suppression list: " + strings.Join(suppressed, ", ") +
 				" — remove via DELETE /v1/account/suppressions/{address}"}
 	}
 	return nil
@@ -1181,7 +1208,7 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		// retried block doesn't write duplicate audit rows / events.
 		a.auditRowless(ctx, agent, blockAuditID(agent.ID, req), req, verdict)
 		a.emitBlockedOutbound(agent, blockAuditID(agent.ID, req), req, verdict)
-		return nil, &OutboundError{http.StatusForbidden, "blocked_by_policy", "message blocked by outbound policy"}
+		return nil, &OutboundError{Status: http.StatusForbidden, Code: "blocked_by_policy", Msg: "message blocked by outbound policy"}
 	}
 
 	// Hold when outbound screening says review. The outbound recipient gate
@@ -1192,9 +1219,9 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		msg, err := a.HoldForApprovalCore(ctx, agent, req, msgType, replyToEmailMessageID)
 		if err != nil {
 			if errors.Is(err, errHoldAttachments) {
-				return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to serialize attachments"}
+				return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "failed to serialize attachments"}
 			}
-			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to hold message for approval"}
+			return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "failed to hold message for approval"}
 		}
 		// Tag the held row + audit only when screening drove the hold (a pure
 		// legacy-HITL hold carries no screening verdict).
@@ -1214,7 +1241,7 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		providerID, err := a.performSelfSend(ctx, agent, req, msgType)
 		if err != nil {
 			log.Printf("[api] self-send failed: agent=%s error=%v", agent.EmailAddress(), err)
-			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "self-send failed"}
+			return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "self-send failed"}
 		}
 		slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
 		log.Printf("[mail] dir=outbound type=%s method=loopback from=%s to=%s slug=%s conv_id=%s subject=%q provider_id=%s", msgType, agent.EmailAddress(), agent.EmailAddress(), slug, req.ConversationID, req.Subject, providerID)
@@ -1223,11 +1250,14 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 
 	result, err := a.sender.Send(agent, req)
 	if err != nil {
+		if te, ok := warmup.AsThrottleError(err); ok {
+			return nil, WarmupThrottleError(te)
+		}
 		if outbound.IsValidationError(err) {
-			return nil, &OutboundError{http.StatusBadRequest, "invalid_request", err.Error()}
+			return nil, &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: err.Error()}
 		}
 		log.Printf("[api] send failed: agent=%s to=%v error=%v", agent.Domain, req.To, err)
-		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", fmt.Sprintf("send failed: %v", err)}
+		return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: fmt.Sprintf("send failed: %v", err)}
 	}
 	outMsg, err := a.store.CreateOutboundMessage(ctx, agent.ID, result.To, result.CC, result.BCC, req.Subject, msgType, result.Method, result.MessageID, req.ConversationID, result.Raw)
 	if err != nil {
@@ -1280,12 +1310,12 @@ func (a *API) SendTestCore(ctx context.Context, agent *identity.AgentIdentity) (
 	if verdict.Block() {
 		a.auditRowless(ctx, agent, blockAuditID(agent.ID, testReq), testReq, verdict)
 		a.emitBlockedOutbound(agent, blockAuditID(agent.ID, testReq), testReq, verdict)
-		return nil, &OutboundError{http.StatusForbidden, "blocked_by_policy", "test message blocked by outbound policy"}
+		return nil, &OutboundError{Status: http.StatusForbidden, Code: "blocked_by_policy", Msg: "test message blocked by outbound policy"}
 	}
 	if verdict.Review() {
 		msg, err := a.HoldForApprovalCore(ctx, agent, testReq, "test", "")
 		if err != nil {
-			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to hold message for approval"}
+			return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "failed to hold message for approval"}
 		}
 		if verdict.Annotate() {
 			a.annotateAndAudit(ctx, agent, msg.ID, testReq, verdict)
@@ -1296,12 +1326,12 @@ func (a *API) SendTestCore(ctx context.Context, agent *identity.AgentIdentity) (
 	message, err := outbound.ComposeMessage(headerFrom, to, nil, subject, body, "text/plain", "", nil, a.fromDomain, "", "")
 	if err != nil {
 		log.Printf("[api] compose test email failed: %v", err)
-		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to compose test email"}
+		return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "failed to compose test email"}
 	}
 	messageID, err := a.smtpRelay.Send(envelopeFrom, to, message)
 	if err != nil {
 		log.Printf("[api] send test email failed: %v", err)
-		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", fmt.Sprintf("failed to send test email: %v", err)}
+		return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: fmt.Sprintf("failed to send test email: %v", err)}
 	}
 	log.Printf("[api] test email sent to %s (message_id=%s)", agent.EmailAddress(), messageID)
 	// flag verdict: the test send persists no message row, so audit row-less.

@@ -12,7 +12,6 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/agent"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
-	"github.com/Mnexa-AI/e2a/internal/warmup"
 	"github.com/danielgtaylor/huma/v2"
 )
 
@@ -187,15 +186,12 @@ func (s *Server) handleTestSend(ctx context.Context, in *AddressParam) (*sendOut
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "limits check failed")
 		}
 	}
-	if env := s.checkWarmup(ctx, ag); env != nil {
-		return nil, env
-	}
 	if s.deps.SendTest == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "test send unavailable")
 	}
 	res, derr := s.deps.SendTest(ctx, ag)
 	if derr != nil {
-		return nil, NewError(derr.Status, derr.Code, derr.Msg)
+		return nil, outboundErrorEnvelope(derr)
 	}
 	if res.Held {
 		return &sendOutput{Status: http.StatusAccepted, Body: SendResultView{Status: "pending_review", MessageID: res.PendingMessageID, ApprovalExpiresAt: res.ApprovalExpiresAt}}, nil
@@ -463,16 +459,13 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "limits check failed")
 		}
 	}
-	if env := s.checkWarmup(ctx, ag); env != nil {
-		return nil, env
-	}
 	if s.deps.DeliverOutbound == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "outbound delivery unavailable")
 	}
 	status, view, err := runIdempotent(s, ctx, user.ID, idemKey, route, rawBody, func() (int, SendResultView, error) {
 		res, derr := s.deps.DeliverOutbound(ctx, user, ag, req, msgType, replyTo, referenced)
 		if derr != nil {
-			return 0, SendResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
+			return 0, SendResultView{}, outboundErrorEnvelope(derr)
 		}
 		if res.Held {
 			return http.StatusAccepted, SendResultView{Status: "pending_review", MessageID: res.PendingMessageID, ApprovalExpiresAt: res.ApprovalExpiresAt}, nil
@@ -485,39 +478,17 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 	return &sendOutput{Status: status, Body: view}, nil
 }
 
-// checkWarmup applies the per-domain sending warmup ramp for the agent's own
-// domain. It returns a 429 warmup_throttled envelope when the domain has hit
-// its day's ramp cap, carrying the pacing details (retry_after + cap/sent) so
-// the caller can back off. A non-throttle error means the state/count read
-// failed; warmup is a reputation optimization, not a correctness gate, so we
-// fail open (return nil) and let the send proceed rather than block real mail
-// on a transient DB blip. nil dep (self-host without the sending feature) is a
-// no-op. Keyed on the agent's OWN domain: the shared relay domain and
-// not-yet-warming domains return status inactive inside the enforcer and pass.
-func (s *Server) checkWarmup(ctx context.Context, ag *identity.AgentIdentity) *ErrorEnvelope {
-	if s.deps.EnforceWarmup == nil || ag == nil {
-		return nil
+// outboundErrorEnvelope maps an agent.OutboundError to the v1 error envelope,
+// carrying its structured details when present (e.g. warmup_throttled's
+// daily_cap / sent_today / retry_after_seconds pacing payload — the warmup
+// gate itself lives in outbound.Sender.Send, so the 429 arrives here through
+// DeliverOutbound rather than a handler-level pre-check).
+func outboundErrorEnvelope(oe *agent.OutboundError) *ErrorEnvelope {
+	env := NewError(oe.Status, oe.Code, oe.Msg)
+	if oe.Details != nil {
+		env = env.WithDetails(oe.Details)
 	}
-	err := s.deps.EnforceWarmup(ctx, ag.Domain)
-	if err == nil {
-		return nil
-	}
-	te, ok := warmup.AsThrottleError(err)
-	if !ok {
-		return nil // fail open on read errors
-	}
-	secs := int(te.RetryAfter.Round(time.Second).Seconds())
-	if secs < 1 {
-		secs = 1
-	}
-	return NewError(http.StatusTooManyRequests, "warmup_throttled",
-		"sending is warming up for this domain — daily volume is ramping up to protect deliverability; retry after the reset").
-		WithDetails(map[string]any{
-			"domain":              te.Domain,
-			"daily_cap":           te.DailyCap,
-			"sent_today":          te.SentToday,
-			"retry_after_seconds": secs,
-		})
+	return env
 }
 
 // checkSendLimit applies the per-agent outbound rate limit (mirrors the

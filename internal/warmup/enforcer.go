@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 )
 
@@ -16,26 +17,30 @@ const (
 	StatusPaused   = "paused"   // ramp suspended; enforcer no-ops
 )
 
-// State is a domain's warmup row as the enforcer needs it.
-type State struct {
-	Status    string
-	StartedAt *time.Time
-}
-
 // StateReader reads a domain's warmup state. *identity.Store satisfies it.
 // Kept as an interface so warmup does not import identity (and its pgx deps)
-// and tests can inject a fake.
+// and tests can inject a fake. domain must be the stored (normalized) form —
+// callers pass AgentIdentity.Domain, which is.
 type StateReader interface {
 	GetWarmupState(ctx context.Context, domain string) (status string, startedAt *time.Time, err error)
 }
 
-// DailyCounter returns how many outbound messages a domain has already sent
-// during the current UTC day. *usage.Store satisfies it.
-type DailyCounter interface {
-	CountDomainSendsToday(ctx context.Context, domain string) (int, error)
+// DailyReserver atomically reserves one send slot for the domain on the given
+// UTC calendar day, refusing once count would exceed cap: the
+// increment-if-below-cap runs as a single statement, so concurrent sends
+// serialize on the counter row and can never jointly overshoot the cap
+// (unlike a read-count-then-compare check). allowed=false means the day's cap
+// is spent; count is the day's running total either way. *usage.Store
+// satisfies it (domain_send_counters, migration 050).
+//
+// A reserved slot is consumed even if the send later fails downstream —
+// deliberately conservative: an error burst can only slow a warming domain
+// down, never push it over its ramp.
+type DailyReserver interface {
+	ReserveDomainSend(ctx context.Context, domain string, day time.Time, cap int) (allowed bool, count int, err error)
 }
 
-// ThrottleError is returned by Enforcer.Check when a domain has reached its
+// ThrottleError is returned by Enforcer.Reserve when a domain has reached its
 // warmup daily cap. Handlers map it to HTTP 429 with the details below so the
 // caller can pace itself. It is a distinct type (not a limits error) because
 // warmup is a temporary, self-clearing throttle, not a plan cap.
@@ -59,19 +64,20 @@ func AsThrottleError(err error) (*ThrottleError, bool) {
 	return nil, false
 }
 
-// Enforcer decides whether a domain may send one more message under its warmup
-// ramp. It is safe for concurrent use (its dependencies are).
+// Enforcer reserves warmup send slots for domains. It is safe for concurrent
+// use (its dependencies are; the reservation itself is atomic in SQL).
 type Enforcer struct {
 	reader   StateReader
-	counter  DailyCounter
+	counter  DailyReserver
 	schedule Schedule
-	now      func() time.Time // injectable clock for tests; nil => time.Now
+	now      func() time.Time              // injectable clock for tests; nil => time.Now
+	logf     func(format string, v ...any) // injectable logger for tests; nil => log.Printf
 }
 
 // NewEnforcer builds the production enforcer. A nil reader OR counter yields a
-// no-op enforcer (Check always allows) so wiring warmup is optional — a
+// no-op enforcer (Reserve always allows) so wiring warmup is optional — a
 // self-host without the sending feature simply leaves it unset.
-func NewEnforcer(reader StateReader, counter DailyCounter, schedule Schedule) *Enforcer {
+func NewEnforcer(reader StateReader, counter DailyReserver, schedule Schedule) *Enforcer {
 	return &Enforcer{
 		reader:   reader,
 		counter:  counter,
@@ -79,38 +85,52 @@ func NewEnforcer(reader StateReader, counter DailyCounter, schedule Schedule) *E
 	}
 }
 
-// Check returns nil if the domain may send another message right now, a
-// *ThrottleError if it has hit today's warmup cap, or a plain error if a
-// dependency read fails. It no-ops (allows) unless the domain's warmup_status
-// is exactly "active": inactive/paused domains, the shared relay domain, and
-// self-host deployments without the sending feature all flow at full volume.
+// Reserve claims one send slot for the domain under its warmup ramp. It
+// returns nil when the send may proceed and a *ThrottleError when the domain
+// has spent today's cap — those are the only two outcomes. It no-ops (allows,
+// reserving nothing) unless the domain's warmup_status is exactly "active"
+// with a ramp anchor: inactive/paused domains, the shared relay domain,
+// ramp-completed domains, and self-host deployments without the sending
+// feature all flow at full volume. domain must be the stored (normalized)
+// form; AgentIdentity.Domain is.
 //
-// Fail-open on read errors: warmup is a reputation optimization, not a
-// correctness gate, so a transient DB blip must not block legitimate mail. The
-// error is returned for the caller to log; the caller treats a non-throttle
-// error as "allow".
-func (e *Enforcer) Check(ctx context.Context, domain string) error {
+// Fail-open on dependency errors: warmup is a reputation optimization, not a
+// correctness gate, so a transient DB blip must not block legitimate mail.
+// The error is logged HERE (single owner of the policy) — a persistently
+// failing read is visible in the logs rather than silently disabling the
+// ramp.
+func (e *Enforcer) Reserve(ctx context.Context, domain string) error {
 	if e == nil || e.reader == nil || e.counter == nil || domain == "" {
 		return nil
 	}
 	status, startedAt, err := e.reader.GetWarmupState(ctx, domain)
 	if err != nil {
-		return err
+		e.printf("[warmup] state read failed for %s (allowing send): %v", domain, err)
+		return nil
 	}
 	if status != StatusActive || startedAt == nil {
 		return nil
 	}
-	cap, _ := e.schedule.DailyCap(*startedAt, e.clock())
-	sent, err := e.counter.CountDomainSendsToday(ctx, domain)
-	if err != nil {
-		return err
+	now := e.clock()
+	cap, done := e.schedule.DailyCap(*startedAt, now)
+	if done {
+		// Ramp completed: the domain has built its reputation and is never
+		// throttled (or counted) again, per the feature contract. warmup_status
+		// stays 'active' — "completed" is derived, not stored.
+		return nil
 	}
-	if sent >= cap {
+	day := now.UTC().Truncate(24 * time.Hour)
+	allowed, count, err := e.counter.ReserveDomainSend(ctx, domain, day, cap)
+	if err != nil {
+		e.printf("[warmup] slot reservation failed for %s (allowing send): %v", domain, err)
+		return nil
+	}
+	if !allowed {
 		return &ThrottleError{
 			Domain:     domain,
 			DailyCap:   cap,
-			SentToday:  sent,
-			RetryAfter: untilNextUTCMidnight(e.clock()),
+			SentToday:  count,
+			RetryAfter: untilNextUTCMidnight(now),
 		}
 	}
 	return nil
@@ -123,8 +143,16 @@ func (e *Enforcer) clock() time.Time {
 	return time.Now()
 }
 
+func (e *Enforcer) printf(format string, v ...any) {
+	if e.logf != nil {
+		e.logf(format, v...)
+		return
+	}
+	log.Printf(format, v...)
+}
+
 // untilNextUTCMidnight is how long until the per-domain daily counter resets
-// (it buckets on the UTC calendar day, matching CountDomainSendsToday).
+// and the ramp's day index advances (both bucket on the UTC calendar day).
 func untilNextUTCMidnight(now time.Time) time.Duration {
 	u := now.UTC()
 	next := time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC).Add(24 * time.Hour)
