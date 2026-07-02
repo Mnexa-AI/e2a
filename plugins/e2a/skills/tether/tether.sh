@@ -62,6 +62,9 @@ case "$cmd" in
     # make it say what the session is DOING, not just where it's running.
     subject="Tether: ${proj}"
     [ -n "$title" ] && subject="Tether: ${proj} — ${title}"
+    # Untitled sessions all share one subject; several of them in an inbox are
+    # indistinguishable (and read like Gmail split one thread). Nudge, loudly.
+    [ -n "$title" ] || echo "tether: NOTE no --title — every untitled session in this repo shares the subject \"${subject}\"; pass --title \"<work>\" so threads are tellable apart" >&2
     intro="🪢 Tethered — ${proj}${title:+ — ${title}}
 
 This session is now tethered (${window}). I'll send updates to this thread as I
