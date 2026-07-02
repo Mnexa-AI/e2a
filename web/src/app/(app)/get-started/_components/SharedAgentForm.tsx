@@ -6,7 +6,7 @@ import { createAgent } from "../../../components/onboarding/api";
 import { isValidSlug } from "../../../components/onboarding/state";
 import { track } from "../../../components/onboarding/analytics";
 import type { AgentData } from "../../../components/types";
-import { AGENTS_DOMAIN_DISPLAY } from "../../../../lib/site";
+import { AGENTS_DOMAIN, AGENTS_DOMAIN_DISPLAY } from "../../../../lib/site";
 import { invalidateAgents } from "../../../../lib/swrKeys";
 
 export function SharedAgentForm({
@@ -34,11 +34,20 @@ export function SharedAgentForm({
       return;
     }
 
+    // /v1 registers agents by full email; a shared-domain agent is just an
+    // email on the deployment's shared domain (the legacy `slug` field is
+    // gone). AGENTS_DOMAIN empty means the deployment has no shared domain,
+    // so this form can't produce a valid address.
+    if (!AGENTS_DOMAIN) {
+      setError("This deployment has no shared agent domain configured.");
+      return;
+    }
+
     setLoading(true);
     track("agent_creation_started", { shared_or_custom: "shared" });
     try {
       const result = await createAgent({
-        slug,
+        email: `${slug}@${AGENTS_DOMAIN}`,
         ...(name ? { name } : {}),
       });
       track("agent_creation_succeeded", { shared_or_custom: "shared" });
