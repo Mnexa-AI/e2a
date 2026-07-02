@@ -281,7 +281,7 @@ describe("Shared local flow", () => {
         "/v1/agents",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ slug: "my-bot" }),
+          body: JSON.stringify({ email: "my-bot@agents.e2a.dev" }),
         }),
       );
     });

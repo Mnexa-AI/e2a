@@ -91,9 +91,11 @@ export async function listAgents(): Promise<DashboardAgent[]> {
   return data.items ?? [];
 }
 
+// POST /v1/agents registers by full email only — a shared-domain agent is
+// an email on the deployment's shared domain; the legacy `slug` field was
+// dropped from the API and is rejected as an unexpected property.
 export async function createAgent(params: {
-  slug?: string;
-  email?: string;
+  email: string;
   name?: string;
 }): Promise<AgentCreateResponse> {
   return request<AgentCreateResponse>("/v1/agents", {
