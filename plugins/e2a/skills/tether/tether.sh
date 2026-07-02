@@ -2,7 +2,7 @@
 # tether.sh — the runtime CLI the agent calls to stay in touch over email.
 #
 #   tether.sh setup [--email <addr>] [--new]   zero-to-tethered bootstrap (needs `e2a login`)
-#   tether.sh start <email> [--title "<work>"] [--for 2h|8h|30m|1d] [--until <ISO>]  open + arm
+#   tether.sh start <email> --title "<work>" [--for 2h|8h|30m|1d] [--until <ISO>]  open + arm
 #   tether.sh update "<message>"   send a threaded update ("as you see fit")
 #   tether.sh update --html <file> send an HTML update (+ auto text fallback)
 #   tether.sh update --attach <f>  attach a file (repeatable; 15 MB total cap)
@@ -41,7 +41,15 @@ case "$cmd" in
         *) to="$1"; shift;;
       esac
     done
-    [ -n "$to" ] || { echo "usage: tether.sh start <your-email> [--title \"<work>\"] [--for 2h|8h|30m|1d] [--until <ISO>] [--parallel]"; exit 2; }
+    [ -n "$to" ] || { echo "usage: tether.sh start <your-email> --title \"<work>\" [--for 2h|8h|30m|1d] [--until <ISO>] [--parallel]"; exit 2; }
+    # The subject is the thread's PERMANENT identity (threading needs it
+    # stable), so a meaningful title is required, not suggested — a bare
+    # "Tether: <repo>" makes every session in this repo indistinguishable.
+    if [ -z "$title" ]; then
+      echo "tether: --title is required — it becomes the thread's subject (\"Tether: ${proj:-$(basename "$PWD")} — <title>\")."
+      echo "        Title the WORK, not the first step (e.g. --title \"fix webhook retries\")."
+      exit 2
+    fi
     # Never arm over a live session: that would hijack its thread pointer and
     # watermark (each session must keep its own dedicated email thread).
     if [ "$(t_state_get armed)" = "1" ]; then
@@ -73,11 +81,7 @@ case "$cmd" in
     conv="tether-$(date +%s)-$$"
     # Subject = the thread's one stable title (threading replies onto it), so
     # make it say what the session is DOING, not just where it's running.
-    subject="Tether: ${proj}"
-    [ -n "$title" ] && subject="Tether: ${proj} — ${title}"
-    # Untitled sessions all share one subject; several of them in an inbox are
-    # indistinguishable (and read like Gmail split one thread). Nudge, loudly.
-    [ -n "$title" ] || echo "tether: NOTE no --title — every untitled session in this repo shares the subject \"${subject}\"; pass --title \"<work>\" so threads are tellable apart" >&2
+    subject="Tether: ${proj} — ${title}"
     intro="🪢 Tethered — ${proj}${title:+ — ${title}}
 
 This session is now tethered (${window}). I'll send updates to this thread as I
@@ -359,8 +363,12 @@ except Exception:print("")')"
     armf=/tmp/tether-selftest-armed.json
     printf '{"armed":"1","conversation_id":"tether-old","to":"a@b.c"}' > "$armf"
     out="$(env E2A_API_KEY='e2a_agt_selftest123' E2A_AGENT_EMAIL='selftest@agents.e2a.dev' \
-      TETHER_STATE="$armf" bash "${here}/tether.sh" start someone@example.com 2>&1)"; rc=$?
+      TETHER_STATE="$armf" bash "${here}/tether.sh" start someone@example.com --title selftest 2>&1)"; rc=$?
     ck "start refuses to arm over a live session" "$rc:$(printf '%s' "$out" | grep -c 'already armed')" "1:1"
+    out="$(env E2A_API_KEY='e2a_agt_selftest123' E2A_AGENT_EMAIL='selftest@agents.e2a.dev' \
+      TETHER_STATE=/tmp/tether-selftest-notitle.json bash "${here}/tether.sh" start someone@example.com 2>&1)"; rc=$?
+    ck "start without --title is a usage error" "$rc:$(printf '%s' "$out" | grep -c 'title is required')" "2:1"
+    rm -f /tmp/tether-selftest-notitle.json
     # --parallel: with the DEFAULT path armed (legacy file in a sandbox HOME),
     # start must branch to a fresh self-keyed TETHER_STATE and print the
     # handle. E2A_CLI=/bin/false makes the intro send fail afterwards — the
@@ -369,7 +377,7 @@ except Exception:print("")')"
     printf '{"armed":"1","conversation_id":"tether-old","to":"a@b.c"}' > "$sb/.e2a-tether/state.json"
     out="$(env HOME="$sb" E2A_CLI=/bin/false E2A_API_KEY='e2a_agt_selftest123' \
       E2A_AGENT_EMAIL='selftest@agents.e2a.dev' \
-      bash "${here}/tether.sh" start someone@example.com --parallel 2>&1)" || true
+      bash "${here}/tether.sh" start someone@example.com --title selftest --parallel 2>&1)" || true
     ck "start --parallel self-keys a fresh TETHER_STATE" \
       "$(printf '%s' "$out" | grep -c 'TETHER_STATE=')" "1"
     rm -rf "$sb" "$armf"

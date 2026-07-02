@@ -134,12 +134,12 @@ Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
    normal question is fine.
 2. **Start**: `"$T" start <email> --title "<work>" --for <duration>` (or
    `--until <ISO>`; omit both for until-stop) — sends the intro, opens the
-   thread, arms, records the window. **Always pass `--title`** with a short
-   description of the work being done (e.g. `"migrate loft → @e2a/ui"`, `"fix
-   webhook retries"`) — it becomes the thread's subject line
-   (`Tether: <repo> — <title>`), which is how the user tells this session apart
-   from others in their inbox. The subject is fixed at start (threading needs it
-   stable), so title the *work*, not the first step. `--for` takes a **single
+   thread, arms, records the window. **`--title` is required** (start refuses
+   without it): a short description of the work being done (e.g. `"migrate
+   loft → @e2a/ui"`, `"fix webhook retries"`) — it becomes the thread's subject
+   line (`Tether: <repo> — <title>`), which is how the user tells this session
+   apart from others in their inbox. The subject is fixed at start (threading
+   needs it stable), so title the *work*, not the first step. `--for` takes a **single
    unit** (`30m`, `2h`, `8h`, `1d`); a compound
    like `1h30m` is rejected rather than silently treated as no-limit. If the intro
    comes back **held for review** (`pending_review`), `start` refuses to arm and
@@ -279,7 +279,7 @@ session stops.)
 
 | file | role |
 |---|---|
-| `tether.sh` | runtime CLI: `setup` / `start [--title] [--for]` / `update [--html] [--attach]` / `ask [--attach]` / `listen` / `poll` / `status` / `stop` |
+| `tether.sh` | runtime CLI: `setup` / `start --title [--for] [--parallel]` / `update [--html] [--attach]` / `ask [--attach]` / `listen` / `poll` / `status` / `stop` |
 | `lib.sh` | config + e2a-CLI resolution (`t_cli`) + send/reply/wait helpers |
 | `hooks/tether-notify.sh` | optional Notification hook (blocked-alert) |
 | `install.sh` | wire/unwire the Notification hook; `_selftest` |
