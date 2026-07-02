@@ -23,9 +23,8 @@ export const EXIT = {
    * wrappers don't hammer a typo'd message id or an unverified domain.
    */
   REQUEST: 5,
-  // 6 is earmarked for deadline-bounded waits (listen --once) and ships with
-  // that feature — a code must never be published in --help before an
-  // invocation can actually produce it.
+  /** A deadline-bounded wait (`listen --once --until`) expired unmatched. */
+  TIMEOUT: 6,
 } as const;
 
 /** Write a message to stderr and exit with the given code. */

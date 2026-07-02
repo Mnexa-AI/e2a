@@ -1,7 +1,10 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import { loadConfig, saveConfig } from "../config.js";
+import { hostname } from "node:os";
+import { E2AClient, type CreateAPIKeyRequest } from "@e2a/sdk/v1";
+import { loadConfig, saveConfig, type Config } from "../config.js";
+import { EXIT, fail } from "../exit.js";
 
 /**
  * Render the URL's host for human-facing log lines. Falls back to the raw
@@ -235,8 +238,27 @@ async function waitForBrowserLogin(apiUrl: string, timeoutMs = LOGIN_TIMEOUT_MS)
   }
 }
 
-export async function login(): Promise<void> {
+export interface LoginOptions {
+  /**
+   * Mint a least-privilege agent-scoped key bound to this inbox (bare slugs
+   * expand on the deployment's shared domain), then revoke the account-scoped
+   * bootstrap key from the browser handoff. The machine ends up holding only
+   * a single-inbox credential — the setup harnesses like tether want.
+   */
+  agent?: string;
+  /** Headless mode: validate a pasted/piped/env key instead of the browser. */
+  withKey?: boolean;
+  /** Explicit key value for --with-key (else $E2A_API_KEY, else stdin). */
+  key?: string;
+}
+
+export async function login(opts: LoginOptions = {}): Promise<void> {
   const config = loadConfig();
+
+  if (opts.withKey) {
+    await loginWithKey(config, opts.key);
+    return;
+  }
 
   // Preflight: hit the deployment's public info endpoint before opening
   // the browser. Two wins —
@@ -270,9 +292,15 @@ export async function login(): Promise<void> {
 
   const { apiKey, agentEmail } = await waitForBrowserLogin(config.api_url);
 
+  if (opts.agent) {
+    await exchangeForAgentKey(config, apiKey, opts.agent, discoveredSharedDomain);
+    return;
+  }
+
   saveConfig({
     api_key: apiKey,
     agent_email: agentEmail,
+    key_scope: "account",
     ...(discoveredSharedDomain ? { shared_domain: discoveredSharedDomain } : {}),
   });
 
@@ -286,4 +314,126 @@ export async function login(): Promise<void> {
   } else {
     process.stderr.write(`No agents found yet. Create one at ${config.api_url.replace(/\/+$/, "")}/get-started\n`);
   }
+}
+
+/** Read the key for --with-key: explicit value → $E2A_API_KEY → piped stdin. */
+async function resolveWithKeyInput(explicit?: string): Promise<string> {
+  if (explicit) return explicit;
+  if (process.env.E2A_API_KEY) return process.env.E2A_API_KEY;
+  if (!process.stdin.isTTY) {
+    let data = "";
+    for await (const chunk of process.stdin) data += chunk;
+    const key = data.trim();
+    if (key) return key;
+  }
+  return fail(
+    EXIT.USAGE,
+    "usage: e2a login --with-key <key>  (or pipe the key on stdin / set E2A_API_KEY)",
+  );
+}
+
+/**
+ * Headless login: no browser, no local callback server — validate the key
+ * against GET /v1/account (which also reveals its scope and bound inbox) and
+ * persist it. This is the path for CI boxes and SSH sessions, where the
+ * browser flow's 127.0.0.1 callback can never complete.
+ */
+export async function loginWithKey(config: Config, explicitKey?: string): Promise<void> {
+  const key = await resolveWithKeyInput(explicitKey);
+  const client = new E2AClient({ apiKey: key, baseUrl: config.api_url });
+  const account = await client.account.get(); // throws E2AAuthError → exit 4
+
+  saveConfig({
+    api_key: key,
+    key_scope: account.scope,
+    ...(account.agentAddress ? { agent_email: account.agentAddress } : {}),
+  });
+
+  process.stdout.write(`Logged in to ${hostLabel(config.api_url)} with a ${account.scope}-scoped key.\n`);
+  if (account.agentAddress) {
+    process.stdout.write(`Bound agent: ${account.agentAddress}\n`);
+  }
+  process.stdout.write("Config saved to ~/.e2a/config.json\n");
+}
+
+/**
+ * `login --agent <inbox>`: exchange the account-scoped bootstrap key from the
+ * browser handoff for a least-privilege agent-scoped key, then revoke the
+ * bootstrap so this machine holds only the single-inbox credential.
+ */
+async function exchangeForAgentKey(
+  config: Config,
+  bootstrapKey: string,
+  inbox: string,
+  sharedDomain?: string,
+): Promise<void> {
+  const client = new E2AClient({ apiKey: bootstrapKey, baseUrl: config.api_url });
+
+  // Bare slug → expand on the deployment's shared domain.
+  const domain = sharedDomain || config.shared_domain;
+  const agentEmail = inbox.includes("@") ? inbox : `${inbox}@${domain}`;
+
+  // Verify the inbox before minting: a typo must fail with the owned list,
+  // not mint a key against nothing.
+  try {
+    await client.agents.get(agentEmail);
+  } catch {
+    process.stderr.write(`Agent not found or not owned: ${agentEmail}\nOwned agents:\n`);
+    try {
+      for await (const a of client.agents.list()) {
+        process.stderr.write(`  ${a.email}\n`);
+      }
+    } catch {
+      process.stderr.write("  (could not list agents)\n");
+    }
+    process.exit(EXIT.REQUEST);
+  }
+
+  const created = await client.account.apiKeys.create({
+    name: `cli @${hostname()}`,
+    // Cast: the generated model types scope as a TS enum; "agent" is its wire value.
+    scope: "agent" as CreateAPIKeyRequest["scope"],
+    agent: agentEmail,
+  });
+
+  // Revoke the bootstrap key. The handoff only gave us its plaintext, so
+  // match its visible prefix against the key inventory; refuse to guess if
+  // the match isn't unique — deleting the wrong credential is worse than
+  // leaving one extra "CLI login" key for the dashboard to clean up.
+  let revoked = false;
+  try {
+    const candidates: string[] = [];
+    for await (const k of client.account.apiKeys.list()) {
+      const prefix = k.keyPrefix.replace(/[^A-Za-z0-9_]+$/g, "");
+      if (k.id !== created.id && prefix && bootstrapKey.startsWith(prefix)) {
+        candidates.push(k.id);
+      }
+    }
+    if (candidates.length === 1) {
+      // The agent key can't manage keys, so revoke while we still hold the
+      // account-scoped credential.
+      await client.account.apiKeys.delete(candidates[0]);
+      revoked = true;
+    }
+  } catch {
+    // fall through to the warning below
+  }
+
+  saveConfig({
+    api_key: created.key,
+    agent_email: agentEmail,
+    key_scope: "agent",
+    ...(sharedDomain ? { shared_domain: sharedDomain } : {}),
+  });
+
+  process.stdout.write(`Logged in to ${hostLabel(config.api_url)}.\n`);
+  process.stdout.write(`Agent-scoped key minted for ${agentEmail} (key "cli @${hostname()}").\n`);
+  if (revoked) {
+    process.stdout.write("Bootstrap account key revoked — this machine holds only the agent key.\n");
+  } else {
+    process.stderr.write(
+      'Could not uniquely identify the bootstrap key to revoke it — remove the "CLI login" key at your dashboard\'s API-keys page.\n',
+    );
+  }
+  process.stdout.write("Config saved to ~/.e2a/config.json\n");
 }

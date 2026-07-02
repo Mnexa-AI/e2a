@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
 # tether.sh — the runtime CLI the agent calls to stay in touch over email.
 #
+#   tether.sh setup [--email <addr>] [--new]   zero-to-tethered bootstrap (needs `e2a login`)
 #   tether.sh start <email> [--title "<work>"] [--for 2h|8h|30m|1d] [--until <ISO>]  open + arm
 #   tether.sh update "<message>"   send a threaded update ("as you see fit")
 #   tether.sh update --html <file> send an HTML update (+ auto text fallback)
 #   tether.sh update --attach <f>  attach a file (repeatable; 15 MB total cap)
 #   tether.sh ask "<question>" [--attach <f>]...  email a question and BLOCK until the reply
-#   tether.sh listen [--awake]     poll until a reply OR the window ends (bg it)
+#   tether.sh listen [--awake]     wait until a reply OR the window ends (bg it)
 #   tether.sh poll                 print any new replies since last poll (exit 0)
 #   tether.sh status               show tether state
 #   tether.sh stop                 disarm and clear state
 #   tether.sh _selftest            unconfigured dry-run + syntax check
 #
+# Transport is the e2a CLI (see lib.sh t_cli — $E2A_CLI / PATH / npx).
 # Sending is agent-driven: call `update` when there's something worth reporting.
-# Receiving is poll-driven: call `poll` on an interval (keep the session alive
-# with /loop) so replies sent while idle are still picked up.
+# Receiving is real-time: `listen`/`ask` wait on the CLI's WebSocket
+# (`e2a listen --once`) and fall back to interval polling if the WS misbehaves.
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
@@ -86,24 +88,22 @@ question or instruction; reply \"stop\" to end early.
         *) msg="$1"; shift;;
       esac
     done
-    html=""
     if [ -n "$htmlfile" ]; then
       [ -f "$htmlfile" ] || { echo "tether: --html file not found: $htmlfile"; exit 2; }
-      html="$(cat "$htmlfile")"
-      # plain-text fallback: explicit --text/positional, else derived from the HTML
+      # plain-text fallback: explicit --text/positional wins; otherwise the CLI
+      # derives one from the HTML file itself (no --body passed).
       [ -n "$msg" ] || msg="$textarg"
-      [ -n "$msg" ] || msg="$(printf '%s' "$html" | t_html_to_text)"
     fi
-    [ -n "$msg" ] || { echo "usage: tether.sh update \"<text>\"  |  update --html <file> [--text \"<fallback>\"]  (either form: [--attach <file>]...)"; exit 2; }
+    { [ -n "$msg" ] || [ -n "$htmlfile" ]; } || { echo "usage: tether.sh update \"<text>\"  |  update --html <file> [--text \"<fallback>\"]  (either form: [--attach <file>]...)"; exit 2; }
     if [ "${#attach[@]}" -gt 0 ]; then t_attach_check "${attach[@]}" || exit $?; fi
-    mid="$(t_reply_anchored "$msg" "$html" ${attach[@]+"${attach[@]}"})"; rc=$?
+    mid="$(t_reply_anchored "$msg" "$htmlfile" ${attach[@]+"${attach[@]}"})"; rc=$?
     if [ -z "$mid" ]; then echo "tether: update send failed"; exit 1; fi
     t_state_set last_message_id "$mid"
     if [ "$rc" = "2" ]; then
       echo "tether: WARNING update HELD for review (pending_review) — it did NOT reach the user. Disable send-side protection on ${E2A_AGENT_EMAIL}."
       exit 2
     fi
-    echo "tether: update sent (${mid})$([ -n "$html" ] && echo ' [html]')$([ "${#attach[@]}" -gt 0 ] && echo " [${#attach[@]} attachment(s)]")"
+    echo "tether: update sent (${mid})$([ -n "$htmlfile" ] && echo ' [html]')$([ "${#attach[@]}" -gt 0 ] && echo " [${#attach[@]} attachment(s)]")"
     ;;
 
   poll)
@@ -112,10 +112,13 @@ question or instruction; reply \"stop\" to end early.
     ;;
 
   listen)
-    # Deadline-bounded poller. Polls until a reply (prints REPLY_RECEIVED + exits)
-    # or until the window (expires_at) ends (prints TETHER_EXPIRED + exits). Run
-    # it in the BACKGROUND: on a reply-exit, act then relaunch for the remaining
-    # window; on TETHER_EXPIRED, run `stop`. Cheap (curl only, no tokens).
+    # Deadline-bounded waiter. Waits until a reply (prints REPLY_RECEIVED +
+    # exits) or until the window (expires_at) ends (prints TETHER_EXPIRED +
+    # exits). Run it in the BACKGROUND: on a reply-exit, act then relaunch for
+    # the remaining window; on TETHER_EXPIRED, run `stop`. Real-time: waits on
+    # the CLI's WebSocket (t_ws_wait) as the wake signal, then consumes via the
+    # dedup-safe poll — so pickup latency is seconds, not the poll interval,
+    # while the seen-set/parse-retry invariants stay intact.
     #   --awake  keep the machine from IDLE-sleeping while listening (macOS
     #            caffeinate; released when listen exits). Does NOT survive the
     #            lid closing.
@@ -134,19 +137,26 @@ question or instruction; reply \"stop\" to end early.
     while :; do
       rem="$(t_remaining_seconds)"
       if [ "$rem" -le 0 ]; then echo "TETHER_EXPIRED"; exit 0; fi
-      # An `ask` is blocking on the same inbox — don't poll, or we'd consume the
+      # An `ask` is blocking on the same inbox — don't consume, or we'd eat the
       # answer it's waiting for. Idle until the ask releases the lock.
       if t_ask_active; then
         s="$interval"; [ "$rem" -lt "$s" ] && s="$rem"; sleep "$s"; continue
       fi
+      # Poll FIRST (catches anything that arrived while we weren't waiting),
+      # then block on the WS wake signal for one poll-interval chunk. Chunking
+      # at the interval means: WS healthy → replies wake us in seconds; WS
+      # unavailable (e.g. deployment without the endpoint — the CLI retries
+      # inside the window and exits 6) → cadence degrades to exactly the old
+      # 20s polling, never worse. Expiry and the ask-lock are re-checked
+      # between chunks.
       out="$(t_poll_once)" || out=""
-      # Empty out = a transient poll failure (curl blip), NOT a reply — without
-      # this guard it exits REPLY_RECEIVED with nothing, killing the listen.
+      # Empty out = a transient failure, NOT a reply — without this guard it
+      # exits REPLY_RECEIVED with nothing, killing the listen.
       if [ -n "$out" ] && [ "$out" != "(no new replies)" ]; then
         echo "REPLY_RECEIVED:"; echo "$out"; exit 0
       fi
-      s="$interval"; [ "$rem" -lt "$s" ] && s="$rem"
-      sleep "$s"
+      w="$interval"; [ "$rem" -lt "$w" ] && w="$rem"
+      t_ws_wait "$w"
     done
     ;;
 
@@ -179,18 +189,93 @@ question or instruction; reply \"stop\" to end early.
       exit 4
     fi
     echo "tether: question sent (${mid}); waiting for your reply…"
-    max="${E2A_TETHER_ASK_TIMEOUT:-1800}"; interval="${E2A_TETHER_POLL_INTERVAL:-20}"; elapsed=0
-    while [ "$elapsed" -lt "$max" ]; do
-      sleep "$interval"; elapsed=$((elapsed + interval))
+    max="${E2A_TETHER_ASK_TIMEOUT:-1800}"; interval="${E2A_TETHER_POLL_INTERVAL:-20}"; start=$SECONDS
+    while [ $((SECONDS - start)) -lt "$max" ]; do
       out="$(t_poll_once)" || out=""
       # Empty out = transient poll failure, not an answer (same guard as listen).
       if [ -n "$out" ] && [ "$out" != "(no new replies)" ]; then echo "$out"; exit 0; fi
+      # Real-time: block on the WS wake signal in poll-interval chunks (same
+      # degradation logic as listen), then re-poll.
+      rem2=$((max - (SECONDS - start))); w="$interval"; [ "$rem2" -lt "$w" ] && w="$rem2"
+      [ "$w" -gt 0 ] && t_ws_wait "$w"
     done
     echo "tether: ask timed out after ${max}s with no answer"; exit 3
     ;;
 
+  setup)
+    # Zero-to-tethered bootstrap on the e2a CLI. Needs an ACCOUNT credential in
+    # the CLI's own config (`e2a login`, or `e2a login --with-key` headless).
+    # Golden path: whoami → ensure inbox (verify/create) → outbound review off
+    # → mint a least-privilege agent key → write ~/.e2a-tether.env. Every step
+    # fails HARD: no protection clobber (the CLI never PUTs after a failed
+    # read), no silent account-key fallback, no "ready" with a broken config.
+    #   --email <addr>  use/create this inbox (bare names expand on the shared domain)
+    #   --new           always create a fresh tether-<rand> inbox
+    force_new=0; want=""
+    while [ $# -gt 0 ]; do case "$1" in --new) force_new=1; shift;; --email) want="${2:-}"; shift 2;; *) shift;; esac; done
+    # Setup deliberately uses the CLI's own stored credential, not whatever a
+    # previous tether run left in the environment.
+    unset E2A_API_KEY E2A_AGENT_EMAIL
+    who="$(t_cli whoami --json 2>/dev/null)" || { echo "tether setup: no usable credential — run 'e2a login' (browser) or 'e2a login --with-key' first, then re-run setup"; exit 1; }
+    scope="$(printf '%s' "$who" | python3 -c 'import json,sys
+try:print(json.load(sys.stdin).get("scope",""))
+except Exception:print("")')"
+    if [ "$scope" = "agent" ]; then
+      bound="$(printf '%s' "$who" | python3 -c 'import json,sys
+try:print(json.load(sys.stdin).get("agentAddress",""))
+except Exception:print("")')"
+      echo "tether setup: the CLI already holds an agent-scoped key (${bound}) — nothing to do."
+      echo "              tether will pick it up from ~/.e2a/config.json; run 'tether.sh status' to confirm."
+      exit 0
+    fi
+    [ "$scope" = "account" ] || { echo "tether setup: could not determine key scope (e2a whoami failed?) — check 'e2a whoami'"; exit 1; }
+    inbox="$want"
+    if [ -z "$inbox" ] && [ "$force_new" = "0" ]; then
+      # Reuse ONLY tether-owned inboxes; never silently adopt (and reconfigure)
+      # someone's production agent just because it's the account's only one.
+      inbox="$(t_cli agents list 2>/dev/null | awk -F'\t' '$1 ~ /^tether-/ {print $1; exit}')"
+      [ -n "$inbox" ] && echo "tether setup: reusing ${inbox}"
+    fi
+    if [ -n "$inbox" ] && [ "${inbox#*@}" = "$inbox" ]; then
+      sd="$(t_cli config get shared_domain 2>/dev/null)"
+      [ -n "$sd" ] || { echo "tether setup: can't expand bare name '${inbox}' — no shared domain known; pass a full address"; exit 1; }
+      inbox="${inbox}@${sd}"
+    fi
+    if [ -z "$inbox" ]; then
+      sd="$(t_cli config get shared_domain 2>/dev/null)"
+      [ -n "$sd" ] || { echo "tether setup: no shared domain on this deployment — pass --email you@yourdomain"; exit 1; }
+      inbox="tether-$(python3 -c 'import secrets;print(secrets.token_hex(3))')@${sd}"
+    fi
+    if ! t_cli agents get "$inbox" >/dev/null 2>&1; then
+      echo "tether setup: creating ${inbox}…"
+      t_cli agents create "$inbox" --name "tether" >/dev/null || { echo "tether setup: agent create failed (slug taken/invalid?)"; exit 1; }
+    fi
+    case "$inbox" in
+      tether-*@*) : ;;
+      *) [ -n "$want" ] || { echo "tether setup: refusing to reconfigure non-tether inbox ${inbox} without an explicit --email"; exit 1; }
+         echo "tether setup: NOTE disabling OUTBOUND review on ${inbox} (explicitly requested via --email)";;
+    esac
+    t_cli protection set "$inbox" --outbound-review off >/dev/null || { echo "tether setup: could not disable outbound review — aborting, nothing written"; exit 1; }
+    echo "tether setup: outbound review off on ${inbox}"
+    agtkey="$(t_cli keys create --agent "$inbox" --name "tether-$(python3 -c 'import secrets;print(secrets.token_hex(2))')" 2>/dev/null)"
+    [ -n "$agtkey" ] || { echo "tether setup: could not mint an agent-scoped key — aborting (NOT storing the broad account key)"; exit 1; }
+    envf="${HOME}/.e2a-tether.env"
+    [ -f "$envf" ] && cp "$envf" "${envf}.bak"
+    { echo "# written by tether.sh setup — $(t_now_iso)"
+      echo "export E2A_API_KEY=\"${agtkey}\""
+      echo "export E2A_AGENT_EMAIL=\"${inbox}\""
+      [ -n "${E2A_BASE_URL:-}" ] && echo "export E2A_BASE_URL=\"${E2A_BASE_URL}\""
+    } > "$envf"
+    chmod 600 "$envf" 2>/dev/null || true
+    echo "tether setup: wrote ${envf} (agent-scoped key, least privilege)$([ -f "${envf}.bak" ] && echo " — previous file kept as .bak")"
+    export E2A_API_KEY="$agtkey" E2A_AGENT_EMAIL="$inbox"
+    bash "${here}/tether.sh" status
+    echo "tether setup: ready → tether.sh start <your-email> --title \"<work>\" --for 30m"
+    ;;
+
   status)
     if t_load_config; then echo "config: OK (agent ${E2A_AGENT_EMAIL}, base ${E2A_BASE_URL})"; else echo "config: MISSING"; fi
+    echo "cli:    $(t_cli_desc)"
     if [ "$(t_state_get armed)" = "1" ]; then
       echo "armed:  yes"
       echo "thread: $(t_state_get conversation_id) → $(t_state_get to)"
@@ -243,25 +328,19 @@ question or instruction; reply \"stop\" to end early.
       echo "ok: ask lock begin/active/end" ) || fail=1
     rm -f /tmp/tether-selftest-lock.json /tmp/ask.lock
 
+    echo "# CLI resolution:"
+    ck "version compare: 1.6.2 >= 1.6.0" "$(t_ver_ge "e2a 1.6.2" "1.6.0" && echo yes)" "yes"
+    ck "version compare: 1.5.9 <  1.6.0" "$(t_ver_ge "e2a 1.5.9" "1.6.0" || echo no)" "no"
+    ck "E2A_CLI override is honored" "$(E2A_CLI="/bin/echo e2a-override" bash -c '. "'"${here}"'/lib.sh"; t_cli ping' 2>/dev/null)" "e2a-override ping"
+
     echo "# attachments:"
     af=/tmp/tether-selftest-att.txt; printf 'hello attachment' > "$af"
-    pj=/tmp/tether-selftest-payload.json
-    t_reply_payload "$pj" "the body" "" "$af" || { echo "FAIL: payload build errored"; fail=1; }
-    ck "payload: body + encoded attachment" "$(python3 -c 'import json,base64
-d=json.load(open("/tmp/tether-selftest-payload.json"));a=d["attachments"][0]
-print(d["body"]=="the body" and "html_body" not in d
-      and a["filename"]=="tether-selftest-att.txt" and a["content_type"]=="text/plain"
-      and base64.b64decode(a["data"]).decode()=="hello attachment")')" "True"
-    t_reply_payload "$pj" "b" "<b>h</b>" || { echo "FAIL: no-attachment payload errored"; fail=1; }
-    ck "payload: no files → no attachments key" "$(python3 -c 'import json
-d=json.load(open("/tmp/tether-selftest-payload.json"))
-print("attachments" not in d and d["html_body"]=="<b>h</b>")')" "True"
     t_attach_check "$af" || { echo "FAIL: attach check on a real file"; fail=1; }
     t_attach_check /nonexistent-tether-file 2>/dev/null; ck "missing file → exit 3" "$?" "3"
     big=/tmp/tether-selftest-big.bin
     python3 -c 'f=open("/tmp/tether-selftest-big.bin","wb");f.seek(16*1024*1024-1);f.write(b"\0")'
     t_attach_check "$big" 2>/dev/null; ck "16 MB → exit 4 (over cap)" "$?" "4"
-    rm -f "$af" "$pj" "$big"
+    rm -f "$af" "$big"
 
     bash -n "${here}/lib.sh" && bash -n "${here}/tether.sh" && echo "# syntax OK"
     [ "$fail" = "0" ] && echo "# selftest PASS" || { echo "# selftest FAIL"; exit 1; }
@@ -271,5 +350,5 @@ print("attachments" not in d and d["html_body"]=="<b>h</b>")')" "True"
     grep '^#' "${here}/tether.sh" | sed 's/^# \{0,1\}//' | sed -n '2,20p'
     ;;
 
-  *) echo "tether: unknown command '$cmd' (try: start|update|poll|status|stop)"; exit 2;;
+  *) echo "tether: unknown command '$cmd' (try: setup|start|update|ask|listen|poll|status|stop)"; exit 2;;
 esac

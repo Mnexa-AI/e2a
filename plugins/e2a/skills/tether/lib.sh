@@ -4,6 +4,13 @@
 # Config comes from the environment, falling back to ~/.e2a-tether.env.
 # Required: E2A_API_KEY, E2A_AGENT_EMAIL. The recipient is supplied at
 # `tether.sh start <email>` and kept in the state file.
+#
+# Transport is the e2a CLI (@e2a/cli), NOT raw curl: send/reply/list/get all
+# go through `t_cli`, which resolves $E2A_CLI → `e2a` on PATH (if new enough)
+# → `npx -y @e2a/cli@^MIN`. Node is always present where this skill runs
+# (Claude Code requires it), so existing users need to install nothing and
+# minor CLI upgrades flow automatically through npx. Python 3 is still needed
+# for local state/JSON handling only.
 
 t_load_config() {
   # Explicit env vars win; each fallback source fills only the vars still missing
@@ -41,7 +48,55 @@ except Exception:pass')"
 }
 
 t_now_iso()  { python3 -c 'import datetime;print(datetime.datetime.now(datetime.timezone.utc).isoformat())'; }
-t_urlencode(){ python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$1"; }
+
+# --- e2a CLI resolution --------------------------------------------------------
+# The minimum CLI this skill's flags require (send --conversation-id, reply
+# --html-file/--attach, messages list TSV, listen --once, exit-code contract).
+# Bump in lockstep with any new flag use; the npx pin below follows it.
+TETHER_MIN_CLI="1.6.0"
+
+# t_ver_ge "<e2a 1.6.2>" "1.6.0" → 0 when the version (last token) >= min.
+t_ver_ge() {
+  python3 -c 'import sys
+def v(s):
+    s = s.strip().split()[-1] if s.strip() else "0"
+    return [int(x) for x in s.lstrip("v").split(".")[:3] if x.isdigit()] or [0]
+sys.exit(0 if v(sys.argv[1]) >= v(sys.argv[2]) else 1)' "$1" "$2" 2>/dev/null
+}
+
+# t_cli <args...> — run the e2a CLI, resolving it once per process:
+#   1. $E2A_CLI override (may be multi-word, e.g. "node /repo/cli/dist/bin/e2a.js")
+#   2. `e2a` on PATH when --version >= TETHER_MIN_CLI (stale → warn, fall through)
+#   3. npx -y @e2a/cli@^MIN  (auto-fetch; nothing for the user to install)
+T_CLI=()
+t_cli() {
+  if [ "${#T_CLI[@]}" -eq 0 ]; then
+    if [ -n "${E2A_CLI:-}" ]; then
+      # shellcheck disable=SC2206  # intentional word-split for multi-word overrides
+      T_CLI=($E2A_CLI)
+    elif command -v e2a >/dev/null 2>&1 && t_ver_ge "$(e2a --version 2>/dev/null)" "$TETHER_MIN_CLI"; then
+      T_CLI=(e2a)
+    elif command -v npx >/dev/null 2>&1; then
+      if command -v e2a >/dev/null 2>&1; then
+        echo "tether: global e2a CLI is older than ${TETHER_MIN_CLI} — using npx for this run (upgrade: npm i -g @e2a/cli@latest)" >&2
+      fi
+      T_CLI=(npx -y "@e2a/cli@^${TETHER_MIN_CLI}")
+    else
+      echo "tether: no e2a CLI available — install Node/npm, or set E2A_CLI" >&2
+      return 127
+    fi
+  fi
+  "${T_CLI[@]}" "$@"
+}
+
+# Human-readable description of what t_cli would run (for status/_selftest).
+t_cli_desc() {
+  if [ -n "${E2A_CLI:-}" ]; then echo "\$E2A_CLI (${E2A_CLI})"
+  elif command -v e2a >/dev/null 2>&1 && t_ver_ge "$(e2a --version 2>/dev/null)" "$TETHER_MIN_CLI"; then
+    echo "e2a on PATH ($(e2a --version 2>/dev/null))"
+  elif command -v npx >/dev/null 2>&1; then echo "npx @e2a/cli@^${TETHER_MIN_CLI}"
+  else echo "MISSING (no e2a, no npx)"; fi
+}
 
 # --- state -------------------------------------------------------------------
 
@@ -107,32 +162,21 @@ try:
 except Exception:print(2147483647)' "$exp"
 }
 
-# --- e2a API -----------------------------------------------------------------
+# --- e2a API (via the CLI) -----------------------------------------------------
+# The CLI's exit-code contract does the heavy lifting: 0 sent / 3 HELD (any
+# non-"sent" status — accepted but NOT delivered) / 5 permanent request error /
+# 4 auth / 1 transient. These wrappers map it onto tether's internal codes
+# (0 ok, 2 held, 3 anchor-not-repliable) so tether.sh stays unchanged above.
+# The CLI reads E2A_API_KEY / E2A_AGENT_EMAIL / E2A_BASE_URL straight from the
+# environment t_load_config resolves — no flag plumbing needed.
 
 # t_api_send <to> <subject> <body> <conversation_id> → prints message_id;
-# returns 2 (and warns on stderr) if the send was HELD (pending_review) so the
-# caller can refuse to arm / not report a phantom "sent".
+# returns 2 if the send was HELD so the caller can refuse to arm.
 t_api_send() {
-  local email resp status mid
-  email="$(t_urlencode "$E2A_AGENT_EMAIL")"
-  local payload
-  payload="$(python3 -c 'import json,sys
-print(json.dumps({"to":[sys.argv[1]],"subject":sys.argv[2],"body":sys.argv[3],"conversation_id":sys.argv[4]}))' \
-    "$1" "$2" "$3" "$4")"
-  resp="$(curl -sS -m 30 -X POST \
-    -H "Authorization: Bearer ${E2A_API_KEY}" -H "Content-Type: application/json" \
-    -d "$payload" "${E2A_BASE_URL}/v1/agents/${email}/messages" 2>/dev/null)" || return 1
-  status="$(printf '%s' "$resp" | python3 -c 'import json,sys
-try:print(json.load(sys.stdin).get("status",""))
-except Exception:print("")')"
-  mid="$(printf '%s' "$resp" | python3 -c 'import json,sys
-try:print(json.load(sys.stdin).get("message_id",""))
-except Exception:print("")')"
+  local mid rc
+  mid="$(t_cli send --to "$1" --subject "$2" --body "$3" --conversation-id "$4")"; rc=$?
   printf '%s' "$mid"
-  if [ "$status" = "pending_review" ]; then
-    echo "tether: WARNING send held (pending_review) — disable protection on ${E2A_AGENT_EMAIL}" >&2
-    return 2
-  fi
+  case "$rc" in 0) return 0;; 3) return 2;; *) return 1;; esac
 }
 
 # Attachment cap: 15 MB of raw bytes total per send. Base64 inflates ~4/3 and
@@ -154,67 +198,26 @@ if total>maxb:
     "$T_ATTACH_MAX_BYTES" "$@"
 }
 
-# t_reply_payload <out_file> <body> <html> [file...] — write the reply JSON
-# payload to <out_file>. Each file becomes {filename, content_type, data(b64)}
-# per the API's attachments[] schema; MIME type is guessed from the filename
-# (fallback application/octet-stream).
-t_reply_payload() {
-  python3 -c 'import json,sys,base64,mimetypes,os
-out,body,html=sys.argv[1],sys.argv[2],sys.argv[3]
-p={"body":body}
-if html: p["html_body"]=html
-atts=[]
-for f in sys.argv[4:]:
-    atts.append({"filename":os.path.basename(f),
-                 "content_type":mimetypes.guess_type(f)[0] or "application/octet-stream",
-                 "data":base64.b64encode(open(f,"rb").read()).decode()})
-if atts: p["attachments"]=atts
-json.dump(p,open(out,"w"))' "$@"
-}
-
-# t_api_reply <in_reply_to_id> <body> [html_body] [attach_file ...] → prints new message_id;
-# returns 2 (and warns on stderr) if the reply was HELD (pending_review). The
-# reply path — every update/ask/stop — used to drop `status`, so a held update
-# printed a phantom "sent" while the user's inbox stayed empty.
-# Optional args past html_body are file paths attached to the reply. The payload
-# goes to curl via a temp file, never argv — a multi-MB base64 attachment would
-# blow past ARG_MAX if passed as a command-line argument.
+# t_api_reply <in_reply_to_id> <body> [html_file] [attach_file ...] → prints
+# new message_id. NOTE the third arg is now an HTML *file path* (the CLI takes
+# --html-file and derives the plain-text fallback itself when body is empty).
+# Returns: 0 sent; 2 HELD (accepted, NOT delivered — CLI exit 3); 3 anchor not
+# repliable here (CLI exit 5, permanent request error) so t_reply_anchored can
+# try the next anchor; 1 anything else (transient).
 t_api_reply() {
-  local email resp status mid rid body html pf
-  rid="$1"; body="$2"; html="${3:-}"
+  local rid="$1" body="${2:-}" htmlfile="${3:-}"
   shift 2; [ $# -gt 0 ] && shift   # remaining args = attachment file paths
-  email="$(t_urlencode "$E2A_AGENT_EMAIL")"
-  pf="$(mktemp "${TMPDIR:-/tmp}/tether-payload.XXXXXX")" || return 1
-  t_reply_payload "$pf" "$body" "$html" "$@" || { rm -f "$pf"; return 1; }
-  resp="$(curl -sS -m 120 -X POST \
-    -H "Authorization: Bearer ${E2A_API_KEY}" -H "Content-Type: application/json" \
-    --data-binary "@${pf}" \
-    "${E2A_BASE_URL}/v1/agents/${email}/messages/${rid}/reply" 2>/dev/null)" || { rm -f "$pf"; return 1; }
-  rm -f "$pf"
-  status="$(printf '%s' "$resp" | python3 -c 'import json,sys
-try:print(json.load(sys.stdin).get("status",""))
-except Exception:print("")')"
-  mid="$(printf '%s' "$resp" | python3 -c 'import json,sys
-try:print(json.load(sys.stdin).get("message_id",""))
-except Exception:print("")')"
+  local args=(reply "$rid")
+  [ -n "$body" ] && args+=(--body "$body")
+  [ -n "$htmlfile" ] && args+=(--html-file "$htmlfile")
+  local f; for f in "$@"; do args+=(--attach "$f"); done
+  local mid rc
+  mid="$(t_cli "${args[@]}")"; rc=$?
   printf '%s' "$mid"
-  if [ -z "$mid" ]; then
-    # Distinguish "this anchor is not repliable" (404) from other failures so
-    # t_reply_anchored can fall back to another anchor instead of giving up.
-    local ecode
-    ecode="$(printf '%s' "$resp" | python3 -c 'import json,sys
-try:print((json.load(sys.stdin).get("error") or {}).get("code",""))
-except Exception:print("")')"
-    [ "$ecode" = "not_found" ] && return 3
-    return 1
-  fi
-  if [ "$status" = "pending_review" ]; then
-    echo "tether: WARNING reply held (pending_review) — disable protection on ${E2A_AGENT_EMAIL}" >&2
-    return 2
-  fi
+  case "$rc" in 0) return 0;; 3) return 2;; 5) return 3;; *) return 1;; esac
 }
 
-# t_reply_anchored <body> <html> [attach_file ...] → send a threaded reply,
+# t_reply_anchored <body> <html_file> [attach_file ...] → send a threaded reply,
 # trying anchors in order: the last message in the thread (best Gmail
 # threading), then the user's last inbound reply, then the intro. Hosted APIs
 # that predate reply-to-own-outbound (#360) 404 when the anchor is a
@@ -222,7 +225,7 @@ except Exception:print("")')"
 # consecutive updates with no user reply in between is silently undeliverable.
 # Prints the new message_id; propagates t_api_reply's return code.
 t_reply_anchored() {
-  local body="$1" html="${2:-}"
+  local body="$1" html="${2:-}"   # html = FILE PATH (passed through to --html-file)
   shift 1; [ $# -gt 0 ] && shift
   local tried="" rid mid rc
   for rid in "$(t_state_get last_message_id)" "$(t_state_get last_inbound_id)" "$(t_state_get intro_id)"; do
@@ -237,47 +240,42 @@ t_reply_anchored() {
   return 3
 }
 
-# strip HTML tags → a plain-text fallback (crude but fine for email body)
-t_html_to_text() {
-  python3 -c 'import sys,re,html
-t=sys.stdin.read()
-t=re.sub(r"(?is)<(script|style).*?</\1>"," ",t)
-t=re.sub(r"(?i)<(br|/p|/div|/li|/tr|/h[1-6])\s*/?>","\n",t)
-t=re.sub(r"<[^>]+>"," ",t)
-t=html.unescape(t)
-print(re.sub(r"[ \t]+"," ",re.sub(r"\n\s*\n\s*","\n\n",t)).strip())'
-}
-
-# t_api_poll <conversation_id> <since_iso> → TSV lines: id<TAB>from<TAB>created_at (inbound, oldest first)
+# t_api_poll <conversation_id> <since_iso> → TSV lines: id<TAB>from<TAB>created_at
+# (inbound, oldest first). The CLI's TSV shape and defaults (read_status=all,
+# sort asc) are this exact contract — that's not a coincidence, it was designed
+# from this function.
 t_api_poll() {
-  local email resp
-  email="$(t_urlencode "$E2A_AGENT_EMAIL")"
-  resp="$(curl -sS -m 30 -G \
-    -H "Authorization: Bearer ${E2A_API_KEY}" \
-    --data-urlencode "direction=inbound" --data-urlencode "read_status=all" \
-    --data-urlencode "sort=asc" --data-urlencode "limit=20" \
-    --data-urlencode "conversation_id=${1}" --data-urlencode "since=${2}" \
-    "${E2A_BASE_URL}/v1/agents/${email}/messages" 2>/dev/null)" || return 1
-  printf '%s' "$resp" | python3 -c 'import json,sys
-try:
-  for m in json.load(sys.stdin).get("items",[]):
-    print("\t".join([m.get("message_id",""),m.get("from",""),m.get("created_at","")]))
-except Exception:pass'
+  t_cli messages list --direction inbound --conversation "$1" --since "$2" --limit 20 2>/dev/null
 }
 
-# t_api_body <message_id> → command text (parsed.text preferred; quoted history stripped)
+# t_api_body <message_id> → command text (parsed.text preferred; quoted history
+# stripped). Empty on transient failure — t_poll_once's age-based retry handles it.
 t_api_body() {
-  local email resp
-  email="$(t_urlencode "$E2A_AGENT_EMAIL")"
-  resp="$(curl -sS -m 30 -H "Authorization: Bearer ${E2A_API_KEY}" \
-    "${E2A_BASE_URL}/v1/agents/${email}/messages/${1}" 2>/dev/null)" || return 1
-  printf '%s' "$resp" | python3 -c 'import json,sys
-try:
-  d=json.load(sys.stdin)
-  p=(d.get("parsed") or {}).get("text") or ""
-  b=(d.get("body") or {}).get("text") or ""
-  print((p or b).strip())
-except Exception:print("")'
+  t_cli messages get "$1" --text 2>/dev/null
+}
+
+# t_ws_wait <seconds> — block until a new inbound arrives in the thread OR the
+# window elapses. A pure WAKE SIGNAL: output is discarded and nothing is marked
+# seen — the caller re-runs the dedup-safe t_poll_once to actually consume.
+# This is what turns the old 20s poll cadence into real-time pickup. Any CLI
+# failure degrades to a plain poll-interval sleep so loops keep their cadence.
+t_ws_wait() {
+  local secs="$1" conv until rc t0
+  conv="$(t_state_get conversation_id)"
+  until="$(python3 -c 'import sys,datetime
+print((datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(seconds=int(sys.argv[1]))).isoformat())' "$secs")"
+  t0=$SECONDS
+  t_cli listen --conversation "$conv" --once --until "$until" >/dev/null 2>&1
+  rc=$?
+  # 0 = something arrived, 6 = clean window expiry; anything else is a
+  # transient WS problem (e.g. deployments without the WS endpoint). Belt and
+  # braces: if the CLI came back early for ANY non-arrival reason, sleep one
+  # poll interval so the caller's loop degrades to polling cadence instead of
+  # spinning hot.
+  if [ "$rc" != "0" ] && [ $((SECONDS - t0)) -lt "$secs" ]; then
+    sleep "${E2A_TETHER_POLL_INTERVAL:-20}"
+  fi
+  return 0
 }
 
 # --- dedup + poll core -------------------------------------------------------

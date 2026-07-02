@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import type { SendResultView } from "@e2a/sdk/v1";
+import { basename, extname } from "node:path";
+import type { SendResultView, Attachment } from "@e2a/sdk/v1";
 import { createClient, requireAgentEmail } from "../sdk.js";
 import { EXIT, fail } from "../exit.js";
 import { htmlToText } from "../html.js";
@@ -14,6 +15,7 @@ export interface SendOptions {
   agent?: string;
   json?: boolean;
   idempotencyKey?: string;
+  attach?: string[];
 }
 
 export interface ReplyOptions {
@@ -23,6 +25,38 @@ export interface ReplyOptions {
   agent?: string;
   json?: boolean;
   idempotencyKey?: string;
+  attach?: string[];
+}
+
+const MIME_BY_EXT: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".txt": "text/plain",
+  ".md": "text/markdown",
+  ".html": "text/html",
+  ".json": "application/json",
+  ".csv": "text/csv",
+  ".zip": "application/zip",
+};
+
+function readAttachments(paths: string[] | undefined): Attachment[] | undefined {
+  if (!paths || paths.length === 0) return undefined;
+  return paths.map((p) => {
+    let buf: Buffer;
+    try {
+      buf = readFileSync(p);
+    } catch {
+      return fail(EXIT.USAGE, `--attach file not found or unreadable: ${p}`);
+    }
+    return {
+      filename: basename(p),
+      contentType: MIME_BY_EXT[extname(p).toLowerCase()] ?? "application/octet-stream",
+      data: buf.toString("base64"),
+    };
+  });
 }
 
 const SEND_USAGE =
@@ -104,6 +138,7 @@ export async function send(opts: SendOptions): Promise<void> {
       body,
       htmlBody,
       conversationId: opts.conversationId,
+      attachments: readAttachments(opts.attach),
     },
     opts.idempotencyKey ? { idempotencyKey: opts.idempotencyKey } : undefined,
   );
@@ -119,7 +154,7 @@ export async function reply(messageId: string | undefined, opts: ReplyOptions): 
   const result = await client.messages.reply(
     agentEmail,
     messageId,
-    { body, htmlBody },
+    { body, htmlBody, attachments: readAttachments(opts.attach) },
     opts.idempotencyKey ? { idempotencyKey: opts.idempotencyKey } : undefined,
   );
   emitSendResult(result, opts.json);

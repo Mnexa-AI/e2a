@@ -29,10 +29,13 @@ the two directions use different mechanisms:
 - **Send = agent-driven.** The agent calls `tether.sh update "…"` at meaningful
   moments (finished a slice, hit a blocker, needs a decision). Cadence is the
   model's judgment → no per-turn spam, nothing to throttle.
-- **Receive = poll-driven.** The agent runs `tether.sh listen` — a cheap,
-  curl-only poll loop (no LLM tokens per check) that runs for the duration set at
-  `start --for`. It wakes the agent *only* when a reply actually arrives (or the
-  window ends). See **Durability tiers** for keeping it alive across idle/sleep.
+- **Receive = real-time wait.** The agent runs `tether.sh listen` — it blocks
+  on the e2a CLI's WebSocket (`e2a listen --once`; no LLM tokens while waiting)
+  for the duration set at `start --for`, so replies are picked up within
+  seconds; if the WebSocket is unavailable it degrades automatically to
+  interval polling. It wakes the agent *only* when a reply actually arrives (or
+  the window ends). See **Durability tiers** for keeping it alive across
+  idle/sleep.
 - **Questions = ask by email.** When the agent needs a decision or clarification
   from you, it must **not** use a terminal prompt / AskUserQuestion — you're AFK
   and can't see it, which would stall the whole session. It calls
@@ -48,15 +51,36 @@ the two directions use different mechanisms:
 
 ## Setup (once)
 
-Tether needs an **agent-scoped** e2a API key (`e2a_agt_…`) bound to a single
-inbox — least privilege, so a leaked key can't touch the rest of the account.
+> **Prerequisites:** Node (the transport is the `e2a` CLI ≥ the version pinned
+> in `lib.sh` — resolved from `$E2A_CLI`, then PATH, then fetched automatically
+> via `npx -y @e2a/cli@^MIN`, so there is nothing to install by hand) and
+> Python 3 (local state handling only).
 
-1. **Get an agent-scoped API key from the e2a website:**
-   **https://e2a.dev/api-keys** — create or pick an agent and generate a key
-   scoped to it. Note the agent's email address too. If you don't already own a
-   domain, create the agent on the **shared `agents.e2a.dev`** domain (the
-   default — `name@agents.e2a.dev`, live immediately, no DNS). A custom domain is
-   only worth the setup if you own one and want branded addresses.
+### Fast path (recommended): `tether.sh setup`
+
+If the e2a CLI is logged in (`e2a login` in a browser, or `e2a login
+--with-key` on a headless box), one command does the whole bootstrap:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh" setup
+```
+
+It verifies the credential (`e2a whoami`), ensures a tether inbox (reusing an
+existing `tether-…` agent or creating one on the shared domain — it will
+**not** silently adopt a non-tether inbox), turns outbound review **off** on
+that inbox, mints a **least-privilege agent-scoped key** (`e2a_agt_…`), and
+writes `~/.e2a-tether.env` (previous file kept as `.bak`). Every step fails
+hard — it never stores the broad account key and never reports "ready" with a
+half-working config. Flags: `--email you@yourdomain` to use/create a specific
+inbox, `--new` to force a fresh one.
+
+### Manual setup (fallback)
+
+1. **Get an agent-scoped API key** (`e2a_agt_…` — least privilege, so a leaked
+   key can't touch the rest of the account): from the CLI with
+   `e2a keys create --agent <inbox>`, or from **https://e2a.dev/api-keys**.
+   No domain? Create the agent on the **shared `agents.e2a.dev`** domain
+   (`e2a agents create name@agents.e2a.dev` — live immediately, no DNS).
 2. **Save the credentials:**
    ```bash
    cp "${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.env.example" ~/.e2a-tether.env
@@ -68,9 +92,9 @@ inbox — least privilege, so a leaked key can't touch the rest of the account.
    ```
 
 Credentials resolve in order: explicit env vars → `~/.e2a-tether.env` →
-`~/.e2a/config.json`. (That last one, written by `e2a login`, is an
-**account-scoped** key — broader than tether needs; prefer the agent key above.
-A smoother CLI path is coming.)
+`~/.e2a/config.json` (written by `e2a login`; after `e2a login --agent <inbox>`
+that file already holds a least-privilege agent key, so tether needs no
+tether-specific config at all).
 
 > The tether agent must have send-side protection / HITL **off**, or each update
 > is held for review instead of reaching you. `tether.sh` now detects this on
@@ -85,16 +109,14 @@ Before tethering, confirm the harness can actually send. Run `"$T" status`
 (where `T` is defined below). If it reports **`config: MISSING`**, this is a
 first-time user — **help them get to a working setup instead of just failing**:
 
-1. **Is e2a connected at all?** If they've never used e2a, get them connected
-   first: open **https://e2a.dev** to sign up, and complete the plugin's MCP
-   OAuth (`/plugin` in Claude Code). If the e2a MCP tools (`mcp__e2a__*`) are
-   available, you can then create their first inbox directly with `create_agent`
-   on the shared `agents.e2a.dev` domain — no domain, no DNS. Interactive
-   sign-in/OAuth is theirs to complete: hand them the step, don't drive it.
-2. **Mint the tether key.** tether's poller is a plain-`curl` script, so it needs
-   an **agent-scoped API key** (`e2a_agt_…`), which the MCP OAuth session doesn't
-   provide. Send them to **https://e2a.dev/api-keys** to generate a key scoped to
-   that agent, then save it per **Setup** above (`~/.e2a-tether.env`).
+1. **Is e2a connected at all?** If they've never used e2a, hand them
+   `e2a login` — it opens the browser sign-up/sign-in and saves an
+   account-scoped key to `~/.e2a/config.json`. (Headless box: they mint a key
+   in the dashboard and run `e2a login --with-key`.) Interactive sign-in is
+   theirs to complete: hand them the command, don't drive it.
+2. **Run the bootstrap:** `"$T" setup` — it creates the inbox, disables
+   outbound review, mints the agent-scoped key, and writes
+   `~/.e2a-tether.env`. See **Setup** above for what it refuses to do.
 3. **Re-check.** `"$T" status` should now print `config: OK (agent …)`. Proceed
    to the runtime flow.
 
@@ -148,7 +170,8 @@ Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
    terminal prompt; **exit 4** = the question was held for review and never
    reached the user (fix protection).
 5. **Listen for the whole window**: run `"$T" listen` **in the background**. It
-   polls cheaply (curl, no tokens) and exits with either:
+   waits on the CLI's WebSocket (real-time, no tokens while waiting; degrades
+   to polling if the WS is unavailable) and exits with either:
    - `REPLY_RECEIVED:` + the message → act on it (then `update` with the result),
      and **relaunch `listen`** for the remaining window; or
    - `TETHER_EXPIRED` → the window is up; run `"$T" stop`.
@@ -203,21 +226,23 @@ Write for that medium, not for a CLI.
   reach for the e2a MCP `send_message` or start a new subject to reach the user
   mid-session. One session = one thread = one subject.
 
-## Poll interval & knobs
+## Wait behavior & knobs
 
-`listen`/`poll` hit the inbox with a plain `curl` — **no LLM tokens per check** —
-so polling can be frequent. The agent is only woken (a real turn) when a reply
-actually lands.
+`listen`/`ask` block on the e2a CLI's WebSocket wait (**no LLM tokens while
+waiting**), so reply latency is seconds. The poll interval only matters as the
+degraded cadence when the WebSocket is unavailable, and as the backfill check
+between waits. The agent is only woken (a real turn) when a reply actually
+lands.
 
 | env var | default | effect |
 |---|---|---|
-| `E2A_TETHER_POLL_INTERVAL` | `20` (s) | how often `listen`/`ask` check the inbox |
+| `E2A_TETHER_POLL_INTERVAL` | `20` (s) | fallback poll cadence when the WS wait is unavailable |
 | `E2A_TETHER_ASK_TIMEOUT` | `1800` (s) | how long `ask` blocks for an answer before giving up |
 | `E2A_BASE_URL` | `https://api.e2a.dev` | API base (set for self-host) |
+| `E2A_CLI` | (auto) | override the e2a CLI invocation (e.g. `node /repo/cli/dist/bin/e2a.js`) |
 
 The only thing that costs a turn per tick is a `/loop` **heartbeat** (tier 2
-below) — keep that coarse (e.g. 30m). Reply latency ≈ the poll interval, and
-it's cheap, so 20–30s is fine.
+below) — keep that coarse (e.g. 30m).
 
 ## Durability tiers
 
@@ -239,8 +264,8 @@ it's cheap, so 20–30s is fine.
 
 | file | role |
 |---|---|
-| `tether.sh` | runtime CLI: `start [--title] [--for]` / `update [--html] [--attach]` / `ask [--attach]` / `listen` / `poll` / `status` / `stop` |
-| `lib.sh` | config + e2a send/reply/poll helpers |
+| `tether.sh` | runtime CLI: `setup` / `start [--title] [--for]` / `update [--html] [--attach]` / `ask [--attach]` / `listen` / `poll` / `status` / `stop` |
+| `lib.sh` | config + e2a-CLI resolution (`t_cli`) + send/reply/wait helpers |
 | `hooks/tether-notify.sh` | optional Notification hook (blocked-alert) |
 | `install.sh` | wire/unwire the Notification hook; `_selftest` |
 | `tether.env.example` | credentials template |

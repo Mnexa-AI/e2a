@@ -18,6 +18,9 @@ import { listen } from "../commands/listen.js";
 import { whoami } from "../commands/whoami.js";
 import { send, reply } from "../commands/send.js";
 import { messagesList, messagesGet } from "../commands/messages.js";
+import { agentsList, agentsCreate, agentsGet } from "../commands/agents.js";
+import { protectionGet, protectionSet } from "../commands/protection.js";
+import { keysCreate, keysList, keysDelete } from "../commands/keys.js";
 import { EXIT } from "../exit.js";
 import { E2AError, E2AAuthError, E2APermissionError } from "@e2a/sdk/v1";
 import { createRequire } from "module";
@@ -33,13 +36,29 @@ management (domains, webhooks, review queues) lives in the MCP tools, the SDKs
 (@e2a/sdk, e2a), and the dashboard.
 
 Usage:
-  e2a login                         Log in via browser and save config
+  e2a login                         Log in via browser (account-scoped key)
+        --agent <inbox>            Exchange for a least-privilege agent-scoped key
+                                   bound to <inbox> (bare slugs expand on the
+                                   shared domain); revokes the account bootstrap key
+        --with-key [<key>]         Headless: validate + save a key (from the arg,
+                                   $E2A_API_KEY, or stdin) — no browser needed
   e2a whoami [--json]               Show key identity: user, scope, bound agent, plan
+  e2a agents list                   List owned inboxes (account key)
+  e2a agents create <email> [--name <n>]   Create an inbox (account key)
+  e2a agents get <email>            Show one inbox
+  e2a keys create [--agent <inbox>] [--name <n>]   Mint a key; --agent = bound,
+                                   least-privilege (plaintext printed once)
+  e2a keys list / delete <id>       Inventory / revoke keys (account key)
+  e2a protection get <email>        Show the protection (screening/review) config
+  e2a protection set <email>        Flip review posture, only the named knobs
+        --outbound-review on|off   off = sends go out unheld (gate=flag, scan=off)
+        --inbound-review on|off    off = inbound delivered unheld
   e2a send [options]                Send an email as the agent
         --to <email>               Recipient (repeatable)
         --subject <s>              Subject line
         --body <text>              Plain-text body (or --body-file <f>)
         --html-file <f>            HTML body; text fallback derived if no --body
+        --attach <file>            Attach a file (repeatable)
         --conversation-id <id>     Thread id (alias: --conversation)
         --idempotency-key <k>      Stable key so a retried invocation can't double-send
         --agent <email>            Sending inbox (or config agent_email / E2A_AGENT_EMAIL)
@@ -61,6 +80,10 @@ Usage:
         --agent <email>            Agent inbox to listen on (or config agent_email)
         --forward <url>            POST each message to a local URL (dev webhook proxy)
         --forward-token <token>    Bearer token to send with --forward requests
+        --conversation <id>        Only messages in this conversation
+        --once                     Exit 0 after the first (matching) message
+        --until <ISO>              With --once: deadline; prints TIMEOUT, exits 6
+        --text                     With --once: print the message body text only
         --json                     Emit raw JSON notifications
   e2a config [list|get|set]         View or update config
 
@@ -75,6 +98,7 @@ Exit codes (stable scripting contract):
   3  send accepted but HELD for review (pending_review) — not delivered
   4  bad credentials or wrong key scope
   5  permanent request error (not found / invalid / conflict) — do NOT retry
+  6  bounded wait (listen --once --until) expired with no matching message
 `;
 
 function parseArgs(argv: string[]): { command: string; args: string[] } {
@@ -112,7 +136,7 @@ function hasFlag(args: string[], flag: string): boolean {
 // Flags that take no value. Everything else starting with "--" consumes the
 // next token, which getPositionals must skip to find bare arguments like a
 // message id.
-const BOOLEAN_FLAGS = new Set(["--json", "--text", "--help", "--version"]);
+const BOOLEAN_FLAGS = new Set(["--json", "--text", "--once", "--help", "--version"]);
 
 function getPositionals(args: string[]): string[] {
   const positionals: string[] = [];
@@ -211,19 +235,89 @@ async function main() {
 
   switch (command) {
     case "login":
-      await login();
+      checkFlags(args, ["--agent", "--with-key"]);
+      await login({
+        agent: getFlagChecked(args, "--agent"),
+        withKey: hasFlag(args, "--with-key"),
+        // Unchecked on purpose: bare `--with-key` (no value) means "take the
+        // key from $E2A_API_KEY or stdin".
+        key: getFlag(args, "--with-key"),
+      });
       break;
+    case "agents": {
+      const sub = args[0];
+      const rest = args.slice(1);
+      if (sub === "list") {
+        checkFlags(rest, ["--json"]);
+        await agentsList({ json: hasFlag(rest, "--json") });
+      } else if (sub === "create") {
+        checkFlags(rest, ["--name", "--json"]);
+        await agentsCreate(getPositionals(rest)[0], {
+          name: getFlagChecked(rest, "--name"),
+          json: hasFlag(rest, "--json"),
+        });
+      } else if (sub === "get") {
+        checkFlags(rest, ["--json"]);
+        await agentsGet(getPositionals(rest)[0], { json: hasFlag(rest, "--json") });
+      } else {
+        process.stderr.write("Usage: e2a agents [list|create <email>|get <email>]\n");
+        process.exit(EXIT.USAGE);
+      }
+      break;
+    }
+    case "keys": {
+      const sub = args[0];
+      const rest = args.slice(1);
+      if (sub === "create") {
+        checkFlags(rest, ["--name", "--agent", "--json"]);
+        await keysCreate({
+          name: getFlagChecked(rest, "--name"),
+          agent: getFlagChecked(rest, "--agent"),
+          json: hasFlag(rest, "--json"),
+        });
+      } else if (sub === "list") {
+        checkFlags(rest, ["--json"]);
+        await keysList({ json: hasFlag(rest, "--json") });
+      } else if (sub === "delete") {
+        checkFlags(rest, []);
+        await keysDelete(getPositionals(rest)[0]);
+      } else {
+        process.stderr.write("Usage: e2a keys [create [--agent <inbox>]|list|delete <id>]\n");
+        process.exit(EXIT.USAGE);
+      }
+      break;
+    }
+    case "protection": {
+      const sub = args[0];
+      const rest = args.slice(1);
+      if (sub === "get") {
+        checkFlags(rest, ["--json"]);
+        await protectionGet(getPositionals(rest)[0], { json: hasFlag(rest, "--json") });
+      } else if (sub === "set") {
+        checkFlags(rest, ["--outbound-review", "--inbound-review", "--json"]);
+        await protectionSet(getPositionals(rest)[0], {
+          outboundReview: getFlagChecked(rest, "--outbound-review"),
+          inboundReview: getFlagChecked(rest, "--inbound-review"),
+          json: hasFlag(rest, "--json"),
+        });
+      } else {
+        process.stderr.write("Usage: e2a protection [get <email>|set <email> --outbound-review on|off]\n");
+        process.exit(EXIT.USAGE);
+      }
+      break;
+    }
     case "whoami":
       checkFlags(args, ["--json"]);
       await whoami({ json: hasFlag(args, "--json") });
       break;
     case "send":
       checkFlags(args, [
-        "--to", "--subject", "--body", "--body-file", "--html-file",
+        "--to", "--subject", "--body", "--body-file", "--html-file", "--attach",
         "--conversation-id", "--conversation", "--agent", "--idempotency-key", "--json",
       ]);
       await send({
         to: getFlagsChecked(args, "--to"),
+        attach: getFlagsChecked(args, "--attach"),
         subject: getFlagChecked(args, "--subject"),
         body: getFlagChecked(args, "--body"),
         bodyFile: getFlagChecked(args, "--body-file"),
@@ -239,9 +333,10 @@ async function main() {
       break;
     case "reply":
       checkFlags(args, [
-        "--body", "--body-file", "--html-file", "--agent", "--idempotency-key", "--json",
+        "--body", "--body-file", "--html-file", "--attach", "--agent", "--idempotency-key", "--json",
       ]);
       await reply(getPositionals(args)[0], {
+        attach: getFlagsChecked(args, "--attach"),
         body: getFlagChecked(args, "--body"),
         bodyFile: getFlagChecked(args, "--body-file"),
         htmlFile: getFlagChecked(args, "--html-file"),
@@ -282,7 +377,10 @@ async function main() {
       break;
     }
     case "listen":
-      checkFlags(args, ["--agent", "--forward", "--forward-token", "--json"]);
+      checkFlags(args, [
+        "--agent", "--forward", "--forward-token", "--json",
+        "--conversation", "--conversation-id", "--once", "--until", "--text",
+      ]);
       await listen({
         agent: getFlagChecked(args, "--agent"),
         json: hasFlag(args, "--json"),
@@ -290,6 +388,11 @@ async function main() {
         // silently listen WITHOUT forwarding — the silent-drop class again.
         forward: getFlagChecked(args, "--forward"),
         forwardToken: getFlagChecked(args, "--forward-token"),
+        conversation:
+          getFlagChecked(args, "--conversation") ?? getFlagChecked(args, "--conversation-id"),
+        once: hasFlag(args, "--once"),
+        until: getFlagChecked(args, "--until"),
+        text: hasFlag(args, "--text"),
       });
       break;
     case "config":

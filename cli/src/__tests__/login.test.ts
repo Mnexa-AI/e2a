@@ -140,6 +140,7 @@ describe("login", () => {
 
     expect(mockSaveConfig).toHaveBeenCalledWith({
       api_key: "e2a_browser_key",
+      key_scope: "account",
       agent_email: "bot@agents.e2a.dev",
       shared_domain: "agents.e2a.dev",
     });
@@ -168,6 +169,7 @@ describe("login", () => {
 
     expect(mockSaveConfig).toHaveBeenCalledWith({
       api_key: "e2a_browser_key",
+      key_scope: "account",
       agent_email: "",
       shared_domain: "agents.e2a.dev",
     });
@@ -233,6 +235,7 @@ describe("login", () => {
     // shared_domain absent — older deployment couldn't be discovered
     expect(mockSaveConfig).toHaveBeenCalledWith({
       api_key: "e2a_browser_key",
+      key_scope: "account",
       agent_email: "bot@example.com",
     });
   });
@@ -291,6 +294,7 @@ describe("login", () => {
 
     expect(mockSaveConfig).toHaveBeenCalledWith({
       api_key: "e2a_self",
+      key_scope: "account",
       agent_email: "bot@agents.acme.test",
       shared_domain: "agents.acme.test",
     });

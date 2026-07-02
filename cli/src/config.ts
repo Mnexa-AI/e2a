@@ -16,6 +16,14 @@ export interface Config {
    * works zero-config.
    */
   shared_domain: string;
+  /**
+   * Scope of the stored api_key ("account" or "agent"), recorded by `e2a
+   * login` (which now writes it on every path: browser, --agent exchange,
+   * --with-key). Lets commands that need workspace-admin scope fail with a
+   * precise message instead of a server 403. Absent for keys saved by older
+   * CLIs or set out-of-band.
+   */
+  key_scope?: string;
 }
 
 const CONFIG_DIR = join(homedir(), ".e2a");
@@ -39,6 +47,7 @@ export function loadConfig(): Config {
     if (file.api_url) config.api_url = file.api_url;
     if (file.agent_email) config.agent_email = file.agent_email;
     if (file.shared_domain) config.shared_domain = file.shared_domain;
+    if (file.key_scope) config.key_scope = file.key_scope;
   } catch {
     // No config file yet
   }
@@ -97,6 +106,14 @@ export function saveConfig(updates: Partial<Config>): void {
     fileConfig.agent_email = merged.agent_email;
   } else if (!process.env.E2A_AGENT_EMAIL) {
     delete fileConfig.agent_email;
+  }
+
+  // key_scope has no env override and no default: persist when set, drop when
+  // cleared. Login rewrites it whenever api_key changes, so it can't go stale
+  // through the login path (a hand-edited api_key is on the user).
+  if ("key_scope" in updates) {
+    if (updates.key_scope) fileConfig.key_scope = updates.key_scope;
+    else delete fileConfig.key_scope;
   }
 
   // Mirror the api_url policy: only persist non-default, non-env-overridden values.
