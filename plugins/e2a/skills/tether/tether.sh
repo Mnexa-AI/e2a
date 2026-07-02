@@ -170,6 +170,52 @@ question or instruction; reply \"stop\" to end early.
     echo "tether: stopped"
     ;;
 
+  setup)
+    # Zero-to-tethered bootstrap. Resolves account creds (e2a login / e2a_acct_
+    # key) → ensures an agent inbox (creates one on the shared domain if none) →
+    # forces HITL off → writes ~/.e2a-tether.env. No MCP server or dashboard trip
+    # needed. Flags: --new (always create), --email <addr> (use/create this one).
+    force_new=0; want=""
+    while [ $# -gt 0 ]; do case "$1" in --new) force_new=1; shift;; --email) want="${2:-}"; shift 2;; *) shift;; esac; done
+    t_resolve_key || { echo "tether setup: no API key found. Run 'e2a login' (browser, no paste) or put an e2a_acct_ key in ~/.e2a-tether.env, then re-run."; exit 1; }
+    echo "tether setup: base ${E2A_BASE_URL}"
+    agent=""
+    if [ -n "$want" ] && [ "$force_new" = "0" ]; then agent="$want"; fi
+    if [ -z "$agent" ] && [ "$force_new" = "0" ]; then
+      ags="$(t_api_agents)"
+      agent="$(printf '%s\n' "$ags" | grep -E '^tether-' | head -1)"
+      if [ -z "$agent" ] && [ "$(printf '%s\n' "$ags" | grep -c .)" = "1" ]; then
+        agent="$(printf '%s\n' "$ags" | grep . | head -1)"
+      fi
+      [ -n "$agent" ] && echo "tether setup: reusing existing agent"
+    fi
+    if [ -z "$agent" ]; then
+      cand="$want"
+      if [ -z "$cand" ] || [ "${cand#*@}" = "$cand" ]; then
+        sd="$(t_api_shared_domain)"
+        [ -n "$sd" ] || { echo "tether setup: no shared_domain here — verify a custom domain first, then re-run with --email you@yourdomain"; exit 1; }
+        local_part="${cand:-tether-$("$PY" -c 'import secrets;print(secrets.token_hex(3))')}"
+        cand="${local_part}@${sd}"
+      fi
+      echo "tether setup: creating agent ${cand}…"
+      agent="$(t_api_create_agent "$cand")"
+      [ -n "$agent" ] || { echo "tether setup: agent create failed (slug taken/invalid, or key lacks account scope)"; exit 1; }
+    fi
+    echo "tether setup: agent = ${agent}"
+    if [ "$(t_api_protection_off "$agent")" = "ok" ]; then
+      echo "tether setup: HITL off (outbound gate=flag, scan=off)"
+    else
+      echo "tether setup: WARNING could not confirm HITL off — check protection in the dashboard" >&2
+    fi
+    t_write_env "$E2A_API_KEY" "$agent"
+    echo "tether setup: wrote ${HOME}/.e2a-tether.env"
+    # export the resolved agent so the confirming subprocess doesn't inherit a
+    # stale/empty E2A_AGENT_EMAIL that t_resolve_key exported from the old file.
+    export E2A_API_KEY E2A_AGENT_EMAIL="$agent"
+    bash "${here}/tether.sh" status
+    echo "tether setup: ready → tether.sh start <your-email> --for 30m"
+    ;;
+
   _selftest)
     echo "# unconfigured status (must not crash):"
     env -u E2A_API_KEY -u E2A_AGENT_EMAIL HOME=/nonexistent TETHER_STATE=/tmp/tether-selftest.json \

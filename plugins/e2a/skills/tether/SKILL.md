@@ -47,6 +47,25 @@ the two directions use different mechanisms:
 > to `python`. Override with `E2A_PYTHON=/path/to/python`. Run
 > `tether.sh _selftest` to confirm the interpreter actually works.
 
+### Fast path (recommended)
+
+If you have account creds — either from `e2a login` (browser OAuth, nothing to
+paste) or an `e2a_acct_…` key in `~/.e2a-tether.env` — one command does the
+whole bootstrap, no dashboard trip and no MCP server required:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh" setup
+```
+
+It resolves your key, ensures an agent inbox (creating `tether-…@<shared_domain>`
+if you have none), turns HITL **off**, writes `~/.e2a-tether.env` with the full
+agent address, and confirms with `status`. Then go straight to **Runtime flow**.
+Flags: `--email you@yourdomain` to name/create a specific agent, `--new` to force
+a fresh one. The manual steps below are the fallback — e.g. when you want a
+narrower **agent-scoped** key instead of the account key `setup` reuses.
+
+### Manual setup
+
 Tether needs an **agent-scoped** e2a API key (`e2a_agt_…`) bound to a single
 inbox — least privilege, so a leaked key can't touch the rest of the account.
 
@@ -76,6 +95,11 @@ A smoother CLI path is coming.)
 
 Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
 
+0. **Ensure configured.** Run `"$T" status`. If it prints `config: MISSING`,
+   run `"$T" setup` (the Fast path) before anything else — it provisions the
+   inbox + credentials in one step. If setup reports no API key, tell the user
+   to run `e2a login` (or drop an `e2a_acct_…` key in `~/.e2a-tether.env`), then
+   re-run `"$T" setup`.
 1. **Ask** the user's email address **and how long to stay tethered** (e.g. 30m,
    2h, 8h/overnight, or until they say stop). They're present at this step, so a
    normal question is fine.

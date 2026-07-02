@@ -178,6 +178,86 @@ try:
 except Exception:print("")'
 }
 
+# --- setup / bootstrap helpers ----------------------------------------------
+# These power `tether.sh setup`: a zero-to-tethered bootstrap that needs only
+# account creds (from `e2a login` or an e2a_acct_ key) and does the rest.
+
+# Resolve just the API key + base URL — agent email NOT required (setup runs
+# before an agent is chosen). Mirrors t_load_config's sources minus the agent.
+t_resolve_key() {
+  if [ -z "${E2A_API_KEY:-}" ] && [ -f "${HOME}/.e2a-tether.env" ]; then
+    set -a; . "${HOME}/.e2a-tether.env"; set +a
+  fi
+  if [ -z "${E2A_API_KEY:-}" ] && [ -f "${HOME}/.e2a/config.json" ]; then
+    eval "$("$PY" -c 'import json,shlex,os
+try:
+  d=json.load(open(os.path.expanduser("~/.e2a/config.json")))
+  if d.get("api_key"): print("export E2A_API_KEY="+shlex.quote(d["api_key"]))
+  if d.get("api_url"): print("export E2A_BASE_URL="+shlex.quote(d["api_url"].rstrip("/")))
+except Exception: pass')"
+  fi
+  E2A_BASE_URL="${E2A_BASE_URL:-https://api.e2a.dev}"
+  [ -n "${E2A_API_KEY:-}" ]
+}
+
+# GET /v1/info → shared_domain (empty if the deployment has none)
+t_api_shared_domain() {
+  curl -sS -m 30 "${E2A_BASE_URL}/v1/info" 2>/dev/null | "$PY" -c 'import json,sys
+try: print(json.load(sys.stdin).get("shared_domain","") or "")
+except Exception: print("")'
+}
+
+# GET /v1/agents → one agent email per line
+t_api_agents() {
+  curl -sS -m 30 -H "Authorization: Bearer ${E2A_API_KEY}" "${E2A_BASE_URL}/v1/agents" 2>/dev/null | "$PY" -c 'import json,sys
+try:
+  for a in json.load(sys.stdin).get("items",[]): print(a.get("email") or a.get("id") or "")
+except Exception: pass'
+}
+
+# POST /v1/agents {email} → created email (empty on failure)
+t_api_create_agent() {
+  curl -sS -m 30 -X POST -H "Authorization: Bearer ${E2A_API_KEY}" -H "Content-Type: application/json" \
+    -d "$("$PY" -c 'import json,sys;print(json.dumps({"email":sys.argv[1]}))' "$1")" \
+    "${E2A_BASE_URL}/v1/agents" 2>/dev/null | "$PY" -c 'import json,sys
+try:
+  d=json.load(sys.stdin); print(d.get("email") or d.get("id") or "")
+except Exception: print("")'
+}
+
+# Set outbound gate=flag + scan=off on <email>. /protection is full-replace, so
+# GET the current doc, flip only the outbound knobs, PUT it back. Prints "ok".
+t_api_protection_off() {
+  local enc cur body
+  enc="$(t_urlencode "$1")"
+  cur="$(curl -sS -m 30 -H "Authorization: Bearer ${E2A_API_KEY}" "${E2A_BASE_URL}/v1/agents/${enc}/protection" 2>/dev/null)"
+  body="$(printf '%s' "$cur" | "$PY" -c 'import json,sys
+try: d=json.load(sys.stdin)
+except Exception: d={}
+if not isinstance(d,dict): d={}
+ib=d.setdefault("inbound",{}); ib.setdefault("gate",{}).setdefault("action","flag"); ib.setdefault("scan",{}).setdefault("sensitivity","off")
+ob=d.setdefault("outbound",{}); ob.setdefault("gate",{}); ob.setdefault("scan",{})
+ob["gate"]["action"]="flag"; ob["scan"]["sensitivity"]="off"
+h=d.setdefault("holds",{}); h.setdefault("ttl_seconds",604800); h.setdefault("on_expiry","reject")
+print(json.dumps(d))')"
+  curl -sS -m 30 -X PUT -H "Authorization: Bearer ${E2A_API_KEY}" -H "Content-Type: application/json" \
+    -d "$body" "${E2A_BASE_URL}/v1/agents/${enc}/protection" 2>/dev/null | "$PY" -c 'import json,sys
+try: print("ok" if json.load(sys.stdin).get("outbound",{}).get("gate",{}).get("action")=="flag" else "")
+except Exception: print("")'
+}
+
+# Write ~/.e2a-tether.env with the resolved key + agent (chmod 600 where honored)
+t_write_env() {
+  local f="${HOME}/.e2a-tether.env"
+  cat > "$f" <<EOF
+# written by tether.sh setup — $(t_now_iso)
+export E2A_API_KEY="$1"
+export E2A_AGENT_EMAIL="$2"
+export E2A_BASE_URL="${E2A_BASE_URL:-https://api.e2a.dev}"
+EOF
+  chmod 600 "$f" 2>/dev/null || true
+}
+
 # --- dedup + poll core -------------------------------------------------------
 # Replies are deduped by message-id (a `seen` set in state), NOT a bare time
 # cursor. Email parsing is async: a just-arrived reply can have an empty
