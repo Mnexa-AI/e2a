@@ -177,8 +177,11 @@ question or instruction; reply \"stop\" to end early.
     # needed. Flags: --new (always create), --email <addr> (use/create this one).
     force_new=0; want=""
     while [ $# -gt 0 ]; do case "$1" in --new) force_new=1; shift;; --email) want="${2:-}"; shift 2;; *) shift;; esac; done
-    t_resolve_key || { echo "tether setup: no API key found. Run 'e2a login' (browser, no paste) or put an e2a_acct_ key in ~/.e2a-tether.env, then re-run."; exit 1; }
-    echo "tether setup: base ${E2A_BASE_URL}"
+    E2A_BASE_URL="${E2A_BASE_URL:-https://api.e2a.dev}"
+    boot="$(t_resolve_bootstrap)"
+    [ -n "$boot" ] || { echo "tether setup: need an ACCOUNT credential (e2a_acct_… key or an 'e2a login' session). Run 'e2a login' or put an e2a_acct_ key in ~/.e2a-tether.env, then re-run."; exit 1; }
+    E2A_API_KEY="$boot"   # setup's create/mint/protection calls need account scope
+    echo "tether setup: base ${E2A_BASE_URL} (account credential resolved)"
     agent=""
     if [ -n "$want" ] && [ "$force_new" = "0" ]; then agent="$want"; fi
     if [ -z "$agent" ] && [ "$force_new" = "0" ]; then
@@ -207,11 +210,20 @@ question or instruction; reply \"stop\" to end early.
     else
       echo "tether setup: WARNING could not confirm HITL off — check protection in the dashboard" >&2
     fi
-    t_write_env "$E2A_API_KEY" "$agent"
+    # Mint a dedicated AGENT-scoped key (least privilege) and store THAT — not
+    # the broad account key — so a leaked tether key can't touch the account.
+    agtkey="$(t_api_create_agent_key "$boot" "$agent" "tether-$("$PY" -c 'import secrets;print(secrets.token_hex(2))')")"
+    if [ -n "$agtkey" ]; then
+      echo "tether setup: minted agent-scoped key (e2a_agt_…) bound to the inbox"
+    else
+      echo "tether setup: WARNING could not mint an agent key — storing the account key instead" >&2
+      agtkey="$boot"
+    fi
+    t_write_env "$agtkey" "$agent"
     echo "tether setup: wrote ${HOME}/.e2a-tether.env"
-    # export the resolved agent so the confirming subprocess doesn't inherit a
-    # stale/empty E2A_AGENT_EMAIL that t_resolve_key exported from the old file.
-    export E2A_API_KEY E2A_AGENT_EMAIL="$agent"
+    # export the resolved creds so the confirming subprocess doesn't inherit a
+    # stale/empty value from what t_resolve_bootstrap read off the old file.
+    export E2A_API_KEY="$agtkey" E2A_AGENT_EMAIL="$agent"
     bash "${here}/tether.sh" status
     echo "tether setup: ready → tether.sh start <your-email> --for 30m"
     ;;

@@ -246,6 +246,36 @@ try: print("ok" if json.load(sys.stdin).get("outbound",{}).get("gate",{}).get("a
 except Exception: print("")'
 }
 
+# Resolve an ACCOUNT-scoped bootstrap key. setup needs account scope to create
+# agents + mint keys, so we can't just take whatever key is in the tether env
+# (which, after a prior setup, is an agent-scoped key that CANNOT manage keys).
+# Try ~/.e2a/config.json (e2a login), then the tether env, then $E2A_API_KEY —
+# pick the first that /v1/account reports as scope=account.
+t_resolve_bootstrap() {
+  E2A_BASE_URL="${E2A_BASE_URL:-https://api.e2a.dev}"
+  {
+    [ -f "${HOME}/.e2a/config.json" ] && "$PY" -c 'import json,os;print(json.load(open(os.path.expanduser("~/.e2a/config.json"))).get("api_key","") or "")'
+    [ -f "${HOME}/.e2a-tether.env" ] && grep -E '^export E2A_API_KEY=' "${HOME}/.e2a-tether.env" | head -1 | sed -E 's/^[^=]*=//; s/^"//; s/"$//'
+    printf '%s\n' "${E2A_API_KEY:-}"
+  } | while IFS= read -r cand; do
+      [ -n "$cand" ] || continue
+      s="$(curl -sS -m20 -H "Authorization: Bearer ${cand}" "${E2A_BASE_URL}/v1/account" 2>/dev/null | "$PY" -c 'import json,sys
+try: print(json.load(sys.stdin).get("scope",""))
+except Exception: print("")')"
+      [ "$s" = "account" ] && { printf '%s' "$cand"; break; }
+    done
+}
+
+# Mint an AGENT-scoped key bound to <agent_email> using account <bootstrap key>.
+# Prints the plaintext e2a_agt_ key (shown once), empty on failure.
+t_api_create_agent_key() {  # <bootstrap_key> <agent_email> [name]
+  curl -sS -m30 -X POST -H "Authorization: Bearer ${1}" -H "Content-Type: application/json" \
+    -d "$("$PY" -c 'import json,sys;print(json.dumps({"name":sys.argv[1],"scope":"agent","agent":sys.argv[2]}))' "${3:-tether}" "$2")" \
+    "${E2A_BASE_URL}/v1/account/api-keys" 2>/dev/null | "$PY" -c 'import json,sys
+try: print(json.load(sys.stdin).get("key","") or "")
+except Exception: print("")'
+}
+
 # Write ~/.e2a-tether.env with the resolved key + agent (chmod 600 where honored)
 t_write_env() {
   local f="${HOME}/.e2a-tether.env"
