@@ -31,23 +31,36 @@ case "$cmd" in
   start)
     # start <email> [--title "<work>"] [--for 30m|2h|8h|1d] [--until <ISO>]
     need_config
-    to=""; forarg=""; untilarg=""; title=""
+    to=""; forarg=""; untilarg=""; title=""; parallel=0
     while [ $# -gt 0 ]; do
       case "$1" in
         --title) title="${2:-}"; shift 2;;
         --for) forarg="${2:-}"; shift 2;;
         --until) untilarg="${2:-}"; shift 2;;
+        --parallel) parallel=1; shift;;
         *) to="$1"; shift;;
       esac
     done
-    [ -n "$to" ] || { echo "usage: tether.sh start <your-email> [--title \"<work>\"] [--for 2h|8h|30m|1d] [--until <ISO>]"; exit 2; }
+    [ -n "$to" ] || { echo "usage: tether.sh start <your-email> [--title \"<work>\"] [--for 2h|8h|30m|1d] [--until <ISO>] [--parallel]"; exit 2; }
     # Never arm over a live session: that would hijack its thread pointer and
     # watermark (each session must keep its own dedicated email thread).
     if [ "$(t_state_get armed)" = "1" ]; then
-      echo "tether: already armed — thread $(t_state_get conversation_id) → $(t_state_get to)."
-      echo "        Run 'tether.sh stop' to end it first, or set TETHER_STATE to a unique"
-      echo "        path to run a second session in this repo in parallel."
-      exit 1
+      if [ "$parallel" = "1" ] && [ -z "${TETHER_STATE:-}" ]; then
+        # Same-repo parallel session: self-key a fresh state file and hand the
+        # caller its handle. The session MUST prefix every subsequent tether
+        # call with this TETHER_STATE — without it, commands resolve to the
+        # other session's state.
+        export TETHER_STATE="$HOME/.e2a-tether/state-$(t_state_key)-$(date +%s)-$$.json"
+        T_STATE_PATH="$TETHER_STATE"
+        echo "tether: parallel session — prefix EVERY subsequent tether.sh call with:"
+        echo "        TETHER_STATE=\"${TETHER_STATE}\""
+      else
+        echo "tether: already armed — thread $(t_state_get conversation_id) → $(t_state_get to)."
+        echo "        Run 'tether.sh stop' to end it first, or re-run start with --parallel"
+        echo "        to open a second session in this repo (you'll get a TETHER_STATE"
+        echo "        handle to carry on every subsequent call)."
+        exit 1
+      fi
     fi
     expires=""
     if [ -n "$untilarg" ]; then expires="$untilarg"
@@ -348,7 +361,18 @@ except Exception:print("")')"
     out="$(env E2A_API_KEY='e2a_agt_selftest123' E2A_AGENT_EMAIL='selftest@agents.e2a.dev' \
       TETHER_STATE="$armf" bash "${here}/tether.sh" start someone@example.com 2>&1)"; rc=$?
     ck "start refuses to arm over a live session" "$rc:$(printf '%s' "$out" | grep -c 'already armed')" "1:1"
-    rm -f "$armf"
+    # --parallel: with the DEFAULT path armed (legacy file in a sandbox HOME),
+    # start must branch to a fresh self-keyed TETHER_STATE and print the
+    # handle. E2A_CLI=/bin/false makes the intro send fail afterwards — the
+    # assertion is that the parallel branch ran, not that mail went out.
+    sb=/tmp/tether-selftest-home; mkdir -p "$sb/.e2a-tether"
+    printf '{"armed":"1","conversation_id":"tether-old","to":"a@b.c"}' > "$sb/.e2a-tether/state.json"
+    out="$(env HOME="$sb" E2A_CLI=/bin/false E2A_API_KEY='e2a_agt_selftest123' \
+      E2A_AGENT_EMAIL='selftest@agents.e2a.dev' \
+      bash "${here}/tether.sh" start someone@example.com --parallel 2>&1)" || true
+    ck "start --parallel self-keys a fresh TETHER_STATE" \
+      "$(printf '%s' "$out" | grep -c 'TETHER_STATE=')" "1"
+    rm -rf "$sb" "$armf"
 
     echo "# CLI resolution:"
     ck "version compare: 1.6.2 >= 1.6.0" "$(t_ver_ge "e2a 1.6.2" "1.6.0" && echo yes)" "yes"

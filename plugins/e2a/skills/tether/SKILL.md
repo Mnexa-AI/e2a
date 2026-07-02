@@ -265,10 +265,13 @@ below) — keep that coarse (e.g. 30m).
 Each `start` opens a **dedicated email thread** (fresh conversation id, its own
 subject; replies anchor by In-Reply-To), and local state is **keyed per repo**
 (git toplevel), so tethered sessions in different repos coexist without
-touching each other's thread, watermark, or ask-lock. Within one repo there is
-one session by design: `start` **refuses to arm over a live session** instead
-of silently hijacking its thread — run `stop` first, or point `TETHER_STATE`
-at a unique path to deliberately run two in parallel. (A pre-existing
+touching each other's thread, watermark, or ask-lock. Within one repo,
+`start` **refuses to arm over a live session** instead of silently hijacking
+its thread. To run a second session in the *same* repo, start it with
+`--parallel`: it self-keys a fresh state file and prints a
+`TETHER_STATE="…"` handle — **prefix every subsequent tether call in that
+session with it** (`TETHER_STATE="…" "$T" update …`), and pass a distinct
+`--title` so the inbox threads are tellable apart. (A pre-existing
 machine-global `state.json` from an older tether keeps working until its
 session stops.)
 
