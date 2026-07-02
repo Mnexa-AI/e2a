@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/agent"
@@ -330,7 +331,17 @@ func New(deps Deps) *Server {
 	// upgrade, not a JSON operation). First-class /v1 inbound transport.
 	if deps.WSHandle != nil {
 		root.Get("/v1/agents/{email}/ws", func(w http.ResponseWriter, r *http.Request) {
-			deps.WSHandle(w, r, chi.URLParam(r, "email"))
+			// chi routes on RawPath when the request URI is percent-encoded and
+			// returns URL params STILL ENCODED — and every SDK client encodes the
+			// address (encodeURIComponent), so without this decode the handler
+			// looked up an agent literally named "x%40y" and 404'd every real
+			// WebSocket client. Huma decodes its own params; this bypass route
+			// must do it explicitly.
+			address := chi.URLParam(r, "email")
+			if decoded, err := url.PathUnescape(address); err == nil {
+				address = decoded
+			}
+			deps.WSHandle(w, r, address)
 		})
 	}
 
