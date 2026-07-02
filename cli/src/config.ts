@@ -15,6 +15,12 @@ export interface Config {
    * works zero-config.
    */
   shared_domain: string;
+  /**
+   * Scope of the stored api_key ("account" or "agent"), recorded at login so
+   * commands that need workspace-admin scope can fail with a precise message
+   * instead of a server 403. Absent for keys saved before this field existed.
+   */
+  key_scope?: string;
 }
 
 const CONFIG_DIR = join(homedir(), ".e2a");
@@ -38,6 +44,7 @@ export function loadConfig(): Config {
     if (file.api_url) config.api_url = file.api_url;
     if (file.agent_email) config.agent_email = file.agent_email;
     if (file.shared_domain) config.shared_domain = file.shared_domain;
+    if (file.key_scope) config.key_scope = file.key_scope;
   } catch {
     // No config file yet
   }
@@ -91,6 +98,14 @@ export function saveConfig(updates: Partial<Config>): void {
     fileConfig.agent_email = merged.agent_email;
   } else {
     delete fileConfig.agent_email;
+  }
+
+  // key_scope mirrors agent_email: persist when set, drop when cleared.
+  if ("key_scope" in updates) {
+    if (updates.key_scope) fileConfig.key_scope = updates.key_scope;
+    else delete fileConfig.key_scope;
+  } else if (merged.key_scope) {
+    fileConfig.key_scope = merged.key_scope;
   }
 
   // Mirror the api_url policy: only persist non-default, non-env-overridden values.

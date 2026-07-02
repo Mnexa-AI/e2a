@@ -1,6 +1,6 @@
 import { loadConfig, saveConfig, Config } from "../config.js";
 
-const VALID_KEYS: (keyof Config)[] = ["api_key", "api_url", "agent_email", "shared_domain"];
+const VALID_KEYS: (keyof Config)[] = ["api_key", "api_url", "agent_email", "shared_domain", "key_scope"];
 
 export async function config(args: string[]): Promise<void> {
   const subcommand = args[0];
