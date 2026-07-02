@@ -73,8 +73,11 @@ Credentials resolve in order: explicit env vars → `~/.e2a-tether.env` →
 A smoother CLI path is coming.)
 
 > The tether agent must have send-side protection / HITL **off**, or each update
-> is held as an approval email instead of reaching you. `tether.sh` warns on
-> stderr if it sees `pending_review`.
+> is held for review instead of reaching you. `tether.sh` now detects this on
+> every send: a held intro makes `start` **refuse to arm**, and a held
+> `update`/`ask` prints a `HELD for review (pending_review)` warning and exits
+> non-zero — so a held session fails loudly instead of "reporting" into a queue
+> the user never sees.
 
 ## First run (new user) — set them up, then tether
 
@@ -108,18 +111,29 @@ Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
    2h, 8h/overnight, or until they say stop). They're present at this step, so a
    normal question is fine.
 2. **Start**: `"$T" start <email> --for <duration>` (or `--until <ISO>`; omit
-   both for until-stop) — sends the intro, opens the thread, arms, records the window.
+   both for until-stop) — sends the intro, opens the thread, arms, records the
+   window. `--for` takes a **single unit** (`30m`, `2h`, `8h`, `1d`); a compound
+   like `1h30m` is rejected rather than silently treated as no-limit. If the intro
+   comes back **held for review** (`pending_review`), `start` refuses to arm and
+   tells you to turn protection off — a held intro means the user never got it.
 3. **Work**, and **send updates as you see fit**: `"$T" update "<what changed / what you need>"`.
    Good moments: finished a slice, made a decision that's worth surfacing, hit a
    blocker, or before a long unattended stretch. Skip trivial turns. For a rich
    update (diagram, table, formatting), write the HTML to a file and run
    `"$T" update --html <file>` — a plain-text fallback is auto-derived (or pass
-   `--text "<fallback>"`).
+   `--text "<fallback>"`). If `update` prints a `HELD for review (pending_review)`
+   warning (exit 2), the update did **not** reach the user — stop and fix
+   protection before continuing; don't keep "reporting" into a review queue.
 4. **Need a decision from the user? Ask by email — never the terminal.** Run
    `"$T" ask "<question>"` (in the background); it emails the question and blocks
    until the user replies, then prints the answer. **Do not** use AskUserQuestion
    or a bare terminal prompt while tethered — an AFK user can't answer it and the
-   session stalls.
+   session stalls. `ask` coordinates with `listen` automatically (it holds a lock
+   so a background `listen` pauses and can't swallow your answer). Handle its exit
+   codes: **exit 3** = timed out with no reply (default 30m) — re-`ask`, send a
+   nudge `update`, or keep working and listening, but never fall back to a
+   terminal prompt; **exit 4** = the question was held for review and never
+   reached the user (fix protection).
 5. **Listen for the whole window**: run `"$T" listen` **in the background**. It
    polls cheaply (curl, no tokens) and exits with either:
    - `REPLY_RECEIVED:` + the message → act on it (then `update` with the result),
