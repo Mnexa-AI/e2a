@@ -69,11 +69,22 @@ export async function messagesList(opts: MessagesListOptions): Promise<void> {
     if (opts.json) {
       process.stdout.write(JSON.stringify(withWireFrom(m)) + "\n");
     } else {
-      process.stdout.write(`${m.messageId}\t${m._from}\t${m.createdAt.toISOString()}\n`);
+      process.stdout.write(
+        `${m.messageId}\t${sanitizeTsvField(m._from)}\t${m.createdAt.toISOString()}\n`,
+      );
     }
     count++;
     if (max !== undefined && count >= max) break;
   }
+}
+
+/**
+ * TSV fields must never contain the delimiters. The From header is
+ * sender-controlled: a display name with an embedded tab shifts a poll loop's
+ * fields (corrupting its cursor) and a newline injects phantom rows.
+ */
+export function sanitizeTsvField(s: string): string {
+  return s.replace(/[\t\r\n]+/g, " ");
 }
 
 /**

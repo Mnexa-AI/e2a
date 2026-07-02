@@ -81,17 +81,50 @@ describe("login --with-key", () => {
     });
   });
 
-  it("falls back to $E2A_API_KEY when no key argument is given", async () => {
+  it("falls back to $E2A_API_KEY when no key argument or stdin is given", async () => {
+    const hadTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
     process.env.E2A_API_KEY = "e2a_agt_fromenv";
-    mockAccountGet.mockResolvedValue({
-      scope: "agent",
-      agentAddress: "t@agents.e2a.dev",
-      user: { id: "u", email: "o@x.com" },
-    });
-    const { loginWithKey } = await import("../commands/login.js");
-    await loginWithKey(BASE_CONFIG);
+    try {
+      mockAccountGet.mockResolvedValue({
+        scope: "agent",
+        agentAddress: "t@agents.e2a.dev",
+        user: { id: "u", email: "o@x.com" },
+      });
+      const { loginWithKey } = await import("../commands/login.js");
+      await loginWithKey(BASE_CONFIG);
 
-    expect(mockSaveConfig.mock.calls[0][0].api_key).toBe("e2a_agt_fromenv");
+      expect(mockSaveConfig.mock.calls[0][0].api_key).toBe("e2a_agt_fromenv");
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: hadTTY, configurable: true });
+    }
+  });
+
+  it("piped stdin OUTRANKS a stale $E2A_API_KEY (key rotation must rotate)", async () => {
+    process.env.E2A_API_KEY = "e2a_agt_staleenv";
+    const realStdin = Object.getOwnPropertyDescriptor(process, "stdin");
+    Object.defineProperty(process, "stdin", {
+      configurable: true,
+      value: {
+        isTTY: false,
+        [Symbol.asyncIterator]: async function* () {
+          yield "e2a_agt_fromstdin\n";
+        },
+      },
+    });
+    try {
+      mockAccountGet.mockResolvedValue({
+        scope: "agent",
+        agentAddress: "t@agents.e2a.dev",
+        user: { id: "u", email: "o@x.com" },
+      });
+      const { loginWithKey } = await import("../commands/login.js");
+      await loginWithKey(BASE_CONFIG);
+
+      expect(mockSaveConfig.mock.calls[0][0].api_key).toBe("e2a_agt_fromstdin");
+    } finally {
+      if (realStdin) Object.defineProperty(process, "stdin", realStdin);
+    }
   });
 
   it("exits USAGE (2) with no key source on a TTY", async () => {

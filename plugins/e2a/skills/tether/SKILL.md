@@ -110,10 +110,12 @@ Before tethering, confirm the harness can actually send. Run `"$T" status`
 first-time user — **help them get to a working setup instead of just failing**:
 
 1. **Is e2a connected at all?** If they've never used e2a, hand them
-   `e2a login` — it opens the browser sign-up/sign-in and saves an
-   account-scoped key to `~/.e2a/config.json`. (Headless box: they mint a key
-   in the dashboard and run `e2a login --with-key`.) Interactive sign-in is
-   theirs to complete: hand them the command, don't drive it.
+   `e2a login` — or, when `e2a` isn't installed globally, the npx form:
+   `npx -y @e2a/cli login` (same auto-fetch the harness itself uses). It opens
+   the browser sign-up/sign-in and saves an account-scoped key to
+   `~/.e2a/config.json`. (Headless box: they mint a key in the dashboard and
+   run `… login --with-key`.) Interactive sign-in is theirs to complete: hand
+   them the command, don't drive it.
 2. **Run the bootstrap:** `"$T" setup` — it creates the inbox, disables
    outbound review, mints the agent-scoped key, and writes
    `~/.e2a-tether.env`. See **Setup** above for what it refuses to do.
@@ -271,9 +273,12 @@ its thread. To run a second session in the *same* repo, start it with
 `--parallel`: it self-keys a fresh state file and prints a
 `TETHER_STATE="…"` handle — **prefix every subsequent tether call in that
 session with it** (`TETHER_STATE="…" "$T" update …`), and pass a distinct
-`--title` so the inbox threads are tellable apart. (A pre-existing
-machine-global `state.json` from an older tether keeps working until its
-session stops.)
+`--title` so the inbox threads are tellable apart. Forgetting the prefix is
+warned about (commands notice parallel peers exist) and every send echoes its
+thread id, so misdirection is observable. (A pre-existing machine-global
+`state.json` from an older tether keeps working until its session stops —
+note that WHILE it exists it shadows repo keying, so it also blocks `start`
+in other repos; `stop` that session to retire it.)
 
 ## Files
 

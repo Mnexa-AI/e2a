@@ -2,7 +2,12 @@ import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { hostname } from "node:os";
-import { E2AClient, type CreateAPIKeyRequest } from "@e2a/sdk/v1";
+import {
+  E2AClient,
+  E2ANotFoundError,
+  E2APermissionError,
+  type CreateAPIKeyRequest,
+} from "@e2a/sdk/v1";
 import { loadConfig, saveConfig, type Config } from "../config.js";
 import { EXIT, fail } from "../exit.js";
 
@@ -255,6 +260,18 @@ export interface LoginOptions {
 export async function login(opts: LoginOptions = {}): Promise<void> {
   const config = loadConfig();
 
+  // The combination reads as "headless agent-scoped login" but the exchange
+  // needs an account credential we'd have to trust unvalidated — refuse
+  // loudly rather than silently ignoring --agent (the old behavior saved the
+  // pasted key at whatever scope it had, voiding the least-privilege promise).
+  if (opts.withKey && opts.agent) {
+    fail(
+      EXIT.USAGE,
+      "--with-key and --agent cannot be combined. Headless agent-scoped setup: " +
+        "e2a login --with-key <account-key>, then e2a keys create --agent <inbox>.",
+    );
+  }
+
   if (opts.withKey) {
     await loginWithKey(config, opts.key);
     return;
@@ -312,20 +329,27 @@ export async function login(opts: LoginOptions = {}): Promise<void> {
   if (agentEmail) {
     process.stdout.write(`Active agent: ${agentEmail}\n`);
   } else {
-    process.stderr.write(`No agents found yet. Create one at ${config.api_url.replace(/\/+$/, "")}/get-started\n`);
+    process.stderr.write(
+      `No agents found yet. Run: e2a agents create <name>@<shared-domain> — or visit ${config.api_url.replace(/\/+$/, "")}/get-started\n`,
+    );
   }
 }
 
-/** Read the key for --with-key: explicit value → $E2A_API_KEY → piped stdin. */
+/**
+ * Read the key for --with-key: explicit value → piped stdin → $E2A_API_KEY.
+ * Stdin outranks the env on purpose: `echo $NEW_KEY | e2a login --with-key`
+ * is a key ROTATION, and the box doing it very likely still has the old key
+ * exported — env-first would silently "rotate" to the stale key.
+ */
 async function resolveWithKeyInput(explicit?: string): Promise<string> {
   if (explicit) return explicit;
-  if (process.env.E2A_API_KEY) return process.env.E2A_API_KEY;
   if (!process.stdin.isTTY) {
     let data = "";
     for await (const chunk of process.stdin) data += chunk;
     const key = data.trim();
     if (key) return key;
   }
+  if (process.env.E2A_API_KEY) return process.env.E2A_API_KEY;
   return fail(
     EXIT.USAGE,
     "usage: e2a login --with-key <key>  (or pipe the key on stdin / set E2A_API_KEY)",
@@ -374,10 +398,13 @@ async function exchangeForAgentKey(
   const agentEmail = inbox.includes("@") ? inbox : `${inbox}@${domain}`;
 
   // Verify the inbox before minting: a typo must fail with the owned list,
-  // not mint a key against nothing.
+  // not mint a key against nothing. Only a definitive "doesn't exist / not
+  // yours" (404/403) takes this path — a transient error must NOT masquerade
+  // as permanent exit 5 (retry wrappers would give up on a server blip).
   try {
     await client.agents.get(agentEmail);
-  } catch {
+  } catch (err) {
+    if (!(err instanceof E2ANotFoundError || err instanceof E2APermissionError)) throw err;
     process.stderr.write(`Agent not found or not owned: ${agentEmail}\nOwned agents:\n`);
     try {
       for await (const a of client.agents.list()) {
@@ -396,6 +423,18 @@ async function exchangeForAgentKey(
     agent: agentEmail,
   });
 
+  // Persist the new key BEFORE revoking the bootstrap: the agent key's
+  // plaintext exists only in this process, so if the config write fails
+  // (read-only $HOME, ENOSPC) after a revoke, the machine would be left with
+  // ZERO working credentials. Save-then-revoke makes every failure mode
+  // recoverable — worst case an extra "CLI login" key survives server-side.
+  saveConfig({
+    api_key: created.key,
+    agent_email: agentEmail,
+    key_scope: "agent",
+    ...(sharedDomain ? { shared_domain: sharedDomain } : {}),
+  });
+
   // Revoke the bootstrap key. The handoff only gave us its plaintext, so
   // match its visible prefix against the key inventory; refuse to guess if
   // the match isn't unique — deleting the wrong credential is worse than
@@ -410,21 +449,14 @@ async function exchangeForAgentKey(
       }
     }
     if (candidates.length === 1) {
-      // The agent key can't manage keys, so revoke while we still hold the
-      // account-scoped credential.
+      // Still holding the account-scoped credential here (the agent key
+      // can't manage keys) — this must stay before the client is dropped.
       await client.account.apiKeys.delete(candidates[0]);
       revoked = true;
     }
   } catch {
     // fall through to the warning below
   }
-
-  saveConfig({
-    api_key: created.key,
-    agent_email: agentEmail,
-    key_scope: "agent",
-    ...(sharedDomain ? { shared_domain: sharedDomain } : {}),
-  });
 
   process.stdout.write(`Logged in to ${hostLabel(config.api_url)}.\n`);
   process.stdout.write(`Agent-scoped key minted for ${agentEmail} (key "cli @${hostname()}").\n`);

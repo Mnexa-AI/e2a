@@ -25,18 +25,30 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cmd="${1:-}"; shift || true
 
 need_config() { t_load_config || { echo "tether: not configured (need E2A_API_KEY + E2A_AGENT_EMAIL; see tether.env.example)"; exit 1; }; }
-need_armed()  { [ "$(t_state_get armed)" = "1" ] || { echo "tether: not started — run 'tether.sh start <email>' first"; exit 1; }; }
+need_armed()  { [ "$(t_state_get armed)" = "1" ] || { echo "tether: not started — run 'tether.sh start <email> --title \"<work>\"' first"; exit 1; }; }
+
+# Warn a prefix-less call when this repo has parallel sessions: without the
+# TETHER_STATE handle it resolves to the PRIMARY session's state, and a
+# misdirected update would post into the wrong thread reporting success.
+warn_peers() {
+  if [ -z "${TETHER_STATE:-}" ] && [ "$(t_state_get parallel_peers)" = "1" ]; then
+    echo "tether: NOTE parallel sessions exist in this repo — this call uses the PRIMARY session's state; prefix TETHER_STATE=\"…\" if you meant a parallel session" >&2
+  fi
+}
 
 case "$cmd" in
   start)
     # start <email> [--title "<work>"] [--for 30m|2h|8h|1d] [--until <ISO>]
     need_config
     to=""; forarg=""; untilarg=""; title=""; parallel=0
+    # `shift 2` with only the flag left is a NO-OP in bash (returns 1, shifts
+    # nothing) — without the `|| exit` guard a trailing valueless flag spins
+    # this loop forever, silently hanging an unattended session.
     while [ $# -gt 0 ]; do
       case "$1" in
-        --title) title="${2:-}"; shift 2;;
-        --for) forarg="${2:-}"; shift 2;;
-        --until) untilarg="${2:-}"; shift 2;;
+        --title) title="${2:-}"; shift 2 || { echo "tether: --title requires a value"; exit 2; };;
+        --for) forarg="${2:-}"; shift 2 || { echo "tether: --for requires a value"; exit 2; };;
+        --until) untilarg="${2:-}"; shift 2 || { echo "tether: --until requires a value"; exit 2; };;
         --parallel) parallel=1; shift;;
         *) to="$1"; shift;;
       esac
@@ -50,28 +62,42 @@ case "$cmd" in
       echo "        Title the WORK, not the first step (e.g. --title \"fix webhook retries\")."
       exit 2
     fi
+    # A deliberate parallel session self-keys BEFORE the armed check — it never
+    # competes for the default state file at all ("--parallel = my own state
+    # file", whether or not a primary is armed yet). The session MUST prefix
+    # every subsequent tether call with the printed TETHER_STATE.
+    if [ "$parallel" = "1" ] && [ -z "${TETHER_STATE:-}" ]; then
+      default_state="$(t_state_path)"
+      export TETHER_STATE="$HOME/.e2a-tether/state-$(t_state_key)-$(date +%s)-$$.json"
+      T_STATE_PATH="$TETHER_STATE"
+      echo "tether: parallel session — prefix EVERY subsequent tether.sh call with:"
+      echo "        TETHER_STATE=\"${TETHER_STATE}\""
+      # Mark the primary's state (subshell: the env prefix must not leak into
+      # OUR exported TETHER_STATE) so its prefix-less commands can warn about
+      # the forgotten-handle trap.
+      ( TETHER_STATE="$default_state"; T_STATE_PATH=""; t_state_set parallel_peers 1 ) 2>/dev/null || true
+    fi
     # Never arm over a live session: that would hijack its thread pointer and
     # watermark (each session must keep its own dedicated email thread).
     if [ "$(t_state_get armed)" = "1" ]; then
-      if [ "$parallel" = "1" ] && [ -z "${TETHER_STATE:-}" ]; then
-        # Same-repo parallel session: self-key a fresh state file and hand the
-        # caller its handle. The session MUST prefix every subsequent tether
-        # call with this TETHER_STATE — without it, commands resolve to the
-        # other session's state.
-        export TETHER_STATE="$HOME/.e2a-tether/state-$(t_state_key)-$(date +%s)-$$.json"
-        T_STATE_PATH="$TETHER_STATE"
-        echo "tether: parallel session — prefix EVERY subsequent tether.sh call with:"
-        echo "        TETHER_STATE=\"${TETHER_STATE}\""
-      else
-        echo "tether: already armed — thread $(t_state_get conversation_id) → $(t_state_get to)."
-        echo "        Run 'tether.sh stop' to end it first, or re-run start with --parallel"
-        echo "        to open a second session in this repo (you'll get a TETHER_STATE"
-        echo "        handle to carry on every subsequent call)."
-        exit 1
+      echo "tether: already armed — thread $(t_state_get conversation_id) → $(t_state_get to)."
+      if [ "$(t_state_path)" = "$HOME/.e2a-tether/state.json" ]; then
+        echo "        (state is the legacy machine-global file — the live session may be in ANOTHER repo)"
       fi
+      echo "        Run 'tether.sh stop' to end it first, or re-run start with --parallel"
+      echo "        to open a second session (you'll get a TETHER_STATE handle to carry"
+      echo "        on every subsequent call)."
+      exit 1
     fi
     expires=""
-    if [ -n "$untilarg" ]; then expires="$untilarg"
+    if [ -n "$untilarg" ]; then
+      # Validate like --for: an unparseable expiry reads as the no-expiry
+      # sentinel downstream, silently turning the asked-for window UNBOUNDED.
+      expires="$(python3 -c 'import sys,datetime
+try:
+  datetime.datetime.fromisoformat(sys.argv[1].replace("Z","+00:00")); print(sys.argv[1])
+except Exception: print("INVALID")' "$untilarg")"
+      [ "$expires" = "INVALID" ] && { echo "tether: can't parse --until '$untilarg' — use RFC3339, e.g. 2026-07-02T18:00:00Z"; exit 2; }
     elif [ -n "$forarg" ]; then
       expires="$(t_duration_to_expiry "$forarg")"
       [ "$expires" = "INVALID" ] && { echo "tether: can't parse --for '$forarg' — use a single unit (30m, 2h, 8h, 1d). Omit --for for no time limit."; exit 2; }
@@ -90,10 +116,15 @@ question or instruction; reply \"stop\" to end early.
 
 — your coding agent"
     mid="$(t_api_send "$to" "$subject" "$intro" "$conv")"; rc=$?
+    if [ "$rc" = "4" ]; then
+      echo "tether: intro NOT sent — auth failed (key invalid/revoked). Check 'e2a whoami' / E2A_API_KEY."
+      exit 4
+    fi
     [ -n "$mid" ] || { echo "tether: intro send failed (check creds / base url / agent protection)"; exit 1; }
     if [ "$rc" = "2" ]; then
       echo "tether: intro was HELD for review (pending_review) — the user won't receive it, so NOT arming."
-      echo "        Turn send-side protection/HITL OFF on ${E2A_AGENT_EMAIL}, then run start again."
+      echo "        Fix: e2a protection set ${E2A_AGENT_EMAIL} --outbound-review off"
+      echo "        (needs the account-scoped 'e2a login' credential, or use the dashboard) — then run start again."
       exit 1
     fi
     t_state_set armed 1 to "$to" conversation_id "$conv" last_message_id "$mid" \
@@ -106,13 +137,13 @@ question or instruction; reply \"stop\" to end early.
     # update "<text>"                       plain-text update
     # update --html <file> [--text "<t>"]   HTML update (+ optional text fallback)
     # either form: [--attach <file>]...     attach files (repeatable)
-    need_config; need_armed
+    need_config; need_armed; warn_peers
     htmlfile=""; textarg=""; msg=""; attach=()
     while [ $# -gt 0 ]; do
       case "$1" in
-        --html) htmlfile="${2:-}"; shift 2;;
-        --text) textarg="${2:-}"; shift 2;;
-        --attach) attach+=("${2:-}"); shift 2;;
+        --html) htmlfile="${2:-}"; shift 2 || { echo "tether: --html requires a value"; exit 2; };;
+        --text) textarg="${2:-}"; shift 2 || { echo "tether: --text requires a value"; exit 2; };;
+        --attach) attach+=("${2:-}"); shift 2 || { echo "tether: --attach requires a value"; exit 2; };;
         *) msg="$1"; shift;;
       esac
     done
@@ -125,13 +156,22 @@ question or instruction; reply \"stop\" to end early.
     { [ -n "$msg" ] || [ -n "$htmlfile" ]; } || { echo "usage: tether.sh update \"<text>\"  |  update --html <file> [--text \"<fallback>\"]  (either form: [--attach <file>]...)"; exit 2; }
     if [ "${#attach[@]}" -gt 0 ]; then t_attach_check "${attach[@]}" || exit $?; fi
     mid="$(t_reply_anchored "$msg" "$htmlfile" ${attach[@]+"${attach[@]}"})"; rc=$?
-    if [ -z "$mid" ]; then echo "tether: update send failed"; exit 1; fi
+    if [ "$rc" = "4" ]; then
+      echo "tether: update NOT sent — auth failed (key invalid/revoked). Check 'e2a whoami' / E2A_API_KEY."
+      exit 4
+    fi
+    if [ -z "$mid" ]; then
+      echo "tether: update send failed (if anchors are exhausted, 'tether.sh stop' and start a fresh session)"
+      exit 1
+    fi
     t_state_set last_message_id "$mid"
     if [ "$rc" = "2" ]; then
       echo "tether: WARNING update HELD for review (pending_review) — it did NOT reach the user. Disable send-side protection on ${E2A_AGENT_EMAIL}."
       exit 2
     fi
-    echo "tether: update sent (${mid})$([ -n "$htmlfile" ] && echo ' [html]')$([ "${#attach[@]}" -gt 0 ] && echo " [${#attach[@]} attachment(s)]")"
+    # The thread id in the success line makes cross-session misdirection
+    # OBSERVABLE (a --parallel session that forgot its TETHER_STATE prefix).
+    echo "tether: update sent (${mid}) [thread $(t_state_get conversation_id)]$([ -n "$htmlfile" ] && echo ' [html]')$([ "${#attach[@]}" -gt 0 ] && echo " [${#attach[@]} attachment(s)]")"
     ;;
 
   poll)
@@ -150,7 +190,7 @@ question or instruction; reply \"stop\" to end early.
     #   --awake  keep the machine from IDLE-sleeping while listening (macOS
     #            caffeinate; released when listen exits). Does NOT survive the
     #            lid closing.
-    need_config; need_armed
+    need_config; need_armed; warn_peers
     awake=0
     while [ $# -gt 0 ]; do case "$1" in --awake) awake=1; shift;; *) shift;; esac; done
     if [ "$awake" = "1" ]; then
@@ -163,6 +203,10 @@ question or instruction; reply \"stop\" to end early.
     fi
     interval="${E2A_TETHER_POLL_INTERVAL:-20}"
     while :; do
+      # `stop` (this session's or a takeover) may have cleared the state while
+      # we waited — a disarmed listen must END, never fall through to polling
+      # a cleared state (whose empty conversation would read as "no filter").
+      [ "$(t_state_get armed)" = "1" ] || { echo "TETHER_EXPIRED"; exit 0; }
       rem="$(t_remaining_seconds)"
       if [ "$rem" -le 0 ]; then echo "TETHER_EXPIRED"; exit 0; fi
       # An `ask` is blocking on the same inbox — don't consume, or we'd eat the
@@ -193,11 +237,11 @@ question or instruction; reply \"stop\" to end early.
     # print the answer. This is how a tethered agent asks the user anything —
     # over email, never a terminal prompt the AFK user can't see. Run it in the
     # background and wait for the completion notification.
-    need_config; need_armed
+    need_config; need_armed; warn_peers
     q=""; attach=()
     while [ $# -gt 0 ]; do
       case "$1" in
-        --attach) attach+=("${2:-}"); shift 2;;
+        --attach) attach+=("${2:-}"); shift 2 || { echo "tether: --attach requires a value"; exit 2; };;
         *) q="$1"; shift;;
       esac
     done
@@ -210,6 +254,10 @@ question or instruction; reply \"stop\" to end early.
     mid="$(t_reply_anchored "❓ ${q}
 
 (Reply to this email with your answer — I'll wait for it.)" "" ${attach[@]+"${attach[@]}"})"; rc=$?
+    if [ "$rc" = "4" ]; then
+      echo "tether: ask NOT sent — auth failed (key invalid/revoked). Check 'e2a whoami' / E2A_API_KEY."
+      exit 1
+    fi
     [ -n "$mid" ] || { echo "tether: ask send failed"; exit 1; }
     t_state_set last_message_id "$mid"
     if [ "$rc" = "2" ]; then
@@ -219,6 +267,8 @@ question or instruction; reply \"stop\" to end early.
     echo "tether: question sent (${mid}); waiting for your reply…"
     max="${E2A_TETHER_ASK_TIMEOUT:-1800}"; interval="${E2A_TETHER_POLL_INTERVAL:-20}"; start=$SECONDS
     while [ $((SECONDS - start)) -lt "$max" ]; do
+      # Session stopped while we waited → the question is moot; end cleanly.
+      [ "$(t_state_get armed)" = "1" ] || { echo "tether: session stopped while waiting for the answer"; exit 3; }
       out="$(t_poll_once)" || out=""
       # Empty out = transient poll failure, not an answer (same guard as listen).
       if [ -n "$out" ] && [ "$out" != "(no new replies)" ]; then echo "$out"; exit 0; fi
@@ -240,11 +290,22 @@ question or instruction; reply \"stop\" to end early.
     #   --email <addr>  use/create this inbox (bare names expand on the shared domain)
     #   --new           always create a fresh tether-<rand> inbox
     force_new=0; want=""
-    while [ $# -gt 0 ]; do case "$1" in --new) force_new=1; shift;; --email) want="${2:-}"; shift 2;; *) shift;; esac; done
+    while [ $# -gt 0 ]; do case "$1" in --new) force_new=1; shift;; --email) want="${2:-}"; shift 2 || { echo "tether: --email requires a value"; exit 2; };; *) shift;; esac; done
     # Setup deliberately uses the CLI's own stored credential, not whatever a
     # previous tether run left in the environment.
     unset E2A_API_KEY E2A_AGENT_EMAIL
-    who="$(t_cli whoami --json 2>/dev/null)" || { echo "tether setup: no usable credential — run 'e2a login' (browser) or 'e2a login --with-key' first, then re-run setup"; exit 1; }
+    # Keep the probe's stderr: "npm can't find the CLI" and "not logged in"
+    # need OPPOSITE fixes, and swallowing the error misdiagnosed both as a
+    # credential problem.
+    errf="$(mktemp "${TMPDIR:-/tmp}/tether-setup-err.XXXXXX")"
+    if ! who="$(t_cli whoami --json 2>"$errf")"; then
+      echo "tether setup: the e2a CLI is unavailable or not logged in:"
+      sed 's/^/        /' "$errf" | tail -5
+      rm -f "$errf"
+      echo "        Fix: run 'e2a login' (browser) or 'e2a login --with-key' (headless), then re-run setup."
+      exit 1
+    fi
+    rm -f "$errf"
     scope="$(printf '%s' "$who" | python3 -c 'import json,sys
 try:print(json.load(sys.stdin).get("scope",""))
 except Exception:print("")')"
@@ -252,8 +313,11 @@ except Exception:print("")')"
       bound="$(printf '%s' "$who" | python3 -c 'import json,sys
 try:print(json.load(sys.stdin).get("agentAddress",""))
 except Exception:print("")')"
-      echo "tether setup: the CLI already holds an agent-scoped key (${bound}) — nothing to do."
+      echo "tether setup: the CLI already holds an agent-scoped key (${bound}) — nothing to mint."
       echo "              tether will pick it up from ~/.e2a/config.json; run 'tether.sh status' to confirm."
+      echo "              NOTE this key cannot verify/disable outbound review on ${bound}. If 'start'"
+      echo "              refuses with a HELD intro, run 'e2a protection set ${bound} --outbound-review off'"
+      echo "              with an account-scoped login (or use the dashboard)."
       exit 0
     fi
     [ "$scope" = "account" ] || { echo "tether setup: could not determine key scope (e2a whoami failed?) — check 'e2a whoami'"; exit 1; }
@@ -283,19 +347,40 @@ except Exception:print("")')"
       *) [ -n "$want" ] || { echo "tether setup: refusing to reconfigure non-tether inbox ${inbox} without an explicit --email"; exit 1; }
          echo "tether setup: NOTE disabling OUTBOUND review on ${inbox} (explicitly requested via --email)";;
     esac
-    t_cli protection set "$inbox" --outbound-review off >/dev/null || { echo "tether setup: could not disable outbound review — aborting, nothing written"; exit 1; }
-    echo "tether setup: outbound review off on ${inbox}"
-    agtkey="$(t_cli keys create --agent "$inbox" --name "tether-$(python3 -c 'import secrets;print(secrets.token_hex(2))')" 2>/dev/null)"
+    # Mint FIRST, flip protection SECOND: the mint can fail (quota, 5xx), and
+    # the old order left outbound review disabled on the inbox while claiming
+    # "nothing written". This order is fully rollbackable — a protection
+    # failure revokes the just-minted key and aborts with zero server-side
+    # drift. (--json gives us the key id so the rollback can name it.)
+    kjson="$(t_cli keys create --agent "$inbox" --name "tether-$(python3 -c 'import secrets;print(secrets.token_hex(2))')" --json 2>/dev/null)"
+    agtkey="$(printf '%s' "$kjson" | python3 -c 'import json,sys
+try:print(json.load(sys.stdin).get("key","") or "")
+except Exception:print("")')"
+    keyid="$(printf '%s' "$kjson" | python3 -c 'import json,sys
+try:print(json.load(sys.stdin).get("id","") or "")
+except Exception:print("")')"
     [ -n "$agtkey" ] || { echo "tether setup: could not mint an agent-scoped key — aborting (NOT storing the broad account key)"; exit 1; }
+    if ! t_cli protection set "$inbox" --outbound-review off >/dev/null; then
+      [ -n "$keyid" ] && t_cli keys delete "$keyid" >/dev/null 2>&1
+      echo "tether setup: could not disable outbound review — aborting (minted key revoked, nothing changed)"
+      exit 1
+    fi
+    echo "tether setup: outbound review off on ${inbox}"
     envf="${HOME}/.e2a-tether.env"
-    [ -f "$envf" ] && cp "$envf" "${envf}.bak"
-    { echo "# written by tether.sh setup — $(t_now_iso)"
-      echo "export E2A_API_KEY=\"${agtkey}\""
-      echo "export E2A_AGENT_EMAIL=\"${inbox}\""
-      [ -n "${E2A_BASE_URL:-}" ] && echo "export E2A_BASE_URL=\"${E2A_BASE_URL}\""
-    } > "$envf"
+    if [ -f "$envf" ]; then
+      cp "$envf" "${envf}.bak" && chmod 600 "${envf}.bak" 2>/dev/null
+    fi
+    # umask 077 closes the window where the file briefly exists with default
+    # permissions before a post-hoc chmod — it holds a plaintext key.
+    ( umask 077
+      { echo "# written by tether.sh setup — $(t_now_iso)"
+        echo "export E2A_API_KEY=\"${agtkey}\""
+        echo "export E2A_AGENT_EMAIL=\"${inbox}\""
+        [ -n "${E2A_BASE_URL:-}" ] && echo "export E2A_BASE_URL=\"${E2A_BASE_URL}\""
+      } > "$envf"
+    )
     chmod 600 "$envf" 2>/dev/null || true
-    echo "tether setup: wrote ${envf} (agent-scoped key, least privilege)$([ -f "${envf}.bak" ] && echo " — previous file kept as .bak")"
+    echo "tether setup: wrote ${envf} (agent-scoped key, least privilege)$([ -f "${envf}.bak" ] && echo " — previous file kept as .bak (its key stays valid; revoke unwanted keys via 'e2a keys list' + 'e2a keys delete')")"
     export E2A_API_KEY="$agtkey" E2A_AGENT_EMAIL="$inbox"
     bash "${here}/tether.sh" status
     echo "tether setup: ready → tether.sh start <your-email> --title \"<work>\" --for 30m"
@@ -353,8 +438,14 @@ except Exception:print("")')"
       t_ask_active && { echo "FAIL: lock present before begin"; exit 1; }
       t_ask_begin;  t_ask_active || { echo "FAIL: lock absent after begin"; exit 1; }
       t_ask_end;   ! t_ask_active || { echo "FAIL: lock present after end"; exit 1; }
-      echo "ok: ask lock begin/active/end" ) || fail=1
-    rm -f /tmp/tether-selftest-lock.json /tmp/ask.lock
+      echo "ok: ask lock begin/active/end"
+      # A lock whose PID is dead (SIGKILLed ask) must be treated stale and
+      # reaped, or a background listen pauses forever.
+      echo 99999999 > "$(t_ask_lock_path)"
+      if t_ask_active; then echo "FAIL: stale lock (dead pid) treated as active"; exit 1; fi
+      [ -f "$(t_ask_lock_path)" ] && { echo "FAIL: stale lock not reaped"; exit 1; }
+      echo "ok: stale ask lock (dead pid) is reaped" ) || fail=1
+    rm -f /tmp/tether-selftest-lock.json /tmp/tether-selftest-lock.ask.lock /tmp/ask.lock
 
     echo "# session isolation:"
     k1="$(cd /tmp && TETHER_STATE= bash -c '. "'"${here}"'/lib.sh"; t_state_key')"
@@ -369,6 +460,12 @@ except Exception:print("")')"
       TETHER_STATE=/tmp/tether-selftest-notitle.json bash "${here}/tether.sh" start someone@example.com 2>&1)"; rc=$?
     ck "start without --title is a usage error" "$rc:$(printf '%s' "$out" | grep -c 'title is required')" "2:1"
     rm -f /tmp/tether-selftest-notitle.json
+    # A trailing valueless flag must be a loud usage error, not an infinite
+    # option-parse loop (bash `shift 2` with $#=1 is a no-op).
+    out="$(env E2A_API_KEY='e2a_agt_selftest123' E2A_AGENT_EMAIL='selftest@agents.e2a.dev' \
+      TETHER_STATE=/tmp/tether-selftest-shift.json bash "${here}/tether.sh" start someone@example.com --title 2>&1)"; rc=$?
+    ck "trailing valueless flag → usage error (no hang)" "$rc:$(printf '%s' "$out" | grep -c 'requires a value')" "2:1"
+    rm -f /tmp/tether-selftest-shift.json
     # --parallel: with the DEFAULT path armed (legacy file in a sandbox HOME),
     # start must branch to a fresh self-keyed TETHER_STATE and print the
     # handle. E2A_CLI=/bin/false makes the intro send fail afterwards — the

@@ -1,4 +1,5 @@
 import { createClient } from "../sdk.js";
+import { loadConfig } from "../config.js";
 import { EXIT, fail } from "../exit.js";
 
 export interface AgentsListOptions {
@@ -38,9 +39,12 @@ export async function agentsCreate(
   opts: AgentsCreateOptions,
 ): Promise<void> {
   if (!email) fail(EXIT.USAGE, CREATE_USAGE);
+  // Bare names expand on the shared domain, same as `login --agent` — the two
+  // paths must not disagree on what `create myname` means.
+  const address = email.includes("@") ? email : `${email}@${loadConfig().shared_domain}`;
 
   const client = createClient();
-  const agent = await client.agents.create({ email, name: opts.name });
+  const agent = await client.agents.create({ email: address, name: opts.name });
   if (opts.json) {
     process.stdout.write(JSON.stringify(agent) + "\n");
   } else {

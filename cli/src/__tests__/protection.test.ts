@@ -72,6 +72,22 @@ describe("protection commands", () => {
     expect(put.inbound.scan.sensitivity).toBe("high"); // untouched
   });
 
+  it("set --outbound-review on re-enables a disabled scan (off→on round-trip restores holding)", async () => {
+    // Under gate policy "open" every sender matches, so the gate action never
+    // fires — HITL "on" without a scan would look on while holding nothing.
+    const doc = makeDoc();
+    doc.outbound.gate.action = "flag";
+    doc.outbound.scan.sensitivity = "off";
+    mockGetProtection.mockResolvedValue(doc);
+    mockReplaceProtection.mockImplementation(async (_email: string, d: unknown) => d);
+    const { protectionSet } = await import("../commands/protection.js");
+    await protectionSet("bot@agents.e2a.dev", { outboundReview: "on" });
+
+    const put = mockReplaceProtection.mock.calls[0][1];
+    expect(put.outbound.gate.action).toBe("review");
+    expect(put.outbound.scan.sensitivity).toBe("medium");
+  });
+
   it("NEVER writes when the read fails — a transient GET error must not reset the doc", async () => {
     mockGetProtection.mockRejectedValue(new Error("boom"));
     const { protectionSet } = await import("../commands/protection.js");

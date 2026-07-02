@@ -41,14 +41,20 @@ export async function protectionGet(
  * Flip one direction's review posture, touching ONLY the requested knobs.
  * "off" = gate non-matches are flagged-through and the content scan is
  * disabled (a scan can hold too, so review-off must silence both).
- * "on" = gate non-matches are held for review; scan tuning is left alone.
+ * "on" = gate non-matches are held for review, and a disabled scan is
+ * re-enabled at medium — under the default gate policy "open" every sender
+ * matches (the gate action never fires), so an off→on round-trip that only
+ * touched the gate would LOOK on while holding nothing. A scan already
+ * tuned to low/high is left alone.
  */
 function applyReview(direction: ProtectionDirectionView, mode: "on" | "off"): void {
   // Casts because the generated models type these as TS enums; the literals
-  // are the enums' wire values (flag/review, off).
+  // are the enums' wire values (flag/review, off/medium).
   direction.gate.action = (mode === "on" ? "review" : "flag") as typeof direction.gate.action;
   if (mode === "off") {
     direction.scan.sensitivity = "off" as typeof direction.scan.sensitivity;
+  } else if (!direction.scan.sensitivity || (direction.scan.sensitivity as string) === "off") {
+    direction.scan.sensitivity = "medium" as typeof direction.scan.sensitivity;
   }
 }
 

@@ -143,8 +143,11 @@ export function requireApiKey(config: Config): string {
   if (!config.api_key) {
     // Missing credentials are an auth failure per the documented exit-code
     // contract (4) — never 1, which scripts treat as retryable-transient.
-    // Name the headless path too: `login` needs a browser on this machine.
-    process.stderr.write("Not authenticated. Run: e2a login (or set E2A_API_KEY)\n");
+    // Name BOTH acquisition paths: `login` needs a browser on this machine;
+    // headless boxes use --with-key or the env var.
+    process.stderr.write(
+      "Not authenticated. Run: e2a login (browser) or e2a login --with-key (headless), or set E2A_API_KEY\n",
+    );
     process.exit(EXIT.AUTH);
   }
   return config.api_key;

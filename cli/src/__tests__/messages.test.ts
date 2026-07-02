@@ -69,6 +69,25 @@ describe("messages commands", () => {
     );
   });
 
+  it("sanitizes TSV delimiters out of the sender-controlled From field", async () => {
+    mockList.mockReturnValue(
+      summaries({
+        messageId: "msg_evil",
+        _from: 'Evil\tName\n"attacker@x.com"',
+        createdAt: new Date("2026-07-01T10:00:00Z"),
+        subject: "s",
+      }),
+    );
+    const { messagesList } = await import("../commands/messages.js");
+    await messagesList({});
+
+    const line = mockStdout.mock.calls[0][0] as string;
+    // Exactly three fields, no injected rows: tabs/newlines collapsed.
+    expect(line.split("\t")).toHaveLength(3);
+    expect(line.trim().split("\n")).toHaveLength(1);
+    expect(line).toContain('Evil Name "attacker@x.com"');
+  });
+
   it("emits NDJSON with --json, renaming the generated _from to wire-stable from", async () => {
     mockList.mockReturnValue(summaries(M1));
     const { messagesList } = await import("../commands/messages.js");

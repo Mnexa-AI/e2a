@@ -1,6 +1,40 @@
 import type { E2AClient, WSNotification } from "@e2a/sdk/v1";
 import { createClient, requireAgentEmail } from "../sdk.js";
 import { EXIT, fail } from "../exit.js";
+import { sanitizeTsvField } from "./messages.js";
+
+const MAX_TIMEOUT_MS = 2 ** 31 - 1; // setTimeout clamps larger delays to ~1ms
+
+/**
+ * Membership check WITHOUT fetching the message: GET /messages/{id} marks a
+ * message read as a side effect, so filtering by fetching would silently
+ * consume messages from OTHER conversations out of any unread-queue consumer.
+ * list() has no side effects; scoped by conversation + a since just before
+ * the notification, it's a single small page.
+ */
+async function inConversation(
+  client: E2AClient,
+  agentEmail: string,
+  notification: WSNotification,
+  conversationId: string,
+): Promise<boolean> {
+  const receivedMs = Date.parse(notification.received_at);
+  const since = Number.isNaN(receivedMs)
+    ? undefined
+    : new Date(receivedMs - 2000).toISOString();
+  let scanned = 0;
+  for await (const m of client.messages.list(agentEmail, {
+    conversationId,
+    since,
+    readStatus: "all",
+    sort: "asc",
+    limit: 100,
+  })) {
+    if (m.messageId === notification.message_id) return true;
+    if (++scanned >= 500) break; // NaN-since safety bound
+  }
+  return false;
+}
 
 export interface ListenOptions {
   agent?: string;
@@ -43,18 +77,26 @@ export async function listen(opts: ListenOptions): Promise<void> {
   let timedOut = false;
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
   if (deadlineMs !== undefined) {
-    const wait = deadlineMs - Date.now();
-    if (wait <= 0) {
+    if (deadlineMs - Date.now() <= 0) {
       process.stdout.write("TIMEOUT\n");
       process.exitCode = EXIT.TIMEOUT;
       stream.close();
       return;
     }
-    deadlineTimer = setTimeout(() => {
-      timedOut = true;
-      stream.close();
-    }, wait);
-    deadlineTimer.unref?.();
+    // Chain timers instead of one setTimeout: Node clamps delays > 2^31-1 ms
+    // (~24.8 days) to ~1ms, which would fire TIMEOUT instantly for a
+    // far-future --until.
+    const armDeadline = () => {
+      const wait = (deadlineMs as number) - Date.now();
+      if (wait <= 0) {
+        timedOut = true;
+        stream.close();
+        return;
+      }
+      deadlineTimer = setTimeout(armDeadline, Math.min(wait, MAX_TIMEOUT_MS));
+      deadlineTimer.unref?.();
+    };
+    armDeadline();
   }
 
   stream.on("open", () => {
@@ -80,30 +122,35 @@ export async function listen(opts: ListenOptions): Promise<void> {
   let matched = false;
   for await (const notification of stream) {
     try {
-      // Conversation filtering needs the full message (the WS notification
-      // doesn't carry conversation_id).
-      if (opts.conversation || (opts.once && opts.text)) {
-        const full = await client.messages.get(agentEmail, notification.message_id);
-        if (opts.conversation && full.conversationId !== opts.conversation) continue;
-        if (opts.once) {
-          if (opts.text) {
-            process.stdout.write((full.parsed?.text ?? full.body?.text ?? "").trim() + "\n");
-          } else if (opts.json) {
-            process.stdout.write(JSON.stringify(full) + "\n");
-          } else {
-            process.stdout.write(
-              `${notification.message_id}\t${notification.from}\t${notification.received_at}\n`,
-            );
-          }
-          matched = true;
-          break;
-        }
+      // Filter first, via list() — never get(), which marks messages read
+      // (silently consuming OTHER conversations' messages was the bug).
+      if (opts.conversation) {
+        const ok = await inConversation(client, agentEmail, notification, opts.conversation);
+        if (!ok) continue;
       }
-      await handleNotification(client, agentEmail, notification, opts);
       if (opts.once) {
+        // --forward still delivers under --once; the blocking wait must not
+        // silently drop the webhook side channel.
+        if (opts.forward) {
+          await handleNotification(client, agentEmail, notification, opts);
+        }
+        if (opts.text) {
+          const full = await client.messages.get(agentEmail, notification.message_id);
+          process.stdout.write((full.parsed?.text ?? full.body?.text ?? "").trim() + "\n");
+        } else if (opts.json) {
+          const full = await client.messages.get(agentEmail, notification.message_id);
+          process.stdout.write(JSON.stringify(full) + "\n");
+        } else {
+          // One stable machine shape for the blocking wait, regardless of
+          // whether --conversation was used.
+          process.stdout.write(
+            `${notification.message_id}\t${sanitizeTsvField(notification.from)}\t${notification.received_at}\n`,
+          );
+        }
         matched = true;
         break;
       }
+      await handleNotification(client, agentEmail, notification, opts);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       process.stderr.write(`Error handling message: ${message}\n`);

@@ -40,10 +40,15 @@ except Exception:pass')"
   # Treat the copied-but-unfilled tether.env.example placeholders as unset, so a
   # user who ran `cp … tether.env.example` without editing gets `config: MISSING`
   # (the new-user signal) instead of a bogus `config: OK` that fails at `start`.
+  # Match ONLY the template's exact defaults — a real corp address that happens
+  # to end in .example must not be silently discarded by a heuristic.
   case "${E2A_API_KEY:-}" in *...*) E2A_API_KEY="";; esac
-  case "${E2A_AGENT_EMAIL:-}" in *@*.example|*.example) E2A_AGENT_EMAIL="";; esac
+  case "${E2A_AGENT_EMAIL:-}" in tether@you.example) E2A_AGENT_EMAIL="";; esac
 
-  E2A_BASE_URL="${E2A_BASE_URL:-https://api.e2a.dev}"
+  # EXPORTED: the transport is a child process (the e2a CLI). An unexported
+  # default here would leave the CLI on its own default host while status
+  # reports this one — a silent split-brain once the hosts diverge.
+  export E2A_BASE_URL="${E2A_BASE_URL:-https://api.e2a.dev}"
   [ -n "${E2A_API_KEY:-}" ] && [ -n "${E2A_AGENT_EMAIL:-}" ]
 }
 
@@ -64,29 +69,59 @@ def v(s):
 sys.exit(0 if v(sys.argv[1]) >= v(sys.argv[2]) else 1)' "$1" "$2" 2>/dev/null
 }
 
-# t_cli <args...> — run the e2a CLI, resolving it once per process:
-#   1. $E2A_CLI override (may be multi-word, e.g. "node /repo/cli/dist/bin/e2a.js")
+# t_cli <args...> — run the e2a CLI, bounded by a hard timeout. Resolution:
+#   1. $E2A_CLI override (multi-word ok, e.g. "node /repo/cli/dist/bin/e2a.js";
+#      paths containing SPACES are unsupported — use a wrapper script)
 #   2. `e2a` on PATH when --version >= TETHER_MIN_CLI (stale → warn, fall through)
 #   3. npx -y @e2a/cli@^MIN  (auto-fetch; nothing for the user to install)
+# The result is exported (T_CLI_RESOLVED) so the many $(t_cli …) subshells
+# don't re-probe versions or re-print the staleness warning on every API call.
 T_CLI=()
-t_cli() {
-  if [ "${#T_CLI[@]}" -eq 0 ]; then
-    if [ -n "${E2A_CLI:-}" ]; then
-      # shellcheck disable=SC2206  # intentional word-split for multi-word overrides
-      T_CLI=($E2A_CLI)
-    elif command -v e2a >/dev/null 2>&1 && t_ver_ge "$(e2a --version 2>/dev/null)" "$TETHER_MIN_CLI"; then
-      T_CLI=(e2a)
-    elif command -v npx >/dev/null 2>&1; then
-      if command -v e2a >/dev/null 2>&1; then
-        echo "tether: global e2a CLI is older than ${TETHER_MIN_CLI} — using npx for this run (upgrade: npm i -g @e2a/cli@latest)" >&2
-      fi
-      T_CLI=(npx -y "@e2a/cli@^${TETHER_MIN_CLI}")
-    else
-      echo "tether: no e2a CLI available — install Node/npm, or set E2A_CLI" >&2
+t_cli_resolve() {
+  [ "${#T_CLI[@]}" -gt 0 ] && return 0
+  if [ -n "${T_CLI_RESOLVED:-}" ]; then
+    # shellcheck disable=SC2206
+    T_CLI=($T_CLI_RESOLVED)
+    return 0
+  fi
+  if [ -n "${E2A_CLI:-}" ]; then
+    # shellcheck disable=SC2206  # intentional word-split for multi-word overrides
+    T_CLI=($E2A_CLI)
+    if [ "${#T_CLI[@]}" -eq 0 ] || ! command -v "${T_CLI[0]}" >/dev/null 2>&1; then
+      echo "tether: E2A_CLI is set but not runnable: '${E2A_CLI}'" >&2
+      T_CLI=()
       return 127
     fi
+  elif command -v e2a >/dev/null 2>&1 && t_ver_ge "$(e2a --version 2>/dev/null)" "$TETHER_MIN_CLI"; then
+    T_CLI=(e2a)
+  elif command -v npx >/dev/null 2>&1; then
+    if command -v e2a >/dev/null 2>&1; then
+      echo "tether: global e2a CLI is older than ${TETHER_MIN_CLI} — using npx for this run (upgrade: npm i -g @e2a/cli@latest)" >&2
+    fi
+    T_CLI=(npx -y "@e2a/cli@^${TETHER_MIN_CLI}")
+  else
+    echo "tether: no e2a CLI available — install Node/npm, or set E2A_CLI" >&2
+    return 127
   fi
-  "${T_CLI[@]}" "$@"
+  export T_CLI_RESOLVED="${T_CLI[*]}"
+}
+
+# Hard deadline on every transport call (default 150s; the old curl layer used
+# -m 30/-m 120). A hung CLI/npx/DNS must never freeze an unattended session —
+# the watchdog TERMs it and the wrappers report "transient". Long-lived waits
+# (t_ws_wait) raise the bound per call to cover their window.
+t_cli() {
+  t_cli_resolve || return 127
+  local tmo="${E2A_TETHER_CLI_TIMEOUT:-150}"
+  "${T_CLI[@]}" "$@" &
+  local pid=$!
+  ( sleep "$tmo"; kill "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+  local wd=$!
+  local rc=0
+  wait "$pid" || rc=$?
+  kill "$wd" 2>/dev/null
+  wait "$wd" 2>/dev/null || true
+  return "$rc"
 }
 
 # Human-readable description of what t_cli would run (for status/_selftest).
@@ -135,19 +170,31 @@ try:print(json.load(open(sys.argv[1])).get(sys.argv[2],"") or "")
 except Exception:pass' "$f" "$1"
 }
 
+# State writes are flocked read-modify-writes with an atomic rename: a
+# background `listen` and a foreground `update` share this file, so an
+# unlocked truncate-then-write would (a) let a concurrent reader see a torn/
+# empty file — whose empty conversation_id then reads as "no filter" — and
+# (b) let last-writer-wins drop the other process's mutation (a lost `seen`
+# entry re-executes an already-handled instruction).
 t_state_set() {  # t_state_set k1 v1 [k2 v2 ...]
   local f; f="$(t_state_path)"; mkdir -p "$(dirname "$f")"
-  python3 -c 'import json,sys,os
+  python3 -c 'import json,sys,os,fcntl
 f=sys.argv[1];kv=sys.argv[2:]
+lock=open(f+".lock","w"); fcntl.flock(lock,fcntl.LOCK_EX)
 d={}
 if os.path.exists(f):
   try:d=json.load(open(f))
   except Exception:d={}
 for i in range(0,len(kv),2):d[kv[i]]=kv[i+1]
-json.dump(d,open(f,"w"),indent=2)' "$f" "$@"
+tmp="%s.tmp.%d"%(f,os.getpid())
+json.dump(d,open(tmp,"w"),indent=2)
+os.replace(tmp,f)' "$f" "$@"
 }
 
-t_state_clear() { rm -f "$(t_state_path)" "$(t_ask_lock_path)"; }
+t_state_clear() {
+  local f; f="$(t_state_path)"
+  rm -f "$f" "${f}.lock" "$(t_ask_lock_path)"
+}
 
 # --- ask/listen mutex --------------------------------------------------------
 # `ask` and `listen` both poll the same inbox and share one dedup cursor, so if
@@ -160,9 +207,20 @@ t_state_clear() { rm -f "$(t_state_path)" "$(t_ask_lock_path)"; }
 # at a fixed name — a fixed name would couple ask/listen across unrelated
 # sessions that share ~/.e2a-tether/.
 t_ask_lock_path() { local f; f="$(t_state_path)"; echo "${f%.json}.ask.lock"; }
-t_ask_begin()  { local f; f="$(t_ask_lock_path)"; mkdir -p "$(dirname "$f")"; : > "$f"; }
+# The lock records the ask's PID so it can't outlive its owner: an EXIT trap
+# can't catch SIGKILL (OOM killer, force-quit), and a lock that survives its
+# process would pause the background listen FOREVER — replies silently ignored
+# in exactly the unattended session tether exists for. A lock whose PID is
+# dead is stale and gets reaped on the next check.
+t_ask_begin()  { local f; f="$(t_ask_lock_path)"; mkdir -p "$(dirname "$f")"; echo "$$" > "$f"; }
 t_ask_end()    { rm -f "$(t_ask_lock_path)"; }
-t_ask_active() { [ -f "$(t_ask_lock_path)" ]; }
+t_ask_active() {
+  local f pid; f="$(t_ask_lock_path)"; [ -f "$f" ] || return 1
+  pid="$(cat "$f" 2>/dev/null)"
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then return 0; fi
+  rm -f "$f"   # stale lock from a killed ask — reap so listen resumes
+  return 1
+}
 
 # --- duration / expiry -------------------------------------------------------
 
@@ -200,12 +258,18 @@ except Exception:print(2147483647)' "$exp"
 # environment t_load_config resolves — no flag plumbing needed.
 
 # t_api_send <to> <subject> <body> <conversation_id> → prints message_id;
-# returns 2 if the send was HELD so the caller can refuse to arm.
+# returns 2 if the send was HELD so the caller can refuse to arm; 4 = auth
+# failure (key revoked/invalid — callers must fail loud, not retry).
+# The body travels via --body-file: free text may legitimately start with
+# "--" (which the flag parser rejects) and may exceed argv limits.
 t_api_send() {
-  local mid rc
-  mid="$(t_cli send --to "$1" --subject "$2" --body "$3" --conversation-id "$4")"; rc=$?
+  local mid rc bf
+  bf="$(mktemp "${TMPDIR:-/tmp}/tether-body.XXXXXX")" || return 1
+  printf '%s' "$3" > "$bf"
+  mid="$(t_cli send --to "$1" --subject "$2" --body-file "$bf" --conversation-id "$4")"; rc=$?
+  rm -f "$bf"
   printf '%s' "$mid"
-  case "$rc" in 0) return 0;; 3) return 2;; *) return 1;; esac
+  case "$rc" in 0) return 0;; 3) return 2;; 4) return 4;; *) return 1;; esac
 }
 
 # Attachment cap: 15 MB of raw bytes total per send. Base64 inflates ~4/3 and
@@ -232,18 +296,25 @@ if total>maxb:
 # --html-file and derives the plain-text fallback itself when body is empty).
 # Returns: 0 sent; 2 HELD (accepted, NOT delivered — CLI exit 3); 3 anchor not
 # repliable here (CLI exit 5, permanent request error) so t_reply_anchored can
-# try the next anchor; 1 anything else (transient).
+# try the next anchor; 4 auth failure (fail loud, don't retry); 1 anything
+# else (transient).
 t_api_reply() {
   local rid="$1" body="${2:-}" htmlfile="${3:-}"
   shift 2; [ $# -gt 0 ] && shift   # remaining args = attachment file paths
-  local args=(reply "$rid")
-  [ -n "$body" ] && args+=(--body "$body")
+  local args=(reply "$rid") bf=""
+  if [ -n "$body" ]; then
+    # --body-file, not --body: free text may start with "--" or exceed argv.
+    bf="$(mktemp "${TMPDIR:-/tmp}/tether-body.XXXXXX")" || return 1
+    printf '%s' "$body" > "$bf"
+    args+=(--body-file "$bf")
+  fi
   [ -n "$htmlfile" ] && args+=(--html-file "$htmlfile")
   local f; for f in "$@"; do args+=(--attach "$f"); done
   local mid rc
   mid="$(t_cli "${args[@]}")"; rc=$?
+  [ -n "$bf" ] && rm -f "$bf"
   printf '%s' "$mid"
-  case "$rc" in 0) return 0;; 3) return 2;; 5) return 3;; *) return 1;; esac
+  case "$rc" in 0) return 0;; 3) return 2;; 4) return 4;; 5) return 3;; *) return 1;; esac
 }
 
 # t_reply_anchored <body> <html_file> [attach_file ...] → send a threaded reply,
@@ -278,7 +349,8 @@ t_api_poll() {
 }
 
 # t_api_body <message_id> → command text (parsed.text preferred; quoted history
-# stripped). Empty on transient failure — t_poll_once's age-based retry handles it.
+# stripped). Empty means the message genuinely has no text (or a transient CLI
+# failure) — t_poll_once consumes either case with a placeholder.
 t_api_body() {
   t_cli messages get "$1" --text 2>/dev/null
 }
@@ -291,10 +363,14 @@ t_api_body() {
 t_ws_wait() {
   local secs="$1" conv until rc t0
   conv="$(t_state_get conversation_id)"
+  # No conversation = stopped session or torn state — never wait unfiltered.
+  if [ -z "$conv" ]; then sleep "${E2A_TETHER_POLL_INTERVAL:-20}"; return 0; fi
   until="$(python3 -c 'import sys,datetime
 print((datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(seconds=int(sys.argv[1]))).isoformat())' "$secs")"
   t0=$SECONDS
-  t_cli listen --conversation "$conv" --once --until "$until" >/dev/null 2>&1
+  # Raise the transport deadline past this wait's own window, else the
+  # watchdog would kill a legitimate long listen.
+  E2A_TETHER_CLI_TIMEOUT=$((secs + 30)) t_cli listen --conversation "$conv" --once --until "$until" >/dev/null 2>&1
   rc=$?
   # 0 = something arrived, 6 = clean window expiry; anything else is a
   # transient WS problem (e.g. deployments without the WS endpoint). Belt and
@@ -309,19 +385,8 @@ print((datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(seconds=i
 
 # --- dedup + poll core -------------------------------------------------------
 # Replies are deduped by message-id (a `seen` set in state), NOT a bare time
-# cursor. Email parsing is async: a just-arrived reply can have an empty
-# parsed/body for a moment. We therefore do NOT mark such a message seen or
-# advance the watermark past it — we retry it next poll (up to a max age),
-# so a reply can never be silently skipped (the bug that dropped a real reply).
-
-# seconds since an RFC3339 timestamp
-t_age_seconds() {
-  python3 -c 'import sys,datetime
-try:
-  t=datetime.datetime.fromisoformat(sys.argv[1].replace("Z","+00:00"))
-  print(int((datetime.datetime.now(datetime.timezone.utc)-t).total_seconds()))
-except Exception:print(0)' "$1"
-}
+# cursor — the since boundary is inclusive with second-truncated wire
+# timestamps, so the watermark message always reappears and must be deduped.
 
 t_seen_has() {  # <id> → 0 if already processed
   local f; f="$(t_state_path)"; [ -f "$f" ] || return 1
@@ -330,10 +395,11 @@ try:sys.exit(0 if sys.argv[2] in (json.load(open(sys.argv[1])).get("seen") or []
 except Exception:sys.exit(1)' "$f" "$1"
 }
 
-t_seen_add() {  # <id> → record as processed (cap at last 500)
+t_seen_add() {  # <id> → record as processed (cap at last 500); flocked + atomic
   local f; f="$(t_state_path)"; mkdir -p "$(dirname "$f")"
-  python3 -c 'import json,sys,os
+  python3 -c 'import json,sys,os,fcntl
 f,i=sys.argv[1],sys.argv[2]
+lock=open(f+".lock","w"); fcntl.flock(lock,fcntl.LOCK_EX)
 d={}
 if os.path.exists(f):
   try:d=json.load(open(f))
@@ -341,26 +407,33 @@ if os.path.exists(f):
 s=d.get("seen") or []
 if i not in s:s.append(i)
 d["seen"]=s[-500:]
-json.dump(d,open(f,"w"),indent=2)' "$f" "$1"
+tmp="%s.tmp.%d"%(f,os.getpid())
+json.dump(d,open(tmp,"w"),indent=2)
+os.replace(tmp,f)' "$f" "$1"
 }
 
-# t_poll_once → print any new replies (dedup + parse-race safe), else "(no new replies)"
-# Advances the `last_poll` watermark only through the contiguous processed prefix,
-# stopping at the first not-yet-parsed message so it is retried, never lost.
+# t_poll_once → print any new replies (deduped), else "(no new replies)".
+# Returns 1 (transient) without touching anything when the session has no
+# conversation id — cleared state must never widen the poll to the whole
+# mailbox and deliver strangers' emails as "replies".
 t_poll_once() {
-  local conv since rows n advance id from created body age
+  local conv since rows n advance id from created body
   conv="$(t_state_get conversation_id)"; since="$(t_state_get last_poll)"
+  if [ -z "$conv" ]; then
+    echo "tether: no conversation in state (session stopped?)" >&2
+    return 1
+  fi
   rows="$(t_api_poll "$conv" "$since")" || return 1
   n=0; advance="$since"
   while IFS=$'\t' read -r id from created; do
     [ -n "$id" ] || continue
     if t_seen_has "$id"; then advance="$created"; continue; fi
     body="$(t_api_body "$id")"
-    if [ -z "$body" ]; then
-      age="$(t_age_seconds "$created")"
-      if [ "$age" -gt 120 ]; then t_seen_add "$id"; advance="$created"; continue
-      else break; fi   # not parsed yet — retry next poll, don't advance past it
-    fi
+    # Parsing is synchronous server-side (CLI contract), so an empty body is
+    # real content absence — an attachment-only or fully-quoted reply — not a
+    # race to retry. Consume it WITH a placeholder: the old retry-then-drop
+    # window silently lost such replies (and could hot-loop the WS wake).
+    [ -n "$body" ] || body="[no text content — attachment-only or fully-quoted reply; message ${id}]"
     t_seen_add "$id"; advance="$created"; n=$((n+1))
     printf '── reply from %s @ %s ──\n%s\n\n' "$from" "$created" "$body"
     # last_inbound_id is the always-repliable fallback anchor for

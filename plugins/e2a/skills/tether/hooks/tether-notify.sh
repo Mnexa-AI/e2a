@@ -18,9 +18,11 @@ except Exception:print("")')"
 t_load_config || exit 0
 [ "$(t_state_get armed)" = "1" ] || exit 0
 
-rid="$(t_state_get last_message_id)"
-[ -n "$rid" ] || exit 0
-t_api_reply "$rid" "⏸️ Needs you: ${message}
+# Anchored reply (last message → last inbound → intro), NOT a bare reply to
+# last_message_id: when that anchor is the agent's own reply-created outbound,
+# older hosted APIs 404 it — and this "agent is stuck" alert is the one email
+# that must not silently vanish in exactly that situation.
+t_reply_anchored "⏸️ Needs you: ${message}
 
 Reply to this thread and I'll pick it up at the next check." >/dev/null 2>&1 || true
 exit 0

@@ -178,14 +178,21 @@ function getFlagChecked(args: string[], flag: string): string | undefined {
     process.stderr.write(`${flag} requires a value\n`);
     process.exit(EXIT.USAGE);
   }
+  // An empty string is never a meaningful flag value here, and treating it as
+  // "flag not given" downstream silently DROPS filters — `--conversation ""`
+  // used to widen a thread poll to the entire mailbox.
+  if (value === "") {
+    process.stderr.write(`${flag} requires a non-empty value\n`);
+    process.exit(EXIT.USAGE);
+  }
   return value;
 }
 
 function getFlagsChecked(args: string[], flag: string): string[] {
   const values = getFlags(args, flag);
   const occurrences = args.filter((a) => a === flag).length;
-  if (values.length !== occurrences) {
-    process.stderr.write(`${flag} requires a value\n`);
+  if (values.length !== occurrences || values.some((v) => v === "")) {
+    process.stderr.write(`${flag} requires a non-empty value\n`);
     process.exit(EXIT.USAGE);
   }
   return values;
@@ -301,7 +308,9 @@ async function main() {
           json: hasFlag(rest, "--json"),
         });
       } else {
-        process.stderr.write("Usage: e2a protection [get <email>|set <email> --outbound-review on|off]\n");
+        process.stderr.write(
+          "Usage: e2a protection [get <email>|set <email> [--outbound-review on|off] [--inbound-review on|off]]\n",
+        );
         process.exit(EXIT.USAGE);
       }
       break;
