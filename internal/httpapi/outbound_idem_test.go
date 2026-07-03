@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Mnexa-AI/e2a/internal/agent"
@@ -81,5 +82,123 @@ func TestSendIdempotencyRouteIncludesAgent(t *testing.T) {
 	}
 	if !strings.Contains(rec.paths[0], "a@acme.com") || !strings.Contains(rec.paths[1], "b@acme.com") {
 		t.Errorf("idempotency route should fold in the agent id, got %v", rec.paths)
+	}
+}
+
+// memIdem is an in-memory IdemStore with the real Claim/Complete/Release
+// semantics (acquired → in-flight → completed; replay on hash match) so tests
+// can exercise a genuine keyed retry end to end.
+type memIdem struct {
+	mu   sync.Mutex
+	rows map[string]*memIdemRow
+}
+
+type memIdemRow struct {
+	hash string
+	done bool
+	resp idempotency.CachedResponse
+}
+
+func newMemIdem() *memIdem { return &memIdem{rows: map[string]*memIdemRow{}} }
+
+func (m *memIdem) Claim(ctx context.Context, userID, key, path, bodyHash string) (idempotency.ClaimResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	k := userID + "\x00" + key
+	if row, ok := m.rows[k]; ok {
+		switch {
+		case !row.done:
+			return idempotency.ClaimResult{Outcome: idempotency.OutcomeInFlight}, nil
+		case row.hash != bodyHash:
+			return idempotency.ClaimResult{Outcome: idempotency.OutcomeMismatch}, nil
+		default:
+			return idempotency.ClaimResult{Outcome: idempotency.OutcomeReplay, Cached: row.resp}, nil
+		}
+	}
+	m.rows[k] = &memIdemRow{hash: bodyHash}
+	return idempotency.ClaimResult{Outcome: idempotency.OutcomeAcquired}, nil
+}
+
+func (m *memIdem) Complete(ctx context.Context, userID, key string, resp idempotency.CachedResponse) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if row, ok := m.rows[userID+"\x00"+key]; ok {
+		row.done, row.resp = true, resp
+	}
+	return nil
+}
+
+func (m *memIdem) Release(ctx context.Context, userID, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.rows, userID+"\x00"+key)
+	return nil
+}
+
+// TestSendTemplateIdempotentRetryAfterTemplateDelete pins the claim-before-
+// resolve ordering: a keyed templated send succeeds, the template is then
+// deleted, and a byte-identical retry with the same key must REPLAY the
+// cached success — never 404 template_not_found, never a second delivery.
+// (Template resolution consults mutable state, so it must run inside the
+// idempotent execution, after the Claim/replay handshake.)
+func TestSendTemplateIdempotentRetryAfterTemplateDelete(t *testing.T) {
+	templates := map[string]*identity.Template{
+		"tmpl_1": {ID: "tmpl_1", UserID: "u_1", Name: "T", Subject: "Hello {{name}}", Body: "Hi {{name}}."},
+	}
+	deliveries := 0
+	srv := httptest.NewServer(New(Deps{
+		Authenticator: func(r *http.Request) (*identity.User, error) { return &identity.User{ID: "u_1"}, nil },
+		GetAgent: func(ctx context.Context, address string) (*identity.AgentIdentity, error) {
+			return &identity.AgentIdentity{ID: address, Email: address, UserID: "u_1", DomainVerified: true}, nil
+		},
+		GetTemplate: func(ctx context.Context, templateID, userID string) (*identity.Template, error) {
+			if tp, ok := templates[templateID]; ok && userID == "u_1" {
+				cp := *tp
+				return &cp, nil
+			}
+			return nil, identity.ErrTemplateNotFound
+		},
+		GetTemplateByAlias: func(ctx context.Context, alias, userID string) (*identity.Template, error) {
+			return nil, identity.ErrTemplateNotFound
+		},
+		Idempotency: newMemIdem(),
+		DeliverOutbound: func(ctx context.Context, u *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, mt, rt string, ref *identity.Message) (*agent.OutboundResult, *agent.OutboundError) {
+			deliveries++
+			return &agent.OutboundResult{MessageID: "msg_first", Method: "smtp"}, nil
+		},
+	}))
+	t.Cleanup(srv.Close)
+
+	// The retry must be byte-identical, so build the body once.
+	rawBody := []byte(`{"to":["alice@x.com"],"template_id":"tmpl_1","template_data":{"name":"Zoe"}}`)
+	send := func() (int, map[string]any) {
+		req, _ := http.NewRequest("POST", srv.URL+"/v1/agents/a%40acme.com/messages", bytes.NewReader(rawBody))
+		req.Header.Set("Authorization", "Bearer good")
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", "retry-key-1")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var body map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&body)
+		return resp.StatusCode, body
+	}
+
+	code, body := send()
+	if code != 200 || body["status"] != "sent" || body["message_id"] != "msg_first" {
+		t.Fatalf("first send: want 200 sent msg_first, got %d %v", code, body)
+	}
+
+	// Simulate the template being deleted between attempts.
+	delete(templates, "tmpl_1")
+
+	code, body = send()
+	if code != 200 || body["status"] != "sent" || body["message_id"] != "msg_first" {
+		t.Fatalf("keyed retry after template delete: want replayed 200 msg_first, got %d %v", code, body)
+	}
+	if deliveries != 1 {
+		t.Fatalf("DeliverOutbound ran %d times, want exactly 1 (retry must replay, not re-send)", deliveries)
 	}
 }

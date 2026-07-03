@@ -326,26 +326,17 @@ func (s *Server) handleDeleteTemplate(ctx context.Context, in *TemplateIDParam) 
 
 // --- send integration (POST /v1/agents/{email}/messages) ---
 
-// applySendTemplate resolves and renders a template reference on the send
-// body IN PLACE, before any other outbound processing. Ordering is critical:
-// rendering must precede the HITL hold — HoldForApprovalCore persists literal
-// subject/body and approve re-sends the stored draft without re-rendering, so
-// a reviewer must see (and approve) the final rendered content, never raw
-// template source.
+// validateSendTemplateShape runs the DETERMINISTIC template-reference checks
+// on the send body — they depend only on the request bytes, so they run in
+// the handler prologue, before the idempotency claim (a keyed retry hits the
+// same 400 either way; no mutable state is consulted).
 //
-// Rules (each → 400 invalid_request unless noted):
+// Rules (each → 400 invalid_request):
 //   - template_id and template_alias are mutually exclusive;
 //   - a template reference is mutually exclusive with literal
 //     subject/body/html_body;
-//   - template_data requires a template reference;
-//   - lookup is scoped to the caller (missing/cross-user → 404
-//     template_not_found);
-//   - parse/render failures → 400 template_render_failed with the part in
-//     details.
-//
-// On success b.Subject/b.Body/b.HTMLBody carry the rendered content and flow
-// through the same validateOutboundBody checks as a literal send.
-func (s *Server) applySendTemplate(ctx context.Context, userID string, b *SendEmailRequest) *ErrorEnvelope {
+//   - template_data requires a template reference.
+func validateSendTemplateShape(b *SendEmailRequest) *ErrorEnvelope {
 	if b.TemplateID == "" && b.TemplateAlias == "" {
 		if len(b.TemplateData) > 0 {
 			return NewError(http.StatusBadRequest, "invalid_request", "template_data requires template_id or template_alias")
@@ -357,6 +348,31 @@ func (s *Server) applySendTemplate(ctx context.Context, userID string, b *SendEm
 	}
 	if b.Subject != "" || b.Body != "" || b.HTMLBody != "" {
 		return NewError(http.StatusBadRequest, "invalid_request", "a template reference is mutually exclusive with subject, body and html_body")
+	}
+	return nil
+}
+
+// resolveSendTemplate resolves and renders a template reference on the send
+// body IN PLACE. Two ordering invariants:
+//
+//   - It runs INSIDE the idempotent execution (after the Claim/replay
+//     handshake in deliver): template rows are mutable state, so a keyed
+//     retry must replay the cached response even if the template was deleted
+//     or edited between attempts — resolving before the claim would 404 (or
+//     silently re-render different content) instead of replaying.
+//   - Rendering still precedes the HITL hold — HoldForApprovalCore (inside
+//     DeliverOutbound) persists literal subject/body and approve re-sends the
+//     stored draft without re-rendering, so a reviewer must see (and approve)
+//     the final rendered content, never raw template source.
+//
+// Lookup is scoped to the caller (missing/cross-user → 404
+// template_not_found); parse/render failures → 400 template_render_failed
+// with the part in details. On success b.Subject/b.Body/b.HTMLBody carry the
+// rendered content and flow through the same validateOutboundBody checks as
+// a literal send. validateSendTemplateShape must have passed already.
+func (s *Server) resolveSendTemplate(ctx context.Context, userID string, b *SendEmailRequest) *ErrorEnvelope {
+	if b.TemplateID == "" && b.TemplateAlias == "" {
+		return nil
 	}
 	if s.deps.GetTemplate == nil || s.deps.GetTemplateByAlias == nil {
 		return NewError(http.StatusInternalServerError, "internal_error", "templates unavailable")
