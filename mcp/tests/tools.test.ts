@@ -11,6 +11,7 @@ import { registerDomainTools } from "../src/tools/domains.js";
 import { registerReviewTools } from "../src/tools/review.js";
 import { registerWebhookTools } from "../src/tools/webhooks.js";
 import { registerEventTools } from "../src/tools/events.js";
+import { registerTemplateTools } from "../src/tools/templates.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 // Build a small RFC822 blob with one attachment so the MessageView's
@@ -165,6 +166,80 @@ function makeStubClient(
     })),
     approveMessage: vi.fn(async () => ({ messageId: "msg_x", status: "sent" })),
     rejectMessage: vi.fn(async () => ({ messageId: "msg_x", status: "rejected" })),
+    // Templates (beta) — the McpClient's raw-fetch path speaks the snake_case
+    // wire shape, so the stubs return wire-shaped rows.
+    listTemplates: vi.fn(async () => ({
+      items: [
+        {
+          id: "tmpl_1",
+          name: "Welcome",
+          alias: "welcome",
+          subject: "Welcome, {{name}}!",
+          body: "Hi {{name}}",
+          created_at: "2026-06-01T00:00:00Z",
+          updated_at: "2026-06-01T00:00:00Z",
+        },
+      ],
+      next_cursor: null,
+    })),
+    getTemplate: vi.fn(async (id: string) => ({
+      id,
+      name: "Welcome",
+      subject: "Welcome, {{name}}!",
+      body: "Hi {{name}}",
+      created_at: "2026-06-01T00:00:00Z",
+      updated_at: "2026-06-01T00:00:00Z",
+    })),
+    createTemplate: vi.fn(async (body: Record<string, unknown>) => ({
+      id: "tmpl_new",
+      name: body.name ?? "Starter name",
+      ...body,
+      created_at: "2026-06-01T00:00:00Z",
+      updated_at: "2026-06-01T00:00:00Z",
+    })),
+    updateTemplate: vi.fn(async (id: string, patch: Record<string, unknown>) => ({
+      id,
+      name: "Welcome",
+      subject: "Welcome, {{name}}!",
+      body: "Hi {{name}}",
+      ...patch,
+      created_at: "2026-06-01T00:00:00Z",
+      updated_at: "2026-06-02T00:00:00Z",
+    })),
+    deleteTemplate: vi.fn(async () => undefined),
+    validateTemplate: vi.fn(async () => ({
+      valid: true,
+      errors: [],
+      rendered: { subject: "Welcome, Ada!", body: "Hi Ada" },
+      suggested_data: { name: "Ada" },
+    })),
+    listStarterTemplates: vi.fn(async () => ({
+      items: [
+        {
+          alias: "approval-request",
+          name: "Approval request",
+          description: "Ask a human to approve an action.",
+          version: "1",
+          subject: "Approval needed: {{action}}",
+          variables: [
+            { name: "approve_url", required: true, raw: false, description: "Confirmation-page URL", example: "https://x/approve" },
+          ],
+        },
+      ],
+      next_cursor: null,
+    })),
+    getStarterTemplate: vi.fn(async (alias: string) => ({
+      alias,
+      name: "Approval request",
+      description: "Ask a human to approve an action.",
+      version: "1",
+      subject: "Approval needed: {{action}}",
+      body: "Approve: {{approve_url}}",
+      html_body: "<a href=\"{{approve_url}}\">Approve</a>",
+      variables: [
+        { name: "approve_url", required: true, raw: false, description: "Confirmation-page URL", example: "https://x/approve" },
+      ],
+    })),
   };
   return stub as unknown as McpClient;
 }
@@ -228,6 +303,14 @@ describe("e2a MCP server", () => {
         "list_events",
         "get_event",
         "redeliver_event",
+        "list_templates",
+        "get_template",
+        "create_template",
+        "update_template",
+        "delete_template",
+        "validate_template",
+        "list_starter_templates",
+        "get_starter_template",
       ].sort(),
     );
   });
@@ -253,8 +336,9 @@ describe("e2a MCP server", () => {
     registerReviewTools(recorder, stub);
     registerWebhookTools(recorder, stub);
     registerEventTools(recorder, stub);
+    registerTemplateTools(recorder, stub);
 
-    expect(names).toHaveLength(37);
+    expect(names).toHaveLength(45);
     // Throws if any registered tool is untiered / double-tiered / phantom.
     expect(() => assertToolTiersComplete(names)).not.toThrow();
   });
@@ -263,13 +347,13 @@ describe("e2a MCP server", () => {
     expect(toolNamesForScope("bogus")).toBe(RUNTIME_TOOLS);
     expect(toolNamesForScope("")).toBe(RUNTIME_TOOLS);
     expect(toolNamesForScope("agent")).toBe(RUNTIME_TOOLS);
-    expect(toolNamesForScope("account").size).toBe(37);
+    expect(toolNamesForScope("account").size).toBe(45);
   });
 
-  it("account scope exposes all 37 tools (runtime + admin)", async () => {
+  it("account scope exposes all 45 tools (runtime + admin)", async () => {
     const acct = await connect(makeStubClient({ scope: "account" }));
     const { tools } = await acct.listTools();
-    expect(tools).toHaveLength(37);
+    expect(tools).toHaveLength(45);
   });
 
   it("agent scope exposes only the 14 runtime tools — admin tools hidden", async () => {
@@ -295,6 +379,9 @@ describe("e2a MCP server", () => {
       "list_webhooks", "get_webhook", "create_webhook", "update_webhook",
       "delete_webhook", "rotate_webhook_secret", "test_webhook", "list_webhook_deliveries",
       "list_events", "get_event", "redeliver_event",
+      // Templates (beta) are account-scope end to end (requireAccountUser).
+      "list_templates", "get_template", "create_template", "update_template",
+      "delete_template", "validate_template", "list_starter_templates", "get_starter_template",
     ]) {
       expect(names.has(n), `admin tool ${n} must be hidden from agent scope`).toBe(false);
     }
@@ -320,7 +407,7 @@ describe("e2a MCP server", () => {
   // ── §6a tool annotations (#2) ───────────────────────────────────────
 
   it("every tool carries MCP annotations with the correct hints", async () => {
-    const { tools } = await client.listTools(); // account scope → all 37
+    const { tools } = await client.listTools(); // account scope → all 45
     const byName = new Map(tools.map((t) => [t.name, t.annotations ?? {}]));
 
     // Every tool has an annotations object.
@@ -329,22 +416,22 @@ describe("e2a MCP server", () => {
     }
 
     // Reads → readOnlyHint.
-    for (const n of ["list_messages", "get_message", "whoami", "list_domains", "get_event", "list_webhook_deliveries"]) {
+    for (const n of ["list_messages", "get_message", "whoami", "list_domains", "get_event", "list_webhook_deliveries", "list_templates", "get_template", "validate_template", "list_starter_templates", "get_starter_template"]) {
       expect(byName.get(n)?.readOnlyHint, `${n} readOnlyHint`).toBe(true);
     }
     // Deletes → destructive + idempotent.
-    for (const n of ["delete_agent", "delete_domain", "delete_webhook"]) {
+    for (const n of ["delete_agent", "delete_domain", "delete_webhook", "delete_template"]) {
       expect(byName.get(n)?.destructiveHint, `${n} destructiveHint`).toBe(true);
       expect(byName.get(n)?.idempotentHint, `${n} idempotentHint`).toBe(true);
     }
     // Idempotent non-destructive updates.
-    for (const n of ["update_agent", "update_webhook", "update_message_labels", "verify_domain", "register_domain"]) {
+    for (const n of ["update_agent", "update_webhook", "update_message_labels", "verify_domain", "register_domain", "update_template"]) {
       expect(byName.get(n)?.idempotentHint, `${n} idempotentHint`).toBe(true);
       expect(byName.get(n)?.destructiveHint, `${n} destructiveHint`).toBe(false);
     }
     // Non-destructive writes (create/send) are explicitly non-destructive,
     // and NOT read-only.
-    for (const n of ["create_agent", "send_message", "approve_message", "create_webhook"]) {
+    for (const n of ["create_agent", "send_message", "approve_message", "create_webhook", "create_template"]) {
       expect(byName.get(n)?.destructiveHint, `${n} destructiveHint`).toBe(false);
       expect(byName.get(n)?.readOnlyHint ?? false, `${n} not read-only`).toBe(false);
     }
@@ -1115,5 +1202,185 @@ describe("e2a MCP server", () => {
     const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
     expect(text.length).toBeLessThan(600); // bounded, not 5000+
     expect(text).toContain("…");
+  });
+
+  // ── Templates (beta) ────────────────────────────────────────────
+  //
+  // The eight template tools are thin pass-throughs over the McpClient's
+  // wire-shape (snake_case) template methods; the server enforces the
+  // create-mode and send-reference exclusivity rules. These tests pin the
+  // arg plumbing and the confirm guard.
+
+  it("list_templates returns templates and omits a null next_cursor", async () => {
+    const res = await client.callTool({ name: "list_templates", arguments: {} });
+    expect(stub.listTemplates).toHaveBeenCalledOnce();
+    const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
+    expect(payload.templates[0].id).toBe("tmpl_1");
+    expect(payload).not.toHaveProperty("next_cursor");
+  });
+
+  it("get_template forwards the id", async () => {
+    await client.callTool({ name: "get_template", arguments: { id: "tmpl_1" } });
+    expect(stub.getTemplate).toHaveBeenCalledWith("tmpl_1");
+  });
+
+  it("create_template forwards literal fields verbatim (wire snake_case)", async () => {
+    await client.callTool({
+      name: "create_template",
+      arguments: {
+        name: "Order shipped",
+        alias: "order-shipped",
+        subject: "Your order {{order_id}} shipped",
+        body: "Hi {{name}}, it shipped.",
+        html_body: "<p>Hi {{name}}</p>",
+      },
+    });
+    expect(stub.createTemplate).toHaveBeenCalledWith({
+      name: "Order shipped",
+      alias: "order-shipped",
+      subject: "Your order {{order_id}} shipped",
+      body: "Hi {{name}}, it shipped.",
+      html_body: "<p>Hi {{name}}</p>",
+    });
+  });
+
+  it("create_template forwards from_starter without fabricating literal fields", async () => {
+    await client.callTool({
+      name: "create_template",
+      arguments: { from_starter: "approval-request", alias: "my-approvals" },
+    });
+    // Only what the caller passed reaches the wire — no empty subject/body
+    // keys that would trip the server's from_starter exclusivity check.
+    expect(stub.createTemplate).toHaveBeenCalledWith({
+      from_starter: "approval-request",
+      alias: "my-approvals",
+    });
+  });
+
+  it("update_template splits id from the patch", async () => {
+    await client.callTool({
+      name: "update_template",
+      arguments: { id: "tmpl_1", subject: "New subject {{x}}", html_body: "" },
+    });
+    // html_body: "" is a deliberate clear — it must survive to the wire.
+    expect(stub.updateTemplate).toHaveBeenCalledWith("tmpl_1", {
+      subject: "New subject {{x}}",
+      html_body: "",
+    });
+  });
+
+  it("delete_template requires confirm:true — schema validator catches the omission", async () => {
+    const res = await client.callTool({
+      name: "delete_template",
+      arguments: { id: "tmpl_1" },
+    });
+    expect(res.isError).toBe(true);
+    expect(stub.deleteTemplate).not.toHaveBeenCalled();
+  });
+
+  it("delete_template forwards on explicit confirm:true", async () => {
+    const res = await client.callTool({
+      name: "delete_template",
+      arguments: { id: "tmpl_1", confirm: true },
+    });
+    expect(stub.deleteTemplate).toHaveBeenCalledWith("tmpl_1");
+    expect((res.content as Array<{ text: string }>)[0]?.text).toMatch(/tmpl_1/);
+  });
+
+  it("validate_template forwards source parts + test_data", async () => {
+    const res = await client.callTool({
+      name: "validate_template",
+      arguments: {
+        subject: "Welcome, {{name}}!",
+        body: "Hi {{name}}",
+        test_data: { name: "Ada" },
+      },
+    });
+    expect(stub.validateTemplate).toHaveBeenCalledWith({
+      subject: "Welcome, {{name}}!",
+      body: "Hi {{name}}",
+      test_data: { name: "Ada" },
+    });
+    const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
+    expect(payload.valid).toBe(true);
+    expect(payload.rendered.subject).toBe("Welcome, Ada!");
+    expect(payload.suggested_data).toEqual({ name: "Ada" });
+  });
+
+  it("list_starter_templates surfaces the catalog", async () => {
+    const res = await client.callTool({ name: "list_starter_templates", arguments: {} });
+    expect(stub.listStarterTemplates).toHaveBeenCalledOnce();
+    const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
+    expect(payload.starter_templates[0].alias).toBe("approval-request");
+    expect(payload.starter_templates[0].variables[0].name).toBe("approve_url");
+  });
+
+  it("get_starter_template forwards the alias and returns body sources", async () => {
+    const res = await client.callTool({
+      name: "get_starter_template",
+      arguments: { alias: "approval-request" },
+    });
+    expect(stub.getStarterTemplate).toHaveBeenCalledWith("approval-request");
+    const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
+    expect(payload.body).toContain("{{approve_url}}");
+    expect(payload.html_body).toContain("{{approve_url}}");
+  });
+
+  // ── send_message template references (beta) ─────────────────────
+
+  it("send_message forwards template_alias + template_data without literal subject/body", async () => {
+    await client.callTool({
+      name: "send_message",
+      arguments: {
+        to: ["alice@example.com"],
+        template_alias: "welcome",
+        template_data: { name: "Alice", plan: "pro" },
+      },
+    });
+    // Exactly the template reference reaches the SDK — no subject/body keys
+    // (even undefined ones) that would trip the server's exclusivity check.
+    expect(stub.send).toHaveBeenCalledWith(
+      {
+        to: ["alice@example.com"],
+        templateAlias: "welcome",
+        templateData: { name: "Alice", plan: "pro" },
+      },
+      {},
+      undefined,
+    );
+  });
+
+  it("send_message forwards template_id", async () => {
+    await client.callTool({
+      name: "send_message",
+      arguments: { to: ["alice@example.com"], template_id: "tmpl_1" },
+    });
+    expect(stub.send).toHaveBeenCalledWith(
+      { to: ["alice@example.com"], templateId: "tmpl_1" },
+      {},
+      undefined,
+    );
+  });
+
+  it("send_message surfaces the server's template exclusivity error as isError", async () => {
+    (stub.send as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new E2AError({
+        code: "invalid_request",
+        message: "a template reference is mutually exclusive with subject, body and html_body",
+        status: 400,
+        retryable: false,
+      }),
+    );
+    const res = await client.callTool({
+      name: "send_message",
+      arguments: {
+        to: ["alice@example.com"],
+        subject: "literal",
+        body: "literal",
+        template_alias: "welcome",
+      },
+    });
+    expect(res.isError).toBe(true);
+    expect((res.content as Array<{ text: string }>)[0]?.text).toContain("[invalid_request]");
   });
 });

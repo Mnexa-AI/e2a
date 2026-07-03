@@ -24,12 +24,30 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       title: "Send email",
       annotations: { destructiveHint: false },
       description:
-        "Use when starting a NEW email thread to a fresh recipient. To respond to a message you can see in `list_messages`, use `reply_to_message` instead — it preserves the In-Reply-To / References headers so the reply lands in the same thread, which this tool deliberately does not do. Attach files via `attachments`; pass base64 strings produced by other tools (e.g. `get_attachment`) verbatim — don't hand-encode raw text. **`pending_review` is not failure.** If the agent's review policy holds the send, the response is `{ status: \"pending_review\", message_id: ... }`; the message is held for human review — do not retry. Check on it with `list_messages` (held drafts show review_status=pending_review) / `get_message`.",
+        "Use when starting a NEW email thread to a fresh recipient. To respond to a message you can see in `list_messages`, use `reply_to_message` instead — it preserves the In-Reply-To / References headers so the reply lands in the same thread, which this tool deliberately does not do. Attach files via `attachments`; pass base64 strings produced by other tools (e.g. `get_attachment`) verbatim — don't hand-encode raw text. **`pending_review` is not failure.** If the agent's review policy holds the send, the response is `{ status: \"pending_review\", message_id: ... }`; the message is held for human review — do not retry. Check on it with `list_messages` (held drafts show review_status=pending_review) / `get_message`. **Templates (beta):** instead of literal subject/body, reference a stored template with `template_id` XOR `template_alias` plus `template_data` — a template reference is mutually exclusive with subject/body/html_body (pass neither literal field). The server renders before any review hold, so a reviewer sees final content. Missing variables render as empty strings (no error) — validate data against the template's variables first. Only send supports templates; reply/forward do not.",
       inputSchema: strictInputSchema({
         to: z.array(z.string()).describe("Recipient email addresses (one or more)."),
-        subject: z.string(),
-        body: z.string().describe("Plain-text body. Use `html_body` for HTML."),
+        subject: z.string().optional().describe("Literal subject. Required unless a template reference is used (then it must be omitted)."),
+        body: z.string().optional().describe("Literal plain-text body; use `html_body` for HTML. Required unless a template reference is used (then it must be omitted)."),
         html_body: z.string().optional(),
+        template_id: z
+          .string()
+          .optional()
+          .describe(
+            "Send using a stored template by id (tmpl_…), rendered server-side. Mutually exclusive with template_alias and with literal subject/body/html_body. Beta.",
+          ),
+        template_alias: z
+          .string()
+          .optional()
+          .describe(
+            "Send using a stored template by its per-user alias (see `list_templates`). Mutually exclusive with template_id and with literal subject/body/html_body. Beta.",
+          ),
+        template_data: z
+          .record(z.string(), z.unknown())
+          .optional()
+          .describe(
+            "Variables for the referenced template ({{name}}, dot paths into nested objects). Missing variables render as EMPTY strings — no error. For raw {{{…_html}}} fragment slots, HTML-escape any user content you splice in. Requires template_id or template_alias. Beta.",
+          ),
         cc: z.array(z.string()).optional(),
         bcc: z.array(z.string()).optional(),
         attachments: attachmentsArraySchema,
@@ -60,9 +78,15 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
         return client.send(
           {
             to: args.to,
-            subject: args.subject,
-            body: args.body,
+            // subject/body are optional on the wire when a template reference
+            // is used — only forward what the caller passed so the server's
+            // mutual-exclusivity check sees the true shape.
+            ...(args.subject !== undefined ? { subject: args.subject } : {}),
+            ...(args.body !== undefined ? { body: args.body } : {}),
             ...(args.html_body !== undefined ? { htmlBody: args.html_body } : {}),
+            ...(args.template_id !== undefined ? { templateId: args.template_id } : {}),
+            ...(args.template_alias !== undefined ? { templateAlias: args.template_alias } : {}),
+            ...(args.template_data !== undefined ? { templateData: args.template_data } : {}),
             ...(args.cc !== undefined ? { cc: args.cc } : {}),
             ...(args.bcc !== undefined ? { bcc: args.bcc } : {}),
             ...(mapAttachments(args.attachments) !== undefined

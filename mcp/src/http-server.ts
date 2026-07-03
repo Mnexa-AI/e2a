@@ -289,6 +289,8 @@ function buildClient(
     // this only guards a future refactor — but a fail-open default here would
     // silently expose the admin surface.
     scope ?? "agent",
+    // Raw creds power the beta templates surface (no SDK resource yet).
+    { apiKey: bearer, ...(opts.baseUrl ? { baseUrl: opts.baseUrl } : {}) },
   );
 }
 

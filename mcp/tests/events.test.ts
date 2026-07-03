@@ -192,13 +192,13 @@ describe("MCP events tools", () => {
   });
 
   describe("tool catalog", () => {
-    it("includes the 3 events tools in the full re-curated tool set — total 37", async () => {
+    it("includes the 3 events tools in the full re-curated tool set — total 45", async () => {
       const client = await buildClient(stub);
       const { tools } = await client.listTools();
       const names = new Set(tools.map((t) => t.name));
       // The events tools add list_events/get_event/redeliver_event; the
-      // full registered set after the tool re-curation is 37 tools.
-      expect(tools).toHaveLength(37);
+      // full registered set (incl. the 8 beta template tools) is 45 tools.
+      expect(tools).toHaveLength(45);
       expect(names.has("list_events")).toBe(true);
       expect(names.has("get_event")).toBe(true);
       expect(names.has("redeliver_event")).toBe(true);

@@ -6,6 +6,7 @@ import { registerDomainTools } from "./tools/domains.js";
 import { registerReviewTools } from "./tools/review.js";
 import { registerWebhookTools } from "./tools/webhooks.js";
 import { registerEventTools } from "./tools/events.js";
+import { registerTemplateTools } from "./tools/templates.js";
 import { toolNamesForScope } from "./tools/tiers.js";
 
 export interface BuildServerOptions {
@@ -47,5 +48,6 @@ export function buildServer({ client, version = "0.1.0" }: BuildServerOptions): 
   registerReviewTools(server, client);
   registerWebhookTools(server, client);
   registerEventTools(server, client);
+  registerTemplateTools(server, client);
   return server;
 }

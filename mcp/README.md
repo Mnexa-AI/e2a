@@ -114,13 +114,14 @@ Hosts that support OAuth connectors can instead add `https://api.e2a.dev/mcp` as
 
 ## Tools
 
-The server exposes up to **37** tools spanning agents, messages, human-in-the-loop
-approval, attachments, domains, events, and webhooks. **The visible set depends on
-your credential's scope:** an **agent**-scoped credential sees the 14
-runtime/inbox tools (read, send, reply, and view its pending queue); an
-**account**-scoped credential also sees the 23 admin/setup tools (agent/domain/
-webhook/event management — **and HITL approve/reject, which is an account-owner
-action, never agent self-approval**) — all 37.
+The server exposes up to **45** tools spanning agents, messages, human-in-the-loop
+approval, attachments, domains, events, webhooks, and email templates (beta).
+**The visible set depends on your credential's scope:** an **agent**-scoped
+credential sees the 14 runtime/inbox tools (read, send, reply, and view its
+pending queue); an **account**-scoped credential also sees the 31 admin/setup
+tools (agent/domain/webhook/event/template management — **and HITL
+approve/reject, which is an account-owner action, never agent self-approval**)
+— all 45.
 Every tool carries MCP annotations (`readOnlyHint`/`destructiveHint`/
 `idempotentHint`) so hosts can auto-approve reads and flag destructive actions.
 The tables below highlight the most commonly used ones — your MCP host's tool list
@@ -169,6 +170,25 @@ shows the set your scope allows, with per-tool descriptions.
 | Tool | Description |
 | --- | --- |
 | `register_domain` | Register a custom sending domain; returns the MX + TXT DNS records to publish. (Admin/account-scoped.) |
+
+### Templates (beta)
+
+Reusable email templates with `{{variable}}` interpolation (a flat Mustache
+subset — no loops/sections; missing variables render as empty strings), plus a
+read-only catalog of pre-built starters (`welcome`, `verify-code`,
+`password-reset`, `receipt`, `agent-status`, `daily-digest`,
+`approval-request`). Send with a template via `send_message`'s `template_id` /
+`template_alias` + `template_data` (mutually exclusive with literal
+subject/body). All template management tools are admin/account-scoped. Beta —
+shapes may change before templates are declared stable.
+
+| Tool | Description |
+| --- | --- |
+| `list_templates` / `get_template` | List/read the account's stored templates. |
+| `create_template` | Create a template from literal source — or copy a starter verbatim with `from_starter`. |
+| `update_template` / `delete_template` | Edit (re-parses changed parts) or delete a template. |
+| `validate_template` | Dry-run source: parse errors, a rendered preview against `test_data`, and `suggested_data` placeholders. |
+| `list_starter_templates` / `get_starter_template` | Browse the starter catalog; the detail view includes full body sources and per-variable metadata. |
 
 ## Links
 
