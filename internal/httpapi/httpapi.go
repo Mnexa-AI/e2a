@@ -229,6 +229,17 @@ type Deps struct {
 	TestWebhookInsert func(ctx context.Context, webhookID, eventType string, envelope []byte) (string, error)
 	ListDeliveries    func(ctx context.Context, webhookID, status string, limit int) ([]webhook.SubscriberDelivery, error)
 
+	// templates (beta). Mirror the like-named identity.Store methods; every
+	// lookup is scoped to the owning user (cross-user reads behave as
+	// not-found). GetTemplate/GetTemplateByAlias also serve the send path's
+	// template_id/template_alias resolution.
+	CreateTemplate     func(ctx context.Context, userID, name, alias, subject, body, htmlBody string) (*identity.Template, error)
+	ListTemplates      func(ctx context.Context, userID string) ([]identity.Template, error)
+	GetTemplate        func(ctx context.Context, templateID, userID string) (*identity.Template, error)
+	GetTemplateByAlias func(ctx context.Context, alias, userID string) (*identity.Template, error)
+	UpdateTemplate     func(ctx context.Context, templateID, userID string, u identity.TemplateUpdate) (*identity.Template, error)
+	DeleteTemplate     func(ctx context.Context, templateID, userID string) error
+
 	// API keys (account-scope management). CreateScopedAPIKey returns the
 	// minted key including its one-time plaintext; agentID is "" for account
 	// scope and a resolved agent id for agent scope.
@@ -384,6 +395,7 @@ func (s *Server) registerOperations() {
 	s.registerAgentProtection()
 	s.registerDomains()
 	s.registerWebhooks()
+	s.registerTemplates()
 	s.registerEvents()
 	s.registerAccount()
 	s.registerAPIKeys()

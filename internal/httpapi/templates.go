@@ -1,0 +1,386 @@
+package httpapi
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"regexp"
+	"time"
+
+	"github.com/Mnexa-AI/e2a/internal/emailtemplate"
+	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/danielgtaylor/huma/v2"
+)
+
+// User email templates sub-resource (beta).
+//
+// A template is a reusable subject + plain-text body (+ optional HTML part)
+// whose {{variable}} placeholders (internal/emailtemplate) are rendered
+// server-side at send time. CRUD lives here; the send integration lives in
+// outbound.go (template_id / template_alias / template_data on the send body).
+
+const templatesBetaDoc = "Beta: templates are unstable — their shape may change before they are declared stable."
+
+const (
+	templateMaxNameLen = 200
+)
+
+// templateAliasRe is the alias charset: a letter, then up to 127 of
+// [A-Za-z0-9._-]. Aliases are per-user unique handles for send-time lookup.
+var templateAliasRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]{0,127}$`)
+
+// TemplateView is the template resource as returned by every endpoint.
+type TemplateView struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Alias     string `json:"alias,omitempty" doc:"Optional per-user unique handle usable as template_alias on send."`
+	Subject   string `json:"subject"`
+	Body      string `json:"body" doc:"The plain-text part's template source."`
+	HTMLBody  string `json:"html_body,omitempty" doc:"The optional HTML part's template source."`
+	CreatedAt string `json:"created_at" format:"date-time"`
+	UpdatedAt string `json:"updated_at" format:"date-time"`
+}
+
+func templateView(tp *identity.Template) TemplateView {
+	return TemplateView{
+		ID:        tp.ID,
+		Name:      tp.Name,
+		Alias:     tp.Alias,
+		Subject:   tp.Subject,
+		Body:      tp.Body,
+		HTMLBody:  tp.HTMLBody,
+		CreatedAt: tp.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt: tp.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+}
+
+type templateOutput struct{ Body TemplateView }
+type listTemplatesOutput struct {
+	Body Page[TemplateView]
+}
+
+// CreateTemplateRequest — name, subject and body are required; alias and
+// html_body are optional. All three template parts must parse.
+type CreateTemplateRequest struct {
+	Name     string `json:"name" doc:"Human-readable template name."`
+	Alias    string `json:"alias,omitempty" doc:"Optional per-user unique handle ([A-Za-z][A-Za-z0-9._-]{0,127}) usable as template_alias on send."`
+	Subject  string `json:"subject" doc:"Subject template source ({{variable}} interpolation, no HTML escaping)."`
+	Body     string `json:"body" doc:"Plain-text body template source (no HTML escaping)."`
+	HTMLBody string `json:"html_body,omitempty" doc:"Optional HTML body template source ({{x}} is HTML-escaped, {{{x}}} is raw)."`
+}
+type createTemplateInput struct{ Body CreateTemplateRequest }
+
+// UpdateTemplateRequest is the PATCH body — pointer fields so absent != zero.
+// Setting alias or html_body to "" clears it. Changed parts are re-parsed.
+type UpdateTemplateRequest struct {
+	Name     *string `json:"name,omitempty"`
+	Alias    *string `json:"alias,omitempty" doc:"Set to \"\" to clear the alias."`
+	Subject  *string `json:"subject,omitempty"`
+	Body     *string `json:"body,omitempty"`
+	HTMLBody *string `json:"html_body,omitempty" doc:"Set to \"\" to remove the HTML part."`
+}
+type updateTemplateInput struct {
+	ID   string `path:"id"`
+	Body UpdateTemplateRequest
+}
+
+// TemplateIDParam is the path input for single-template ops.
+type TemplateIDParam struct {
+	ID string `path:"id"`
+}
+
+func (s *Server) registerTemplates() {
+	huma.Register(s.API, huma.Operation{
+		OperationID: "createTemplate", Method: http.MethodPost, Path: "/v1/templates",
+		Summary: "Create a template (beta)", Tags: []string{"templates"},
+		Description: "Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. " + templatesBetaDoc,
+		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusCreated,
+	}, s.handleCreateTemplate)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "listTemplates", Method: http.MethodGet, Path: "/v1/templates",
+		Summary: "List templates (beta)", Tags: []string{"templates"},
+		Description: "List the account's templates, newest first. " + templatesBetaDoc,
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleListTemplates)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "getTemplate", Method: http.MethodGet, Path: "/v1/templates/{id}",
+		Summary: "Get a template (beta)", Tags: []string{"templates"},
+		Description: "Fetch one template by id. " + templatesBetaDoc,
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleGetTemplate)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "updateTemplate", Method: http.MethodPatch, Path: "/v1/templates/{id}",
+		Summary: "Update a template (beta)", Tags: []string{"templates"},
+		Description: "Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. " + templatesBetaDoc,
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleUpdateTemplate)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "deleteTemplate", Method: http.MethodDelete, Path: "/v1/templates/{id}",
+		Summary: "Delete a template (beta)", Tags: []string{"templates"},
+		Description: "Delete a template. In-flight sends are unaffected (rendering happens at send time). " + templatesBetaDoc,
+		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
+	}, s.handleDeleteTemplate)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "validateTemplate", Method: http.MethodPost, Path: "/v1/templates/validate",
+		Summary: "Validate template source (beta)", Tags: []string{"templates"},
+		Description: "Dry-run template source without persisting: reports per-part parse errors, a rendered preview (against test_data when provided), and suggested_data — a placeholder value for every variable the source references. " + templatesBetaDoc,
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, s.handleValidateTemplate)
+}
+
+// templateParseError parses one template part, mapping a syntax error to the
+// 400 invalid_template envelope with the part + parse message in details.
+func templateParseError(part, src string) *ErrorEnvelope {
+	if _, err := emailtemplate.Parse(src); err != nil {
+		return NewError(http.StatusBadRequest, "invalid_template", "template part "+part+" failed to parse: "+err.Error()).
+			WithDetails(map[string]any{"part": part, "message": err.Error()})
+	}
+	return nil
+}
+
+// validateTemplateFields runs the create-time rules over the effective field
+// set (create passes the request; PATCH passes the post-patch state).
+func validateTemplateFields(name, alias, subject, body, htmlBody string) *ErrorEnvelope {
+	if name == "" {
+		return NewError(http.StatusBadRequest, "invalid_request", "name is required")
+	}
+	if len(name) > templateMaxNameLen {
+		return NewError(http.StatusBadRequest, "invalid_request", "name too long (max 200 chars)")
+	}
+	if alias != "" && !templateAliasRe.MatchString(alias) {
+		return NewError(http.StatusBadRequest, "invalid_request", "alias must match [A-Za-z][A-Za-z0-9._-]{0,127}")
+	}
+	if subject == "" || body == "" {
+		return NewError(http.StatusBadRequest, "invalid_request", "subject and body are required")
+	}
+	if env := templateParseError("subject", subject); env != nil {
+		return env
+	}
+	if env := templateParseError("body", body); env != nil {
+		return env
+	}
+	if htmlBody != "" {
+		if env := templateParseError("html_body", htmlBody); env != nil {
+			return env
+		}
+	}
+	return nil
+}
+
+func (s *Server) handleCreateTemplate(ctx context.Context, in *createTemplateInput) (*templateOutput, error) {
+	user, err := s.requireAccountUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.deps.CreateTemplate == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "templates unavailable")
+	}
+	b := in.Body
+	if env := validateTemplateFields(b.Name, b.Alias, b.Subject, b.Body, b.HTMLBody); env != nil {
+		return nil, env
+	}
+	tp, err := s.deps.CreateTemplate(ctx, user.ID, b.Name, b.Alias, b.Subject, b.Body, b.HTMLBody)
+	if err != nil {
+		switch {
+		case errors.Is(err, identity.ErrTemplateAliasTaken):
+			return nil, NewError(http.StatusConflict, "alias_taken", "a template with this alias already exists")
+		case errors.Is(err, identity.ErrTemplateLimitReached):
+			return nil, NewError(http.StatusBadRequest, "template_limit_reached", err.Error())
+		default:
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to create template")
+		}
+	}
+	return &templateOutput{Body: templateView(tp)}, nil
+}
+
+func (s *Server) handleListTemplates(ctx context.Context, _ *struct{}) (*listTemplatesOutput, error) {
+	user, err := s.requireAccountUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.deps.ListTemplates == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "templates unavailable")
+	}
+	tps, err := s.deps.ListTemplates(ctx, user.ID)
+	if err != nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list templates")
+	}
+	items := make([]TemplateView, 0, len(tps))
+	for i := range tps {
+		items = append(items, templateView(&tps[i]))
+	}
+	// Single-page at launch (no server-side cursoring): next_cursor null,
+	// same as webhooks/agents.
+	return &listTemplatesOutput{Body: NewPage(items, "")}, nil
+}
+
+func (s *Server) handleGetTemplate(ctx context.Context, in *TemplateIDParam) (*templateOutput, error) {
+	user, err := s.requireAccountUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.deps.GetTemplate == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "templates unavailable")
+	}
+	tp, err := s.deps.GetTemplate(ctx, in.ID, user.ID)
+	if err != nil || tp == nil {
+		return nil, NewError(http.StatusNotFound, "not_found", "template not found")
+	}
+	return &templateOutput{Body: templateView(tp)}, nil
+}
+
+func (s *Server) handleUpdateTemplate(ctx context.Context, in *updateTemplateInput) (*templateOutput, error) {
+	user, err := s.requireAccountUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.deps.GetTemplate == nil || s.deps.UpdateTemplate == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "templates unavailable")
+	}
+	current, err := s.deps.GetTemplate(ctx, in.ID, user.ID)
+	if err != nil || current == nil {
+		return nil, NewError(http.StatusNotFound, "not_found", "template not found")
+	}
+	// Validate the effective post-patch state against the create-time rules
+	// (mirrors handleUpdateWebhook). Re-parses anything changed; unchanged
+	// parts re-parse too, which is harmless — they parsed at write time.
+	eff := func(cur string, p *string) string {
+		if p != nil {
+			return *p
+		}
+		return cur
+	}
+	b := in.Body
+	if env := validateTemplateFields(
+		eff(current.Name, b.Name), eff(current.Alias, b.Alias),
+		eff(current.Subject, b.Subject), eff(current.Body, b.Body),
+		eff(current.HTMLBody, b.HTMLBody),
+	); env != nil {
+		return nil, env
+	}
+	tp, err := s.deps.UpdateTemplate(ctx, in.ID, user.ID, identity.TemplateUpdate{
+		Name: b.Name, Alias: b.Alias, Subject: b.Subject, Body: b.Body, HTMLBody: b.HTMLBody,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, identity.ErrTemplateNotFound):
+			return nil, NewError(http.StatusNotFound, "not_found", "template not found")
+		case errors.Is(err, identity.ErrTemplateAliasTaken):
+			return nil, NewError(http.StatusConflict, "alias_taken", "a template with this alias already exists")
+		default:
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to update template")
+		}
+	}
+	return &templateOutput{Body: templateView(tp)}, nil
+}
+
+type deleteTemplateOutput struct{}
+
+func (s *Server) handleDeleteTemplate(ctx context.Context, in *TemplateIDParam) (*deleteTemplateOutput, error) {
+	user, err := s.requireAccountUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.deps.DeleteTemplate == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "templates unavailable")
+	}
+	if err := s.deps.DeleteTemplate(ctx, in.ID, user.ID); err != nil {
+		if errors.Is(err, identity.ErrTemplateNotFound) {
+			return nil, NewError(http.StatusNotFound, "not_found", "template not found")
+		}
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to delete template")
+	}
+	return &deleteTemplateOutput{}, nil
+}
+
+// --- validate endpoint ---
+
+// ValidateTemplateRequest carries template source to dry-run. Parts may be
+// empty (an empty part parses trivially and renders empty).
+type ValidateTemplateRequest struct {
+	Subject  string         `json:"subject,omitempty"`
+	Body     string         `json:"body,omitempty"`
+	HTMLBody string         `json:"html_body,omitempty"`
+	TestData map[string]any `json:"test_data,omitempty" doc:"Sample template_data to render the preview with. Missing variables render as empty strings."`
+}
+type validateTemplateInput struct{ Body ValidateTemplateRequest }
+
+// TemplatePartError is one per-part validation failure.
+type TemplatePartError struct {
+	Part    string `json:"part" doc:"Which part failed. Known values: subject, body, html_body."`
+	Message string `json:"message"`
+}
+
+// RenderedTemplateView is the rendered preview (present only when valid).
+type RenderedTemplateView struct {
+	Subject  string `json:"subject"`
+	Body     string `json:"body"`
+	HTMLBody string `json:"html_body,omitempty"`
+}
+
+// ValidateTemplateResponse is the dry-run report.
+type ValidateTemplateResponse struct {
+	Valid         bool                  `json:"valid"`
+	Errors        []TemplatePartError   `json:"errors" nullable:"false"`
+	Rendered      *RenderedTemplateView `json:"rendered,omitempty" doc:"Rendered preview against test_data (or empty data). Present only when valid."`
+	SuggestedData map[string]string     `json:"suggested_data,omitempty" doc:"A placeholder value for every variable the source references — a starting point for template_data."`
+}
+type validateTemplateOutput struct{ Body ValidateTemplateResponse }
+
+func (s *Server) handleValidateTemplate(ctx context.Context, in *validateTemplateInput) (*validateTemplateOutput, error) {
+	if _, err := s.requireAccountUser(ctx); err != nil {
+		return nil, err
+	}
+	b := in.Body
+	data := b.TestData
+	if data == nil {
+		data = map[string]any{}
+	}
+
+	resp := ValidateTemplateResponse{Errors: []TemplatePartError{}}
+	rendered := &RenderedTemplateView{}
+	suggested := map[string]string{}
+
+	parts := []struct {
+		name   string
+		src    string
+		escape emailtemplate.EscapeMode
+		out    *string
+	}{
+		{"subject", b.Subject, emailtemplate.EscapeNone, &rendered.Subject},
+		{"body", b.Body, emailtemplate.EscapeNone, &rendered.Body},
+		{"html_body", b.HTMLBody, emailtemplate.EscapeHTML, &rendered.HTMLBody},
+	}
+	for _, p := range parts {
+		tmpl, err := emailtemplate.Parse(p.src)
+		if err != nil {
+			resp.Errors = append(resp.Errors, TemplatePartError{Part: p.name, Message: err.Error()})
+			continue
+		}
+		for _, v := range tmpl.Vars() {
+			if _, ok := suggested[v]; !ok {
+				suggested[v] = v + "_value"
+			}
+		}
+		out, err := tmpl.Render(data, p.escape)
+		if err != nil {
+			resp.Errors = append(resp.Errors, TemplatePartError{Part: p.name, Message: err.Error()})
+			continue
+		}
+		*p.out = out
+	}
+
+	resp.Valid = len(resp.Errors) == 0
+	if resp.Valid {
+		resp.Rendered = rendered
+	}
+	if len(suggested) > 0 {
+		resp.SuggestedData = suggested
+	}
+	return &validateTemplateOutput{Body: resp}, nil
+}

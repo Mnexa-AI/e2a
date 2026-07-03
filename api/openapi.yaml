@@ -500,6 +500,29 @@ components:
       required:
         - email
       type: object
+    CreateTemplateRequest:
+      additionalProperties: false
+      properties:
+        alias:
+          description: Optional per-user unique handle ([A-Za-z][A-Za-z0-9._-]{0,127}) usable as template_alias on send.
+          type: string
+        body:
+          description: Plain-text body template source (no HTML escaping).
+          type: string
+        html_body:
+          description: Optional HTML body template source ({{x}} is HTML-escaped, {{{x}}} is raw).
+          type: string
+        name:
+          description: Human-readable template name.
+          type: string
+        subject:
+          description: Subject template source ({{variable}} interpolation, no HTML escaping).
+          type: string
+      required:
+        - name
+        - subject
+        - body
+      type: object
     CreateWebhookRequest:
       additionalProperties: false
       properties:
@@ -1368,6 +1391,21 @@ components:
         - items
         - next_cursor
       type: object
+    PageTemplateView:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/TemplateView"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
     PageWebhookDeliveryView:
       additionalProperties: false
       properties:
@@ -1585,6 +1623,19 @@ components:
         - status
         - message_id
       type: object
+    RenderedTemplateView:
+      additionalProperties: false
+      properties:
+        body:
+          type: string
+        html_body:
+          type: string
+        subject:
+          type: string
+      required:
+        - subject
+        - body
+      type: object
     ReplyRequest:
       additionalProperties: false
       properties:
@@ -1773,6 +1824,50 @@ components:
         - source
         - created_at
       type: object
+    TemplatePartError:
+      additionalProperties: false
+      properties:
+        message:
+          type: string
+        part:
+          description: "Which part failed. Known values: subject, body, html_body."
+          type: string
+      required:
+        - part
+        - message
+      type: object
+    TemplateView:
+      additionalProperties: false
+      properties:
+        alias:
+          description: Optional per-user unique handle usable as template_alias on send.
+          type: string
+        body:
+          description: The plain-text part's template source.
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        html_body:
+          description: The optional HTML part's template source.
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        subject:
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+      required:
+        - id
+        - name
+        - subject
+        - body
+        - created_at
+        - updated_at
+      type: object
     TestWebhookRequest:
       additionalProperties: false
       properties:
@@ -1836,6 +1931,22 @@ components:
       required:
         - message_id
         - labels
+      type: object
+    UpdateTemplateRequest:
+      additionalProperties: false
+      properties:
+        alias:
+          description: Set to "" to clear the alias.
+          type: string
+        body:
+          type: string
+        html_body:
+          description: Set to "" to remove the HTML part.
+          type: string
+        name:
+          type: string
+        subject:
+          type: string
       type: object
     UpdateWebhookRequest:
       additionalProperties: false
@@ -1962,6 +2073,41 @@ components:
         - email
         - name
         - created_at
+      type: object
+    ValidateTemplateRequest:
+      additionalProperties: false
+      properties:
+        body:
+          type: string
+        html_body:
+          type: string
+        subject:
+          type: string
+        test_data:
+          additionalProperties: {}
+          description: Sample template_data to render the preview with. Missing variables render as empty strings.
+          type: object
+      type: object
+    ValidateTemplateResponse:
+      additionalProperties: false
+      properties:
+        errors:
+          items:
+            $ref: "#/components/schemas/TemplatePartError"
+          type: array
+        rendered:
+          $ref: "#/components/schemas/RenderedTemplateView"
+          description: Rendered preview against test_data (or empty data). Present only when valid.
+        suggested_data:
+          additionalProperties:
+            type: string
+          description: A placeholder value for every variable the source references — a starting point for template_data.
+          type: object
+        valid:
+          type: boolean
+      required:
+        - valid
+        - errors
       type: object
     VerifyDomainView:
       additionalProperties: false
@@ -3539,6 +3685,167 @@ paths:
       summary: Reject a held message
       tags:
         - reviews
+  /v1/templates:
+    get:
+      description: "List the account's templates, newest first. Beta: templates are unstable — their shape may change before they are declared stable."
+      operationId: listTemplates
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageTemplateView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: List templates (beta)
+      tags:
+        - templates
+    post:
+      description: "Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Beta: templates are unstable — their shape may change before they are declared stable."
+      operationId: createTemplate
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTemplateRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateView"
+          description: Created
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Create a template (beta)
+      tags:
+        - templates
+  /v1/templates/validate:
+    post:
+      description: "Dry-run template source without persisting: reports per-part parse errors, a rendered preview (against test_data when provided), and suggested_data — a placeholder value for every variable the source references. Beta: templates are unstable — their shape may change before they are declared stable."
+      operationId: validateTemplate
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidateTemplateRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidateTemplateResponse"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Validate template source (beta)
+      tags:
+        - templates
+  /v1/templates/{id}:
+    delete:
+      description: "Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable."
+      operationId: deleteTemplate
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Delete a template (beta)
+      tags:
+        - templates
+    get:
+      description: "Fetch one template by id. Beta: templates are unstable — their shape may change before they are declared stable."
+      operationId: getTemplate
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Get a template (beta)
+      tags:
+        - templates
+    patch:
+      description: "Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable."
+      operationId: updateTemplate
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTemplateRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Update a template (beta)
+      tags:
+        - templates
   /v1/webhooks:
     get:
       operationId: listWebhooks

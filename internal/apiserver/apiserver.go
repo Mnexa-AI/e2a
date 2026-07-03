@@ -173,6 +173,13 @@ func BuildDeps(p Params) httpapi.Deps {
 		TestWebhookInsert: p.SubscriberStore.InsertPendingForTest,
 		ListDeliveries:    p.SubscriberStore.ListDeliveriesByWebhook,
 
+		CreateTemplate:     p.Store.CreateTemplate,
+		ListTemplates:      p.Store.ListTemplatesByUser,
+		GetTemplate:        p.Store.GetTemplateByID,
+		GetTemplateByAlias: p.Store.GetTemplateByAlias,
+		UpdateTemplate:     p.Store.UpdateTemplate,
+		DeleteTemplate:     p.Store.DeleteTemplate,
+
 		CreateScopedAPIKey: p.Store.CreateScopedAPIKey,
 		ListAPIKeys:        p.Store.ListAPIKeys,
 		DeleteAPIKey:       p.Store.DeleteAPIKey,

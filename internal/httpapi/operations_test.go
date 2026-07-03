@@ -33,6 +33,19 @@ func sampleAgent() identity.AgentIdentity {
 	}
 }
 
+// sampleTemplate is the canonical fixture template owned by user u_1. Its
+// subject/body/html exercise escaped, raw and dot-path interpolation.
+func sampleTemplate() identity.Template {
+	return identity.Template{
+		ID: "tmpl_1", UserID: "u_1", Name: "Welcome", Alias: "welcome",
+		Subject:   "Hello {{name}}",
+		Body:      "Hi {{name}}, your plan is {{plan.tier}}.",
+		HTMLBody:  "<p>Hi {{name}}: {{{markup}}}</p>",
+		CreatedAt: time.Unix(1700000000, 0).UTC(),
+		UpdatedAt: time.Unix(1700000000, 0).UTC(),
+	}
+}
+
 // testServer builds a Server with fake collaborators and a sentinel legacy
 // handler, returning an httptest server so tests exercise the real chi+Huma
 // stack over the wire (transport layer in scope per the implement skill).
@@ -61,6 +74,73 @@ func testServer(t *testing.T) *httptest.Server {
 				return &a, nil
 			}
 			return nil, errors.New("not found")
+		},
+		CreateTemplate: func(ctx context.Context, userID, name, alias, subject, body, htmlBody string) (*identity.Template, error) {
+			if alias == "taken" {
+				return nil, identity.ErrTemplateAliasTaken
+			}
+			if userID == "u_overcap" {
+				return nil, identity.ErrTemplateLimitReached
+			}
+			return &identity.Template{
+				ID: "tmpl_new", UserID: userID, Name: name, Alias: alias,
+				Subject: subject, Body: body, HTMLBody: htmlBody,
+				CreatedAt: time.Unix(1700000000, 0).UTC(), UpdatedAt: time.Unix(1700000000, 0).UTC(),
+			}, nil
+		},
+		ListTemplates: func(ctx context.Context, userID string) ([]identity.Template, error) {
+			return []identity.Template{sampleTemplate()}, nil
+		},
+		GetTemplate: func(ctx context.Context, templateID, userID string) (*identity.Template, error) {
+			switch {
+			case userID != "u_1":
+				return nil, identity.ErrTemplateNotFound
+			case templateID == "tmpl_1":
+				tp := sampleTemplate()
+				return &tp, nil
+			case templateID == "tmpl_stale":
+				// A stored row whose source no longer parses (simulates a
+				// pre-tightening legacy row) — the send path must map its
+				// parse failure to template_render_failed.
+				tp := sampleTemplate()
+				tp.ID = "tmpl_stale"
+				tp.Body = "{{#section}}"
+				return &tp, nil
+			default:
+				return nil, identity.ErrTemplateNotFound
+			}
+		},
+		GetTemplateByAlias: func(ctx context.Context, alias, userID string) (*identity.Template, error) {
+			if alias == "welcome" && userID == "u_1" {
+				tp := sampleTemplate()
+				return &tp, nil
+			}
+			return nil, identity.ErrTemplateNotFound
+		},
+		UpdateTemplate: func(ctx context.Context, templateID, userID string, u identity.TemplateUpdate) (*identity.Template, error) {
+			if templateID != "tmpl_1" || userID != "u_1" {
+				return nil, identity.ErrTemplateNotFound
+			}
+			if u.Alias != nil && *u.Alias == "taken" {
+				return nil, identity.ErrTemplateAliasTaken
+			}
+			tp := sampleTemplate()
+			if u.Name != nil {
+				tp.Name = *u.Name
+			}
+			if u.Subject != nil {
+				tp.Subject = *u.Subject
+			}
+			if u.Body != nil {
+				tp.Body = *u.Body
+			}
+			return &tp, nil
+		},
+		DeleteTemplate: func(ctx context.Context, templateID, userID string) error {
+			if templateID == "tmpl_1" && userID == "u_1" {
+				return nil
+			}
+			return identity.ErrTemplateNotFound
 		},
 		CreateScopedAPIKey: func(ctx context.Context, userID, name, scope, agentID string, expiresAt *time.Time) (*identity.APIKey, error) {
 			if userID != "u_1" {
