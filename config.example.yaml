@@ -128,13 +128,13 @@ limits:
   billing_hook_url: ""
 
 
-# — Sending warmup ————————————————————————————————————————————————————————————
-# Per-domain sending warmup: an automatic ramp that raises a newly
+# — Sending ramp-up (new-domain daily limits) ———————————————————————————————————————————————————————————————————————————————————————————
+# Per-domain sending ramp-up (a.k.a. domain warm-up): an automatic ramp that raises a newly
 # sending-verified domain's daily outbound allowance over a fixed window so a
 # cold domain builds ISP reputation instead of blasting full volume on day one
 # (the same reputation-building ramp hosted email services apply to new
 # senders). Scoped per domain — mailbox providers track reputation per sending
-# domain. Warmup begins automatically the first time a domain becomes
+# domain. The ramp begins automatically the first time a domain becomes
 # sending-verified (see sender_identity) while this is enabled, and once a
 # domain's ramp completes it is never throttled again.
 #
@@ -142,15 +142,15 @@ limits:
 # and human-approved (HITL) releases alike — via an atomic per-(domain, UTC-day)
 # slot counter, so held drafts don't consume allowance until released and
 # concurrent bursts can't overshoot the cap. A throttled send returns 429
-# warmup_throttled with the day's cap, count so far, and retry_after_seconds
+# sending_ramp_limited with the day's cap, count so far, and retry_after_seconds
 # (until the next UTC midnight, when the counter resets and the cap steps up).
 #
 # Disabled by default so a self-host is never surprised by throttling, and
-# domains verified while disabled are never throttled retroactively if warmup
+# domains verified while disabled are never throttled retroactively if ramp-up
 # is enabled later. Omitted fields keep the defaults below individually.
-warmup:
+sending_ramp:
   enabled: false
-  start_daily: 50     # day-one allowance for a warming domain
+  start_daily: 50     # day-one allowance for a ramping domain
   target_daily: 2000  # full daily allowance at the end of the ramp
   ramp_days: 30       # days to climb from start_daily to target_daily
 

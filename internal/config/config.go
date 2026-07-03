@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Mnexa-AI/e2a/internal/warmup"
+	"github.com/Mnexa-AI/e2a/internal/sendramp"
 	"gopkg.in/yaml.v3"
 )
 
@@ -44,7 +44,7 @@ type Config struct {
 	SenderIdentity   SenderIdentityConfig   `yaml:"sender_identity"`
 	DeliveryFeedback DeliveryFeedbackConfig `yaml:"delivery_feedback"`
 	Limits           LimitsConfig           `yaml:"limits"`
-	Warmup           WarmupConfig           `yaml:"warmup"`
+	SendingRamp           SendingRampConfig           `yaml:"sending_ramp"`
 	Env              string                 `yaml:"env"` // "development" or "production"
 	// SharedDomain enables slug-based agent registration. When set
 	// (e.g. "agents.example.com"), users can register agents with just a
@@ -184,24 +184,24 @@ type LimitsConfig struct {
 	BillingHookURL string `yaml:"billing_hook_url"`
 }
 
-// WarmupConfig tunes the per-domain sending warmup ramp. Warmup begins
+// SendingRampConfig tunes the per-domain sending ramp-up. The ramp begins
 // automatically when a domain first becomes sending-verified and gradually
 // raises its daily outbound allowance from StartDaily to TargetDaily over
 // RampDays days — the same reputation-building ramp hosted email services
 // apply to new senders. It is scoped per domain (mailbox providers track
 // reputation per sending domain).
 //
-// Disabled by default so a self-host that never configures `warmup:` is not
+// Disabled by default so a self-host that never configures `sending_ramp:` is not
 // surprised by throttling; hosted operators set Enabled=true. The schedule
-// numbers are seeded from warmup.DefaultSchedule (50 → 2000 over 30 days)
+// numbers are seeded from sendramp.DefaultSchedule (50 → 2000 over 30 days)
 // before unmarshal, so omitted fields keep their defaults individually.
-type WarmupConfig struct {
-	// Enabled turns the ramp on. When false, neither the sender's warmup gate
+type SendingRampConfig struct {
+	// Enabled turns the ramp on. When false, neither the sender's ramp-up gate
 	// nor the identity store's ramp arming is wired: every send flows at full
 	// volume, and domains that verify meanwhile can never be throttled
-	// retroactively by enabling warmup later.
+	// retroactively by enabling ramp-up later.
 	Enabled bool `yaml:"enabled"`
-	// StartDaily is the day-one daily send allowance for a warming domain.
+	// StartDaily is the day-one daily send allowance for a ramping domain.
 	StartDaily int `yaml:"start_daily"`
 	// TargetDaily is the full daily allowance reached at the end of the ramp.
 	TargetDaily int `yaml:"target_daily"`
@@ -235,13 +235,13 @@ func Load(path string) (*Config, error) {
 			CacheTTLSeconds:  60,
 		},
 		// Seeded pre-unmarshal (the LimitsConfig pattern) so a partially-set
-		// `warmup:` block keeps per-field defaults — an operator who writes
+		// `sending_ramp:` block keeps per-field defaults — an operator who writes
 		// only `target_daily: 5000` still gets the default start and ramp
 		// window, not a degenerate clamped schedule.
-		Warmup: WarmupConfig{
-			StartDaily:  warmup.DefaultSchedule.StartDaily,
-			TargetDaily: warmup.DefaultSchedule.TargetDaily,
-			RampDays:    warmup.DefaultSchedule.RampDays,
+		SendingRamp: SendingRampConfig{
+			StartDaily:  sendramp.DefaultSchedule.StartDaily,
+			TargetDaily: sendramp.DefaultSchedule.TargetDaily,
+			RampDays:    sendramp.DefaultSchedule.RampDays,
 		},
 		Env: "development",
 	}

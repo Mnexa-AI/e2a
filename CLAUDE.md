@@ -75,7 +75,7 @@ The main server (`cmd/e2a/main.go`) runs an SMTP relay and HTTP API. Key interna
 - **webhook** — HTTP POST delivery to agent endpoints with retry
 - **ws** — WebSocket hub for real-time message push
 - **outbound** — Compose and send emails via upstream SMTP (SES)
-- **warmup** — per-domain sending warmup ramp; auto-throttles a newly sending-verified domain's daily outbound volume to build ISP reputation (config `warmup:`)
+- **sendramp** — per-domain sending ramp-up ramp; auto-throttles a newly sending-verified domain's daily outbound volume to build ISP reputation (config `sending_ramp:`)
 - **billing** — Stripe integration, usage metering
 - **auth** — API key authentication
 - **config** — YAML config + env var overrides

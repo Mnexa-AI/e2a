@@ -1,4 +1,4 @@
-package warmup
+package sendramp
 
 import (
 	"context"
@@ -8,21 +8,21 @@ import (
 	"time"
 )
 
-// Status values persisted in domains.warmup_status. Mirrors the CHECK
+// Status values persisted in domains.sending_ramp_status. Mirrors the CHECK
 // constraint in migration 050. Kept as string constants (not a typed enum) so
 // the identity store, which owns the column, does not import this package.
 const (
-	StatusInactive = "inactive" // no warmup in effect; enforcer no-ops
+	StatusInactive = "inactive" // no ramp-up in effect; enforcer no-ops
 	StatusActive   = "active"   // ramp running; daily cap applies
 	StatusPaused   = "paused"   // ramp suspended; enforcer no-ops
 )
 
-// StateReader reads a domain's warmup state. *identity.Store satisfies it.
-// Kept as an interface so warmup does not import identity (and its pgx deps)
+// StateReader reads a domain's ramp-up state. *identity.Store satisfies it.
+// Kept as an interface so ramp-up does not import identity (and its pgx deps)
 // and tests can inject a fake. domain must be the stored (normalized) form —
 // callers pass AgentIdentity.Domain, which is.
 type StateReader interface {
-	GetWarmupState(ctx context.Context, domain string) (status string, startedAt *time.Time, err error)
+	GetSendingRampState(ctx context.Context, domain string) (status string, startedAt *time.Time, err error)
 }
 
 // DailyReserver atomically reserves one send slot for the domain on the given
@@ -34,16 +34,16 @@ type StateReader interface {
 // satisfies it (domain_send_counters, migration 050).
 //
 // A reserved slot is consumed even if the send later fails downstream —
-// deliberately conservative: an error burst can only slow a warming domain
+// deliberately conservative: an error burst can only slow a ramping domain
 // down, never push it over its ramp.
 type DailyReserver interface {
 	ReserveDomainSend(ctx context.Context, domain string, day time.Time, cap int) (allowed bool, count int, err error)
 }
 
 // ThrottleError is returned by Enforcer.Reserve when a domain has reached its
-// warmup daily cap. Handlers map it to HTTP 429 with the details below so the
+// ramp-up daily cap. Handlers map it to HTTP 429 with the details below so the
 // caller can pace itself. It is a distinct type (not a limits error) because
-// warmup is a temporary, self-clearing throttle, not a plan cap.
+// ramp-up is a temporary, self-clearing throttle, not a plan cap.
 type ThrottleError struct {
 	Domain     string
 	DailyCap   int
@@ -52,7 +52,7 @@ type ThrottleError struct {
 }
 
 func (e *ThrottleError) Error() string {
-	return fmt.Sprintf("warmup: domain %s reached its daily warmup cap (%d/%d)", e.Domain, e.SentToday, e.DailyCap)
+	return fmt.Sprintf("sendramp: domain %s reached its daily ramp cap (%d/%d)", e.Domain, e.SentToday, e.DailyCap)
 }
 
 // AsThrottleError reports whether err is a *ThrottleError and returns it.
@@ -64,7 +64,7 @@ func AsThrottleError(err error) (*ThrottleError, bool) {
 	return nil, false
 }
 
-// Enforcer reserves warmup send slots for domains. It is safe for concurrent
+// Enforcer reserves ramp-up send slots for domains. It is safe for concurrent
 // use (its dependencies are; the reservation itself is atomic in SQL).
 type Enforcer struct {
 	reader   StateReader
@@ -75,7 +75,7 @@ type Enforcer struct {
 }
 
 // NewEnforcer builds the production enforcer. A nil reader OR counter yields a
-// no-op enforcer (Reserve always allows) so wiring warmup is optional — a
+// no-op enforcer (Reserve always allows) so wiring ramp-up is optional — a
 // self-host without the sending feature simply leaves it unset.
 func NewEnforcer(reader StateReader, counter DailyReserver, schedule Schedule) *Enforcer {
 	return &Enforcer{
@@ -85,16 +85,16 @@ func NewEnforcer(reader StateReader, counter DailyReserver, schedule Schedule) *
 	}
 }
 
-// Reserve claims one send slot for the domain under its warmup ramp. It
+// Reserve claims one send slot for the domain under its sending ramp. It
 // returns nil when the send may proceed and a *ThrottleError when the domain
 // has spent today's cap — those are the only two outcomes. It no-ops (allows,
-// reserving nothing) unless the domain's warmup_status is exactly "active"
+// reserving nothing) unless the domain's sending_ramp_status is exactly "active"
 // with a ramp anchor: inactive/paused domains, the shared relay domain,
 // ramp-completed domains, and self-host deployments without the sending
 // feature all flow at full volume. domain must be the stored (normalized)
 // form; AgentIdentity.Domain is.
 //
-// Fail-open on dependency errors: warmup is a reputation optimization, not a
+// Fail-open on dependency errors: ramp-up is a reputation optimization, not a
 // correctness gate, so a transient DB blip must not block legitimate mail.
 // The error is logged HERE (single owner of the policy) — a persistently
 // failing read is visible in the logs rather than silently disabling the
@@ -103,9 +103,9 @@ func (e *Enforcer) Reserve(ctx context.Context, domain string) error {
 	if e == nil || e.reader == nil || e.counter == nil || domain == "" {
 		return nil
 	}
-	status, startedAt, err := e.reader.GetWarmupState(ctx, domain)
+	status, startedAt, err := e.reader.GetSendingRampState(ctx, domain)
 	if err != nil {
-		e.printf("[warmup] state read failed for %s (allowing send): %v", domain, err)
+		e.printf("[sendramp] state read failed for %s (allowing send): %v", domain, err)
 		return nil
 	}
 	if status != StatusActive || startedAt == nil {
@@ -115,14 +115,14 @@ func (e *Enforcer) Reserve(ctx context.Context, domain string) error {
 	cap, done := e.schedule.DailyCap(*startedAt, now)
 	if done {
 		// Ramp completed: the domain has built its reputation and is never
-		// throttled (or counted) again, per the feature contract. warmup_status
+		// throttled (or counted) again, per the feature contract. sending_ramp_status
 		// stays 'active' — "completed" is derived, not stored.
 		return nil
 	}
 	day := now.UTC().Truncate(24 * time.Hour)
 	allowed, count, err := e.counter.ReserveDomainSend(ctx, domain, day, cap)
 	if err != nil {
-		e.printf("[warmup] slot reservation failed for %s (allowing send): %v", domain, err)
+		e.printf("[sendramp] slot reservation failed for %s (allowing send): %v", domain, err)
 		return nil
 	}
 	if !allowed {

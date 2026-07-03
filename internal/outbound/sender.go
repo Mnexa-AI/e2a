@@ -109,25 +109,25 @@ type Sender struct {
 	// SES publishes delivery/bounce/complaint events (decision 9 / Slice 4b).
 	// Empty (the default) = no header, no events — dev/self-host without SES.
 	sesConfigSet string
-	// warmupGate, when set, reserves one of the agent domain's daily warmup
-	// ramp slots right before the wire send (see Send). nil (warmup disabled,
+	// rampGate, when set, reserves one of the agent domain's daily ramp-up
+	// ramp slots right before the wire send (see Send). nil (ramp-up disabled,
 	// dev/self-host) leaves every send unthrottled.
-	warmupGate WarmupGate
+	rampGate SendingRampGate
 }
 
-// WarmupGate atomically claims a warmup send slot for a domain, returning a
-// *warmup.ThrottleError when the domain has spent its day's ramp cap and nil
+// SendingRampGate atomically claims a ramp-up send slot for a domain, returning a
+// *sendramp.ThrottleError when the domain has spent its day's ramp cap and nil
 // otherwise (including on internal read errors — the gate fails open inside).
-// *warmup.Enforcer satisfies it. Kept as an interface so outbound does not
-// depend on the warmup package and tests can inject a fake.
-type WarmupGate interface {
+// *sendramp.Enforcer satisfies it. Kept as an interface so outbound does not
+// depend on the ramp-up package and tests can inject a fake.
+type SendingRampGate interface {
 	Reserve(ctx context.Context, domain string) error
 }
 
-// SetWarmupGate enables per-domain sending-warmup enforcement on Send.
+// SetSendingRampGate enables per-domain sending-ramp-up enforcement on Send.
 // Optional-setter pattern (cf. SetSendingStatusLookup) so existing call sites
 // and tests are unaffected.
-func (s *Sender) SetWarmupGate(g WarmupGate) { s.warmupGate = g }
+func (s *Sender) SetSendingRampGate(g SendingRampGate) { s.rampGate = g }
 
 // SetSESConfigurationSet enables SES event publishing for outbound mail by
 // tagging each message with the given configuration set. Optional-setter
@@ -310,16 +310,16 @@ func (s *Sender) Send(agent *identity.AgentIdentity, req SendRequest) (*SendResu
 		message = append([]byte("X-SES-CONFIGURATION-SET: "+s.sesConfigSet+"\r\n"), message...)
 	}
 
-	// Per-domain sending warmup: reserve one of the domain's daily ramp slots
+	// Per-domain sending ramp-up: reserve one of the domain's daily ramp slots
 	// immediately before the wire send. This is the single chokepoint every
 	// producer of real upstream mail converges on — direct sends, HITL
 	// approvals (API + magic link), and the TTL auto-approve worker — while
 	// loopback self-sends and relay-domain test sends never reach it, so they
-	// are neither throttled nor counted. The gate returns *warmup.ThrottleError
+	// are neither throttled nor counted. The gate returns *sendramp.ThrottleError
 	// only (its internals fail open on dependency errors), which callers map to
-	// 429 warmup_throttled.
-	if s.warmupGate != nil {
-		if gerr := s.warmupGate.Reserve(context.Background(), agent.Domain); gerr != nil {
+	// 429 sending_ramp_limited.
+	if s.rampGate != nil {
+		if gerr := s.rampGate.Reserve(context.Background(), agent.Domain); gerr != nil {
 			return nil, gerr
 		}
 	}

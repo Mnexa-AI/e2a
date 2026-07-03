@@ -1,4 +1,4 @@
-package warmup
+package sendramp
 
 import (
 	"context"
@@ -13,7 +13,7 @@ type fakeReader struct {
 	err     error
 }
 
-func (f fakeReader) GetWarmupState(context.Context, string) (string, *time.Time, error) {
+func (f fakeReader) GetSendingRampState(context.Context, string) (string, *time.Time, error) {
 	return f.status, f.started, f.err
 }
 

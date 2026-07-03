@@ -479,8 +479,8 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 }
 
 // outboundErrorEnvelope maps an agent.OutboundError to the v1 error envelope,
-// carrying its structured details when present (e.g. warmup_throttled's
-// daily_cap / sent_today / retry_after_seconds pacing payload — the warmup
+// carrying its structured details when present (e.g. sending_ramp_limited's
+// daily_cap / sent_today / retry_after_seconds pacing payload — the ramp-up
 // gate itself lives in outbound.Sender.Send, so the 429 arrives here through
 // DeliverOutbound rather than a handler-level pre-check).
 func outboundErrorEnvelope(oe *agent.OutboundError) *ErrorEnvelope {

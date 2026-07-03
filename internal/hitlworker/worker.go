@@ -16,7 +16,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/loopback"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/usage"
-	"github.com/Mnexa-AI/e2a/internal/warmup"
+	"github.com/Mnexa-AI/e2a/internal/sendramp"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 )
 
@@ -228,13 +228,13 @@ func (w *Worker) autoApprove(ctx context.Context, c identity.ExpirationCandidate
 		if err == identity.ErrSendInProgress {
 			return
 		}
-		// Warmup ramp throttle: the domain has spent today's sending
+		// SendingRamp ramp throttle: the domain has spent today's sending
 		// allowance. This is a self-clearing pacing condition, NOT a send
 		// failure — auto-rejecting would terminally drop a message the
 		// operator asked to approve, just because it expired on a busy ramp
 		// day. Leave the row pending; a later poll (after the UTC-midnight
 		// reset at the latest) retries the approve-and-send.
-		if te, ok := warmup.AsThrottleError(err); ok {
+		if te, ok := sendramp.AsThrottleError(err); ok {
 			log.Printf("[hitl-worker] auto-approve %s deferred: %v (retrying next poll)", c.MessageID, te)
 			return
 		}

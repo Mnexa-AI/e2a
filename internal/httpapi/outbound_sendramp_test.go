@@ -13,15 +13,15 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/agent"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
-	"github.com/Mnexa-AI/e2a/internal/warmup"
+	"github.com/Mnexa-AI/e2a/internal/sendramp"
 )
 
-// warmupSendServer builds a minimal send-capable server whose DeliverOutbound
-// dep is driven by the supplied func. The warmup gate itself lives in
+// rampSendServer builds a minimal send-capable server whose DeliverOutbound
+// dep is driven by the supplied func. The ramp-up gate itself lives in
 // outbound.Sender.Send (below the DeliverOutbound seam), so at this layer the
 // contract under test is the wire mapping: a *agent.OutboundError carrying the
-// warmup 429 must reach the client with its structured pacing details intact.
-func warmupSendServer(t *testing.T, deliver func() *agent.OutboundError) *httptest.Server {
+// ramp-up 429 must reach the client with its structured pacing details intact.
+func rampSendServer(t *testing.T, deliver func() *agent.OutboundError) *httptest.Server {
 	t.Helper()
 	ag := &identity.AgentIdentity{ID: "support@acme.com", Email: "support@acme.com", Domain: "acme.com", UserID: "u_1", DomainVerified: true}
 	srv := httptest.NewServer(New(Deps{
@@ -43,7 +43,7 @@ func warmupSendServer(t *testing.T, deliver func() *agent.OutboundError) *httpte
 	return srv
 }
 
-func warmupSend(t *testing.T, srv *httptest.Server) (int, map[string]any) {
+func rampSend(t *testing.T, srv *httptest.Server) (int, map[string]any) {
 	t.Helper()
 	b, _ := json.Marshal(map[string]any{"to": []string{"x@y.com"}, "subject": "Hi", "body": "hello"})
 	req, _ := http.NewRequest("POST", srv.URL+"/v1/agents/support%40acme.com/messages", bytes.NewReader(b))
@@ -59,19 +59,19 @@ func warmupSend(t *testing.T, srv *httptest.Server) (int, map[string]any) {
 	return resp.StatusCode, body
 }
 
-// A domain over its warmup daily cap surfaces as 429 warmup_throttled with the
+// A domain over its ramp-up daily cap surfaces as 429 sending_ramp_limited with the
 // pacing details (daily_cap / sent_today / retry_after_seconds) intact through
 // the DeliverOutbound → error-envelope mapping. This exercises the same
-// OutboundError the agent layer builds from the sender's *warmup.ThrottleError.
-func TestSendWarmupThrottled(t *testing.T) {
-	srv := warmupSendServer(t, func() *agent.OutboundError {
-		te := &warmup.ThrottleError{Domain: "acme.com", DailyCap: 50, SentToday: 50, RetryAfter: 3 * time.Hour}
-		return agent.WarmupThrottleError(te)
+// OutboundError the agent layer builds from the sender's *sendramp.ThrottleError.
+func TestSendSendingRampThrottled(t *testing.T) {
+	srv := rampSendServer(t, func() *agent.OutboundError {
+		te := &sendramp.ThrottleError{Domain: "acme.com", DailyCap: 50, SentToday: 50, RetryAfter: 3 * time.Hour}
+		return agent.SendingRampLimitError(te)
 	})
 
-	code, body := warmupSend(t, srv)
-	if code != http.StatusTooManyRequests || errCode(body) != "warmup_throttled" {
-		t.Fatalf("want 429 warmup_throttled, got %d %v", code, body)
+	code, body := rampSend(t, srv)
+	if code != http.StatusTooManyRequests || errCode(body) != "sending_ramp_limited" {
+		t.Fatalf("want 429 sending_ramp_limited, got %d %v", code, body)
 	}
 	errObj, _ := body["error"].(map[string]any)
 	det, _ := errObj["details"].(map[string]any)
@@ -92,19 +92,19 @@ func TestSendWarmupThrottled(t *testing.T) {
 // A plain OutboundError without details keeps its envelope shape (no details
 // key materializes from nil).
 func TestSendOutboundErrorWithoutDetails(t *testing.T) {
-	srv := warmupSendServer(t, func() *agent.OutboundError {
+	srv := rampSendServer(t, func() *agent.OutboundError {
 		return &agent.OutboundError{Status: http.StatusForbidden, Code: "blocked_by_policy", Msg: "message blocked by outbound policy"}
 	})
-	code, body := warmupSend(t, srv)
+	code, body := rampSend(t, srv)
 	if code != http.StatusForbidden || errCode(body) != "blocked_by_policy" {
 		t.Fatalf("want 403 blocked_by_policy, got %d %v", code, body)
 	}
 }
 
 // The happy path is unaffected.
-func TestSendWarmupAllowed(t *testing.T) {
-	srv := warmupSendServer(t, func() *agent.OutboundError { return nil })
-	code, body := warmupSend(t, srv)
+func TestSendSendingRampAllowed(t *testing.T) {
+	srv := rampSendServer(t, func() *agent.OutboundError { return nil })
+	code, body := rampSend(t, srv)
 	if code != http.StatusOK {
 		t.Fatalf("under cap: want 200, got %d %v", code, body)
 	}

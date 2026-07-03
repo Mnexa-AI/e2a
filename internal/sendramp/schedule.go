@@ -1,4 +1,4 @@
-// Package warmup implements per-domain sending warmup: an automatic,
+// Package sendramp implements per-domain sending ramp-up (domain warm-up): an automatic,
 // transparent ramp that raises a newly sending-verified domain's daily
 // outbound allowance over a fixed window so a cold domain builds ISP
 // reputation instead of blasting full volume on day one — the same behavior
@@ -12,9 +12,9 @@
 //   - Enforcer (enforcer.go) binds a Schedule to a domain-state reader and an
 //     atomic per-domain daily send counter to reserve send slots.
 //
-// Warmup is scoped PER DOMAIN because mailbox providers track reputation per
+// SendingRamp is scoped PER DOMAIN because mailbox providers track reputation per
 // sending domain, not per agent or account.
-package warmup
+package sendramp
 
 import "time"
 
@@ -26,7 +26,7 @@ import "time"
 // ~505"), and never overshoots the target. A zero-value Schedule is not valid;
 // construct via NewSchedule so the fields are sanitized.
 type Schedule struct {
-	// StartDaily is the allowance on day 0 (the UTC calendar day warmup begins).
+	// StartDaily is the allowance on day 0 (the UTC calendar day ramp-up begins).
 	StartDaily int
 	// TargetDaily is the full daily allowance reached at the end of the ramp.
 	TargetDaily int
@@ -37,7 +37,7 @@ type Schedule struct {
 
 // DefaultSchedule is the built-in ramp — a conservative curve that suits a
 // brand-new domain: 50 sends on day one climbing to 2,000/day over 30 days.
-// config.Load seeds the `warmup:` section from these numbers so a partially
+// config.Load seeds the `sending_ramp:` section from these numbers so a partially
 // set config keeps per-field defaults.
 var DefaultSchedule = Schedule{StartDaily: 50, TargetDaily: 2000, RampDays: 30}
 
@@ -64,7 +64,7 @@ func NewSchedule(startDaily, targetDaily, rampDays int) Schedule {
 
 // DailyCap returns the number of messages the domain may send during the UTC
 // calendar day containing now, and whether the ramp has completed (the cap has
-// reached TargetDaily). startedAt is when warmup began for the domain.
+// reached TargetDaily). startedAt is when ramp-up began for the domain.
 //
 // The day index is the number of UTC calendar-day boundaries between startedAt
 // and now, so the cap steps up at UTC midnight — the same instant the

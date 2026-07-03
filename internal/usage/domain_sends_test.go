@@ -10,7 +10,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/usage"
 )
 
-// ReserveDomainSend is the warmup numerator: an atomic per-(domain, UTC day)
+// ReserveDomainSend is the ramp-up numerator: an atomic per-(domain, UTC day)
 // slot reservation guarded by the day's cap. It must count per domain per day,
 // refuse exactly at the cap, and never jointly overshoot under concurrency.
 func TestReserveDomainSend(t *testing.T) {

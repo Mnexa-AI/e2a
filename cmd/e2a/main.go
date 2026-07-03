@@ -31,7 +31,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/senderidentity"
 	"github.com/Mnexa-AI/e2a/internal/telemetry"
 	"github.com/Mnexa-AI/e2a/internal/usage"
-	"github.com/Mnexa-AI/e2a/internal/warmup"
+	"github.com/Mnexa-AI/e2a/internal/sendramp"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"github.com/Mnexa-AI/e2a/internal/ws"
@@ -386,18 +386,18 @@ func main() {
 	)
 	api.SetEnforcer(enforcer)
 
-	// Per-domain sending warmup (email-warmup-support). Wired only when
+	// Per-domain sending ramp-up (email-warmup-support). Wired only when
 	// enabled: the identity store arms the ramp on first sending-verified, and
 	// the sender reserves a ramp slot right before every wire send — the one
 	// chokepoint direct sends and all HITL release paths share. Disabled (the
 	// default) leaves both unset, so every send flows at full volume. The
-	// schedule numbers are seeded by config.Load from warmup.DefaultSchedule,
-	// so a partially-set `warmup:` block keeps per-field defaults.
-	if cfg.Warmup.Enabled {
-		sched := warmup.NewSchedule(cfg.Warmup.StartDaily, cfg.Warmup.TargetDaily, cfg.Warmup.RampDays)
-		store.SetWarmupArming(true)
-		sender.SetWarmupGate(warmup.NewEnforcer(store, usageStore, sched))
-		log.Printf("[warmup] per-domain sending warmup enabled: %d → %d/day over %d days",
+	// schedule numbers are seeded by config.Load from sendramp.DefaultSchedule,
+	// so a partially-set `sending_ramp:` block keeps per-field defaults.
+	if cfg.SendingRamp.Enabled {
+		sched := sendramp.NewSchedule(cfg.SendingRamp.StartDaily, cfg.SendingRamp.TargetDaily, cfg.SendingRamp.RampDays)
+		store.SetSendingRampArming(true)
+		sender.SetSendingRampGate(sendramp.NewEnforcer(store, usageStore, sched))
+		log.Printf("[sendramp] per-domain sending ramp-up enabled: %d → %d/day over %d days",
 			sched.StartDaily, sched.TargetDaily, sched.RampDays)
 	}
 	api.SetUsageStore(usageStore)

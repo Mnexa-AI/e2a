@@ -1,23 +1,23 @@
--- 050_domain_warmup.sql
+-- 050_domain_sending_ramp.sql
 --
--- Per-domain sending warmup (email-warmup-support).
+-- Per-domain sending ramp-up (email-warmup-support).
 --
--- Warmup gradually raises a newly sending-verified domain's daily outbound
+-- SendingRamp gradually raises a newly sending-verified domain's daily outbound
 -- allowance over a ramp window so a cold domain builds ISP reputation instead
 -- of blasting full volume on day one (the same automatic ramp SES/Postmark/
 -- SendGrid apply to new senders). It is scoped PER DOMAIN because mailbox
 -- providers track reputation per sending domain, not per agent or account.
 --
--- warmup_status lifecycle:
---   inactive — default; no warmup in effect (self-host / SES not configured,
---              warmup disabled in config, or a domain that never reached
+-- sending_ramp_status lifecycle:
+--   inactive — default; no ramp-up in effect (self-host / SES not configured,
+--              ramp-up disabled in config, or a domain that never reached
 --              sending-verified). The enforcer no-ops, so every send is
 --              allowed. This keeps the migration behavior-neutral until a
---              domain first becomes sending-verified with warmup enabled.
+--              domain first becomes sending-verified with ramp-up enabled.
 --   active   — the ramp is running: outbound for this domain is capped at the
---              schedule's per-day allowance (a function of warmup_started_at).
+--              schedule's per-day allowance (a function of sending_ramp_started_at).
 --              Set exactly once, when sending_status first flips to 'verified'
---              while warmup is enabled (see identity.Store.SetSendingStatus),
+--              while ramp-up is enabled (see identity.Store.SetSendingStatus),
 --              and never re-armed later — reputation, once built, is not
 --              rebuilt.
 --   paused   — an operator has suspended the ramp (manual SQL for now; no API
@@ -26,21 +26,21 @@
 -- "Completed" is NOT a stored state: once the ramp window elapses the enforcer
 -- short-circuits on the schedule's done flag, so an 'active' domain past its
 -- ramp is unthrottled (and uncounted) without a status write. Callers that
--- want to render "completed" derive it from warmup.Schedule.DailyCap's done
+-- want to render "completed" derive it from sendramp.Schedule.DailyCap's done
 -- return.
 --
--- warmup_started_at is the ramp anchor. It is stamped on the FIRST transition
--- to sending-verified regardless of whether warmup is enabled (see the
+-- sending_ramp_started_at is the ramp anchor. It is stamped on the FIRST transition
+-- to sending-verified regardless of whether ramp-up is enabled (see the
 -- backfill note below for why), and never overwritten.
 --
--- domain_send_counters is the warmup numerator: one row per (domain, UTC day),
+-- domain_send_counters is the ramp-up numerator: one row per (domain, UTC day),
 -- incremented atomically at actual wire-send time by
 -- usage.Store.ReserveDomainSend with the day's cap as a guard, so concurrent
 -- sends serialize on the row and can never jointly overshoot the ramp. It is
 -- deliberately independent of the messages table: message rows are cascade-
 -- deleted with their agent, and held-for-review drafts are created days before
 -- they hit the wire — neither may perturb the count of what actually left for
--- the ISPs. Row volume is tiny (only actively-warming domains write here, one
+-- the ISPs. Row volume is tiny (only actively-ramping domains write here, one
 -- row per day, and ramp-completed domains stop writing), so no retention job
 -- is needed.
 --
@@ -50,25 +50,25 @@
 -- (metadata-only on domains, no rewrite).
 
 ALTER TABLE domains
-    ADD COLUMN IF NOT EXISTS warmup_status TEXT NOT NULL DEFAULT 'inactive';
+    ADD COLUMN IF NOT EXISTS sending_ramp_status TEXT NOT NULL DEFAULT 'inactive';
 
 ALTER TABLE domains
-    ADD COLUMN IF NOT EXISTS warmup_started_at TIMESTAMPTZ;
+    ADD COLUMN IF NOT EXISTS sending_ramp_started_at TIMESTAMPTZ;
 
 DO $$ BEGIN
-    ALTER TABLE domains ADD CONSTRAINT domains_warmup_status_check
-        CHECK (warmup_status IN ('inactive', 'active', 'paused'));
+    ALTER TABLE domains ADD CONSTRAINT domains_sending_ramp_status_check
+        CHECK (sending_ramp_status IN ('inactive', 'active', 'paused'));
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Backfill: domains that were already sending-verified before this feature
 -- shipped have built their reputation at full volume. Stamp their anchor now
 -- (status stays 'inactive') so the arm-once CASE in SetSendingStatus — which
--- keys "first verification" on warmup_started_at IS NULL — can never arm a
+-- keys "first verification" on sending_ramp_started_at IS NULL — can never arm a
 -- day-0 ramp on an established sender via a later re-verify or status flap.
 UPDATE domains
-   SET warmup_started_at = now()
+   SET sending_ramp_started_at = now()
  WHERE sending_status = 'verified'
-   AND warmup_started_at IS NULL;
+   AND sending_ramp_started_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS domain_send_counters (
     domain TEXT NOT NULL,

@@ -147,9 +147,9 @@ func (s *Store) MessagesThisMonth(ctx context.Context, userID string) (int, erro
 	return count, err
 }
 
-// ReserveDomainSend atomically claims one warmup send slot for the domain on
+// ReserveDomainSend atomically claims one ramp-up send slot for the domain on
 // the given UTC calendar day, refusing once the day's count would exceed cap.
-// It is the warmup enforcer's numerator (satisfies warmup.DailyReserver) and
+// It is the ramp-up enforcer's numerator (satisfies sendramp.DailyReserver) and
 // is called at actual wire-send time (outbound.Sender.Send), so held-for-review
 // drafts don't consume slots until they are released, and agent churn cannot
 // rewind the count — the counter row (domain_send_counters, migration 050)

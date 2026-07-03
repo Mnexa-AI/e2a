@@ -340,9 +340,9 @@ type Store struct {
 	// Optional: nil ⇒ keys are stored as plaintext DER (dev/test without a
 	// configured signing secret). cmd/e2a always installs it in production.
 	dkimCipher *DKIMCipher
-	// armWarmup mirrors config `warmup.enabled` (SetWarmupArming): whether a
-	// domain's first sending-verified transition arms the warmup ramp.
-	armWarmup bool
+	// armSendingRamp mirrors config `sending_ramp.enabled` (SetSendingRampArming): whether a
+	// domain's first sending-verified transition arms the sending ramp.
+	armSendingRamp bool
 }
 
 func NewStore(pool *pgxpool.Pool) *Store {
@@ -650,17 +650,17 @@ func (s *Store) SetSendingStatus(ctx context.Context, domain, status, dkimStatus
 	if errMsg != "" {
 		errPtr = &errMsg
 	}
-	// The two warmup_* CASE clauses fire exactly once, on the FIRST transition
-	// to 'verified' (warmup_started_at still NULL); a later re-verify (forced
+	// The two sending_ramp_* CASE clauses fire exactly once, on the FIRST transition
+	// to 'verified' (sending_ramp_started_at still NULL); a later re-verify (forced
 	// re-check, reconcile flap) leaves them untouched, so a domain that has
 	// already built reputation is never dropped back to day-one throttling.
 	// The anchor is stamped on every first verify, but the ramp is armed
-	// (status 'active') only while warmup is enabled ($7, SetWarmupArming) —
-	// so a domain that verifies and builds volume while warmup is off keeps
-	// its non-NULL anchor and 'inactive' status, and enabling warmup later can
+	// (status 'active') only while ramp-up is enabled ($7, SetSendingRampArming) —
+	// so a domain that verifies and builds volume while ramp-up is off keeps
+	// its non-NULL anchor and 'inactive' status, and enabling ramp-up later can
 	// never retroactively throttle it. Migration 050's backfill gives
 	// pre-feature verified domains the same protection. Every non-verified
-	// status write is a no-op on the warmup columns — warmup stays wholly a
+	// status write is a no-op on the ramp-up columns — ramp-up stays wholly a
 	// side effect of becoming sending-verified, with no separate call site to
 	// forget.
 	_, err := s.pool.Exec(ctx,
@@ -671,34 +671,34 @@ func (s *Store) SetSendingStatus(ctx context.Context, domain, status, dkimStatus
 		        sending_dkim_status = $5,
 		        sending_mail_from_status = $6,
 		        sending_last_checked_at = now(),
-		        warmup_status = CASE
-		            WHEN $7 AND $2 = 'verified' AND warmup_started_at IS NULL THEN 'active'
-		            ELSE warmup_status END,
-		        warmup_started_at = CASE
-		            WHEN $2 = 'verified' AND warmup_started_at IS NULL THEN now()
-		            ELSE warmup_started_at END
+		        sending_ramp_status = CASE
+		            WHEN $7 AND $2 = 'verified' AND sending_ramp_started_at IS NULL THEN 'active'
+		            ELSE sending_ramp_status END,
+		        sending_ramp_started_at = CASE
+		            WHEN $2 = 'verified' AND sending_ramp_started_at IS NULL THEN now()
+		            ELSE sending_ramp_started_at END
 		  WHERE domain = $1`,
 		normalizeDomain(domain), status, errPtr, recordsJSON, nullIfEmpty(dkimStatus), nullIfEmpty(mailFromStatus),
-		s.armWarmup,
+		s.armSendingRamp,
 	)
 	return err
 }
 
-// SetWarmupArming controls whether SetSendingStatus arms the sending warmup
-// ramp (warmup_status='active') when a domain first becomes sending-verified.
-// Wired from config `warmup.enabled` at startup. Off (the default) still
+// SetSendingRampArming controls whether SetSendingStatus arms the sending ramp-up
+// ramp (sending_ramp_status='active') when a domain first becomes sending-verified.
+// Wired from config `sending_ramp.enabled` at startup. Off (the default) still
 // stamps the ramp anchor on first verify — see SetSendingStatus — so the
 // enable-later transition is always safe.
-func (s *Store) SetWarmupArming(enabled bool) { s.armWarmup = enabled }
+func (s *Store) SetSendingRampArming(enabled bool) { s.armSendingRamp = enabled }
 
-// GetWarmupState returns the domain's warmup status and ramp-anchor timestamp
+// GetSendingRampState returns the domain's ramp-up status and ramp-anchor timestamp
 // (migration 050). startedAt is nil until the domain first became
-// sending-verified. Satisfies warmup.StateReader. Propagates pgx.ErrNoRows
-// when the domain row is gone — the warmup enforcer treats any read error as
+// sending-verified. Satisfies sendramp.StateReader. Propagates pgx.ErrNoRows
+// when the domain row is gone — the ramp-up enforcer treats any read error as
 // fail-open (allow the send), so a missing row never blocks mail.
-func (s *Store) GetWarmupState(ctx context.Context, domain string) (status string, startedAt *time.Time, err error) {
+func (s *Store) GetSendingRampState(ctx context.Context, domain string) (status string, startedAt *time.Time, err error) {
 	err = s.pool.QueryRow(ctx,
-		`SELECT warmup_status, warmup_started_at FROM domains WHERE domain = $1`,
+		`SELECT sending_ramp_status, sending_ramp_started_at FROM domains WHERE domain = $1`,
 		normalizeDomain(domain),
 	).Scan(&status, &startedAt)
 	if err != nil {

@@ -10,7 +10,7 @@ import (
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
-	"github.com/Mnexa-AI/e2a/internal/warmup"
+	"github.com/Mnexa-AI/e2a/internal/sendramp"
 )
 
 // approveRequest is the JSON body accepted by the approve endpoint. Every
@@ -123,12 +123,12 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 		case errors.Is(err, identity.ErrNotPendingApproval):
 			return nil, &OutboundError{Status: http.StatusConflict, Code: "message_not_pending", Msg: "message is not pending approval"}
 		default:
-			// Warmup ramp throttle: the release itself is what hits the wire,
+			// SendingRamp ramp throttle: the release itself is what hits the wire,
 			// so it is gated like any other send. ApproveAndSend rolled back —
 			// the message stays pending_review and the approver can retry
 			// after the reset the details point at.
-			if te, ok := warmup.AsThrottleError(err); ok {
-				return nil, WarmupThrottleError(te)
+			if te, ok := sendramp.AsThrottleError(err); ok {
+				return nil, SendingRampLimitError(te)
 			}
 			var ve *outbound.ValidationError
 			if errors.As(err, &ve) {

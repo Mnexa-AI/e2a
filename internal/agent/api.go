@@ -30,7 +30,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/ratelimit"
 	"github.com/Mnexa-AI/e2a/internal/telemetry"
 	"github.com/Mnexa-AI/e2a/internal/usage"
-	"github.com/Mnexa-AI/e2a/internal/warmup"
+	"github.com/Mnexa-AI/e2a/internal/sendramp"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"github.com/google/go-github/v72/github"
@@ -1106,20 +1106,20 @@ type OutboundError struct {
 
 func (e *OutboundError) Error() string { return e.Msg }
 
-// WarmupThrottleError maps a warmup ramp throttle to the 429 warmup_throttled
+// SendingRampLimitError maps a sending ramp throttle to the 429 sending_ramp_limited
 // wire error, carrying the pacing details (day cap, count so far, seconds
 // until the UTC-midnight reset) so callers can back off instead of retrying
 // blind. Shared by the direct send path and the HITL release paths — every
-// producer that can hit the sender's warmup gate.
-func WarmupThrottleError(te *warmup.ThrottleError) *OutboundError {
+// producer that can hit the sender's ramp-up gate.
+func SendingRampLimitError(te *sendramp.ThrottleError) *OutboundError {
 	secs := int(te.RetryAfter.Round(time.Second).Seconds())
 	if secs < 1 {
 		secs = 1
 	}
 	return &OutboundError{
 		Status: http.StatusTooManyRequests,
-		Code:   "warmup_throttled",
-		Msg:    "sending is warming up for this domain — daily volume is ramping up to protect deliverability; retry after the reset",
+		Code:   "sending_ramp_limited",
+		Msg:    "this domain's daily sending limit is still ramping up to protect deliverability — retry after the reset",
 		Details: map[string]any{
 			"domain":              te.Domain,
 			"daily_cap":           te.DailyCap,
@@ -1250,8 +1250,8 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 
 	result, err := a.sender.Send(agent, req)
 	if err != nil {
-		if te, ok := warmup.AsThrottleError(err); ok {
-			return nil, WarmupThrottleError(te)
+		if te, ok := sendramp.AsThrottleError(err); ok {
+			return nil, SendingRampLimitError(te)
 		}
 		if outbound.IsValidationError(err) {
 			return nil, &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: err.Error()}

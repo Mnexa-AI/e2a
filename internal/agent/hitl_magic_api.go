@@ -12,7 +12,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/approvaltoken"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
-	"github.com/Mnexa-AI/e2a/internal/warmup"
+	"github.com/Mnexa-AI/e2a/internal/sendramp"
 )
 
 // The magic-link flow is split into GET (render a confirmation page) and
@@ -221,12 +221,12 @@ func (a *API) magicApprove(w http.ResponseWriter, r *http.Request, messageID, us
 				"Already resolved",
 				"This message has already been approved, rejected, or expired.")
 		default:
-			// Warmup ramp throttle: the message stays pending_review (the
+			// SendingRamp ramp throttle: the message stays pending_review (the
 			// approve transaction rolled back) — approving again after the
 			// UTC-midnight reset will send it.
-			if te, ok := warmup.AsThrottleError(err); ok {
+			if te, ok := sendramp.AsThrottleError(err); ok {
 				writeMagicMessage(w, http.StatusTooManyRequests,
-					"Sending is warming up",
+					"Sending limit ramping up",
 					fmt.Sprintf("This domain's daily sending volume is still ramping up to protect deliverability (%d of %d today). The message stays pending — approve it again after the daily reset.",
 						te.SentToday, te.DailyCap))
 				return
