@@ -141,7 +141,11 @@ limits:
 # The ramp is enforced where mail actually leaves for the ISPs — direct sends
 # and human-approved (HITL) releases alike — via an atomic per-(domain, UTC-day)
 # slot counter, so held drafts don't consume allowance until released and
-# concurrent bursts can't overshoot the cap. A throttled send returns 429
+# concurrent bursts can't overshoot the cap. The counter aggregates at the
+# REGISTRABLE domain (eTLD+1 per the Public Suffix List): sibling subdomains
+# ramp on their own schedules but draw from one shared daily pool, so
+# registering many subdomains can't multiply day-one volume — reputation is
+# scored at the organizational domain anyway. A throttled send returns 429
 # sending_ramp_limited with the day's cap, count so far, and retry_after_seconds
 # (until the next UTC midnight, when the counter resets and the cap steps up).
 #

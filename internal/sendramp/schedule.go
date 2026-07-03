@@ -13,7 +13,10 @@
 //     atomic per-domain daily send counter to reserve send slots.
 //
 // SendingRamp is scoped PER DOMAIN because mailbox providers track reputation per
-// sending domain, not per agent or account.
+// sending domain, not per agent or account. The ramp state (status + anchor)
+// lives on the exact verified domain; the daily counter aggregates at the
+// REGISTRABLE domain (eTLD+1) so sibling subdomains share one allowance — see
+// counterKey in enforcer.go.
 package sendramp
 
 import "time"

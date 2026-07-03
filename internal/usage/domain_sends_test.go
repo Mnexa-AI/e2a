@@ -48,6 +48,41 @@ func TestReserveDomainSend(t *testing.T) {
 	}
 }
 
+// A non-positive cap grants nothing — including the FIRST reservation of a
+// (domain, day), which takes the upsert's unconditional INSERT arm and would
+// otherwise slip past the DO UPDATE arm's cap guard. Unreachable via the
+// enforcer (NewSchedule floors the cap at 1) but the contract must hold for
+// any caller.
+func TestReserveDomainSendZeroCap(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := usage.NewStore(pool)
+
+	day := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
+	const domain = "zerocap.example.com"
+
+	// Fresh (domain, day): refused, and no phantom row is created.
+	for _, cap := range []int{0, -1} {
+		if allowed, count, err := store.ReserveDomainSend(ctx, domain, day, cap); err != nil || allowed || count != 0 {
+			t.Fatalf("cap %d fresh: got allowed=%v count=%d err=%v, want false/0/nil", cap, allowed, count, err)
+		}
+	}
+	var rows int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM domain_send_counters WHERE domain = $1`, domain,
+	).Scan(&rows); err != nil || rows != 0 {
+		t.Fatalf("zero-cap refusal must not create a row: rows=%d err=%v", rows, err)
+	}
+
+	// With prior spend, a zero cap still refuses and reports the day's total.
+	if allowed, _, err := store.ReserveDomainSend(ctx, domain, day, 5); err != nil || !allowed {
+		t.Fatalf("seed spend: allowed=%v err=%v", allowed, err)
+	}
+	if allowed, count, err := store.ReserveDomainSend(ctx, domain, day, 0); err != nil || allowed || count != 1 {
+		t.Fatalf("cap 0 after spend: got allowed=%v count=%d err=%v, want false/1/nil", allowed, count, err)
+	}
+}
+
 // The reservation must hold under concurrency: N parallel claims against a cap
 // admit exactly cap sends, never cap+overshoot — this is the property the old
 // read-count-then-compare check lacked.

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"time"
+
+	"golang.org/x/net/publicsuffix"
 )
 
 // Status values persisted in domains.sending_ramp_status. Mirrors the CHECK
@@ -25,13 +27,15 @@ type StateReader interface {
 	GetSendingRampState(ctx context.Context, domain string) (status string, startedAt *time.Time, err error)
 }
 
-// DailyReserver atomically reserves one send slot for the domain on the given
-// UTC calendar day, refusing once count would exceed cap: the
+// DailyReserver atomically reserves one send slot for the counter key on the
+// given UTC calendar day, refusing once count would exceed cap: the
 // increment-if-below-cap runs as a single statement, so concurrent sends
 // serialize on the counter row and can never jointly overshoot the cap
 // (unlike a read-count-then-compare check). allowed=false means the day's cap
-// is spent; count is the day's running total either way. *usage.Store
-// satisfies it (domain_send_counters, migration 050).
+// is spent; count is the day's running total either way. The enforcer keys the
+// counter on the sending domain's REGISTRABLE domain (eTLD+1, see counterKey),
+// not the exact domain — see Reserve. *usage.Store satisfies it
+// (domain_send_counters, migration 050).
 //
 // A reserved slot is consumed even if the send later fails downstream —
 // deliberately conservative: an error burst can only slow a ramping domain
@@ -94,6 +98,11 @@ func NewEnforcer(reader StateReader, counter DailyReserver, schedule Schedule) *
 // feature all flow at full volume. domain must be the stored (normalized)
 // form; AgentIdentity.Domain is.
 //
+// The ramp STATE (status + anchor) is read per exact domain, but the slot is
+// reserved against the domain's registrable domain (eTLD+1, see counterKey):
+// sibling subdomains ramp on their own anchors while drawing from one shared
+// daily pool, so registering many subdomains cannot multiply day-one volume.
+//
 // Fail-open on dependency errors: ramp-up is a reputation optimization, not a
 // correctness gate, so a transient DB blip must not block legitimate mail.
 // The error is logged HERE (single owner of the policy) — a persistently
@@ -120,7 +129,7 @@ func (e *Enforcer) Reserve(ctx context.Context, domain string) error {
 		return nil
 	}
 	day := now.UTC().Truncate(24 * time.Hour)
-	allowed, count, err := e.counter.ReserveDomainSend(ctx, domain, day, cap)
+	allowed, count, err := e.counter.ReserveDomainSend(ctx, counterKey(domain), day, cap)
 	if err != nil {
 		e.printf("[sendramp] slot reservation failed for %s (allowing send): %v", domain, err)
 		return nil
@@ -149,6 +158,31 @@ func (e *Enforcer) printf(format string, v ...any) {
 		return
 	}
 	log.Printf(format, v...)
+}
+
+// counterKey is the domain_send_counters key for a sending domain: its
+// registrable domain (eTLD+1 per the Public Suffix List), so every subdomain
+// of one registered name draws from ONE shared daily allowance. Keying on the
+// exact domain would let an abuser multiply their day-one volume arbitrarily
+// by verifying m1.spam.example … mN.spam.example (each subdomain is trivially
+// DNS-verifiable by whoever controls the parent zone) — and mailbox providers
+// score reputation at the organizational domain anyway, so the shared pool is
+// the honest model. The PSL keeps genuinely independent senders separate:
+// alice.github.io and bob.github.io ARE distinct registrable domains.
+//
+// Consequence, deliberate: distinct e2a accounts verifying sibling subdomains
+// of one registrable domain share a ramp pool (and the 429's sent_today
+// reflects the pool). Anyone able to pass DNS verification under one apex is
+// one sending org as far as reputation goes.
+//
+// Falls back to the domain unchanged when the PSL cannot derive a registrable
+// domain (the domain IS a public suffix, single-label hosts like
+// "e2a.localhost" in dev, etc.) — per-domain keying is the safe degradation.
+func counterKey(domain string) string {
+	if reg, err := publicsuffix.EffectiveTLDPlusOne(domain); err == nil && reg != "" {
+		return reg
+	}
+	return domain
 }
 
 // untilNextUTCMidnight is how long until the per-domain daily counter resets

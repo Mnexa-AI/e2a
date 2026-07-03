@@ -2117,6 +2117,22 @@ type ExpirationCandidate struct {
 	ExpirationAction string // 'approve' or 'reject'
 }
 
+// DeferApprovalExpiry pushes a pending_review row's approval_expires_at
+// forward to `until`. Used by the TTL worker when a sending-ramp throttle
+// defers an auto-approve: without the bump, ListExpiredPending (ORDER BY
+// approval_expires_at ASC) re-lists the same throttled rows at the head of
+// every sweep — re-running the full approve transaction per row per poll and,
+// past batchSize rows, starving every other tenant's expirations until the
+// domain's counter resets. Scoped to pending_review so a concurrent approve /
+// reject that already resolved the row is never touched.
+func (s *Store) DeferApprovalExpiry(ctx context.Context, messageID string, until time.Time) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE messages SET approval_expires_at = $2
+		  WHERE id = $1 AND status = 'pending_review' AND direction = 'outbound'`,
+		messageID, until)
+	return err
+}
+
 // ListExpiredPending returns pending_review messages whose
 // approval_expires_at is in the past, joined with their agent's
 // hitl_expiration_action. Ordered by approval_expires_at ASC so

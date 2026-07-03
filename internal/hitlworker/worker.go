@@ -232,10 +232,20 @@ func (w *Worker) autoApprove(ctx context.Context, c identity.ExpirationCandidate
 		// allowance. This is a self-clearing pacing condition, NOT a send
 		// failure — auto-rejecting would terminally drop a message the
 		// operator asked to approve, just because it expired on a busy ramp
-		// day. Leave the row pending; a later poll (after the UTC-midnight
-		// reset at the latest) retries the approve-and-send.
+		// day. Leave the row pending and push its expiry to the counter reset
+		// (te.RetryAfter, the next UTC midnight): retrying sooner cannot
+		// succeed — the day's cap is spent — and without the bump the row sits
+		// at the head of every ListExpiredPending sweep (ORDER BY
+		// approval_expires_at ASC), re-running the full approve transaction
+		// each poll and, past batchSize throttled rows, starving every other
+		// tenant's expirations for the rest of the day. A failed defer only
+		// falls back to that churn until the next sweep retries it.
 		if te, ok := sendramp.AsThrottleError(err); ok {
-			log.Printf("[hitl-worker] auto-approve %s deferred: %v (retrying next poll)", c.MessageID, te)
+			until := time.Now().Add(te.RetryAfter)
+			if derr := w.store.DeferApprovalExpiry(ctx, c.MessageID, until); derr != nil {
+				log.Printf("[hitl-worker] auto-approve %s: defer expiry failed: %v", c.MessageID, derr)
+			}
+			log.Printf("[hitl-worker] auto-approve %s deferred to %s: %v", c.MessageID, until.UTC().Format(time.RFC3339), te)
 			return
 		}
 		log.Printf("[hitl-worker] auto-approve %s: send failed: %v", c.MessageID, err)

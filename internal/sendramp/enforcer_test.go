@@ -23,12 +23,14 @@ type fakeReserver struct {
 	sent    int
 	err     error
 	calls   int
+	keys    []string
 	lastDay time.Time
 	lastCap int
 }
 
-func (f *fakeReserver) ReserveDomainSend(_ context.Context, _ string, day time.Time, cap int) (bool, int, error) {
+func (f *fakeReserver) ReserveDomainSend(_ context.Context, domain string, day time.Time, cap int) (bool, int, error) {
 	f.calls++
+	f.keys = append(f.keys, domain)
 	f.lastDay = day
 	f.lastCap = cap
 	if f.err != nil {
@@ -167,6 +169,53 @@ func TestReserveConsumesOneSlotPerCall(t *testing.T) {
 	}
 	if _, ok := AsThrottleError(e.Reserve(context.Background(), "acme.test")); !ok {
 		t.Fatal("send 51 should throttle")
+	}
+}
+
+// counterKey collapses a sending domain to its registrable domain (eTLD+1) so
+// sibling subdomains share one daily pool, while PSL-listed shared apexes
+// (github.io et al) keep genuinely independent senders separate. Fallback on
+// underivable input is the domain itself.
+func TestCounterKey(t *testing.T) {
+	cases := map[string]string{
+		"acme.com":          "acme.com",
+		"mail.acme.com":     "acme.com",
+		"a.b.acme.com":      "acme.com",
+		"m1.spam.example":   "spam.example", // unlisted TLD: PSL wildcard default
+		"alice.github.io":   "alice.github.io",
+		"x.alice.github.io": "alice.github.io",
+		"com":               "com", // IS a public suffix: fallback, unchanged
+	}
+	for in, want := range cases {
+		if got := counterKey(in); got != want {
+			t.Errorf("counterKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The subdomain-multiplication bypass: N sibling subdomains must draw from ONE
+// shared daily allowance, not N. Two subdomains ramping on the same registrable
+// domain hit a shared counter key, and the second one throttles once the pool
+// is spent — with the throttle error still naming the domain that sent.
+func TestReserveAggregatesSubdomainsOnRegistrableDomain(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	now := start.Add(6 * time.Hour) // day 0, cap 50
+	c := &fakeReserver{sent: 49}    // one slot left in the shared pool
+	e := newTestEnforcer(fakeReader{status: StatusActive, started: &start}, c, now)
+
+	if err := e.Reserve(context.Background(), "m1.acme.test"); err != nil {
+		t.Fatalf("m1 takes the pool's last slot: %v", err)
+	}
+	err := e.Reserve(context.Background(), "m2.acme.test")
+	te, ok := AsThrottleError(err)
+	if !ok {
+		t.Fatalf("m2 must throttle against the shared pool, got %v", err)
+	}
+	if te.Domain != "m2.acme.test" {
+		t.Fatalf("throttle names the sending domain: got %q", te.Domain)
+	}
+	if len(c.keys) != 2 || c.keys[0] != "acme.test" || c.keys[1] != "acme.test" {
+		t.Fatalf("both reservations must key the registrable domain, got %v", c.keys)
 	}
 }
 

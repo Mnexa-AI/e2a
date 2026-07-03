@@ -1129,6 +1129,18 @@ func SendingRampLimitError(te *sendramp.ThrottleError) *OutboundError {
 	}
 }
 
+// recordOutboundUsage meters one billable outbound message (side-effect only —
+// never blocks; the plan-cap pre-check in the handlers is the gate). Called
+// strictly AFTER the delivery succeeded: a refused attempt — a ramp-throttled
+// 429 in particular, which clients are told to retry against daily — must not
+// burn plan quota with nothing delivered. Matches the three HITL release
+// paths, which also record only on success.
+func (a *API) recordOutboundUsage(ctx context.Context, userID string, agent *identity.AgentIdentity) {
+	if _, err := a.usage.RecordAndCheck(ctx, userID, agent.ID, agent.Domain, "outbound"); err != nil {
+		log.Printf("[api] usage recording error: %v", err)
+	}
+}
+
 // checkSuppression rejects a send when any recipient (To/CC/BCC) is on the
 // tenant's suppression list (decision 9). Returns a structured
 // recipient_suppressed 422. Fails OPEN on a store error — a suppression-DB
@@ -1231,18 +1243,13 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		return &OutboundResult{Held: true, PendingMessageID: msg.ID, ApprovalExpiresAt: msg.ApprovalExpiresAt}, nil
 	}
 
-	// Record usage (side-effect only — never block on quota; the cap
-	// pre-check is the gate).
-	if _, err := a.usage.RecordAndCheck(ctx, user.ID, agent.ID, agent.Domain, "outbound"); err != nil {
-		log.Printf("[api] usage recording error: %v", err)
-	}
-
 	if isSelfSend(req, agent.EmailAddress()) {
 		providerID, err := a.performSelfSend(ctx, agent, req, msgType)
 		if err != nil {
 			log.Printf("[api] self-send failed: agent=%s error=%v", agent.EmailAddress(), err)
 			return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "self-send failed"}
 		}
+		a.recordOutboundUsage(ctx, user.ID, agent)
 		slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
 		log.Printf("[mail] dir=outbound type=%s method=loopback from=%s to=%s slug=%s conv_id=%s subject=%q provider_id=%s", msgType, agent.EmailAddress(), agent.EmailAddress(), slug, req.ConversationID, req.Subject, providerID)
 		return &OutboundResult{MessageID: providerID, Method: "loopback"}, nil
@@ -1259,6 +1266,7 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		log.Printf("[api] send failed: agent=%s to=%v error=%v", agent.Domain, req.To, err)
 		return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: fmt.Sprintf("send failed: %v", err)}
 	}
+	a.recordOutboundUsage(ctx, user.ID, agent)
 	outMsg, err := a.store.CreateOutboundMessage(ctx, agent.ID, result.To, result.CC, result.BCC, req.Subject, msgType, result.Method, result.MessageID, req.ConversationID, result.Raw)
 	if err != nil {
 		log.Printf("[api] failed to record outbound message: %v", err)

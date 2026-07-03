@@ -159,10 +159,29 @@ func (s *Store) MessagesThisMonth(ctx context.Context, userID string) (int, erro
 // The increment-if-below-cap runs as one statement: concurrent senders
 // serialize on the row lock, so the cap can never be jointly overshot the way
 // a read-count-then-compare check can. allowed=false means the day's cap is
-// spent; count is the day's running total either way. domain must be the
-// stored (normalized) form — callers pass AgentIdentity.Domain, which is.
+// spent; count is the day's running total either way. domain is an opaque
+// counter key — the enforcer passes the REGISTRABLE domain (eTLD+1) of the
+// normalized sending domain, so sibling subdomains share one row.
 func (s *Store) ReserveDomainSend(ctx context.Context, domain string, day time.Time, cap int) (allowed bool, count int, err error) {
 	d := day.UTC()
+	if cap <= 0 {
+		// Nothing to grant. Guarded here because the upsert's cap check lives
+		// on the DO UPDATE arm only — without this, the FIRST reservation of a
+		// (domain, day) would insert count=1 and succeed regardless of cap.
+		// Unreachable via the enforcer (NewSchedule floors the cap at 1), but
+		// the contract must hold for any caller.
+		err = s.pool.QueryRow(ctx,
+			`SELECT count FROM domain_send_counters WHERE domain = $1 AND day = $2`,
+			domain, d,
+		).Scan(&count)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, 0, nil
+		}
+		if err != nil {
+			return false, 0, err
+		}
+		return false, count, nil
+	}
 	err = s.pool.QueryRow(ctx,
 		`INSERT INTO domain_send_counters (domain, day, count)
 		 VALUES ($1, $2, 1)
