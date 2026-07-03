@@ -136,6 +136,21 @@ func TestSendTemplateNotFound(t *testing.T) {
 	}
 }
 
+// TestSendOmittedSubjectBodyKeys pins the wire contract for the schema
+// loosening that made templates possible: subject/body moved from
+// schema-required (a Huma 422) to handler-enforced, so a literal send with
+// the keys ENTIRELY ABSENT — not just "" — must be a 400 invalid_request.
+// (TestSendMissingSubjectBody covers the explicit-empty-string case.)
+func TestSendOmittedSubjectBodyKeys(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
+		"to": []string{"alice@x.com"},
+	})
+	if code != 400 || errCode(body) != "invalid_request" {
+		t.Fatalf("omitted subject/body keys: want 400 invalid_request, got %d %v", code, body)
+	}
+}
+
 // TestSendTemplateStoreErrorIs500 pins the miss/failure split on the send
 // path: a store error that is NOT ErrTemplateNotFound (timeout, connection
 // loss) must surface as 500 internal_error — a 404 would tell the caller

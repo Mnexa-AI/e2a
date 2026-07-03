@@ -41,7 +41,7 @@ Reference the template by its per-account alias (`template_alias`) or id
 and pass the variables in `template_data`:
 
 ```bash
-curl -X POST https://api.e2a.dev/v1/agents/billing-bot%40agents.e2a.dev/send \
+curl -X POST https://api.e2a.dev/v1/agents/billing-bot%40agents.e2a.dev/messages \
   -H "Authorization: Bearer $E2A_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -63,6 +63,12 @@ curl -X POST https://api.e2a.dev/v1/agents/billing-bot%40agents.e2a.dev/send \
 
 Rendering happens **before** any human-in-the-loop review hold, so reviewers
 see the final subject and body.
+
+> **Wire change.** To make room for the template shape, `subject` and `body`
+> moved from schema-required to handler-enforced on
+> `POST /v1/agents/{email}/messages`. A literal send that omits them now
+> returns **400 `invalid_request`** where it previously returned a **422**
+> schema-validation error. Sends that include them are unaffected.
 
 ## Starter templates
 
