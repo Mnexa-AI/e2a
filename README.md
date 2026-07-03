@@ -42,6 +42,7 @@ What you get on top of bare SMTP:
 - **Outbound API** — agents send to other agents (SMTP relay) or humans (upstream SMTP, e.g. SES, Resend)
 - **Human in the loop** — opt-in approval gate that holds outbound mail until a reviewer approves via dashboard, magic-link email, the MCP tools, or the API
 - **Conversation threading** — a stable `conversation_id` that survives the email ↔ structured-data boundary
+- **Email templates (beta)** — reusable `{{variable}}` templates rendered server-side at send time, plus a pre-built starter catalog → [docs/templates.md](docs/templates.md)
 
 ## Quickstart
 
