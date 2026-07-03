@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
-	"github.com/gorilla/mux"
 	"nhooyr.io/websocket"
 )
 
@@ -34,16 +33,11 @@ func NewHandler(hub *Hub, store HandlerStore) *Handler {
 	return &Handler{hub: hub, store: store}
 }
 
-// Handle is the HTTP handler for WebSocket upgrade requests.
-// Route: GET /v1/agents/{email}/ws — authenticated by `Authorization: Bearer <api_key>`.
-// Handle reads the agent email from the gorilla/mux route var.
-func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
-	h.serve(w, r, mux.Vars(r)["email"])
-}
-
 // ServeWithEmail handles the WebSocket upgrade for an explicitly-provided
-// agent email, so non-mux routers (chi at /v1/agents/{address}/ws) can host
-// the same transport.
+// agent email — the router owns path extraction (and, for routers like chi
+// that return params still percent-encoded, DECODING; see the /v1 mount in
+// internal/httpapi). The old gorilla/mux `Handle` variant was removed with
+// the retired /api/v1 surface: this is the transport's only entry point.
 func (h *Handler) ServeWithEmail(w http.ResponseWriter, r *http.Request, rawEmail string) {
 	h.serve(w, r, rawEmail)
 }

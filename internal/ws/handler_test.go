@@ -7,12 +7,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
-	"github.com/gorilla/mux"
+	"github.com/go-chi/chi/v5"
 	"nhooyr.io/websocket"
 )
 
@@ -61,11 +62,21 @@ func newTestUser() *identity.User {
 	return &identity.User{ID: "user_1", Email: "alice@example.com"}
 }
 
-// startServer creates an httptest server with the WS handler mounted on a mux router.
+// startServer mounts the WS handler EXACTLY the way production does
+// (internal/httpapi: chi + PathUnescape + ServeWithEmail). The old test mount
+// used gorilla/mux, which decodes route vars — the opposite of chi — and that
+// mismatch masked the percent-encoded-address 404 (#372): the handler passed
+// its tests on a router with different semantics than the one serving it.
 func startServer(t *testing.T, handler *Handler) *httptest.Server {
 	t.Helper()
-	r := mux.NewRouter()
-	r.HandleFunc("/api/v1/agents/{email}/ws", handler.Handle)
+	r := chi.NewRouter()
+	r.Get("/api/v1/agents/{email}/ws", func(w http.ResponseWriter, req *http.Request) {
+		address := chi.URLParam(req, "email")
+		if decoded, err := url.PathUnescape(address); err == nil {
+			address = decoded
+		}
+		handler.ServeWithEmail(w, req, address)
+	})
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 	return srv
@@ -93,7 +104,10 @@ func dialWSPath(t *testing.T, srv *httptest.Server, path, token string) (*websoc
 // dialWS connects to the versioned WS endpoint.
 func dialWS(t *testing.T, srv *httptest.Server, email, token string) (*websocket.Conn, *http.Response) {
 	t.Helper()
-	return dialWSPath(t, srv, fmt.Sprintf("/api/v1/agents/%s/ws", email), token)
+	// Percent-encode the address like every real client does
+	// (encodeURIComponent in ws.ts, quote() in the Python SDK) — realistic
+	// input is the whole point of mounting the test router like production.
+	return dialWSPath(t, srv, fmt.Sprintf("/api/v1/agents/%s/ws", url.PathEscape(email)), token)
 }
 
 // waitConnected polls the hub until the agent is registered or timeout.
