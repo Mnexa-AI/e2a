@@ -113,6 +113,7 @@ describe("E2AClient", () => {
     expect(client.webhooks).toBeDefined();
     expect(client.account).toBeDefined();
     expect(client.account.suppressions).toBeDefined();
+    expect(client.templates).toBeDefined();
   });
 
   // ── Auth + transport ────────────────────────────────────────────
@@ -319,6 +320,8 @@ describe("E2AClient", () => {
     ["agents", () => client.agents.list(), { id: "ag_1", email: "bot@test.dev" }],
     ["domains", () => client.domains.list(), { domain: "test.dev" }],
     ["webhooks", () => client.webhooks.list(), { id: "wh_1" }],
+    ["templates", () => client.templates.list(), { id: "tmpl_1", name: "Welcome" }],
+    ["templates.listStarters", () => client.templates.listStarters(), { alias: "welcome" }],
   ] as const)("%s.list stops after one page even if the server returns a next_cursor", async (_name, lister, item) => {
     let calls = 0;
     globalThis.fetch = vi.fn(async () => {
@@ -334,6 +337,127 @@ describe("E2AClient", () => {
     const items = await lister().toArray({ limit: 100 });
     expect(items).toHaveLength(1);
     expect(calls).toBe(1);
+  });
+
+  // ── Templates (beta) ────────────────────────────────────────────
+  // camelCase model fields ↔ snake_case wire (the generated serializer maps
+  // them), plus the two starter-catalog reads.
+
+  it("templates.get hits GET /v1/templates/{id} and maps snake_case wire fields", async () => {
+    globalThis.fetch = mockFetch(200, {
+      id: "tmpl_1",
+      name: "Welcome",
+      subject: "Welcome, {{name}}!",
+      body: "Hi {{name}}",
+      html_body: "<p>Hi {{name}}</p>",
+      from_starter_alias: "welcome",
+      from_starter_version: "1",
+      created_at: "2026-06-01T00:00:00Z",
+      updated_at: "2026-06-01T00:00:00Z",
+    });
+    const tmpl = await client.templates.get("tmpl_1");
+    const { url, init } = lastCall();
+    expect(init.method).toBe("GET");
+    expect(url).toContain("/v1/templates/tmpl_1");
+    expect(tmpl.htmlBody).toBe("<p>Hi {{name}}</p>");
+    expect(tmpl.fromStarterAlias).toBe("welcome");
+    expect(tmpl.fromStarterVersion).toBe("1");
+  });
+
+  it("templates.create POSTs camelCase input as the snake_case wire body", async () => {
+    globalThis.fetch = mockFetch(201, {
+      id: "tmpl_new", name: "Approvals", subject: "s", body: "b",
+      created_at: "2026-06-01T00:00:00Z", updated_at: "2026-06-01T00:00:00Z",
+    });
+    await client.templates.create({ fromStarter: "approval-request", alias: "my-approvals" });
+    const { url, init } = lastCall();
+    expect(init.method).toBe("POST");
+    expect(url).toContain("/v1/templates");
+    // Exactly the caller's fields reach the wire, snake_cased — no fabricated
+    // subject/body keys that would trip the server's from_starter exclusivity.
+    expect(JSON.parse(init.body as string)).toEqual({
+      from_starter: "approval-request",
+      alias: "my-approvals",
+    });
+  });
+
+  it("templates.update PATCHes the id and keeps an explicit html_body:'' clear", async () => {
+    globalThis.fetch = mockFetch(200, {
+      id: "tmpl_1", name: "Welcome", subject: "New {{x}}", body: "b",
+      created_at: "2026-06-01T00:00:00Z", updated_at: "2026-06-02T00:00:00Z",
+    });
+    await client.templates.update("tmpl_1", { subject: "New {{x}}", htmlBody: "" });
+    const { url, init } = lastCall();
+    expect(init.method).toBe("PATCH");
+    expect(url).toContain("/v1/templates/tmpl_1");
+    expect(JSON.parse(init.body as string)).toEqual({ subject: "New {{x}}", html_body: "" });
+  });
+
+  it("templates.delete issues DELETE /v1/templates/{id}", async () => {
+    globalThis.fetch = mockFetch(204);
+    await client.templates.delete("tmpl_1");
+    const { url, init } = lastCall();
+    expect(init.method).toBe("DELETE");
+    expect(url).toContain("/v1/templates/tmpl_1");
+  });
+
+  it("templates.validate POSTs to /v1/templates/validate and maps the response", async () => {
+    globalThis.fetch = mockFetch(200, {
+      valid: true,
+      errors: [],
+      rendered: { subject: "Welcome, Ada!", body: "Hi Ada", html_body: "<p>Hi Ada</p>" },
+      // suggested_data is nested (dot-path variables emit nested objects).
+      suggested_data: { user: { name: "example" } },
+    });
+    const res = await client.templates.validate({
+      subject: "Welcome, {{user.name}}!",
+      body: "Hi {{user.name}}",
+      testData: { user: { name: "Ada" } },
+    });
+    const { url, init } = lastCall();
+    expect(init.method).toBe("POST");
+    expect(url).toContain("/v1/templates/validate");
+    expect(JSON.parse(init.body as string)).toEqual({
+      subject: "Welcome, {{user.name}}!",
+      body: "Hi {{user.name}}",
+      test_data: { user: { name: "Ada" } },
+    });
+    expect(res.valid).toBe(true);
+    expect(res.rendered?.htmlBody).toBe("<p>Hi Ada</p>");
+    expect(res.suggestedData).toEqual({ user: { name: "example" } });
+  });
+
+  it("templates.getStarter hits GET /v1/starter-templates/{alias} with body sources", async () => {
+    globalThis.fetch = mockFetch(200, {
+      alias: "approval-request",
+      name: "Approval request",
+      description: "Ask a human to approve an action.",
+      version: "1",
+      subject: "Approval needed: {{action}}",
+      body: "Approve: {{approve_url}}",
+      html_body: '<a href="{{approve_url}}">Approve</a>',
+      variables: [
+        { name: "approve_url", required: true, raw: false, description: "d", example: "https://x/approve" },
+      ],
+    });
+    const starter = await client.templates.getStarter("approval-request");
+    const { url, init } = lastCall();
+    expect(init.method).toBe("GET");
+    expect(url).toContain("/v1/starter-templates/approval-request");
+    expect(starter.htmlBody).toContain("{{approve_url}}");
+    expect(starter.variables[0].name).toBe("approve_url");
+  });
+
+  it("maps a template-part parse failure to E2AValidationError with the machine code", async () => {
+    globalThis.fetch = mockFetch(400, {
+      error: { code: "invalid_template", message: "template part body failed to parse" },
+    });
+    const err = await client.templates
+      .create({ name: "x", subject: "s", body: "{{#bad}}" })
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(E2AValidationError);
+    expect(err.code).toBe("invalid_template");
+    expect(err.retryable).toBe(false);
   });
 
   // ── Error mapping ───────────────────────────────────────────────

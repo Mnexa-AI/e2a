@@ -19,6 +19,7 @@ import {
   PromiseWebhooksApi,
   PromiseAccountApi,
   PromiseReviewsApi,
+  PromiseTemplatesApi,
   PromiseMetaApi,
 } from "./generated/types/PromiseAPI.js";
 import type {
@@ -63,6 +64,14 @@ import type {
   CreateAPIKeyResponse,
   DeploymentInfoView,
   ReviewView,
+  TemplateView,
+  TemplateSummaryView,
+  CreateTemplateRequest,
+  UpdateTemplateRequest,
+  ValidateTemplateRequest,
+  ValidateTemplateResponse,
+  StarterTemplateView,
+  StarterTemplateDetailView,
 } from "./generated/index.js";
 import { RetryHttpLibrary, type RetryOptions } from "./retry.js";
 import { E2AError, fromApiException, connectionError } from "./errors.js";
@@ -121,6 +130,7 @@ export class E2AClient {
   readonly webhooks: WebhooksResource;
   readonly account: AccountResource;
   readonly reviews: ReviewsResource;
+  readonly templates: TemplatesResource;
   private readonly meta: PromiseMetaApi;
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -158,6 +168,7 @@ export class E2AClient {
     this.webhooks = new WebhooksResource(new PromiseWebhooksApi(config), this.messages);
     this.account = new AccountResource(new PromiseAccountApi(config));
     this.reviews = new ReviewsResource(new PromiseReviewsApi(config));
+    this.templates = new TemplatesResource(new PromiseTemplatesApi(config));
     this.meta = new PromiseMetaApi(config);
   }
 
@@ -311,6 +322,56 @@ class ReviewsResource {
   /** Reject a hold: discard the outbound draft / drop the inbound hold. */
   reject(id: string, body: RejectRequest = {}): Promise<RejectResultView> {
     return call(() => this.api.rejectReview(id, body));
+  }
+}
+
+/** Reusable email templates + the read-only starter catalog (beta — shapes may
+ *  change before templates are declared stable). Account scope only; the
+ *  send-side reference lives on `messages.send` (template_id / template_alias /
+ *  template_data, mutually exclusive with literal subject/body). */
+class TemplatesResource {
+  constructor(private readonly api: PromiseTemplatesApi) {}
+  /** List the account's stored templates, newest first. Summary rows only (no
+   *  body/html_body sources) — `get(id)` returns the full sources. */
+  list(): AutoPager<TemplateSummaryView> {
+    // No cursor param: single-page at GA — see AgentsResource.list / domains.
+    return new AutoPager(async () => ({ items: (await call(() => this.api.listTemplates())).items ?? [] }));
+  }
+  /** Fetch one stored template by id (tmpl_…), including its sources. */
+  get(id: string): Promise<TemplateView> {
+    return call(() => this.api.getTemplate(id));
+  }
+  /** Create a template from literal source (name + subject + body), or copy a
+   *  starter verbatim via `fromStarter` (mutually exclusive with the source
+   *  fields — edit the created copy afterwards with `update`). */
+  create(body: CreateTemplateRequest): Promise<TemplateView> {
+    return call(() => this.api.createTemplate(body));
+  }
+  /** Partial update; omitted fields are left unchanged. Changed parts are
+   *  re-parsed. Set alias or htmlBody to "" to clear them. */
+  update(id: string, patch: UpdateTemplateRequest): Promise<TemplateView> {
+    return call(() => this.api.updateTemplate(id, patch));
+  }
+  async delete(id: string): Promise<void> {
+    await call(() => this.api.deleteTemplate(id));
+  }
+  /** Dry-run template source without persisting: per-part parse errors, a
+   *  rendered preview against testData (present only when valid), and
+   *  suggestedData — a nested placeholder object covering every variable the
+   *  source references. */
+  validate(body: ValidateTemplateRequest): Promise<ValidateTemplateResponse> {
+    return call(() => this.api.validateTemplate(body));
+  }
+  /** List the pre-built starter templates shipped with the deployment (catalog
+   *  metadata + variables; `getStarter(alias)` adds the full body sources). */
+  listStarters(): AutoPager<StarterTemplateView> {
+    // No cursor param: single-page at GA — see AgentsResource.list / domains.
+    return new AutoPager(async () => ({ items: (await call(() => this.api.listStarterTemplates())).items ?? [] }));
+  }
+  /** Fetch one starter by alias, including its full body sources. Starters are
+   *  read-only masters — copy one with `create({ fromStarter: alias })`. */
+  getStarter(alias: string): Promise<StarterTemplateDetailView> {
+    return call(() => this.api.getStarterTemplate(alias));
   }
 }
 
