@@ -92,16 +92,24 @@ func recipientCountError(groups ...[]string) *ErrorEnvelope {
 	return nil
 }
 
-// SendEmailRequest is the new-thread send body. to/subject/body are required
-// (MSG-3): RFC 5321 requires ≥1 recipient (From/Date are server-set), and a
-// usable new email needs a subject + body. html_body is an optional addition.
+// SendEmailRequest is the new-thread send body. `to` is required (RFC 5321
+// requires ≥1 recipient; From/Date are server-set). Content comes in one of
+// two mutually exclusive shapes: literal subject + body (+ optional
+// html_body) — both required at the handler for a usable new email (MSG-3) —
+// or a template reference (template_id XOR template_alias, + template_data),
+// which the server renders into subject/body/html_body before any further
+// processing. subject/body moved from schema-required to handler-enforced so
+// the template shape can omit them.
 type SendEmailRequest struct {
 	To             []string              `json:"to" nullable:"false"`
 	CC             []string              `json:"cc,omitempty" nullable:"false"`
 	BCC            []string              `json:"bcc,omitempty" nullable:"false"`
-	Subject        string                `json:"subject"`
-	Body           string                `json:"body"`
-	HTMLBody       string                `json:"html_body,omitempty"`
+	Subject        string                `json:"subject,omitempty" doc:"Literal subject. Required unless a template reference is used (mutually exclusive with template_id/template_alias)."`
+	Body           string                `json:"body,omitempty" doc:"Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias)."`
+	HTMLBody       string                `json:"html_body,omitempty" doc:"Literal HTML body. Mutually exclusive with template_id/template_alias."`
+	TemplateID     string                `json:"template_id,omitempty" doc:"Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."`
+	TemplateAlias  string                `json:"template_alias,omitempty" doc:"Send using a stored template resolved by its per-user alias. Mutually exclusive with template_id and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."`
+	TemplateData   map[string]any        `json:"template_data,omitempty" doc:"Variables for the referenced template ({{name}}, dot paths into nested objects). Missing variables render as empty strings. Beta: templates are unstable — their shape may change before they are declared stable."`
 	ConversationID string                `json:"conversation_id,omitempty"`
 	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false"`
 }
@@ -509,6 +517,12 @@ func (s *Server) handleCreateMessage(ctx context.Context, in *createMessageInput
 		return nil, uerr
 	}
 	b := in.Body
+	// Resolve + render any template reference FIRST (in place), so the
+	// rendered subject/body flow through the exact same validation below and
+	// any HITL hold persists rendered content (see applySendTemplate).
+	if env := s.applySendTemplate(ctx, user.ID, &b); env != nil {
+		return nil, env
+	}
 	if env := s.validateOutboundBody(b.Subject, b.Body, b.To, b.CC, b.BCC, b.ConversationID); env != nil {
 		return nil, env
 	}

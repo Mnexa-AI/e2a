@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,6 +32,28 @@ func sampleAgent() identity.AgentIdentity {
 		HITLTTLSeconds:       604800,
 		HITLExpirationAction: "reject",
 	}
+}
+
+// lastDelivered captures the most recent SendRequest handed to the fake
+// DeliverOutbound so template-send tests can assert RENDERED content reached
+// the delivery seam (the same seam that persists a HITL draft). The mutex
+// makes the cross-goroutine handoff (server handler goroutine → test
+// goroutine) race-detector clean.
+var lastDelivered struct {
+	mu  sync.Mutex
+	req outbound.SendRequest
+}
+
+func recordDelivered(req outbound.SendRequest) {
+	lastDelivered.mu.Lock()
+	defer lastDelivered.mu.Unlock()
+	lastDelivered.req = req
+}
+
+func lastDeliveredReq() outbound.SendRequest {
+	lastDelivered.mu.Lock()
+	defer lastDelivered.mu.Unlock()
+	return lastDelivered.req
 }
 
 // sampleTemplate is the canonical fixture template owned by user u_1. Its
@@ -487,6 +510,7 @@ func testServer(t *testing.T) *httptest.Server {
 			return nil, errors.New("not found")
 		},
 		DeliverOutbound: func(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyTo string, referenced *identity.Message) (*agent.OutboundResult, *agent.OutboundError) {
+			recordDelivered(req)
 			switch {
 			case strings.Contains(req.Subject, "HOLD"):
 				exp := time.Unix(1700090000, 0).UTC()

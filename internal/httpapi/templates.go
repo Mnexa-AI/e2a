@@ -298,6 +298,86 @@ func (s *Server) handleDeleteTemplate(ctx context.Context, in *TemplateIDParam) 
 	return &deleteTemplateOutput{}, nil
 }
 
+// --- send integration (POST /v1/agents/{email}/messages) ---
+
+// applySendTemplate resolves and renders a template reference on the send
+// body IN PLACE, before any other outbound processing. Ordering is critical:
+// rendering must precede the HITL hold — HoldForApprovalCore persists literal
+// subject/body and approve re-sends the stored draft without re-rendering, so
+// a reviewer must see (and approve) the final rendered content, never raw
+// template source.
+//
+// Rules (each → 400 invalid_request unless noted):
+//   - template_id and template_alias are mutually exclusive;
+//   - a template reference is mutually exclusive with literal
+//     subject/body/html_body;
+//   - template_data requires a template reference;
+//   - lookup is scoped to the caller (missing/cross-user → 404
+//     template_not_found);
+//   - parse/render failures → 400 template_render_failed with the part in
+//     details.
+//
+// On success b.Subject/b.Body/b.HTMLBody carry the rendered content and flow
+// through the same validateOutboundBody checks as a literal send.
+func (s *Server) applySendTemplate(ctx context.Context, userID string, b *SendEmailRequest) *ErrorEnvelope {
+	if b.TemplateID == "" && b.TemplateAlias == "" {
+		if len(b.TemplateData) > 0 {
+			return NewError(http.StatusBadRequest, "invalid_request", "template_data requires template_id or template_alias")
+		}
+		return nil
+	}
+	if b.TemplateID != "" && b.TemplateAlias != "" {
+		return NewError(http.StatusBadRequest, "invalid_request", "template_id and template_alias are mutually exclusive")
+	}
+	if b.Subject != "" || b.Body != "" || b.HTMLBody != "" {
+		return NewError(http.StatusBadRequest, "invalid_request", "a template reference is mutually exclusive with subject, body and html_body")
+	}
+	if s.deps.GetTemplate == nil || s.deps.GetTemplateByAlias == nil {
+		return NewError(http.StatusInternalServerError, "internal_error", "templates unavailable")
+	}
+
+	var tp *identity.Template
+	var err error
+	if b.TemplateID != "" {
+		tp, err = s.deps.GetTemplate(ctx, b.TemplateID, userID)
+	} else {
+		tp, err = s.deps.GetTemplateByAlias(ctx, b.TemplateAlias, userID)
+	}
+	if err != nil || tp == nil {
+		return NewError(http.StatusNotFound, "template_not_found", "template not found")
+	}
+
+	render := func(part, src string, mode emailtemplate.EscapeMode) (string, *ErrorEnvelope) {
+		tmpl, perr := emailtemplate.Parse(src)
+		if perr != nil {
+			return "", NewError(http.StatusBadRequest, "template_render_failed",
+				"template part "+part+" failed to render: "+perr.Error()).
+				WithDetails(map[string]any{"part": part, "message": perr.Error()})
+		}
+		out, rerr := tmpl.Render(b.TemplateData, mode)
+		if rerr != nil {
+			return "", NewError(http.StatusBadRequest, "template_render_failed",
+				"template part "+part+" failed to render: "+rerr.Error()).
+				WithDetails(map[string]any{"part": part, "message": rerr.Error()})
+		}
+		return out, nil
+	}
+
+	var env *ErrorEnvelope
+	if b.Subject, env = render("subject", tp.Subject, emailtemplate.EscapeNone); env != nil {
+		return env
+	}
+	if b.Body, env = render("body", tp.Body, emailtemplate.EscapeNone); env != nil {
+		return env
+	}
+	if tp.HTMLBody != "" {
+		if b.HTMLBody, env = render("html_body", tp.HTMLBody, emailtemplate.EscapeHTML); env != nil {
+			return env
+		}
+	}
+	return nil
+}
+
 // --- validate endpoint ---
 
 // ValidateTemplateRequest carries template source to dry-run. Parts may be

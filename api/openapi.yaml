@@ -1743,6 +1743,7 @@ components:
             type: string
           type: array
         body:
+          description: Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias).
           type: string
         cc:
           items:
@@ -1751,8 +1752,20 @@ components:
         conversation_id:
           type: string
         html_body:
+          description: Literal HTML body. Mutually exclusive with template_id/template_alias.
           type: string
         subject:
+          description: Literal subject. Required unless a template reference is used (mutually exclusive with template_id/template_alias).
+          type: string
+        template_alias:
+          description: "Send using a stored template resolved by its per-user alias. Mutually exclusive with template_id and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."
+          type: string
+        template_data:
+          additionalProperties: {}
+          description: "Variables for the referenced template ({{name}}, dot paths into nested objects). Missing variables render as empty strings. Beta: templates are unstable — their shape may change before they are declared stable."
+          type: object
+        template_id:
+          description: "Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."
           type: string
         to:
           items:
@@ -1760,8 +1773,6 @@ components:
           type: array
       required:
         - to
-        - subject
-        - body
       type: object
     SendResultView:
       additionalProperties: false
