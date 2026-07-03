@@ -109,15 +109,15 @@ export default function DomainsPage() {
           </div>
         </div>
 
+        <div className="mt-10">
+          <AgentPromptCard {...AGENT_PROMPTS.domains} />
+        </div>
+
         {showAddForm && (
           <div className="mt-6">
             <AddDomainForm onRegistered={handleDomainRegistered} />
           </div>
         )}
-
-        <div className="mt-10">
-          <AgentPromptCard {...AGENT_PROMPTS.domains} />
-        </div>
       </PageShell>
     );
   }
@@ -163,6 +163,10 @@ export default function DomainsPage() {
         </div>
       )}
 
+      <div className="mb-10">
+        <AgentPromptCard {...AGENT_PROMPTS.domains} />
+      </div>
+
       {loading ? (
         <div
           className="text-[13px] py-12 text-center"
@@ -173,10 +177,6 @@ export default function DomainsPage() {
       ) : (
         <DomainList domains={domains} agents={agents} onRefresh={handleListChanged} />
       )}
-
-      <div className="mt-10">
-        <AgentPromptCard {...AGENT_PROMPTS.domains} />
-      </div>
     </PageShell>
   );
 }

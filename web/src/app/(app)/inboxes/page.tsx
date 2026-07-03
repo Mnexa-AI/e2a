@@ -194,6 +194,10 @@ export default function DashboardPage() {
         </div>
       )}
 
+      <div className="mb-10">
+        <AgentPromptCard {...AGENT_PROMPTS.inboxes} />
+      </div>
+
       {loading ? (
         <div
           className="text-[13px] py-12 text-center"
@@ -228,10 +232,6 @@ export default function DashboardPage() {
           </div>
         </>
       )}
-
-      <div className="mt-10">
-        <AgentPromptCard {...AGENT_PROMPTS.inboxes} />
-      </div>
     </PageShell>
   );
 }

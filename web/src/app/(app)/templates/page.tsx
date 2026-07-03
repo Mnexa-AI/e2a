@@ -175,17 +175,17 @@ export default function TemplatesPage() {
         </p>
       ) : hasTemplates ? (
         <div className="space-y-10">
+          <AgentPromptCard {...AGENT_PROMPTS.templates} />
           {list}
           {gallery}
-          <AgentPromptCard {...AGENT_PROMPTS.templates} />
         </div>
       ) : (
-        // No templates yet — lead with the starter gallery so the first
-        // action is one click away, then the agent prompt (the other
-        // zero-to-one path), and keep the (empty) list below.
+        // No templates yet — the agent prompt leads (hand the whole setup
+        // to a coding agent), then the starter gallery for the one-click
+        // path, with the (empty) list below.
         <div className="space-y-10">
-          {gallery}
           <AgentPromptCard {...AGENT_PROMPTS.templates} />
+          {gallery}
           {list}
         </div>
       )}
