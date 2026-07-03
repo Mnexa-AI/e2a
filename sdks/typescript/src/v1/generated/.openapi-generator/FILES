@@ -64,7 +64,7 @@ models/PageMessageSummaryView.ts
 models/PageReviewView.ts
 models/PageStarterTemplateView.ts
 models/PageSuppression.ts
-models/PageTemplateView.ts
+models/PageTemplateSummaryView.ts
 models/PageWebhookDeliveryView.ts
 models/PageWebhookView.ts
 models/ProtectionConfigView.ts
@@ -92,6 +92,7 @@ models/StarterTemplateView.ts
 models/Suppression.ts
 models/SuppressionExportEntry.ts
 models/TemplatePartError.ts
+models/TemplateSummaryView.ts
 models/TemplateView.ts
 models/TestWebhookRequest.ts
 models/TestWebhookResponse.ts

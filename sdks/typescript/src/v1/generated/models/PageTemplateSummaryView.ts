@@ -10,11 +10,11 @@
  * Do not edit the class manually.
  */
 
-import { TemplateView } from '../models/TemplateView.js';
+import { TemplateSummaryView } from '../models/TemplateSummaryView.js';
 import { HttpFile } from '../http/http.js';
 
-export class PageTemplateView {
-    'items': Array<TemplateView>;
+export class PageTemplateSummaryView {
+    'items': Array<TemplateSummaryView>;
     'nextCursor': string | null;
 
     static readonly discriminator: string | undefined = undefined;
@@ -25,7 +25,7 @@ export class PageTemplateView {
         {
             "name": "items",
             "baseName": "items",
-            "type": "Array<TemplateView>",
+            "type": "Array<TemplateSummaryView>",
             "format": ""
         },
         {
@@ -36,7 +36,7 @@ export class PageTemplateView {
         }    ];
 
     static getAttributeTypeMap() {
-        return PageTemplateView.attributeTypeMap;
+        return PageTemplateSummaryView.attributeTypeMap;
     }
 
     public constructor() {

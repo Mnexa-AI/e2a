@@ -11,7 +11,7 @@ import {SecurityAuthentication} from '../auth/auth.js';
 import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { PageStarterTemplateView } from '../models/PageStarterTemplateView.js';
-import { PageTemplateView } from '../models/PageTemplateView.js';
+import { PageTemplateSummaryView } from '../models/PageTemplateSummaryView.js';
 import { StarterTemplateDetailView } from '../models/StarterTemplateDetailView.js';
 import { TemplateView } from '../models/TemplateView.js';
 import { UpdateTemplateRequest } from '../models/UpdateTemplateRequest.js';
@@ -216,7 +216,7 @@ export class TemplatesApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * List the account\'s templates, newest first. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List the account\'s templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
      */
     public async listTemplates(_options?: Configuration): Promise<RequestContext> {
@@ -536,13 +536,13 @@ export class TemplatesApiResponseProcessor {
      * @params response Response returned by the server for a request to listTemplates
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async listTemplatesWithHttpInfo(response: ResponseContext): Promise<HttpInfo<PageTemplateView >> {
+     public async listTemplatesWithHttpInfo(response: ResponseContext): Promise<HttpInfo<PageTemplateSummaryView >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
         if (isCodeInRange("200", response.httpStatusCode)) {
-            const body: PageTemplateView = ObjectSerializer.deserialize(
+            const body: PageTemplateSummaryView = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "PageTemplateView", ""
-            ) as PageTemplateView;
+                "PageTemplateSummaryView", ""
+            ) as PageTemplateSummaryView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
@@ -555,10 +555,10 @@ export class TemplatesApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: PageTemplateView = ObjectSerializer.deserialize(
+            const body: PageTemplateSummaryView = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "PageTemplateView", ""
-            ) as PageTemplateView;
+                "PageTemplateSummaryView", ""
+            ) as PageTemplateSummaryView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

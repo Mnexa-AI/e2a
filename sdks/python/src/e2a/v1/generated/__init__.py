@@ -84,7 +84,7 @@ __all__ = [
     "PageReviewView",
     "PageStarterTemplateView",
     "PageSuppression",
-    "PageTemplateView",
+    "PageTemplateSummaryView",
     "PageWebhookDeliveryView",
     "PageWebhookView",
     "ProtectionConfigView",
@@ -112,6 +112,7 @@ __all__ = [
     "Suppression",
     "SuppressionExportEntry",
     "TemplatePartError",
+    "TemplateSummaryView",
     "TemplateView",
     "TestWebhookRequest",
     "TestWebhookResponse",
@@ -202,7 +203,7 @@ from e2a.v1.generated.models.page_message_summary_view import PageMessageSummary
 from e2a.v1.generated.models.page_review_view import PageReviewView as PageReviewView
 from e2a.v1.generated.models.page_starter_template_view import PageStarterTemplateView as PageStarterTemplateView
 from e2a.v1.generated.models.page_suppression import PageSuppression as PageSuppression
-from e2a.v1.generated.models.page_template_view import PageTemplateView as PageTemplateView
+from e2a.v1.generated.models.page_template_summary_view import PageTemplateSummaryView as PageTemplateSummaryView
 from e2a.v1.generated.models.page_webhook_delivery_view import PageWebhookDeliveryView as PageWebhookDeliveryView
 from e2a.v1.generated.models.page_webhook_view import PageWebhookView as PageWebhookView
 from e2a.v1.generated.models.protection_config_view import ProtectionConfigView as ProtectionConfigView
@@ -230,6 +231,7 @@ from e2a.v1.generated.models.starter_template_view import StarterTemplateView as
 from e2a.v1.generated.models.suppression import Suppression as Suppression
 from e2a.v1.generated.models.suppression_export_entry import SuppressionExportEntry as SuppressionExportEntry
 from e2a.v1.generated.models.template_part_error import TemplatePartError as TemplatePartError
+from e2a.v1.generated.models.template_summary_view import TemplateSummaryView as TemplateSummaryView
 from e2a.v1.generated.models.template_view import TemplateView as TemplateView
 from e2a.v1.generated.models.test_webhook_request import TestWebhookRequest as TestWebhookRequest
 from e2a.v1.generated.models.test_webhook_response import TestWebhookResponse as TestWebhookResponse

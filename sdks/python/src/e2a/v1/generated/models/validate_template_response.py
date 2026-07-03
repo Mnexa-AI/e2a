@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.rendered_template_view import RenderedTemplateView
 from e2a.v1.generated.models.template_part_error import TemplatePartError
@@ -30,8 +30,9 @@ class ValidateTemplateResponse(BaseModel):
     """ # noqa: E501
     errors: List[TemplatePartError]
     rendered: Optional[RenderedTemplateView] = Field(default=None, description="Rendered preview against test_data (or empty data). Present only when valid.")
-    suggested_data: Optional[Dict[str, StrictStr]] = Field(default=None, description="A placeholder value for every variable the source references — a starting point for template_data.")
+    suggested_data: Optional[Dict[str, Any]] = Field(default=None, description="A placeholder value for every variable the source references — a starting point for template_data. Dot-path variables ({{user.name}}) emit NESTED objects, matching how the renderer resolves them.")
     valid: StrictBool
+    additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["errors", "rendered", "suggested_data", "valid"]
 
     model_config = ConfigDict(
@@ -64,8 +65,10 @@ class ValidateTemplateResponse(BaseModel):
         * `None` is only added to the output dict for nullable fields that
           were set at model initialization. Other fields with value `None`
           are ignored.
+        * Fields in `self.additional_properties` are added to the output dict.
         """
         excluded_fields: Set[str] = set([
+            "additional_properties",
         ])
 
         _dict = self.model_dump(
@@ -83,6 +86,11 @@ class ValidateTemplateResponse(BaseModel):
         # override the default output from pydantic by calling `to_dict()` of rendered
         if self.rendered:
             _dict['rendered'] = self.rendered.to_dict()
+        # puts key-value pairs in additional_properties in the top level
+        if self.additional_properties is not None:
+            for _key, _value in self.additional_properties.items():
+                _dict[_key] = _value
+
         return _dict
 
     @classmethod
@@ -100,6 +108,11 @@ class ValidateTemplateResponse(BaseModel):
             "suggested_data": obj.get("suggested_data"),
             "valid": obj.get("valid")
         })
+        # store additional fields in additional_properties
+        for _key in obj.keys():
+            if _key not in cls.__properties:
+                _obj.additional_properties[_key] = obj.get(_key)
+
         return _obj
 
 

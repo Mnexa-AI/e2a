@@ -20,7 +20,7 @@ from pydantic import Field, StrictStr
 from typing_extensions import Annotated
 from e2a.v1.generated.models.create_template_request import CreateTemplateRequest
 from e2a.v1.generated.models.page_starter_template_view import PageStarterTemplateView
-from e2a.v1.generated.models.page_template_view import PageTemplateView
+from e2a.v1.generated.models.page_template_summary_view import PageTemplateSummaryView
 from e2a.v1.generated.models.starter_template_detail_view import StarterTemplateDetailView
 from e2a.v1.generated.models.template_view import TemplateView
 from e2a.v1.generated.models.update_template_request import UpdateTemplateRequest
@@ -1363,10 +1363,10 @@ class TemplatesApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> PageTemplateView:
+    ) -> PageTemplateSummaryView:
         """List templates (beta)
 
-        List the account's templates, newest first. Beta: templates are unstable — their shape may change before they are declared stable.
+        List the account's templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
 
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1398,7 +1398,7 @@ class TemplatesApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "PageTemplateView",
+            '200': "PageTemplateSummaryView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1426,10 +1426,10 @@ class TemplatesApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[PageTemplateView]:
+    ) -> ApiResponse[PageTemplateSummaryView]:
         """List templates (beta)
 
-        List the account's templates, newest first. Beta: templates are unstable — their shape may change before they are declared stable.
+        List the account's templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
 
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1461,7 +1461,7 @@ class TemplatesApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "PageTemplateView",
+            '200': "PageTemplateSummaryView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1492,7 +1492,7 @@ class TemplatesApi:
     ) -> RESTResponseType:
         """List templates (beta)
 
-        List the account's templates, newest first. Beta: templates are unstable — their shape may change before they are declared stable.
+        List the account's templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
 
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1524,7 +1524,7 @@ class TemplatesApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "PageTemplateView",
+            '200': "PageTemplateSummaryView",
         }
         response_data = await self.api_client.call_api(
             *_param,

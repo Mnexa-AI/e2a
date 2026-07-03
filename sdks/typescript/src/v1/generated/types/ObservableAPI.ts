@@ -50,7 +50,7 @@ import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageReviewView } from '../models/PageReviewView.js';
 import { PageStarterTemplateView } from '../models/PageStarterTemplateView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
-import { PageTemplateView } from '../models/PageTemplateView.js';
+import { PageTemplateSummaryView } from '../models/PageTemplateSummaryView.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
@@ -78,6 +78,7 @@ import { StarterTemplateView } from '../models/StarterTemplateView.js';
 import { Suppression } from '../models/Suppression.js';
 import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
 import { TemplatePartError } from '../models/TemplatePartError.js';
+import { TemplateSummaryView } from '../models/TemplateSummaryView.js';
 import { TemplateView } from '../models/TemplateView.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
@@ -1863,10 +1864,10 @@ export class ObservableTemplatesApi {
     }
 
     /**
-     * List the account\'s templates, newest first. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List the account\'s templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
      */
-    public listTemplatesWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageTemplateView>> {
+    public listTemplatesWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageTemplateSummaryView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.listTemplates(_config);
@@ -1887,11 +1888,11 @@ export class ObservableTemplatesApi {
     }
 
     /**
-     * List the account\'s templates, newest first. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List the account\'s templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
      */
-    public listTemplates(_options?: ConfigurationOptions): Observable<PageTemplateView> {
-        return this.listTemplatesWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageTemplateView>) => apiResponse.data));
+    public listTemplates(_options?: ConfigurationOptions): Observable<PageTemplateSummaryView> {
+        return this.listTemplatesWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageTemplateSummaryView>) => apiResponse.data));
     }
 
     /**

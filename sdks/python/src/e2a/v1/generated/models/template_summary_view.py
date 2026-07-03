@@ -23,21 +23,17 @@ from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
 
-class TemplateView(BaseModel):
+class TemplateSummaryView(BaseModel):
     """
-    TemplateView
+    TemplateSummaryView
     """ # noqa: E501
     alias: Optional[StrictStr] = Field(default=None, description="Optional per-user unique handle usable as template_alias on send.")
-    body: StrictStr = Field(description="The plain-text part's template source.")
     created_at: datetime
-    from_starter_alias: Optional[StrictStr] = Field(default=None, description="The starter template this was copied from (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable.")
-    from_starter_version: Optional[StrictStr] = Field(default=None, description="The starter catalog version at copy time (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable.")
-    html_body: Optional[StrictStr] = Field(default=None, description="The optional HTML part's template source.")
     id: StrictStr
     name: StrictStr
     subject: StrictStr
     updated_at: datetime
-    __properties: ClassVar[List[str]] = ["alias", "body", "created_at", "from_starter_alias", "from_starter_version", "html_body", "id", "name", "subject", "updated_at"]
+    __properties: ClassVar[List[str]] = ["alias", "created_at", "id", "name", "subject", "updated_at"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -57,7 +53,7 @@ class TemplateView(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of TemplateView from a JSON string"""
+        """Create an instance of TemplateSummaryView from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -82,7 +78,7 @@ class TemplateView(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of TemplateView from a dict"""
+        """Create an instance of TemplateSummaryView from a dict"""
         if obj is None:
             return None
 
@@ -91,11 +87,7 @@ class TemplateView(BaseModel):
 
         _obj = cls.model_validate({
             "alias": obj.get("alias"),
-            "body": obj.get("body"),
             "created_at": obj.get("created_at"),
-            "from_starter_alias": obj.get("from_starter_alias"),
-            "from_starter_version": obj.get("from_starter_version"),
-            "html_body": obj.get("html_body"),
             "id": obj.get("id"),
             "name": obj.get("name"),
             "subject": obj.get("subject"),

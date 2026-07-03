@@ -21,9 +21,9 @@ export class ValidateTemplateResponse {
     */
     'rendered'?: RenderedTemplateView;
     /**
-    * A placeholder value for every variable the source references — a starting point for template_data.
+    * A placeholder value for every variable the source references — a starting point for template_data. Dot-path variables ({{user.name}}) emit NESTED objects, matching how the renderer resolves them.
     */
-    'suggestedData'?: { [key: string]: string; };
+    'suggestedData'?: any;
     'valid': boolean;
 
     static readonly discriminator: string | undefined = undefined;
@@ -46,7 +46,7 @@ export class ValidateTemplateResponse {
         {
             "name": "suggestedData",
             "baseName": "suggested_data",
-            "type": "{ [key: string]: string; }",
+            "type": "any",
             "format": ""
         },
         {

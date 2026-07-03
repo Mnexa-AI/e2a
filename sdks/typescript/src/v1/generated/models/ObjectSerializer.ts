@@ -45,7 +45,7 @@ export * from '../models/PageMessageSummaryView.js';
 export * from '../models/PageReviewView.js';
 export * from '../models/PageStarterTemplateView.js';
 export * from '../models/PageSuppression.js';
-export * from '../models/PageTemplateView.js';
+export * from '../models/PageTemplateSummaryView.js';
 export * from '../models/PageWebhookDeliveryView.js';
 export * from '../models/PageWebhookView.js';
 export * from '../models/ProtectionConfigView.js';
@@ -73,6 +73,7 @@ export * from '../models/StarterTemplateView.js';
 export * from '../models/Suppression.js';
 export * from '../models/SuppressionExportEntry.js';
 export * from '../models/TemplatePartError.js';
+export * from '../models/TemplateSummaryView.js';
 export * from '../models/TemplateView.js';
 export * from '../models/TestWebhookRequest.js';
 export * from '../models/TestWebhookResponse.js';
@@ -138,7 +139,7 @@ import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageReviewView } from '../models/PageReviewView.js';
 import { PageStarterTemplateView } from '../models/PageStarterTemplateView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
-import { PageTemplateView } from '../models/PageTemplateView.js';
+import { PageTemplateSummaryView } from '../models/PageTemplateSummaryView.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
@@ -166,6 +167,7 @@ import { StarterTemplateView } from '../models/StarterTemplateView.js';
 import { Suppression } from '../models/Suppression.js';
 import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
 import { TemplatePartError } from '../models/TemplatePartError.js';
+import { TemplateSummaryView } from '../models/TemplateSummaryView.js';
 import { TemplateView } from '../models/TemplateView.js';
 import { TestWebhookRequest , TestWebhookRequestEventEnum   } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
@@ -261,7 +263,7 @@ let typeMap: {[index: string]: any} = {
     "PageReviewView": PageReviewView,
     "PageStarterTemplateView": PageStarterTemplateView,
     "PageSuppression": PageSuppression,
-    "PageTemplateView": PageTemplateView,
+    "PageTemplateSummaryView": PageTemplateSummaryView,
     "PageWebhookDeliveryView": PageWebhookDeliveryView,
     "PageWebhookView": PageWebhookView,
     "ProtectionConfigView": ProtectionConfigView,
@@ -289,6 +291,7 @@ let typeMap: {[index: string]: any} = {
     "Suppression": Suppression,
     "SuppressionExportEntry": SuppressionExportEntry,
     "TemplatePartError": TemplatePartError,
+    "TemplateSummaryView": TemplateSummaryView,
     "TemplateView": TemplateView,
     "TestWebhookRequest": TestWebhookRequest,
     "TestWebhookResponse": TestWebhookResponse,

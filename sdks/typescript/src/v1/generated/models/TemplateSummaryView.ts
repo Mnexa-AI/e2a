@@ -12,28 +12,12 @@
 
 import { HttpFile } from '../http/http.js';
 
-export class TemplateView {
+export class TemplateSummaryView {
     /**
     * Optional per-user unique handle usable as template_alias on send.
     */
     'alias'?: string;
-    /**
-    * The plain-text part\'s template source.
-    */
-    'body': string;
     'createdAt': Date;
-    /**
-    * The starter template this was copied from (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable.
-    */
-    'fromStarterAlias'?: string;
-    /**
-    * The starter catalog version at copy time (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable.
-    */
-    'fromStarterVersion'?: string;
-    /**
-    * The optional HTML part\'s template source.
-    */
-    'htmlBody'?: string;
     'id': string;
     'name': string;
     'subject': string;
@@ -51,34 +35,10 @@ export class TemplateView {
             "format": ""
         },
         {
-            "name": "body",
-            "baseName": "body",
-            "type": "string",
-            "format": ""
-        },
-        {
             "name": "createdAt",
             "baseName": "created_at",
             "type": "Date",
             "format": "date-time"
-        },
-        {
-            "name": "fromStarterAlias",
-            "baseName": "from_starter_alias",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "fromStarterVersion",
-            "baseName": "from_starter_version",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "htmlBody",
-            "baseName": "html_body",
-            "type": "string",
-            "format": ""
         },
         {
             "name": "id",
@@ -106,7 +66,7 @@ export class TemplateView {
         }    ];
 
     static getAttributeTypeMap() {
-        return TemplateView.attributeTypeMap;
+        return TemplateSummaryView.attributeTypeMap;
     }
 
     public constructor() {

@@ -49,7 +49,7 @@ import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageReviewView } from '../models/PageReviewView.js';
 import { PageStarterTemplateView } from '../models/PageStarterTemplateView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
-import { PageTemplateView } from '../models/PageTemplateView.js';
+import { PageTemplateSummaryView } from '../models/PageTemplateSummaryView.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
@@ -77,6 +77,7 @@ import { StarterTemplateView } from '../models/StarterTemplateView.js';
 import { Suppression } from '../models/Suppression.js';
 import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
 import { TemplatePartError } from '../models/TemplatePartError.js';
+import { TemplateSummaryView } from '../models/TemplateSummaryView.js';
 import { TemplateView } from '../models/TemplateView.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
@@ -1775,20 +1776,20 @@ export class ObjectTemplatesApi {
     }
 
     /**
-     * List the account\'s templates, newest first. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List the account\'s templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
      * @param param the request object
      */
-    public listTemplatesWithHttpInfo(param: TemplatesApiListTemplatesRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<PageTemplateView>> {
+    public listTemplatesWithHttpInfo(param: TemplatesApiListTemplatesRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<PageTemplateSummaryView>> {
         return this.api.listTemplatesWithHttpInfo( options).toPromise();
     }
 
     /**
-     * List the account\'s templates, newest first. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List the account\'s templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
      * @param param the request object
      */
-    public listTemplates(param: TemplatesApiListTemplatesRequest = {}, options?: ConfigurationOptions): Promise<PageTemplateView> {
+    public listTemplates(param: TemplatesApiListTemplatesRequest = {}, options?: ConfigurationOptions): Promise<PageTemplateSummaryView> {
         return this.api.listTemplates( options).toPromise();
     }
 
