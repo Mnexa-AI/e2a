@@ -1,12 +1,12 @@
 ---
 name: e2a
 description: Use when operating e2a (email for AI agents) over its MCP tools — sending or receiving email, replying in-thread, handling the human-in-the-loop review hold (pending_review), managing agents and custom domains, or working with attachments — OR when integrating e2a into your own software/service (the developer email-API use case: API keys, SDKs, webhooks). With e2a YOU are the agent and the inbox IS the agent (not a human reading their mail). Covers send_message vs reply_to_message threading, multi-agent disambiguation, the custom-domain DNS flow, the protection (screening + review) config, programmatic integration, and common gotchas.
-version: 14
+version: 15
 ---
 
 # Using e2a
 
-<!-- version: 14 -->
+<!-- version: 15 -->
 
 e2a is an authenticated email gateway for AI agents. It gives an agent a real email address (`agent@agents.e2a.dev` or `agent@your-domain.com`), verifies sender identity (SPF/DKIM), threads conversations, and optionally holds outbound mail for human review.
 
@@ -91,7 +91,7 @@ The flow is copy once, send many:
                      "summary": "3 services deployed", "sections_html": "<ul><li>api: ok</li></ul>" } }
 ```
 
-Syntax is a flat Mustache subset: `{{var}}` (HTML-escaped in the HTML part), `{{{var}}}` raw, dot paths into nested data — no loops or conditionals. **Missing variables render as empty strings, silently.** Preview with `validate_template` (its `suggested_data` names every variable the source references) instead of discovering blanks in sent mail. List/table content goes through raw `{{{…_html}}}` fragment slots: you build the HTML fragment, and you must HTML-escape any user-supplied text inside it — raw slots bypass escaping.
+Syntax is a flat Mustache subset: `{{var}}` (HTML-escaped in the HTML part), `{{{var}}}` raw, dot paths into nested data — no loops or conditionals. **Missing variables render as empty strings, silently.** Preview with `validate_template` (its `suggestedData` names every variable the source references) instead of discovering blanks in sent mail. List/table content goes through raw `{{{…_html}}}` fragment slots: you build the HTML fragment, and you must HTML-escape any user-supplied text inside it — raw slots bypass escaping.
 
 **Approval links must be confirmation pages.** For `approval-request`, `approve_url` / `reject_url` must point to pages that require an explicit human click to act — never state-changing GET endpoints. Email security scanners prefetch every link in a message, so a GET-to-approve URL gets "approved" by a robot before the human ever opens the mail.
 
