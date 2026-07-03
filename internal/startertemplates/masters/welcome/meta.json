@@ -1,0 +1,58 @@
+{
+  "alias": "welcome",
+  "name": "Welcome",
+  "description": "Warm, brief welcome for new users with a single primary call to action.",
+  "version": "1.0.0",
+  "subject": "Welcome to {{company_name}}",
+  "variables": [
+    {
+      "name": "company_name",
+      "required": true,
+      "raw": false,
+      "description": "Sender company or product name; rendered as the header wordmark and in the footer.",
+      "example": "Acme"
+    },
+    {
+      "name": "support_email",
+      "required": true,
+      "raw": false,
+      "description": "Support contact email address shown in the footer.",
+      "example": "support@acme.com"
+    },
+    {
+      "name": "company_address",
+      "required": true,
+      "raw": false,
+      "description": "Physical mailing address for the footer (CAN-SPAM).",
+      "example": "100 Main St, San Francisco, CA 94105"
+    },
+    {
+      "name": "preheader",
+      "required": false,
+      "raw": false,
+      "description": "Hidden inbox preview text shown next to the subject line.",
+      "example": "Your account is ready. One step to get started."
+    },
+    {
+      "name": "recipient_name",
+      "required": true,
+      "raw": false,
+      "description": "Recipient's first name or display name.",
+      "example": "Sam"
+    },
+    {
+      "name": "cta_url",
+      "required": true,
+      "raw": false,
+      "description": "Destination URL of the primary call-to-action button.",
+      "example": "https://app.acme.com/onboarding"
+    },
+    {
+      "name": "cta_label",
+      "required": true,
+      "raw": false,
+      "description": "Label text on the primary call-to-action button.",
+      "example": "Set up your workspace"
+    }
+  ]
+}

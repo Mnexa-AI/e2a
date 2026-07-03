@@ -1,0 +1,23 @@
+Approval needed: {{action_summary}}
+
+{{agent_name}} is requesting approval for the action below. It
+will not proceed until you decide. This request expires at
+{{expires_at}}.
+
+----------
+
+{{details_text}}
+
+----------
+
+Approve this action:
+{{approve_url}}
+
+Reject this action:
+{{reject_url}}
+
+This is an automated message from {{agent_name}} via {{company_name}}.
+
+----------
+{{company_name}} · {{company_address}}
+Support: {{support_email}}

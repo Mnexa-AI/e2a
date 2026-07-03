@@ -1,0 +1,51 @@
+{
+  "alias": "password-reset",
+  "name": "Password reset",
+  "description": "Terse, security-neutral password reset email with a single reset button and expiry notice.",
+  "version": "1.0.0",
+  "subject": "Reset your {{company_name}} password",
+  "variables": [
+    {
+      "name": "company_name",
+      "required": true,
+      "raw": false,
+      "description": "Sender company or product name; rendered as the header wordmark and in the footer.",
+      "example": "Acme"
+    },
+    {
+      "name": "support_email",
+      "required": true,
+      "raw": false,
+      "description": "Support contact email address shown in the footer.",
+      "example": "support@acme.com"
+    },
+    {
+      "name": "company_address",
+      "required": true,
+      "raw": false,
+      "description": "Physical mailing address for the footer (CAN-SPAM).",
+      "example": "100 Main St, San Francisco, CA 94105"
+    },
+    {
+      "name": "preheader",
+      "required": false,
+      "raw": false,
+      "description": "Hidden inbox preview text shown next to the subject line.",
+      "example": "Use this link to choose a new password. It expires soon."
+    },
+    {
+      "name": "action_url",
+      "required": true,
+      "raw": false,
+      "description": "The password reset URL behind the button and the fallback link.",
+      "example": "https://app.acme.com/reset?token=abc123"
+    },
+    {
+      "name": "expires_minutes",
+      "required": true,
+      "raw": false,
+      "description": "Minutes until the reset link expires, as a bare number.",
+      "example": "30"
+    }
+  ]
+}

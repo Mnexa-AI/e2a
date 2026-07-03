@@ -1,0 +1,18 @@
+{{headline}}
+
+{{agent_name}} daily digest for {{date}}.
+
+----------
+
+{{sections_text}}
+
+----------
+
+View the dashboard:
+{{dashboard_url}}
+
+This is an automated message from {{agent_name}} via {{company_name}}.
+
+----------
+{{company_name}} · {{company_address}}
+Support: {{support_email}}

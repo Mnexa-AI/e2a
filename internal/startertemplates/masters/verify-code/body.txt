@@ -1,0 +1,13 @@
+{{code}} is your {{company_name}} verification code.
+
+Enter the code below to continue. It expires in
+{{expires_minutes}} minutes.
+
+{{code}}
+
+Didn't request this? You can safely ignore this email. Someone
+may have entered your address by mistake.
+
+----------
+{{company_name}} · {{company_address}}
+Support: {{support_email}}
