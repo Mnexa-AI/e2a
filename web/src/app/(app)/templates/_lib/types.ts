@@ -3,15 +3,20 @@
 // StarterTemplateDetailView, ValidateTemplateResponse). Beta: templates
 // are unstable — keep in sync with the spec until they stabilize.
 
-export type TemplateView = {
+// GET /v1/templates returns SUMMARIES (metadata only, no body sources);
+// GET /v1/templates/{id} returns the full view with the sources.
+export type TemplateSummaryView = {
   id: string;
   name: string;
   alias?: string;
   subject: string;
-  body: string;
-  html_body?: string;
   created_at: string;
   updated_at: string;
+};
+
+export type TemplateView = TemplateSummaryView & {
+  body: string;
+  html_body?: string;
 };
 
 export type StarterTemplateVariable = {

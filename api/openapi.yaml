@@ -1405,12 +1405,12 @@ components:
         - items
         - next_cursor
       type: object
-    PageTemplateView:
+    PageTemplateSummaryView:
       additionalProperties: false
       properties:
         items:
           items:
-            $ref: "#/components/schemas/TemplateView"
+            $ref: "#/components/schemas/TemplateSummaryView"
           type: array
         next_cursor:
           type:
@@ -1943,6 +1943,31 @@ components:
       required:
         - part
         - message
+      type: object
+    TemplateSummaryView:
+      additionalProperties: false
+      properties:
+        alias:
+          description: Optional per-user unique handle usable as template_alias on send.
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        subject:
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+      required:
+        - id
+        - name
+        - subject
+        - created_at
+        - updated_at
       type: object
     TemplateView:
       additionalProperties: false
@@ -3846,14 +3871,14 @@ paths:
         - templates
   /v1/templates:
     get:
-      description: "List the account's templates, newest first. Beta: templates are unstable — their shape may change before they are declared stable."
+      description: "List the account's templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable."
       operationId: listTemplates
       responses:
         "200":
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PageTemplateView"
+                $ref: "#/components/schemas/PageTemplateSummaryView"
           description: OK
         default:
           content:

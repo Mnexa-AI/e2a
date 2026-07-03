@@ -234,7 +234,7 @@ type Deps struct {
 	// not-found). GetTemplate/GetTemplateByAlias also serve the send path's
 	// template_id/template_alias resolution.
 	CreateTemplate     func(ctx context.Context, userID, name, alias, subject, body, htmlBody string) (*identity.Template, error)
-	ListTemplates      func(ctx context.Context, userID string) ([]identity.Template, error)
+	ListTemplates      func(ctx context.Context, userID string) ([]identity.TemplateSummary, error)
 	GetTemplate        func(ctx context.Context, templateID, userID string) (*identity.Template, error)
 	GetTemplateByAlias func(ctx context.Context, alias, userID string) (*identity.Template, error)
 	UpdateTemplate     func(ctx context.Context, templateID, userID string, u identity.TemplateUpdate) (*identity.Template, error)

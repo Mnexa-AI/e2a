@@ -6,7 +6,7 @@ import { PageShell } from "../../components/loft/PageShell";
 import { Chip } from "../../components/loft/Chip";
 import { StarterGallery } from "./_components/StarterGallery";
 import { StarterPreviewModal } from "./_components/StarterPreviewModal";
-import type { StarterTemplateView, TemplateView } from "./_lib/types";
+import type { StarterTemplateView, TemplateSummaryView } from "./_lib/types";
 
 // /templates (beta) — the account's reusable email templates plus the
 // read-only starter catalog. Templates are subject/body sources with
@@ -27,8 +27,8 @@ const inlineCodeStyle: React.CSSProperties = {
 
 // Follow next_cursor so accounts with more than one page of templates
 // still see the full list. Cap the walk defensively.
-async function fetchAllTemplates(): Promise<TemplateView[]> {
-  const items: TemplateView[] = [];
+async function fetchAllTemplates(): Promise<TemplateSummaryView[]> {
+  const items: TemplateSummaryView[] = [];
   let cursor: string | null = null;
   for (let i = 0; i < 20; i++) {
     const url: string = cursor
@@ -36,7 +36,7 @@ async function fetchAllTemplates(): Promise<TemplateView[]> {
       : "/v1/templates";
     const res = await fetch(url, { credentials: "include" });
     if (!res.ok) throw new Error(`Failed to load templates (HTTP ${res.status})`);
-    const body: { items: TemplateView[]; next_cursor: string | null } =
+    const body: { items: TemplateSummaryView[]; next_cursor: string | null } =
       await res.json();
     items.push(...(body.items ?? []));
     cursor = body.next_cursor;
@@ -46,7 +46,7 @@ async function fetchAllTemplates(): Promise<TemplateView[]> {
 }
 
 export default function TemplatesPage() {
-  const [templates, setTemplates] = useState<TemplateView[]>([]);
+  const [templates, setTemplates] = useState<TemplateSummaryView[]>([]);
   const [starters, setStarters] = useState<StarterTemplateView[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -200,7 +200,7 @@ function TemplatesTable({
   templates,
   onChange,
 }: {
-  templates: TemplateView[];
+  templates: TemplateSummaryView[];
   onChange: () => Promise<void> | void;
 }) {
   return (
@@ -249,7 +249,7 @@ function TemplateRow({
   onChange,
   isFirstRow,
 }: {
-  template: TemplateView;
+  template: TemplateSummaryView;
   onChange: () => Promise<void> | void;
   isFirstRow: boolean;
 }) {

@@ -114,8 +114,12 @@ func testServer(t *testing.T) *httptest.Server {
 				CreatedAt: time.Unix(1700000000, 0).UTC(), UpdatedAt: time.Unix(1700000000, 0).UTC(),
 			}, nil
 		},
-		ListTemplates: func(ctx context.Context, userID string) ([]identity.Template, error) {
-			return []identity.Template{sampleTemplate()}, nil
+		ListTemplates: func(ctx context.Context, userID string) ([]identity.TemplateSummary, error) {
+			tp := sampleTemplate()
+			return []identity.TemplateSummary{{
+				ID: tp.ID, UserID: tp.UserID, Name: tp.Name, Alias: tp.Alias,
+				Subject: tp.Subject, CreatedAt: tp.CreatedAt, UpdatedAt: tp.UpdatedAt,
+			}}, nil
 		},
 		GetTemplate: func(ctx context.Context, templateID, userID string) (*identity.Template, error) {
 			switch {

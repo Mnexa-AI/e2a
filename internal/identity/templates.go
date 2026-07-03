@@ -144,10 +144,27 @@ func (s *Store) GetTemplateByAlias(ctx context.Context, alias, userID string) (*
 	))
 }
 
-// ListTemplatesByUser returns every template owned by the user, newest first.
-func (s *Store) ListTemplatesByUser(ctx context.Context, userID string) ([]Template, error) {
+// TemplateSummary is the list-shape row: metadata only, no body sources.
+// The list SELECT skips body/html_body on purpose — a full library of
+// maximal templates would otherwise ship megabytes per list call, and every
+// list consumer only needs metadata (starter-templates list/detail
+// precedent). Fetch by id for the sources.
+type TemplateSummary struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"user_id"`
+	Name      string    `json:"name"`
+	Alias     string    `json:"alias,omitempty"`
+	Subject   string    `json:"subject"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ListTemplatesByUser returns every template owned by the user, newest
+// first — summaries only (no body/html_body).
+func (s *Store) ListTemplatesByUser(ctx context.Context, userID string) ([]TemplateSummary, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT `+templateSelectColumns+` FROM templates WHERE user_id = $1 ORDER BY created_at DESC, id`,
+		`SELECT id, user_id, name, COALESCE(alias, ''), subject, created_at, updated_at
+		 FROM templates WHERE user_id = $1 ORDER BY created_at DESC, id`,
 		userID,
 	)
 	if err != nil {
@@ -155,10 +172,10 @@ func (s *Store) ListTemplatesByUser(ctx context.Context, userID string) ([]Templ
 	}
 	defer rows.Close()
 
-	var out []Template
+	var out []TemplateSummary
 	for rows.Next() {
-		var tp Template
-		if err := rows.Scan(&tp.ID, &tp.UserID, &tp.Name, &tp.Alias, &tp.Subject, &tp.Body, &tp.HTMLBody, &tp.CreatedAt, &tp.UpdatedAt); err != nil {
+		var tp TemplateSummary
+		if err := rows.Scan(&tp.ID, &tp.UserID, &tp.Name, &tp.Alias, &tp.Subject, &tp.CreatedAt, &tp.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, tp)

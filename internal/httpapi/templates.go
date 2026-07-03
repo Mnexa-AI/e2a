@@ -77,9 +77,33 @@ func templateView(tp *identity.Template) TemplateView {
 	}
 }
 
+// TemplateSummaryView is the list-item shape: metadata only, NO body/
+// html_body sources (a full library of maximal templates would ship
+// megabytes per list call; every list consumer needs metadata). Fetch one by
+// id for the sources — same split as the starter-templates list/detail.
+type TemplateSummaryView struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Alias     string `json:"alias,omitempty" doc:"Optional per-user unique handle usable as template_alias on send."`
+	Subject   string `json:"subject"`
+	CreatedAt string `json:"created_at" format:"date-time"`
+	UpdatedAt string `json:"updated_at" format:"date-time"`
+}
+
+func templateSummaryView(tp *identity.TemplateSummary) TemplateSummaryView {
+	return TemplateSummaryView{
+		ID:        tp.ID,
+		Name:      tp.Name,
+		Alias:     tp.Alias,
+		Subject:   tp.Subject,
+		CreatedAt: tp.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt: tp.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+}
+
 type templateOutput struct{ Body TemplateView }
 type listTemplatesOutput struct {
-	Body Page[TemplateView]
+	Body Page[TemplateSummaryView]
 }
 
 // CreateTemplateRequest — either literal source (name, subject and body
@@ -128,7 +152,7 @@ func (s *Server) registerTemplates() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "listTemplates", Method: http.MethodGet, Path: "/v1/templates",
 		Summary: "List templates (beta)", Tags: []string{"templates"},
-		Description: "List the account's templates, newest first. " + templatesBetaDoc,
+		Description: "List the account's templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. " + templatesBetaDoc,
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleListTemplates)
 
@@ -258,9 +282,9 @@ func (s *Server) handleListTemplates(ctx context.Context, _ *struct{}) (*listTem
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list templates")
 	}
-	items := make([]TemplateView, 0, len(tps))
+	items := make([]TemplateSummaryView, 0, len(tps))
 	for i := range tps {
-		items = append(items, templateView(&tps[i]))
+		items = append(items, templateSummaryView(&tps[i]))
 	}
 	// Single-page at launch (no server-side cursoring): next_cursor null,
 	// same as webhooks/agents.

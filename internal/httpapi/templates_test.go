@@ -123,8 +123,22 @@ func TestListTemplates(t *testing.T) {
 		t.Fatalf("status %d body %v", code, body)
 	}
 	items, _ := body["items"].([]any)
-	if len(items) != 1 || items[0].(map[string]any)["id"] != "tmpl_1" {
+	if len(items) != 1 {
 		t.Fatalf("unexpected items: %v", body)
+	}
+	item, _ := items[0].(map[string]any)
+	if item["id"] != "tmpl_1" || item["name"] != "Welcome" || item["alias"] != "welcome" || item["subject"] != "Hello {{name}}" {
+		t.Fatalf("unexpected summary item: %v", item)
+	}
+	if item["created_at"] == nil || item["updated_at"] == nil {
+		t.Fatalf("summary missing timestamps: %v", item)
+	}
+	// The list is the SUMMARY shape: template sources are get-by-id only
+	// (worst case a list of maximal templates is megabytes of body text).
+	for _, k := range []string{"body", "html_body"} {
+		if _, present := item[k]; present {
+			t.Errorf("list item must not carry %q, got %v", k, item)
+		}
 	}
 	if body["next_cursor"] != nil {
 		t.Fatalf("expected null next_cursor on single page, got %v", body["next_cursor"])

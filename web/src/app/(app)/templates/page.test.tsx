@@ -71,7 +71,6 @@ const template = {
   name: "Order receipt",
   alias: "receipt",
   subject: "Your receipt for {{order_id}}",
-  body: "Total: {{total}}",
   created_at: "2026-06-20T10:00:00Z",
   updated_at: "2026-06-28T09:30:00Z",
 };

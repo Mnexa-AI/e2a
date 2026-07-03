@@ -166,6 +166,37 @@ func TestListTemplatesByUser_ScopesByOwner(t *testing.T) {
 	}
 }
 
+func TestListTemplatesByUser_SummaryShape(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userID := templateTestUser(t, store, "tmpl-list-shape")
+
+	created, err := store.CreateTemplate(ctx, userID, "Shaped", "shaped", "Subject {{x}}", "Body {{x}}", "<p>{{x}}</p>")
+	if err != nil {
+		t.Fatalf("CreateTemplate: %v", err)
+	}
+
+	list, err := store.ListTemplatesByUser(ctx, userID)
+	if err != nil {
+		t.Fatalf("ListTemplatesByUser: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("want 1 summary, got %d", len(list))
+	}
+	got := list[0]
+	// TemplateSummary carries metadata only (no Body/HTMLBody fields at
+	// all — the SELECT skips the source columns); everything it does carry
+	// must round-trip.
+	if got.ID != created.ID || got.UserID != userID || got.Name != "Shaped" ||
+		got.Alias != "shaped" || got.Subject != "Subject {{x}}" {
+		t.Errorf("summary diverged from created row: %+v", got)
+	}
+	if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() {
+		t.Errorf("summary timestamps not set: %+v", got)
+	}
+}
+
 func TestCreateTemplate_EnforcesPerUserCap(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
