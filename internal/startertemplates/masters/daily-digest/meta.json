@@ -1,0 +1,86 @@
+{
+  "alias": "daily-digest",
+  "name": "Daily digest",
+  "description": "Recurring daily summary from an automated agent: a headline, pre-rendered sections, a dashboard link, and an unsubscribe link in the footer. Carries the mandatory automated-sender disclosure.",
+  "version": "1.0.0",
+  "subject": "{{agent_name}} daily digest — {{date}}",
+  "variables": [
+    {
+      "name": "company_name",
+      "required": true,
+      "raw": false,
+      "description": "Sender company or product name; rendered as the header wordmark and in the footer.",
+      "example": "Acme"
+    },
+    {
+      "name": "support_email",
+      "required": true,
+      "raw": false,
+      "description": "Support contact email address shown in the footer.",
+      "example": "support@acme.com"
+    },
+    {
+      "name": "company_address",
+      "required": true,
+      "raw": false,
+      "description": "Physical mailing address for the footer (CAN-SPAM).",
+      "example": "100 Main St, San Francisco, CA 94105"
+    },
+    {
+      "name": "preheader",
+      "required": false,
+      "raw": false,
+      "description": "Hidden inbox preview text shown next to the subject line.",
+      "example": "128 invoices processed, 2 need review."
+    },
+    {
+      "name": "agent_name",
+      "required": true,
+      "raw": false,
+      "description": "Name of the agent sending the digest.",
+      "example": "billing-bot"
+    },
+    {
+      "name": "date",
+      "required": true,
+      "raw": false,
+      "description": "Human-readable date the digest covers.",
+      "example": "July 2, 2026"
+    },
+    {
+      "name": "headline",
+      "required": true,
+      "raw": false,
+      "description": "One-line, numbers-first headline for the day; doubles as the heading.",
+      "example": "128 invoices processed, 2 need review"
+    },
+    {
+      "name": "sections_html",
+      "required": true,
+      "raw": true,
+      "description": "Raw pre-rendered digest sections: block-level HTML (paragraphs or simple tables) with inline styles, inserted verbatim between the headline and the dashboard button. Optionally add class=\"text-main\" / class=\"text-sub\" to cells for dark-mode support.",
+      "example": "<p style=\"margin:0 0 12px 0;font-family:'Helvetica Neue',Arial,sans-serif;font-size:16px;line-height:1.5;color:#1F2430;\" class=\"text-main\"><strong>Invoices</strong>: 128 processed, 0 errors</p><p style=\"margin:0;font-family:'Helvetica Neue',Arial,sans-serif;font-size:16px;line-height:1.5;color:#1F2430;\" class=\"text-main\"><strong>Needs review</strong>: 2 flagged for manual approval</p>"
+    },
+    {
+      "name": "sections_text",
+      "required": true,
+      "raw": false,
+      "description": "Plain-text digest sections for the text part, hard-wrapped to 70 characters.",
+      "example": "Invoices: 128 processed, 0 errors\nNeeds review: 2 flagged for manual approval"
+    },
+    {
+      "name": "dashboard_url",
+      "required": true,
+      "raw": false,
+      "description": "URL of the agent's dashboard or digest detail page.",
+      "example": "https://app.acme.com/agents/billing-bot"
+    },
+    {
+      "name": "unsubscribe_html",
+      "required": true,
+      "raw": true,
+      "description": "Raw pre-rendered unsubscribe link for the footer: a single inline-styled <a> element pointing at the recipient's unsubscribe URL.",
+      "example": "<a href=\"https://app.acme.com/digests/unsubscribe?u=abc123\" style=\"color:#6B7080;text-decoration:underline;\" class=\"text-sub\">Unsubscribe from this digest</a>"
+    }
+  ]
+}

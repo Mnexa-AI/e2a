@@ -1,0 +1,13 @@
+Your {{company_name}} receipt for order {{order_id}}, placed on
+{{order_date}}.
+
+{{items_text}}
+
+Total: {{total}}
+
+View your receipt:
+{{receipt_url}}
+
+----------
+{{company_name}} · {{company_address}}
+Support: {{support_email}}

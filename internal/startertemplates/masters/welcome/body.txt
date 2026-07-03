@@ -1,0 +1,13 @@
+Welcome to {{company_name}}, {{recipient_name}} — your account is ready.
+
+Thanks for joining. There is just one thing to do to get started.
+
+{{cta_label}}:
+{{cta_url}}
+
+Questions? Reply to this email or write to the support address
+below.
+
+----------
+{{company_name}} · {{company_address}}
+Support: {{support_email}}

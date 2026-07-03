@@ -1,0 +1,72 @@
+{
+  "alias": "agent-status",
+  "name": "Agent status",
+  "description": "Factual, numbers-first status report from an automated agent, with pre-rendered report sections and a dashboard link. Carries the mandatory automated-sender disclosure.",
+  "version": "1.0.0",
+  "subject": "{{agent_name}}: {{run_summary}}",
+  "variables": [
+    {
+      "name": "company_name",
+      "required": true,
+      "raw": false,
+      "description": "Sender company or product name; rendered as the header wordmark and in the footer.",
+      "example": "Acme"
+    },
+    {
+      "name": "support_email",
+      "required": true,
+      "raw": false,
+      "description": "Support contact email address shown in the footer.",
+      "example": "support@acme.com"
+    },
+    {
+      "name": "company_address",
+      "required": true,
+      "raw": false,
+      "description": "Physical mailing address for the footer (CAN-SPAM).",
+      "example": "100 Main St, San Francisco, CA 94105"
+    },
+    {
+      "name": "preheader",
+      "required": false,
+      "raw": false,
+      "description": "Hidden inbox preview text shown next to the subject line.",
+      "example": "Nightly run finished: 128 processed, 0 errors."
+    },
+    {
+      "name": "agent_name",
+      "required": true,
+      "raw": false,
+      "description": "Name of the agent sending the report.",
+      "example": "billing-bot"
+    },
+    {
+      "name": "run_summary",
+      "required": true,
+      "raw": false,
+      "description": "One-line, numbers-first summary of the run; doubles as the heading.",
+      "example": "Nightly run finished: 128 processed, 0 errors"
+    },
+    {
+      "name": "sections_html",
+      "required": true,
+      "raw": true,
+      "description": "Raw pre-rendered report sections: block-level HTML (paragraphs or simple tables) with inline styles, inserted verbatim between the summary and the dashboard button. Optionally add class=\"text-main\" / class=\"text-sub\" to cells for dark-mode support.",
+      "example": "<p style=\"margin:0 0 12px 0;font-family:'Helvetica Neue',Arial,sans-serif;font-size:16px;line-height:1.5;color:#1F2430;\" class=\"text-main\"><strong>Processed</strong>: 128 invoices, 0 errors, 3 retries</p><p style=\"margin:0;font-family:'Helvetica Neue',Arial,sans-serif;font-size:16px;line-height:1.5;color:#1F2430;\" class=\"text-main\"><strong>Queue</strong>: 2 items deferred to the next run</p>"
+    },
+    {
+      "name": "sections_text",
+      "required": true,
+      "raw": false,
+      "description": "Plain-text report sections for the text part, hard-wrapped to 70 characters.",
+      "example": "Processed: 128 invoices, 0 errors, 3 retries\nQueue: 2 items deferred to the next run"
+    },
+    {
+      "name": "dashboard_url",
+      "required": true,
+      "raw": false,
+      "description": "URL of the agent's dashboard or run detail page.",
+      "example": "https://app.acme.com/agents/billing-bot"
+    }
+  ]
+}

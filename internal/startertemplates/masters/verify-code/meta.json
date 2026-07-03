@@ -1,0 +1,51 @@
+{
+  "alias": "verify-code",
+  "name": "Verification code",
+  "description": "Terse one-time verification code email. The code is selectable text in a monospace chip; there is no button.",
+  "version": "1.0.0",
+  "subject": "{{code}} is your {{company_name}} code",
+  "variables": [
+    {
+      "name": "company_name",
+      "required": true,
+      "raw": false,
+      "description": "Sender company or product name; rendered as the header wordmark and in the footer.",
+      "example": "Acme"
+    },
+    {
+      "name": "support_email",
+      "required": true,
+      "raw": false,
+      "description": "Support contact email address shown in the footer.",
+      "example": "support@acme.com"
+    },
+    {
+      "name": "company_address",
+      "required": true,
+      "raw": false,
+      "description": "Physical mailing address for the footer (CAN-SPAM).",
+      "example": "100 Main St, San Francisco, CA 94105"
+    },
+    {
+      "name": "preheader",
+      "required": false,
+      "raw": false,
+      "description": "Hidden inbox preview text shown next to the subject line.",
+      "example": "Your verification code expires in 10 minutes."
+    },
+    {
+      "name": "code",
+      "required": true,
+      "raw": false,
+      "description": "The one-time verification code.",
+      "example": "482913"
+    },
+    {
+      "name": "expires_minutes",
+      "required": true,
+      "raw": false,
+      "description": "Minutes until the code expires, as a bare number.",
+      "example": "10"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+Use the link below to reset your {{company_name}} password.
+
+The link expires in {{expires_minutes}} minutes.
+
+Reset your password:
+{{action_url}}
+
+Didn't request this? You can safely ignore this email. Your
+password will not change.
+
+----------
+{{company_name}} · {{company_address}}
+Support: {{support_email}}

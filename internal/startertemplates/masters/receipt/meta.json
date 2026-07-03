@@ -1,0 +1,79 @@
+{
+  "alias": "receipt",
+  "name": "Receipt",
+  "description": "Order receipt with a line-item table, right-aligned total, and a link to the hosted receipt. The template owns the items table; items_html supplies only the rows.",
+  "version": "1.0.0",
+  "subject": "Your {{company_name}} receipt — {{order_id}}",
+  "variables": [
+    {
+      "name": "company_name",
+      "required": true,
+      "raw": false,
+      "description": "Sender company or product name; rendered as the header wordmark and in the footer.",
+      "example": "Acme"
+    },
+    {
+      "name": "support_email",
+      "required": true,
+      "raw": false,
+      "description": "Support contact email address shown in the footer.",
+      "example": "support@acme.com"
+    },
+    {
+      "name": "company_address",
+      "required": true,
+      "raw": false,
+      "description": "Physical mailing address for the footer (CAN-SPAM).",
+      "example": "100 Main St, San Francisco, CA 94105"
+    },
+    {
+      "name": "preheader",
+      "required": false,
+      "raw": false,
+      "description": "Hidden inbox preview text shown next to the subject line.",
+      "example": "Receipt for order ORD-10432 — total $39.00."
+    },
+    {
+      "name": "order_id",
+      "required": true,
+      "raw": false,
+      "description": "Order or invoice identifier.",
+      "example": "ORD-10432"
+    },
+    {
+      "name": "order_date",
+      "required": true,
+      "raw": false,
+      "description": "Human-readable order date.",
+      "example": "July 2, 2026"
+    },
+    {
+      "name": "items_html",
+      "required": true,
+      "raw": true,
+      "description": "Raw pre-rendered line-item rows for the receipt table: one <tr> per item with exactly two inline-styled <td> cells — item name/quantity left-aligned, price right-aligned. Rows only; the template owns the parent table and the total row.",
+      "example": "<tr><td style=\"padding:8px 0;font-family:'Helvetica Neue',Arial,sans-serif;font-size:16px;line-height:1.5;color:#1F2430;\" class=\"text-main\">1&times; Pro plan (monthly)</td><td align=\"right\" style=\"padding:8px 0;font-family:'Helvetica Neue',Arial,sans-serif;font-size:16px;line-height:1.5;color:#1F2430;\" class=\"text-main\">$29.00</td></tr><tr><td style=\"padding:8px 0;font-family:'Helvetica Neue',Arial,sans-serif;font-size:16px;line-height:1.5;color:#1F2430;\" class=\"text-main\">1&times; Extra seat</td><td align=\"right\" style=\"padding:8px 0;font-family:'Helvetica Neue',Arial,sans-serif;font-size:16px;line-height:1.5;color:#1F2430;\" class=\"text-main\">$10.00</td></tr>"
+    },
+    {
+      "name": "items_text",
+      "required": true,
+      "raw": false,
+      "description": "Plain-text line items for the text part, one item per line, hard-wrapped to 70 characters.",
+      "example": "1x Pro plan (monthly) — $29.00\n1x Extra seat — $10.00"
+    },
+    {
+      "name": "total",
+      "required": true,
+      "raw": false,
+      "description": "Formatted order total, including currency symbol.",
+      "example": "$39.00"
+    },
+    {
+      "name": "receipt_url",
+      "required": true,
+      "raw": false,
+      "description": "URL of the hosted receipt or invoice.",
+      "example": "https://app.acme.com/receipts/ORD-10432"
+    }
+  ]
+}

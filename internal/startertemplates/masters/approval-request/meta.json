@@ -1,0 +1,86 @@
+{
+  "alias": "approval-request",
+  "name": "Approval request",
+  "description": "Human-in-the-loop approval request from an automated agent: key-value action details, side-by-side Approve and Reject buttons with fallback links, and an expiry line. Carries the mandatory automated-sender disclosure.",
+  "version": "1.0.0",
+  "subject": "Approval needed: {{action_summary}}",
+  "variables": [
+    {
+      "name": "company_name",
+      "required": true,
+      "raw": false,
+      "description": "Sender company or product name; rendered as the header wordmark and in the footer.",
+      "example": "Acme"
+    },
+    {
+      "name": "support_email",
+      "required": true,
+      "raw": false,
+      "description": "Support contact email address shown in the footer.",
+      "example": "support@acme.com"
+    },
+    {
+      "name": "company_address",
+      "required": true,
+      "raw": false,
+      "description": "Physical mailing address for the footer (CAN-SPAM).",
+      "example": "100 Main St, San Francisco, CA 94105"
+    },
+    {
+      "name": "preheader",
+      "required": false,
+      "raw": false,
+      "description": "Hidden inbox preview text shown next to the subject line.",
+      "example": "An agent action is waiting for your decision."
+    },
+    {
+      "name": "agent_name",
+      "required": true,
+      "raw": false,
+      "description": "Name of the agent requesting approval.",
+      "example": "billing-bot"
+    },
+    {
+      "name": "action_summary",
+      "required": true,
+      "raw": false,
+      "description": "One-line, numbers-first summary of the action awaiting approval; doubles as the heading.",
+      "example": "Send 42 refund emails totaling $1,310"
+    },
+    {
+      "name": "details_html",
+      "required": true,
+      "raw": true,
+      "description": "Raw pre-rendered key-value rows for the details table: one <tr> per field with exactly two inline-styled <td> cells — field label left-aligned in the secondary color, value right-aligned. Rows only; the template owns the parent table.",
+      "example": "<tr><td style=\"padding:8px 0;font-family:'Helvetica Neue',Arial,sans-serif;font-size:14px;line-height:1.5;color:#6B7080;\" class=\"text-sub\">Amount</td><td align=\"right\" style=\"padding:8px 0;font-family:'Helvetica Neue',Arial,sans-serif;font-size:14px;line-height:1.5;color:#1F2430;\" class=\"text-main\">$1,310.00</td></tr><tr><td style=\"padding:8px 0;font-family:'Helvetica Neue',Arial,sans-serif;font-size:14px;line-height:1.5;color:#6B7080;\" class=\"text-sub\">Recipients</td><td align=\"right\" style=\"padding:8px 0;font-family:'Helvetica Neue',Arial,sans-serif;font-size:14px;line-height:1.5;color:#1F2430;\" class=\"text-main\">42</td></tr>"
+    },
+    {
+      "name": "details_text",
+      "required": true,
+      "raw": false,
+      "description": "Plain-text key-value details for the text part, one field per line, hard-wrapped to 70 characters.",
+      "example": "Amount: $1,310.00\nRecipients: 42"
+    },
+    {
+      "name": "approve_url",
+      "required": true,
+      "raw": false,
+      "description": "URL that approves the action.",
+      "example": "https://app.acme.com/approvals/apr_123/approve"
+    },
+    {
+      "name": "reject_url",
+      "required": true,
+      "raw": false,
+      "description": "URL that rejects the action.",
+      "example": "https://app.acme.com/approvals/apr_123/reject"
+    },
+    {
+      "name": "expires_at",
+      "required": true,
+      "raw": false,
+      "description": "Human-readable time at which the request expires and the action will not proceed.",
+      "example": "July 3, 2026 18:00 UTC"
+    }
+  ]
+}
