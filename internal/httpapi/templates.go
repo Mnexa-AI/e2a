@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/emailtemplate"
@@ -471,7 +472,7 @@ type ValidateTemplateResponse struct {
 	Valid         bool                  `json:"valid"`
 	Errors        []TemplatePartError   `json:"errors" nullable:"false"`
 	Rendered      *RenderedTemplateView `json:"rendered,omitempty" doc:"Rendered preview against test_data (or empty data). Present only when valid."`
-	SuggestedData map[string]string     `json:"suggested_data,omitempty" doc:"A placeholder value for every variable the source references — a starting point for template_data."`
+	SuggestedData map[string]any        `json:"suggested_data,omitempty" doc:"A placeholder value for every variable the source references — a starting point for template_data. Dot-path variables ({{user.name}}) emit NESTED objects, matching how the renderer resolves them."`
 }
 type validateTemplateOutput struct{ Body ValidateTemplateResponse }
 
@@ -487,7 +488,7 @@ func (s *Server) handleValidateTemplate(ctx context.Context, in *validateTemplat
 
 	resp := ValidateTemplateResponse{Errors: []TemplatePartError{}}
 	rendered := &RenderedTemplateView{}
-	suggested := map[string]string{}
+	suggested := map[string]any{}
 
 	parts := []struct {
 		name   string
@@ -506,9 +507,7 @@ func (s *Server) handleValidateTemplate(ctx context.Context, in *validateTemplat
 			continue
 		}
 		for _, v := range tmpl.Vars() {
-			if _, ok := suggested[v]; !ok {
-				suggested[v] = v + "_value"
-			}
+			suggestPlaceholder(suggested, v)
 		}
 		out, err := tmpl.Render(data, p.escape)
 		if err != nil {
@@ -526,4 +525,31 @@ func (s *Server) handleValidateTemplate(ctx context.Context, in *validateTemplat
 		resp.SuggestedData = suggested
 	}
 	return &validateTemplateOutput{Body: resp}, nil
+}
+
+// suggestPlaceholder inserts "<ident>_value" for one variable into the
+// suggested_data map, building NESTED objects for dot paths — {{user.name}}
+// yields {"user": {"name": "user.name_value"}} — because the renderer
+// resolves dots as nested paths only, so a flat "user.name" key would render
+// empty if pasted back as template_data. First writer wins on conflicts
+// (e.g. {{user}} vs {{user.name}}): an existing scalar or object at any
+// segment is left untouched.
+func suggestPlaceholder(suggested map[string]any, ident string) {
+	segs := strings.Split(ident, ".")
+	cur := suggested
+	for _, seg := range segs[:len(segs)-1] {
+		next, ok := cur[seg].(map[string]any)
+		if !ok {
+			if _, exists := cur[seg]; exists {
+				return // a scalar already claims this segment
+			}
+			next = map[string]any{}
+			cur[seg] = next
+		}
+		cur = next
+	}
+	leaf := segs[len(segs)-1]
+	if _, exists := cur[leaf]; !exists {
+		cur[leaf] = ident + "_value"
+	}
 }

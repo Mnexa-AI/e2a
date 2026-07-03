@@ -17,6 +17,7 @@ import {
   type TemplateView,
   type ValidateTemplateResponse,
 } from "../_lib/types";
+import { flattenSuggested, nestTestData } from "../_lib/testdata";
 
 const fieldStyle: React.CSSProperties = {
   background: "var(--bg-panel)",
@@ -69,8 +70,10 @@ function TemplateEditor({ id }: { id: string }) {
 
   // Preview state — POST /v1/templates/validate renders the current
   // (possibly unsaved) sources against the test data. suggested_data
-  // from the response seeds one input per referenced variable;
-  // user-entered values win on re-validate.
+  // from the response (nested on the wire) seeds one input per referenced
+  // variable, keyed by the dotted variable name; user-entered values win
+  // on re-validate. The flat display map is nested back into an object
+  // when posted as test_data (see _lib/testdata.ts).
   const [testData, setTestData] = useState<Record<string, string>>({});
   const [validation, setValidation] =
     useState<ValidateTemplateResponse | null>(null);
@@ -159,7 +162,8 @@ function TemplateEditor({ id }: { id: string }) {
             subject,
             body,
             ...(htmlBody ? { html_body: htmlBody } : {}),
-            test_data: data,
+            // Dotted display keys → the nested object the renderer resolves.
+            test_data: nestTestData(data),
           }),
         });
         if (!res.ok) {
@@ -169,10 +173,12 @@ function TemplateEditor({ id }: { id: string }) {
         }
         const v: ValidateTemplateResponse = await res.json();
         setValidation(v);
-        // Seed an input for every variable the source references; keep
-        // whatever the user already typed.
+        // Seed an input for every variable the source references (nested
+        // suggested_data → dotted display keys); keep whatever the user
+        // already typed.
         if (v.suggested_data) {
-          setTestData((prev) => ({ ...v.suggested_data, ...prev }));
+          const flat = flattenSuggested(v.suggested_data);
+          setTestData((prev) => ({ ...flat, ...prev }));
         }
       } catch (err) {
         setPreviewError(err instanceof Error ? err.message : String(err));

@@ -245,10 +245,15 @@ func TestValidateTemplateValid(t *testing.T) {
 		t.Fatalf("html body must escape {{x}} and keep {{{x}}} raw: %v", rendered)
 	}
 	suggested, _ := body["suggested_data"].(map[string]any)
-	for _, v := range []string{"name", "plan.tier", "html"} {
+	for _, v := range []string{"name", "html"} {
 		if suggested[v] != v+"_value" {
 			t.Fatalf("suggested_data missing %q: %v", v, suggested)
 		}
+	}
+	// Dot-path variables emit NESTED objects (the shape the renderer resolves).
+	plan, _ := suggested["plan"].(map[string]any)
+	if plan["tier"] != "plan.tier_value" {
+		t.Fatalf("suggested_data for plan.tier must be nested, got %v", suggested)
 	}
 	errs, _ := body["errors"].([]any)
 	if len(errs) != 0 {
@@ -282,6 +287,42 @@ func TestValidateTemplateInvalid(t *testing.T) {
 	suggested, _ := body["suggested_data"].(map[string]any)
 	if suggested["x"] != "x_value" {
 		t.Fatalf("suggested_data should include vars from parsing parts: %v", suggested)
+	}
+}
+
+// TestValidateTemplateSuggestedDataNestedRoundTrip: suggested_data for a
+// dot-path template is nested, and feeding it straight back as test_data
+// renders the placeholders — i.e. the suggestion is usable template_data
+// as-is (a flat "user.name" key would render empty).
+func TestValidateTemplateSuggestedDataNestedRoundTrip(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/templates/validate", "good", map[string]any{
+		"subject": "Hi {{user.name}}", "body": "Contact: {{user.contact.email}}",
+	})
+	if code != 200 || body["valid"] != true {
+		t.Fatalf("want 200 valid, got %d %v", code, body)
+	}
+	suggested, _ := body["suggested_data"].(map[string]any)
+	user, _ := suggested["user"].(map[string]any)
+	if user["name"] != "user.name_value" {
+		t.Fatalf("want nested user.name placeholder, got %v", suggested)
+	}
+	contact, _ := user["contact"].(map[string]any)
+	if contact["email"] != "user.contact.email_value" {
+		t.Fatalf("want nested user.contact.email placeholder, got %v", suggested)
+	}
+
+	// Round-trip: the suggestion IS valid template_data for the same source.
+	code, body = postJSON(t, srv.URL+"/v1/templates/validate", "good", map[string]any{
+		"subject": "Hi {{user.name}}", "body": "Contact: {{user.contact.email}}",
+		"test_data": suggested,
+	})
+	if code != 200 || body["valid"] != true {
+		t.Fatalf("round-trip: want 200 valid, got %d %v", code, body)
+	}
+	rendered, _ := body["rendered"].(map[string]any)
+	if rendered["subject"] != "Hi user.name_value" || rendered["body"] != "Contact: user.contact.email_value" {
+		t.Fatalf("suggested_data must render its placeholders when passed back, got %v", rendered)
 	}
 }
 

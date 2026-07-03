@@ -48,11 +48,16 @@ export type RenderedTemplate = {
   html_body?: string;
 };
 
+// suggested_data is NESTED: a dot-path variable like {{user.name}} emits
+// {user: {name: "user.name_value"}}, matching how the renderer resolves
+// dots. See _lib/testdata.ts for the flatten/nest display helpers.
+export type SuggestedData = { [key: string]: string | SuggestedData };
+
 export type ValidateTemplateResponse = {
   valid: boolean;
   errors: TemplatePartError[];
   rendered?: RenderedTemplate;
-  suggested_data?: Record<string, string>;
+  suggested_data?: SuggestedData;
 };
 
 // Non-2xx /v1 responses use the ErrorEnvelope shape; branch on error.code
