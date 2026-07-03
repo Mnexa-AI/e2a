@@ -8,6 +8,7 @@ import { listDomains, listAgents } from "../../components/onboarding/api";
 import type { DomainInfo } from "../../components/onboarding/types";
 import type { DashboardAgent } from "../../components/types";
 import { PageShell } from "../../components/loft/PageShell";
+import { AgentPromptCard, AGENT_PROMPTS } from "../../components/AgentPromptCard";
 import {
   agentsKey,
   domainsKey,
@@ -108,6 +109,10 @@ export default function DomainsPage() {
           </div>
         </div>
 
+        <div className="mt-10">
+          <AgentPromptCard {...AGENT_PROMPTS.domains} />
+        </div>
+
         {showAddForm && (
           <div className="mt-6">
             <AddDomainForm onRegistered={handleDomainRegistered} />
@@ -157,6 +162,10 @@ export default function DomainsPage() {
           <AddDomainForm onRegistered={handleDomainRegistered} />
         </div>
       )}
+
+      <div className="mb-10">
+        <AgentPromptCard {...AGENT_PROMPTS.domains} />
+      </div>
 
       {loading ? (
         <div

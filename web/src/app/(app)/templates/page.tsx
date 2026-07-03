@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PageShell } from "../../components/loft/PageShell";
 import { Chip } from "../../components/loft/Chip";
 import { StarterGallery } from "./_components/StarterGallery";
+import { AgentPromptCard, AGENT_PROMPTS } from "../../components/AgentPromptCard";
 import { StarterPreviewModal } from "./_components/StarterPreviewModal";
 import type { StarterTemplateView, TemplateSummaryView } from "./_lib/types";
 
@@ -174,13 +175,16 @@ export default function TemplatesPage() {
         </p>
       ) : hasTemplates ? (
         <div className="space-y-10">
+          <AgentPromptCard {...AGENT_PROMPTS.templates} />
           {list}
           {gallery}
         </div>
       ) : (
-        // No templates yet — lead with the starter gallery so the first
-        // action is one click away, and keep the (empty) list below it.
+        // No templates yet — the agent prompt leads (hand the whole setup
+        // to a coding agent), then the starter gallery for the one-click
+        // path, with the (empty) list below.
         <div className="space-y-10">
+          <AgentPromptCard {...AGENT_PROMPTS.templates} />
           {gallery}
           {list}
         </div>

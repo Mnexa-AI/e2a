@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import useSWR from "swr";
 import Link from "next/link";
 import { useAuth } from "../../components/AuthProvider";
+import { AgentPromptCard, AGENT_PROMPTS } from "../../components/AgentPromptCard";
 import { listDomains } from "../../components/onboarding/api";
 import { useAgents } from "../../components/hooks/useAgents";
 import { domainsKey } from "../../../lib/swrKeys";
@@ -192,6 +193,10 @@ export default function DashboardPage() {
           {error}
         </div>
       )}
+
+      <div className="mb-10">
+        <AgentPromptCard {...AGENT_PROMPTS.inboxes} />
+      </div>
 
       {loading ? (
         <div
