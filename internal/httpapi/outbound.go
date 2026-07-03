@@ -109,7 +109,7 @@ type SendEmailRequest struct {
 	HTMLBody       string                `json:"html_body,omitempty" doc:"Literal HTML body. Mutually exclusive with template_id/template_alias."`
 	TemplateID     string                `json:"template_id,omitempty" doc:"Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."`
 	TemplateAlias  string                `json:"template_alias,omitempty" doc:"Send using a stored template resolved by its per-user alias. Mutually exclusive with template_id and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."`
-	TemplateData   map[string]any        `json:"template_data,omitempty" doc:"Variables for the referenced template ({{name}}, dot paths into nested objects). Missing variables render as empty strings. Beta: templates are unstable — their shape may change before they are declared stable."`
+	TemplateData   TemplateData          `json:"template_data,omitempty" doc:"Variables for the referenced template ({{name}}, dot paths into nested objects). Missing variables render as empty strings. Beta: templates are unstable — their shape may change before they are declared stable."`
 	ConversationID string                `json:"conversation_id,omitempty"`
 	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false"`
 }

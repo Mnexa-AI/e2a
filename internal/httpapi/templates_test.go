@@ -285,6 +285,25 @@ func TestValidateTemplateInvalid(t *testing.T) {
 	}
 }
 
+// TestValidateTemplateBigIntPrecision mirrors the send-path guarantee on the
+// validate endpoint: test_data numbers arrive as json.Number and render
+// digit-exact past 2^53.
+func TestValidateTemplateBigIntPrecision(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/templates/validate", "good", map[string]any{
+		"subject":   "Order {{n}}",
+		"body":      "B",
+		"test_data": map[string]any{"n": int64(123456789012345678)},
+	})
+	if code != 200 || body["valid"] != true {
+		t.Fatalf("want 200 valid, got %d %v", code, body)
+	}
+	rendered, _ := body["rendered"].(map[string]any)
+	if rendered["subject"] != "Order 123456789012345678" {
+		t.Fatalf("rendered subject = %v, want exact big-int digits", rendered["subject"])
+	}
+}
+
 func TestValidateTemplateNoTestData(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/templates/validate", "good", map[string]any{

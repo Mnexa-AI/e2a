@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"regexp"
@@ -29,6 +31,25 @@ const (
 // templateAliasRe is the alias charset: a letter, then up to 127 of
 // [A-Za-z0-9._-]. Aliases are per-user unique handles for send-time lookup.
 var templateAliasRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]{0,127}$`)
+
+// TemplateData is a free-form JSON object carrying template variables
+// (template_data on send, test_data on validate). It decodes with
+// json.Decoder.UseNumber so numeric values arrive as json.Number and render
+// digit-exact — plain encoding/json would decode every number as float64,
+// corrupting integers beyond 2^53 (123456789012345678 → …680). The OpenAPI
+// schema is unchanged: reflection sees an ordinary map → free-form object.
+type TemplateData map[string]any
+
+func (d *TemplateData) UnmarshalJSON(b []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	var m map[string]any
+	if err := dec.Decode(&m); err != nil {
+		return err
+	}
+	*d = m
+	return nil
+}
 
 // TemplateView is the template resource as returned by every endpoint.
 type TemplateView struct {
@@ -425,10 +446,10 @@ func (s *Server) resolveSendTemplate(ctx context.Context, userID string, b *Send
 // ValidateTemplateRequest carries template source to dry-run. Parts may be
 // empty (an empty part parses trivially and renders empty).
 type ValidateTemplateRequest struct {
-	Subject  string         `json:"subject,omitempty"`
-	Body     string         `json:"body,omitempty"`
-	HTMLBody string         `json:"html_body,omitempty"`
-	TestData map[string]any `json:"test_data,omitempty" doc:"Sample template_data to render the preview with. Missing variables render as empty strings."`
+	Subject  string       `json:"subject,omitempty"`
+	Body     string       `json:"body,omitempty"`
+	HTMLBody string       `json:"html_body,omitempty"`
+	TestData TemplateData `json:"test_data,omitempty" doc:"Sample template_data to render the preview with. Missing variables render as empty strings."`
 }
 type validateTemplateInput struct{ Body ValidateTemplateRequest }
 

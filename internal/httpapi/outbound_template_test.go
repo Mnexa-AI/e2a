@@ -185,6 +185,25 @@ func TestSendTemplateRenderedSubjectStillValidated(t *testing.T) {
 	}
 }
 
+// TestSendTemplateBigIntPrecision: template_data decodes with UseNumber, so
+// integers beyond float64's 2^53 mantissa render digit-exact (plain
+// encoding/json would deliver "123456789012345680").
+func TestSendTemplateBigIntPrecision(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
+		"to":            []string{"alice@x.com"},
+		"template_id":   "tmpl_1",
+		"template_data": map[string]any{"name": int64(123456789012345678)},
+	})
+	if code != 200 || body["status"] != "sent" {
+		t.Fatalf("want 200 sent, got %d %v", code, body)
+	}
+	req := lastDeliveredReq()
+	if req.Subject != "Hello 123456789012345678" {
+		t.Errorf("delivered subject = %q, want exact big-int digits", req.Subject)
+	}
+}
+
 // TestReplyRequestHasNoTemplateFields locks the scope decision: template
 // references exist on SendEmailRequest only, not reply/forward.
 func TestReplyRequestHasNoTemplateFields(t *testing.T) {
