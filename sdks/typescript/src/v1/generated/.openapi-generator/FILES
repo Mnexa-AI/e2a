@@ -62,6 +62,7 @@ models/PageDomainView.ts
 models/PageEventJSON.ts
 models/PageMessageSummaryView.ts
 models/PageReviewView.ts
+models/PageStarterTemplateView.ts
 models/PageSuppression.ts
 models/PageTemplateView.ts
 models/PageWebhookDeliveryView.ts
@@ -85,6 +86,9 @@ models/ReviewView.ts
 models/RotateSecretResponse.ts
 models/SendEmailRequest.ts
 models/SendResultView.ts
+models/StarterTemplateDetailView.ts
+models/StarterTemplateVariableView.ts
+models/StarterTemplateView.ts
 models/Suppression.ts
 models/SuppressionExportEntry.ts
 models/TemplatePartError.ts

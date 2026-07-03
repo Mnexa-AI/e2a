@@ -10,33 +10,27 @@
  * Do not edit the class manually.
  */
 
+import { StarterTemplateVariableView } from '../models/StarterTemplateVariableView.js';
 import { HttpFile } from '../http/http.js';
 
-export class CreateTemplateRequest {
+export class StarterTemplateDetailView {
+    'alias': string;
     /**
-    * Optional per-user unique handle ([A-Za-z][A-Za-z0-9._-]{0,127}) usable as template_alias on send.
+    * The plain-text part\'s template source.
     */
-    'alias'?: string;
+    'body': string;
+    'description': string;
     /**
-    * Plain-text body template source (no HTML escaping). Required unless from_starter is set.
+    * The HTML part\'s template source.
     */
-    'body'?: string;
+    'htmlBody': string;
+    'name': string;
     /**
-    * Copy a starter template (by alias, see GET /v1/starter-templates) verbatim into your library. Mutually exclusive with subject, body and html_body — the copy is verbatim; edit the created template afterwards. name and alias default to the starter\'s and may be overridden. Beta: templates are unstable — their shape may change before they are declared stable.
+    * Subject template source ({{variable}} interpolation).
     */
-    'fromStarter'?: string;
-    /**
-    * Optional HTML body template source ({{x}} is HTML-escaped, {{{x}}} is raw).
-    */
-    'htmlBody'?: string;
-    /**
-    * Human-readable template name. Required unless from_starter supplies the default.
-    */
-    'name'?: string;
-    /**
-    * Subject template source ({{variable}} interpolation, no HTML escaping). Required unless from_starter is set.
-    */
-    'subject'?: string;
+    'subject': string;
+    'variables': Array<StarterTemplateVariableView>;
+    'version': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -56,8 +50,8 @@ export class CreateTemplateRequest {
             "format": ""
         },
         {
-            "name": "fromStarter",
-            "baseName": "from_starter",
+            "name": "description",
+            "baseName": "description",
             "type": "string",
             "format": ""
         },
@@ -78,10 +72,22 @@ export class CreateTemplateRequest {
             "baseName": "subject",
             "type": "string",
             "format": ""
+        },
+        {
+            "name": "variables",
+            "baseName": "variables",
+            "type": "Array<StarterTemplateVariableView>",
+            "format": ""
+        },
+        {
+            "name": "version",
+            "baseName": "version",
+            "type": "string",
+            "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return CreateTemplateRequest.attributeTypeMap;
+        return StarterTemplateDetailView.attributeTypeMap;
     }
 
     public constructor() {

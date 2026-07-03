@@ -47,6 +47,7 @@ import { PageDomainView } from '../models/PageDomainView.js';
 import { PageEventJSON } from '../models/PageEventJSON.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageReviewView } from '../models/PageReviewView.js';
+import { PageStarterTemplateView } from '../models/PageStarterTemplateView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
 import { PageTemplateView } from '../models/PageTemplateView.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
@@ -70,6 +71,9 @@ import { ReviewView } from '../models/ReviewView.js';
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
+import { StarterTemplateDetailView } from '../models/StarterTemplateDetailView.js';
+import { StarterTemplateVariableView } from '../models/StarterTemplateVariableView.js';
+import { StarterTemplateView } from '../models/StarterTemplateView.js';
 import { Suppression } from '../models/Suppression.js';
 import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
 import { TemplatePartError } from '../models/TemplatePartError.js';
@@ -1622,6 +1626,16 @@ export interface TemplatesApiDeleteTemplateRequest {
     id: string
 }
 
+export interface TemplatesApiGetStarterTemplateRequest {
+    /**
+     * The starter template\&#39;s alias, e.g. welcome.
+     * Defaults to: undefined
+     * @type string
+     * @memberof TemplatesApigetStarterTemplate
+     */
+    alias: string
+}
+
 export interface TemplatesApiGetTemplateRequest {
     /**
      * 
@@ -1630,6 +1644,9 @@ export interface TemplatesApiGetTemplateRequest {
      * @memberof TemplatesApigetTemplate
      */
     id: string
+}
+
+export interface TemplatesApiListStarterTemplatesRequest {
 }
 
 export interface TemplatesApiListTemplatesRequest {
@@ -1668,7 +1685,7 @@ export class ObjectTemplatesApi {
     }
 
     /**
-     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
      * Create a template (beta)
      * @param param the request object
      */
@@ -1677,7 +1694,7 @@ export class ObjectTemplatesApi {
     }
 
     /**
-     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
      * Create a template (beta)
      * @param param the request object
      */
@@ -1704,6 +1721,24 @@ export class ObjectTemplatesApi {
     }
 
     /**
+     * Fetch one starter template by alias, including its full plain-text and HTML body sources. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Get a starter template (beta)
+     * @param param the request object
+     */
+    public getStarterTemplateWithHttpInfo(param: TemplatesApiGetStarterTemplateRequest, options?: ConfigurationOptions): Promise<HttpInfo<StarterTemplateDetailView>> {
+        return this.api.getStarterTemplateWithHttpInfo(param.alias,  options).toPromise();
+    }
+
+    /**
+     * Fetch one starter template by alias, including its full plain-text and HTML body sources. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Get a starter template (beta)
+     * @param param the request object
+     */
+    public getStarterTemplate(param: TemplatesApiGetStarterTemplateRequest, options?: ConfigurationOptions): Promise<StarterTemplateDetailView> {
+        return this.api.getStarterTemplate(param.alias,  options).toPromise();
+    }
+
+    /**
      * Fetch one template by id. Beta: templates are unstable — their shape may change before they are declared stable.
      * Get a template (beta)
      * @param param the request object
@@ -1719,6 +1754,24 @@ export class ObjectTemplatesApi {
      */
     public getTemplate(param: TemplatesApiGetTemplateRequest, options?: ConfigurationOptions): Promise<TemplateView> {
         return this.api.getTemplate(param.id,  options).toPromise();
+    }
+
+    /**
+     * List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List starter templates (beta)
+     * @param param the request object
+     */
+    public listStarterTemplatesWithHttpInfo(param: TemplatesApiListStarterTemplatesRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<PageStarterTemplateView>> {
+        return this.api.listStarterTemplatesWithHttpInfo( options).toPromise();
+    }
+
+    /**
+     * List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List starter templates (beta)
+     * @param param the request object
+     */
+    public listStarterTemplates(param: TemplatesApiListStarterTemplatesRequest = {}, options?: ConfigurationOptions): Promise<PageStarterTemplateView> {
+        return this.api.listStarterTemplates( options).toPromise();
     }
 
     /**

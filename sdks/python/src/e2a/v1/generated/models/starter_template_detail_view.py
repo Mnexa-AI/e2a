@@ -18,21 +18,24 @@ import re  # noqa: F401
 import json
 
 from pydantic import BaseModel, ConfigDict, Field, StrictStr
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List
+from e2a.v1.generated.models.starter_template_variable_view import StarterTemplateVariableView
 from typing import Optional, Set
 from typing_extensions import Self
 
-class CreateTemplateRequest(BaseModel):
+class StarterTemplateDetailView(BaseModel):
     """
-    CreateTemplateRequest
+    StarterTemplateDetailView
     """ # noqa: E501
-    alias: Optional[StrictStr] = Field(default=None, description="Optional per-user unique handle ([A-Za-z][A-Za-z0-9._-]{0,127}) usable as template_alias on send.")
-    body: Optional[StrictStr] = Field(default=None, description="Plain-text body template source (no HTML escaping). Required unless from_starter is set.")
-    from_starter: Optional[StrictStr] = Field(default=None, description="Copy a starter template (by alias, see GET /v1/starter-templates) verbatim into your library. Mutually exclusive with subject, body and html_body — the copy is verbatim; edit the created template afterwards. name and alias default to the starter's and may be overridden. Beta: templates are unstable — their shape may change before they are declared stable.")
-    html_body: Optional[StrictStr] = Field(default=None, description="Optional HTML body template source ({{x}} is HTML-escaped, {{{x}}} is raw).")
-    name: Optional[StrictStr] = Field(default=None, description="Human-readable template name. Required unless from_starter supplies the default.")
-    subject: Optional[StrictStr] = Field(default=None, description="Subject template source ({{variable}} interpolation, no HTML escaping). Required unless from_starter is set.")
-    __properties: ClassVar[List[str]] = ["alias", "body", "from_starter", "html_body", "name", "subject"]
+    alias: StrictStr
+    body: StrictStr = Field(description="The plain-text part's template source.")
+    description: StrictStr
+    html_body: StrictStr = Field(description="The HTML part's template source.")
+    name: StrictStr
+    subject: StrictStr = Field(description="Subject template source ({{variable}} interpolation).")
+    variables: List[StarterTemplateVariableView]
+    version: StrictStr
+    __properties: ClassVar[List[str]] = ["alias", "body", "description", "html_body", "name", "subject", "variables", "version"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -52,7 +55,7 @@ class CreateTemplateRequest(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of CreateTemplateRequest from a JSON string"""
+        """Create an instance of StarterTemplateDetailView from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -73,11 +76,18 @@ class CreateTemplateRequest(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
+        # override the default output from pydantic by calling `to_dict()` of each item in variables (list)
+        _items = []
+        if self.variables:
+            for _item_variables in self.variables:
+                if _item_variables:
+                    _items.append(_item_variables.to_dict())
+            _dict['variables'] = _items
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of CreateTemplateRequest from a dict"""
+        """Create an instance of StarterTemplateDetailView from a dict"""
         if obj is None:
             return None
 
@@ -87,10 +97,12 @@ class CreateTemplateRequest(BaseModel):
         _obj = cls.model_validate({
             "alias": obj.get("alias"),
             "body": obj.get("body"),
-            "from_starter": obj.get("from_starter"),
+            "description": obj.get("description"),
             "html_body": obj.get("html_body"),
             "name": obj.get("name"),
-            "subject": obj.get("subject")
+            "subject": obj.get("subject"),
+            "variables": [StarterTemplateVariableView.from_dict(_item) for _item in obj["variables"]] if obj.get("variables") is not None else None,
+            "version": obj.get("version")
         })
         return _obj
 

@@ -82,6 +82,7 @@ __all__ = [
     "PageEventJSON",
     "PageMessageSummaryView",
     "PageReviewView",
+    "PageStarterTemplateView",
     "PageSuppression",
     "PageTemplateView",
     "PageWebhookDeliveryView",
@@ -105,6 +106,9 @@ __all__ = [
     "RotateSecretResponse",
     "SendEmailRequest",
     "SendResultView",
+    "StarterTemplateDetailView",
+    "StarterTemplateVariableView",
+    "StarterTemplateView",
     "Suppression",
     "SuppressionExportEntry",
     "TemplatePartError",
@@ -196,6 +200,7 @@ from e2a.v1.generated.models.page_domain_view import PageDomainView as PageDomai
 from e2a.v1.generated.models.page_event_json import PageEventJSON as PageEventJSON
 from e2a.v1.generated.models.page_message_summary_view import PageMessageSummaryView as PageMessageSummaryView
 from e2a.v1.generated.models.page_review_view import PageReviewView as PageReviewView
+from e2a.v1.generated.models.page_starter_template_view import PageStarterTemplateView as PageStarterTemplateView
 from e2a.v1.generated.models.page_suppression import PageSuppression as PageSuppression
 from e2a.v1.generated.models.page_template_view import PageTemplateView as PageTemplateView
 from e2a.v1.generated.models.page_webhook_delivery_view import PageWebhookDeliveryView as PageWebhookDeliveryView
@@ -219,6 +224,9 @@ from e2a.v1.generated.models.review_view import ReviewView as ReviewView
 from e2a.v1.generated.models.rotate_secret_response import RotateSecretResponse as RotateSecretResponse
 from e2a.v1.generated.models.send_email_request import SendEmailRequest as SendEmailRequest
 from e2a.v1.generated.models.send_result_view import SendResultView as SendResultView
+from e2a.v1.generated.models.starter_template_detail_view import StarterTemplateDetailView as StarterTemplateDetailView
+from e2a.v1.generated.models.starter_template_variable_view import StarterTemplateVariableView as StarterTemplateVariableView
+from e2a.v1.generated.models.starter_template_view import StarterTemplateView as StarterTemplateView
 from e2a.v1.generated.models.suppression import Suppression as Suppression
 from e2a.v1.generated.models.suppression_export_entry import SuppressionExportEntry as SuppressionExportEntry
 from e2a.v1.generated.models.template_part_error import TemplatePartError as TemplatePartError

@@ -17,22 +17,21 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr
-from typing import Any, ClassVar, Dict, List, Optional
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
+from typing import Any, ClassVar, Dict, List
 from typing import Optional, Set
 from typing_extensions import Self
 
-class CreateTemplateRequest(BaseModel):
+class StarterTemplateVariableView(BaseModel):
     """
-    CreateTemplateRequest
+    StarterTemplateVariableView
     """ # noqa: E501
-    alias: Optional[StrictStr] = Field(default=None, description="Optional per-user unique handle ([A-Za-z][A-Za-z0-9._-]{0,127}) usable as template_alias on send.")
-    body: Optional[StrictStr] = Field(default=None, description="Plain-text body template source (no HTML escaping). Required unless from_starter is set.")
-    from_starter: Optional[StrictStr] = Field(default=None, description="Copy a starter template (by alias, see GET /v1/starter-templates) verbatim into your library. Mutually exclusive with subject, body and html_body — the copy is verbatim; edit the created template afterwards. name and alias default to the starter's and may be overridden. Beta: templates are unstable — their shape may change before they are declared stable.")
-    html_body: Optional[StrictStr] = Field(default=None, description="Optional HTML body template source ({{x}} is HTML-escaped, {{{x}}} is raw).")
-    name: Optional[StrictStr] = Field(default=None, description="Human-readable template name. Required unless from_starter supplies the default.")
-    subject: Optional[StrictStr] = Field(default=None, description="Subject template source ({{variable}} interpolation, no HTML escaping). Required unless from_starter is set.")
-    __properties: ClassVar[List[str]] = ["alias", "body", "from_starter", "html_body", "name", "subject"]
+    description: StrictStr
+    example: StrictStr = Field(description="A realistic sample value, usable as template_data for previews.")
+    name: StrictStr
+    raw: StrictBool = Field(description="Raw ({{{...}}}) slots accept pre-rendered HTML fragments inserted without escaping. Never feed untrusted input to raw slots.")
+    required: StrictBool = Field(description="Required variables should always be supplied; optional ones render as empty strings when absent.")
+    __properties: ClassVar[List[str]] = ["description", "example", "name", "raw", "required"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -52,7 +51,7 @@ class CreateTemplateRequest(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of CreateTemplateRequest from a JSON string"""
+        """Create an instance of StarterTemplateVariableView from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -77,7 +76,7 @@ class CreateTemplateRequest(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of CreateTemplateRequest from a dict"""
+        """Create an instance of StarterTemplateVariableView from a dict"""
         if obj is None:
             return None
 
@@ -85,12 +84,11 @@ class CreateTemplateRequest(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "alias": obj.get("alias"),
-            "body": obj.get("body"),
-            "from_starter": obj.get("from_starter"),
-            "html_body": obj.get("html_body"),
+            "description": obj.get("description"),
+            "example": obj.get("example"),
             "name": obj.get("name"),
-            "subject": obj.get("subject")
+            "raw": obj.get("raw"),
+            "required": obj.get("required")
         })
         return _obj
 

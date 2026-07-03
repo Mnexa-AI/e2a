@@ -43,6 +43,7 @@ export * from '../models/PageDomainView.js';
 export * from '../models/PageEventJSON.js';
 export * from '../models/PageMessageSummaryView.js';
 export * from '../models/PageReviewView.js';
+export * from '../models/PageStarterTemplateView.js';
 export * from '../models/PageSuppression.js';
 export * from '../models/PageTemplateView.js';
 export * from '../models/PageWebhookDeliveryView.js';
@@ -66,6 +67,9 @@ export * from '../models/ReviewView.js';
 export * from '../models/RotateSecretResponse.js';
 export * from '../models/SendEmailRequest.js';
 export * from '../models/SendResultView.js';
+export * from '../models/StarterTemplateDetailView.js';
+export * from '../models/StarterTemplateVariableView.js';
+export * from '../models/StarterTemplateView.js';
 export * from '../models/Suppression.js';
 export * from '../models/SuppressionExportEntry.js';
 export * from '../models/TemplatePartError.js';
@@ -132,6 +136,7 @@ import { PageDomainView } from '../models/PageDomainView.js';
 import { PageEventJSON } from '../models/PageEventJSON.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageReviewView } from '../models/PageReviewView.js';
+import { PageStarterTemplateView } from '../models/PageStarterTemplateView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
 import { PageTemplateView } from '../models/PageTemplateView.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
@@ -155,6 +160,9 @@ import { ReviewView   , ReviewViewDirectionEnum          } from '../models/Revie
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
+import { StarterTemplateDetailView } from '../models/StarterTemplateDetailView.js';
+import { StarterTemplateVariableView } from '../models/StarterTemplateVariableView.js';
+import { StarterTemplateView } from '../models/StarterTemplateView.js';
 import { Suppression } from '../models/Suppression.js';
 import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
 import { TemplatePartError } from '../models/TemplatePartError.js';
@@ -251,6 +259,7 @@ let typeMap: {[index: string]: any} = {
     "PageEventJSON": PageEventJSON,
     "PageMessageSummaryView": PageMessageSummaryView,
     "PageReviewView": PageReviewView,
+    "PageStarterTemplateView": PageStarterTemplateView,
     "PageSuppression": PageSuppression,
     "PageTemplateView": PageTemplateView,
     "PageWebhookDeliveryView": PageWebhookDeliveryView,
@@ -274,6 +283,9 @@ let typeMap: {[index: string]: any} = {
     "RotateSecretResponse": RotateSecretResponse,
     "SendEmailRequest": SendEmailRequest,
     "SendResultView": SendResultView,
+    "StarterTemplateDetailView": StarterTemplateDetailView,
+    "StarterTemplateVariableView": StarterTemplateVariableView,
+    "StarterTemplateView": StarterTemplateView,
     "Suppression": Suppression,
     "SuppressionExportEntry": SuppressionExportEntry,
     "TemplatePartError": TemplatePartError,

@@ -48,6 +48,7 @@ import { PageDomainView } from '../models/PageDomainView.js';
 import { PageEventJSON } from '../models/PageEventJSON.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageReviewView } from '../models/PageReviewView.js';
+import { PageStarterTemplateView } from '../models/PageStarterTemplateView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
 import { PageTemplateView } from '../models/PageTemplateView.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
@@ -71,6 +72,9 @@ import { ReviewView } from '../models/ReviewView.js';
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
+import { StarterTemplateDetailView } from '../models/StarterTemplateDetailView.js';
+import { StarterTemplateVariableView } from '../models/StarterTemplateVariableView.js';
+import { StarterTemplateView } from '../models/StarterTemplateView.js';
 import { Suppression } from '../models/Suppression.js';
 import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
 import { TemplatePartError } from '../models/TemplatePartError.js';
@@ -1691,7 +1695,7 @@ export class ObservableTemplatesApi {
     }
 
     /**
-     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
      * Create a template (beta)
      * @param createTemplateRequest
      */
@@ -1716,7 +1720,7 @@ export class ObservableTemplatesApi {
     }
 
     /**
-     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
      * Create a template (beta)
      * @param createTemplateRequest
      */
@@ -1759,6 +1763,40 @@ export class ObservableTemplatesApi {
     }
 
     /**
+     * Fetch one starter template by alias, including its full plain-text and HTML body sources. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Get a starter template (beta)
+     * @param alias The starter template\&#39;s alias, e.g. welcome.
+     */
+    public getStarterTemplateWithHttpInfo(alias: string, _options?: ConfigurationOptions): Observable<HttpInfo<StarterTemplateDetailView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.getStarterTemplate(alias, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.getStarterTemplateWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Fetch one starter template by alias, including its full plain-text and HTML body sources. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Get a starter template (beta)
+     * @param alias The starter template\&#39;s alias, e.g. welcome.
+     */
+    public getStarterTemplate(alias: string, _options?: ConfigurationOptions): Observable<StarterTemplateDetailView> {
+        return this.getStarterTemplateWithHttpInfo(alias, _options).pipe(map((apiResponse: HttpInfo<StarterTemplateDetailView>) => apiResponse.data));
+    }
+
+    /**
      * Fetch one template by id. Beta: templates are unstable — their shape may change before they are declared stable.
      * Get a template (beta)
      * @param id
@@ -1790,6 +1828,38 @@ export class ObservableTemplatesApi {
      */
     public getTemplate(id: string, _options?: ConfigurationOptions): Observable<TemplateView> {
         return this.getTemplateWithHttpInfo(id, _options).pipe(map((apiResponse: HttpInfo<TemplateView>) => apiResponse.data));
+    }
+
+    /**
+     * List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List starter templates (beta)
+     */
+    public listStarterTemplatesWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageStarterTemplateView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.listStarterTemplates(_config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.listStarterTemplatesWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List starter templates (beta)
+     */
+    public listStarterTemplates(_options?: ConfigurationOptions): Observable<PageStarterTemplateView> {
+        return this.listStarterTemplatesWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageStarterTemplateView>) => apiResponse.data));
     }
 
     /**

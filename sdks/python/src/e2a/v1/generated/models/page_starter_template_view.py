@@ -17,22 +17,19 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr
+from pydantic import BaseModel, ConfigDict, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
+from e2a.v1.generated.models.starter_template_view import StarterTemplateView
 from typing import Optional, Set
 from typing_extensions import Self
 
-class CreateTemplateRequest(BaseModel):
+class PageStarterTemplateView(BaseModel):
     """
-    CreateTemplateRequest
+    PageStarterTemplateView
     """ # noqa: E501
-    alias: Optional[StrictStr] = Field(default=None, description="Optional per-user unique handle ([A-Za-z][A-Za-z0-9._-]{0,127}) usable as template_alias on send.")
-    body: Optional[StrictStr] = Field(default=None, description="Plain-text body template source (no HTML escaping). Required unless from_starter is set.")
-    from_starter: Optional[StrictStr] = Field(default=None, description="Copy a starter template (by alias, see GET /v1/starter-templates) verbatim into your library. Mutually exclusive with subject, body and html_body — the copy is verbatim; edit the created template afterwards. name and alias default to the starter's and may be overridden. Beta: templates are unstable — their shape may change before they are declared stable.")
-    html_body: Optional[StrictStr] = Field(default=None, description="Optional HTML body template source ({{x}} is HTML-escaped, {{{x}}} is raw).")
-    name: Optional[StrictStr] = Field(default=None, description="Human-readable template name. Required unless from_starter supplies the default.")
-    subject: Optional[StrictStr] = Field(default=None, description="Subject template source ({{variable}} interpolation, no HTML escaping). Required unless from_starter is set.")
-    __properties: ClassVar[List[str]] = ["alias", "body", "from_starter", "html_body", "name", "subject"]
+    items: List[StarterTemplateView]
+    next_cursor: Optional[StrictStr]
+    __properties: ClassVar[List[str]] = ["items", "next_cursor"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -52,7 +49,7 @@ class CreateTemplateRequest(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of CreateTemplateRequest from a JSON string"""
+        """Create an instance of PageStarterTemplateView from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -73,11 +70,23 @@ class CreateTemplateRequest(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
+        # override the default output from pydantic by calling `to_dict()` of each item in items (list)
+        _items = []
+        if self.items:
+            for _item_items in self.items:
+                if _item_items:
+                    _items.append(_item_items.to_dict())
+            _dict['items'] = _items
+        # set to None if next_cursor (nullable) is None
+        # and model_fields_set contains the field
+        if self.next_cursor is None and "next_cursor" in self.model_fields_set:
+            _dict['next_cursor'] = None
+
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of CreateTemplateRequest from a dict"""
+        """Create an instance of PageStarterTemplateView from a dict"""
         if obj is None:
             return None
 
@@ -85,12 +94,8 @@ class CreateTemplateRequest(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "alias": obj.get("alias"),
-            "body": obj.get("body"),
-            "from_starter": obj.get("from_starter"),
-            "html_body": obj.get("html_body"),
-            "name": obj.get("name"),
-            "subject": obj.get("subject")
+            "items": [StarterTemplateView.from_dict(_item) for _item in obj["items"]] if obj.get("items") is not None else None,
+            "next_cursor": obj.get("next_cursor")
         })
         return _obj
 

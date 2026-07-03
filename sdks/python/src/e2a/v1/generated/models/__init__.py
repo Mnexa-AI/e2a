@@ -58,6 +58,7 @@ from e2a.v1.generated.models.page_domain_view import PageDomainView
 from e2a.v1.generated.models.page_event_json import PageEventJSON
 from e2a.v1.generated.models.page_message_summary_view import PageMessageSummaryView
 from e2a.v1.generated.models.page_review_view import PageReviewView
+from e2a.v1.generated.models.page_starter_template_view import PageStarterTemplateView
 from e2a.v1.generated.models.page_suppression import PageSuppression
 from e2a.v1.generated.models.page_template_view import PageTemplateView
 from e2a.v1.generated.models.page_webhook_delivery_view import PageWebhookDeliveryView
@@ -81,6 +82,9 @@ from e2a.v1.generated.models.review_view import ReviewView
 from e2a.v1.generated.models.rotate_secret_response import RotateSecretResponse
 from e2a.v1.generated.models.send_email_request import SendEmailRequest
 from e2a.v1.generated.models.send_result_view import SendResultView
+from e2a.v1.generated.models.starter_template_detail_view import StarterTemplateDetailView
+from e2a.v1.generated.models.starter_template_variable_view import StarterTemplateVariableView
+from e2a.v1.generated.models.starter_template_view import StarterTemplateView
 from e2a.v1.generated.models.suppression import Suppression
 from e2a.v1.generated.models.suppression_export_entry import SuppressionExportEntry
 from e2a.v1.generated.models.template_part_error import TemplatePartError

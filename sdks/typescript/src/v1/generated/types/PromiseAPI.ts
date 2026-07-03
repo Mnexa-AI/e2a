@@ -47,6 +47,7 @@ import { PageDomainView } from '../models/PageDomainView.js';
 import { PageEventJSON } from '../models/PageEventJSON.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageReviewView } from '../models/PageReviewView.js';
+import { PageStarterTemplateView } from '../models/PageStarterTemplateView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
 import { PageTemplateView } from '../models/PageTemplateView.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
@@ -70,6 +71,9 @@ import { ReviewView } from '../models/ReviewView.js';
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
+import { StarterTemplateDetailView } from '../models/StarterTemplateDetailView.js';
+import { StarterTemplateVariableView } from '../models/StarterTemplateVariableView.js';
+import { StarterTemplateView } from '../models/StarterTemplateView.js';
 import { Suppression } from '../models/Suppression.js';
 import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
 import { TemplatePartError } from '../models/TemplatePartError.js';
@@ -1215,7 +1219,7 @@ export class PromiseTemplatesApi {
     }
 
     /**
-     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
      * Create a template (beta)
      * @param createTemplateRequest
      */
@@ -1226,7 +1230,7 @@ export class PromiseTemplatesApi {
     }
 
     /**
-     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
      * Create a template (beta)
      * @param createTemplateRequest
      */
@@ -1259,6 +1263,28 @@ export class PromiseTemplatesApi {
     }
 
     /**
+     * Fetch one starter template by alias, including its full plain-text and HTML body sources. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Get a starter template (beta)
+     * @param alias The starter template\&#39;s alias, e.g. welcome.
+     */
+    public getStarterTemplateWithHttpInfo(alias: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<StarterTemplateDetailView>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.getStarterTemplateWithHttpInfo(alias, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Fetch one starter template by alias, including its full plain-text and HTML body sources. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Get a starter template (beta)
+     * @param alias The starter template\&#39;s alias, e.g. welcome.
+     */
+    public getStarterTemplate(alias: string, _options?: PromiseConfigurationOptions): Promise<StarterTemplateDetailView> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.getStarterTemplate(alias, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
      * Fetch one template by id. Beta: templates are unstable — their shape may change before they are declared stable.
      * Get a template (beta)
      * @param id
@@ -1277,6 +1303,26 @@ export class PromiseTemplatesApi {
     public getTemplate(id: string, _options?: PromiseConfigurationOptions): Promise<TemplateView> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.getTemplate(id, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List starter templates (beta)
+     */
+    public listStarterTemplatesWithHttpInfo(_options?: PromiseConfigurationOptions): Promise<HttpInfo<PageStarterTemplateView>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.listStarterTemplatesWithHttpInfo(observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List starter templates (beta)
+     */
+    public listStarterTemplates(_options?: PromiseConfigurationOptions): Promise<PageStarterTemplateView> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.listStarterTemplates(observableOptions);
         return result.toPromise();
     }
 
