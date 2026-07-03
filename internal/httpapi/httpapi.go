@@ -396,6 +396,7 @@ func (s *Server) registerOperations() {
 	s.registerDomains()
 	s.registerWebhooks()
 	s.registerTemplates()
+	s.registerStarterTemplates()
 	s.registerEvents()
 	s.registerAccount()
 	s.registerAPIKeys()

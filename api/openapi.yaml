@@ -1376,6 +1376,21 @@ components:
         - items
         - next_cursor
       type: object
+    PageStarterTemplateView:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/StarterTemplateView"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
     PageSuppression:
       additionalProperties: false
       properties:
@@ -1798,6 +1813,89 @@ components:
       required:
         - status
         - message_id
+      type: object
+    StarterTemplateDetailView:
+      additionalProperties: false
+      properties:
+        alias:
+          type: string
+        body:
+          description: The plain-text part's template source.
+          type: string
+        description:
+          type: string
+        html_body:
+          description: The HTML part's template source.
+          type: string
+        name:
+          type: string
+        subject:
+          description: Subject template source ({{variable}} interpolation).
+          type: string
+        variables:
+          items:
+            $ref: "#/components/schemas/StarterTemplateVariableView"
+          type: array
+        version:
+          type: string
+      required:
+        - body
+        - html_body
+        - alias
+        - name
+        - description
+        - version
+        - subject
+        - variables
+      type: object
+    StarterTemplateVariableView:
+      additionalProperties: false
+      properties:
+        description:
+          type: string
+        example:
+          description: A realistic sample value, usable as template_data for previews.
+          type: string
+        name:
+          type: string
+        raw:
+          description: Raw ({{{...}}}) slots accept pre-rendered HTML fragments inserted without escaping. Never feed untrusted input to raw slots.
+          type: boolean
+        required:
+          description: Required variables should always be supplied; optional ones render as empty strings when absent.
+          type: boolean
+      required:
+        - name
+        - required
+        - raw
+        - description
+        - example
+      type: object
+    StarterTemplateView:
+      additionalProperties: false
+      properties:
+        alias:
+          type: string
+        description:
+          type: string
+        name:
+          type: string
+        subject:
+          description: Subject template source ({{variable}} interpolation).
+          type: string
+        variables:
+          items:
+            $ref: "#/components/schemas/StarterTemplateVariableView"
+          type: array
+        version:
+          type: string
+      required:
+        - alias
+        - name
+        - description
+        - version
+        - subject
+        - variables
       type: object
     Suppression:
       additionalProperties: false
@@ -3696,6 +3794,58 @@ paths:
       summary: Reject a held message
       tags:
         - reviews
+  /v1/starter-templates:
+    get:
+      description: "List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable."
+      operationId: listStarterTemplates
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageStarterTemplateView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: List starter templates (beta)
+      tags:
+        - templates
+  /v1/starter-templates/{alias}:
+    get:
+      description: "Fetch one starter template by alias, including its full plain-text and HTML body sources. Beta: templates are unstable — their shape may change before they are declared stable."
+      operationId: getStarterTemplate
+      parameters:
+        - description: The starter template's alias, e.g. welcome.
+          in: path
+          name: alias
+          required: true
+          schema:
+            description: The starter template's alias, e.g. welcome.
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StarterTemplateDetailView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Get a starter template (beta)
+      tags:
+        - templates
   /v1/templates:
     get:
       description: "List the account's templates, newest first. Beta: templates are unstable — their shape may change before they are declared stable."
