@@ -184,10 +184,10 @@ shapes may change before templates are declared stable.
 
 | Tool | Description |
 | --- | --- |
-| `list_templates` / `get_template` | List/read the account's stored templates. |
+| `list_templates` / `get_template` | List the account's stored templates (summary rows); `get_template` returns the full body sources. |
 | `create_template` | Create a template from literal source — or copy a starter verbatim with `from_starter`. |
 | `update_template` / `delete_template` | Edit (re-parses changed parts) or delete a template. |
-| `validate_template` | Dry-run source: parse errors, a rendered preview against `test_data`, and `suggested_data` placeholders. |
+| `validate_template` | Dry-run source: parse errors, a rendered preview against `test_data`, and `suggestedData` placeholders. |
 | `list_starter_templates` / `get_starter_template` | Browse the starter catalog; the detail view includes full body sources and per-variable metadata. |
 
 ## Links

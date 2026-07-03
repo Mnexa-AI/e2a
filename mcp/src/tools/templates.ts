@@ -9,9 +9,12 @@ import { runTool, strictInputSchema } from "./util.js";
  * (template_id / template_alias / template_data).
  *
  * All eight tools are account-scope (the backend 403s agent-scoped
- * credentials), so they sit in ADMIN_TOOLS. Responses are the raw /v1 wire
- * shape (snake_case) — the SDK has no templates resource yet, so the
- * McpClient calls the endpoints directly (see client.ts).
+ * credentials), so they sit in ADMIN_TOOLS. Handlers ride the SDK's
+ * `templates` resource via the shared E2AClient, so results are camelCase
+ * SDK views (htmlBody, createdAt, suggestedData, …) exactly like every
+ * other tool; the snake_case tool ARG names below follow the house arg
+ * style (html_body, from_starter) and are mapped to the SDK request
+ * fields in each handler.
  *
  * The engine is a deliberately flat Mustache subset; the SYNTAX blurb below
  * is spliced into the tools where an LLM authors or debugs source.
@@ -39,19 +42,13 @@ export function registerTemplateTools(server: McpServer, client: McpClient): voi
       title: "List email templates (beta)",
       annotations: { readOnlyHint: true },
       description:
-        "List the account's stored email templates, newest first — id, name, alias, and the template sources. " +
-        "Use a template on send via `send_message`'s template_id or template_alias. Read-only; cheap. " +
+        "List the account's stored email templates, newest first — summary rows (id, name, alias, subject, timestamps); " +
+        "`get_template` returns the full body sources. Use a template on send via `send_message`'s template_id or " +
+        "template_alias. Read-only; cheap. " +
         BETA,
       inputSchema: strictInputSchema({}),
     },
-    async () =>
-      runTool(async () => {
-        const page = await client.listTemplates();
-        return {
-          templates: page.items,
-          ...(page.next_cursor ? { next_cursor: page.next_cursor } : {}),
-        };
-      }),
+    async () => runTool(async () => ({ templates: await client.listTemplates() })),
   );
 
   server.registerTool(
@@ -59,7 +56,9 @@ export function registerTemplateTools(server: McpServer, client: McpClient): voi
     {
       title: "Get one email template (beta)",
       annotations: { readOnlyHint: true },
-      description: "Fetch one stored template by id (tmpl_…), including its subject/body/html_body sources. " + BETA,
+      description:
+        "Fetch one stored template by id (tmpl_…), including its subject/body/htmlBody sources. Templates copied from a " +
+        "starter also carry fromStarterAlias/fromStarterVersion (read-only provenance). " + BETA,
       inputSchema: strictInputSchema({
         id: z.string().min(1).describe("Template id (tmpl_…)."),
       }),
@@ -113,13 +112,15 @@ export function registerTemplateTools(server: McpServer, client: McpClient): voi
     },
     async (args) =>
       runTool(() =>
+        // Only what the caller passed reaches the wire — a fabricated
+        // subject/body key would trip the server's from_starter exclusivity.
         client.createTemplate({
           ...(args.name !== undefined ? { name: args.name } : {}),
           ...(args.alias !== undefined ? { alias: args.alias } : {}),
           ...(args.subject !== undefined ? { subject: args.subject } : {}),
           ...(args.body !== undefined ? { body: args.body } : {}),
-          ...(args.html_body !== undefined ? { html_body: args.html_body } : {}),
-          ...(args.from_starter !== undefined ? { from_starter: args.from_starter } : {}),
+          ...(args.html_body !== undefined ? { htmlBody: args.html_body } : {}),
+          ...(args.from_starter !== undefined ? { fromStarter: args.from_starter } : {}),
         }),
       ),
   );
@@ -143,10 +144,17 @@ export function registerTemplateTools(server: McpServer, client: McpClient): voi
         html_body: z.string().optional().describe('Set to "" to remove the HTML part.'),
       }),
     },
-    async (args) => {
-      const { id, ...patch } = args;
-      return runTool(() => client.updateTemplate(id, patch));
-    },
+    async (args) =>
+      runTool(() =>
+        client.updateTemplate(args.id, {
+          ...(args.name !== undefined ? { name: args.name } : {}),
+          ...(args.alias !== undefined ? { alias: args.alias } : {}),
+          ...(args.subject !== undefined ? { subject: args.subject } : {}),
+          ...(args.body !== undefined ? { body: args.body } : {}),
+          // An explicit "" is a deliberate clear — it must survive to the wire.
+          ...(args.html_body !== undefined ? { htmlBody: args.html_body } : {}),
+        }),
+      ),
   );
 
   server.registerTool(
@@ -180,10 +188,10 @@ export function registerTemplateTools(server: McpServer, client: McpClient): voi
       annotations: { readOnlyHint: true },
       description:
         "Dry-run template source WITHOUT persisting anything: returns per-part parse errors, a rendered preview " +
-        "against test_data (present only when valid), and suggested_data — a placeholder value for every variable the " +
-        "source references (a ready-made starting point for template_data). Use this before `create_template` to catch " +
-        "syntax errors, and to spot silent blanks: a missing variable renders as empty string, so preview with realistic " +
-        "test_data and check the output. " + SYNTAX + " " + BETA,
+        "against test_data (present only when valid), and suggestedData — a placeholder value for every variable the " +
+        "source references, nested along dot paths (a ready-made starting point for template_data). Use this before " +
+        "`create_template` to catch syntax errors, and to spot silent blanks: a missing variable renders as empty " +
+        "string, so preview with realistic test_data and check the output. " + SYNTAX + " " + BETA,
       inputSchema: strictInputSchema({
         subject: z.string().optional().describe("Subject source to validate."),
         body: z.string().optional().describe("Plain-text body source to validate."),
@@ -199,8 +207,8 @@ export function registerTemplateTools(server: McpServer, client: McpClient): voi
         client.validateTemplate({
           ...(args.subject !== undefined ? { subject: args.subject } : {}),
           ...(args.body !== undefined ? { body: args.body } : {}),
-          ...(args.html_body !== undefined ? { html_body: args.html_body } : {}),
-          ...(args.test_data !== undefined ? { test_data: args.test_data } : {}),
+          ...(args.html_body !== undefined ? { htmlBody: args.html_body } : {}),
+          ...(args.test_data !== undefined ? { testData: args.test_data } : {}),
         }),
       ),
   );
@@ -219,14 +227,7 @@ export function registerTemplateTools(server: McpServer, client: McpClient): voi
         APPROVAL_LINK_WARNING + " " + BETA,
       inputSchema: strictInputSchema({}),
     },
-    async () =>
-      runTool(async () => {
-        const page = await client.listStarterTemplates();
-        return {
-          starter_templates: page.items,
-          ...(page.next_cursor ? { next_cursor: page.next_cursor } : {}),
-        };
-      }),
+    async () => runTool(async () => ({ starter_templates: await client.listStarterTemplates() })),
   );
 
   server.registerTool(

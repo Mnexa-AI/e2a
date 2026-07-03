@@ -1,4 +1,4 @@
-import { E2AClient, E2AError } from "@e2a/sdk/v1";
+import { E2AClient } from "@e2a/sdk/v1";
 import type {
   AccountView,
   AgentView,
@@ -25,6 +25,14 @@ import type {
   CreateWebhookRequest,
   UpdateWebhookRequest,
   TestWebhookRequest,
+  TemplateView,
+  TemplateSummaryView,
+  CreateTemplateRequest,
+  UpdateTemplateRequest,
+  ValidateTemplateRequest,
+  ValidateTemplateResponse,
+  StarterTemplateView,
+  StarterTemplateDetailView,
   Page,
 } from "@e2a/sdk/v1";
 import type { McpConfig } from "./config.js";
@@ -41,87 +49,6 @@ const DEFAULT_LIST_LIMIT = 1000;
 /** Per-call options for unsafe writes. */
 export interface SendOpts {
   idempotencyKey?: string;
-}
-
-// ── Templates (beta) wire shapes ──────────────────────────────────
-//
-// The /v1/templates + /v1/starter-templates surface is beta and not yet
-// covered by the hand-written SDK ergonomic layer (only the generated base
-// was regenerated), so the MCP client calls it directly over fetch and
-// works in the WIRE shape (snake_case), which conveniently matches the MCP
-// tool argument style. When the SDK grows a `templates` resource, swap
-// these raw calls for it and delete the fetch path.
-
-/** Bearer + base URL for the raw templates path. Mirrors what the wrapped
- *  E2AClient was constructed with (its copies are private). */
-export interface RawApiCreds {
-  apiKey: string;
-  baseUrl?: string;
-}
-
-export interface TemplateWire {
-  id: string;
-  name: string;
-  alias?: string;
-  subject: string;
-  body: string;
-  html_body?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface StarterTemplateWire {
-  alias: string;
-  name: string;
-  description: string;
-  version: string;
-  subject: string;
-  variables: Array<{
-    name: string;
-    required: boolean;
-    raw: boolean;
-    description: string;
-    example: string;
-  }>;
-  // Present on the detail view (GET /v1/starter-templates/{alias}) only.
-  body?: string;
-  html_body?: string;
-}
-
-export interface CreateTemplateBody {
-  name?: string;
-  alias?: string;
-  subject?: string;
-  body?: string;
-  html_body?: string;
-  from_starter?: string;
-}
-
-export interface UpdateTemplateBody {
-  name?: string;
-  alias?: string;
-  subject?: string;
-  body?: string;
-  html_body?: string;
-}
-
-export interface ValidateTemplateBody {
-  subject?: string;
-  body?: string;
-  html_body?: string;
-  test_data?: Record<string, unknown>;
-}
-
-export interface ValidateTemplateResult {
-  valid: boolean;
-  errors: Array<{ part: string; message: string }>;
-  rendered?: { subject: string; body: string; html_body?: string };
-  suggested_data?: Record<string, string>;
-}
-
-interface WirePage<T> {
-  items: T[];
-  next_cursor: string | null;
 }
 
 /**
@@ -150,19 +77,11 @@ export class McpClient {
    * sets the real value per credential.
    */
   readonly scope: Scope;
-  /**
-   * Raw credentials for the beta templates surface (no SDK resource yet —
-   * see the "Templates (beta) wire shapes" note above). Optional so stub /
-   * test constructions are unchanged; the real construction sites
-   * (makeClient, http-server's buildClient) always pass it.
-   */
-  private readonly rawCreds?: RawApiCreds;
 
-  constructor(sdk: E2AClient, agentEmail = "", scope: Scope = "account", rawCreds?: RawApiCreds) {
+  constructor(sdk: E2AClient, agentEmail = "", scope: Scope = "account") {
     this.sdk = sdk;
     this.agentEmail = agentEmail;
     this.scope = scope;
-    this.rawCreds = rawCreds;
   }
 
   // resolveAddress picks the explicit per-call address, falling back to
@@ -519,91 +438,41 @@ export class McpClient {
 
   // ── Templates (beta) ────────────────────────────────────────────
   //
-  // Raw-fetch path: the hand-written SDK layer has no `templates` resource
-  // yet (only the generated base was regenerated for the beta), so these
-  // hit the wire directly and speak snake_case. Errors are mapped to
-  // E2AError so runTool surfaces the machine-branchable [code] exactly as
-  // for SDK-backed tools. No retry layer — acceptable for the beta; the
-  // SDK resource will bring retries when it lands.
+  // SDK-backed (sdk.templates): same retry layer, typed E2AError mapping,
+  // and camelCase views as every other tool. Both list endpoints are
+  // single-page by contract (no cursor param), so the wrapper collapses
+  // the pager to a flat array like listAgents/listWebhooks.
 
-  private async rawRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
-    if (!this.rawCreds) {
-      throw new Error(
-        "template operations are unavailable on this connection (no direct API credentials were provided at session construction).",
-      );
-    }
-    const base = (this.rawCreds.baseUrl ?? "https://api.e2a.dev").replace(/\/+$/, "");
-    let res: Response;
-    try {
-      res = await fetch(base + path, {
-        method,
-        headers: {
-          authorization: `Bearer ${this.rawCreds.apiKey}`,
-          accept: "application/json",
-          ...(body !== undefined ? { "content-type": "application/json" } : {}),
-        },
-        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-        signal: AbortSignal.timeout(30_000),
-      });
-    } catch (e) {
-      throw new E2AError({
-        code: "connection_error",
-        message: e instanceof Error ? e.message : String(e),
-        status: 0,
-        retryable: true,
-        cause: e,
-      });
-    }
-    const text = await res.text();
-    let parsed: unknown;
-    try {
-      parsed = text ? JSON.parse(text) : undefined;
-    } catch {
-      parsed = undefined;
-    }
-    if (!res.ok) {
-      // The /v1 error envelope is { error: { code, message, ... } }.
-      const env = (parsed as { error?: { code?: string; message?: string } } | undefined)?.error;
-      throw new E2AError({
-        code: env?.code || (res.status >= 500 ? "internal_error" : "error"),
-        message: env?.message || `e2a API error (${res.status})`,
-        status: res.status,
-        retryable: res.status === 408 || res.status === 429 || res.status >= 500,
-      });
-    }
-    return parsed as T;
+  listTemplates(): Promise<TemplateSummaryView[]> {
+    return this.sdk.templates.list().toArray({ limit: DEFAULT_LIST_LIMIT });
   }
 
-  listTemplates(): Promise<WirePage<TemplateWire>> {
-    return this.rawRequest("GET", "/v1/templates");
+  getTemplate(id: string): Promise<TemplateView> {
+    return this.sdk.templates.get(id);
   }
 
-  getTemplate(id: string): Promise<TemplateWire> {
-    return this.rawRequest("GET", `/v1/templates/${encodeURIComponent(id)}`);
+  createTemplate(body: CreateTemplateRequest): Promise<TemplateView> {
+    return this.sdk.templates.create(body);
   }
 
-  createTemplate(body: CreateTemplateBody): Promise<TemplateWire> {
-    return this.rawRequest("POST", "/v1/templates", body);
-  }
-
-  updateTemplate(id: string, patch: UpdateTemplateBody): Promise<TemplateWire> {
-    return this.rawRequest("PATCH", `/v1/templates/${encodeURIComponent(id)}`, patch);
+  updateTemplate(id: string, patch: UpdateTemplateRequest): Promise<TemplateView> {
+    return this.sdk.templates.update(id, patch);
   }
 
   async deleteTemplate(id: string): Promise<void> {
-    await this.rawRequest<undefined>("DELETE", `/v1/templates/${encodeURIComponent(id)}`);
+    await this.sdk.templates.delete(id);
   }
 
-  validateTemplate(body: ValidateTemplateBody): Promise<ValidateTemplateResult> {
-    return this.rawRequest("POST", "/v1/templates/validate", body);
+  validateTemplate(body: ValidateTemplateRequest): Promise<ValidateTemplateResponse> {
+    return this.sdk.templates.validate(body);
   }
 
-  listStarterTemplates(): Promise<WirePage<StarterTemplateWire>> {
-    return this.rawRequest("GET", "/v1/starter-templates");
+  listStarterTemplates(): Promise<StarterTemplateView[]> {
+    return this.sdk.templates.listStarters().toArray({ limit: DEFAULT_LIST_LIMIT });
   }
 
-  getStarterTemplate(alias: string): Promise<StarterTemplateWire> {
-    return this.rawRequest("GET", `/v1/starter-templates/${encodeURIComponent(alias)}`);
+  getStarterTemplate(alias: string): Promise<StarterTemplateDetailView> {
+    return this.sdk.templates.getStarter(alias);
   }
 
   // ── Events ──────────────────────────────────────────────────────
@@ -639,8 +508,5 @@ export function makeClient(cfg: McpConfig): McpClient {
     apiKey: cfg.apiKey,
     ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}),
   });
-  return new McpClient(sdk, cfg.agentEmail ?? "", "account", {
-    apiKey: cfg.apiKey,
-    ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}),
-  });
+  return new McpClient(sdk, cfg.agentEmail ?? "", "account");
 }

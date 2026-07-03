@@ -25,6 +25,11 @@ function makeStubClient(): McpClient {
     getPendingMessage: vi.fn(async () => ({ messageId: "p", status: "pending_review" })),
     approveMessage: vi.fn(async () => ({ messageId: "x", status: "sent" })),
     rejectMessage: vi.fn(async () => ({ messageId: "x", status: "rejected" })),
+    // Templates (beta) — SDK-backed via the shared E2AClient, so a
+    // factory-built session supports them like any other tool.
+    listTemplates: vi.fn(async () => [
+      { id: "tmpl_1", name: "Welcome", alias: "welcome", subject: "Welcome, {{name}}!" },
+    ]),
   };
   return stub as unknown as McpClient;
 }
@@ -630,6 +635,21 @@ describe("HTTP MCP server", () => {
     vi.mocked(stub.listAgents).mockClear();
     await client.callTool({ name: "list_agents", arguments: {} });
     expect(stub.listAgents).toHaveBeenCalledOnce();
+    await transport.close();
+  });
+
+  it("template tools work on a clientFactory-built session (no raw-creds channel needed)", async () => {
+    // Regression guard: the old raw-fetch template path needed direct API
+    // creds the factory signature couldn't supply, so factory-built sessions
+    // advertised the 8 template tools but every call threw. Now that
+    // templates ride the SDK through the shared client, a factory-built
+    // session must serve them end to end over the real transport.
+    const { client, transport } = await connect();
+    const res = await client.callTool({ name: "list_templates", arguments: {} });
+    expect((res as { isError?: boolean }).isError).not.toBe(true);
+    expect(stub.listTemplates).toHaveBeenCalledOnce();
+    const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
+    expect(payload.templates[0].id).toBe("tmpl_1");
     await transport.close();
   });
 

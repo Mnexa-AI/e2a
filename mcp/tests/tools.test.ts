@@ -166,36 +166,33 @@ function makeStubClient(
     })),
     approveMessage: vi.fn(async () => ({ messageId: "msg_x", status: "sent" })),
     rejectMessage: vi.fn(async () => ({ messageId: "msg_x", status: "rejected" })),
-    // Templates (beta) — the McpClient's raw-fetch path speaks the snake_case
-    // wire shape, so the stubs return wire-shaped rows.
-    listTemplates: vi.fn(async () => ({
-      items: [
-        {
-          id: "tmpl_1",
-          name: "Welcome",
-          alias: "welcome",
-          subject: "Welcome, {{name}}!",
-          body: "Hi {{name}}",
-          created_at: "2026-06-01T00:00:00Z",
-          updated_at: "2026-06-01T00:00:00Z",
-        },
-      ],
-      next_cursor: null,
-    })),
+    // Templates (beta) — SDK-backed: list methods return flat arrays (the
+    // wrapper collapses the single-page pager) and rows are camelCase SDK
+    // views, like every other tool.
+    listTemplates: vi.fn(async () => [
+      {
+        id: "tmpl_1",
+        name: "Welcome",
+        alias: "welcome",
+        subject: "Welcome, {{name}}!",
+        createdAt: "2026-06-01T00:00:00Z",
+        updatedAt: "2026-06-01T00:00:00Z",
+      },
+    ]),
     getTemplate: vi.fn(async (id: string) => ({
       id,
       name: "Welcome",
       subject: "Welcome, {{name}}!",
       body: "Hi {{name}}",
-      created_at: "2026-06-01T00:00:00Z",
-      updated_at: "2026-06-01T00:00:00Z",
+      createdAt: "2026-06-01T00:00:00Z",
+      updatedAt: "2026-06-01T00:00:00Z",
     })),
     createTemplate: vi.fn(async (body: Record<string, unknown>) => ({
       id: "tmpl_new",
       name: body.name ?? "Starter name",
       ...body,
-      created_at: "2026-06-01T00:00:00Z",
-      updated_at: "2026-06-01T00:00:00Z",
+      createdAt: "2026-06-01T00:00:00Z",
+      updatedAt: "2026-06-01T00:00:00Z",
     })),
     updateTemplate: vi.fn(async (id: string, patch: Record<string, unknown>) => ({
       id,
@@ -203,31 +200,28 @@ function makeStubClient(
       subject: "Welcome, {{name}}!",
       body: "Hi {{name}}",
       ...patch,
-      created_at: "2026-06-01T00:00:00Z",
-      updated_at: "2026-06-02T00:00:00Z",
+      createdAt: "2026-06-01T00:00:00Z",
+      updatedAt: "2026-06-02T00:00:00Z",
     })),
     deleteTemplate: vi.fn(async () => undefined),
     validateTemplate: vi.fn(async () => ({
       valid: true,
       errors: [],
       rendered: { subject: "Welcome, Ada!", body: "Hi Ada" },
-      suggested_data: { name: "Ada" },
+      suggestedData: { name: "Ada" },
     })),
-    listStarterTemplates: vi.fn(async () => ({
-      items: [
-        {
-          alias: "approval-request",
-          name: "Approval request",
-          description: "Ask a human to approve an action.",
-          version: "1",
-          subject: "Approval needed: {{action}}",
-          variables: [
-            { name: "approve_url", required: true, raw: false, description: "Confirmation-page URL", example: "https://x/approve" },
-          ],
-        },
-      ],
-      next_cursor: null,
-    })),
+    listStarterTemplates: vi.fn(async () => [
+      {
+        alias: "approval-request",
+        name: "Approval request",
+        description: "Ask a human to approve an action.",
+        version: "1",
+        subject: "Approval needed: {{action}}",
+        variables: [
+          { name: "approve_url", required: true, raw: false, description: "Confirmation-page URL", example: "https://x/approve" },
+        ],
+      },
+    ]),
     getStarterTemplate: vi.fn(async (alias: string) => ({
       alias,
       name: "Approval request",
@@ -235,7 +229,7 @@ function makeStubClient(
       version: "1",
       subject: "Approval needed: {{action}}",
       body: "Approve: {{approve_url}}",
-      html_body: "<a href=\"{{approve_url}}\">Approve</a>",
+      htmlBody: "<a href=\"{{approve_url}}\">Approve</a>",
       variables: [
         { name: "approve_url", required: true, raw: false, description: "Confirmation-page URL", example: "https://x/approve" },
       ],
@@ -1207,15 +1201,17 @@ describe("e2a MCP server", () => {
   // ── Templates (beta) ────────────────────────────────────────────
   //
   // The eight template tools are thin pass-throughs over the McpClient's
-  // wire-shape (snake_case) template methods; the server enforces the
-  // create-mode and send-reference exclusivity rules. These tests pin the
-  // arg plumbing and the confirm guard.
+  // SDK-backed template methods: snake_case tool args (house arg style) map
+  // to camelCase SDK request fields, and results are camelCase SDK views;
+  // the server enforces the create-mode and send-reference exclusivity
+  // rules. These tests pin the arg plumbing and the confirm guard.
 
-  it("list_templates returns templates and omits a null next_cursor", async () => {
+  it("list_templates returns the summary rows", async () => {
     const res = await client.callTool({ name: "list_templates", arguments: {} });
     expect(stub.listTemplates).toHaveBeenCalledOnce();
     const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
     expect(payload.templates[0].id).toBe("tmpl_1");
+    expect(payload.templates[0].createdAt).toBe("2026-06-01T00:00:00Z");
     expect(payload).not.toHaveProperty("next_cursor");
   });
 
@@ -1224,7 +1220,7 @@ describe("e2a MCP server", () => {
     expect(stub.getTemplate).toHaveBeenCalledWith("tmpl_1");
   });
 
-  it("create_template forwards literal fields verbatim (wire snake_case)", async () => {
+  it("create_template maps snake_case args to the camelCase SDK request", async () => {
     await client.callTool({
       name: "create_template",
       arguments: {
@@ -1240,7 +1236,7 @@ describe("e2a MCP server", () => {
       alias: "order-shipped",
       subject: "Your order {{order_id}} shipped",
       body: "Hi {{name}}, it shipped.",
-      html_body: "<p>Hi {{name}}</p>",
+      htmlBody: "<p>Hi {{name}}</p>",
     });
   });
 
@@ -1252,7 +1248,7 @@ describe("e2a MCP server", () => {
     // Only what the caller passed reaches the wire — no empty subject/body
     // keys that would trip the server's from_starter exclusivity check.
     expect(stub.createTemplate).toHaveBeenCalledWith({
-      from_starter: "approval-request",
+      fromStarter: "approval-request",
       alias: "my-approvals",
     });
   });
@@ -1265,7 +1261,7 @@ describe("e2a MCP server", () => {
     // html_body: "" is a deliberate clear — it must survive to the wire.
     expect(stub.updateTemplate).toHaveBeenCalledWith("tmpl_1", {
       subject: "New subject {{x}}",
-      html_body: "",
+      htmlBody: "",
     });
   });
 
@@ -1299,12 +1295,12 @@ describe("e2a MCP server", () => {
     expect(stub.validateTemplate).toHaveBeenCalledWith({
       subject: "Welcome, {{name}}!",
       body: "Hi {{name}}",
-      test_data: { name: "Ada" },
+      testData: { name: "Ada" },
     });
     const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
     expect(payload.valid).toBe(true);
     expect(payload.rendered.subject).toBe("Welcome, Ada!");
-    expect(payload.suggested_data).toEqual({ name: "Ada" });
+    expect(payload.suggestedData).toEqual({ name: "Ada" });
   });
 
   it("list_starter_templates surfaces the catalog", async () => {
@@ -1323,7 +1319,7 @@ describe("e2a MCP server", () => {
     expect(stub.getStarterTemplate).toHaveBeenCalledWith("approval-request");
     const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
     expect(payload.body).toContain("{{approve_url}}");
-    expect(payload.html_body).toContain("{{approve_url}}");
+    expect(payload.htmlBody).toContain("{{approve_url}}");
   });
 
   // ── send_message template references (beta) ─────────────────────
