@@ -16,11 +16,32 @@ import { HttpFile } from '../http/http.js';
 export class SendEmailRequest {
     'attachments'?: Array<Attachment>;
     'bcc'?: Array<string>;
-    'body': string;
+    /**
+    * Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias).
+    */
+    'body'?: string;
     'cc'?: Array<string>;
     'conversationId'?: string;
+    /**
+    * Literal HTML body. Mutually exclusive with template_id/template_alias.
+    */
     'htmlBody'?: string;
-    'subject': string;
+    /**
+    * Literal subject. Required unless a template reference is used (mutually exclusive with template_id/template_alias).
+    */
+    'subject'?: string;
+    /**
+    * Send using a stored template resolved by its per-user alias. Mutually exclusive with template_id and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable.
+    */
+    'templateAlias'?: string;
+    /**
+    * Variables for the referenced template ({{name}}, dot paths into nested objects). Missing variables render as empty strings. Beta: templates are unstable — their shape may change before they are declared stable.
+    */
+    'templateData'?: any;
+    /**
+    * Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable.
+    */
+    'templateId'?: string;
     'to': Array<string>;
 
     static readonly discriminator: string | undefined = undefined;
@@ -67,6 +88,24 @@ export class SendEmailRequest {
         {
             "name": "subject",
             "baseName": "subject",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "templateAlias",
+            "baseName": "template_alias",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "templateData",
+            "baseName": "template_data",
+            "type": "any",
+            "format": ""
+        },
+        {
+            "name": "templateId",
+            "baseName": "template_id",
             "type": "string",
             "format": ""
         },

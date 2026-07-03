@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.attachment import Attachment
 from typing import Optional, Set
@@ -29,13 +29,17 @@ class SendEmailRequest(BaseModel):
     """ # noqa: E501
     attachments: Optional[List[Attachment]] = None
     bcc: Optional[List[StrictStr]] = None
-    body: StrictStr
+    body: Optional[StrictStr] = Field(default=None, description="Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias).")
     cc: Optional[List[StrictStr]] = None
     conversation_id: Optional[StrictStr] = None
-    html_body: Optional[StrictStr] = None
-    subject: StrictStr
+    html_body: Optional[StrictStr] = Field(default=None, description="Literal HTML body. Mutually exclusive with template_id/template_alias.")
+    subject: Optional[StrictStr] = Field(default=None, description="Literal subject. Required unless a template reference is used (mutually exclusive with template_id/template_alias).")
+    template_alias: Optional[StrictStr] = Field(default=None, description="Send using a stored template resolved by its per-user alias. Mutually exclusive with template_id and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable.")
+    template_data: Optional[Dict[str, Any]] = Field(default=None, description="Variables for the referenced template ({{name}}, dot paths into nested objects). Missing variables render as empty strings. Beta: templates are unstable — their shape may change before they are declared stable.")
+    template_id: Optional[StrictStr] = Field(default=None, description="Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable.")
     to: List[StrictStr]
-    __properties: ClassVar[List[str]] = ["attachments", "bcc", "body", "cc", "conversation_id", "html_body", "subject", "to"]
+    additional_properties: Dict[str, Any] = {}
+    __properties: ClassVar[List[str]] = ["attachments", "bcc", "body", "cc", "conversation_id", "html_body", "subject", "template_alias", "template_data", "template_id", "to"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -67,8 +71,10 @@ class SendEmailRequest(BaseModel):
         * `None` is only added to the output dict for nullable fields that
           were set at model initialization. Other fields with value `None`
           are ignored.
+        * Fields in `self.additional_properties` are added to the output dict.
         """
         excluded_fields: Set[str] = set([
+            "additional_properties",
         ])
 
         _dict = self.model_dump(
@@ -83,6 +89,11 @@ class SendEmailRequest(BaseModel):
                 if _item_attachments:
                     _items.append(_item_attachments.to_dict())
             _dict['attachments'] = _items
+        # puts key-value pairs in additional_properties in the top level
+        if self.additional_properties is not None:
+            for _key, _value in self.additional_properties.items():
+                _dict[_key] = _value
+
         return _dict
 
     @classmethod
@@ -102,8 +113,16 @@ class SendEmailRequest(BaseModel):
             "conversation_id": obj.get("conversation_id"),
             "html_body": obj.get("html_body"),
             "subject": obj.get("subject"),
+            "template_alias": obj.get("template_alias"),
+            "template_data": obj.get("template_data"),
+            "template_id": obj.get("template_id"),
             "to": obj.get("to")
         })
+        # store additional fields in additional_properties
+        for _key in obj.keys():
+            if _key not in cls.__properties:
+                _obj.additional_properties[_key] = obj.get(_key)
+
         return _obj
 
 

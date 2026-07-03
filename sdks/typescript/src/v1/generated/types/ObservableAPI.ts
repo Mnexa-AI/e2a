@@ -20,6 +20,7 @@ import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAPIKeyRequest } from '../models/CreateAPIKeyRequest.js';
 import { CreateAPIKeyResponse } from '../models/CreateAPIKeyResponse.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
+import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
 import { DNSRecord } from '../models/DNSRecord.js';
@@ -48,6 +49,7 @@ import { PageEventJSON } from '../models/PageEventJSON.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageReviewView } from '../models/PageReviewView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
+import { PageTemplateView } from '../models/PageTemplateView.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
@@ -62,6 +64,7 @@ import { RedeliverView } from '../models/RedeliverView.js';
 import { RegisterDomainRequest } from '../models/RegisterDomainRequest.js';
 import { RejectRequest } from '../models/RejectRequest.js';
 import { RejectResultView } from '../models/RejectResultView.js';
+import { RenderedTemplateView } from '../models/RenderedTemplateView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
 import { ReviewView } from '../models/ReviewView.js';
@@ -70,15 +73,20 @@ import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
 import { Suppression } from '../models/Suppression.js';
 import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
+import { TemplatePartError } from '../models/TemplatePartError.js';
+import { TemplateView } from '../models/TemplateView.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
 import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
+import { UpdateTemplateRequest } from '../models/UpdateTemplateRequest.js';
 import { UpdateWebhookRequest } from '../models/UpdateWebhookRequest.js';
 import { UsageEventEntry } from '../models/UsageEventEntry.js';
 import { UserExport } from '../models/UserExport.js';
 import { UserExportUser } from '../models/UserExportUser.js';
+import { ValidateTemplateRequest } from '../models/ValidateTemplateRequest.js';
+import { ValidateTemplateResponse } from '../models/ValidateTemplateResponse.js';
 import { VerifyDomainView } from '../models/VerifyDomainView.js';
 import { WebhookDeliveryView } from '../models/WebhookDeliveryView.js';
 import { WebhookFiltersView } from '../models/WebhookFiltersView.js';
@@ -1662,6 +1670,228 @@ export class ObservableReviewsApi {
      */
     public rejectReview(id: string, rejectRequest: RejectRequest, _options?: ConfigurationOptions): Observable<RejectResultView> {
         return this.rejectReviewWithHttpInfo(id, rejectRequest, _options).pipe(map((apiResponse: HttpInfo<RejectResultView>) => apiResponse.data));
+    }
+
+}
+
+import { TemplatesApiRequestFactory, TemplatesApiResponseProcessor} from "../apis/TemplatesApi.js";
+export class ObservableTemplatesApi {
+    private requestFactory: TemplatesApiRequestFactory;
+    private responseProcessor: TemplatesApiResponseProcessor;
+    private configuration: Configuration;
+
+    public constructor(
+        configuration: Configuration,
+        requestFactory?: TemplatesApiRequestFactory,
+        responseProcessor?: TemplatesApiResponseProcessor
+    ) {
+        this.configuration = configuration;
+        this.requestFactory = requestFactory || new TemplatesApiRequestFactory(configuration);
+        this.responseProcessor = responseProcessor || new TemplatesApiResponseProcessor();
+    }
+
+    /**
+     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Create a template (beta)
+     * @param createTemplateRequest
+     */
+    public createTemplateWithHttpInfo(createTemplateRequest: CreateTemplateRequest, _options?: ConfigurationOptions): Observable<HttpInfo<TemplateView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.createTemplate(createTemplateRequest, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.createTemplateWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Create a template (beta)
+     * @param createTemplateRequest
+     */
+    public createTemplate(createTemplateRequest: CreateTemplateRequest, _options?: ConfigurationOptions): Observable<TemplateView> {
+        return this.createTemplateWithHttpInfo(createTemplateRequest, _options).pipe(map((apiResponse: HttpInfo<TemplateView>) => apiResponse.data));
+    }
+
+    /**
+     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable.
+     * Delete a template (beta)
+     * @param id
+     */
+    public deleteTemplateWithHttpInfo(id: string, _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.deleteTemplate(id, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.deleteTemplateWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable.
+     * Delete a template (beta)
+     * @param id
+     */
+    public deleteTemplate(id: string, _options?: ConfigurationOptions): Observable<void> {
+        return this.deleteTemplateWithHttpInfo(id, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
+    }
+
+    /**
+     * Fetch one template by id. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Get a template (beta)
+     * @param id
+     */
+    public getTemplateWithHttpInfo(id: string, _options?: ConfigurationOptions): Observable<HttpInfo<TemplateView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.getTemplate(id, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.getTemplateWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Fetch one template by id. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Get a template (beta)
+     * @param id
+     */
+    public getTemplate(id: string, _options?: ConfigurationOptions): Observable<TemplateView> {
+        return this.getTemplateWithHttpInfo(id, _options).pipe(map((apiResponse: HttpInfo<TemplateView>) => apiResponse.data));
+    }
+
+    /**
+     * List the account\'s templates, newest first. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List templates (beta)
+     */
+    public listTemplatesWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageTemplateView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.listTemplates(_config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.listTemplatesWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * List the account\'s templates, newest first. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List templates (beta)
+     */
+    public listTemplates(_options?: ConfigurationOptions): Observable<PageTemplateView> {
+        return this.listTemplatesWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageTemplateView>) => apiResponse.data));
+    }
+
+    /**
+     * Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Update a template (beta)
+     * @param id
+     * @param updateTemplateRequest
+     */
+    public updateTemplateWithHttpInfo(id: string, updateTemplateRequest: UpdateTemplateRequest, _options?: ConfigurationOptions): Observable<HttpInfo<TemplateView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.updateTemplate(id, updateTemplateRequest, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.updateTemplateWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Update a template (beta)
+     * @param id
+     * @param updateTemplateRequest
+     */
+    public updateTemplate(id: string, updateTemplateRequest: UpdateTemplateRequest, _options?: ConfigurationOptions): Observable<TemplateView> {
+        return this.updateTemplateWithHttpInfo(id, updateTemplateRequest, _options).pipe(map((apiResponse: HttpInfo<TemplateView>) => apiResponse.data));
+    }
+
+    /**
+     * Dry-run template source without persisting: reports per-part parse errors, a rendered preview (against test_data when provided), and suggested_data — a placeholder value for every variable the source references. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Validate template source (beta)
+     * @param validateTemplateRequest
+     */
+    public validateTemplateWithHttpInfo(validateTemplateRequest: ValidateTemplateRequest, _options?: ConfigurationOptions): Observable<HttpInfo<ValidateTemplateResponse>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.validateTemplate(validateTemplateRequest, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.validateTemplateWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Dry-run template source without persisting: reports per-part parse errors, a rendered preview (against test_data when provided), and suggested_data — a placeholder value for every variable the source references. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Validate template source (beta)
+     * @param validateTemplateRequest
+     */
+    public validateTemplate(validateTemplateRequest: ValidateTemplateRequest, _options?: ConfigurationOptions): Observable<ValidateTemplateResponse> {
+        return this.validateTemplateWithHttpInfo(validateTemplateRequest, _options).pipe(map((apiResponse: HttpInfo<ValidateTemplateResponse>) => apiResponse.data));
     }
 
 }

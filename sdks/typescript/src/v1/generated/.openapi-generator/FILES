@@ -6,6 +6,7 @@ apis/EventsApi.ts
 apis/MessagesApi.ts
 apis/MetaApi.ts
 apis/ReviewsApi.ts
+apis/TemplatesApi.ts
 apis/WebhooksApi.ts
 apis/baseapi.ts
 apis/exception.ts
@@ -32,6 +33,7 @@ models/ConversationSummaryView.ts
 models/CreateAPIKeyRequest.ts
 models/CreateAPIKeyResponse.ts
 models/CreateAgentRequest.ts
+models/CreateTemplateRequest.ts
 models/CreateWebhookRequest.ts
 models/CreateWebhookResponse.ts
 models/DNSRecord.ts
@@ -61,6 +63,7 @@ models/PageEventJSON.ts
 models/PageMessageSummaryView.ts
 models/PageReviewView.ts
 models/PageSuppression.ts
+models/PageTemplateView.ts
 models/PageWebhookDeliveryView.ts
 models/PageWebhookView.ts
 models/ProtectionConfigView.ts
@@ -75,6 +78,7 @@ models/RedeliverView.ts
 models/RegisterDomainRequest.ts
 models/RejectRequest.ts
 models/RejectResultView.ts
+models/RenderedTemplateView.ts
 models/ReplyRequest.ts
 models/Result.ts
 models/ReviewView.ts
@@ -83,15 +87,20 @@ models/SendEmailRequest.ts
 models/SendResultView.ts
 models/Suppression.ts
 models/SuppressionExportEntry.ts
+models/TemplatePartError.ts
+models/TemplateView.ts
 models/TestWebhookRequest.ts
 models/TestWebhookResponse.ts
 models/UpdateAgentRequest.ts
 models/UpdateMessageRequest.ts
 models/UpdateMessageResultView.ts
+models/UpdateTemplateRequest.ts
 models/UpdateWebhookRequest.ts
 models/UsageEventEntry.ts
 models/UserExport.ts
 models/UserExportUser.ts
+models/ValidateTemplateRequest.ts
+models/ValidateTemplateResponse.ts
 models/VerifyDomainView.ts
 models/WebhookDeliveryView.ts
 models/WebhookFiltersView.ts

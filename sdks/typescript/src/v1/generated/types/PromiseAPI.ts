@@ -19,6 +19,7 @@ import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAPIKeyRequest } from '../models/CreateAPIKeyRequest.js';
 import { CreateAPIKeyResponse } from '../models/CreateAPIKeyResponse.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
+import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
 import { DNSRecord } from '../models/DNSRecord.js';
@@ -47,6 +48,7 @@ import { PageEventJSON } from '../models/PageEventJSON.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageReviewView } from '../models/PageReviewView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
+import { PageTemplateView } from '../models/PageTemplateView.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
@@ -61,6 +63,7 @@ import { RedeliverView } from '../models/RedeliverView.js';
 import { RegisterDomainRequest } from '../models/RegisterDomainRequest.js';
 import { RejectRequest } from '../models/RejectRequest.js';
 import { RejectResultView } from '../models/RejectResultView.js';
+import { RenderedTemplateView } from '../models/RenderedTemplateView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
 import { ReviewView } from '../models/ReviewView.js';
@@ -69,15 +72,20 @@ import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
 import { Suppression } from '../models/Suppression.js';
 import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
+import { TemplatePartError } from '../models/TemplatePartError.js';
+import { TemplateView } from '../models/TemplateView.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
 import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
+import { UpdateTemplateRequest } from '../models/UpdateTemplateRequest.js';
 import { UpdateWebhookRequest } from '../models/UpdateWebhookRequest.js';
 import { UsageEventEntry } from '../models/UsageEventEntry.js';
 import { UserExport } from '../models/UserExport.js';
 import { UserExportUser } from '../models/UserExportUser.js';
+import { ValidateTemplateRequest } from '../models/ValidateTemplateRequest.js';
+import { ValidateTemplateResponse } from '../models/ValidateTemplateResponse.js';
 import { VerifyDomainView } from '../models/VerifyDomainView.js';
 import { WebhookDeliveryView } from '../models/WebhookDeliveryView.js';
 import { WebhookFiltersView } from '../models/WebhookFiltersView.js';
@@ -1184,6 +1192,157 @@ export class PromiseReviewsApi {
     public rejectReview(id: string, rejectRequest: RejectRequest, _options?: PromiseConfigurationOptions): Promise<RejectResultView> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.rejectReview(id, rejectRequest, observableOptions);
+        return result.toPromise();
+    }
+
+
+}
+
+
+
+import { ObservableTemplatesApi } from './ObservableAPI.js';
+
+import { TemplatesApiRequestFactory, TemplatesApiResponseProcessor} from "../apis/TemplatesApi.js";
+export class PromiseTemplatesApi {
+    private api: ObservableTemplatesApi
+
+    public constructor(
+        configuration: Configuration,
+        requestFactory?: TemplatesApiRequestFactory,
+        responseProcessor?: TemplatesApiResponseProcessor
+    ) {
+        this.api = new ObservableTemplatesApi(configuration, requestFactory, responseProcessor);
+    }
+
+    /**
+     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Create a template (beta)
+     * @param createTemplateRequest
+     */
+    public createTemplateWithHttpInfo(createTemplateRequest: CreateTemplateRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<TemplateView>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.createTemplateWithHttpInfo(createTemplateRequest, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Create a template (beta)
+     * @param createTemplateRequest
+     */
+    public createTemplate(createTemplateRequest: CreateTemplateRequest, _options?: PromiseConfigurationOptions): Promise<TemplateView> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.createTemplate(createTemplateRequest, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable.
+     * Delete a template (beta)
+     * @param id
+     */
+    public deleteTemplateWithHttpInfo(id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.deleteTemplateWithHttpInfo(id, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable.
+     * Delete a template (beta)
+     * @param id
+     */
+    public deleteTemplate(id: string, _options?: PromiseConfigurationOptions): Promise<void> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.deleteTemplate(id, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Fetch one template by id. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Get a template (beta)
+     * @param id
+     */
+    public getTemplateWithHttpInfo(id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<TemplateView>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.getTemplateWithHttpInfo(id, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Fetch one template by id. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Get a template (beta)
+     * @param id
+     */
+    public getTemplate(id: string, _options?: PromiseConfigurationOptions): Promise<TemplateView> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.getTemplate(id, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * List the account\'s templates, newest first. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List templates (beta)
+     */
+    public listTemplatesWithHttpInfo(_options?: PromiseConfigurationOptions): Promise<HttpInfo<PageTemplateView>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.listTemplatesWithHttpInfo(observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * List the account\'s templates, newest first. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List templates (beta)
+     */
+    public listTemplates(_options?: PromiseConfigurationOptions): Promise<PageTemplateView> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.listTemplates(observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Update a template (beta)
+     * @param id
+     * @param updateTemplateRequest
+     */
+    public updateTemplateWithHttpInfo(id: string, updateTemplateRequest: UpdateTemplateRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<TemplateView>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.updateTemplateWithHttpInfo(id, updateTemplateRequest, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Update a template (beta)
+     * @param id
+     * @param updateTemplateRequest
+     */
+    public updateTemplate(id: string, updateTemplateRequest: UpdateTemplateRequest, _options?: PromiseConfigurationOptions): Promise<TemplateView> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.updateTemplate(id, updateTemplateRequest, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Dry-run template source without persisting: reports per-part parse errors, a rendered preview (against test_data when provided), and suggested_data — a placeholder value for every variable the source references. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Validate template source (beta)
+     * @param validateTemplateRequest
+     */
+    public validateTemplateWithHttpInfo(validateTemplateRequest: ValidateTemplateRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<ValidateTemplateResponse>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.validateTemplateWithHttpInfo(validateTemplateRequest, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Dry-run template source without persisting: reports per-part parse errors, a rendered preview (against test_data when provided), and suggested_data — a placeholder value for every variable the source references. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Validate template source (beta)
+     * @param validateTemplateRequest
+     */
+    public validateTemplate(validateTemplateRequest: ValidateTemplateRequest, _options?: PromiseConfigurationOptions): Promise<ValidateTemplateResponse> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.validateTemplate(validateTemplateRequest, observableOptions);
         return result.toPromise();
     }
 

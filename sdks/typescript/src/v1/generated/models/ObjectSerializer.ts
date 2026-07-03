@@ -15,6 +15,7 @@ export * from '../models/ConversationSummaryView.js';
 export * from '../models/CreateAPIKeyRequest.js';
 export * from '../models/CreateAPIKeyResponse.js';
 export * from '../models/CreateAgentRequest.js';
+export * from '../models/CreateTemplateRequest.js';
 export * from '../models/CreateWebhookRequest.js';
 export * from '../models/CreateWebhookResponse.js';
 export * from '../models/DNSRecord.js';
@@ -43,6 +44,7 @@ export * from '../models/PageEventJSON.js';
 export * from '../models/PageMessageSummaryView.js';
 export * from '../models/PageReviewView.js';
 export * from '../models/PageSuppression.js';
+export * from '../models/PageTemplateView.js';
 export * from '../models/PageWebhookDeliveryView.js';
 export * from '../models/PageWebhookView.js';
 export * from '../models/ProtectionConfigView.js';
@@ -57,6 +59,7 @@ export * from '../models/RedeliverView.js';
 export * from '../models/RegisterDomainRequest.js';
 export * from '../models/RejectRequest.js';
 export * from '../models/RejectResultView.js';
+export * from '../models/RenderedTemplateView.js';
 export * from '../models/ReplyRequest.js';
 export * from '../models/Result.js';
 export * from '../models/ReviewView.js';
@@ -65,15 +68,20 @@ export * from '../models/SendEmailRequest.js';
 export * from '../models/SendResultView.js';
 export * from '../models/Suppression.js';
 export * from '../models/SuppressionExportEntry.js';
+export * from '../models/TemplatePartError.js';
+export * from '../models/TemplateView.js';
 export * from '../models/TestWebhookRequest.js';
 export * from '../models/TestWebhookResponse.js';
 export * from '../models/UpdateAgentRequest.js';
 export * from '../models/UpdateMessageRequest.js';
 export * from '../models/UpdateMessageResultView.js';
+export * from '../models/UpdateTemplateRequest.js';
 export * from '../models/UpdateWebhookRequest.js';
 export * from '../models/UsageEventEntry.js';
 export * from '../models/UserExport.js';
 export * from '../models/UserExportUser.js';
+export * from '../models/ValidateTemplateRequest.js';
+export * from '../models/ValidateTemplateResponse.js';
 export * from '../models/VerifyDomainView.js';
 export * from '../models/WebhookDeliveryView.js';
 export * from '../models/WebhookFiltersView.js';
@@ -96,6 +104,7 @@ import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAPIKeyRequest   , CreateAPIKeyRequestScopeEnum   } from '../models/CreateAPIKeyRequest.js';
 import { CreateAPIKeyResponse        , CreateAPIKeyResponseScopeEnum   } from '../models/CreateAPIKeyResponse.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
+import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { CreateWebhookRequest , CreateWebhookRequestEventsEnum     } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
 import { DNSRecord } from '../models/DNSRecord.js';
@@ -124,6 +133,7 @@ import { PageEventJSON } from '../models/PageEventJSON.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageReviewView } from '../models/PageReviewView.js';
 import { PageSuppression } from '../models/PageSuppression.js';
+import { PageTemplateView } from '../models/PageTemplateView.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
@@ -138,6 +148,7 @@ import { RedeliverView } from '../models/RedeliverView.js';
 import { RegisterDomainRequest } from '../models/RegisterDomainRequest.js';
 import { RejectRequest } from '../models/RejectRequest.js';
 import { RejectResultView } from '../models/RejectResultView.js';
+import { RenderedTemplateView } from '../models/RenderedTemplateView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
 import { ReviewView   , ReviewViewDirectionEnum          } from '../models/ReviewView.js';
@@ -146,15 +157,20 @@ import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
 import { Suppression } from '../models/Suppression.js';
 import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
+import { TemplatePartError } from '../models/TemplatePartError.js';
+import { TemplateView } from '../models/TemplateView.js';
 import { TestWebhookRequest , TestWebhookRequestEventEnum   } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
 import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
+import { UpdateTemplateRequest } from '../models/UpdateTemplateRequest.js';
 import { UpdateWebhookRequest  , UpdateWebhookRequestEventsEnum     } from '../models/UpdateWebhookRequest.js';
 import { UsageEventEntry } from '../models/UsageEventEntry.js';
 import { UserExport } from '../models/UserExport.js';
 import { UserExportUser } from '../models/UserExportUser.js';
+import { ValidateTemplateRequest } from '../models/ValidateTemplateRequest.js';
+import { ValidateTemplateResponse } from '../models/ValidateTemplateResponse.js';
 import { VerifyDomainView } from '../models/VerifyDomainView.js';
 import { WebhookDeliveryView } from '../models/WebhookDeliveryView.js';
 import { WebhookFiltersView } from '../models/WebhookFiltersView.js';
@@ -207,6 +223,7 @@ let typeMap: {[index: string]: any} = {
     "CreateAPIKeyRequest": CreateAPIKeyRequest,
     "CreateAPIKeyResponse": CreateAPIKeyResponse,
     "CreateAgentRequest": CreateAgentRequest,
+    "CreateTemplateRequest": CreateTemplateRequest,
     "CreateWebhookRequest": CreateWebhookRequest,
     "CreateWebhookResponse": CreateWebhookResponse,
     "DNSRecord": DNSRecord,
@@ -235,6 +252,7 @@ let typeMap: {[index: string]: any} = {
     "PageMessageSummaryView": PageMessageSummaryView,
     "PageReviewView": PageReviewView,
     "PageSuppression": PageSuppression,
+    "PageTemplateView": PageTemplateView,
     "PageWebhookDeliveryView": PageWebhookDeliveryView,
     "PageWebhookView": PageWebhookView,
     "ProtectionConfigView": ProtectionConfigView,
@@ -249,6 +267,7 @@ let typeMap: {[index: string]: any} = {
     "RegisterDomainRequest": RegisterDomainRequest,
     "RejectRequest": RejectRequest,
     "RejectResultView": RejectResultView,
+    "RenderedTemplateView": RenderedTemplateView,
     "ReplyRequest": ReplyRequest,
     "Result": Result,
     "ReviewView": ReviewView,
@@ -257,15 +276,20 @@ let typeMap: {[index: string]: any} = {
     "SendResultView": SendResultView,
     "Suppression": Suppression,
     "SuppressionExportEntry": SuppressionExportEntry,
+    "TemplatePartError": TemplatePartError,
+    "TemplateView": TemplateView,
     "TestWebhookRequest": TestWebhookRequest,
     "TestWebhookResponse": TestWebhookResponse,
     "UpdateAgentRequest": UpdateAgentRequest,
     "UpdateMessageRequest": UpdateMessageRequest,
     "UpdateMessageResultView": UpdateMessageResultView,
+    "UpdateTemplateRequest": UpdateTemplateRequest,
     "UpdateWebhookRequest": UpdateWebhookRequest,
     "UsageEventEntry": UsageEventEntry,
     "UserExport": UserExport,
     "UserExportUser": UserExportUser,
+    "ValidateTemplateRequest": ValidateTemplateRequest,
+    "ValidateTemplateResponse": ValidateTemplateResponse,
     "VerifyDomainView": VerifyDomainView,
     "WebhookDeliveryView": WebhookDeliveryView,
     "WebhookFiltersView": WebhookFiltersView,

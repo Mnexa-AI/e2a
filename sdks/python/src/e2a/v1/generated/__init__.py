@@ -26,6 +26,7 @@ __all__ = [
     "MessagesApi",
     "MetaApi",
     "ReviewsApi",
+    "TemplatesApi",
     "WebhooksApi",
     "ApiResponse",
     "ApiClient",
@@ -53,6 +54,7 @@ __all__ = [
     "CreateAPIKeyRequest",
     "CreateAPIKeyResponse",
     "CreateAgentRequest",
+    "CreateTemplateRequest",
     "CreateWebhookRequest",
     "CreateWebhookResponse",
     "DNSRecord",
@@ -81,6 +83,7 @@ __all__ = [
     "PageMessageSummaryView",
     "PageReviewView",
     "PageSuppression",
+    "PageTemplateView",
     "PageWebhookDeliveryView",
     "PageWebhookView",
     "ProtectionConfigView",
@@ -95,6 +98,7 @@ __all__ = [
     "RegisterDomainRequest",
     "RejectRequest",
     "RejectResultView",
+    "RenderedTemplateView",
     "ReplyRequest",
     "Result",
     "ReviewView",
@@ -103,15 +107,20 @@ __all__ = [
     "SendResultView",
     "Suppression",
     "SuppressionExportEntry",
+    "TemplatePartError",
+    "TemplateView",
     "TestWebhookRequest",
     "TestWebhookResponse",
     "UpdateAgentRequest",
     "UpdateMessageRequest",
     "UpdateMessageResultView",
+    "UpdateTemplateRequest",
     "UpdateWebhookRequest",
     "UsageEventEntry",
     "UserExport",
     "UserExportUser",
+    "ValidateTemplateRequest",
+    "ValidateTemplateResponse",
     "VerifyDomainView",
     "WebhookDeliveryView",
     "WebhookFiltersView",
@@ -127,6 +136,7 @@ from e2a.v1.generated.api.events_api import EventsApi as EventsApi
 from e2a.v1.generated.api.messages_api import MessagesApi as MessagesApi
 from e2a.v1.generated.api.meta_api import MetaApi as MetaApi
 from e2a.v1.generated.api.reviews_api import ReviewsApi as ReviewsApi
+from e2a.v1.generated.api.templates_api import TemplatesApi as TemplatesApi
 from e2a.v1.generated.api.webhooks_api import WebhooksApi as WebhooksApi
 
 # import ApiClient
@@ -158,6 +168,7 @@ from e2a.v1.generated.models.conversation_summary_view import ConversationSummar
 from e2a.v1.generated.models.create_api_key_request import CreateAPIKeyRequest as CreateAPIKeyRequest
 from e2a.v1.generated.models.create_api_key_response import CreateAPIKeyResponse as CreateAPIKeyResponse
 from e2a.v1.generated.models.create_agent_request import CreateAgentRequest as CreateAgentRequest
+from e2a.v1.generated.models.create_template_request import CreateTemplateRequest as CreateTemplateRequest
 from e2a.v1.generated.models.create_webhook_request import CreateWebhookRequest as CreateWebhookRequest
 from e2a.v1.generated.models.create_webhook_response import CreateWebhookResponse as CreateWebhookResponse
 from e2a.v1.generated.models.dns_record import DNSRecord as DNSRecord
@@ -186,6 +197,7 @@ from e2a.v1.generated.models.page_event_json import PageEventJSON as PageEventJS
 from e2a.v1.generated.models.page_message_summary_view import PageMessageSummaryView as PageMessageSummaryView
 from e2a.v1.generated.models.page_review_view import PageReviewView as PageReviewView
 from e2a.v1.generated.models.page_suppression import PageSuppression as PageSuppression
+from e2a.v1.generated.models.page_template_view import PageTemplateView as PageTemplateView
 from e2a.v1.generated.models.page_webhook_delivery_view import PageWebhookDeliveryView as PageWebhookDeliveryView
 from e2a.v1.generated.models.page_webhook_view import PageWebhookView as PageWebhookView
 from e2a.v1.generated.models.protection_config_view import ProtectionConfigView as ProtectionConfigView
@@ -200,6 +212,7 @@ from e2a.v1.generated.models.redeliver_view import RedeliverView as RedeliverVie
 from e2a.v1.generated.models.register_domain_request import RegisterDomainRequest as RegisterDomainRequest
 from e2a.v1.generated.models.reject_request import RejectRequest as RejectRequest
 from e2a.v1.generated.models.reject_result_view import RejectResultView as RejectResultView
+from e2a.v1.generated.models.rendered_template_view import RenderedTemplateView as RenderedTemplateView
 from e2a.v1.generated.models.reply_request import ReplyRequest as ReplyRequest
 from e2a.v1.generated.models.result import Result as Result
 from e2a.v1.generated.models.review_view import ReviewView as ReviewView
@@ -208,15 +221,20 @@ from e2a.v1.generated.models.send_email_request import SendEmailRequest as SendE
 from e2a.v1.generated.models.send_result_view import SendResultView as SendResultView
 from e2a.v1.generated.models.suppression import Suppression as Suppression
 from e2a.v1.generated.models.suppression_export_entry import SuppressionExportEntry as SuppressionExportEntry
+from e2a.v1.generated.models.template_part_error import TemplatePartError as TemplatePartError
+from e2a.v1.generated.models.template_view import TemplateView as TemplateView
 from e2a.v1.generated.models.test_webhook_request import TestWebhookRequest as TestWebhookRequest
 from e2a.v1.generated.models.test_webhook_response import TestWebhookResponse as TestWebhookResponse
 from e2a.v1.generated.models.update_agent_request import UpdateAgentRequest as UpdateAgentRequest
 from e2a.v1.generated.models.update_message_request import UpdateMessageRequest as UpdateMessageRequest
 from e2a.v1.generated.models.update_message_result_view import UpdateMessageResultView as UpdateMessageResultView
+from e2a.v1.generated.models.update_template_request import UpdateTemplateRequest as UpdateTemplateRequest
 from e2a.v1.generated.models.update_webhook_request import UpdateWebhookRequest as UpdateWebhookRequest
 from e2a.v1.generated.models.usage_event_entry import UsageEventEntry as UsageEventEntry
 from e2a.v1.generated.models.user_export import UserExport as UserExport
 from e2a.v1.generated.models.user_export_user import UserExportUser as UserExportUser
+from e2a.v1.generated.models.validate_template_request import ValidateTemplateRequest as ValidateTemplateRequest
+from e2a.v1.generated.models.validate_template_response import ValidateTemplateResponse as ValidateTemplateResponse
 from e2a.v1.generated.models.verify_domain_view import VerifyDomainView as VerifyDomainView
 from e2a.v1.generated.models.webhook_delivery_view import WebhookDeliveryView as WebhookDeliveryView
 from e2a.v1.generated.models.webhook_filters_view import WebhookFiltersView as WebhookFiltersView

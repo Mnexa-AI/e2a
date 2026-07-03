@@ -30,6 +30,7 @@ from e2a.v1.generated.models.conversation_summary_view import ConversationSummar
 from e2a.v1.generated.models.create_api_key_request import CreateAPIKeyRequest
 from e2a.v1.generated.models.create_api_key_response import CreateAPIKeyResponse
 from e2a.v1.generated.models.create_agent_request import CreateAgentRequest
+from e2a.v1.generated.models.create_template_request import CreateTemplateRequest
 from e2a.v1.generated.models.create_webhook_request import CreateWebhookRequest
 from e2a.v1.generated.models.create_webhook_response import CreateWebhookResponse
 from e2a.v1.generated.models.dns_record import DNSRecord
@@ -58,6 +59,7 @@ from e2a.v1.generated.models.page_event_json import PageEventJSON
 from e2a.v1.generated.models.page_message_summary_view import PageMessageSummaryView
 from e2a.v1.generated.models.page_review_view import PageReviewView
 from e2a.v1.generated.models.page_suppression import PageSuppression
+from e2a.v1.generated.models.page_template_view import PageTemplateView
 from e2a.v1.generated.models.page_webhook_delivery_view import PageWebhookDeliveryView
 from e2a.v1.generated.models.page_webhook_view import PageWebhookView
 from e2a.v1.generated.models.protection_config_view import ProtectionConfigView
@@ -72,6 +74,7 @@ from e2a.v1.generated.models.redeliver_view import RedeliverView
 from e2a.v1.generated.models.register_domain_request import RegisterDomainRequest
 from e2a.v1.generated.models.reject_request import RejectRequest
 from e2a.v1.generated.models.reject_result_view import RejectResultView
+from e2a.v1.generated.models.rendered_template_view import RenderedTemplateView
 from e2a.v1.generated.models.reply_request import ReplyRequest
 from e2a.v1.generated.models.result import Result
 from e2a.v1.generated.models.review_view import ReviewView
@@ -80,15 +83,20 @@ from e2a.v1.generated.models.send_email_request import SendEmailRequest
 from e2a.v1.generated.models.send_result_view import SendResultView
 from e2a.v1.generated.models.suppression import Suppression
 from e2a.v1.generated.models.suppression_export_entry import SuppressionExportEntry
+from e2a.v1.generated.models.template_part_error import TemplatePartError
+from e2a.v1.generated.models.template_view import TemplateView
 from e2a.v1.generated.models.test_webhook_request import TestWebhookRequest
 from e2a.v1.generated.models.test_webhook_response import TestWebhookResponse
 from e2a.v1.generated.models.update_agent_request import UpdateAgentRequest
 from e2a.v1.generated.models.update_message_request import UpdateMessageRequest
 from e2a.v1.generated.models.update_message_result_view import UpdateMessageResultView
+from e2a.v1.generated.models.update_template_request import UpdateTemplateRequest
 from e2a.v1.generated.models.update_webhook_request import UpdateWebhookRequest
 from e2a.v1.generated.models.usage_event_entry import UsageEventEntry
 from e2a.v1.generated.models.user_export import UserExport
 from e2a.v1.generated.models.user_export_user import UserExportUser
+from e2a.v1.generated.models.validate_template_request import ValidateTemplateRequest
+from e2a.v1.generated.models.validate_template_response import ValidateTemplateResponse
 from e2a.v1.generated.models.verify_domain_view import VerifyDomainView
 from e2a.v1.generated.models.webhook_delivery_view import WebhookDeliveryView
 from e2a.v1.generated.models.webhook_filters_view import WebhookFiltersView
