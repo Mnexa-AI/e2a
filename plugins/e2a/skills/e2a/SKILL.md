@@ -1,12 +1,12 @@
 ---
 name: e2a
 description: Use when operating e2a (email for AI agents) over its MCP tools — sending or receiving email, replying in-thread, handling the human-in-the-loop review hold (pending_review), managing agents and custom domains, or working with attachments — OR when integrating e2a into your own software/service (the developer email-API use case: API keys, SDKs, webhooks). With e2a YOU are the agent and the inbox IS the agent (not a human reading their mail). Covers send_message vs reply_to_message threading, multi-agent disambiguation, the custom-domain DNS flow, the protection (screening + review) config, programmatic integration, and common gotchas.
-version: 13
+version: 14
 ---
 
 # Using e2a
 
-<!-- version: 13 -->
+<!-- version: 14 -->
 
 e2a is an authenticated email gateway for AI agents. It gives an agent a real email address (`agent@agents.e2a.dev` or `agent@your-domain.com`), verifies sender identity (SPF/DKIM), threads conversations, and optionally holds outbound mail for human review.
 
@@ -67,6 +67,35 @@ For attachment bytes, use `get_attachment` with a 0-based index. It returns the 
 2. Check the response:
    - `status: sent` — done.
    - `status: pending_review` — the agent's protection config held it for review; the message is queued. Tell the user it's awaiting review. They can review in the dashboard, via the magic link in their notification email, or with the pending/review tools.
+
+### Templates (beta): recurring sends without free-writing
+
+When the same *kind* of email goes out repeatedly — run reports, digests, approval asks — don't compose it fresh each time. A stored template gives every send the same structure: recurring mail stays consistent, and a HITL reviewer can scan held drafts at a glance (they learn the shape once; only the variables change). Reach for one by the third same-shaped send; keep free-writing for one-offs and conversation.
+
+Three starters are agent-native:
+
+- **`agent-status`** — a run report: what you did, what happened.
+- **`approval-request`** — ask a human to approve an action before you take it.
+- **`daily-digest`** — a scheduled summary of many items.
+
+(The catalog — `list_starter_templates` — also has `welcome`, `verify-code`, `password-reset`, `receipt` for product mail.)
+
+The flow is copy once, send many:
+
+1. `create_template` with `{ "from_starter": "agent-status", "alias": "run-report" }` — copies the starter verbatim into the account's library (account scope; once at setup). Customize the copy later with `update_template` if needed.
+2. Send by alias — no literal subject/body (a template reference is mutually exclusive with them); the server renders **before** any review hold, so the reviewer sees final content:
+
+```json
+{ "to": ["owner@acme.com"], "template_alias": "run-report",
+  "template_data": { "agent_name": "deploy-bot", "status": "success",
+                     "summary": "3 services deployed", "sections_html": "<ul><li>api: ok</li></ul>" } }
+```
+
+Syntax is a flat Mustache subset: `{{var}}` (HTML-escaped in the HTML part), `{{{var}}}` raw, dot paths into nested data — no loops or conditionals. **Missing variables render as empty strings, silently.** Preview with `validate_template` (its `suggested_data` names every variable the source references) instead of discovering blanks in sent mail. List/table content goes through raw `{{{…_html}}}` fragment slots: you build the HTML fragment, and you must HTML-escape any user-supplied text inside it — raw slots bypass escaping.
+
+**Approval links must be confirmation pages.** For `approval-request`, `approve_url` / `reject_url` must point to pages that require an explicit human click to act — never state-changing GET endpoints. Email security scanners prefetch every link in a message, so a GET-to-approve URL gets "approved" by a robot before the human ever opens the mail.
+
+Templates are beta: shapes may change before they're declared stable. Only `send_message` takes template references — reply and forward don't.
 
 ### Review held messages (account scope)
 
@@ -161,5 +190,5 @@ The full, current integration code — SDK install, send / reply / parse, webhoo
 - Webhook + SDK code: https://e2a.dev/sdk.md
 - Exact tool signatures: call `tools/list` (authoritative).
 - OpenAPI contract: https://e2a.dev/openapi.yaml
-- The MCP surface is **37 tools** (14 runtime/inbox + 23 admin/setup) spanning agents, messages, HITL review, attachments, domains, events, and webhooks. The set you see depends on your credential's scope: an agent-scoped credential sees the 14 runtime tools; an account-scoped credential sees all 37. Tool descriptions teach behavior; this skill teaches the mental model.
+- The MCP surface is **45 tools** (14 runtime/inbox + 31 admin/setup) spanning agents, messages, HITL review, attachments, domains, events, webhooks, and templates (beta). The set you see depends on your credential's scope: an agent-scoped credential sees the 14 runtime tools; an account-scoped credential sees all 45. Tool descriptions teach behavior; this skill teaches the mental model.
 - Plugin homepage / docs index: https://e2a.dev (machine-readable index: https://e2a.dev/llms.txt)

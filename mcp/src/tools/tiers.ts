@@ -75,6 +75,18 @@ export const ADMIN_TOOLS: ReadonlySet<string> = new Set([
   "list_events",
   "get_event",
   "redeliver_event",
+  // Templates (beta) are account-scope end to end — every /v1/templates and
+  // /v1/starter-templates handler calls requireAccountUser, 403ing
+  // agent-scoped credentials — so the whole group is admin-tier. (Sending
+  // WITH a template stays on the runtime send_message tool.)
+  "list_templates",
+  "get_template",
+  "create_template",
+  "update_template",
+  "delete_template",
+  "validate_template",
+  "list_starter_templates",
+  "get_starter_template",
 ]);
 
 export type Scope = "account" | "agent";

@@ -254,6 +254,14 @@ describe("HTTP MCP server", () => {
         "list_events",
         "get_event",
         "redeliver_event",
+        "list_templates",
+        "get_template",
+        "create_template",
+        "update_template",
+        "delete_template",
+        "validate_template",
+        "list_starter_templates",
+        "get_starter_template",
       ].sort(),
     );
     await transport.close();
