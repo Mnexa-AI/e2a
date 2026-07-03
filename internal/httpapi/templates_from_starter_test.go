@@ -36,6 +36,28 @@ func TestCreateTemplateFromStarter(t *testing.T) {
 	if body["html_body"] != master.HTMLBody {
 		t.Errorf("html_body does not equal the master HTML source verbatim")
 	}
+	// Provenance: the response records which master (and version) was copied.
+	if body["from_starter_alias"] != master.Alias || body["from_starter_version"] != master.Version {
+		t.Errorf("want provenance %s@%s, got %v/%v",
+			master.Alias, master.Version, body["from_starter_alias"], body["from_starter_version"])
+	}
+}
+
+// TestCreateTemplateLiteralHasNoProvenance: a literal create carries no
+// from_starter_* fields (omitted, not empty strings).
+func TestCreateTemplateLiteralHasNoProvenance(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/templates", "good", map[string]any{
+		"name": "Literal", "subject": "S", "body": "B",
+	})
+	if code != 201 {
+		t.Fatalf("want 201, got %d %v", code, body)
+	}
+	for _, k := range []string{"from_starter_alias", "from_starter_version"} {
+		if _, present := body[k]; present {
+			t.Errorf("literal create must omit %q, got %v", k, body)
+		}
+	}
 }
 
 func TestCreateTemplateFromStarterOverrides(t *testing.T) {

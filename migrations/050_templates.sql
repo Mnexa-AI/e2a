@@ -33,9 +33,22 @@ CREATE TABLE IF NOT EXISTS templates (
     subject    TEXT        NOT NULL,
     body       TEXT        NOT NULL,
     html_body  TEXT,
+    -- Starter provenance: which catalog master (and at what version) this
+    -- template was copied from via from_starter; NULL for literal creates.
+    -- Recorded once at create time — later edits don't clear it.
+    from_starter_alias   TEXT,
+    from_starter_version TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Belt-and-braces for databases that applied an earlier draft of this
+-- migration before the provenance columns existed (the tracker skips
+-- already-applied files, so the CREATE TABLE above won't re-run there).
+ALTER TABLE templates
+    ADD COLUMN IF NOT EXISTS from_starter_alias TEXT;
+ALTER TABLE templates
+    ADD COLUMN IF NOT EXISTS from_starter_version TEXT;
 
 -- Per-user alias uniqueness, only for rows that set one.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_templates_user_alias

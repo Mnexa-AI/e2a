@@ -52,28 +52,34 @@ func (d *TemplateData) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// TemplateView is the template resource as returned by every endpoint.
+// TemplateView is the full template resource (create/get/update responses;
+// the list returns TemplateSummaryView).
 type TemplateView struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Alias     string `json:"alias,omitempty" doc:"Optional per-user unique handle usable as template_alias on send."`
-	Subject   string `json:"subject"`
-	Body      string `json:"body" doc:"The plain-text part's template source."`
-	HTMLBody  string `json:"html_body,omitempty" doc:"The optional HTML part's template source."`
-	CreatedAt string `json:"created_at" format:"date-time"`
-	UpdatedAt string `json:"updated_at" format:"date-time"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Alias    string `json:"alias,omitempty" doc:"Optional per-user unique handle usable as template_alias on send."`
+	Subject  string `json:"subject"`
+	Body     string `json:"body" doc:"The plain-text part's template source."`
+	HTMLBody string `json:"html_body,omitempty" doc:"The optional HTML part's template source."`
+	// Read-only starter provenance, set only on from_starter creates.
+	FromStarterAlias   string `json:"from_starter_alias,omitempty" doc:"The starter template this was copied from (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable."`
+	FromStarterVersion string `json:"from_starter_version,omitempty" doc:"The starter catalog version at copy time (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable."`
+	CreatedAt          string `json:"created_at" format:"date-time"`
+	UpdatedAt          string `json:"updated_at" format:"date-time"`
 }
 
 func templateView(tp *identity.Template) TemplateView {
 	return TemplateView{
-		ID:        tp.ID,
-		Name:      tp.Name,
-		Alias:     tp.Alias,
-		Subject:   tp.Subject,
-		Body:      tp.Body,
-		HTMLBody:  tp.HTMLBody,
-		CreatedAt: tp.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt: tp.UpdatedAt.UTC().Format(time.RFC3339),
+		ID:                 tp.ID,
+		Name:               tp.Name,
+		Alias:              tp.Alias,
+		Subject:            tp.Subject,
+		Body:               tp.Body,
+		HTMLBody:           tp.HTMLBody,
+		FromStarterAlias:   tp.FromStarterAlias,
+		FromStarterVersion: tp.FromStarterVersion,
+		CreatedAt:          tp.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:          tp.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 }
 
@@ -233,7 +239,9 @@ func (s *Server) handleCreateTemplate(ctx context.Context, in *createTemplateInp
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "templates unavailable")
 	}
 	b := in.Body
-	name, alias, subject, body, htmlBody := b.Name, b.Alias, b.Subject, b.Body, b.HTMLBody
+	create := identity.TemplateCreate{
+		Name: b.Name, Alias: b.Alias, Subject: b.Subject, Body: b.Body, HTMLBody: b.HTMLBody,
+	}
 	if b.FromStarter != "" {
 		// The starter is copied VERBATIM — literal source is rejected rather
 		// than merged; the caller edits the created template afterwards.
@@ -245,18 +253,20 @@ func (s *Server) handleCreateTemplate(ctx context.Context, in *createTemplateInp
 		if !ok {
 			return nil, NewError(http.StatusNotFound, "starter_template_not_found", "starter template not found")
 		}
-		subject, body, htmlBody = m.Subject, m.TextBody, m.HTMLBody
-		if name == "" {
-			name = m.Name
+		create.Subject, create.Body, create.HTMLBody = m.Subject, m.TextBody, m.HTMLBody
+		// Record provenance: which master, at which catalog version.
+		create.FromStarterAlias, create.FromStarterVersion = m.Alias, m.Version
+		if create.Name == "" {
+			create.Name = m.Name
 		}
-		if alias == "" {
-			alias = m.Alias
+		if create.Alias == "" {
+			create.Alias = m.Alias
 		}
 	}
-	if env := validateTemplateFields(name, alias, subject, body, htmlBody); env != nil {
+	if env := validateTemplateFields(create.Name, create.Alias, create.Subject, create.Body, create.HTMLBody); env != nil {
 		return nil, env
 	}
-	tp, err := s.deps.CreateTemplate(ctx, user.ID, name, alias, subject, body, htmlBody)
+	tp, err := s.deps.CreateTemplate(ctx, user.ID, create)
 	if err != nil {
 		switch {
 		case errors.Is(err, identity.ErrTemplateAliasTaken):

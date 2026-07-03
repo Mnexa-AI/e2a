@@ -29,15 +29,21 @@ import (
 // nullIfEmpty so the partial unique index on (user_id, alias) never sees
 // empty-string collisions.
 type Template struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	Name      string    `json:"name"`
-	Alias     string    `json:"alias,omitempty"`
-	Subject   string    `json:"subject"`
-	Body      string    `json:"body"`
-	HTMLBody  string    `json:"html_body,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID       string `json:"id"`
+	UserID   string `json:"user_id"`
+	Name     string `json:"name"`
+	Alias    string `json:"alias,omitempty"`
+	Subject  string `json:"subject"`
+	Body     string `json:"body"`
+	HTMLBody string `json:"html_body,omitempty"`
+	// FromStarterAlias/FromStarterVersion record which starter master (and
+	// at what catalog version) the template was copied from at create time;
+	// "" (SQL NULL) for literal creates. Read-only provenance — edits don't
+	// clear it.
+	FromStarterAlias   string    `json:"from_starter_alias,omitempty"`
+	FromStarterVersion string    `json:"from_starter_version,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 // Sentinel errors so API handlers can map error → HTTP status with
@@ -66,15 +72,28 @@ func isUniqueViolation(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.SQLState() == "23505"
 }
 
-// CreateTemplate inserts a new template. alias and htmlBody may be "" (no
-// alias / no HTML part). Returns ErrTemplateLimitReached at the per-user cap
-// and ErrTemplateAliasTaken on a per-user alias collision.
+// TemplateCreate carries the fields of a new template. Alias, HTMLBody and
+// the FromStarter* provenance pair may be "" (stored as SQL NULL).
+type TemplateCreate struct {
+	Name     string
+	Alias    string
+	Subject  string
+	Body     string
+	HTMLBody string
+	// FromStarterAlias/FromStarterVersion are set only when the template is
+	// copied from a starter master (from_starter on the create endpoint).
+	FromStarterAlias   string
+	FromStarterVersion string
+}
+
+// CreateTemplate inserts a new template. Returns ErrTemplateLimitReached at
+// the per-user cap and ErrTemplateAliasTaken on a per-user alias collision.
 //
 // Syntax validation (Parse of all three parts) is the handler's job; the
 // storage layer only enforces the count cap and alias uniqueness. The cap
 // check races like the webhooks one (bounded overshoot of one row under
 // concurrent creates) — acceptable at a cap of 10.
-func (s *Store) CreateTemplate(ctx context.Context, userID, name, alias, subject, body, htmlBody string) (*Template, error) {
+func (s *Store) CreateTemplate(ctx context.Context, userID string, in TemplateCreate) (*Template, error) {
 	max, err := s.MaxTemplatesForUser(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -89,20 +108,23 @@ func (s *Store) CreateTemplate(ctx context.Context, userID, name, alias, subject
 
 	now := time.Now()
 	tp := &Template{
-		ID:        generateTemplateID(),
-		UserID:    userID,
-		Name:      name,
-		Alias:     alias,
-		Subject:   subject,
-		Body:      body,
-		HTMLBody:  htmlBody,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:                 generateTemplateID(),
+		UserID:             userID,
+		Name:               in.Name,
+		Alias:              in.Alias,
+		Subject:            in.Subject,
+		Body:               in.Body,
+		HTMLBody:           in.HTMLBody,
+		FromStarterAlias:   in.FromStarterAlias,
+		FromStarterVersion: in.FromStarterVersion,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 	if _, err := s.pool.Exec(ctx,
-		`INSERT INTO templates (id, user_id, name, alias, subject, body, html_body, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		tp.ID, tp.UserID, tp.Name, nullIfEmpty(tp.Alias), tp.Subject, tp.Body, nullIfEmpty(tp.HTMLBody), tp.CreatedAt, tp.UpdatedAt,
+		`INSERT INTO templates (id, user_id, name, alias, subject, body, html_body, from_starter_alias, from_starter_version, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		tp.ID, tp.UserID, tp.Name, nullIfEmpty(tp.Alias), tp.Subject, tp.Body, nullIfEmpty(tp.HTMLBody),
+		nullIfEmpty(tp.FromStarterAlias), nullIfEmpty(tp.FromStarterVersion), tp.CreatedAt, tp.UpdatedAt,
 	); err != nil {
 		if isUniqueViolation(err) {
 			return nil, ErrTemplateAliasTaken
@@ -112,11 +134,12 @@ func (s *Store) CreateTemplate(ctx context.Context, userID, name, alias, subject
 	return tp, nil
 }
 
-const templateSelectColumns = `id, user_id, name, COALESCE(alias, ''), subject, body, COALESCE(html_body, ''), created_at, updated_at`
+const templateSelectColumns = `id, user_id, name, COALESCE(alias, ''), subject, body, COALESCE(html_body, ''), COALESCE(from_starter_alias, ''), COALESCE(from_starter_version, ''), created_at, updated_at`
 
 func scanTemplate(row pgx.Row) (*Template, error) {
 	tp := &Template{}
-	err := row.Scan(&tp.ID, &tp.UserID, &tp.Name, &tp.Alias, &tp.Subject, &tp.Body, &tp.HTMLBody, &tp.CreatedAt, &tp.UpdatedAt)
+	err := row.Scan(&tp.ID, &tp.UserID, &tp.Name, &tp.Alias, &tp.Subject, &tp.Body, &tp.HTMLBody,
+		&tp.FromStarterAlias, &tp.FromStarterVersion, &tp.CreatedAt, &tp.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrTemplateNotFound

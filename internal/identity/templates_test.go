@@ -25,7 +25,7 @@ func TestCreateTemplate_RoundTrip(t *testing.T) {
 	ctx := context.Background()
 	userID := templateTestUser(t, store, "tmpl-create")
 
-	got, err := store.CreateTemplate(ctx, userID, "Welcome", "welcome", "Hi {{name}}", "Hello {{name}}!", "<p>Hello {{name}}!</p>")
+	got, err := store.CreateTemplate(ctx, userID, identity.TemplateCreate{Name: "Welcome", Alias: "welcome", Subject: "Hi {{name}}", Body: "Hello {{name}}!", HTMLBody: "<p>Hello {{name}}!</p>"})
 	if err != nil {
 		t.Fatalf("CreateTemplate: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestCreateTemplate_NoAliasNoHTML(t *testing.T) {
 	ctx := context.Background()
 	userID := templateTestUser(t, store, "tmpl-minimal")
 
-	got, err := store.CreateTemplate(ctx, userID, "Bare", "", "S", "B", "")
+	got, err := store.CreateTemplate(ctx, userID, identity.TemplateCreate{Name: "Bare", Subject: "S", Body: "B"})
 	if err != nil {
 		t.Fatalf("CreateTemplate: %v", err)
 	}
@@ -65,8 +65,43 @@ func TestCreateTemplate_NoAliasNoHTML(t *testing.T) {
 	}
 
 	// The alias NULL storage means two alias-less templates never collide.
-	if _, err := store.CreateTemplate(ctx, userID, "Bare2", "", "S", "B", ""); err != nil {
+	if _, err := store.CreateTemplate(ctx, userID, identity.TemplateCreate{Name: "Bare2", Subject: "S", Body: "B"}); err != nil {
 		t.Errorf("second alias-less template err = %v, want nil (NULL aliases must not collide)", err)
+	}
+}
+
+func TestCreateTemplate_StarterProvenanceRoundTrip(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userID := templateTestUser(t, store, "tmpl-prov")
+
+	got, err := store.CreateTemplate(ctx, userID, identity.TemplateCreate{
+		Name: "From starter", Subject: "S", Body: "B",
+		FromStarterAlias: "receipt", FromStarterVersion: "1.2.0",
+	})
+	if err != nil {
+		t.Fatalf("CreateTemplate: %v", err)
+	}
+	round, err := store.GetTemplateByID(ctx, got.ID, userID)
+	if err != nil {
+		t.Fatalf("GetTemplateByID: %v", err)
+	}
+	if round.FromStarterAlias != "receipt" || round.FromStarterVersion != "1.2.0" {
+		t.Errorf("provenance did not round-trip: %+v", round)
+	}
+
+	// Literal creates round-trip empty provenance (SQL NULL).
+	lit, err := store.CreateTemplate(ctx, userID, identity.TemplateCreate{Name: "Literal", Subject: "S", Body: "B"})
+	if err != nil {
+		t.Fatalf("CreateTemplate literal: %v", err)
+	}
+	round, err = store.GetTemplateByID(ctx, lit.ID, userID)
+	if err != nil {
+		t.Fatalf("GetTemplateByID literal: %v", err)
+	}
+	if round.FromStarterAlias != "" || round.FromStarterVersion != "" {
+		t.Errorf("literal create must have empty provenance, got %+v", round)
 	}
 }
 
@@ -76,10 +111,10 @@ func TestCreateTemplate_AliasTakenSameUser(t *testing.T) {
 	ctx := context.Background()
 	userID := templateTestUser(t, store, "tmpl-alias-dup")
 
-	if _, err := store.CreateTemplate(ctx, userID, "One", "onboarding", "S", "B", ""); err != nil {
+	if _, err := store.CreateTemplate(ctx, userID, identity.TemplateCreate{Name: "One", Alias: "onboarding", Subject: "S", Body: "B"}); err != nil {
 		t.Fatalf("create 1: %v", err)
 	}
-	_, err := store.CreateTemplate(ctx, userID, "Two", "onboarding", "S", "B", "")
+	_, err := store.CreateTemplate(ctx, userID, identity.TemplateCreate{Name: "Two", Alias: "onboarding", Subject: "S", Body: "B"})
 	if !errors.Is(err, identity.ErrTemplateAliasTaken) {
 		t.Errorf("duplicate alias err = %v, want ErrTemplateAliasTaken", err)
 	}
@@ -92,10 +127,10 @@ func TestCreateTemplate_SameAliasDifferentUsersOK(t *testing.T) {
 	userA := templateTestUser(t, store, "tmpl-alias-a")
 	userB := templateTestUser(t, store, "tmpl-alias-b")
 
-	if _, err := store.CreateTemplate(ctx, userA, "A", "shared", "S", "B", ""); err != nil {
+	if _, err := store.CreateTemplate(ctx, userA, identity.TemplateCreate{Name: "A", Alias: "shared", Subject: "S", Body: "B"}); err != nil {
 		t.Fatalf("user A create: %v", err)
 	}
-	if _, err := store.CreateTemplate(ctx, userB, "B", "shared", "S", "B", ""); err != nil {
+	if _, err := store.CreateTemplate(ctx, userB, identity.TemplateCreate{Name: "B", Alias: "shared", Subject: "S", Body: "B"}); err != nil {
 		t.Errorf("user B same alias err = %v, want nil (alias is per-user)", err)
 	}
 }
@@ -107,7 +142,7 @@ func TestGetTemplateByID_CrossUserNotFound(t *testing.T) {
 	userA := templateTestUser(t, store, "tmpl-iso-a")
 	userB := templateTestUser(t, store, "tmpl-iso-b")
 
-	tp, _ := store.CreateTemplate(ctx, userA, "Mine", "", "S", "B", "")
+	tp, _ := store.CreateTemplate(ctx, userA, identity.TemplateCreate{Name: "Mine", Subject: "S", Body: "B"})
 
 	if _, err := store.GetTemplateByID(ctx, tp.ID, userB); !errors.Is(err, identity.ErrTemplateNotFound) {
 		t.Errorf("cross-user read err = %v, want ErrTemplateNotFound", err)
@@ -124,7 +159,7 @@ func TestGetTemplateByAlias(t *testing.T) {
 	userA := templateTestUser(t, store, "tmpl-byalias-a")
 	userB := templateTestUser(t, store, "tmpl-byalias-b")
 
-	tp, _ := store.CreateTemplate(ctx, userA, "Aliased", "invoice", "S", "B", "")
+	tp, _ := store.CreateTemplate(ctx, userA, identity.TemplateCreate{Name: "Aliased", Alias: "invoice", Subject: "S", Body: "B"})
 
 	got, err := store.GetTemplateByAlias(ctx, "invoice", userA)
 	if err != nil {
@@ -149,9 +184,9 @@ func TestListTemplatesByUser_ScopesByOwner(t *testing.T) {
 	userA := templateTestUser(t, store, "tmpl-list-a")
 	userB := templateTestUser(t, store, "tmpl-list-b")
 
-	store.CreateTemplate(ctx, userA, "A1", "", "S", "B", "")
-	store.CreateTemplate(ctx, userA, "A2", "", "S", "B", "")
-	store.CreateTemplate(ctx, userB, "B1", "", "S", "B", "")
+	store.CreateTemplate(ctx, userA, identity.TemplateCreate{Name: "A1", Subject: "S", Body: "B"})
+	store.CreateTemplate(ctx, userA, identity.TemplateCreate{Name: "A2", Subject: "S", Body: "B"})
+	store.CreateTemplate(ctx, userB, identity.TemplateCreate{Name: "B1", Subject: "S", Body: "B"})
 
 	listA, err := store.ListTemplatesByUser(ctx, userA)
 	if err != nil {
@@ -172,7 +207,7 @@ func TestListTemplatesByUser_SummaryShape(t *testing.T) {
 	ctx := context.Background()
 	userID := templateTestUser(t, store, "tmpl-list-shape")
 
-	created, err := store.CreateTemplate(ctx, userID, "Shaped", "shaped", "Subject {{x}}", "Body {{x}}", "<p>{{x}}</p>")
+	created, err := store.CreateTemplate(ctx, userID, identity.TemplateCreate{Name: "Shaped", Alias: "shaped", Subject: "Subject {{x}}", Body: "Body {{x}}", HTMLBody: "<p>{{x}}</p>"})
 	if err != nil {
 		t.Fatalf("CreateTemplate: %v", err)
 	}
@@ -213,13 +248,13 @@ func TestCreateTemplate_EnforcesPerUserCap(t *testing.T) {
 		t.Fatalf("seed account_limits: %v", err)
 	}
 
-	if _, err := store.CreateTemplate(ctx, userID, "One", "", "S", "B", ""); err != nil {
+	if _, err := store.CreateTemplate(ctx, userID, identity.TemplateCreate{Name: "One", Subject: "S", Body: "B"}); err != nil {
 		t.Fatalf("create 1: %v", err)
 	}
-	if _, err := store.CreateTemplate(ctx, userID, "Two", "", "S", "B", ""); err != nil {
+	if _, err := store.CreateTemplate(ctx, userID, identity.TemplateCreate{Name: "Two", Subject: "S", Body: "B"}); err != nil {
 		t.Fatalf("create 2: %v", err)
 	}
-	_, err = store.CreateTemplate(ctx, userID, "Three", "", "S", "B", "")
+	_, err = store.CreateTemplate(ctx, userID, identity.TemplateCreate{Name: "Three", Subject: "S", Body: "B"})
 	if !errors.Is(err, identity.ErrTemplateLimitReached) {
 		t.Errorf("create at cap+1 err = %v, want ErrTemplateLimitReached", err)
 	}
@@ -245,7 +280,7 @@ func TestUpdateTemplate_PartialFields(t *testing.T) {
 	store := identity.NewStore(pool)
 	ctx := context.Background()
 	userID := templateTestUser(t, store, "tmpl-upd")
-	tp, _ := store.CreateTemplate(ctx, userID, "Old", "old-alias", "Old subject", "Old body", "<p>old</p>")
+	tp, _ := store.CreateTemplate(ctx, userID, identity.TemplateCreate{Name: "Old", Alias: "old-alias", Subject: "Old subject", Body: "Old body", HTMLBody: "<p>old</p>"})
 
 	newName := "New"
 	newSubject := "New subject"
@@ -270,7 +305,7 @@ func TestUpdateTemplate_ClearAliasAndHTML(t *testing.T) {
 	store := identity.NewStore(pool)
 	ctx := context.Background()
 	userID := templateTestUser(t, store, "tmpl-clear")
-	tp, _ := store.CreateTemplate(ctx, userID, "T", "clearing", "S", "B", "<p>x</p>")
+	tp, _ := store.CreateTemplate(ctx, userID, identity.TemplateCreate{Name: "T", Alias: "clearing", Subject: "S", Body: "B", HTMLBody: "<p>x</p>"})
 
 	empty := ""
 	got, err := store.UpdateTemplate(ctx, tp.ID, userID, identity.TemplateUpdate{Alias: &empty, HTMLBody: &empty})
@@ -281,7 +316,7 @@ func TestUpdateTemplate_ClearAliasAndHTML(t *testing.T) {
 		t.Errorf("clear failed: alias=%q html=%q", got.Alias, got.HTMLBody)
 	}
 	// The alias is freed for reuse.
-	if _, err := store.CreateTemplate(ctx, userID, "T2", "clearing", "S", "B", ""); err != nil {
+	if _, err := store.CreateTemplate(ctx, userID, identity.TemplateCreate{Name: "T2", Alias: "clearing", Subject: "S", Body: "B"}); err != nil {
 		t.Errorf("reusing cleared alias err = %v, want nil", err)
 	}
 }
@@ -291,8 +326,8 @@ func TestUpdateTemplate_AliasCollision(t *testing.T) {
 	store := identity.NewStore(pool)
 	ctx := context.Background()
 	userID := templateTestUser(t, store, "tmpl-upd-collide")
-	store.CreateTemplate(ctx, userID, "First", "taken", "S", "B", "")
-	tp2, _ := store.CreateTemplate(ctx, userID, "Second", "free", "S", "B", "")
+	store.CreateTemplate(ctx, userID, identity.TemplateCreate{Name: "First", Alias: "taken", Subject: "S", Body: "B"})
+	tp2, _ := store.CreateTemplate(ctx, userID, identity.TemplateCreate{Name: "Second", Alias: "free", Subject: "S", Body: "B"})
 
 	taken := "taken"
 	_, err := store.UpdateTemplate(ctx, tp2.ID, userID, identity.TemplateUpdate{Alias: &taken})
@@ -307,7 +342,7 @@ func TestUpdateTemplate_CrossUserNotFound(t *testing.T) {
 	ctx := context.Background()
 	userA := templateTestUser(t, store, "tmpl-upd-a")
 	userB := templateTestUser(t, store, "tmpl-upd-b")
-	tp, _ := store.CreateTemplate(ctx, userA, "Mine", "", "S", "B", "")
+	tp, _ := store.CreateTemplate(ctx, userA, identity.TemplateCreate{Name: "Mine", Subject: "S", Body: "B"})
 
 	name := "Stolen"
 	if _, err := store.UpdateTemplate(ctx, tp.ID, userB, identity.TemplateUpdate{Name: &name}); !errors.Is(err, identity.ErrTemplateNotFound) {
@@ -321,7 +356,7 @@ func TestDeleteTemplate_OwnerOnly(t *testing.T) {
 	ctx := context.Background()
 	userA := templateTestUser(t, store, "tmpl-del-a")
 	userB := templateTestUser(t, store, "tmpl-del-b")
-	tp, _ := store.CreateTemplate(ctx, userA, "Mine", "", "S", "B", "")
+	tp, _ := store.CreateTemplate(ctx, userA, identity.TemplateCreate{Name: "Mine", Subject: "S", Body: "B"})
 
 	if err := store.DeleteTemplate(ctx, tp.ID, userB); !errors.Is(err, identity.ErrTemplateNotFound) {
 		t.Errorf("cross-user delete err = %v, want ErrTemplateNotFound", err)

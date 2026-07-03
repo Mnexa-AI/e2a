@@ -99,18 +99,19 @@ func testServer(t *testing.T) *httptest.Server {
 			}
 			return nil, errors.New("not found")
 		},
-		CreateTemplate: func(ctx context.Context, userID, name, alias, subject, body, htmlBody string) (*identity.Template, error) {
+		CreateTemplate: func(ctx context.Context, userID string, in identity.TemplateCreate) (*identity.Template, error) {
 			// "welcome" is held by the fixture template tmpl_1, so a create
 			// defaulting to a starter's alias collides exactly like "taken".
-			if alias == "taken" || alias == "welcome" {
+			if in.Alias == "taken" || in.Alias == "welcome" {
 				return nil, identity.ErrTemplateAliasTaken
 			}
 			if userID == "u_overcap" {
 				return nil, identity.ErrTemplateLimitReached
 			}
 			return &identity.Template{
-				ID: "tmpl_new", UserID: userID, Name: name, Alias: alias,
-				Subject: subject, Body: body, HTMLBody: htmlBody,
+				ID: "tmpl_new", UserID: userID, Name: in.Name, Alias: in.Alias,
+				Subject: in.Subject, Body: in.Body, HTMLBody: in.HTMLBody,
+				FromStarterAlias: in.FromStarterAlias, FromStarterVersion: in.FromStarterVersion,
 				CreatedAt: time.Unix(1700000000, 0).UTC(), UpdatedAt: time.Unix(1700000000, 0).UTC(),
 			}, nil
 		},

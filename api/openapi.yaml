@@ -1981,6 +1981,12 @@ components:
         created_at:
           format: date-time
           type: string
+        from_starter_alias:
+          description: "The starter template this was copied from (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable."
+          type: string
+        from_starter_version:
+          description: "The starter catalog version at copy time (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable."
+          type: string
         html_body:
           description: The optional HTML part's template source.
           type: string
