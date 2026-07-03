@@ -500,6 +500,28 @@ components:
       required:
         - email
       type: object
+    CreateTemplateRequest:
+      additionalProperties: false
+      properties:
+        alias:
+          description: Optional per-user unique handle ([A-Za-z][A-Za-z0-9._-]{0,127}) usable as template_alias on send.
+          type: string
+        body:
+          description: Plain-text body template source (no HTML escaping). Required unless from_starter is set.
+          type: string
+        from_starter:
+          description: "Copy a starter template (by alias, see GET /v1/starter-templates) verbatim into your library. Mutually exclusive with subject, body and html_body — the copy is verbatim; edit the created template afterwards. name and alias default to the starter's and may be overridden. Beta: templates are unstable — their shape may change before they are declared stable."
+          type: string
+        html_body:
+          description: Optional HTML body template source ({{x}} is HTML-escaped, {{{x}}} is raw).
+          type: string
+        name:
+          description: Human-readable template name. Required unless from_starter supplies the default.
+          type: string
+        subject:
+          description: Subject template source ({{variable}} interpolation, no HTML escaping). Required unless from_starter is set.
+          type: string
+      type: object
     CreateWebhookRequest:
       additionalProperties: false
       properties:
@@ -1353,12 +1375,42 @@ components:
         - items
         - next_cursor
       type: object
+    PageStarterTemplateView:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/StarterTemplateView"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
     PageSuppression:
       additionalProperties: false
       properties:
         items:
           items:
             $ref: "#/components/schemas/Suppression"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
+    PageTemplateSummaryView:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/TemplateSummaryView"
           type: array
         next_cursor:
           type:
@@ -1585,6 +1637,19 @@ components:
         - status
         - message_id
       type: object
+    RenderedTemplateView:
+      additionalProperties: false
+      properties:
+        body:
+          type: string
+        html_body:
+          type: string
+        subject:
+          type: string
+      required:
+        - subject
+        - body
+      type: object
     ReplyRequest:
       additionalProperties: false
       properties:
@@ -1692,6 +1757,7 @@ components:
             type: string
           type: array
         body:
+          description: Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias).
           type: string
         cc:
           items:
@@ -1700,8 +1766,20 @@ components:
         conversation_id:
           type: string
         html_body:
+          description: Literal HTML body. Mutually exclusive with template_id/template_alias.
           type: string
         subject:
+          description: Literal subject. Required unless a template reference is used (mutually exclusive with template_id/template_alias).
+          type: string
+        template_alias:
+          description: "Send using a stored template resolved by its per-user alias. Mutually exclusive with template_id and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."
+          type: string
+        template_data:
+          additionalProperties: {}
+          description: "Variables for the referenced template ({{name}}, dot paths into nested objects). Missing variables render as empty strings. Beta: templates are unstable — their shape may change before they are declared stable."
+          type: object
+        template_id:
+          description: "Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."
           type: string
         to:
           items:
@@ -1709,8 +1787,6 @@ components:
           type: array
       required:
         - to
-        - subject
-        - body
       type: object
     SendResultView:
       additionalProperties: false
@@ -1736,6 +1812,89 @@ components:
       required:
         - status
         - message_id
+      type: object
+    StarterTemplateDetailView:
+      additionalProperties: false
+      properties:
+        alias:
+          type: string
+        body:
+          description: The plain-text part's template source.
+          type: string
+        description:
+          type: string
+        html_body:
+          description: The HTML part's template source.
+          type: string
+        name:
+          type: string
+        subject:
+          description: Subject template source ({{variable}} interpolation).
+          type: string
+        variables:
+          items:
+            $ref: "#/components/schemas/StarterTemplateVariableView"
+          type: array
+        version:
+          type: string
+      required:
+        - body
+        - html_body
+        - alias
+        - name
+        - description
+        - version
+        - subject
+        - variables
+      type: object
+    StarterTemplateVariableView:
+      additionalProperties: false
+      properties:
+        description:
+          type: string
+        example:
+          description: A realistic sample value, usable as template_data for previews.
+          type: string
+        name:
+          type: string
+        raw:
+          description: Raw ({{{...}}}) slots accept pre-rendered HTML fragments inserted without escaping. Never feed untrusted input to raw slots.
+          type: boolean
+        required:
+          description: Required variables should always be supplied; optional ones render as empty strings when absent.
+          type: boolean
+      required:
+        - name
+        - required
+        - raw
+        - description
+        - example
+      type: object
+    StarterTemplateView:
+      additionalProperties: false
+      properties:
+        alias:
+          type: string
+        description:
+          type: string
+        name:
+          type: string
+        subject:
+          description: Subject template source ({{variable}} interpolation).
+          type: string
+        variables:
+          items:
+            $ref: "#/components/schemas/StarterTemplateVariableView"
+          type: array
+        version:
+          type: string
+      required:
+        - alias
+        - name
+        - description
+        - version
+        - subject
+        - variables
       type: object
     Suppression:
       additionalProperties: false
@@ -1772,6 +1931,81 @@ components:
         - address
         - source
         - created_at
+      type: object
+    TemplatePartError:
+      additionalProperties: false
+      properties:
+        message:
+          type: string
+        part:
+          description: "Which part failed. Known values: subject, body, html_body."
+          type: string
+      required:
+        - part
+        - message
+      type: object
+    TemplateSummaryView:
+      additionalProperties: false
+      properties:
+        alias:
+          description: Optional per-user unique handle usable as template_alias on send.
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        subject:
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+      required:
+        - id
+        - name
+        - subject
+        - created_at
+        - updated_at
+      type: object
+    TemplateView:
+      additionalProperties: false
+      properties:
+        alias:
+          description: Optional per-user unique handle usable as template_alias on send.
+          type: string
+        body:
+          description: The plain-text part's template source.
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        from_starter_alias:
+          description: "The starter template this was copied from (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable."
+          type: string
+        from_starter_version:
+          description: "The starter catalog version at copy time (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable."
+          type: string
+        html_body:
+          description: The optional HTML part's template source.
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        subject:
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+      required:
+        - id
+        - name
+        - subject
+        - body
+        - created_at
+        - updated_at
       type: object
     TestWebhookRequest:
       additionalProperties: false
@@ -1836,6 +2070,22 @@ components:
       required:
         - message_id
         - labels
+      type: object
+    UpdateTemplateRequest:
+      additionalProperties: false
+      properties:
+        alias:
+          description: Set to "" to clear the alias.
+          type: string
+        body:
+          type: string
+        html_body:
+          description: Set to "" to remove the HTML part.
+          type: string
+        name:
+          type: string
+        subject:
+          type: string
       type: object
     UpdateWebhookRequest:
       additionalProperties: false
@@ -1962,6 +2212,40 @@ components:
         - email
         - name
         - created_at
+      type: object
+    ValidateTemplateRequest:
+      additionalProperties: false
+      properties:
+        body:
+          type: string
+        html_body:
+          type: string
+        subject:
+          type: string
+        test_data:
+          additionalProperties: {}
+          description: Sample template_data to render the preview with. Missing variables render as empty strings.
+          type: object
+      type: object
+    ValidateTemplateResponse:
+      additionalProperties: false
+      properties:
+        errors:
+          items:
+            $ref: "#/components/schemas/TemplatePartError"
+          type: array
+        rendered:
+          $ref: "#/components/schemas/RenderedTemplateView"
+          description: Rendered preview against test_data (or empty data). Present only when valid.
+        suggested_data:
+          additionalProperties: {}
+          description: A placeholder value for every variable the source references — a starting point for template_data. Dot-path variables ({{user.name}}) emit NESTED objects, matching how the renderer resolves them.
+          type: object
+        valid:
+          type: boolean
+      required:
+        - valid
+        - errors
       type: object
     VerifyDomainView:
       additionalProperties: false
@@ -2870,7 +3154,7 @@ paths:
         - messages
   /v1/agents/{email}/messages/{id}/forward:
     post:
-      description: Forward an inbound message to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.
+      description: Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.
       operationId: forwardMessage
       parameters:
         - in: path
@@ -2964,7 +3248,7 @@ paths:
         - messages
   /v1/agents/{email}/messages/{id}/reply:
     post:
-      description: Reply to an inbound message; recipients/threading are derived from the original. 202 when held for HITL.
+      description: Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL.
       operationId: replyToMessage
       parameters:
         - in: path
@@ -3539,6 +3823,219 @@ paths:
       summary: Reject a held message
       tags:
         - reviews
+  /v1/starter-templates:
+    get:
+      description: "List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable."
+      operationId: listStarterTemplates
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageStarterTemplateView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: List starter templates (beta)
+      tags:
+        - templates
+  /v1/starter-templates/{alias}:
+    get:
+      description: "Fetch one starter template by alias, including its full plain-text and HTML body sources. Beta: templates are unstable — their shape may change before they are declared stable."
+      operationId: getStarterTemplate
+      parameters:
+        - description: The starter template's alias, e.g. welcome.
+          in: path
+          name: alias
+          required: true
+          schema:
+            description: The starter template's alias, e.g. welcome.
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StarterTemplateDetailView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Get a starter template (beta)
+      tags:
+        - templates
+  /v1/templates:
+    get:
+      description: "List the account's templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable."
+      operationId: listTemplates
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageTemplateSummaryView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: List templates (beta)
+      tags:
+        - templates
+    post:
+      description: "Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable."
+      operationId: createTemplate
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTemplateRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateView"
+          description: Created
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Create a template (beta)
+      tags:
+        - templates
+  /v1/templates/validate:
+    post:
+      description: "Dry-run template source without persisting: reports per-part parse errors, a rendered preview (against test_data when provided), and suggested_data — a placeholder value for every variable the source references. Beta: templates are unstable — their shape may change before they are declared stable."
+      operationId: validateTemplate
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidateTemplateRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidateTemplateResponse"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Validate template source (beta)
+      tags:
+        - templates
+  /v1/templates/{id}:
+    delete:
+      description: "Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable."
+      operationId: deleteTemplate
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Delete a template (beta)
+      tags:
+        - templates
+    get:
+      description: "Fetch one template by id. Beta: templates are unstable — their shape may change before they are declared stable."
+      operationId: getTemplate
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Get a template (beta)
+      tags:
+        - templates
+    patch:
+      description: "Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable."
+      operationId: updateTemplate
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTemplateRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Update a template (beta)
+      tags:
+        - templates
   /v1/webhooks:
     get:
       operationId: listWebhooks
