@@ -69,6 +69,7 @@ describe("Sidebar — nav entries", () => {
       { label: "Get started", href: "/get-started" },
       { label: "Inboxes", href: "/inboxes" },
       { label: "Pending", href: "/reviews" },
+      { label: "Templates", href: "/templates" },
       { label: "Domains", href: "/domains" },
       { label: "API keys", href: "/api-keys" },
       { label: "Webhooks", href: "/webhooks" },
@@ -90,6 +91,7 @@ describe("Sidebar — nav entries", () => {
       "/get-started",
       "/inboxes",
       "/reviews",
+      "/templates",
       "/domains",
       "/api-keys",
       "/webhooks",
@@ -116,6 +118,13 @@ describe("Sidebar — nav entries", () => {
     render(<Sidebar />);
     const pending = document.querySelector(`a[href="/reviews"]`);
     expect(pending).toHaveAttribute("aria-current", "page");
+  });
+
+  it("marks Templates active on the /templates/edit detail view (matchPrefix)", () => {
+    mockPathname = "/templates/edit";
+    render(<Sidebar />);
+    const templates = document.querySelector(`a[href="/templates"]`);
+    expect(templates).toHaveAttribute("aria-current", "page");
   });
 
   it("marks Agents active when the user is on a per-agent screen under /inboxes/*", () => {

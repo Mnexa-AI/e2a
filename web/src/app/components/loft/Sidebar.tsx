@@ -7,7 +7,7 @@ import { useAuth } from "../AuthProvider";
 import { usePendingCount } from "../hooks/usePendingCount";
 import { ThemeToggle } from "./ThemeToggle";
 
-type IconKey = "plus" | "grid" | "clock" | "globe" | "key" | "settings" | "msg" | "shield" | "card";
+type IconKey = "plus" | "grid" | "clock" | "globe" | "key" | "settings" | "msg" | "shield" | "card" | "doc";
 
 const ICONS: Record<IconKey, ReactNode> = {
   plus: (
@@ -57,6 +57,14 @@ const ICONS: Record<IconKey, ReactNode> = {
       <path d="M7 15h3" />
     </>
   ),
+  // Document-with-lines — the reusable email templates library.
+  doc: (
+    <>
+      <path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z" />
+      <path d="M14 3v5h5" />
+      <path d="M9 13h6M9 17h4" />
+    </>
+  ),
   // Shield-with-checkmark — denotes the signing-secret integrity guard.
   // Matches the "API keys" icon's silhouette weight so the credential
   // pair reads as visually related in the sidebar.
@@ -96,6 +104,14 @@ const NAV_ITEMS: NavItem[] = [
     href: "/reviews",
     label: "Pending",
     icon: "clock",
+    matchPrefix: true,
+  },
+  {
+    // Templates (beta) — reusable email templates + the starter gallery.
+    // matchPrefix keeps the entry lit on the /templates/edit detail view.
+    href: "/templates",
+    label: "Templates",
+    icon: "doc",
     matchPrefix: true,
   },
   { href: "/domains", label: "Domains", icon: "globe" },
