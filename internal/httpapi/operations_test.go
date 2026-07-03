@@ -132,6 +132,10 @@ func testServer(t *testing.T) *httptest.Server {
 				tp.ID = "tmpl_stale"
 				tp.Body = "{{#section}}"
 				return &tp, nil
+			case templateID == "tmpl_dberr":
+				// A store failure that is NOT a miss — handlers must 500,
+				// never collapse it to 404.
+				return nil, context.DeadlineExceeded
 			default:
 				return nil, identity.ErrTemplateNotFound
 			}

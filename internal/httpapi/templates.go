@@ -276,7 +276,15 @@ func (s *Server) handleGetTemplate(ctx context.Context, in *TemplateIDParam) (*t
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "templates unavailable")
 	}
 	tp, err := s.deps.GetTemplate(ctx, in.ID, user.ID)
-	if err != nil || tp == nil {
+	if err != nil {
+		// Only a genuine miss is a 404 — any other store error (timeout,
+		// connection loss) is a 500, mirroring update/delete.
+		if errors.Is(err, identity.ErrTemplateNotFound) {
+			return nil, NewError(http.StatusNotFound, "not_found", "template not found")
+		}
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to load template")
+	}
+	if tp == nil {
 		return nil, NewError(http.StatusNotFound, "not_found", "template not found")
 	}
 	return &templateOutput{Body: templateView(tp)}, nil
@@ -291,7 +299,13 @@ func (s *Server) handleUpdateTemplate(ctx context.Context, in *updateTemplateInp
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "templates unavailable")
 	}
 	current, err := s.deps.GetTemplate(ctx, in.ID, user.ID)
-	if err != nil || current == nil {
+	if err != nil {
+		if errors.Is(err, identity.ErrTemplateNotFound) {
+			return nil, NewError(http.StatusNotFound, "not_found", "template not found")
+		}
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to load template")
+	}
+	if current == nil {
 		return nil, NewError(http.StatusNotFound, "not_found", "template not found")
 	}
 	// Validate the effective post-patch state against the create-time rules
@@ -407,7 +421,16 @@ func (s *Server) resolveSendTemplate(ctx context.Context, userID string, b *Send
 	} else {
 		tp, err = s.deps.GetTemplateByAlias(ctx, b.TemplateAlias, userID)
 	}
-	if err != nil || tp == nil {
+	if err != nil {
+		// Only a genuine miss is a 404 — any other store error (timeout,
+		// connection loss) must surface as a 500, not masquerade as a
+		// deleted template.
+		if errors.Is(err, identity.ErrTemplateNotFound) {
+			return NewError(http.StatusNotFound, "template_not_found", "template not found")
+		}
+		return NewError(http.StatusInternalServerError, "internal_error", "failed to load template")
+	}
+	if tp == nil {
 		return NewError(http.StatusNotFound, "template_not_found", "template not found")
 	}
 

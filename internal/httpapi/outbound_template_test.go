@@ -136,6 +136,20 @@ func TestSendTemplateNotFound(t *testing.T) {
 	}
 }
 
+// TestSendTemplateStoreErrorIs500 pins the miss/failure split on the send
+// path: a store error that is NOT ErrTemplateNotFound (timeout, connection
+// loss) must surface as 500 internal_error — a 404 would tell the caller
+// their template is gone when the DB merely hiccuped.
+func TestSendTemplateStoreErrorIs500(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
+		"to": []string{"alice@x.com"}, "template_id": "tmpl_dberr",
+	})
+	if code != 500 || errCode(body) != "internal_error" {
+		t.Fatalf("want 500 internal_error for store failure, got %d %v", code, body)
+	}
+}
+
 func TestSendTemplateRenderFailureBadSource(t *testing.T) {
 	srv := testServer(t)
 	// tmpl_stale's stored body no longer parses ({{#section}}).

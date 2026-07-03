@@ -147,6 +147,20 @@ func TestGetTemplateNotFound(t *testing.T) {
 	}
 }
 
+// TestTemplateStoreErrorIs500: a non-miss store error on get/update must be
+// a 500, never collapsed into 404 (which would read as "template deleted").
+func TestTemplateStoreErrorIs500(t *testing.T) {
+	srv := testServer(t)
+	code, body := getJSON(t, srv.URL+"/v1/templates/tmpl_dberr", "good")
+	if code != 500 || errCode(body) != "internal_error" {
+		t.Fatalf("GET: want 500 internal_error, got %d %v", code, body)
+	}
+	code, body = sendJSON(t, "PATCH", srv.URL+"/v1/templates/tmpl_dberr", "good", map[string]any{"name": "x"})
+	if code != 500 || errCode(body) != "internal_error" {
+		t.Fatalf("PATCH pre-fetch: want 500 internal_error, got %d %v", code, body)
+	}
+}
+
 func TestUpdateTemplate(t *testing.T) {
 	srv := testServer(t)
 	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/templates/tmpl_1", "good", map[string]any{
