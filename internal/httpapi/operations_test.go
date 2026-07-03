@@ -17,6 +17,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
+	"github.com/Mnexa-AI/e2a/internal/startertemplates"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
 )
 
@@ -99,7 +100,9 @@ func testServer(t *testing.T) *httptest.Server {
 			return nil, errors.New("not found")
 		},
 		CreateTemplate: func(ctx context.Context, userID, name, alias, subject, body, htmlBody string) (*identity.Template, error) {
-			if alias == "taken" {
+			// "welcome" is held by the fixture template tmpl_1, so a create
+			// defaulting to a starter's alias collides exactly like "taken".
+			if alias == "taken" || alias == "welcome" {
 				return nil, identity.ErrTemplateAliasTaken
 			}
 			if userID == "u_overcap" {
@@ -137,6 +140,20 @@ func testServer(t *testing.T) *httptest.Server {
 			if alias == "welcome" && userID == "u_1" {
 				tp := sampleTemplate()
 				return &tp, nil
+			}
+			if alias == "starter-welcome" && userID == "u_1" {
+				// A user template created from the `welcome` starter (the
+				// from_starter copy is verbatim) — the end-to-end templated
+				// send fixture.
+				m, ok := startertemplates.Get("welcome")
+				if !ok {
+					return nil, identity.ErrTemplateNotFound
+				}
+				return &identity.Template{
+					ID: "tmpl_starter", UserID: "u_1", Name: m.Name, Alias: "starter-welcome",
+					Subject: m.Subject, Body: m.TextBody, HTMLBody: m.HTMLBody,
+					CreatedAt: time.Unix(1700000000, 0).UTC(), UpdatedAt: time.Unix(1700000000, 0).UTC(),
+				}, nil
 			}
 			return nil, identity.ErrTemplateNotFound
 		},

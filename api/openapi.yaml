@@ -507,21 +507,20 @@ components:
           description: Optional per-user unique handle ([A-Za-z][A-Za-z0-9._-]{0,127}) usable as template_alias on send.
           type: string
         body:
-          description: Plain-text body template source (no HTML escaping).
+          description: Plain-text body template source (no HTML escaping). Required unless from_starter is set.
+          type: string
+        from_starter:
+          description: "Copy a starter template (by alias, see GET /v1/starter-templates) verbatim into your library. Mutually exclusive with subject, body and html_body — the copy is verbatim; edit the created template afterwards. name and alias default to the starter's and may be overridden. Beta: templates are unstable — their shape may change before they are declared stable."
           type: string
         html_body:
           description: Optional HTML body template source ({{x}} is HTML-escaped, {{{x}}} is raw).
           type: string
         name:
-          description: Human-readable template name.
+          description: Human-readable template name. Required unless from_starter supplies the default.
           type: string
         subject:
-          description: Subject template source ({{variable}} interpolation, no HTML escaping).
+          description: Subject template source ({{variable}} interpolation, no HTML escaping). Required unless from_starter is set.
           type: string
-      required:
-        - name
-        - subject
-        - body
       type: object
     CreateWebhookRequest:
       additionalProperties: false
@@ -3869,7 +3868,7 @@ paths:
       tags:
         - templates
     post:
-      description: "Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Beta: templates are unstable — their shape may change before they are declared stable."
+      description: "Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable."
       operationId: createTemplate
       requestBody:
         content:

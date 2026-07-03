@@ -9,6 +9,7 @@ import (
 
 	"github.com/Mnexa-AI/e2a/internal/emailtemplate"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/startertemplates"
 	"github.com/danielgtaylor/huma/v2"
 )
 
@@ -59,14 +60,19 @@ type listTemplatesOutput struct {
 	Body Page[TemplateView]
 }
 
-// CreateTemplateRequest — name, subject and body are required; alias and
-// html_body are optional. All three template parts must parse.
+// CreateTemplateRequest — either literal source (name, subject and body
+// required; alias and html_body optional) or from_starter (a starter alias
+// copied verbatim; name/alias default to the starter's). All template parts
+// must parse. The required-ness of name/subject/body is enforced in the
+// handler (validateTemplateFields), not the schema, because from_starter
+// supplies them.
 type CreateTemplateRequest struct {
-	Name     string `json:"name" doc:"Human-readable template name."`
-	Alias    string `json:"alias,omitempty" doc:"Optional per-user unique handle ([A-Za-z][A-Za-z0-9._-]{0,127}) usable as template_alias on send."`
-	Subject  string `json:"subject" doc:"Subject template source ({{variable}} interpolation, no HTML escaping)."`
-	Body     string `json:"body" doc:"Plain-text body template source (no HTML escaping)."`
-	HTMLBody string `json:"html_body,omitempty" doc:"Optional HTML body template source ({{x}} is HTML-escaped, {{{x}}} is raw)."`
+	Name        string `json:"name,omitempty" doc:"Human-readable template name. Required unless from_starter supplies the default."`
+	Alias       string `json:"alias,omitempty" doc:"Optional per-user unique handle ([A-Za-z][A-Za-z0-9._-]{0,127}) usable as template_alias on send."`
+	Subject     string `json:"subject,omitempty" doc:"Subject template source ({{variable}} interpolation, no HTML escaping). Required unless from_starter is set."`
+	Body        string `json:"body,omitempty" doc:"Plain-text body template source (no HTML escaping). Required unless from_starter is set."`
+	HTMLBody    string `json:"html_body,omitempty" doc:"Optional HTML body template source ({{x}} is HTML-escaped, {{{x}}} is raw)."`
+	FromStarter string `json:"from_starter,omitempty" doc:"Copy a starter template (by alias, see GET /v1/starter-templates) verbatim into your library. Mutually exclusive with subject, body and html_body — the copy is verbatim; edit the created template afterwards. name and alias default to the starter's and may be overridden. Beta: templates are unstable — their shape may change before they are declared stable."`
 }
 type createTemplateInput struct{ Body CreateTemplateRequest }
 
@@ -93,7 +99,7 @@ func (s *Server) registerTemplates() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "createTemplate", Method: http.MethodPost, Path: "/v1/templates",
 		Summary: "Create a template (beta)", Tags: []string{"templates"},
-		Description: "Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. " + templatesBetaDoc,
+		Description: "Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. " + templatesBetaDoc,
 		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusCreated,
 	}, s.handleCreateTemplate)
 
@@ -181,10 +187,30 @@ func (s *Server) handleCreateTemplate(ctx context.Context, in *createTemplateInp
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "templates unavailable")
 	}
 	b := in.Body
-	if env := validateTemplateFields(b.Name, b.Alias, b.Subject, b.Body, b.HTMLBody); env != nil {
+	name, alias, subject, body, htmlBody := b.Name, b.Alias, b.Subject, b.Body, b.HTMLBody
+	if b.FromStarter != "" {
+		// The starter is copied VERBATIM — literal source is rejected rather
+		// than merged; the caller edits the created template afterwards.
+		if b.Subject != "" || b.Body != "" || b.HTMLBody != "" {
+			return nil, NewError(http.StatusBadRequest, "invalid_request",
+				"from_starter is mutually exclusive with subject, body and html_body — the starter is copied verbatim; edit the template after creating it")
+		}
+		m, ok := startertemplates.Get(b.FromStarter)
+		if !ok {
+			return nil, NewError(http.StatusNotFound, "starter_template_not_found", "starter template not found")
+		}
+		subject, body, htmlBody = m.Subject, m.TextBody, m.HTMLBody
+		if name == "" {
+			name = m.Name
+		}
+		if alias == "" {
+			alias = m.Alias
+		}
+	}
+	if env := validateTemplateFields(name, alias, subject, body, htmlBody); env != nil {
 		return nil, env
 	}
-	tp, err := s.deps.CreateTemplate(ctx, user.ID, b.Name, b.Alias, b.Subject, b.Body, b.HTMLBody)
+	tp, err := s.deps.CreateTemplate(ctx, user.ID, name, alias, subject, body, htmlBody)
 	if err != nil {
 		switch {
 		case errors.Is(err, identity.ErrTemplateAliasTaken):
