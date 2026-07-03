@@ -101,6 +101,63 @@ func TestStorageTrigger_DecrementsOnDelete(t *testing.T) {
 	}
 }
 
+// TestUpsert_PreservesColumnsOutsideSetList_RealDB pins Upsert's
+// preserve-on-conflict semantics for columns OUTSIDE its SET list (per the
+// CLAUDE.md schema-change rule: every package writing direct SQL against a
+// reshaped table needs a DB-backed test). account_limits has since grown
+// columns Upsert doesn't know about (max_webhooks, max_templates, …); an
+// Upsert refresh of the plan fields must never clobber them back to
+// defaults.
+func TestUpsert_PreservesColumnsOutsideSetList_RealDB(t *testing.T) {
+	pool, _, _, _, userID := setupLimitsUser(t, "upsertpreserve")
+	ctx := context.Background()
+	limitsStore := limits.NewStore(pool)
+
+	// Fresh insert: the column default applies.
+	if err := limitsStore.Upsert(ctx, userID, limits.Limits{
+		PlanCode: "test", MaxAgents: 1, MaxDomains: 1,
+		MaxMessagesMonth: 100, MaxStorageBytes: 1 << 20,
+	}); err != nil {
+		t.Fatalf("Upsert (insert): %v", err)
+	}
+	var maxTemplates int
+	if err := pool.QueryRow(ctx,
+		`SELECT max_templates FROM account_limits WHERE user_id = $1`, userID,
+	).Scan(&maxTemplates); err != nil {
+		t.Fatalf("read max_templates: %v", err)
+	}
+	if maxTemplates != 10 {
+		t.Fatalf("fresh row max_templates = %d, want column default 10", maxTemplates)
+	}
+
+	// An external provisioner raises the out-of-set-list column…
+	if _, err := pool.Exec(ctx,
+		`UPDATE account_limits SET max_templates = 500 WHERE user_id = $1`, userID,
+	); err != nil {
+		t.Fatalf("manual UPDATE: %v", err)
+	}
+
+	// …and a later plan refresh via Upsert must not clobber it.
+	if err := limitsStore.Upsert(ctx, userID, limits.Limits{
+		PlanCode: "pro", MaxAgents: 50, MaxDomains: 10,
+		MaxMessagesMonth: 100000, MaxStorageBytes: 1 << 30,
+	}); err != nil {
+		t.Fatalf("Upsert (conflict): %v", err)
+	}
+	var planCode string
+	if err := pool.QueryRow(ctx,
+		`SELECT plan_code, max_templates FROM account_limits WHERE user_id = $1`, userID,
+	).Scan(&planCode, &maxTemplates); err != nil {
+		t.Fatalf("re-read: %v", err)
+	}
+	if planCode != "pro" {
+		t.Errorf("plan_code = %q, want pro (SET-list columns must update)", planCode)
+	}
+	if maxTemplates != 500 {
+		t.Errorf("max_templates = %d after Upsert, want 500 preserved (outside the SET list)", maxTemplates)
+	}
+}
+
 func TestEnforcer_BlocksAtAgentCap_RealDB(t *testing.T) {
 	pool, idStore, usageStore, _, userID := setupLimitsUser(t, "agentcap")
 	ctx := context.Background()

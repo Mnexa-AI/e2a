@@ -29,6 +29,23 @@ const (
 	templateMaxNameLen = 200
 )
 
+// templatePart ties one template part name to its escape mode. This table is
+// THE single definition driving create/update parse validation
+// (validateTemplateFields), send-time rendering (resolveSendTemplate) and
+// the validate endpoint's preview (handleValidateTemplate) — the three
+// surfaces can never disagree on which part HTML-escapes.
+type templatePart struct {
+	name     string
+	escape   emailtemplate.EscapeMode
+	optional bool // the part may be absent (html_body)
+}
+
+var templateParts = [...]templatePart{
+	{name: "subject", escape: emailtemplate.EscapeNone},
+	{name: "body", escape: emailtemplate.EscapeNone},
+	{name: "html_body", escape: emailtemplate.EscapeHTML, optional: true},
+}
+
 // templateAliasRe is the alias charset: a letter, then up to 127 of
 // [A-Za-z0-9._-]. Aliases are per-user unique handles for send-time lookup.
 var templateAliasRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]{0,127}$`)
@@ -216,14 +233,12 @@ func validateTemplateFields(name, alias, subject, body, htmlBody string) *ErrorE
 	if subject == "" || body == "" {
 		return NewError(http.StatusBadRequest, "invalid_request", "subject and body are required")
 	}
-	if env := templateParseError("subject", subject); env != nil {
-		return env
-	}
-	if env := templateParseError("body", body); env != nil {
-		return env
-	}
-	if htmlBody != "" {
-		if env := templateParseError("html_body", htmlBody); env != nil {
+	srcs := [...]string{subject, body, htmlBody}
+	for i, p := range templateParts {
+		if p.optional && srcs[i] == "" {
+			continue
+		}
+		if env := templateParseError(p.name, srcs[i]); env != nil {
 			return env
 		}
 	}
@@ -488,17 +503,17 @@ func (s *Server) resolveSendTemplate(ctx context.Context, userID string, b *Send
 		return out, nil
 	}
 
-	var env *ErrorEnvelope
-	if b.Subject, env = render("subject", tp.Subject, emailtemplate.EscapeNone); env != nil {
-		return env
-	}
-	if b.Body, env = render("body", tp.Body, emailtemplate.EscapeNone); env != nil {
-		return env
-	}
-	if tp.HTMLBody != "" {
-		if b.HTMLBody, env = render("html_body", tp.HTMLBody, emailtemplate.EscapeHTML); env != nil {
+	srcs := [...]string{tp.Subject, tp.Body, tp.HTMLBody}
+	outs := [...]*string{&b.Subject, &b.Body, &b.HTMLBody}
+	for i, p := range templateParts {
+		if p.optional && srcs[i] == "" {
+			continue
+		}
+		out, env := render(p.name, srcs[i], p.escape)
+		if env != nil {
 			return env
 		}
+		*outs[i] = out
 	}
 	// A subject or body that rendered EMPTY is a guaranteed dead-end: the
 	// generic outbound validation would reject it with a bare
@@ -569,18 +584,13 @@ func (s *Server) handleValidateTemplate(ctx context.Context, in *validateTemplat
 	rendered := &RenderedTemplateView{}
 	suggested := map[string]any{}
 
-	parts := []struct {
-		name   string
-		src    string
-		escape emailtemplate.EscapeMode
-		out    *string
-	}{
-		{"subject", b.Subject, emailtemplate.EscapeNone, &rendered.Subject},
-		{"body", b.Body, emailtemplate.EscapeNone, &rendered.Body},
-		{"html_body", b.HTMLBody, emailtemplate.EscapeHTML, &rendered.HTMLBody},
-	}
-	for _, p := range parts {
-		tmpl, err := emailtemplate.Parse(p.src)
+	// Every part is dry-run, empty or not (an empty part parses trivially
+	// and renders empty) — escape modes come from the shared templateParts
+	// table, so the preview matches the send path exactly.
+	srcs := [...]string{b.Subject, b.Body, b.HTMLBody}
+	outs := [...]*string{&rendered.Subject, &rendered.Body, &rendered.HTMLBody}
+	for i, p := range templateParts {
+		tmpl, err := emailtemplate.Parse(srcs[i])
 		if err != nil {
 			resp.Errors = append(resp.Errors, TemplatePartError{Part: p.name, Message: err.Error()})
 			continue
@@ -593,7 +603,7 @@ func (s *Server) handleValidateTemplate(ctx context.Context, in *validateTemplat
 			resp.Errors = append(resp.Errors, TemplatePartError{Part: p.name, Message: err.Error()})
 			continue
 		}
-		*p.out = out
+		*outs[i] = out
 	}
 
 	resp.Valid = len(resp.Errors) == 0

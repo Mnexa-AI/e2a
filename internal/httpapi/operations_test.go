@@ -182,15 +182,24 @@ func testServer(t *testing.T) *httptest.Server {
 			if u.Alias != nil && *u.Alias == "taken" {
 				return nil, identity.ErrTemplateAliasTaken
 			}
+			// Apply ALL five pointer fields, mirroring the real store —
+			// including clear-to-"" for Alias/HTMLBody (stored as NULL,
+			// round-tripped as "").
 			tp := sampleTemplate()
 			if u.Name != nil {
 				tp.Name = *u.Name
+			}
+			if u.Alias != nil {
+				tp.Alias = *u.Alias
 			}
 			if u.Subject != nil {
 				tp.Subject = *u.Subject
 			}
 			if u.Body != nil {
 				tp.Body = *u.Body
+			}
+			if u.HTMLBody != nil {
+				tp.HTMLBody = *u.HTMLBody
 			}
 			return &tp, nil
 		},

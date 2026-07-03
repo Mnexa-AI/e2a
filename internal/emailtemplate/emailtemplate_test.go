@@ -240,12 +240,15 @@ func TestVars(t *testing.T) {
 		{"raw and escaped dedupe together", "{{a}} {{{a}}}", []string{"a"}},
 		{"dot paths kept whole", "{{user.name}} {{user.email}}", []string{"user.name", "user.email"}},
 		{"no tags", "plain", nil},
-		{"parse error yields nil", "{{#bad}}", nil},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := Vars(tc.src); !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("Vars(%q) = %v, want %v", tc.src, got, tc.want)
+			tmpl, err := Parse(tc.src)
+			if err != nil {
+				t.Fatalf("Parse(%q): %v", tc.src, err)
+			}
+			if got := tmpl.Vars(); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("Vars() of %q = %v, want %v", tc.src, got, tc.want)
 			}
 		})
 	}

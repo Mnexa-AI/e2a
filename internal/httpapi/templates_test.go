@@ -185,6 +185,30 @@ func TestUpdateTemplate(t *testing.T) {
 	}
 }
 
+func TestUpdateTemplateAliasAndHTMLBody(t *testing.T) {
+	srv := testServer(t)
+	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/templates/tmpl_1", "good", map[string]any{
+		"alias": "renamed-alias", "html_body": "<p>New {{name}}</p>",
+	})
+	if code != 200 || body["alias"] != "renamed-alias" || body["html_body"] != "<p>New {{name}}</p>" {
+		t.Fatalf("want 200 with updated alias+html_body, got %d %v", code, body)
+	}
+}
+
+func TestUpdateTemplateClearHTMLBody(t *testing.T) {
+	srv := testServer(t)
+	// html_body: "" removes the HTML part; the view omits the empty field.
+	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/templates/tmpl_1", "good", map[string]any{
+		"html_body": "",
+	})
+	if code != 200 {
+		t.Fatalf("want 200 clearing html_body, got %d %v", code, body)
+	}
+	if _, present := body["html_body"]; present {
+		t.Fatalf("cleared html_body must be omitted from the view, got %v", body)
+	}
+}
+
 func TestUpdateTemplateInvalidSyntax(t *testing.T) {
 	srv := testServer(t)
 	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/templates/tmpl_1", "good", map[string]any{

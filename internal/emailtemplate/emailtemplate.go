@@ -149,17 +149,6 @@ func (t *Template) Vars() []string {
 	return out
 }
 
-// Vars extracts the ordered, deduped identifiers from raw template source —
-// the validate endpoint's suggested-data basis. Source that does not parse
-// yields nil (the caller surfaces the Parse error separately).
-func Vars(src string) []string {
-	t, err := Parse(src)
-	if err != nil {
-		return nil
-	}
-	return t.Vars()
-}
-
 // Render interpolates data into the template. Missing variables (and paths
 // resolving to objects/arrays) render as ""; scalars render naturally (see
 // formatScalar). It fails when data nests deeper than MaxDataDepth or the

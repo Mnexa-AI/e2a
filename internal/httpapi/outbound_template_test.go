@@ -242,6 +242,47 @@ func TestSendTemplateRenderedSubjectStillValidated(t *testing.T) {
 	}
 }
 
+// TestValidatePreviewMatchesSendRender is the differential guard on the
+// shared templateParts table: the validate endpoint's rendered preview and
+// the send path's delivered content must be byte-equal for the same source +
+// data — if the two surfaces ever disagreed on escape modes, a user could
+// approve a preview that differs from what actually ships.
+func TestValidatePreviewMatchesSendRender(t *testing.T) {
+	srv := testServer(t)
+	tp := sampleTemplate()
+	data := map[string]any{
+		"name": "A&B <script>", "plan": map[string]any{"tier": "pro"}, "markup": "<i>hi</i>",
+	}
+
+	code, body := postJSON(t, srv.URL+"/v1/templates/validate", "good", map[string]any{
+		"subject": tp.Subject, "body": tp.Body, "html_body": tp.HTMLBody,
+		"test_data": data,
+	})
+	if code != 200 || body["valid"] != true {
+		t.Fatalf("validate: want 200 valid, got %d %v", code, body)
+	}
+	preview, _ := body["rendered"].(map[string]any)
+
+	code, sendBody := postJSON(t, srv.URL+sendURL, "good", map[string]any{
+		"to": []string{"alice@x.com"}, "template_id": "tmpl_1", "template_data": data,
+	})
+	if code != 200 {
+		t.Fatalf("send: want 200, got %d %v", code, sendBody)
+	}
+	delivered := lastDeliveredReq()
+
+	for part, got := range map[string]string{
+		"subject":   delivered.Subject,
+		"body":      delivered.Body,
+		"html_body": delivered.HTMLBody,
+	} {
+		want, _ := preview[part].(string)
+		if got != want {
+			t.Errorf("%s: delivered %q != validate preview %q", part, got, want)
+		}
+	}
+}
+
 // TestSendTemplateBigIntPrecision: template_data decodes with UseNumber, so
 // integers beyond float64's 2^53 mantissa render digit-exact (plain
 // encoding/json would deliver "123456789012345680").

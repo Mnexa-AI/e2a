@@ -2,8 +2,6 @@ package identity
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -54,14 +52,10 @@ var (
 	ErrTemplateLimitReached = errors.New("template count limit reached for this user")
 )
 
-// generateTemplateID produces the prefixed template ID. Uses crypto/rand and
-// panics on OS RNG failure — same pattern as generateWebhookID.
+// generateTemplateID produces the prefixed template ID via the store's
+// shared generateID helper (crypto/rand, panics on OS RNG failure).
 func generateTemplateID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic(fmt.Sprintf("identity: crypto/rand failed: %v", err))
-	}
-	return "tmpl_" + hex.EncodeToString(b)
+	return "tmpl_" + generateID()
 }
 
 // isUniqueViolation reports whether err is a Postgres unique-constraint
