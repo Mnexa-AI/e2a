@@ -132,6 +132,15 @@ func testServer(t *testing.T) *httptest.Server {
 				tp.ID = "tmpl_stale"
 				tp.Body = "{{#section}}"
 				return &tp, nil
+			case templateID == "tmpl_onlyvar":
+				// Subject is a single variable — empty template_data renders
+				// an empty subject, the template_rendered_empty case.
+				tp := sampleTemplate()
+				tp.ID = "tmpl_onlyvar"
+				tp.Subject = "{{name}}"
+				tp.Body = "static body"
+				tp.HTMLBody = ""
+				return &tp, nil
 			case templateID == "tmpl_dberr":
 				// A store failure that is NOT a miss — handlers must 500,
 				// never collapse it to 404.

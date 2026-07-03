@@ -434,6 +434,9 @@ func (s *Server) resolveSendTemplate(ctx context.Context, userID string, b *Send
 		return NewError(http.StatusNotFound, "template_not_found", "template not found")
 	}
 
+	// partVars remembers each part's referenced variables so the
+	// rendered-empty diagnostic below can name them.
+	partVars := map[string][]string{}
 	render := func(part, src string, mode emailtemplate.EscapeMode) (string, *ErrorEnvelope) {
 		tmpl, perr := emailtemplate.Parse(src)
 		if perr != nil {
@@ -441,6 +444,7 @@ func (s *Server) resolveSendTemplate(ctx context.Context, userID string, b *Send
 				"template part "+part+" failed to render: "+perr.Error()).
 				WithDetails(map[string]any{"part": part, "message": perr.Error()})
 		}
+		partVars[part] = tmpl.Vars()
 		out, rerr := tmpl.Render(b.TemplateData, mode)
 		if rerr != nil {
 			return "", NewError(http.StatusBadRequest, "template_render_failed",
@@ -461,6 +465,24 @@ func (s *Server) resolveSendTemplate(ctx context.Context, userID string, b *Send
 		if b.HTMLBody, env = render("html_body", tp.HTMLBody, emailtemplate.EscapeHTML); env != nil {
 			return env
 		}
+	}
+	// A subject or body that rendered EMPTY is a guaranteed dead-end: the
+	// generic outbound validation would reject it with a bare
+	// "subject and body are required", which reads as nonsense to a caller
+	// who did reference a template. Fail here with the empty part and the
+	// variables it references (almost always missing template_data).
+	for _, check := range []struct{ part, out string }{{"subject", b.Subject}, {"body", b.Body}} {
+		if check.out != "" {
+			continue
+		}
+		vars := partVars[check.part]
+		if vars == nil {
+			vars = []string{}
+		}
+		return NewError(http.StatusBadRequest, "template_rendered_empty",
+			"template part "+check.part+" rendered empty — supply values for its variables ("+
+				strings.Join(vars, ", ")+") in template_data").
+			WithDetails(map[string]any{"part": check.part, "variables": vars})
 	}
 	return nil
 }

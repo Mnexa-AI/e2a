@@ -184,6 +184,34 @@ func TestSendTemplateRenderFailureDeepData(t *testing.T) {
 	}
 }
 
+// TestSendTemplateRenderedEmptySubject: a part that renders EMPTY (variable-
+// only source + no data) is a specific 400 template_rendered_empty naming
+// the part and its variables — not the generic "subject and body are
+// required", which is baffling for a templated send.
+func TestSendTemplateRenderedEmptySubject(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
+		"to": []string{"alice@x.com"}, "template_id": "tmpl_onlyvar",
+		"template_data": map[string]any{},
+	})
+	if code != 400 || errCode(body) != "template_rendered_empty" {
+		t.Fatalf("want 400 template_rendered_empty, got %d %v", code, body)
+	}
+	errObj, _ := body["error"].(map[string]any)
+	msg, _ := errObj["message"].(string)
+	if !strings.Contains(msg, "subject") || !strings.Contains(msg, "name") {
+		t.Errorf("message must name the empty part and its variables, got %q", msg)
+	}
+	details, _ := errObj["details"].(map[string]any)
+	if details["part"] != "subject" {
+		t.Errorf("details.part = %v, want subject", details["part"])
+	}
+	vars, _ := details["variables"].([]any)
+	if len(vars) != 1 || vars[0] != "name" {
+		t.Errorf("details.variables = %v, want [name]", details["variables"])
+	}
+}
+
 // TestSendTemplateRenderedSubjectStillValidated: rendered values flow through
 // the same validateOutboundBody checks as literal ones — data that smuggles
 // CR/LF into the subject is rejected exactly like a literal CR/LF subject.
