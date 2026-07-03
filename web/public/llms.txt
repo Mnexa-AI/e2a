@@ -17,6 +17,7 @@
 
 - [sdk.md](https://e2a.dev/sdk.md): TypeScript (`@e2a/sdk`) and Python (`e2a`) quick-start with code examples — send, receive (webhook → fetch → reply), HITL, real-time streaming — plus a Raw-REST section (base URL, auth, conventions) for other languages.
 - [openapi.yaml](https://e2a.dev/openapi.yaml): The full OpenAPI 3.1 contract — every endpoint, field, enum, and error, generated from the live handlers. Authoritative for exact signatures.
+- [templates.md](https://e2a.dev/templates.md): Email templates (beta) — server-rendered reusable emails with `{{variable}}` interpolation, a prebuilt starter catalog (`from_starter`), validation, and send-by-alias. Includes a copy-paste setup prompt for coding agents.
 
 ## MCP & plugin
 

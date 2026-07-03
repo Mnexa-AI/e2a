@@ -1,7 +1,7 @@
 # Email templates (beta)
 
 > **Beta.** Templates are unstable — their shape may change before they are
-> declared stable. The canonical contract is [`api/openapi.yaml`](../api/openapi.yaml).
+> declared stable. The canonical contract is [`api/openapi.yaml`](https://e2a.dev/openapi.yaml).
 
 ## Using a coding agent?
 
@@ -141,4 +141,4 @@ tokens alone do not save you — the scanner's GET consumes the token.)
 ## See also
 
 - [`docs/api.md`](api.md) — REST surface overview and conventions
-- [`api/openapi.yaml`](../api/openapi.yaml) — the canonical machine-readable contract
+- [`api/openapi.yaml`](https://e2a.dev/openapi.yaml) — the canonical machine-readable contract
