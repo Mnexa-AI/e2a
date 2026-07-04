@@ -38,7 +38,7 @@ type WebhookView struct {
 	ID              string             `json:"id"`
 	URL             string             `json:"url"`
 	Description     string             `json:"description"`
-	Events          []string           `json:"events" nullable:"false" doc:"The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."`
+	Events          []string           `json:"events" nullable:"false" doc:"The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.deferred, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."`
 	Filters         WebhookFiltersView `json:"filters"`
 	Enabled         bool               `json:"enabled"`
 	AutoDisabledAt  string             `json:"auto_disabled_at,omitempty" format:"date-time"`
@@ -182,7 +182,7 @@ type listWebhooksOutput struct {
 // webhookpub.AllEventTypes).
 type CreateWebhookRequest struct {
 	URL         string              `json:"url"`
-	Events      []string            `json:"events" nullable:"false" enum:"email.received,email.sent,email.review_approved,email.review_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked,email.pending_review" doc:"Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."`
+	Events      []string            `json:"events" nullable:"false" enum:"email.received,email.sent,email.failed,email.deferred,email.review_approved,email.review_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked,email.pending_review" doc:"Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."`
 	Filters     *WebhookFiltersView `json:"filters,omitempty"`
 	Description string              `json:"description,omitempty"`
 }
@@ -249,7 +249,7 @@ func (s *Server) registerWebhooks() {
 
 // TestWebhookRequest mirrors the legacy body.
 type TestWebhookRequest struct {
-	Event string         `json:"event,omitempty" enum:"email.received,email.sent,email.review_approved,email.review_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked,email.pending_review"`
+	Event string         `json:"event,omitempty" enum:"email.received,email.sent,email.failed,email.deferred,email.review_approved,email.review_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked,email.pending_review"`
 	Data  map[string]any `json:"data,omitempty"`
 }
 type testWebhookInput struct {
@@ -306,7 +306,7 @@ func (s *Server) handleTestWebhook(ctx context.Context, in *testWebhookInput) (*
 // WebhookDeliveryView mirrors the legacy per-delivery wire shape.
 type WebhookDeliveryView struct {
 	ID             string `json:"id"`
-	EventType      string `json:"event_type" doc:"The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.delivered, …, domain.*)."`
+	EventType      string `json:"event_type" doc:"The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.deferred, email.delivered, …, domain.*)."`
 	Status         string `json:"status" doc:"Delivery state. Open set; tolerate unknown values. Known values: pending, delivered, failed."`
 	Attempts       int    `json:"attempts"`
 	LastError      string `json:"last_error,omitempty"`
@@ -369,7 +369,7 @@ func (s *Server) handleListWebhookDeliveries(ctx context.Context, in *ListDelive
 // absent != zero; url/events/filters are full-replace when present.
 type UpdateWebhookRequest struct {
 	URL         *string             `json:"url,omitempty"`
-	Events      *[]string           `json:"events,omitempty" enum:"email.received,email.sent,email.review_approved,email.review_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked,email.pending_review" doc:"Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."`
+	Events      *[]string           `json:"events,omitempty" enum:"email.received,email.sent,email.failed,email.deferred,email.review_approved,email.review_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked,email.pending_review" doc:"Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."`
 	Filters     *WebhookFiltersView `json:"filters,omitempty"`
 	Description *string             `json:"description,omitempty"`
 	Enabled     *bool               `json:"enabled,omitempty"`

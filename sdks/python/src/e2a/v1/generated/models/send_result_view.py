@@ -31,9 +31,9 @@ class SendResultView(BaseModel):
     edited: Optional[StrictBool] = None
     message_id: StrictStr
     method: Optional[StrictStr] = Field(default=None, description="Send transport. Open set; tolerate unknown values. Known values: smtp, loopback.")
-    provider_message_id: Optional[StrictStr] = None
+    provider_message_id: Optional[StrictStr] = Field(default=None, description="Upstream provider (SES) id. Optional/absent until the message is actually sent — an accepted-but-not-yet-sent message has no provider id.")
     sent_as: Optional[StrictStr] = Field(default=None, description="From identity used. Open set; tolerate unknown values. Known values: own_address, relay.")
-    status: StrictStr = Field(description="Outcome. Open set; tolerate unknown values. Known values: sent, pending_review, review_approved.")
+    status: StrictStr = Field(description="Outcome. Open set; tolerate unknown values. Known values: accepted, sent, pending_review, review_approved, failed. accepted = durably persisted and queued for submission (async pipeline); the terminal outcome arrives via webhook events (email.sent / email.failed) or GET /v1/messages/{id}. failed = terminal failure. Always branch on this field, not the HTTP status code.")
     __properties: ClassVar[List[str]] = ["approval_expires_at", "edited", "message_id", "method", "provider_message_id", "sent_as", "status"]
 
     model_config = ConfigDict(

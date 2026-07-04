@@ -1026,6 +1026,13 @@ export interface MessagesApiForwardMessageRequest {
      * @memberof MessagesApiforwardMessage
      */
     idempotencyKey?: string
+    /**
+     * Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+     * Defaults to: undefined
+     * @type string
+     * @memberof MessagesApiforwardMessage
+     */
+    wait?: string
 }
 
 export interface MessagesApiGetAttachmentRequest {
@@ -1217,6 +1224,13 @@ export interface MessagesApiReplyToMessageRequest {
      * @memberof MessagesApireplyToMessage
      */
     idempotencyKey?: string
+    /**
+     * Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+     * Defaults to: undefined
+     * @type string
+     * @memberof MessagesApireplyToMessage
+     */
+    wait?: string
 }
 
 export interface MessagesApiSendMessageRequest {
@@ -1240,6 +1254,13 @@ export interface MessagesApiSendMessageRequest {
      * @memberof MessagesApisendMessage
      */
     idempotencyKey?: string
+    /**
+     * Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+     * Defaults to: undefined
+     * @type string
+     * @memberof MessagesApisendMessage
+     */
+    wait?: string
 }
 
 export interface MessagesApiUpdateMessageRequest {
@@ -1296,7 +1317,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public forwardMessageWithHttpInfo(param: MessagesApiForwardMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<SendResultView>> {
-        return this.api.forwardMessageWithHttpInfo(param.email, param.id, param.forwardRequest, param.idempotencyKey,  options).toPromise();
+        return this.api.forwardMessageWithHttpInfo(param.email, param.id, param.forwardRequest, param.idempotencyKey, param.wait,  options).toPromise();
     }
 
     /**
@@ -1305,7 +1326,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public forwardMessage(param: MessagesApiForwardMessageRequest, options?: ConfigurationOptions): Promise<SendResultView> {
-        return this.api.forwardMessage(param.email, param.id, param.forwardRequest, param.idempotencyKey,  options).toPromise();
+        return this.api.forwardMessage(param.email, param.id, param.forwardRequest, param.idempotencyKey, param.wait,  options).toPromise();
     }
 
     /**
@@ -1386,7 +1407,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public replyToMessageWithHttpInfo(param: MessagesApiReplyToMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<SendResultView>> {
-        return this.api.replyToMessageWithHttpInfo(param.email, param.id, param.replyRequest, param.idempotencyKey,  options).toPromise();
+        return this.api.replyToMessageWithHttpInfo(param.email, param.id, param.replyRequest, param.idempotencyKey, param.wait,  options).toPromise();
     }
 
     /**
@@ -1395,7 +1416,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public replyToMessage(param: MessagesApiReplyToMessageRequest, options?: ConfigurationOptions): Promise<SendResultView> {
-        return this.api.replyToMessage(param.email, param.id, param.replyRequest, param.idempotencyKey,  options).toPromise();
+        return this.api.replyToMessage(param.email, param.id, param.replyRequest, param.idempotencyKey, param.wait,  options).toPromise();
     }
 
     /**
@@ -1404,7 +1425,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public sendMessageWithHttpInfo(param: MessagesApiSendMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<SendResultView>> {
-        return this.api.sendMessageWithHttpInfo(param.email, param.sendEmailRequest, param.idempotencyKey,  options).toPromise();
+        return this.api.sendMessageWithHttpInfo(param.email, param.sendEmailRequest, param.idempotencyKey, param.wait,  options).toPromise();
     }
 
     /**
@@ -1413,7 +1434,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public sendMessage(param: MessagesApiSendMessageRequest, options?: ConfigurationOptions): Promise<SendResultView> {
-        return this.api.sendMessage(param.email, param.sendEmailRequest, param.idempotencyKey,  options).toPromise();
+        return this.api.sendMessage(param.email, param.sendEmailRequest, param.idempotencyKey, param.wait,  options).toPromise();
     }
 
     /**

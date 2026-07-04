@@ -380,6 +380,7 @@ class MessagesApi:
         id: StrictStr,
         forward_request: ForwardRequest,
         idempotency_key: Optional[StrictStr] = None,
+        wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -405,6 +406,8 @@ class MessagesApi:
         :type forward_request: ForwardRequest
         :param idempotency_key:
         :type idempotency_key: str
+        :param wait: Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+        :type wait: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -432,6 +435,7 @@ class MessagesApi:
             id=id,
             forward_request=forward_request,
             idempotency_key=idempotency_key,
+            wait=wait,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -460,6 +464,7 @@ class MessagesApi:
         id: StrictStr,
         forward_request: ForwardRequest,
         idempotency_key: Optional[StrictStr] = None,
+        wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -485,6 +490,8 @@ class MessagesApi:
         :type forward_request: ForwardRequest
         :param idempotency_key:
         :type idempotency_key: str
+        :param wait: Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+        :type wait: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -512,6 +519,7 @@ class MessagesApi:
             id=id,
             forward_request=forward_request,
             idempotency_key=idempotency_key,
+            wait=wait,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -540,6 +548,7 @@ class MessagesApi:
         id: StrictStr,
         forward_request: ForwardRequest,
         idempotency_key: Optional[StrictStr] = None,
+        wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -565,6 +574,8 @@ class MessagesApi:
         :type forward_request: ForwardRequest
         :param idempotency_key:
         :type idempotency_key: str
+        :param wait: Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+        :type wait: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -592,6 +603,7 @@ class MessagesApi:
             id=id,
             forward_request=forward_request,
             idempotency_key=idempotency_key,
+            wait=wait,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -615,6 +627,7 @@ class MessagesApi:
         id,
         forward_request,
         idempotency_key,
+        wait,
         _request_auth,
         _content_type,
         _headers,
@@ -641,6 +654,10 @@ class MessagesApi:
         if id is not None:
             _path_params['id'] = id
         # process the query parameters
+        if wait is not None:
+            
+            _query_params.append(('wait', wait))
+            
         # process the header parameters
         if idempotency_key is not None:
             _header_params['Idempotency-Key'] = idempotency_key
@@ -2043,6 +2060,7 @@ class MessagesApi:
         id: StrictStr,
         reply_request: ReplyRequest,
         idempotency_key: Optional[StrictStr] = None,
+        wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -2068,6 +2086,8 @@ class MessagesApi:
         :type reply_request: ReplyRequest
         :param idempotency_key:
         :type idempotency_key: str
+        :param wait: Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+        :type wait: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -2095,6 +2115,7 @@ class MessagesApi:
             id=id,
             reply_request=reply_request,
             idempotency_key=idempotency_key,
+            wait=wait,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -2123,6 +2144,7 @@ class MessagesApi:
         id: StrictStr,
         reply_request: ReplyRequest,
         idempotency_key: Optional[StrictStr] = None,
+        wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -2148,6 +2170,8 @@ class MessagesApi:
         :type reply_request: ReplyRequest
         :param idempotency_key:
         :type idempotency_key: str
+        :param wait: Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+        :type wait: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -2175,6 +2199,7 @@ class MessagesApi:
             id=id,
             reply_request=reply_request,
             idempotency_key=idempotency_key,
+            wait=wait,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -2203,6 +2228,7 @@ class MessagesApi:
         id: StrictStr,
         reply_request: ReplyRequest,
         idempotency_key: Optional[StrictStr] = None,
+        wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -2228,6 +2254,8 @@ class MessagesApi:
         :type reply_request: ReplyRequest
         :param idempotency_key:
         :type idempotency_key: str
+        :param wait: Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+        :type wait: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -2255,6 +2283,7 @@ class MessagesApi:
             id=id,
             reply_request=reply_request,
             idempotency_key=idempotency_key,
+            wait=wait,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -2278,6 +2307,7 @@ class MessagesApi:
         id,
         reply_request,
         idempotency_key,
+        wait,
         _request_auth,
         _content_type,
         _headers,
@@ -2304,6 +2334,10 @@ class MessagesApi:
         if id is not None:
             _path_params['id'] = id
         # process the query parameters
+        if wait is not None:
+            
+            _query_params.append(('wait', wait))
+            
         # process the header parameters
         if idempotency_key is not None:
             _header_params['Idempotency-Key'] = idempotency_key
@@ -2365,6 +2399,7 @@ class MessagesApi:
         email: StrictStr,
         send_email_request: SendEmailRequest,
         idempotency_key: Optional[StrictStr] = None,
+        wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -2388,6 +2423,8 @@ class MessagesApi:
         :type send_email_request: SendEmailRequest
         :param idempotency_key:
         :type idempotency_key: str
+        :param wait: Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+        :type wait: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -2414,6 +2451,7 @@ class MessagesApi:
             email=email,
             send_email_request=send_email_request,
             idempotency_key=idempotency_key,
+            wait=wait,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -2441,6 +2479,7 @@ class MessagesApi:
         email: StrictStr,
         send_email_request: SendEmailRequest,
         idempotency_key: Optional[StrictStr] = None,
+        wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -2464,6 +2503,8 @@ class MessagesApi:
         :type send_email_request: SendEmailRequest
         :param idempotency_key:
         :type idempotency_key: str
+        :param wait: Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+        :type wait: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -2490,6 +2531,7 @@ class MessagesApi:
             email=email,
             send_email_request=send_email_request,
             idempotency_key=idempotency_key,
+            wait=wait,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -2517,6 +2559,7 @@ class MessagesApi:
         email: StrictStr,
         send_email_request: SendEmailRequest,
         idempotency_key: Optional[StrictStr] = None,
+        wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -2540,6 +2583,8 @@ class MessagesApi:
         :type send_email_request: SendEmailRequest
         :param idempotency_key:
         :type idempotency_key: str
+        :param wait: Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+        :type wait: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -2566,6 +2611,7 @@ class MessagesApi:
             email=email,
             send_email_request=send_email_request,
             idempotency_key=idempotency_key,
+            wait=wait,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -2588,6 +2634,7 @@ class MessagesApi:
         email,
         send_email_request,
         idempotency_key,
+        wait,
         _request_auth,
         _content_type,
         _headers,
@@ -2612,6 +2659,10 @@ class MessagesApi:
         if email is not None:
             _path_params['email'] = email
         # process the query parameters
+        if wait is not None:
+            
+            _query_params.append(('wait', wait))
+            
         # process the header parameters
         if idempotency_key is not None:
             _header_params['Idempotency-Key'] = idempotency_key

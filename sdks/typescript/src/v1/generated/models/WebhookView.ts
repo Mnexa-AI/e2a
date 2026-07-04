@@ -19,7 +19,7 @@ export class WebhookView {
     'description': string;
     'enabled': boolean;
     /**
-    * The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable.
+    * The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.deferred, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable.
     */
     'events': Array<string>;
     'filters': WebhookFiltersView;

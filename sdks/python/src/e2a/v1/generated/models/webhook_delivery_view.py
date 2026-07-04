@@ -29,7 +29,7 @@ class WebhookDeliveryView(BaseModel):
     """ # noqa: E501
     attempts: StrictInt
     created_at: datetime
-    event_type: StrictStr = Field(description="The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.delivered, …, domain.*).")
+    event_type: StrictStr = Field(description="The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.deferred, email.delivered, …, domain.*).")
     id: StrictStr
     last_attempt_at: Optional[datetime] = None
     last_error: Optional[StrictStr] = None

@@ -1150,11 +1150,12 @@ export class ObservableMessagesApi {
      * @param id
      * @param forwardRequest
      * @param [idempotencyKey]
+     * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
-    public forwardMessageWithHttpInfo(email: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
+    public forwardMessageWithHttpInfo(email: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.forwardMessage(email, id, forwardRequest, idempotencyKey, _config);
+        const requestContextPromise = this.requestFactory.forwardMessage(email, id, forwardRequest, idempotencyKey, wait, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1178,9 +1179,10 @@ export class ObservableMessagesApi {
      * @param id
      * @param forwardRequest
      * @param [idempotencyKey]
+     * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
-    public forwardMessage(email: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
-        return this.forwardMessageWithHttpInfo(email, id, forwardRequest, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
+    public forwardMessage(email: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
+        return this.forwardMessageWithHttpInfo(email, id, forwardRequest, idempotencyKey, wait, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
     }
 
     /**
@@ -1360,11 +1362,12 @@ export class ObservableMessagesApi {
      * @param id
      * @param replyRequest
      * @param [idempotencyKey]
+     * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
-    public replyToMessageWithHttpInfo(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
+    public replyToMessageWithHttpInfo(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.replyToMessage(email, id, replyRequest, idempotencyKey, _config);
+        const requestContextPromise = this.requestFactory.replyToMessage(email, id, replyRequest, idempotencyKey, wait, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1388,9 +1391,10 @@ export class ObservableMessagesApi {
      * @param id
      * @param replyRequest
      * @param [idempotencyKey]
+     * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
-    public replyToMessage(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
-        return this.replyToMessageWithHttpInfo(email, id, replyRequest, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
+    public replyToMessage(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
+        return this.replyToMessageWithHttpInfo(email, id, replyRequest, idempotencyKey, wait, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
     }
 
     /**
@@ -1399,11 +1403,12 @@ export class ObservableMessagesApi {
      * @param email
      * @param sendEmailRequest
      * @param [idempotencyKey]
+     * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
-    public sendMessageWithHttpInfo(email: string, sendEmailRequest: SendEmailRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
+    public sendMessageWithHttpInfo(email: string, sendEmailRequest: SendEmailRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.sendMessage(email, sendEmailRequest, idempotencyKey, _config);
+        const requestContextPromise = this.requestFactory.sendMessage(email, sendEmailRequest, idempotencyKey, wait, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1426,9 +1431,10 @@ export class ObservableMessagesApi {
      * @param email
      * @param sendEmailRequest
      * @param [idempotencyKey]
+     * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
-    public sendMessage(email: string, sendEmailRequest: SendEmailRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
-        return this.sendMessageWithHttpInfo(email, sendEmailRequest, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
+    public sendMessage(email: string, sendEmailRequest: SendEmailRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
+        return this.sendMessageWithHttpInfo(email, sendEmailRequest, idempotencyKey, wait, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
     }
 
     /**

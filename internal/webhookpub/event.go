@@ -31,6 +31,18 @@ import (
 const (
 	EventEmailReceived = "email.received"
 	EventEmailSent     = "email.sent"
+	// Async-send terminal outcomes (async-send-contract.md §4). With the
+	// persist-first pipeline the API returns 200 `accepted` before the send
+	// completes, so these events are the push signal that a send finished:
+	//   - email.failed: terminal failure (retries exhausted / permanent reject /
+	//     block / review-reject-or-expiry). Carries retryable:false + reason.
+	//   - email.deferred: a transient delay the worker is still retrying (SES 4xx
+	//     / ramp deferral) — not terminal; a later email.sent or email.failed
+	//     follows. Peers (Resend/SendGrid) push the same delayed/deferred signal.
+	// Emitted synchronously today (the sync server already knows the outcome);
+	// they become the primary async signal once the worker pool ships (slice 3).
+	EventEmailFailed   = "email.failed"
+	EventEmailDeferred = "email.deferred"
 	// Review-hold lifecycle (unified, direction-aware — design 2026-06-22). A held
 	// message fires email.pending_review (defined below); on resolution it fires
 	// email.review_approved (outbound: sent; inbound: released to the agent) or
@@ -78,6 +90,8 @@ const (
 var AllEventTypes = []string{
 	EventEmailReceived,
 	EventEmailSent,
+	EventEmailFailed,
+	EventEmailDeferred,
 	EventEmailReviewApproved,
 	EventEmailReviewRejected,
 	EventDomainSendingVerified,

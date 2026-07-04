@@ -107,8 +107,9 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
      * @param id 
      * @param forwardRequest 
      * @param idempotencyKey 
+     * @param wait Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
-    public async forwardMessage(email: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, _options?: Configuration): Promise<RequestContext> {
+    public async forwardMessage(email: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, wait?: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'email' is not null or undefined
@@ -130,6 +131,7 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
 
 
 
+
         // Path Params
         const localVarPath = '/v1/agents/{email}/messages/{id}/forward'
             .replace('{' + 'email' + '}', encodeURIComponent(String(email)))
@@ -138,6 +140,11 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.POST);
         requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+        // Query Params
+        if (wait !== undefined) {
+            requestContext.setQueryParam("wait", ObjectSerializer.serialize(wait, "string", ""));
+        }
 
         // Header Params
         requestContext.setHeaderParam("Idempotency-Key", ObjectSerializer.serialize(idempotencyKey, "string", ""));
@@ -466,8 +473,9 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
      * @param id 
      * @param replyRequest 
      * @param idempotencyKey 
+     * @param wait Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
-    public async replyToMessage(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, _options?: Configuration): Promise<RequestContext> {
+    public async replyToMessage(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, wait?: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'email' is not null or undefined
@@ -489,6 +497,7 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
 
 
 
+
         // Path Params
         const localVarPath = '/v1/agents/{email}/messages/{id}/reply'
             .replace('{' + 'email' + '}', encodeURIComponent(String(email)))
@@ -497,6 +506,11 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.POST);
         requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+        // Query Params
+        if (wait !== undefined) {
+            requestContext.setQueryParam("wait", ObjectSerializer.serialize(wait, "string", ""));
+        }
 
         // Header Params
         requestContext.setHeaderParam("Idempotency-Key", ObjectSerializer.serialize(idempotencyKey, "string", ""));
@@ -536,8 +550,9 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
      * @param email 
      * @param sendEmailRequest 
      * @param idempotencyKey 
+     * @param wait Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
-    public async sendMessage(email: string, sendEmailRequest: SendEmailRequest, idempotencyKey?: string, _options?: Configuration): Promise<RequestContext> {
+    public async sendMessage(email: string, sendEmailRequest: SendEmailRequest, idempotencyKey?: string, wait?: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'email' is not null or undefined
@@ -553,6 +568,7 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
 
 
 
+
         // Path Params
         const localVarPath = '/v1/agents/{email}/messages'
             .replace('{' + 'email' + '}', encodeURIComponent(String(email)));
@@ -560,6 +576,11 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.POST);
         requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+        // Query Params
+        if (wait !== undefined) {
+            requestContext.setQueryParam("wait", ObjectSerializer.serialize(wait, "string", ""));
+        }
 
         // Header Params
         requestContext.setHeaderParam("Idempotency-Key", ObjectSerializer.serialize(idempotencyKey, "string", ""));

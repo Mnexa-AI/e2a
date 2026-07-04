@@ -39,7 +39,7 @@ class MessageView(BaseModel):
     conversation_id: StrictStr
     created_at: datetime
     delivery_detail: Optional[StrictStr] = None
-    delivery_status: Optional[StrictStr] = Field(default=None, description="Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: queued, sent, delivered, bounced, complained, deferred, failed.")
+    delivery_status: Optional[StrictStr] = Field(default=None, description="Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: accepted, sending, sent, delivered, deferred, bounced, complained, failed. Lifecycle: accepted → sending → sent → delivered | deferred | bounced | complained | failed. (Legacy 'queued' is superseded by 'accepted'.)")
     direction: StrictStr
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None

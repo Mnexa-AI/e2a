@@ -55,9 +55,9 @@ type SendResultView struct {
 	// review_approved is the inbound-release outcome of POST .../approve (an
 	// inbound hold released to the agent's inbox — no send). sent/pending_review
 	// are the send/outbound-approve outcomes.
-	Status            string     `json:"status" doc:"Outcome. Open set; tolerate unknown values. Known values: sent, pending_review, review_approved."`
+	Status            string     `json:"status" doc:"Outcome. Open set; tolerate unknown values. Known values: accepted, sent, pending_review, review_approved, failed. accepted = durably persisted and queued for submission (async pipeline); the terminal outcome arrives via webhook events (email.sent / email.failed) or GET /v1/messages/{id}. failed = terminal failure. Always branch on this field, not the HTTP status code."`
 	MessageID         string     `json:"message_id"`
-	ProviderMessageID string     `json:"provider_message_id,omitempty"`
+	ProviderMessageID string     `json:"provider_message_id,omitempty" doc:"Upstream provider (SES) id. Optional/absent until the message is actually sent — an accepted-but-not-yet-sent message has no provider id."`
 	SentAs            string     `json:"sent_as,omitempty" doc:"From identity used. Open set; tolerate unknown values. Known values: own_address, relay."`
 	Method            string     `json:"method,omitempty" doc:"Send transport. Open set; tolerate unknown values. Known values: smtp, loopback."`
 	ApprovalExpiresAt *time.Time `json:"approval_expires_at,omitempty"`
@@ -118,6 +118,7 @@ type createMessageInput struct {
 	Address        string `path:"email"`
 	RawBody        []byte
 	IdempotencyKey string `header:"Idempotency-Key"`
+	Wait           string `query:"wait" doc:"Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."`
 	Body           SendEmailRequest
 }
 
@@ -223,6 +224,7 @@ type replyInput struct {
 	ID             string `path:"id"`
 	RawBody        []byte
 	IdempotencyKey string `header:"Idempotency-Key"`
+	Wait           string `query:"wait" doc:"Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."`
 	Body           ReplyRequest
 }
 
@@ -354,6 +356,7 @@ type forwardInput struct {
 	ID             string `path:"id"`
 	RawBody        []byte
 	IdempotencyKey string `header:"Idempotency-Key"`
+	Wait           string `query:"wait" doc:"Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."`
 	Body           ForwardRequest
 }
 

@@ -136,7 +136,20 @@ single message.
   `since`, `until`) and cursor pagination. Held outbound drafts appear with
   `status=pending_review`.
 - `POST …/messages` — send a new email (a new thread). `202` + `pending_review`
-  when the agent's protection policy holds it for review.
+  when the agent's protection policy holds it for review. The send result
+  `status` is an open set — known values `accepted | sent | pending_review |
+  review_approved | failed`. **Always branch on `status`, not the HTTP code.**
+  `accepted` (async pipeline) means the message is durably persisted and queued;
+  the terminal outcome then arrives via the `email.sent` / `email.failed` webhook
+  events or `GET …/messages/{id}`. `provider_message_id` is absent until the
+  message is actually sent. Optional `?wait=sent` holds the request until the
+  message reaches a terminal-or-held state or a bounded timeout (a synchronous
+  server treats it as a no-op).
+- **`delivery_status`** on a message follows `accepted → sending → sent →
+  delivered | deferred | bounced | complained | failed`. Note **`sent` ≠
+  `delivered`**: `sent` means the upstream provider (SES) accepted the message,
+  not that the recipient's server did. Delivery/bounce/complaint are per-recipient
+  async outcomes reported later via SNS and the corresponding webhook events.
 - `GET …/messages/{id}` — fetch one message (inbound or outbound), including the
   raw message and inbound auth headers. Reading an unread inbound message flips it
   to `read`.

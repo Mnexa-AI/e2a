@@ -58,6 +58,8 @@ for e in client.events.list(type="email.received", limit=20):
 | `email.received` | Inbound SMTP message accepted | **At-least-once** end-to-end |
 | `email.flagged` | Inbound message accepted but did not match the agent's `inbound_policy` (delivered + flagged, never dropped) | **At-least-once** end-to-end |
 | `email.sent` | Outbound `/send` accepted by SES | Best-effort |
+| `email.failed` | Outbound send terminally failed (retries exhausted / permanent reject) — carries `reason`, `retryable: false` | **At-least-once** |
+| `email.deferred` | Outbound send transiently delayed and still retrying (SES 4xx / ramp deferral) — non-terminal; a later `email.sent`/`email.failed` follows | Best-effort |
 | `email.pending_review` | Message held for human review (outbound HITL or inbound screening) — carries `direction` | **At-least-once** |
 | `email.review_approved` | Review approved (outbound: sent; inbound: released to the inbox) | Best-effort |
 | `email.review_rejected` | Review rejected (outbound: discarded; inbound: dropped) | **At-least-once** |

@@ -20,13 +20,16 @@ export class SendResultView {
     * Send transport. Open set; tolerate unknown values. Known values: smtp, loopback.
     */
     'method'?: string;
+    /**
+    * Upstream provider (SES) id. Optional/absent until the message is actually sent — an accepted-but-not-yet-sent message has no provider id.
+    */
     'providerMessageId'?: string;
     /**
     * From identity used. Open set; tolerate unknown values. Known values: own_address, relay.
     */
     'sentAs'?: string;
     /**
-    * Outcome. Open set; tolerate unknown values. Known values: sent, pending_review, review_approved.
+    * Outcome. Open set; tolerate unknown values. Known values: accepted, sent, pending_review, review_approved, failed. accepted = durably persisted and queued for submission (async pipeline); the terminal outcome arrives via webhook events (email.sent / email.failed) or GET /v1/messages/{id}. failed = terminal failure. Always branch on this field, not the HTTP status code.
     */
     'status': string;
 

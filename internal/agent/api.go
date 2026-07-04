@@ -1204,17 +1204,19 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		return &OutboundResult{Held: true, PendingMessageID: msg.ID, ApprovalExpiresAt: msg.ApprovalExpiresAt}, nil
 	}
 
-	// Record usage (side-effect only — never block on quota; the cap
-	// pre-check is the gate).
-	if _, err := a.usage.RecordAndCheck(ctx, user.ID, agent.ID, agent.Domain, "outbound"); err != nil {
-		log.Printf("[api] usage recording error: %v", err)
-	}
-
+	// Usage is metered AFTER the side effect + persist, never before (slice 1
+	// §7.2 / async-send-contract.md): billing must not run ahead of a durable
+	// message row, or a crash between meter and persist bills an invisible send.
 	if isSelfSend(req, agent.EmailAddress()) {
 		providerID, err := a.performSelfSend(ctx, agent, req, msgType)
 		if err != nil {
 			log.Printf("[api] self-send failed: agent=%s error=%v", agent.EmailAddress(), err)
 			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "self-send failed"}
+		}
+		// Meter after the loopback delivery succeeds (side-effect only — never
+		// block on quota; the cap pre-check is the gate).
+		if _, err := a.usage.RecordAndCheck(ctx, user.ID, agent.ID, agent.Domain, "outbound"); err != nil {
+			log.Printf("[api] usage recording error: %v", err)
 		}
 		slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
 		log.Printf("[mail] dir=outbound type=%s method=loopback from=%s to=%s slug=%s conv_id=%s subject=%q provider_id=%s", msgType, agent.EmailAddress(), agent.EmailAddress(), slug, req.ConversationID, req.Subject, providerID)
@@ -1231,31 +1233,34 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 	}
 	outMsg, err := a.store.CreateOutboundMessage(ctx, agent.ID, result.To, result.CC, result.BCC, req.Subject, msgType, result.Method, result.MessageID, req.ConversationID, result.Raw)
 	if err != nil {
-		log.Printf("[api] failed to record outbound message: %v", err)
+		// Slice 1 §7.1 (async-send-contract.md): the SES send already happened but
+		// we could not record it. Do NOT return a clean 2xx — a send that isn't in
+		// the DB is invisible and unrecoverable, so surface a 500 rather than
+		// claiming success. (Persist-first, slice 2, removes this window entirely.)
+		log.Printf("[api] failed to record outbound message (send already submitted): %v", err)
+		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "message was sent but could not be recorded; do not retry blindly"}
+	}
+	// Slice 1 §7.2: meter only after the message row is durable, so a crash or a
+	// failed insert above can never bill a message that has no row.
+	if _, err := a.usage.RecordAndCheck(ctx, user.ID, agent.ID, agent.Domain, "outbound"); err != nil {
+		log.Printf("[api] usage recording error: %v", err)
 	}
 	slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
-	if outMsg != nil {
-		// Record the delivery lifecycle (decision 9): delivery_status='sent',
-		// which From identity was used, and the per-recipient breakdown the SES
-		// notifications consumer transitions as feedback arrives.
-		if err := a.store.MarkMessageSent(ctx, outMsg.ID, result.SentAs, result.To, result.CC, result.BCC); err != nil {
-			log.Printf("[api] mark sent (delivery_status): %v", err)
-		}
-		// flag verdict: delivered + annotated (denorm + protection_events + event).
-		if verdict.Annotate() {
-			a.annotateAndAudit(ctx, agent, outMsg.ID, req, verdict)
-		}
-		log.Printf("[mail:%s] dir=outbound type=%s from=%s to=%v slug=%s conv_id=%s subject=%q", outMsg.ID, msgType, agent.EmailAddress(), result.To, slug, req.ConversationID, req.Subject)
+	// Record the delivery lifecycle (decision 9): delivery_status='sent', which
+	// From identity was used, and the per-recipient breakdown the SES
+	// notifications consumer transitions as feedback arrives.
+	if err := a.store.MarkMessageSent(ctx, outMsg.ID, result.SentAs, result.To, result.CC, result.BCC); err != nil {
+		log.Printf("[api] mark sent (delivery_status): %v", err)
 	}
+	// flag verdict: delivered + annotated (denorm + protection_events + event).
+	if verdict.Annotate() {
+		a.annotateAndAudit(ctx, agent, outMsg.ID, req, verdict)
+	}
+	log.Printf("[mail:%s] dir=outbound type=%s from=%s to=%v slug=%s conv_id=%s subject=%q", outMsg.ID, msgType, agent.EmailAddress(), result.To, slug, req.ConversationID, req.Subject)
 	a.publishSent(ctx, a.buildSentEvent(agent, outMsg, result, req, msgType), outMsg)
-	// message_id is the e2a msg_ id (GET-able); the SES id is provider_message_id
-	// (MSG-9). Fall back to the provider id only if the row write failed.
-	e2aID := result.MessageID
-	if outMsg != nil {
-		e2aID = outMsg.ID
-	}
+	// message_id is the e2a msg_ id (GET-able); the SES id is provider_message_id (MSG-9).
 	return &OutboundResult{
-		MessageID:         e2aID,
+		MessageID:         outMsg.ID,
 		ProviderMessageID: result.MessageID,
 		SentAs:            result.SentAs,
 		Method:            result.Method,

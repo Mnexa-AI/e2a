@@ -20,7 +20,7 @@ export class MessageSummaryView {
     'createdAt': Date;
     'deliveryDetail'?: string;
     /**
-    * Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: queued, sent, delivered, bounced, complained, deferred, failed.
+    * Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: accepted, sending, sent, delivered, deferred, bounced, complained, failed. Lifecycle: accepted → sending → sent → delivered | deferred | bounced | complained | failed. (Legacy \'queued\' is superseded by \'accepted\'.)
     */
     'deliveryStatus'?: string;
     'direction': MessageSummaryViewDirectionEnum;

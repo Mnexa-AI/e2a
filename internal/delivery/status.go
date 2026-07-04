@@ -11,30 +11,40 @@ package delivery
 type Status string
 
 const (
-	StatusQueued     Status = "queued"     // accepted into the outbound path, not yet relayed
+	// StatusAccepted is the async-pipeline entry state (async-send-contract.md
+	// §3.1): durably persisted + queued for submission, no network I/O yet.
+	// Replaces the legacy StatusQueued, which was never emitted in production.
+	StatusAccepted Status = "accepted"
+	// StatusSending means a worker holds the lease and is submitting to SES.
+	StatusSending    Status = "sending"
+	StatusQueued     Status = "queued"     // DEPRECATED legacy alias for accepted; kept so any historical row stays Valid()
 	StatusSent       Status = "sent"       // accepted by the relay (SES) — NON-terminal
 	StatusDeferred   Status = "deferred"   // transient delay (SES deliveryDelay); poll, no event
 	StatusDelivered  Status = "delivered"  // SES confirmed delivery to the recipient MTA
 	StatusBounced    Status = "bounced"    // hard/soft bounce
 	StatusComplained Status = "complained" // recipient marked spam (FBL complaint)
-	StatusFailed     Status = "failed"     // local send failure (never reached the relay)
+	StatusFailed     Status = "failed"     // terminal send failure (retries exhausted / permanent reject)
 )
 
 // rank orders statuses by the decision-9 monotonic precedence
 //
-//	complained > bounced > delivered > deferred > sent > queued
+//	complained > bounced > delivered > deferred > sent > sending > accepted
 //
 // plus `failed` as a terminal local outcome above all SES feedback. Higher
 // rank wins a merge, so out-of-order or duplicate SNS events can never regress
 // a terminal status (a late `delivered` never clobbers a `complained`).
+// `accepted`/`sending` sit below `sent` so the async pre-send states never win
+// over provider feedback. (async-send-contract.md §3.1.)
 var rank = map[Status]int{
-	StatusQueued:     0,
-	StatusSent:       1,
-	StatusDeferred:   2,
-	StatusDelivered:  3,
-	StatusBounced:    4,
-	StatusComplained: 5,
-	StatusFailed:     6,
+	StatusAccepted:   0,
+	StatusQueued:     0, // legacy alias, equal rank to accepted
+	StatusSending:    1,
+	StatusSent:       2,
+	StatusDeferred:   3,
+	StatusDelivered:  4,
+	StatusBounced:    5,
+	StatusComplained: 6,
+	StatusFailed:     7,
 }
 
 // Valid reports whether s is a known status.
