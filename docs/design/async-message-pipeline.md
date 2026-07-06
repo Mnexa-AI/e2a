@@ -1,24 +1,35 @@
 # Async Message Pipeline — Architecture Design (Outbound + Inbound)
 
-**Status:** Approved, hardened after adversarial launch review (2026-07-04). Companion to `async-send-contract.md` (the outbound contract spec; the inbound changes have no API-contract surface). **Decided 2026-07-03: at-least-once is a pre-GA blocker in BOTH directions.** Outbound slices 1–3 and the inbound minimal fix (slice I1) land before the /v1 GA freeze and GA ships with async as the default outbound path; outbound slices 4–6 and the inbound queue (slice I2) follow post-GA.
+**Status:** Approved, hardened after adversarial launch review (2026-07-04); **reconciled onto River (2026-07-06)** now that the webhook delivery migration (#387) shipped and River is the shared job substrate on main. Companion to `async-send-contract.md` (the outbound contract spec; the inbound changes have no API-contract surface). **Decided 2026-07-03: at-least-once is a pre-GA blocker in BOTH directions.** Outbound slices land before the /v1 GA freeze and GA ships with async as the default outbound path; the inbound minimal fix (slice I1) is pre-GA, the inbound queue (slice I2) post-GA.
 
-> **Launch-review hardening (2026-07-04).** A 5-dimension adversarial review found the queue's ownership model was asserted but never specified — the single load-bearing gap, flagged independently by 4 of 5 reviewers. The fixes are folded into §§4–9 below; the deltas from the pre-review draft are: an explicit **lease fencing token** on every post-claim write (§4); lease sized **above** the real ~6.5-min SMTP envelope with **heartbeat extension** (§4/§5, was an undersized 5 min against a wrong "~21s"); a **terminal-failure guard** so the sweeper never declares `failed` for an in-flight or provider-accepted send, plus an **SES-outage circuit breaker** (§4/§8); an **honest crash matrix** (§7, the old "exactly-once"/"irreducible window" claims were false for slow-worker takeover and final-attempt crash); the **inbound dedupe redesigned** to content-hash + retry-horizon bound (§9, the Message-ID-only key silently dropped real mail and was an attacker suppression primitive); the **durable event tail made mandatory** (not a flag) whenever `outbound.mode=async` (§10). See the contract doc for the `wait=sent`, `blocked`-terminal-signal, idempotency-scope, and event-subscription fixes.
+> **⟳ RECONCILED ONTO RIVER (2026-07-06) — authoritative where it conflicts with the pre-River draft below.**
+>
+> The pre-River draft hand-rolled an `outbound_message_queue` table with `FOR UPDATE SKIP LOCKED` claim, a `lease_token` fencing token, ~60s heartbeat lease extension, and a sweeper for crash takeover — and the 2026-07-04 launch-review hardening (§§4–8) was almost entirely lease/fence/heartbeat machinery. **River provides all of that natively** (the draft even cited River's `attempted_by` as the fencing pattern it imitated). The webhook→River migration (#387) proved out the exact pieces this needs: the shared `internal/jobs` client, `jobs.Registrar`/`Enqueuer`, named queues (`QueueOutbound` already exists), the transactional-outbox enqueue (`InsertTx` in the business tx), a custom `NextRetry` retry envelope, `JobSnooze` for defer-without-burning-an-attempt, and a periodic reconciler backstop.
+>
+> **What changes vs the draft:**
+> - **No queue table, no `lease_token`, no heartbeat, no sweeper.** The job is `river_job` on `QueueOutbound`; the message row carries the payload, the job args carry just `{message_id}`. River owns claim/lease/retry/rescue.
+> - **The scariest section dissolves.** River's *rescue-after* window (default 1h, tunable) sits far above the ~6.5-min SMTP envelope, so "a slow-but-alive worker over its lease double-submits" (draft crash-matrix **row 4**, the entire reason for the 12-min lease + heartbeat) cannot happen for a normal send — a live job is nowhere near the rescue threshold. **No fencing token is needed:** River claims each job for one worker, and the only app write (`MarkMessageSent`) is idempotent, so even the pathological >1h-then-rescued case degrades to a harmless double-mark, not state corruption.
+> - **`JobSnooze` replaces the two "don't burn an attempt" cases** — provider-connection errors (SES outage) and `sending_ramp_limited` deferrals both snooze without incrementing `Attempt`.
+> - **The operator pause switch is `river.QueuePause`** (native), not a hand-rolled `outbound.paused` flag.
+> - **Crash recovery is River rescue** (tune `RescueStuckJobsAfter` down from 1h for outbound); the terminal-failure guard, error classification, `X-E2A-Message-ID` reconciliation header, and durable outbox event emission stay as **application logic**.
+>
+> **What is unchanged:** the normative guarantee, the sync/async split (§2), the message state machine (§3), the contract linkage, the crash-matrix *reasoning* (§7, minus row 4), the unification wins (§6), and the entire inbound §9 (I1 is engine-agnostic; I2's `inbound_message_queue` becomes River `QueueInbound` — a mechanical swap of the same kind).
 
 **Guarantee (normative — the GA blocker):**
 - **Outbound:** once e2a returns 200 `accepted` on a send, it has durably persisted the message and MUST attempt SMTP delivery until the provider accepts or a terminal failure is declared (retries exhausted / permanent rejection → `delivery_status='failed'`). The outcome — `email.sent` or `email.failed` — is written to the durable event log (`webhook_events`, same transaction as the status write) and delivered to subscribers with at-least-once semantics.
-- **Inbound:** e2a MUST NOT reply SMTP 250 until the message is durably persisted; on persist failure it replies 451 so the upstream MTA retries (SMTP's native durable-retry, the mirror of the API caller's idempotent retry). MTA retries dedupe on the RFC `Message-ID`. Once 250 is issued, the message reaches the agent's durable push path (event log → webhook) at-least-once.
+- **Inbound:** e2a MUST NOT reply SMTP 250 until the message is durably persisted; on persist failure it replies 451 so the upstream MTA retries (SMTP's native durable-retry, the mirror of the API caller's idempotent retry). MTA retries dedupe on a content-aware key (§9). Once 250 is issued, the message reaches the agent's durable push path (event log → webhook) at-least-once.
 
-No accepted message — in either direction — is ever silently dropped; every stage is either transactional or lease-protected with re-drive.
+No accepted message — in either direction — is ever silently dropped; every stage is either transactional or (under River) claimed-and-re-driven.
 
 ## 0. System overview — two lanes, shared tail
 
 ```
-Inbound:   MX/SMTP receiver → inbound_message_queue → parse worker ─┐
-                                                                    ├→ webhook_events → webhook_subscriber_deliveries → customer webhook
-Outbound:  API → outbound_message_queue → send worker → SES ────────┘        (shared, direction-agnostic event log + delivery queue)
+Inbound:   MX/SMTP receiver → river_job(QueueInbound) → parse worker ─┐
+                                                                      ├→ webhook_events → river_job(QueueWebhook) → customer webhook
+Outbound:  API → river_job(QueueOutbound) → send worker → SES ────────┘   (shared, direction-agnostic event log + River delivery — #387)
 ```
 
-All queues are Postgres tables — no broker — sharing one idiom: `FOR UPDATE SKIP LOCKED` claim, lease with sweeper takeover, bounded backoff, durable terminal state. The event log and webhook delivery queue are deliberately shared, not per-direction (events carry `direction`; two parallel event pipelines would double the operational surface for no isolation benefit). §§1–8 design the outbound lane; §9 the inbound lane; §§10–12 rollout, testing, and open questions for both.
+Every lane is a River job on the shared `internal/jobs` client — one substrate, one set of named queues (`QueueOutbound`, `QueueInbound`, `QueueWebhook`, `QueueMaintenance`), one retry/rescue model. The event log (`webhook_events`) and the webhook delivery lane are deliberately shared, not per-direction (events carry `direction`; two parallel event pipelines would double the operational surface for no isolation benefit). §§1–8 design the outbound lane; §9 the inbound lane; §§10–12 rollout, testing, and open questions.
 
 ## 1. Outbound lane: current vs target
 
@@ -26,125 +37,124 @@ All queues are Postgres tables — no broker — sharing one idiom: `FOR UPDATE 
 ```
 request → screen (incl. LLM scan) → SES submit → meter → persist row → 200 sent
 ```
-Synchronous SES inside the request (up to a ~6.5-min worst case — 4 attempts × up to a 2-min session deadline + 30s dial + 1s/5s/15s backoff sleeps, `internal/outbound/smtp_relay.go`; the codebase's `SendAttemptStaleWindow = 10m` is sized against this envelope, not the "~21s" sleep-sum an earlier draft cited), message row and `msg_` id created only AFTER SES accepts, insert failure swallowed (returns 200 anyway). Crash after SES-accept = sent + billed email with no DB trace, unrecoverable. The HITL **approve** path already has the correct shape (durable pending row + `send_attempts` WAL + `hitlworker` re-drive) — this design generalizes that shape to all outbound.
+Synchronous SES inside the request (up to a ~6.5-min worst case — 4 attempts × up to a 2-min session deadline + 30s dial + 1s/5s/15s backoff sleeps, `internal/outbound/smtp_relay.go`), message row and `msg_` id created only AFTER SES accepts, insert failure swallowed (returns 200 anyway). Crash after SES-accept = sent + billed email with no DB trace, unrecoverable. The HITL **approve** path already has the correct shape (durable pending row + `send_attempts` WAL + `hitlworker` re-drive) — this design generalizes that shape to all outbound, on River.
 
 **Target:**
 ```
 request:  auth → validate → recipient-policy gate → template render → quota + N tokens
-          → ONE TX: mint msg_id, insert messages row (delivery_status='accepted') + outbound_message_queue row
+          → ONE TX: mint msg_id, insert messages row (delivery_status='accepted')
+                    + InsertTx a River job on QueueOutbound {message_id}
+                    + idempotency Complete (§6)
           → 200 {message_id, status: accepted}                     [low tens of ms]
 
-worker:   claim job (SKIP LOCKED lease → lease_token) → content scan → [hold → pending_review, stop]
-          → ramp Reserve → RE-CHECK lease still held → compose MIME (X-E2A-Message-ID header)
-          → SMTP submit to SES → mark sent + provider_message_id + meter + email.sent
-            ALL in ONE tx guarded by WHERE lease_token=$mine → webhook → delete job (same guard)
-          (heartbeat extends the lease every ~60s during the job so a slow-but-alive
-           worker is never reclaimed mid-send)
+worker:   River claims the job (one worker, attempt N) → load message row
+          → [already terminal? no-op — idempotent re-drive]
+          → content scan → [hold → pending_review, JobCancel/no-op]
+          → ramp Reserve → [ramp-limited → river.JobSnooze(until rollover), attempt NOT burned]
+          → compose MIME (X-E2A-Message-ID header) → SMTP submit to SES
+          → ONE TX: MarkMessageSent + provider_message_id + meter + email.sent via outbox PublishTx
+          → return nil ⇒ River completes the job
+          (provider-connection error → river.JobSnooze(backoff), attempt NOT burned;
+           app/permanent error → return err ⇒ River retries per NextRetry;
+           final attempt failed → terminal-failure guard → MarkFailed + email.failed)
 
-sweeper:  re-drives leases past lease_expires_at; at max-attempts, declares failed ONLY after
-          the terminal-failure guard (no in-flight lease, no provider-accept evidence)
-          → delivery_status='failed' + email.failed → event log (outbox, same tx) → webhook
+rescue:   a crashed worker's job is re-driven by River after RescueStuckJobsAfter
+          (tuned below the SMTP envelope's headroom); re-drive is idempotent.
 
 feedback: SES → SNS → /webhooks/ses → per-recipient rollup (already built, unchanged)
 ```
 
 ## 2. Sync/async split — the line is "no network I/O before the 200"
 
-**Synchronous (all local):** auth; schema validation; recipient-policy gate (cheap DB read — disallowed recipient stays an immediate 403); template render (in-process mustache; render-before-hold ordering preserved — the reviewer still approves rendered content); suppression check; monthly-quota N-check; token-bucket debit; the persist transaction.
+**Synchronous (all local):** auth; schema validation; recipient-policy gate (cheap DB read — disallowed recipient stays an immediate 403); template render (in-process mustache; render-before-hold ordering preserved); suppression check; monthly-quota N-check; token-bucket debit; the accept transaction (persist + `InsertTx` job + idempotency `Complete`).
 
-**Asynchronous (worker):** LLM/PI content scan and the hold it may produce; sending-ramp reservation; MIME compose; SMTP submit; provider-id capture; usage metering; `email.sent` emission.
+**Asynchronous (River worker):** LLM/PI content scan and the hold it may produce; sending-ramp reservation; MIME compose; SMTP submit; provider-id capture; usage metering; `email.sent` emission.
 
-**Product consequence (decided):** holds return **200** from GA (`body.status: pending_review`, not 202 — 200 iff persisted, contract §1.5). Through GA the scan runs synchronously before the accept-tx, so the hold is known at request time and the 200 carries `pending_review`. When slice 4 (post-GA) moves scanning into the worker, the request-time response for a to-be-held send becomes 200 `accepted` with `email.pending_review` following as an event — the HTTP code stays 200 either way (no breaking flip). The recipient-policy 403 stays sync. A scan **block** now needs a durable representation (today block is rowless 403): add `blocked` to `messages.status` (or map onto the review-rejected family — decide in slice 2), emit a terminal `email.failed{reason:blocked}` (contract §1.3, so an accepted send that is never sent still reaches a terminal signal).
+**Product consequence (decided):** holds return **200** from GA (`body.status: pending_review`, not 202 — 200 iff persisted, contract §1.5). Through GA the scan runs synchronously before the accept-tx, so the hold is known at request time and the 200 carries `pending_review`. When slice 4 (post-GA) moves scanning into the worker, the request-time response for a to-be-held send becomes 200 `accepted` with `email.pending_review` following as an event — the HTTP code stays 200 either way. The recipient-policy 403 stays sync. A scan **block** needs a durable representation (today block is rowless 403): add `blocked` to `messages.status` (or map onto the review-rejected family — decide in slice 2), emit a terminal `email.failed{reason:blocked}` (contract §1.3).
 
 ## 3. Message state machine
 
-`messages.delivery_status` (contract doc §3): 
+`messages.delivery_status` (contract doc §3):
 ```
 accepted → sending → sent → delivered
                    ↘ failed            ↘ deferred → delivered/bounced
-        ↘ (scan hold: messages.status=pending_review; job removed;
-           approval re-enqueues → accepted)          ↘ bounced / complained
+        ↘ (scan hold: messages.status=pending_review; River job cancelled;
+           approval re-enqueues a new job → accepted)   ↘ bounced / complained
 ```
-Transitions: API writes `accepted`; worker lease writes `sending`; worker success writes `sent` (existing `MarkMessageSent`); sweeper max-attempts writes `failed`; the SNS consumer owns everything after `sent` (existing monotonic `delivery.Merge`, `internal/delivery/status.go` — extend precedence to include `accepted`/`sending` below `sent`). While held for review, `delivery_status` stays `accepted`; the hold lives on `messages.status='pending_review'` (contract §3.1) — the two lifecycles keep their own columns.
+Transitions: the accept-tx writes `accepted`; the worker writes `sending` when it starts real work (a plain UPDATE — no lease token, River owns exclusivity); worker success writes `sent` (existing `MarkMessageSent`); the terminal-failure branch writes `failed`; the SNS consumer owns everything after `sent` (existing monotonic `delivery.Merge`, `internal/delivery/status.go` — extend precedence to include `accepted`/`sending` below `sent`). While held for review, `delivery_status` stays `accepted`; the hold lives on `messages.status='pending_review'` (contract §3.1) — the two lifecycles keep their own columns.
 
-## 4. Queue: Postgres, no broker
+## 4. Queue: River on `QueueOutbound`
 
-Single binary + Postgres is a hard constraint (open-core self-host story). The queue is a dedicated table — do NOT put lease churn on the hot `messages` table:
+No new table, no broker, no hand-rolled lease. The outbound job is a `river_job` on the existing `QueueOutbound` lane, registered via a `jobs.Registrar` exactly like `webhookdelivery.Jobs` (#387).
 
-```sql
-CREATE TABLE IF NOT EXISTS outbound_message_queue (
-  message_id       TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
-  state            TEXT NOT NULL CHECK (state IN ('queued','leased')),
-  attempts         INT  NOT NULL DEFAULT 0,
-  max_attempts     INT  NOT NULL DEFAULT 6,
-  lease_token      UUID,               -- fencing token, rotated on every claim/takeover
-  next_attempt_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  lease_expires_at TIMESTAMPTZ,
-  last_error       TEXT,
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS idx_outbound_message_queue_ready ON outbound_message_queue (next_attempt_at) WHERE state = 'queued';
+```go
+type OutboundSendArgs struct { MessageID string `json:"message_id"` }
+func (OutboundSendArgs) Kind() string { return "outbound_send" }
 ```
 
-- **Outbox pattern:** the job row is inserted in the SAME transaction as the message row — persist and enqueue cannot diverge.
-- **Claim (mints a fresh fencing token):**
-  ```sql
-  UPDATE outbound_message_queue
-     SET state='leased', lease_token=gen_random_uuid(),
-         lease_expires_at=now()+$lease, attempts=attempts+1
-   WHERE message_id IN (
-     SELECT message_id FROM outbound_message_queue
-      WHERE state='queued' AND next_attempt_at<=now() AND attempts < max_attempts
-      ORDER BY next_attempt_at FOR UPDATE SKIP LOCKED LIMIT $k)
-  RETURNING message_id, lease_token;
-  ```
-  The `attempts < max_attempts` predicate is what stops a requeued-but-exhausted row from being re-leased forever (finding: the claim query previously had no cap, so a retryable failure that requeues could loop past `max_attempts` with only the sweeper — which sees `leased` rows only — ever declaring `failed`).
-- **Fencing token — the ownership fence (this is the fix the pre-review draft lacked).** A lease-conditional UPDATE fences *DB writes* but cannot recall an *SMTP command already in flight*, so a slow-but-alive worker whose lease expired must be prevented from corrupting the state machine after a second worker takes over. Every post-claim write — heartbeat extension, requeue-with-backoff, ramp-deferral rewrite, the mark-sent/meter/`email.sent` transaction, and the terminal DELETE — carries `WHERE message_id=$id AND lease_token=$mine` and treats **0 rows affected as "ownership lost → abort immediately, emit nothing, delete nothing."** This is exactly the fence proven Postgres queues use (graphile-worker `locked_by`, River `attempted_by`, Que/Oban advisory locks); the codebase's own `send_attempts.MarkSendSucceeded` lacks it (guards only `WHERE status='attempting'`, which the takeover worker re-sets — so the stale worker's write still lands) and slice 5 must not inherit that hole. The residual that fencing cannot remove is the in-flight SMTP submit itself (documented in §7); fencing removes all state/event corruption around it.
-- **Lease sizing + heartbeat.** Lease default **12 min** (above the ~6.5-min SMTP envelope + headroom, matching `SendAttemptStaleWindow`'s rationale — the earlier 5-min value was half the codebase's own proven window and would make sweeper takeover of *live* workers routine during SES brownouts). The worker also **heartbeats** — a fenced `UPDATE ... SET lease_expires_at=now()+$lease WHERE lease_token=$mine` every ~60s while working — so a legitimately slow job (or slice 4's LLM scan, which adds unbounded provider latency inside the lease) extends its own lease rather than being reclaimed. Heartbeat is what makes the fixed-lease-vs-slow-job tension go away; fixed-long-lease alone is the fallback.
-- **Terminal (fenced):** DELETE the job row (queue stays small; `messages.delivery_status` is the durable record). Retryable failure: fenced requeue to `queued` with backoff (mirror `internal/webhook/retry.go`'s shape — e.g. 30s/2m/10m/1h, `max_attempts` default 6; `sending_ramp_limited` gets `next_attempt_at` = ramp-day rollover and does NOT increment attempts — a ramp deferral must not burn the retry budget or a domain mid-ramp gets falsely `failed`). **Provider-connection errors** (dial timeout, connection refused, SMTP 4xx) are classified separately and use an outage-tolerant tail that does not exhaust `max_attempts` on a provider outage (see §8's circuit breaker) — the industry retry horizon is 8–72h, not the few hours a 6-attempt exponential gives; matching the webhook deliverer's deliberate 72h choice.
-- **Sweeper (fenced, with the terminal-failure guard):** reclaims `leased` rows past `lease_expires_at` by minting a new `lease_token` (crash takeover). At `attempts >= max_attempts` it declares `failed` **only after the terminal-failure guard**: it must not fire while an SMTP submit may still be in flight (the fence + heartbeat make an expired lease mean "worker is really gone," not "worker is slow") and must first check for provider-accept evidence (an SES `X-E2A-Message-ID`-tagged Send/Delivery notification) — declaring a delivered message `failed` is the uncorrectable error in §7. Sweep interval < heartbeat interval so a live worker is never mistaken for dead.
-- The `raw_message`/composed inputs needed by the worker are already on the messages row (`raw_message`, recipients, template-rendered body) — the job row carries no payload.
-- **`ON DELETE CASCADE` caveat:** two paths delete `messages` (`DeleteAgent` cascade, `DeleteExpiredMessages` TTL). Cascade silently removing a `leased` job under a live worker is benign given the fence (the worker's next fenced write finds 0 rows → aborts), but the worker MUST treat "job vanished" as abort-not-error, and the data-deletion paths must also clear any in-flight `accepted`/`sending` message (don't delete the agent out from under a sending message without cancelling it).
+The job args carry only the `message_id`; the payload (raw/rendered body, recipients, envelope) is already on the `messages` row — the worker loads it (mirrors `WebhookDeliverArgs{DeliveryID}` loading the L2 row).
+
+- **Transactional outbox enqueue (the persist↔enqueue atomicity):** the accept-tx mints `msg_id`, inserts the `messages` row (`delivery_status='accepted'`), and `enq.InsertTx`es the `OutboundSendArgs` job **in the same transaction** — persist and enqueue cannot diverge. This is the identical pattern the outbox drain uses to enqueue webhook deliveries (#387 slice 2). The idempotency `Complete` commits in this same tx (§6).
+- **Claim / lease / fencing → River, not us.** River claims each job for exactly one worker (`attempted_by`, `attempt`), leases it, and will not hand it to another worker until it is either completed, errored-and-rescheduled, or **rescued** as stuck. We do **not** implement a `lease_token`, a claim query, a heartbeat, or a sweeper. The draft's fencing token existed to stop a slow-but-alive worker whose lease expired from corrupting state after a takeover; under River that takeover can't occur within the SMTP envelope (see rescue window below), and the one app write it guarded (`MarkMessageSent`) is idempotent, so there is nothing to fence.
+- **Rescue window (replaces lease sizing + heartbeat).** River rescues a job whose worker died — a job stuck in `running` — after `RescueStuckJobsAfter`. Default is 1h, far above the ~6.5-min SMTP envelope, so a **live** long send is never reclaimed (the draft's entire heartbeat mechanism becomes unnecessary). For outbound we tune `RescueStuckJobsAfter` **down** toward the envelope + generous headroom (e.g. ~15–20 min) so a genuinely *crashed* send re-drives promptly rather than sitting for an hour — the one tunable that replaces the draft's 12-min-lease-plus-heartbeat, and it trades only crash-recovery latency, never live-worker safety. **Constraint: `RescueStuckJobsAfter` MUST stay above the worst-case single-attempt envelope** (SMTP session deadline + backoff), or River could rescue a live send and cause the double-submit the draft feared. Slice 3 pins the value with headroom and a test.
+- **Retry envelope (custom `NextRetry`).** Like `webhookdelivery`, override the worker's `NextRetry` to a decided schedule (e.g. 30s / 2m / 10m / 1h / 4h …) with `MaxAttempts` (default 6 for app/permanent errors). This replaces the draft's hand-rolled backoff.
+- **Defer without burning an attempt → `river.JobSnooze`.** Two cases the draft handled with "does not increment attempts" map exactly onto `JobSnooze`, which reschedules the job **without** counting the attempt:
+  - **`sending_ramp_limited`:** `river.JobSnooze(untilRampRollover)` — a ramp deferral must not burn the retry budget or a domain mid-ramp gets falsely `failed`.
+  - **Provider-connection errors** (dial timeout, connection refused, SMTP 4xx) during an SES/SNS outage: `river.JobSnooze(outageBackoff)` — the outage defers rather than fails, giving the 8–72h industry retry horizon without exhausting `MaxAttempts`. This is the §8 circuit breaker's core mechanism, now free.
+- **Terminal-failure guard (app logic, stays).** On the **final** attempt (`job.Attempt >= MaxAttempts`) with a failed send, before writing terminal `failed` + `email.failed{retryable:false}`, the worker MUST first check for provider-accept evidence (an SES `X-E2A-Message-ID`-tagged Send/Delivery notification) — declaring a delivered message `failed` is the uncorrectable error (§7). This is the same shape as `webhookdelivery`'s last-attempt branch, plus the provider-evidence check. `delivery.Merge` gets an explicit **exception: header-matched provider `sent`/`delivered` feedback overrides a local `failed`** (else a falsely-declared terminal `failed` is uncorrectable).
+- **Terminal success/complete.** On success the worker returns `nil` and River marks the job `completed`; River prunes completed jobs on its own schedule (no manual DELETE). The durable record is `messages.delivery_status`, not the job.
+- **`ON DELETE CASCADE` caveat is gone** for the queue (there is no FK'd queue row). But the two `messages`-deletion paths (`DeleteAgent` cascade, `DeleteExpiredMessages` TTL) must still **cancel any in-flight `accepted`/`sending` message's River job** (best-effort `JobCancel` / tolerate the worker's idempotent no-op when it finds the message gone) — don't delete the agent out from under a sending message.
 
 ## 5. Worker
 
-- Goroutine pool inside the existing binary (no new deployable), size configurable (`outbound.workers`, default ~8). Poll + claim batch; optional `LISTEN/NOTIFY` on insert to cut poll latency (also powers `wait=sent`).
-- Per job: content scan → hold/block/allow (reuses `screenOutbound` minus the recipient gate already done sync) → `rampGate.Reserve` → **re-check the lease is still held** (cheap fenced SELECT; shrinks the exposure to just lease-check→submit) → send via existing `sender.Send` → then **one fenced transaction** (`WHERE lease_token=$mine`): `MarkMessageSent` + provider id + meter (`recordOutboundUsage` moves here, post-success, fixing the bill-before-persist bug) + `email.sent` via outbox `PublishTx` → delete job (fenced). Bundling mark-sent + meter + event + (logically) the delete into one guarded tx is what makes crash-matrix row 5 a clean no-op instead of a re-scan/re-reserve/re-send. Residual: a crash between SMTP-accept and that tx yields a sent-but-unbilled, un-marked message — rare, customer-favoring for billing, reconcilable for status via the wire header.
-- **Durable outcome events:** `email.sent` (and the sweeper's `email.failed`) are emitted via the webhook outbox `PublishTx` in the same transaction as the mark-sent/mark-failed write — not the fire-and-forget legacy `go publisher.Publish(...)` goroutine. The durable event tail is **mandatory** whenever `outbound.mode=async` (§10 makes the outbox non-optional in that mode, not a separate flag to forget), because these events are the only push signal that an async send died — an async server whose failure events ride a fire-and-forget goroutine does not meet the guarantee.
-- **SES-accept vs mark-sent window (the one true residual):** stamp `X-E2A-Message-ID: <msg_id>` on the outgoing MIME (`internal/outbound/compose.go` currently omits any e2a id). If a crash or lease-loss lands between SMTP accept and the fenced mark-sent tx, the re-drive MAY duplicate — this is at-least-once's irreducible residual (an accepted SMTP command cannot be recalled). **What the earlier draft got wrong:** it claimed "everything else becomes exactly-once" and that a live-but-slow worker "must not double-claim thanks to the lease UPDATE guard." False — before the fence + heartbeat, a slow (uncrashed) worker whose lease expired mid-`Send` and a takeover worker would BOTH submit, with no crash, and the stale worker's unguarded tail would then corrupt the taken-over job. The fence + heartbeat close the state/event corruption; the double-submit during a genuine over-lease stall collapses into this same residual, and the SNS feedback (now header-tagged) makes it detectable. See §7 for the honest matrix.
-- Graceful shutdown: stop claiming, then **wait for in-flight sends up to the shutdown budget**; anything still in flight when the budget expires dies into the SES-accept↔mark-sent residual and is re-driven on restart (deploys are the common trigger for this row — size the shutdown drain against the SMTP envelope, and prefer heartbeat-extended leases so a mid-send deploy re-drives rather than double-sends where possible).
-- **Ordering:** no FIFO guarantee, including within a conversation — document it. (If per-conversation ordering ever matters, add `ORDER BY created_at` + a per-conversation advisory lock later; not v1.)
+A River `Worker[OutboundSendArgs]` registered on `QueueOutbound` (concurrency via the queue's `MaxWorkers`, config `outbound.workers`, default ~8). No goroutine pool of our own, no poll loop — River's client owns fetching and `LISTEN/NOTIFY` wake-up.
+
+`Work(ctx, job)`:
+1. **Load** the `messages` row by `job.Args.MessageID`. Gone (cascade/TTL) → return `nil` (idempotent no-op). Already `sent`/terminal → return `nil` (idempotent re-drive after a crash post-mark-sent).
+2. **Content scan** → hold/block/allow (reuses `screenOutbound` minus the recipient gate already done sync). Hold → set `messages.status='pending_review'` and `river.JobCancel` (approval later enqueues a fresh job — §6). Block → terminal `email.failed{reason:blocked}` (contract §1.3). *(At GA the scan is sync pre-accept, so this step is a no-op until slice 4 moves it here.)*
+3. **`rampGate.Reserve`** → ramp-limited → `river.JobSnooze(untilRampRollover)` (attempt not burned).
+4. **Compose** MIME with the `X-E2A-Message-ID: <msg_id>` header (`internal/outbound/compose.go` currently omits any e2a id — add it; it is what makes the SES-accept↔mark-sent residual reconcilable).
+5. **SMTP submit** via existing `sender.Send`.
+6. **On success — one transaction:** `MarkMessageSent` + `provider_message_id` + meter (`recordOutboundUsage` moves here, post-success, fixing the bill-before-persist bug) + `email.sent` via the webhook outbox `PublishTx`. Return `nil` ⇒ River completes the job. Bundling mark-sent + meter + event into one tx makes crash-matrix row 6 a clean idempotent no-op on re-drive. **No fencing `WHERE lease_token` guard is needed** — River guarantees single-worker ownership within the (large) rescue window, and `MarkMessageSent` is idempotent.
+7. **On retryable app / permanent-provider failure:** return an error ⇒ River retries per `NextRetry` (counts the attempt). **On provider-connection/outage error:** `river.JobSnooze(backoff)` (does not count). **On the final attempt failed:** run the terminal-failure guard (§4), then `MarkFailed` + `email.failed` via outbox `PublishTx`, and return the error so River discards.
+- **Durable outcome events:** `email.sent` / `email.failed` are emitted via the webhook outbox `PublishTx` in the **same transaction** as the mark-sent/mark-failed write — never the fire-and-forget legacy publisher (which #387 deleted anyway). The outbox drain then fans them out + enqueues webhook delivery jobs at-least-once. Mandatory whenever `outbound.mode=async` (§10).
+- **SES-accept vs mark-sent window (the one true residual):** if a crash lands between SMTP accept and the mark-sent tx, the River re-drive MAY duplicate — at-least-once's irreducible residual (an accepted SMTP command cannot be recalled). The `X-E2A-Message-ID` header makes it detectable via SNS. **This is now the *only* duplicate window** — River's rescue-window-above-envelope invariant removes the draft's slow-worker-takeover duplicate (row 4) entirely.
+- **Graceful shutdown:** `jobsClient.Stop(shutdownCtx)` drains in-flight jobs up to the shutdown budget (the pattern #387 already uses). Anything still sending when the budget expires dies into the SES-accept↔mark-sent residual and is re-driven on restart — size the shutdown budget against the SMTP envelope.
+- **Ordering:** no FIFO guarantee, including within a conversation — document it (River is not ordered; add per-conversation sequencing later only if it ever matters).
 
 ## 6. Unification wins
 
-- **Approve path collapses onto the queue.** Today `ApproveAndSend` has its own WAL (`send_attempts`, migration 015) and re-drive (`hitlworker`). Post-migration: approve = transition message back to `accepted` + insert job. `send_attempts` machinery is retired after the transition (keep the table; stop writing).
-- **`wait=sent`** = subscribe to job completion (NOTIFY or short-poll the row) with ~10s timeout, then return current state. CLI `send` uses it by default (frozen exit-code contract).
-- **Batch send** becomes: sync-validate all items → persist N message+job rows in ONE tx → 200 with N `accepted` items + `batch_id`. One batch idempotency key over one atomic insert suffices (the resumable per-item `{key}#{index}` design from the earlier batch plan is superseded). Crashed batch = jobs the sweeper finishes; no intent journal needed.
-- **Idempotency simplifies:** with persist-first, "same key + same body → same `message_id`, never a second send" becomes strictly true — the key's `Complete` commits **inside the same transaction as whichever durable acceptance point fires**, before any side effect. That is the accept-tx for allowed sends AND `HoldForApprovalCore`'s insert for review-held sends (`internal/agent/api.go:1230-1243`): a held send never reaches the accept-tx, so if `Complete` only committed there, a crash after the hold row commits but before `Complete` would let a same-key retry re-screen and hold *again* — two `pending_review` rows, two owner-notification emails, and two real sends if the reviewer approves both. Slice 2 must commit `Complete` in the hold tx too (caching the 200 `pending_review` response), not only the accept tx. ("adjacent" is never enough — crash-matrix row 2 depends on same-tx.) The dead `markSideEffectCommitted` code gets deleted. (Contract §5.1 carries the caller-facing scope/TTL caveats.)
+- **Approve path collapses onto River.** Today `ApproveAndSend` has its own WAL (`send_attempts`, migration 015) and re-drive (`hitlworker`). Post-migration: approve = transition the message back to `accepted` + `InsertTx` an `OutboundSendArgs` job. `send_attempts` machinery is retired after the transition (keep the table; stop writing). This is the same "one queue, one worker" collapse the webhook migration did to `SubscriberRetryWorker`.
+- **`wait=sent`** = after the accept-tx, poll the `messages.delivery_status` (or subscribe via `LISTEN/NOTIFY` on the row) up to the ~10s/≤20s ceiling, then return current state. Reads the message row, not River internals (River job state is an implementation detail; `delivery_status` is the contract surface). CLI `send` uses it by default (frozen exit-code contract).
+- **Batch send** becomes: sync-validate all items → in ONE tx, persist N message rows + `InsertTx` N jobs + one batch idempotency `Complete` → 200 with N `accepted` items + `batch_id`. Crashed batch = jobs River drives to completion; no intent journal.
+- **Idempotency simplifies:** with persist-first, "same key + same body → same `message_id`, never a second send" becomes strictly true — the key's `Complete` commits **inside the same transaction as whichever durable acceptance point fires** (the accept-tx for allowed sends AND `HoldForApprovalCore`'s hold insert for review-held sends, `internal/agent/api.go:1230-1243`; a held send never reaches the accept-tx, so slice 2 must commit `Complete` in the hold tx too, caching the 200 `pending_review`). The dead `markSideEffectCommitted` code gets deleted. (Contract §5.1 carries the caller-facing scope/TTL caveats.)
 
-## 7. Crash matrix (target)
+## 7. Crash matrix (target, on River)
 
-Exactly-once holds for every row **except** the SMTP-accept↔mark-sent window, which is at-least-once by nature (an accepted SMTP command cannot be recalled). The fence + heartbeat are what keep the other rows exactly-once; without them, slow-worker takeover (row 4) also duplicates.
+Exactly-once holds for every row **except** the SMTP-accept↔mark-sent window, which is at-least-once by nature. **River's rescue-window-above-envelope invariant removes the draft's slow-worker-takeover row entirely** (a live worker is never reclaimed within the send envelope), so there is no fencing token to reason about — only River's single-worker claim + idempotent re-drive.
 
 | Crash / fault point | Outcome |
 |---|---|
 | Before accept-tx commit | Nothing durable; caller got no 200; retry safe (idempotency key replays nothing) |
-| After commit, before 200 reaches caller | Row + job exist; worker sends anyway; caller's same-key retry replays `accepted` + same msg_id — exactly-once |
-| Worker crash before SMTP submit | Lease expires → sweeper re-drives; fence stops the dead worker corrupting the row — exactly-once |
-| **Worker slow (not crashed) past lease, mid-`Send`** | Sweeper takeover worker submits; original may also submit → **duplicate (at-least-once residual)**. Heartbeat makes this rare (a live worker extends its lease); the fence prevents the stale worker's tail from corrupting state/events. This row was wrongly labelled "must not double-claim" pre-review. |
-| Crash/lease-loss after SMTP accept, before mark-sent tx | Re-drive may duplicate (the irreducible residual); wire header makes it reconcilable. Common trigger: a deploy whose shutdown budget expires mid-send. |
-| **Crash after SES-accept on the FINAL attempt** | Without the guard: sweeper sees expired lease at `max_attempts` → declares `failed` + `email.failed{retryable:false}` for a message SES *accepted and will deliver* — and `delivery.Merge` ranks `failed` above `delivered`, so SNS feedback can never correct it (caller told it failed → re-sends → guaranteed duplicate). **With the terminal-failure guard: the sweeper checks for header-tagged provider-accept evidence before declaring `failed`, and `delivery.Merge` gets an explicit exception letting header-matched `sent`/`delivered` feedback override a local `failed`.** |
-| Crash after mark-sent tx | Job re-drive finds 0 rows on its fenced claim / sees terminal state → no-op; `email.sent` already committed in the mark-sent tx (deterministic id, `ON CONFLICT DO NOTHING` on re-emit) |
+| After accept-tx commit, before 200 reaches caller | `messages` row + River job exist; the worker sends; caller's same-key retry replays `accepted` + same `msg_id` — exactly-once |
+| Worker crash before SMTP submit | River rescues the stuck job (after `RescueStuckJobsAfter`) → re-run; message not sent, so re-run is clean — exactly-once (latency = rescue window) |
+| ~~Worker slow (not crashed) past lease, mid-`Send`~~ | **Eliminated by River.** `RescueStuckJobsAfter` >> single-attempt envelope, so a live send is never reclaimed; there is no second worker to double-submit. (This was the draft's load-bearing residual + the reason for lease_token + heartbeat.) |
+| Crash after SMTP accept, before mark-sent tx | River re-drives → MAY duplicate (the irreducible residual); `X-E2A-Message-ID` makes it reconcilable via SNS. Common trigger: a deploy whose shutdown budget expires mid-send. |
+| Crash after SES-accept on the FINAL attempt | Without the guard: the terminal branch declares `failed` + `email.failed{retryable:false}` for a message SES accepted, and `delivery.Merge` ranks `failed` above `delivered` → uncorrectable. **With the terminal-failure guard: check header-tagged provider-accept evidence before declaring `failed`, and the `delivery.Merge` exception lets header-matched `sent`/`delivered` override a local `failed`.** |
+| Crash after mark-sent tx (before River marks the job complete) | River re-drives → worker loads the message → sees `delivery_status='sent'`/terminal → no-op; `email.sent` already committed (deterministic id, `ON CONFLICT DO NOTHING` on re-emit) |
 
 ## 8. Backpressure & limits
 
-Quota N-check and token-bucket debit happen at accept time, so the queue is bounded per agent by the same budgets as today (accepting ≠ bypassing limits). Ramp throttling no longer fails requests — it reschedules jobs to the ramp-day rollover. A terminally-`failed` message has already consumed quota + a token at accept: decided, no automatic refund in v1 (document it; revisit if permanent-failure rates ever matter).
+Quota N-check and token-bucket debit happen at accept time, so the queue is bounded per agent by the same budgets as today (accepting ≠ bypassing limits). Ramp throttling no longer fails requests — it `JobSnooze`s to the ramp-day rollover. A terminally-`failed` message has already consumed quota + a token at accept: decided, no automatic refund in v1 (document it).
 
-**SES-outage circuit breaker (required before slice 3).** A multi-hour regional SES/SNS incident must not exhaust every queued message's `max_attempts` and mass-fire false `email.failed{retryable:false}` webhooks — the guarantee would be honored to the letter while the practical outcome is an irreversible mass-failure event. Three mitigations: (1) **error classification** — provider-connection errors (dial timeout, connection refused, SMTP 4xx) use the outage-tolerant tail from §4 and do not count toward `max_attempts`, so an outage defers rather than fails; (2) an operator **pause switch** (`outbound.paused` via config/SIGHUP) that stops claiming without stopping the binary — under the single-binary constraint this is the only brake an operator has; (3) an **admin re-queue path** for terminally-`failed` outbound messages (re-insert a job row), mirroring the inbound parked-row re-drive — a runbook entry at minimum. The backoff schedule and `max_attempts` are **decided values, not `e.g.`**, before slice 3 ships.
+**SES-outage circuit breaker — mostly free under River.** A multi-hour regional SES/SNS incident must not exhaust every job's `MaxAttempts` and mass-fire false `email.failed{retryable:false}`. Three mitigations:
+1. **Error classification → `JobSnooze`** (§4): provider-connection errors snooze without counting attempts, so an outage defers rather than fails. This replaces the draft's separate "outage-tolerant tail."
+2. **Operator pause → `river.QueuePause(ctx, jobs.QueueOutbound)`** (native): stops the outbound workers claiming without stopping the binary or the other lanes; `QueueResume` to lift it. This replaces the draft's hand-rolled `outbound.paused` config/SIGHUP switch — River gives it for free and it's observable in River's queue state.
+3. **Admin re-queue** for terminally-`failed` messages = `InsertTx` a fresh `OutboundSendArgs` job (a runbook path / small admin endpoint).
 
-**Per-tenant fairness.** Accept-time budgets bound queue *growth* per agent but not *contention*: one tenant blasting batch sends (slice 6 inserts up to 100 jobs/tx) fills the head of the global `next_attempt_at` ordering and starves every other tenant behind a fixed ~8-worker drain. The claim query should select round-robin/fairly across `agent_id` (e.g. a windowed claim, or a per-agent in-flight cap in the claim predicate) rather than pure global `next_attempt_at` — otherwise a single tenant monopolizes the pool. Decide the exact mechanism in slice 3; do not ship a pure-FIFO global claim.
+**Per-tenant fairness — the one thing River does not give for free (OPEN, decide in slice 3).** Accept-time budgets bound queue *growth* per agent but not *contention*: one tenant's 100-job batch fills the head of `QueueOutbound` and starves others behind a fixed ~8-worker drain. River fetches roughly FIFO-with-priority per queue, not per-tenant-fair. Options, in preference order: (a) **accept-time per-agent in-flight cap** — bound how many `accepted`/`sending` jobs an agent may have outstanding, rejecting/deferring at accept (bounds contention at the source, fully River-compatible, simplest); (b) River **priority** or **multiple sub-queues** by tenant class (coarse); (c) a custom fetch/claim shim (defeats the "let River own claiming" win — avoid). **Requirement fixed: no pure-FIFO global drain.** Recommendation: (a).
 
-**Observability (the metrics list must distinguish the failure modes it exists to catch).** Queue-depth + oldest-job-age alone cannot tell a dead worker pool from a slow provider from a poison-message loop — all three look like rising age. Emit at minimum: claim/complete **throughput**; **lease-takeover (sweeper re-drive) rate** (a rising rate is the double-send precursor — workers crashing or overrunning leases); **`email.failed` rate** (SES-outage early-warning); **heartbeat-extension rate**; outbox **drain lag** (`webhook_events` unclaimed age); parked-row count + age (inbound). `telemetry.NewLog()` is the default backend, but the alert thresholds (not just the metrics) are specified in the e2a-ops runbook. Optional global max-depth guard returning 503 `queue_full` (config, default off).
+**Observability.** River exposes queue depth, running/available/retryable/discarded counts, and rescue counts per queue — most of the draft's metrics list comes from River's own tables. App-level, still emit: **`email.failed` rate** (SES-outage early-warning), **`JobSnooze` rate** on `QueueOutbound` (outage/ramp-defer signal — the River analog of the draft's lease-takeover-rate precursor), and outbox **drain lag**. Alert thresholds live in the e2a-ops runbook. Optional accept-time global max-depth guard returning 503 `queue_full` (config, default off).
 
 ## 9. Inbound lane
 
@@ -152,90 +162,73 @@ Quota N-check and token-bucket debit happen at accept time, so the queue is boun
 ```
 MX/SMTP → RCPT gates (550 unknown recipient / 552 quota) → DATA:
   SPF/DKIM/DMARC → screen (incl. LLM scan — network I/O inside the open SMTP session)
-  → persist messages row [+ events same-tx when outbox on] → fan-out → ALWAYS reply 250
+  → persist messages row [+ events same-tx via outbox] → fan-out → ALWAYS reply 250
 ```
 Three gaps, mirroring outbound's send-then-persist disease:
 
-1. **250-before-durable.** `Data()` replies 250 regardless of persist failure — a `CreateInboundMessage` error is logged and dropped (the code documents this itself at `server.go:576-583`: "the upstream MTA gets SMTP 250 OK and will NOT retry… tracked separately"). A DB hiccup = acknowledged-and-lost mail. SMTP is the one protocol where durable retry is free (senders retry a 451 for days); the lever exists and is unused.
-2. **No dedupe under MTA retry.** The `msg_` id is minted randomly per delivery attempt (`server.go:312`) and there is no unique index on the stored RFC `Message-ID` — so the moment gap 1 is fixed and MTAs start retrying, each retry would create a duplicate message row + duplicate events (the "deterministic" event ids are keyed to the per-attempt random id, so they do not dedupe retries either, contra the comment at `server.go:480-483`). Gaps 1 and 2 must ship together.
-3. **Fire-and-forget event enqueue** in legacy mode — closed by the same `WEBHOOKS_OUTBOX_ENABLED` flip as outbound (the relay's outbox branch, message + all events in one tx, is already the best-built in the codebase).
+1. **250-before-durable.** `Data()` replies 250 regardless of persist failure — a `CreateInboundMessage` error is logged and dropped. A DB hiccup = acknowledged-and-lost mail. SMTP is the one protocol where durable retry is free (senders retry a 451 for days); the lever exists and is unused.
+2. **No dedupe under MTA retry.** The `msg_` id is minted randomly per delivery attempt and there is no unique index on the stored RFC `Message-ID` — so the moment gap 1 is fixed and MTAs start retrying, each retry creates a duplicate row + duplicate events. Gaps 1 and 2 must ship together.
+3. **Fire-and-forget event enqueue in legacy mode** — already closed on main: the outbox is unconditional after #387, and the relay writes the message + all events + River webhook-delivery enqueue in one tx. *(This gap is retired; keep the note for history.)*
 
-**Pre-GA minimal fix (slice I1 — the guarantee, not the architecture):**
-- Propagate persist failure up through `deliverMessages` to `Data()` → reply **451** (transient; sender owns the retry). RCPT-time gates are unchanged — they already reject before accepting responsibility.
-- **Content-aware, retry-horizon-bounded dedupe — NOT Message-ID alone.** The naive "`(agent_id, email_message_id)` unique index, reuse the row on conflict" is unsafe: Message-ID equality does not imply message identity. Real senders reuse Message-IDs across distinct messages (buggy ticketing/notification systems, some listservs, MTA forwards that preserve the original id), so the second, *different* message would hit the conflict, get "reused" onto the old row, and e2a would reply 250 having never persisted the new content — a silent drop with a success ACK, the exact thing the inbound guarantee forbids. Message-ID is also **attacker-controlled**: pre-sending junk with a guessed Message-ID becomes a mail-suppression primitive against an agent. Instead: dedupe key = `(agent_id, email_message_id, body_hash)` where `body_hash` is a digest of the raw message; on conflict reuse the row (a true MTA retry carries byte-identical content, so it matches), otherwise **insert a new row** — a genuinely different message with a colliding Message-ID is kept, not dropped. Scope the key to the **MTA retry horizon** (RFC 5321 §4.5.4: senders give up after ~4–5 days), e.g. bucket by received-week or ignore/purge index entries older than ~7 days, so the dedupe window matches what it exists to catch rather than deduping forever. **No-Message-ID messages** (RFC-legal, common in spam) fall outside a Message-ID-only index — dedupe them on `(agent_id, body_hash)` (or accept duplicates and say so); the design must state this rather than leave it implicit.
-- The outbox flag flip (shared with outbound slice 3).
+**Pre-GA minimal fix (slice I1 — the guarantee, not the architecture; engine-agnostic, no River):**
+- Propagate persist failure up through `deliverMessages` to `Data()` → reply **451** (transient; sender owns the retry). RCPT-time gates unchanged.
+- **Content-aware, retry-horizon-bounded dedupe — NOT Message-ID alone.** Message-ID equality does not imply message identity (buggy senders reuse ids; forwards preserve them) and Message-ID is attacker-controlled (a guessed id becomes a mail-suppression primitive). Dedupe key = `(agent_id, email_message_id, body_hash)` where `body_hash` digests the raw message; on conflict reuse the row (a true MTA retry is byte-identical), otherwise **insert a new row**. Scope the key to the MTA retry horizon (~7 days). No-Message-ID messages dedupe on `(agent_id, body_hash)`.
 
-**Target (slice I2, post-GA): `inbound_message_queue` + parse worker.** Same shape as `outbound_message_queue` with the payload inline (raw blob + envelope + connection metadata — client IP and HELO must be captured at DATA time, SPF cannot be recomputed later):
+**Target (slice I2, post-GA): River `QueueInbound` + parse worker.** The same swap as outbound — replace the draft's hand-rolled `inbound_message_queue` table with a River job whose args carry the raw payload (it is not on a `messages` row yet at DATA time):
 
-```sql
-CREATE TABLE IF NOT EXISTS inbound_message_queue (
-  id               TEXT PRIMARY KEY,            -- minted once ⇒ dedupe is internal
-  raw_message      BYTEA NOT NULL,
-  body_hash        BYTEA NOT NULL,              -- digest for retry-horizon dedupe (§ dedupe above)
-  mail_from        TEXT NOT NULL,
-  rcpt_to          TEXT[] NOT NULL,
-  client_ip        INET,
-  helo             TEXT,
-  state            TEXT NOT NULL CHECK (state IN ('queued','leased','parked','dropped')),
-  lease_token      UUID,                        -- same fencing discipline as outbound
-  attempts         INT  NOT NULL DEFAULT 0,
-  max_attempts     INT  NOT NULL DEFAULT 6,
-  next_attempt_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  lease_expires_at TIMESTAMPTZ,
-  last_error       TEXT,
-  received_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+```go
+type InboundParseArgs struct {
+  RawMessage []byte   `json:"raw_message"`
+  BodyHash   []byte   `json:"body_hash"`   // retry-horizon dedupe (I1)
+  MailFrom   string   `json:"mail_from"`
+  RcptTo     []string `json:"rcpt_to"`
+  ClientIP   string   `json:"client_ip"`   // captured at DATA time; SPF cannot be recomputed later
+  Helo       string   `json:"helo"`
+}
+func (InboundParseArgs) Kind() string { return "inbound_parse" }
 ```
-The parse worker uses the same fencing-token discipline as the outbound worker (§4) — every post-claim write carries `WHERE lease_token=$mine`. `dropped`/`parked` are the terminal states below.
-
-- **DATA handler shrinks to:** read body → one-tx insert of the queue row → 250. Fast ACK; the LLM scan leaves the SMTP session entirely.
-- **Parse worker:** claim (SKIP LOCKED + lease, same idiom) → SPF/DKIM/DMARC verdict from stored connection metadata → parse headers/threading → screening incl. LLM scan → per-recipient-agent `messages` rows + events (`email.received` / `pending_review` / `blocked` / `flagged`) in one outbox tx → best-effort WS live-tail → delete queue row. One queue row per SMTP message; per-recipient fan-out happens in the worker's tx (matches today's `deliverMessages` loop).
-- **Terminal dispositions — split `parked` (retriable) from `dropped` (terminal).** After 250 we own the message, so nothing bounces; but not every terminal is the same:
-  - `parked` = **retriable-after-fix**: a poison message (MIME that breaks the parser, pathological encoding) or a persistent infra/constraint bug. Retry never helps until code changes, so it waits with an alert and is re-driven after the fix. This is what parking is *for*.
-  - `dropped` = **truly terminal, do NOT retry**: the recipient agent/domain was deleted or offboarded between the 250 and the parse (RCPT-validated at SMTP time, gone by parse time). There is nothing to fix and re-driving is categorically wrong — record a terminal disposition + audit row (and, if the account still exists, an `email.blocked`-style signal), do not park. Conflating this with `parked` sends an operator to investigate a message that will never be deliverable.
-- **Data-deletion sweep.** A `parked`/queued row holds the full raw message — potentially a deleted user's mail. The user-data-rights deletion path (`internal/identity/user_data_rights.go`) MUST sweep `inbound_message_queue` too, or offboarded-user messages sit in the queue holding data we are obligated to delete.
-- **Parked-row alerting is first-class, not just event-time.** A parked row that is a week old must re-alert (a count+age metric with a threshold), not fire once into a channel and go quiet — parked-forever is the new failure surface I2 introduces.
+- **DATA handler shrinks to:** read body → `InsertTx` the parse job (dedupe on `(agent_id, body_hash)` via `InsertOpts.UniqueOpts` or an app pre-check) → 250. The LLM scan leaves the SMTP session entirely.
+- **Parse worker:** claim (River) → SPF/DKIM/DMARC from the stored connection metadata → parse/thread → screening incl. LLM scan → per-recipient-agent `messages` rows + events (`email.received`/`pending_review`/`blocked`/`flagged`) in one outbox tx → best-effort WS live-tail → return `nil`.
+- **Terminal dispositions.** River's states cover most of the draft's `parked`/`dropped` split: a **poison message** (parser-breaking MIME) → return an error until `MaxAttempts`, then River **discards** it — plus an alert (River's discarded-job count is the "parked, needs a code fix" signal). A **recipient deleted between the 250 and parse** → `river.JobCancel` (truly terminal, do-not-retry) + a terminal audit row. Discarded (poison, retry-after-fix) vs cancelled (gone, never retry) preserves the draft's distinction on River primitives.
+- **Data-deletion sweep.** A River job for an offboarded user holds their raw mail in `river_job.args`. The user-data-rights deletion path MUST cancel/delete that account's pending `inbound_parse` jobs too.
+- **Alerting** on discarded/old inbound jobs is first-class (a count+age threshold on River's inbound-queue state).
 
 ## 10. Rollout slices (each a reviewable PR; outbound 1–3 + inbound I1 pre-GA, rest post-GA)
 
-1. **Contract + fixes (pre-GA)** — everything in `async-send-contract.md` (enum/param/events/spec regen; unswallow insert error; meter-after-persist).
-2. **Persist-first, still inline (pre-GA)** — migration for `outbound_message_queue` (incl. `lease_token`, `max_attempts`) + reorder DeliverOutbound: accept-tx first, with idempotency `Complete` committing in the same tx as the durable acceptance point (**both** the accept-tx and `HoldForApprovalCore`'s hold insert — §6), then execute the job *inline in the request* via the worker code path. **Includes the minimal sweeper AND the fencing discipline** — the lease token + fenced writes are defined here, not deferred to slice 3, because the inline-executing request IS a concurrent worker the moment the sweeper exists (a slow inline request past its lease + a sweeper re-drive is the same double-send this slice must prevent). **Responses are NOT "identical to today":** once the accept-tx commits, at-least-once obligates delivery, so a transient SES failure or ramp-throttle can no longer return today's 500/throttle — the message *will* send via re-drive, and returning 500 would make the caller retry into a duplicate. Inline transient failures return **200 `accepted`** (the send is now the queue's job); only pre-accept-tx failures stay synchronous errors. This is the one behavior change slice 2 introduces, and it is the correct one.
-3. **Worker pool + async default (pre-GA — GA freezes on this slice as the default path)** — pool, heartbeat + lease sizing, error-classified backoff, SES circuit breaker + pause switch, per-tenant-fair claim, terminal-failure guard, `email.failed`, `wait=sent`, `LISTEN/NOTIFY`, config flag `outbound.mode: sync|async` (sync = slice-2 behavior, kept one release as escape hatch). **The durable event tail is not a separate flag in async mode:** `outbound.mode=async` *implies* the outbox is the event path (validate at startup and refuse `async` + legacy-publisher config), so a self-hoster cannot run async with `WEBHOOKS_OUTBOX_ENABLED` off and silently lose failure events. The self-host default is `outbound.mode=sync` until they opt in, and opting into async turns the outbox on with it.
-4. **Async scan + hold/block states** — move screening into the worker; `blocked` status decision (reserve it in the vocabularies now, contract §3.1); the block/reject/expiry **terminal signal** (contract §1.3 — these must emit `email.failed`-with-reason so an `accepted` send that is never sent still reaches a terminal push, not rest at `accepted` forever); digest/event wiring.
-5. **Approve-path unification** — approve = re-enqueue; retire `send_attempts` writes; delete `markSideEffectCommitted`. **Until this lands, the GA approve path still publishes outcomes via the legacy fire-and-forget publisher (`hitlworker`) — contract §4.5's durability claim does not yet hold for approved-hold sends.** Either pull the approve-path outcome events onto the outbox in slice 3, or scope §4.5 explicitly to direct sends at GA and note approved-hold events as best-effort until slice 5.
-6. **Batch endpoint** — per the batch plan, now trivial on top (atomic insert-N). Note the per-tenant-fairness interaction (§8): a 100-job batch tx must not starve the pool.
+1. **Contract + honesty fixes (pre-GA)** — everything in `async-send-contract.md` (enum/param/events/spec regen; §7 unswallow the insert error; meter-after-persist). Engine-agnostic; salvageable from the old `claude/async-send-slice-1` slice-1 commit.
+2. **Persist-first on River (pre-GA)** — register `outbound.Jobs` as a `jobs.Registrar` (`OutboundSendArgs` worker on `QueueOutbound`); reorder `DeliverOutbound` to the accept-tx (persist `messages` row + `InsertTx` job + idempotency `Complete` in the same tx — **both** the accept-tx and `HoldForApprovalCore`'s hold insert, §6). The worker code path is the send logic. Because River makes async natural, this slice can **be async** with `wait=sent` as the sync-compat bridge (the pre-River draft split this into "inline slice 2" + "async slice 3" only because a hand-rolled queue made inline the smaller step; on River there is no such asymmetry). Includes the custom `NextRetry`, `JobSnooze` for ramp/provider deferrals, and the terminal-failure guard. **Behavior change (correct):** once the accept-tx commits, a transient SES failure returns **200 `accepted`** (the send is River's job now), not today's 500 — returning 500 would make the caller retry into a duplicate. Only pre-accept-tx failures stay synchronous errors.
+3. **Async default + operational hardening (pre-GA — GA freezes on this as the default path)** — `RescueStuckJobsAfter` tuned + tested against the SMTP envelope; error-classified `JobSnooze` backoff; `river.QueuePause` pause switch + admin re-queue; **per-tenant-fair accept-time in-flight cap (§8, the one real design decision)**; `email.failed`; `LISTEN/NOTIFY`-backed `wait=sent`; config `outbound.mode: sync|async` (sync = pre-slice-2 behavior, kept one release as an escape hatch). **The durable outbox is not a separate flag in async mode:** it is unconditional on main after #387, so `outbound.mode=async` simply relies on it; validate at startup that the outbox path is present.
+4. **Async scan + hold/block states (post-GA)** — move screening into the worker; the `blocked` status decision (reserve it in the vocabularies now, contract §3.1); the block/reject/expiry **terminal signal** (`email.failed`-with-reason, contract §1.3).
+5. **Approve-path unification (post-GA)** — approve = re-enqueue an `OutboundSendArgs` job; retire `send_attempts` writes; delete `markSideEffectCommitted`. Until this lands, scope contract §4.5's durability to direct sends and note approved-hold events as best-effort (or pull them onto the outbox earlier).
+6. **Batch endpoint (post-GA)** — atomic insert-N + `InsertTx` N jobs; honor the §8 per-tenant cap so a 100-job batch can't starve the pool.
 
-**Migration safety (all slices, per CLAUDE.md).** The I1 dedupe index and any index on the prod-sized `messages` table use `CREATE INDEX CONCURRENTLY` (a plain `CREATE UNIQUE INDEX` takes a write-blocking lock for the build, and migrations auto-apply at binary startup — a long build stalls the deploy and blocks inbound persistence). Preclear duplicates before adding a unique index, and give `email_message_id`/`body_hash` explicit non-null defaults so the index is well-defined on existing rows. Every package writing `outbound_message_queue`/`inbound_message_queue`/new `messages` columns gets DB-backed tests.
+**Migration safety (per CLAUDE.md).** No `outbound_message_queue`/`inbound_message_queue` tables to add (River's `river_job` already exists on main via #386). The I1 inbound dedupe index on the prod-sized `messages` table uses `CREATE INDEX CONCURRENTLY` with the `e2a:no-transaction` directive (the pattern #387's migration 052 established); preclear duplicates first and give `email_message_id`/`body_hash` non-null defaults. Every package writing new `messages` columns gets DB-backed tests.
 
 Inbound slices (independent track, small):
-
-- **I1. Inbound guarantee (pre-GA)** — 451 on persist failure + `(agent_id, email_message_id)` dedupe index + conflict-reuse (§9). ~a day of work; closes the silent-loss bug without building the queue.
-- **I2. `inbound_message_queue` + parse worker (post-GA)** — the DATA-handler shrink and async parse/scan per §9. Internal refactor, no contract surface.
+- **I1. Inbound guarantee (pre-GA)** — 451 on persist failure + the content-hash dedupe index + conflict-reuse (§9). Engine-agnostic; ~a day; closes the silent-loss bug without building any queue.
+- **I2. River `QueueInbound` + parse worker (post-GA)** — the DATA-handler shrink and async parse/scan per §9. Internal refactor, no contract surface, mechanical given #387's patterns.
 
 ## 11. Testing strategy
 
-- Failure-injection suite: kill/panic at every row of the crash matrix (fake sender with accept/latency/error controls; assert exactly-one SMTP submit per msg_id except the documented residual window).
-- **Fencing / slow-worker:** pause a worker past its lease mid-`Send`, let the sweeper take over, resume the original — assert the stale worker's mark-sent/delete/requeue all no-op (0 rows on the fenced write), exactly one `email.sent`, and no job-state corruption. Assert heartbeat extends the lease so a slow-but-alive worker is NOT reclaimed. This is the guard §4 now actually defines (the old test asserted a guard no section specified).
-- **Terminal-failure guard:** crash after SES-accept on the final attempt → assert the sweeper does NOT mark `failed` when header-tagged provider evidence exists, and that header-matched `delivered` feedback overrides a local `failed` (Merge exception).
-- **SES outage:** provider-connection errors for hours → assert messages defer (do not exhaust `max_attempts`), the pause switch stops claiming, and no false `email.failed` storm.
-- Lease contention: two workers + SKIP LOCKED claim races; per-tenant fairness (one tenant's 100-job batch does not starve others).
-- Idempotent replay: same-key retry at each stage returns same msg_id, zero extra submits; **held-send replay** (crash between hold-commit and `Complete`) does not double-hold.
-- DB-backed tests for every package writing `outbound_message_queue` / `inbound_message_queue` / new `messages` columns (schema-change convention in CLAUDE.md).
-- Contract tests: `accepted` shape, `wait=sent` per-outcome response table (sent/failed/held/timeout), replay-during-wait 409.
-- Load: p99 accept latency target < 50ms; queue drain rate vs 60/min token budget.
-- Inbound (I1): injected persist failure at DATA → assert 451 on the wire; same RFC `Message-ID` delivered twice → exactly one `messages` row and one `email.received` event; DB-backed tests for the new dedupe index (schema-change convention in CLAUDE.md).
-- Inbound (I2): kill/panic matrix across the DATA tx and parse worker; lease takeover; parked-state entry + re-drive.
+- **Idempotent re-drive:** same-key retry at each stage returns the same `msg_id`, zero extra submits; **held-send replay** (crash between hold-commit and `Complete`) does not double-hold (fake sender with accept/latency/error controls).
+- **Rescue / crash matrix:** kill/panic at every row of §7. Assert exactly-one SMTP submit per `msg_id` except the documented residual window; assert a crashed job re-drives after `RescueStuckJobsAfter` and a completed/terminal message re-drives as a no-op. **Assert the rescue-window invariant directly: a send that runs up to the full SMTP envelope is NOT rescued** (the property that removes draft row 4) — this is the single most important guard to pin, since a mis-tuned `RescueStuckJobsAfter` reintroduces double-submit.
+- **`JobSnooze` semantics:** provider-connection errors for hours → assert the job snoozes (does NOT count toward `MaxAttempts`, no false `email.failed` storm) and `QueuePause` stops claiming; ramp-limited → snoozes to rollover without burning an attempt.
+- **Terminal-failure guard:** crash after SES-accept on the final attempt → assert no `failed` when header-tagged provider evidence exists, and header-matched `delivered` overrides a local `failed` (Merge exception).
+- **Per-tenant fairness:** one tenant's 100-job batch does not starve others (the accept-time in-flight cap holds).
+- **Contract tests:** `accepted` shape, `wait=sent` per-outcome table (sent/failed/held/timeout), replay-during-wait 409.
+- **Load:** p99 accept latency < 50ms; drain rate vs the 60/min token budget.
+- **Inbound (I1):** injected persist failure at DATA → 451 on the wire; same RFC `Message-ID` twice → exactly one `messages` row + one `email.received`; a *different* message reusing a `Message-ID` → a new row (not dropped); DB-backed tests for the dedupe index.
+- **Inbound (I2):** kill/panic across the DATA tx and the parse worker; River rescue takeover; poison → discarded-with-alert, recipient-gone → cancelled.
 
 ## 12. Open questions
 
-Resolved by the launch-review hardening (were open, now decided in §§4–10): lease fencing mechanism (fencing token); lease size (12m + heartbeat); terminal-failure guard; SES-outage handling (classify + pause + re-drive); inbound dedupe (content-hash + horizon bound); parked-vs-dropped split; outbox mandatory in async mode; slice-2 response semantics.
+Resolved by the River reconciliation (were open in the pre-River draft, now answered by River primitives): lease fencing mechanism (River claim/`attempted_by` — no token needed); lease size + heartbeat (River `RescueStuckJobsAfter` above the envelope — no heartbeat); crash takeover (River rescue); SES-outage defer + pause (`JobSnooze` + `QueuePause`); outbox mandatory (unconditional on main after #387).
 
 Still open:
-
-1. **`email.deferred`** — add as an event vs poll-only. Contract-surface, so **must decide before freeze** (not "during slice 4"); both the contract doc and peer practice (Resend, SendGrid push a deferred/delayed signal) lean add.
-2. ~~Held-send response shape at GA~~ — **resolved (owner, 2026-07-04): 200 iff persisted, so holds return 200 `pending_review` from GA (202 retired as a success code). Contract §1.5.** The HTTP code stays 200 through slice 4's async-scan move, so there is no post-freeze breaking flip.
-3. `blocked` representation — new `messages.status` value vs review-rejected family (keep the migration additive). Reserve the name in the vocabularies now (contract §3.1) even though it activates in slice 4.
-4. Scan COGS control: batch/coalesce LLM scans per agent once scanning is async. Cost-only, no deadline.
-5. Residual-window reconciler (header-tagged SNS feedback vs a `sending` row): alert-only v1, auto-heal later. (The terminal-failure guard already handles the more dangerous `failed`-over-`delivered` case inline.)
-6. Per-tenant-fair claim mechanism (windowed claim vs per-agent in-flight cap) — decide in slice 3; the requirement (no pure-FIFO global claim) is fixed.
-7. Inbound (I2): raw-blob retention for `parked` rows — cap size / age out to cold storage.
+1. **`RescueStuckJobsAfter` value for `QueueOutbound`** — must be above the worst-case single-attempt SMTP envelope (safety) yet low enough for prompt crash recovery. Pin with headroom + a test in slice 3. (This is the *only* lease-tuning knob that survives the River move.)
+2. **Per-tenant-fair accept-time in-flight cap** — the mechanism (per-agent outstanding-job cap vs priority sub-queues); decide in slice 3. Requirement fixed: no pure-FIFO global drain.
+3. **`email.deferred`** — add as an event vs poll-only. Contract-surface, **decide before freeze** (both docs + peer practice lean add).
+4. **`blocked` representation** — new `messages.status` value vs review-rejected family. Reserve the name now (contract §3.1); activates in slice 4.
+5. **`wait=sent` transport** — `LISTEN/NOTIFY` on the `messages` row vs a short poll; either satisfies the ≤20s ceiling.
+6. **Residual-window reconciler** (header-tagged SNS feedback vs a `sending` row): alert-only v1, auto-heal later (the terminal-failure guard already handles the dangerous `failed`-over-`delivered` case inline).
+7. **Inbound (I2): raw-blob retention** — `river_job.args` holds full raw messages for pending inbound jobs; cap size / age-out policy for a backlog.
